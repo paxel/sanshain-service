@@ -110,6 +110,19 @@ All client-side implementations (plugins, CLIs, hooks) must support a **timeout/
 - [x] Finalize `.junie/guidelines.md` with build, test, and development instructions specific to SanShain.
 - [x] Add AGPL-3.0 License.
 
-## 7. Verification
+## 7. Phase 5: Administration & Cleanup
+- [ ] **Admin Page with Authentication**:
+    - [ ] Secure admin endpoints with a simple auth mechanism (e.g., Basic Auth or Admin Token).
+    - [ ] Web dashboard for administrative tasks.
+- [ ] **Data Management**:
+    - [ ] Delete branches, clients, and services via the admin UI/API.
+    - [ ] Configure a maximum age for branches before they are automatically cleaned out.
+- [ ] **Auto-Cleanup Logic**:
+    - [ ] If a client stops requesting a URL (stale dependency), remove it from the database after a configurable period.
+    - [ ] If a service stops providing a URL in its latest OpenAPI upload, remove it from the DB for that branch (pruning).
+- [ ] **Maintenance Tasks**:
+    - [ ] Implement a background job or periodic task to handle branch expiration and dependency cleanup.
+
+## 8. Verification
 - [x] Create integration tests for `provide`, `require`, and `report` flows.
 - [x] Verify that the OpenAPI splitting logic correctly handles shared schemas/DTOs.
