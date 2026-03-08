@@ -9,8 +9,8 @@ sources:
   - https://git.sr.ht/~taum/sanshain
 tasks:
   - build: |
-      cd SanshainService
+      cd sanshain
       cargo build --release
   - test: |
-      cd SanshainService
+      cd sanshain
       cargo test
