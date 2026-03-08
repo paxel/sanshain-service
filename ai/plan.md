@@ -41,13 +41,15 @@ SanShain is a service designed to manage and distribute OpenAPI specifications f
     3. Include validation:
         - Identify endpoints provided but never required (unused).
         - Identify endpoints required by clients but not provided in the current branch (missing).
+- [x] **Markdown Report**:
+    - [x] `GET /report/markdown` implemented to provide a human-readable version of the report.
 
 ## 3. Web UI
 - [x] Implement a simple frontend to navigate and search for services and clients.
 - [x] Service overview: List branches and endpoints.
 - [x] Client overview: List used services and endpoints (integrated in branch view).
 - [x] Set the root URL (`/`) to redirect to the dashboard.
-- [ ] Dependency graph visualization (further refinement).
+- [x] Dependency graph visualization (further refinement).
 
 ## 4. Advanced Features (Optional/Phase 2)
 - [ ] Add a "Release" flag to client requirements to distinguish between development/feature branch usage and production-ready dependencies.

@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SanShain - OpenAPI Distribution Service</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        mermaid.initialize({ startOnLoad: false });
+    </script>
     <style>
         .endpoint-card { transition: all 0.2s; }
         .endpoint-card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
@@ -16,6 +20,7 @@
             <h1 class="text-2xl font-bold tracking-tight">SanShain Dashboard</h1>
             <div class="space-x-4">
                 <a href="/" class="hover:text-indigo-200">Services</a>
+                <a href="#graph" onclick="showGraph()" class="hover:text-indigo-200">Graph</a>
                 <a href="#clients" onclick="showClients()" class="hover:text-indigo-200">Clients</a>
             </div>
         </div>
@@ -35,6 +40,20 @@
                 <!-- Services will be loaded here -->
                 <div class="animate-pulse bg-white p-6 rounded-xl border border-slate-200 h-32"></div>
                 <div class="animate-pulse bg-white p-6 rounded-xl border border-slate-200 h-32"></div>
+            </div>
+        </div>
+
+        <div id="graph-section" class="hidden">
+            <h2 class="text-xl font-semibold mb-6 flex items-center">
+                <span class="bg-purple-100 text-purple-700 p-2 rounded-lg mr-3">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
+                    </svg>
+                </span>
+                Dependency Graph
+            </h2>
+            <div id="graph-container" class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex justify-center overflow-x-auto">
+                <div id="mermaid-graph" class="mermaid"></div>
             </div>
         </div>
 
@@ -78,6 +97,14 @@
             <div id="modal-content" class="p-6 overflow-y-auto flex-grow bg-slate-50">
                 <!-- Detailed branch/report info -->
             </div>
+            <div class="p-4 border-t border-slate-100 flex justify-end bg-white rounded-b-2xl">
+                <a id="md-report-btn" href="#" target="_blank" class="bg-slate-800 text-white px-4 py-2 rounded-lg hover:bg-slate-700 transition-colors flex items-center">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    Download Markdown Report
+                </a>
+            </div>
         </div>
     </div>
 
@@ -91,6 +118,7 @@
         async function loadServices() {
             document.getElementById('service-section').classList.remove('hidden');
             document.getElementById('client-section').classList.add('hidden');
+            document.getElementById('graph-section').classList.add('hidden');
             const list = document.getElementById('services-list');
             list.innerHTML = '<div class="col-span-full text-center py-10">Loading services...</div>';
 
@@ -156,6 +184,7 @@
         async function showBranchDetails(serviceName, branchName, report) {
             document.getElementById('modal').classList.remove('hidden');
             document.getElementById('modal-title').innerText = `${serviceName} (${branchName})`;
+            document.getElementById('md-report-btn').href = `/report/markdown?branch=${branchName}`;
             const content = document.getElementById('modal-content');
             
             const serviceEndpoints = [...report.dependency_graph, ...report.unused_endpoints]
@@ -196,7 +225,53 @@
 
         function showClients() {
             document.getElementById('service-section').classList.add('hidden');
+            document.getElementById('graph-section').classList.add('hidden');
             document.getElementById('client-section').classList.remove('hidden');
+        }
+
+        async function showGraph() {
+            document.getElementById('service-section').classList.add('hidden');
+            document.getElementById('client-section').classList.add('hidden');
+            document.getElementById('graph-section').classList.remove('hidden');
+            
+            const graphDiv = document.getElementById('mermaid-graph');
+            graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">Generating dependency graph...</div>';
+            
+            try {
+                const report = await fetchJSON('/report?branch=main');
+                if (report.dependency_graph.length === 0) {
+                    graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">No dependencies found to visualize.</div>';
+                    return;
+                }
+
+                let mmd = 'graph LR\n';
+                mmd += '  subgraph Clients\n';
+                const clients = [...new Set(report.dependency_graph.map(d => d.client))];
+                clients.forEach(c => mmd += `    ${c}([${c}])\n`);
+                mmd += '  end\n';
+
+                mmd += '  subgraph Services\n';
+                const services = [...new Set(report.dependency_graph.map(d => d.service))];
+                services.forEach(s => mmd += `    ${s}[[${s}]]\n`);
+                mmd += '  end\n';
+                
+                const edges = new Set();
+                report.dependency_graph.forEach(d => {
+                    const edge = `  ${d.client} --> ${d.service}`;
+                    edges.add(edge);
+                });
+
+                mmd += Array.from(edges).join('\n');
+                
+                // Clear and render
+                graphDiv.removeAttribute('data-processed');
+                graphDiv.innerHTML = mmd;
+                await mermaid.run({
+                    nodes: [graphDiv]
+                });
+            } catch (err) {
+                graphDiv.innerHTML = `<div class="text-red-500 p-4">Error generating graph: ${err.message}</div>`;
+            }
         }
 
         function closeModal() {

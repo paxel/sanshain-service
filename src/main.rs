@@ -67,6 +67,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/provide", post(provide))
         .route("/require", get(require))
         .route("/report", get(report))
+        .route("/report/markdown", get(report_markdown))
         .fallback_service(ServeDir::new("static"))
         .with_state(state)
 }
@@ -270,6 +271,7 @@ async fn require(
 
 #[derive(Serialize)]
 struct DependencyReport {
+    branch: String,
     unused_endpoints: Vec<EndpointInfo>,
     missing_endpoints: Vec<MissingEndpointInfo>,
     dependency_graph: Vec<DependencyInfo>,
@@ -385,8 +387,67 @@ async fn report(
         .collect();
 
     Ok(Json(DependencyReport {
+        branch: params.branch,
         unused_endpoints,
         missing_endpoints,
         dependency_graph,
     }))
+}
+
+async fn report_markdown(
+    State(state): State<AppState>,
+    Query(params): Query<ReportParams>,
+) -> Result<(axum::http::HeaderMap, String), StatusCode> {
+    let report_json = report(State(state), Query(params)).await?;
+    let report = report_json.0;
+
+    let mut md = format!("# SanShain Dependency Report: Branch `{}`\n\n", report.branch);
+    
+    md.push_str("## Summary\n");
+    md.push_str(&format!("- Total Dependencies: {}\n", report.dependency_graph.len()));
+    md.push_str(&format!("- Unused Endpoints: {}\n", report.unused_endpoints.len()));
+    md.push_str(&format!("- Missing Requirements: {}\n\n", report.missing_endpoints.len()));
+
+    md.push_str("## Dependency Graph\n");
+    if report.dependency_graph.is_empty() {
+        md.push_str("No active dependencies recorded for this branch.\n\n");
+    } else {
+        md.push_str("| Client | Service | Path | Method |\n");
+        md.push_str("| --- | --- | --- | --- |\n");
+        for dep in report.dependency_graph {
+            md.push_str(&format!("| {} | {} | `{}` | `{}` |\n", dep.client, dep.service, dep.path, dep.method));
+        }
+        md.push_str("\n");
+    }
+
+    md.push_str("## Unused Endpoints\n");
+    md.push_str("> Endpoints that are provided by a service but have no recorded client requirements.\n\n");
+    if report.unused_endpoints.is_empty() {
+        md.push_str("All provided endpoints are in use.\n\n");
+    } else {
+        md.push_str("| Service | Path | Method |\n");
+        md.push_str("| --- | --- | --- |\n");
+        for ep in report.unused_endpoints {
+            md.push_str(&format!("| {} | `{}` | `{}` |\n", ep.service, ep.path, ep.method));
+        }
+        md.push_str("\n");
+    }
+
+    md.push_str("## Missing Requirements\n");
+    md.push_str("> Requirements from clients for endpoints that do not exist in this branch.\n\n");
+    if report.missing_endpoints.is_empty() {
+        md.push_str("No missing requirements identified.\n\n");
+    } else {
+        md.push_str("| Client | Service | Path | Method |\n");
+        md.push_str("| --- | --- | --- | --- |\n");
+        for m in report.missing_endpoints {
+            md.push_str(&format!("| {} | {} | `{}` | `{}` |\n", m.client, m.service, m.path, m.method));
+        }
+        md.push_str("\n");
+    }
+
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(axum::http::header::CONTENT_TYPE, "text/markdown; charset=utf-8".parse().unwrap());
+    
+    Ok((headers, md))
 }

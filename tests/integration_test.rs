@@ -89,6 +89,25 @@ paths:
     assert_eq!(report["dependency_graph"].as_array().unwrap().len(), 1);
     assert_eq!(report["unused_endpoints"].as_array().unwrap().len(), 0);
     assert_eq!(report["missing_endpoints"].as_array().unwrap().len(), 0);
+
+    // 4. Get markdown report
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/report/markdown?branch=main")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers().get("content-type").unwrap(), "text/markdown; charset=utf-8");
+    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let md_report = String::from_utf8(body.to_vec()).unwrap();
+    assert!(md_report.contains("# SanShain Dependency Report: Branch `main`"));
+    assert!(md_report.contains("| client-a | test-service | `/users` | `GET` |"));
 }
 
 #[tokio::test]
