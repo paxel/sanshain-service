@@ -1,6 +1,10 @@
-image: rust/latest
+image: alpine/latest
 packages:
   - sqlite-dev
+  - rust
+  - cargo
+  - openssl-dev
+  - build-base
 sources:
   - https://git.sr.ht/~taum/sanshain
 tasks:
