@@ -93,6 +93,7 @@ SanShain is a service designed to manage and distribute OpenAPI specifications f
 ## 6. Documentation & Guidelines
 - [x] Create `README.md` in the service root explaining use cases, API usage, and example reports.
 - [x] Finalize `.junie/guidelines.md` with build, test, and development instructions specific to SanShain.
+- [x] Add AGPL-3.0 License.
 
 ## 7. Verification
 - [x] Create integration tests for `provide`, `require`, and `report` flows.
