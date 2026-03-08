@@ -90,3 +90,135 @@ paths:
     assert_eq!(report["unused_endpoints"].as_array().unwrap().len(), 0);
     assert_eq!(report["missing_endpoints"].as_array().unwrap().len(), 0);
 }
+
+#[tokio::test]
+async fn test_idempotency_and_conflict() {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .unwrap();
+
+    let state = AppState { db: pool };
+    let app = create_app(state);
+
+    let openapi_v1 = r#"
+openapi: 3.0.0
+info:
+  title: Test API
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+    let payload_v1 = json!({
+        "servicename": "test-service",
+        "branch": "main",
+        "openapi_yaml": openapi_v1
+    });
+
+    // 1. First provide
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&payload_v1).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // 2. Second provide (identical) -> should be ACCEPTED (idempotent)
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&payload_v1).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // 3. Third provide (changed DTO on same path) -> should be CONFLICT
+    let openapi_v1_modified = r#"
+openapi: 3.0.0
+info:
+  title: Test API
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      description: Modified DTO
+      responses:
+        '200':
+          description: OK
+"#;
+    let payload_modified = json!({
+        "servicename": "test-service",
+        "branch": "main",
+        "openapi_yaml": openapi_v1_modified
+    });
+
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&payload_modified).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+
+    // 4. Fourth provide (new path) -> should be ACCEPTED
+    let openapi_v2 = r#"
+openapi: 3.0.0
+info:
+  title: Test API
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+  /v2/users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+    let payload_v2 = json!({
+        "servicename": "test-service",
+        "branch": "main",
+        "openapi_yaml": openapi_v2
+    });
+
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&payload_v2).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+}

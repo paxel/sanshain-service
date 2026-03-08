@@ -55,12 +55,19 @@ pub async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
+use std::collections::HashMap;
+
+use tower_http::services::ServeDir;
+
+use axum::response::Redirect;
+
 pub fn create_app(state: AppState) -> Router {
     Router::new()
-        .route("/", get(root))
+        .route("/", get(|| async { Redirect::permanent("/index.html") }))
         .route("/provide", post(provide))
         .route("/require", get(require))
         .route("/report", get(report))
+        .fallback_service(ServeDir::new("static"))
         .with_state(state)
 }
 
@@ -83,11 +90,6 @@ struct RequireParams {
 #[derive(Deserialize)]
 struct ReportParams {
     branch: String,
-}
-
-// basic handler that responds with a static string
-async fn root() -> &'static str {
-    "SanShain Service"
 }
 
 async fn provide(
@@ -129,14 +131,43 @@ async fn provide(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Delete old endpoints for this branch before inserting new ones
-    sqlx::query("DELETE FROM endpoints WHERE branch_id = ?")
-        .bind(branch.0)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Fetch existing endpoints for this branch
+    let existing_endpoints: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT path, method, yaml_content FROM endpoints WHERE branch_id = ?"
+    )
+    .bind(branch.0)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut existing_map: HashMap<(String, String), String> = existing_endpoints
+        .into_iter()
+        .map(|(p, m, y)| ((p, m), y))
+        .collect();
+
+    let mut to_insert = Vec::new();
 
     for endpoint in endpoints {
+        let key = (endpoint.path.clone(), endpoint.method.clone());
+        if let Some(existing_yaml) = existing_map.remove(&key) {
+            if existing_yaml != endpoint.yaml_content {
+                // YAML changed for the same path and method - reject
+                tracing::warn!(
+                    "Rejected update for {} {}: DTO changed but path remained the same",
+                    endpoint.method,
+                    endpoint.path
+                );
+                return Err(StatusCode::CONFLICT);
+            }
+            // If identical, we do nothing (it's already there)
+        } else {
+            // New endpoint
+            to_insert.push(endpoint);
+        }
+    }
+
+    // Insert only new endpoints
+    for endpoint in to_insert {
         sqlx::query("INSERT INTO endpoints (branch_id, path, method, yaml_content) VALUES (?, ?, ?, ?)")
             .bind(branch.0)
             .bind(endpoint.path)

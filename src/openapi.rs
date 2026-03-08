@@ -33,6 +33,17 @@ pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
                 ..Default::default()
             };
 
+            // Versioning is handled via path, so we can normalize the version in the snippet to avoid spurious conflicts.
+            // Actually, maybe it's better to keep it, but the user says "version must be part of the path".
+            // If the user changes the version in 'info', should that be a conflict?
+            // User: "the version must be part of the path like api/v1.0/create/users... we just demand a different path if the dto changes"
+            // This suggests that changes to the 'info' block version shouldn't necessarily trigger a conflict if the path is the same.
+            // But if they change the DTO, it IS a conflict.
+            
+            // To focus only on DTO/Path changes, we could normalize 'info.version' or even 'info' entirely.
+            // Let's see if we should just keep it as is and fix the test.
+            // The user might want to see the correct version in the snippet.
+            
             let mut paths = openapi.paths.paths.clone();
             paths.clear();
             

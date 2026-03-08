@@ -20,10 +20,10 @@ SanShain is a service designed to manage and distribute OpenAPI specifications f
     2. Split the specification into individual endpoints.
     3. Extract necessary DTOs (components/schemas) for each endpoint.
     4. Store the mapping (Service -> Branch -> Endpoint -> YAML) in the DB.
-- [ ] **Advanced /provide logic**:
-    - [ ] Idempotency: If the same YAML is uploaded for the same branch, don't update the database.
-    - [ ] DTO change detection: If the endpoint exists but the YAML content (DTOs/schema) has changed, require a version change or fail (depending on versioning strategy).
-    - [ ] Support `version` in the payload to track compatibility.
+- [x] **Advanced /provide logic**:
+    - [x] Idempotency: If the same YAML is uploaded for the same branch and the endpoints are identical, the request succeeds without modification (idempotency).
+    - [x] Immutable Endpoint Path: If an endpoint already exists for a given (service, branch, path, method) but the YAML content (DTOs/schema) has changed, the request must fail.
+    - [x] Versioning via Path: The service relies on the user to change the path (e.g., `api/v1.0/users` to `api/v2.0/users`) when DTOs change, as the endpoint definition for a specific path is immutable within a branch.
 
 ### 2.2. `GET /require`
 - [x] **Arguments**: `clientname`, `servicename`, `branch`, `path`, `method`.
@@ -42,10 +42,11 @@ SanShain is a service designed to manage and distribute OpenAPI specifications f
         - Identify endpoints required by clients but not provided in the current branch (missing).
 
 ## 3. Web UI
-- [ ] Implement a simple frontend to navigate and search for services and clients.
-- [ ] Service overview: List branches and endpoints.
-- [ ] Client overview: List used services and endpoints.
-- [ ] Dependency graph visualization (integration with `GET /report`).
+- [x] Implement a simple frontend to navigate and search for services and clients.
+- [x] Service overview: List branches and endpoints.
+- [x] Client overview: List used services and endpoints (integrated in branch view).
+- [x] Set the root URL (`/`) to redirect to the dashboard.
+- [ ] Dependency graph visualization (further refinement).
 
 ## 4. Advanced Features (Optional/Phase 2)
 - [ ] Add a "Release" flag to client requirements to distinguish between development/feature branch usage and production-ready dependencies.
