@@ -2,7 +2,7 @@ image: rust/latest
 packages:
   - sqlite-dev
 sources:
-  - https://git.sr.ht/~youruser/SanshainService
+  - https://git.sr.ht/~taum/sanshain
 tasks:
   - build: |
       cd SanshainService
