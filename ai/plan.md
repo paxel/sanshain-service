@@ -14,17 +14,21 @@ SanShain is a service designed to manage and distribute OpenAPI specifications f
 ## 2. Core API Implementation
 
 ### 2.1. `POST /provide`
-- [x] **Arguments**: `servicename`, `branch`, `openapi.yaml` (file or string).
+- [x] **Arguments**: `servicename`, `branch`, `openapi_yaml` (file or string).
 - [x] **Logic**:
     1. Parse the full `openapi.yaml`.
     2. Split the specification into individual endpoints.
     3. Extract necessary DTOs (components/schemas) for each endpoint.
     4. Store the mapping (Service -> Branch -> Endpoint -> YAML) in the DB.
+- [ ] **Advanced /provide logic**:
+    - [ ] Idempotency: If the same YAML is uploaded for the same branch, don't update the database.
+    - [ ] DTO change detection: If the endpoint exists but the YAML content (DTOs/schema) has changed, require a version change or fail (depending on versioning strategy).
+    - [ ] Support `version` in the payload to track compatibility.
 
 ### 2.2. `GET /require`
-- [x] **Arguments**: `clientname`, `servicename`, `branch`, `endpoint_url`.
+- [x] **Arguments**: `clientname`, `servicename`, `branch`, `path`, `method`.
 - [x] **Logic**:
-    1. Retrieve the specific YAML snippet for the requested `endpoint_url` from the DB.
+    1. Retrieve the specific YAML snippet for the requested endpoint from the DB.
     2. Record the client's dependency: "Client X uses Endpoint Y on Service Z (Branch B)".
     3. Return the YAML to the client.
 
@@ -37,9 +41,14 @@ SanShain is a service designed to manage and distribute OpenAPI specifications f
         - Identify endpoints provided but never required (unused).
         - Identify endpoints required by clients but not provided in the current branch (missing).
 
-## 3. Advanced Features (Optional/Phase 2)
+## 3. Web UI
+- [ ] Implement a simple frontend to navigate and search for services and clients.
+- [ ] Service overview: List branches and endpoints.
+- [ ] Client overview: List used services and endpoints.
+- [ ] Dependency graph visualization (integration with `GET /report`).
+
+## 4. Advanced Features (Optional/Phase 2)
 - [ ] Add a "Release" flag to client requirements to distinguish between development/feature branch usage and production-ready dependencies.
-- [ ] Visualization tool for the dependency graph.
 
 ## 4. Phase 3: Ecosystem & Tooling (Maven & Gradle Plugins)
 - [ ] **Maven Plugin**:
