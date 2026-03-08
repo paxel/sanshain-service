@@ -1,0 +1,12 @@
+image: rust/latest
+packages:
+  - sqlite-dev
+sources:
+  - https://git.sr.ht/~youruser/SanshainService
+tasks:
+  - build: |
+      cd SanshainService
+      cargo build --release
+  - test: |
+      cd SanshainService
+      cargo test

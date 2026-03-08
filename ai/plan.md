@@ -26,11 +26,12 @@ SanShain is a service designed to manage and distribute OpenAPI specifications f
     - [x] Versioning via Path: The service relies on the user to change the path (e.g., `api/v1.0/users` to `api/v2.0/users`) when DTOs change, as the endpoint definition for a specific path is immutable within a branch.
 
 ### 2.2. `GET /require`
-- [x] **Arguments**: `clientname`, `servicename`, `branch`, `path`, `method`.
+- [x] **Arguments**: `clientname`, `servicename`, `branch`, `path`, `method`, `timeout` (optional).
 - [x] **Logic**:
     1. Retrieve the specific YAML snippet for the requested endpoint from the DB.
-    2. Record the client's dependency: "Client X uses Endpoint Y on Service Z (Branch B)".
-    3. Return the YAML to the client.
+    2. **Wait Logic**: If the snippet is not yet available and `timeout` is provided, the server should wait (long-polling) until it appears or the timeout expires.
+    3. Record the client's dependency: "Client X uses Endpoint Y on Service Z (Branch B)".
+    4. Return the YAML to the client, or a 404 (or 204/timeout indicator) if it doesn't appear in time.
 
 ### 2.3. `GET /report`
 - [x] **Arguments**: `branch`.
@@ -52,6 +53,8 @@ SanShain is a service designed to manage and distribute OpenAPI specifications f
 - [ ] Add a "Release" flag to client requirements to distinguish between development/feature branch usage and production-ready dependencies.
 
 ## 4. Phase 3: Ecosystem & Tooling (Maven & Gradle Plugins)
+All client-side implementations (plugins, CLIs, hooks) must support a **timeout/retry mechanism** (configurable timeout and retry interval) when calling `require`, to handle asynchronous build orders where a consumer might build before a provider.
+
 - [ ] **Maven Plugin**:
     - [ ] `sanshain-provide`: Goal to upload a service's full OpenAPI spec to the SanShain service during the build (likely in `package` or `deploy` phase).
     - [ ] `sanshain-require`: Goal to download required endpoint snippets before the code generation phase. Should support a configuration file listing required endpoints.
