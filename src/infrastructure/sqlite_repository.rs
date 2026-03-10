@@ -295,4 +295,180 @@ impl SpecRepository for SqliteSpecRepository {
             dependency_graph,
         })
     }
+
+    async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {
+        let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM services WHERE name = ?")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        let service_id = match row {
+            Some((id,)) => id,
+            None => return Ok(false),
+        };
+
+        // Get all branch IDs for this service
+        let branch_rows: Vec<(i64,)> = sqlx::query_as("SELECT id FROM branches WHERE service_id = ?")
+            .bind(service_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        for (branch_id,) in &branch_rows {
+            // Delete dependencies referencing endpoints in this branch
+            sqlx::query(
+                "DELETE FROM dependencies WHERE endpoint_id IN (SELECT id FROM endpoints WHERE branch_id = ?)"
+            )
+            .bind(branch_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+            // Delete endpoints
+            sqlx::query("DELETE FROM endpoints WHERE branch_id = ?")
+                .bind(branch_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+
+        // Delete dependencies referencing this service (including those with NULL endpoint_id)
+        sqlx::query("DELETE FROM dependencies WHERE requested_service_id = ?")
+            .bind(service_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        // Delete branches
+        sqlx::query("DELETE FROM branches WHERE service_id = ?")
+            .bind(service_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        // Delete service
+        sqlx::query("DELETE FROM services WHERE id = ?")
+            .bind(service_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(true)
+    }
+
+    async fn delete_branch(&self, service_name: &str, branch_name: &str) -> Result<bool, RepositoryError> {
+        let row: Option<(i64,)> = sqlx::query_as(
+            "SELECT b.id FROM branches b JOIN services s ON b.service_id = s.id WHERE s.name = ? AND b.name = ?"
+        )
+        .bind(service_name)
+        .bind(branch_name)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        let branch_id = match row {
+            Some((id,)) => id,
+            None => return Ok(false),
+        };
+
+        // Delete dependencies referencing endpoints in this branch
+        sqlx::query(
+            "DELETE FROM dependencies WHERE endpoint_id IN (SELECT id FROM endpoints WHERE branch_id = ?)"
+        )
+        .bind(branch_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        // Delete dependencies referencing this branch by name (including NULL endpoint_id)
+        let service_row: Option<(i64,)> = sqlx::query_as(
+            "SELECT s.id FROM services s JOIN branches b ON b.service_id = s.id WHERE b.id = ?"
+        )
+        .bind(branch_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        if let Some((service_id,)) = service_row {
+            sqlx::query(
+                "DELETE FROM dependencies WHERE requested_service_id = ? AND requested_branch_name = ?"
+            )
+            .bind(service_id)
+            .bind(branch_name)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+
+        // Delete endpoints
+        sqlx::query("DELETE FROM endpoints WHERE branch_id = ?")
+            .bind(branch_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        // Delete branch
+        sqlx::query("DELETE FROM branches WHERE id = ?")
+            .bind(branch_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(true)
+    }
+
+    async fn delete_client(&self, name: &str) -> Result<bool, RepositoryError> {
+        let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM clients WHERE name = ?")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        let client_id = match row {
+            Some((id,)) => id,
+            None => return Ok(false),
+        };
+
+        sqlx::query("DELETE FROM dependencies WHERE client_id = ?")
+            .bind(client_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        sqlx::query("DELETE FROM clients WHERE id = ?")
+            .bind(client_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(true)
+    }
+
+    async fn list_services(&self) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as("SELECT name FROM services ORDER BY name")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn list_branches(&self, service_name: &str) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT b.name FROM branches b JOIN services s ON b.service_id = s.id WHERE s.name = ? ORDER BY b.name"
+        )
+        .bind(service_name)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn list_clients(&self) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as("SELECT name FROM clients ORDER BY name")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
 }

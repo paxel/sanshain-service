@@ -48,7 +48,17 @@ Manage which branches enforce immutable endpoint paths. By default, `main` and `
 - `POST /admin/protected-branches` — Add a pattern: `{"pattern": "release"}`.
 - `DELETE /admin/protected-branches/:pattern` — Remove a pattern.
 
-### 4. `GET /report`
+### 4. Data Management (Admin)
+List and delete services, branches, and clients via the admin API. Deleting a service cascades to its branches, endpoints, and related dependencies.
+
+- `GET /admin/services` — List all services.
+- `DELETE /admin/services/:name` — Delete a service and all its branches, endpoints, and dependencies.
+- `GET /admin/services/:name/branches` — List all branches for a service.
+- `DELETE /admin/services/:name/branches/:branch` — Delete a branch and its endpoints and dependencies.
+- `GET /admin/clients` — List all clients.
+- `DELETE /admin/clients/:name` — Delete a client and all its dependencies.
+
+### 5. `GET /report`
 Generate a dependency report for a specific branch.
 
 **Query Parameters:**

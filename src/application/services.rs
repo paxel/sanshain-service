@@ -135,6 +135,47 @@ pub async fn remove_protected_branch(
     Ok(repo.remove_protected_branch(pattern).await?)
 }
 
+pub async fn delete_service(
+    repo: &impl SpecRepository,
+    name: &str,
+) -> Result<bool, AppError> {
+    Ok(repo.delete_service(name).await?)
+}
+
+pub async fn delete_branch(
+    repo: &impl SpecRepository,
+    service_name: &str,
+    branch_name: &str,
+) -> Result<bool, AppError> {
+    Ok(repo.delete_branch(service_name, branch_name).await?)
+}
+
+pub async fn delete_client(
+    repo: &impl SpecRepository,
+    name: &str,
+) -> Result<bool, AppError> {
+    Ok(repo.delete_client(name).await?)
+}
+
+pub async fn list_services(
+    repo: &impl SpecRepository,
+) -> Result<Vec<String>, AppError> {
+    Ok(repo.list_services().await?)
+}
+
+pub async fn list_branches(
+    repo: &impl SpecRepository,
+    service_name: &str,
+) -> Result<Vec<String>, AppError> {
+    Ok(repo.list_branches(service_name).await?)
+}
+
+pub async fn list_clients(
+    repo: &impl SpecRepository,
+) -> Result<Vec<String>, AppError> {
+    Ok(repo.list_clients().await?)
+}
+
 pub fn render_report_markdown(report: &DependencyReport) -> String {
     let mut md = format!("# SanShain Dependency Report: Branch `{}`\n\n", report.branch);
 
@@ -344,6 +385,82 @@ mod tests {
                 }
             }
             Ok(())
+        }
+
+        async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {
+            let mut services = self.services.lock().unwrap();
+            if let Some(&service_id) = services.get(name) {
+                services.remove(name);
+                let mut branches = self.branches.lock().unwrap();
+                let mut endpoints = self.endpoints.lock().unwrap();
+                let branch_ids: Vec<i64> = branches.iter()
+                    .filter(|((sid, _), _)| *sid == service_id)
+                    .map(|(_, &bid)| bid)
+                    .collect();
+                branches.retain(|(sid, _), _| *sid != service_id);
+                for bid in branch_ids {
+                    endpoints.remove(&bid);
+                }
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+
+        async fn delete_branch(&self, service_name: &str, branch_name: &str) -> Result<bool, RepositoryError> {
+            let services = self.services.lock().unwrap();
+            if let Some(&service_id) = services.get(service_name) {
+                let mut branches = self.branches.lock().unwrap();
+                let key = (service_id, branch_name.to_string());
+                if let Some(&branch_id) = branches.get(&key) {
+                    branches.remove(&key);
+                    let mut endpoints = self.endpoints.lock().unwrap();
+                    endpoints.remove(&branch_id);
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            } else {
+                Ok(false)
+            }
+        }
+
+        async fn delete_client(&self, name: &str) -> Result<bool, RepositoryError> {
+            let mut clients = self.clients.lock().unwrap();
+            if clients.remove(name).is_some() {
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+
+        async fn list_services(&self) -> Result<Vec<String>, RepositoryError> {
+            let services = self.services.lock().unwrap();
+            let mut names: Vec<String> = services.keys().cloned().collect();
+            names.sort();
+            Ok(names)
+        }
+
+        async fn list_branches(&self, service_name: &str) -> Result<Vec<String>, RepositoryError> {
+            let services = self.services.lock().unwrap();
+            if let Some(&service_id) = services.get(service_name) {
+                let branches = self.branches.lock().unwrap();
+                let mut names: Vec<String> = branches.iter()
+                    .filter(|((sid, _), _)| *sid == service_id)
+                    .map(|((_, name), _)| name.clone())
+                    .collect();
+                names.sort();
+                Ok(names)
+            } else {
+                Ok(vec![])
+            }
+        }
+
+        async fn list_clients(&self) -> Result<Vec<String>, RepositoryError> {
+            let clients = self.clients.lock().unwrap();
+            let mut names: Vec<String> = clients.keys().cloned().collect();
+            names.sort();
+            Ok(names)
         }
     }
 
@@ -586,6 +703,98 @@ paths:
         assert!(!branches.contains(&"release".to_string()));
 
         let removed = remove_protected_branch(&repo, "nonexistent").await.unwrap();
+        assert!(!removed);
+    }
+
+    #[tokio::test]
+    async fn test_delete_service() {
+        let repo = MockRepo::new();
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+        let services = list_services(&repo).await.unwrap();
+        assert!(services.contains(&"svc".to_string()));
+
+        let removed = delete_service(&repo, "svc").await.unwrap();
+        assert!(removed);
+
+        let services = list_services(&repo).await.unwrap();
+        assert!(!services.contains(&"svc".to_string()));
+
+        let removed = delete_service(&repo, "svc").await.unwrap();
+        assert!(!removed);
+    }
+
+    #[tokio::test]
+    async fn test_delete_branch() {
+        let repo = MockRepo::new();
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+        provide_spec(&repo, "svc", "feature/x", yaml).await.unwrap();
+
+        let branches = list_branches(&repo, "svc").await.unwrap();
+        assert_eq!(branches.len(), 2);
+
+        let removed = delete_branch(&repo, "svc", "feature/x").await.unwrap();
+        assert!(removed);
+
+        let branches = list_branches(&repo, "svc").await.unwrap();
+        assert_eq!(branches.len(), 1);
+        assert!(branches.contains(&"main".to_string()));
+
+        let removed = delete_branch(&repo, "svc", "feature/x").await.unwrap();
+        assert!(!removed);
+    }
+
+    #[tokio::test]
+    async fn test_delete_client() {
+        let repo = MockRepo::new();
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+        require_endpoint(&repo, "webclient", "svc", "main", "/users", "GET").await.unwrap();
+
+        let clients = list_clients(&repo).await.unwrap();
+        assert!(clients.contains(&"webclient".to_string()));
+
+        let removed = delete_client(&repo, "webclient").await.unwrap();
+        assert!(removed);
+
+        let clients = list_clients(&repo).await.unwrap();
+        assert!(!clients.contains(&"webclient".to_string()));
+
+        let removed = delete_client(&repo, "webclient").await.unwrap();
         assert!(!removed);
     }
 }

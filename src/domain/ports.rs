@@ -62,4 +62,22 @@ pub trait SpecRepository: Send + Sync {
 
     /// Update an existing endpoint's YAML content.
     fn update_endpoint(&self, branch_id: i64, path: &str, method: &str, yaml_content: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Delete a service and all its branches, endpoints, and related dependencies.
+    fn delete_service(&self, name: &str) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Delete a branch (by service name and branch name) and its endpoints and related dependencies.
+    fn delete_branch(&self, service_name: &str, branch_name: &str) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Delete a client and all its dependencies.
+    fn delete_client(&self, name: &str) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// List all services.
+    fn list_services(&self) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    /// List all branches for a service.
+    fn list_branches(&self, service_name: &str) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    /// List all clients.
+    fn list_clients(&self) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 }

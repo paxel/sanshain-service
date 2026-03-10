@@ -70,6 +70,12 @@ pub fn create_app(state: AppState) -> Router {
         .route("/report/markdown", get(report_markdown))
         .route("/admin/protected-branches", get(list_protected_branches).post(add_protected_branch))
         .route("/admin/protected-branches/:pattern", axum::routing::delete(delete_protected_branch))
+        .route("/admin/services", get(admin_list_services))
+        .route("/admin/services/:name", axum::routing::delete(admin_delete_service))
+        .route("/admin/services/:name/branches", get(admin_list_branches))
+        .route("/admin/services/:name/branches/:branch", axum::routing::delete(admin_delete_branch))
+        .route("/admin/clients", get(admin_list_clients))
+        .route("/admin/clients/:name", axum::routing::delete(admin_delete_client))
         .fallback_service(ServeDir::new("static"))
         .with_state(state)
 }
@@ -205,6 +211,76 @@ async fn delete_protected_branch(
     axum::extract::Path(pattern): axum::extract::Path<String>,
 ) -> Result<StatusCode, StatusCode> {
     let removed = services::remove_protected_branch(&state.repo, &pattern)
+        .await
+        .map_err(app_error_to_status)?;
+    if removed {
+        Ok(StatusCode::OK)
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn admin_list_services(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<String>>, StatusCode> {
+    let names = services::list_services(&state.repo)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(Json(names))
+}
+
+async fn admin_delete_service(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    let removed = services::delete_service(&state.repo, &name)
+        .await
+        .map_err(app_error_to_status)?;
+    if removed {
+        Ok(StatusCode::OK)
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn admin_list_branches(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Result<Json<Vec<String>>, StatusCode> {
+    let branches = services::list_branches(&state.repo, &name)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(Json(branches))
+}
+
+async fn admin_delete_branch(
+    State(state): State<AppState>,
+    axum::extract::Path((name, branch)): axum::extract::Path<(String, String)>,
+) -> Result<StatusCode, StatusCode> {
+    let removed = services::delete_branch(&state.repo, &name, &branch)
+        .await
+        .map_err(app_error_to_status)?;
+    if removed {
+        Ok(StatusCode::OK)
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn admin_list_clients(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<String>>, StatusCode> {
+    let names = services::list_clients(&state.repo)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(Json(names))
+}
+
+async fn admin_delete_client(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    let removed = services::delete_client(&state.repo, &name)
         .await
         .map_err(app_error_to_status)?;
     if removed {

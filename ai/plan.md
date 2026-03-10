@@ -128,7 +128,8 @@ All client-side implementations (plugins, CLIs, hooks) must support a **timeout/
     - [ ] Web dashboard for administrative tasks.
     - [x] **Protected Branch Configuration UI**: Toggle which branches are considered protected (immutable).
 - [ ] **Data Management**:
-    - [ ] Delete branches, clients, and services via the admin UI/API.
+    - [x] Delete branches, clients, and services via the admin API.
+    - [x] List services, branches, and clients via the admin API.
     - [ ] Configure a maximum age for branches before they are automatically cleaned out.
 - [ ] **Auto-Cleanup Logic**:
     - [ ] If a client stops requesting a URL (stale dependency), remove it from the database after a configurable period.

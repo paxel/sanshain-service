@@ -27,4 +27,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Protected branch configuration: `main` and `master` are protected by default (immutable endpoints).
 - Feature branch exception: on non-protected branches, endpoint DTOs can be updated freely.
 - Admin API for managing protected branches (`GET/POST /admin/protected-branches`, `DELETE /admin/protected-branches/:pattern`).
+- Admin API for data management: list and delete services (`GET/DELETE /admin/services/:name`), branches (`GET/DELETE /admin/services/:name/branches/:branch`), and clients (`GET/DELETE /admin/clients/:name`).
 - AGPL-3.0 License.
