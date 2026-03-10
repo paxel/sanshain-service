@@ -9,7 +9,13 @@ SanShain is a service designed to manage and distribute OpenAPI specifications f
     - Branch-specific OpenAPI specs.
     - Per-endpoint splits (YAML + DTOs).
     - Client registration and endpoint usage tracking.
+    - **Protected Branch Configuration**.
+- [x] **DDD Hexagonal / Onion Architecture**:
+    - [x] Refactor the project structure to follow DDD principles (Domain, Application, Infrastructure layers).
+    - [x] Decouple database logic from Axum handlers using Port/Adapter pattern.
 - [x] Implement OpenAPI parsing and splitting logic (likely using `openapiv3` crate).
+- [ ] **Flexible DB Layer**:
+    - [ ] Abstract the SQLx pool to support both SQLite and PostgreSQL (using generic repository or trait).
 
 ## 2. Core API Implementation
 
@@ -22,7 +28,9 @@ SanShain is a service designed to manage and distribute OpenAPI specifications f
     4. Store the mapping (Service -> Branch -> Endpoint -> YAML) in the DB.
 - [x] **Advanced /provide logic**:
     - [x] Idempotency: If the same YAML is uploaded for the same branch and the endpoints are identical, the request succeeds without modification (idempotency).
-    - [x] Immutable Endpoint Path: If an endpoint already exists for a given (service, branch, path, method) but the YAML content (DTOs/schema) has changed, the request must fail.
+    - [ ] **Conditional Immutability**:
+        - [x] If an endpoint already exists for a given (service, branch, path, method) but the YAML content (DTOs/schema) has changed, the request must fail.
+        - [ ] **Feature Branch Exception**: This immutability only applies to **protected branches** (configurable via Admin). On feature branches, the latest version can be modified.
     - [x] Versioning via Path: The service relies on the user to change the path (e.g., `api/v1.0/users` to `api/v2.0/users`) when DTOs change, as the endpoint definition for a specific path is immutable within a branch.
 
 ### 2.2. `GET /require`
@@ -30,8 +38,10 @@ SanShain is a service designed to manage and distribute OpenAPI specifications f
 - [x] **Logic**:
     1. Retrieve the specific YAML snippet for the requested endpoint from the DB.
     2. **Wait Logic**: If the snippet is not yet available and `timeout` is provided, the server should wait (long-polling) until it appears or the timeout expires.
-    3. Record the client's dependency: "Client X uses Endpoint Y on Service Z (Branch B)".
-    4. Return the YAML to the client, or a 404 (or 204/timeout indicator) if it doesn't appear in time.
+    3. **Feature Branch Fallback**: If the snippet is not found on a feature branch, fallback to the `master` version.
+    4. **Client Versioning Workaround**: Allow manual entering of a client version. The master will then be forced to implement the client version.
+    5. Record the client's dependency: "Client X uses Endpoint Y on Service Z (Branch B)".
+    6. Return the YAML to the client, or a 404 (or 204/timeout indicator) if it doesn't appear in time.
 
 ### 2.3. `GET /report`
 - [x] **Arguments**: `branch`.
@@ -109,11 +119,14 @@ All client-side implementations (plugins, CLIs, hooks) must support a **timeout/
 - [x] Create `README.md` in the service root explaining use cases, API usage, and example reports.
 - [x] Finalize `.junie/guidelines.md` with build, test, and development instructions specific to SanShain.
 - [x] Add AGPL-3.0 License.
+- [x] Add `CHANGELOG.md` following Keep a Changelog format, linked from README.
+- [x] Add guidelines to maintain DDD structure, keep README and CHANGELOG updated, and keep all units tested.
 
 ## 7. Phase 5: Administration & Cleanup
 - [ ] **Admin Page with Authentication**:
     - [ ] Secure admin endpoints with a simple auth mechanism (e.g., Basic Auth or Admin Token).
     - [ ] Web dashboard for administrative tasks.
+    - [ ] **Protected Branch Configuration UI**: Toggle which branches are considered protected (immutable).
 - [ ] **Data Management**:
     - [ ] Delete branches, clients, and services via the admin UI/API.
     - [ ] Configure a maximum age for branches before they are automatically cleaned out.

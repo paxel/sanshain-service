@@ -89,3 +89,6 @@ cargo build --release
 ```bash
 cargo test
 ```
+
+## Changelog
+See [CHANGELOG.md](CHANGELOG.md) for a detailed history of changes.

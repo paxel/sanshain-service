@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use sqlx::sqlite::SqlitePoolOptions;
 use tower::ServiceExt; // for `oneshot`
 use sanshain_service::{create_app, AppState};
+use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
 
 #[tokio::test]
 async fn test_full_flow() {
@@ -20,7 +21,7 @@ async fn test_full_flow() {
         .await
         .unwrap();
 
-    let state = AppState { db: pool };
+    let state = AppState { repo: SqliteSpecRepository::new(pool) };
     let app = create_app(state);
 
     // 1. Provide a spec
@@ -122,7 +123,7 @@ async fn test_idempotency_and_conflict() {
         .await
         .unwrap();
 
-    let state = AppState { db: pool };
+    let state = AppState { repo: SqliteSpecRepository::new(pool) };
     let app = create_app(state);
 
     let openapi_v1 = r#"
