@@ -139,3 +139,6 @@ All client-side implementations (plugins, CLIs, hooks) must support a **timeout/
 ## 8. Verification
 - [x] Create integration tests for `provide`, `require`, and `report` flows.
 - [x] Verify that the OpenAPI splitting logic correctly handles shared schemas/DTOs.
+- [x] Unit tests for OpenAPI splitting logic (`openapi::tests`).
+- [x] Unit tests for application services with mock repository (`application::services::tests`).
+- [x] Unit tests for markdown report rendering.

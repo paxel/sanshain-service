@@ -23,4 +23,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `SqliteSpecRepository` adapter implementing the repository trait.
 - Application service layer with use-case functions (`provide_spec`, `require_endpoint`, `generate_report`, `render_report_markdown`).
 - Thin Axum handlers delegating to application services.
+- Unit tests for OpenAPI splitting logic, application services (with mock repository), and markdown report rendering.
 - AGPL-3.0 License.

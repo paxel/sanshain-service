@@ -147,3 +147,276 @@ pub fn render_report_markdown(report: &DependencyReport) -> String {
 
     md
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::ports::RepositoryError;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    struct MockRepo {
+        services: Mutex<HashMap<String, i64>>,
+        branches: Mutex<HashMap<(i64, String), i64>>,
+        endpoints: Mutex<HashMap<i64, Vec<EndpointRecord>>>,
+        clients: Mutex<HashMap<String, i64>>,
+        next_id: Mutex<i64>,
+    }
+
+    impl MockRepo {
+        fn new() -> Self {
+            Self {
+                services: Mutex::new(HashMap::new()),
+                branches: Mutex::new(HashMap::new()),
+                endpoints: Mutex::new(HashMap::new()),
+                clients: Mutex::new(HashMap::new()),
+                next_id: Mutex::new(1),
+            }
+        }
+
+        fn next_id(&self) -> i64 {
+            let mut id = self.next_id.lock().unwrap();
+            let current = *id;
+            *id += 1;
+            current
+        }
+    }
+
+    impl SpecRepository for MockRepo {
+        async fn ensure_service(&self, name: &str) -> Result<i64, RepositoryError> {
+            let mut services = self.services.lock().unwrap();
+            if let Some(&id) = services.get(name) {
+                return Ok(id);
+            }
+            let id = self.next_id();
+            services.insert(name.to_string(), id);
+            Ok(id)
+        }
+
+        async fn ensure_branch(&self, service_id: i64, branch_name: &str) -> Result<i64, RepositoryError> {
+            let mut branches = self.branches.lock().unwrap();
+            let key = (service_id, branch_name.to_string());
+            if let Some(&id) = branches.get(&key) {
+                return Ok(id);
+            }
+            let id = self.next_id();
+            branches.insert(key, id);
+            Ok(id)
+        }
+
+        async fn get_endpoints_for_branch(&self, branch_id: i64) -> Result<Vec<EndpointRecord>, RepositoryError> {
+            let endpoints = self.endpoints.lock().unwrap();
+            Ok(endpoints.get(&branch_id).cloned().unwrap_or_default())
+        }
+
+        async fn insert_endpoint(&self, branch_id: i64, endpoint: &EndpointRecord) -> Result<(), RepositoryError> {
+            let mut endpoints = self.endpoints.lock().unwrap();
+            let mut record = endpoint.clone();
+            record.id = Some(self.next_id());
+            endpoints.entry(branch_id).or_default().push(record);
+            Ok(())
+        }
+
+        async fn ensure_client(&self, name: &str) -> Result<i64, RepositoryError> {
+            let mut clients = self.clients.lock().unwrap();
+            if let Some(&id) = clients.get(name) {
+                return Ok(id);
+            }
+            let id = self.next_id();
+            clients.insert(name.to_string(), id);
+            Ok(id)
+        }
+
+        async fn find_endpoint(
+            &self,
+            service_id: i64,
+            branch_name: &str,
+            path: &str,
+            method: &str,
+        ) -> Result<Option<(i64, String)>, RepositoryError> {
+            let branches = self.branches.lock().unwrap();
+            let key = (service_id, branch_name.to_string());
+            if let Some(&branch_id) = branches.get(&key) {
+                let endpoints = self.endpoints.lock().unwrap();
+                if let Some(eps) = endpoints.get(&branch_id) {
+                    for ep in eps {
+                        if ep.path == path && ep.method == method {
+                            return Ok(Some((ep.id.unwrap(), ep.yaml_content.clone())));
+                        }
+                    }
+                }
+            }
+            Ok(None)
+        }
+
+        async fn record_dependency(
+            &self,
+            _client_id: i64,
+            _endpoint_id: Option<i64>,
+            _service_id: i64,
+            _branch_name: &str,
+            _path: &str,
+            _method: &str,
+        ) -> Result<(), RepositoryError> {
+            Ok(())
+        }
+
+        async fn get_report(&self, branch: &str) -> Result<DependencyReport, RepositoryError> {
+            Ok(DependencyReport {
+                branch: branch.to_string(),
+                dependency_graph: vec![],
+                unused_endpoints: vec![],
+                missing_endpoints: vec![],
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_provide_spec_success() {
+        let repo = MockRepo::new();
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        let result = provide_spec(&repo, "svc", "main", yaml).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_provide_spec_idempotent() {
+        let repo = MockRepo::new();
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+        let result = provide_spec(&repo, "svc", "main", yaml).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_provide_spec_conflict_on_changed_dto() {
+        let repo = MockRepo::new();
+        let yaml1 = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        let yaml2 = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      description: Changed
+      responses:
+        '200':
+          description: OK
+"#;
+        provide_spec(&repo, "svc", "main", yaml1).await.unwrap();
+        let result = provide_spec(&repo, "svc", "main", yaml2).await;
+        assert!(matches!(result, Err(AppError::Conflict)));
+    }
+
+    #[tokio::test]
+    async fn test_provide_spec_invalid_yaml() {
+        let repo = MockRepo::new();
+        let result = provide_spec(&repo, "svc", "main", "not valid [[[").await;
+        assert!(matches!(result, Err(AppError::BadRequest(_))));
+    }
+
+    #[tokio::test]
+    async fn test_require_endpoint_not_found() {
+        let repo = MockRepo::new();
+        let result = require_endpoint(&repo, "client", "svc", "main", "/missing", "GET").await;
+        assert!(matches!(result, Err(AppError::NotFound)));
+    }
+
+    #[tokio::test]
+    async fn test_require_endpoint_found() {
+        let repo = MockRepo::new();
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+        let result = require_endpoint(&repo, "client", "svc", "main", "/users", "GET").await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("/users"));
+    }
+
+    #[test]
+    fn test_render_report_markdown_empty() {
+        let report = DependencyReport {
+            branch: "main".to_string(),
+            dependency_graph: vec![],
+            unused_endpoints: vec![],
+            missing_endpoints: vec![],
+        };
+        let md = render_report_markdown(&report);
+        assert!(md.contains("# SanShain Dependency Report: Branch `main`"));
+        assert!(md.contains("Total Dependencies: 0"));
+        assert!(md.contains("No active dependencies recorded"));
+    }
+
+    #[test]
+    fn test_render_report_markdown_with_data() {
+        let report = DependencyReport {
+            branch: "dev".to_string(),
+            dependency_graph: vec![DependencyInfo {
+                client: "web".to_string(),
+                service: "api".to_string(),
+                path: "/users".to_string(),
+                method: "GET".to_string(),
+            }],
+            unused_endpoints: vec![EndpointInfo {
+                service: "api".to_string(),
+                path: "/old".to_string(),
+                method: "DELETE".to_string(),
+            }],
+            missing_endpoints: vec![MissingEndpointInfo {
+                client: "web".to_string(),
+                service: "api".to_string(),
+                path: "/new".to_string(),
+                method: "POST".to_string(),
+            }],
+        };
+        let md = render_report_markdown(&report);
+        assert!(md.contains("| web | api | `/users` | `GET` |"));
+        assert!(md.contains("| api | `/old` | `DELETE` |"));
+        assert!(md.contains("| web | api | `/new` | `POST` |"));
+    }
+}

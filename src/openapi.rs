@@ -93,3 +93,109 @@ fn get_methods(path_item: &PathItem) -> Vec<(String, &openapiv3::Operation)> {
     if let Some(op) = &path_item.trace { methods.push(("trace".to_string(), op)); }
     methods
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_single_endpoint() {
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        let result = split_openapi(yaml).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "/users");
+        assert_eq!(result[0].method, "GET");
+        assert!(result[0].yaml_content.contains("/users"));
+    }
+
+    #[test]
+    fn test_split_multiple_endpoints() {
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+    post:
+      responses:
+        '201':
+          description: Created
+  /items:
+    delete:
+      responses:
+        '204':
+          description: Deleted
+"#;
+        let result = split_openapi(yaml).unwrap();
+        assert_eq!(result.len(), 3);
+        let methods: Vec<(&str, &str)> = result.iter().map(|e| (e.path.as_str(), e.method.as_str())).collect();
+        assert!(methods.contains(&("/users", "GET")));
+        assert!(methods.contains(&("/users", "POST")));
+        assert!(methods.contains(&("/items", "DELETE")));
+    }
+
+    #[test]
+    fn test_split_invalid_yaml() {
+        let result = split_openapi("not valid yaml: [[[");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_split_includes_components() {
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
+"#;
+        let result = split_openapi(yaml).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result[0].yaml_content.contains("User"));
+    }
+
+    #[test]
+    fn test_split_empty_paths() {
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths: {}
+"#;
+        let result = split_openapi(yaml).unwrap();
+        assert!(result.is_empty());
+    }
+}
