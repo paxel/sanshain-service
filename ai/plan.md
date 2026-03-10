@@ -28,9 +28,9 @@ SanShain is a service designed to manage and distribute OpenAPI specifications f
     4. Store the mapping (Service -> Branch -> Endpoint -> YAML) in the DB.
 - [x] **Advanced /provide logic**:
     - [x] Idempotency: If the same YAML is uploaded for the same branch and the endpoints are identical, the request succeeds without modification (idempotency).
-    - [ ] **Conditional Immutability**:
+    - [x] **Conditional Immutability**:
         - [x] If an endpoint already exists for a given (service, branch, path, method) but the YAML content (DTOs/schema) has changed, the request must fail.
-        - [ ] **Feature Branch Exception**: This immutability only applies to **protected branches** (configurable via Admin). On feature branches, the latest version can be modified.
+        - [x] **Feature Branch Exception**: This immutability only applies to **protected branches** (configurable via Admin). On feature branches, the latest version can be modified.
     - [x] Versioning via Path: The service relies on the user to change the path (e.g., `api/v1.0/users` to `api/v2.0/users`) when DTOs change, as the endpoint definition for a specific path is immutable within a branch.
 
 ### 2.2. `GET /require`
@@ -126,7 +126,7 @@ All client-side implementations (plugins, CLIs, hooks) must support a **timeout/
 - [ ] **Admin Page with Authentication**:
     - [ ] Secure admin endpoints with a simple auth mechanism (e.g., Basic Auth or Admin Token).
     - [ ] Web dashboard for administrative tasks.
-    - [ ] **Protected Branch Configuration UI**: Toggle which branches are considered protected (immutable).
+    - [x] **Protected Branch Configuration UI**: Toggle which branches are considered protected (immutable).
 - [ ] **Data Management**:
     - [ ] Delete branches, clients, and services via the admin UI/API.
     - [ ] Configure a maximum age for branches before they are automatically cleaned out.

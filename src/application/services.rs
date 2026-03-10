@@ -33,6 +33,7 @@ pub async fn provide_spec(
 
     let service_id = repo.ensure_service(servicename).await?;
     let branch_id = repo.ensure_branch(service_id, branch).await?;
+    let is_protected = repo.is_branch_protected(branch).await?;
 
     let existing = repo.get_endpoints_for_branch(branch_id).await?;
     let mut existing_map: HashMap<(String, String), String> = existing
@@ -41,17 +42,27 @@ pub async fn provide_spec(
         .collect();
 
     let mut to_insert = Vec::new();
+    let mut to_update = Vec::new();
 
     for endpoint in endpoints {
         let key = (endpoint.path.clone(), endpoint.method.clone());
         if let Some(existing_yaml) = existing_map.remove(&key) {
             if existing_yaml != endpoint.yaml_content {
-                tracing::warn!(
-                    "Rejected update for {} {}: DTO changed but path remained the same",
-                    endpoint.method,
-                    endpoint.path
-                );
-                return Err(AppError::Conflict);
+                if is_protected {
+                    tracing::warn!(
+                        "Rejected update for {} {}: DTO changed on protected branch",
+                        endpoint.method,
+                        endpoint.path
+                    );
+                    return Err(AppError::Conflict);
+                } else {
+                    tracing::info!(
+                        "Updating {} {} on feature branch",
+                        endpoint.method,
+                        endpoint.path
+                    );
+                    to_update.push(endpoint);
+                }
             }
         } else {
             to_insert.push(EndpointRecord {
@@ -65,6 +76,10 @@ pub async fn provide_spec(
 
     for endpoint in &to_insert {
         repo.insert_endpoint(branch_id, endpoint).await?;
+    }
+
+    for endpoint in &to_update {
+        repo.update_endpoint(branch_id, &endpoint.path, &endpoint.method, &endpoint.yaml_content).await?;
     }
 
     Ok(())
@@ -97,6 +112,27 @@ pub async fn generate_report(
     branch: &str,
 ) -> Result<DependencyReport, AppError> {
     Ok(repo.get_report(branch).await?)
+}
+
+pub async fn list_protected_branches(
+    repo: &impl SpecRepository,
+) -> Result<Vec<String>, AppError> {
+    Ok(repo.list_protected_branches().await?)
+}
+
+pub async fn add_protected_branch(
+    repo: &impl SpecRepository,
+    pattern: &str,
+) -> Result<(), AppError> {
+    repo.add_protected_branch(pattern).await?;
+    Ok(())
+}
+
+pub async fn remove_protected_branch(
+    repo: &impl SpecRepository,
+    pattern: &str,
+) -> Result<bool, AppError> {
+    Ok(repo.remove_protected_branch(pattern).await?)
 }
 
 pub fn render_report_markdown(report: &DependencyReport) -> String {
@@ -160,6 +196,7 @@ mod tests {
         branches: Mutex<HashMap<(i64, String), i64>>,
         endpoints: Mutex<HashMap<i64, Vec<EndpointRecord>>>,
         clients: Mutex<HashMap<String, i64>>,
+        protected_branches: Mutex<Vec<String>>,
         next_id: Mutex<i64>,
     }
 
@@ -170,6 +207,7 @@ mod tests {
                 branches: Mutex::new(HashMap::new()),
                 endpoints: Mutex::new(HashMap::new()),
                 clients: Mutex::new(HashMap::new()),
+                protected_branches: Mutex::new(vec!["main".to_string(), "master".to_string()]),
                 next_id: Mutex::new(1),
             }
         }
@@ -268,6 +306,44 @@ mod tests {
                 unused_endpoints: vec![],
                 missing_endpoints: vec![],
             })
+        }
+
+        async fn is_branch_protected(&self, branch_name: &str) -> Result<bool, RepositoryError> {
+            let pb = self.protected_branches.lock().unwrap();
+            Ok(pb.contains(&branch_name.to_string()))
+        }
+
+        async fn add_protected_branch(&self, pattern: &str) -> Result<(), RepositoryError> {
+            let mut pb = self.protected_branches.lock().unwrap();
+            if !pb.contains(&pattern.to_string()) {
+                pb.push(pattern.to_string());
+            }
+            Ok(())
+        }
+
+        async fn remove_protected_branch(&self, pattern: &str) -> Result<bool, RepositoryError> {
+            let mut pb = self.protected_branches.lock().unwrap();
+            let len_before = pb.len();
+            pb.retain(|p| p != pattern);
+            Ok(pb.len() < len_before)
+        }
+
+        async fn list_protected_branches(&self) -> Result<Vec<String>, RepositoryError> {
+            let pb = self.protected_branches.lock().unwrap();
+            Ok(pb.clone())
+        }
+
+        async fn update_endpoint(&self, branch_id: i64, path: &str, method: &str, yaml_content: &str) -> Result<(), RepositoryError> {
+            let mut endpoints = self.endpoints.lock().unwrap();
+            if let Some(eps) = endpoints.get_mut(&branch_id) {
+                for ep in eps.iter_mut() {
+                    if ep.path == path && ep.method == method {
+                        ep.yaml_content = yaml_content.to_string();
+                        return Ok(());
+                    }
+                }
+            }
+            Ok(())
         }
     }
 
@@ -418,5 +494,98 @@ paths:
         assert!(md.contains("| web | api | `/users` | `GET` |"));
         assert!(md.contains("| api | `/old` | `DELETE` |"));
         assert!(md.contains("| web | api | `/new` | `POST` |"));
+    }
+
+    #[tokio::test]
+    async fn test_provide_spec_feature_branch_allows_update() {
+        let repo = MockRepo::new();
+        let yaml1 = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        let yaml2 = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      description: Changed
+      responses:
+        '200':
+          description: OK
+"#;
+        // "feature/xyz" is not protected, so updates should be allowed
+        provide_spec(&repo, "svc", "feature/xyz", yaml1).await.unwrap();
+        let result = provide_spec(&repo, "svc", "feature/xyz", yaml2).await;
+        assert!(result.is_ok());
+
+        // Verify the endpoint was actually updated
+        let content = require_endpoint(&repo, "client", "svc", "feature/xyz", "/users", "GET").await.unwrap();
+        assert!(content.contains("Changed"));
+    }
+
+    #[tokio::test]
+    async fn test_provide_spec_protected_branch_rejects_update() {
+        let repo = MockRepo::new();
+        let yaml1 = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        let yaml2 = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      description: Changed
+      responses:
+        '200':
+          description: OK
+"#;
+        // "main" is protected by default
+        provide_spec(&repo, "svc", "main", yaml1).await.unwrap();
+        let result = provide_spec(&repo, "svc", "main", yaml2).await;
+        assert!(matches!(result, Err(AppError::Conflict)));
+    }
+
+    #[tokio::test]
+    async fn test_protected_branch_management() {
+        let repo = MockRepo::new();
+
+        let branches = list_protected_branches(&repo).await.unwrap();
+        assert!(branches.contains(&"main".to_string()));
+        assert!(branches.contains(&"master".to_string()));
+
+        add_protected_branch(&repo, "release").await.unwrap();
+        let branches = list_protected_branches(&repo).await.unwrap();
+        assert!(branches.contains(&"release".to_string()));
+
+        let removed = remove_protected_branch(&repo, "release").await.unwrap();
+        assert!(removed);
+        let branches = list_protected_branches(&repo).await.unwrap();
+        assert!(!branches.contains(&"release".to_string()));
+
+        let removed = remove_protected_branch(&repo, "nonexistent").await.unwrap();
+        assert!(!removed);
     }
 }

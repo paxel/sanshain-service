@@ -24,4 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Application service layer with use-case functions (`provide_spec`, `require_endpoint`, `generate_report`, `render_report_markdown`).
 - Thin Axum handlers delegating to application services.
 - Unit tests for OpenAPI splitting logic, application services (with mock repository), and markdown report rendering.
+- Protected branch configuration: `main` and `master` are protected by default (immutable endpoints).
+- Feature branch exception: on non-protected branches, endpoint DTOs can be updated freely.
+- Admin API for managing protected branches (`GET/POST /admin/protected-branches`, `DELETE /admin/protected-branches/:pattern`).
 - AGPL-3.0 License.

@@ -41,7 +41,14 @@ Request the OpenAPI snippet for a specific endpoint and record the dependency.
 **Example:**
 `GET /require?clientname=WebClient&servicename=UserService&branch=main&path=/users&method=GET`
 
-### 3. `GET /report`
+### 3. Protected Branches (Admin)
+Manage which branches enforce immutable endpoint paths. By default, `main` and `master` are protected. On non-protected (feature) branches, endpoint DTOs can be freely updated.
+
+- `GET /admin/protected-branches` — List all protected branch patterns.
+- `POST /admin/protected-branches` — Add a pattern: `{"pattern": "release"}`.
+- `DELETE /admin/protected-branches/:pattern` — Remove a pattern.
+
+### 4. `GET /report`
 Generate a dependency report for a specific branch.
 
 **Query Parameters:**

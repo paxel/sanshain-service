@@ -153,6 +153,59 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(())
     }
 
+    async fn is_branch_protected(&self, branch_name: &str) -> Result<bool, RepositoryError> {
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM protected_branches WHERE pattern = ?"
+        )
+        .bind(branch_name)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(row.0 > 0)
+    }
+
+    async fn add_protected_branch(&self, pattern: &str) -> Result<(), RepositoryError> {
+        sqlx::query("INSERT OR IGNORE INTO protected_branches (pattern) VALUES (?)")
+            .bind(pattern)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn remove_protected_branch(&self, pattern: &str) -> Result<bool, RepositoryError> {
+        let result = sqlx::query("DELETE FROM protected_branches WHERE pattern = ?")
+            .bind(pattern)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_protected_branches(&self) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT pattern FROM protected_branches ORDER BY pattern"
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn update_endpoint(&self, branch_id: i64, path: &str, method: &str, yaml_content: &str) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE endpoints SET yaml_content = ? WHERE branch_id = ? AND path = ? AND method = ?")
+            .bind(yaml_content)
+            .bind(branch_id)
+            .bind(path)
+            .bind(method)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
     async fn get_report(&self, branch: &str) -> Result<DependencyReport, RepositoryError> {
         let mut conn = self.pool.acquire().await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;

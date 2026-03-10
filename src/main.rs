@@ -68,6 +68,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/require", get(require))
         .route("/report", get(report))
         .route("/report/markdown", get(report_markdown))
+        .route("/admin/protected-branches", get(list_protected_branches).post(add_protected_branch))
+        .route("/admin/protected-branches/:pattern", axum::routing::delete(delete_protected_branch))
         .fallback_service(ServeDir::new("static"))
         .with_state(state)
 }
@@ -172,4 +174,42 @@ async fn report_markdown(
     let mut headers = axum::http::HeaderMap::new();
     headers.insert("content-type", "text/markdown; charset=utf-8".parse().unwrap());
     Ok((headers, md))
+}
+
+async fn list_protected_branches(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<String>>, StatusCode> {
+    let branches = services::list_protected_branches(&state.repo)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(Json(branches))
+}
+
+#[derive(Deserialize)]
+struct ProtectedBranchPayload {
+    pattern: String,
+}
+
+async fn add_protected_branch(
+    State(state): State<AppState>,
+    Json(payload): Json<ProtectedBranchPayload>,
+) -> Result<StatusCode, StatusCode> {
+    services::add_protected_branch(&state.repo, &payload.pattern)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(StatusCode::CREATED)
+}
+
+async fn delete_protected_branch(
+    State(state): State<AppState>,
+    axum::extract::Path(pattern): axum::extract::Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    let removed = services::remove_protected_branch(&state.repo, &pattern)
+        .await
+        .map_err(app_error_to_status)?;
+    if removed {
+        Ok(StatusCode::OK)
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
 }

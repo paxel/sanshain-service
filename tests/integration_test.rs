@@ -242,3 +242,171 @@ paths:
         .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 }
+
+#[tokio::test]
+async fn test_protected_branches_api() {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .unwrap();
+
+    let state = AppState { repo: SqliteSpecRepository::new(pool) };
+    let app = create_app(state);
+
+    // 1. List default protected branches
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/protected-branches")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let branches: Vec<String> = serde_json::from_slice(&body).unwrap();
+    assert!(branches.contains(&"main".to_string()));
+    assert!(branches.contains(&"master".to_string()));
+
+    // 2. Add a protected branch
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/protected-branches")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&json!({"pattern": "release"})).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    // 3. Delete a protected branch
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/admin/protected-branches/release")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // 4. Delete non-existent -> 404
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/admin/protected-branches/nonexistent")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_feature_branch_allows_dto_update() {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .unwrap();
+
+    let state = AppState { repo: SqliteSpecRepository::new(pool) };
+    let app = create_app(state);
+
+    let yaml1 = r#"
+openapi: 3.0.0
+info:
+  title: Test API
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+    let yaml2 = r#"
+openapi: 3.0.0
+info:
+  title: Test API
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      description: Updated DTO
+      responses:
+        '200':
+          description: OK
+"#;
+
+    // Provide on feature branch
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&json!({
+                    "servicename": "svc",
+                    "branch": "feature/test",
+                    "openapi_yaml": yaml1
+                })).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // Update on feature branch (should succeed, not protected)
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&json!({
+                    "servicename": "svc",
+                    "branch": "feature/test",
+                    "openapi_yaml": yaml2
+                })).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // Verify updated content
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require?clientname=client&servicename=svc&branch=feature/test&path=/users&method=GET")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let content = String::from_utf8(body.to_vec()).unwrap();
+    assert!(content.contains("Updated DTO"));
+}

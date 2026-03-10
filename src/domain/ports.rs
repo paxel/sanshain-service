@@ -47,4 +47,19 @@ pub trait SpecRepository: Send + Sync {
 
     /// Get the full dependency report for a branch.
     fn get_report(&self, branch: &str) -> impl Future<Output = Result<DependencyReport, RepositoryError>> + Send;
+
+    /// Check if a branch name matches any protected branch pattern.
+    fn is_branch_protected(&self, branch_name: &str) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Add a protected branch pattern.
+    fn add_protected_branch(&self, pattern: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Remove a protected branch pattern.
+    fn remove_protected_branch(&self, pattern: &str) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// List all protected branch patterns.
+    fn list_protected_branches(&self) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    /// Update an existing endpoint's YAML content.
+    fn update_endpoint(&self, branch_id: i64, path: &str, method: &str, yaml_content: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }
