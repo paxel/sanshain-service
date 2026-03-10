@@ -29,3 +29,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Admin API for managing protected branches (`GET/POST /admin/protected-branches`, `DELETE /admin/protected-branches/:pattern`).
 - Admin API for data management: list and delete services (`GET/DELETE /admin/services/:name`), branches (`GET/DELETE /admin/services/:name/branches/:branch`), and clients (`GET/DELETE /admin/clients/:name`).
 - AGPL-3.0 License.
+
+### Changed
+- Moved SQLite migrations into `src/infrastructure/migrations/sqlite/` per DDD adapter structure.
+- Added `run_migrations()` method to `SqliteSpecRepository` so each adapter owns its migrations.
+- Prepared infrastructure layout for future PostgreSQL adapter (`src/infrastructure/migrations/postgres/`).

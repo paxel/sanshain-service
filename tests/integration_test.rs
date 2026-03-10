@@ -16,12 +16,10 @@ async fn test_full_flow() {
         .await
         .unwrap();
 
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
 
-    let state = AppState { repo: SqliteSpecRepository::new(pool) };
+    let state = AppState { repo };
     let app = create_app(state);
 
     // 1. Provide a spec
@@ -118,12 +116,10 @@ async fn test_idempotency_and_conflict() {
         .await
         .unwrap();
 
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
 
-    let state = AppState { repo: SqliteSpecRepository::new(pool) };
+    let state = AppState { repo };
     let app = create_app(state);
 
     let openapi_v1 = r#"
@@ -250,12 +246,10 @@ async fn test_protected_branches_api() {
         .await
         .unwrap();
 
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
 
-    let state = AppState { repo: SqliteSpecRepository::new(pool) };
+    let state = AppState { repo };
     let app = create_app(state);
 
     // 1. List default protected branches
@@ -324,12 +318,10 @@ async fn test_feature_branch_allows_dto_update() {
         .await
         .unwrap();
 
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
 
-    let state = AppState { repo: SqliteSpecRepository::new(pool) };
+    let state = AppState { repo };
     let app = create_app(state);
 
     let yaml1 = r#"
@@ -418,12 +410,10 @@ async fn test_admin_data_management() {
         .await
         .unwrap();
 
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
 
-    let state = AppState { repo: SqliteSpecRepository::new(pool) };
+    let state = AppState { repo };
     let app = create_app(state);
 
     let yaml = r#"

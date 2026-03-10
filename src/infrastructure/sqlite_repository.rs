@@ -12,6 +12,12 @@ impl SqliteSpecRepository {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
+
+    pub async fn run_migrations(&self) -> Result<(), sqlx::migrate::MigrateError> {
+        sqlx::migrate!("src/infrastructure/migrations/sqlite")
+            .run(&self.pool)
+            .await
+    }
 }
 
 impl SpecRepository for SqliteSpecRepository {

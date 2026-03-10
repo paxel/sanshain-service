@@ -41,14 +41,10 @@ pub async fn main() {
         .await
         .expect("can't connect to database");
 
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .expect("can't run migrations");
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.expect("can't run migrations");
 
-    let state = AppState {
-        repo: SqliteSpecRepository::new(pool),
-    };
+    let state = AppState { repo };
 
     let app = create_app(state);
 

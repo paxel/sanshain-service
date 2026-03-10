@@ -81,7 +81,7 @@ cargo run
 The service listens on `0.0.0.0:3000` by default.
 
 ### Database
-The service uses SQLite. The database file `sanshain.db` will be created automatically on the first run, and migrations will be applied.
+The service uses SQLite by default. The database file `sanshain.db` will be created automatically on the first run, and migrations will be applied. Each database adapter owns its migrations under `src/infrastructure/migrations/<db>/`.
 
 ---
 

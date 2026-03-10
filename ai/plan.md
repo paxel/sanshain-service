@@ -14,8 +14,10 @@ SanShain is a service designed to manage and distribute OpenAPI specifications f
     - [x] Refactor the project structure to follow DDD principles (Domain, Application, Infrastructure layers).
     - [x] Decouple database logic from Axum handlers using Port/Adapter pattern.
 - [x] Implement OpenAPI parsing and splitting logic (likely using `openapiv3` crate).
-- [ ] **Flexible DB Layer**:
-    - [ ] Abstract the SQLx pool to support both SQLite and PostgreSQL (using generic repository or trait).
+- [x] **Flexible DB Layer**:
+    - [x] Moved SQLite migrations into `src/infrastructure/migrations/sqlite/` (adapter-owned).
+    - [x] Added `run_migrations()` to `SqliteSpecRepository` so each adapter manages its own migrations.
+    - [ ] Add PostgreSQL adapter with its own migrations in `src/infrastructure/migrations/postgres/`.
 
 ## 2. Core API Implementation
 
