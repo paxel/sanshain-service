@@ -1,0 +1,14 @@
+services:
+  sanshain:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - sanshain-data:/data
+    environment:
+      - DATABASE_URL=sqlite:/data/sanshain.db?mode=rwc
+      - RUST_LOG=sanshain_service=info,tower_http=info
+    restart: unless-stopped
+
+volumes:
+  sanshain-data:

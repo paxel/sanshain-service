@@ -60,6 +60,7 @@ use axum::response::Redirect;
 pub fn create_app(state: AppState) -> Router {
     Router::new()
         .route("/", get(|| async { Redirect::permanent("/index.html") }))
+        .route("/health", get(health))
         .route("/provide", post(provide))
         .route("/require", get(require))
         .route("/report", get(report))
@@ -96,6 +97,10 @@ struct RequireParams {
 #[derive(Deserialize)]
 struct ReportParams {
     branch: String,
+}
+
+async fn health() -> StatusCode {
+    StatusCode::OK
 }
 
 fn app_error_to_status(e: AppError) -> StatusCode {

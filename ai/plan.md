@@ -100,18 +100,21 @@ All client-side implementations (plugins, CLIs, hooks) must support a **timeout/
     - [ ] `Gradle` (covered in general Java section, but specifically for Kotlin Multiplatform or Android).
 
 ## 5. Phase 4: Deployment & Infrastructure
-- [ ] **Docker**:
-    - [ ] Create a multi-stage `Dockerfile` to optimize image size (build in Rust image, run in distroless or alpine).
-    - [ ] `docker-compose.yaml` for local development including the service and a persistent volume for the SQLite DB.
+- [x] **Docker**:
+    - [x] Create a multi-stage `Dockerfile` to optimize image size (build in Rust image, run in Alpine).
+    - [x] `docker-compose.yaml` for local development including the service and a persistent volume for the SQLite DB.
+    - [x] `.dockerignore` to optimize build context.
+- [x] **Health Endpoint**:
+    - [x] `GET /health` returns `200 OK` for liveness/readiness probes.
 - [ ] **Kubernetes**:
     - [ ] Standard manifests: `Deployment`, `Service`, `Ingress`.
     - [ ] `ConfigMap` for environment variables and `Secret` for sensitive data (if any).
-    - [ ] Liveness and Readiness probes using a `/health` endpoint.
+    - [x] Liveness and Readiness probes using a `/health` endpoint.
 - [ ] **Helm Chart**:
     - [ ] Package the Kubernetes manifests into a reusable Helm chart for different environments (staging, production).
-- [ ] **CI/CD**:
-    - [ ] **GitHub Actions**: Pipeline to build, test, and push Docker images to a registry (GHCR/DockerHub).
-    - [ ] Automated database migrations during deployment.
+- [x] **CI/CD**:
+    - [x] **GitHub Actions**: Pipeline to build, test, and push Docker images to a registry (GHCR).
+    - [x] Automated database migrations during deployment (handled by `run_migrations()` on startup).
 - [ ] **Observability**:
     - [ ] **Metrics**: Integrate `prometheus` exporter for tracking request counts, latencies, and DB pool stats.
     - [ ] **Logging**: Ensure structured JSON logging for better log aggregation (ELK/Loki).

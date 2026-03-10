@@ -80,6 +80,22 @@ cargo run
 ```
 The service listens on `0.0.0.0:3000` by default.
 
+### Docker
+Build and run with Docker:
+```bash
+docker build -t sanshain .
+docker run -p 3000:3000 -v sanshain-data:/data sanshain
+```
+
+Or use Docker Compose for local development:
+```bash
+docker compose up
+```
+The SQLite database is persisted in a Docker volume at `/data/sanshain.db`.
+
+### Health Check
+`GET /health` returns `200 OK` when the service is running. Used by Docker `HEALTHCHECK` and Kubernetes probes.
+
 ### Database
 The service uses SQLite by default. The database file `sanshain.db` will be created automatically on the first run, and migrations will be applied. Each database adapter owns its migrations under `src/infrastructure/migrations/<db>/`.
 

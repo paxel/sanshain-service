@@ -1,0 +1,7 @@
+target/
+sanshain.db
+.git/
+.github/
+.junie/
+ai/
+tests/

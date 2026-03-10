@@ -10,6 +10,33 @@ use sanshain_service::{create_app, AppState};
 use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
 
 #[tokio::test]
+async fn test_health_endpoint() {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+
+    let state = AppState { repo };
+    let app = create_app(state);
+
+    let response: Response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn test_full_flow() {
     let pool = SqlitePoolOptions::new()
         .connect("sqlite::memory:")
