@@ -1,6 +1,21 @@
 use serde::Serialize;
 
 #[derive(Clone, Debug)]
+pub struct User {
+    pub id: i64,
+    pub username: String,
+    pub password_hash: String,
+    pub is_admin: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct Session {
+    pub token: String,
+    pub user_id: i64,
+    pub expires_at: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct EndpointRecord {
     pub id: Option<i64>,
     pub path: String,

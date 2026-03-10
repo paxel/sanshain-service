@@ -8,9 +8,9 @@ use sqlx::sqlite::SqlitePoolOptions;
 use tower::ServiceExt; // for `oneshot`
 use sanshain_service::{create_app, AppState};
 use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
+use sanshain_service::application::services;
 
-#[tokio::test]
-async fn test_health_endpoint() {
+async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
     let pool = SqlitePoolOptions::new()
         .connect("sqlite::memory:")
         .await
@@ -19,8 +19,43 @@ async fn test_health_endpoint() {
     let repo = SqliteSpecRepository::new(pool);
     repo.run_migrations().await.unwrap();
 
+    let state = AppState { repo: repo.clone() };
+    let app = create_app(state);
+    (app, repo)
+}
+
+/// Setup app with initial admin and dev mode enabled (for tests that don't care about auth)
+async fn setup_app_dev_mode() -> axum::Router {
+    let (app, repo) = setup_app().await;
+    services::ensure_initial_admin(&repo).await.unwrap();
+    services::set_dev_mode(&repo, true).await.unwrap();
+    app
+}
+
+/// Setup app with initial admin, return app + admin token
+async fn setup_app_with_admin() -> (axum::Router, String) {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+
+    // Create admin user manually with known password
+    let hash = services::hash_password("admin-pass").unwrap();
+    let user = repo.create_user("admin", &hash, true).await.unwrap();
+    use sanshain_service::domain::ports::SpecRepository;
+    let session = repo.create_session(user.id, "2099-12-31T23:59:59").await.unwrap();
+
     let state = AppState { repo };
     let app = create_app(state);
+    (app, session.token)
+}
+
+#[tokio::test]
+async fn test_health_endpoint() {
+    let (app, _) = setup_app().await;
 
     let response: Response = app
         .oneshot(
@@ -38,16 +73,7 @@ async fn test_health_endpoint() {
 
 #[tokio::test]
 async fn test_full_flow() {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.unwrap();
-
-    let state = AppState { repo };
-    let app = create_app(state);
+    let app = setup_app_dev_mode().await;
 
     // 1. Provide a spec
     let openapi_yaml = r#"
@@ -138,16 +164,7 @@ paths:
 
 #[tokio::test]
 async fn test_idempotency_and_conflict() {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.unwrap();
-
-    let state = AppState { repo };
-    let app = create_app(state);
+    let app = setup_app_dev_mode().await;
 
     let openapi_v1 = r#"
 openapi: 3.0.0
@@ -268,16 +285,7 @@ paths:
 
 #[tokio::test]
 async fn test_protected_branches_api() {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.unwrap();
-
-    let state = AppState { repo };
-    let app = create_app(state);
+    let (app, token) = setup_app_with_admin().await;
 
     // 1. List default protected branches
     let response: Response = app.clone()
@@ -285,6 +293,7 @@ async fn test_protected_branches_api() {
             Request::builder()
                 .method("GET")
                 .uri("/admin/protected-branches")
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -304,6 +313,7 @@ async fn test_protected_branches_api() {
                 .method("POST")
                 .uri("/admin/protected-branches")
                 .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::from(serde_json::to_vec(&json!({"pattern": "release"})).unwrap()))
                 .unwrap(),
         )
@@ -317,6 +327,7 @@ async fn test_protected_branches_api() {
             Request::builder()
                 .method("DELETE")
                 .uri("/admin/protected-branches/release")
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -330,6 +341,7 @@ async fn test_protected_branches_api() {
             Request::builder()
                 .method("DELETE")
                 .uri("/admin/protected-branches/nonexistent")
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -340,16 +352,7 @@ async fn test_protected_branches_api() {
 
 #[tokio::test]
 async fn test_feature_branch_allows_dto_update() {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.unwrap();
-
-    let state = AppState { repo };
-    let app = create_app(state);
+    let app = setup_app_dev_mode().await;
 
     let yaml1 = r#"
 openapi: 3.0.0
@@ -432,16 +435,22 @@ paths:
 
 #[tokio::test]
 async fn test_admin_data_management() {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
+    let (app, token) = setup_app_with_admin().await;
+
+    // Enable dev mode so API endpoints work without per-request auth
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/settings/dev-mode")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&json!({"enabled": true})).unwrap()))
+                .unwrap(),
+        )
         .await
         .unwrap();
-
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.unwrap();
-
-    let state = AppState { repo };
-    let app = create_app(state);
+    assert_eq!(response.status(), StatusCode::OK);
 
     let yaml = r#"
 openapi: 3.0.0
@@ -493,6 +502,7 @@ paths:
             Request::builder()
                 .method("GET")
                 .uri("/admin/services")
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -500,8 +510,8 @@ paths:
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
-    let services: Vec<String> = serde_json::from_slice(&body).unwrap();
-    assert!(services.contains(&"svc1".to_string()));
+    let svcs: Vec<String> = serde_json::from_slice(&body).unwrap();
+    assert!(svcs.contains(&"svc1".to_string()));
 
     // List branches
     let response = app.clone()
@@ -509,6 +519,7 @@ paths:
             Request::builder()
                 .method("GET")
                 .uri("/admin/services/svc1/branches")
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -525,6 +536,7 @@ paths:
             Request::builder()
                 .method("GET")
                 .uri("/admin/clients")
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -541,6 +553,7 @@ paths:
             Request::builder()
                 .method("DELETE")
                 .uri("/admin/clients/client1")
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -554,6 +567,7 @@ paths:
             Request::builder()
                 .method("DELETE")
                 .uri("/admin/clients/client1")
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -567,6 +581,7 @@ paths:
             Request::builder()
                 .method("DELETE")
                 .uri("/admin/services/svc1")
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -580,6 +595,7 @@ paths:
             Request::builder()
                 .method("GET")
                 .uri("/admin/services")
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -587,6 +603,190 @@ paths:
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
-    let services: Vec<String> = serde_json::from_slice(&body).unwrap();
-    assert!(!services.contains(&"svc1".to_string()));
+    let svcs: Vec<String> = serde_json::from_slice(&body).unwrap();
+    assert!(!svcs.contains(&"svc1".to_string()));
+}
+
+#[tokio::test]
+async fn test_admin_auth_requires_session() {
+    let (app, _) = setup_app().await;
+
+    // 1. Request without token -> 401
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/protected-branches")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    // 2. Request with invalid token -> 401
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/protected-branches")
+                .header("Authorization", "Bearer invalid-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    // 3. Non-admin endpoint (health) still works
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_api_locked_without_dev_mode() {
+    let (app, _) = setup_app().await;
+
+    // API endpoints should be locked (dev_mode=false by default)
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require?clientname=c&servicename=s&branch=b&path=/p&method=GET")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_auth_login_and_session() {
+    let (app, token) = setup_app_with_admin().await;
+
+    // Login with correct credentials
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/login")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&json!({
+                    "username": "admin",
+                    "password": "admin-pass"
+                })).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let login_resp: Value = serde_json::from_slice(&body).unwrap();
+    assert!(login_resp["token"].is_string());
+    let new_token = login_resp["token"].as_str().unwrap();
+
+    // Use new token to access /auth/me
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/auth/me")
+                .header("Authorization", format!("Bearer {}", new_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let me: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(me["username"], "admin");
+    assert_eq!(me["is_admin"], true);
+
+    // Login with wrong password -> 401
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/login")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&json!({
+                    "username": "admin",
+                    "password": "wrong"
+                })).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    // Logout
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/logout")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_dev_mode_toggle() {
+    let (app, token) = setup_app_with_admin().await;
+
+    // API should be locked by default
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require?clientname=c&servicename=s&branch=b&path=/p&method=GET")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    // Enable dev mode via admin
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/settings/dev-mode")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::from(serde_json::to_vec(&json!({"enabled": true})).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Now API should work without auth (will get 404 since no data, but not 403)
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require?clientname=c&servicename=s&branch=b&path=/p&method=GET")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }

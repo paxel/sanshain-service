@@ -128,8 +128,11 @@ All client-side implementations (plugins, CLIs, hooks) must support a **timeout/
 - [x] Add guidelines to maintain DDD structure, keep README and CHANGELOG updated, and keep all units tested.
 
 ## 7. Phase 5: Administration & Cleanup
-- [ ] **Admin Page with Authentication**:
-    - [ ] Secure admin endpoints with a simple auth mechanism (e.g., Basic Auth or Admin Token).
+- [x] **Admin Page with Authentication**:
+    - [x] Session-based authentication with Argon2 password hashing and random session tokens.
+    - [x] Automatic root admin user creation on first start (password printed to stderr).
+    - [x] Auth endpoints: login, logout, me, change-password.
+    - [x] Dev mode toggle: admin can open/close non-admin API endpoints without auth.
     - [ ] Web dashboard for administrative tasks.
     - [x] **Protected Branch Configuration UI**: Toggle which branches are considered protected (immutable).
 - [ ] **Data Management**:

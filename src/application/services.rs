@@ -9,6 +9,8 @@ pub enum AppError {
     BadRequest(String),
     Conflict,
     NotFound,
+    Unauthorized,
+    Forbidden,
     Internal(String),
 }
 
@@ -212,6 +214,162 @@ pub async fn list_clients(
     Ok(repo.list_clients().await?)
 }
 
+// --- Auth ---
+
+pub fn hash_password(password: &str) -> Result<String, AppError> {
+    use argon2::{Argon2, PasswordHasher};
+    use argon2::password_hash::SaltString;
+    use rand::rngs::OsRng;
+
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    argon2
+        .hash_password(password.as_bytes(), &salt)
+        .map(|h| h.to_string())
+        .map_err(|e| AppError::Internal(format!("password hash error: {}", e)))
+}
+
+pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
+    use argon2::{Argon2, PasswordVerifier};
+    use argon2::password_hash::PasswordHash;
+
+    let parsed = PasswordHash::new(hash)
+        .map_err(|e| AppError::Internal(format!("invalid hash: {}", e)))?;
+    Ok(Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok())
+}
+
+pub fn generate_random_password() -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let chars: Vec<char> = (0..24)
+        .map(|_| {
+            let idx = rng.gen_range(0..62);
+            match idx {
+                0..=9 => (b'0' + idx) as char,
+                10..=35 => (b'a' + idx - 10) as char,
+                _ => (b'A' + idx - 36) as char,
+            }
+        })
+        .collect();
+    chars.into_iter().collect()
+}
+
+pub async fn ensure_initial_admin(repo: &impl SpecRepository) -> Result<(), AppError> {
+    let count = repo.user_count().await?;
+    if count == 0 {
+        let password = generate_random_password();
+        let password_hash = hash_password(&password)?;
+        let user = repo.create_user("root", &password_hash, true).await?;
+
+        let expires_at = "2099-12-31T23:59:59";
+        let session = repo.create_session(user.id, expires_at).await?;
+
+        eprintln!("════════════════════════════════════════════");
+        eprintln!("  INITIAL ROOT USER CREATED");
+        eprintln!("  Username: root");
+        eprintln!("  Password: {}", password);
+        eprintln!("  Token:    {}", session.token);
+        eprintln!("════════════════════════════════════════════");
+        eprintln!("  Change the password immediately via the admin API.");
+        eprintln!("════════════════════════════════════════════");
+    }
+    Ok(())
+}
+
+pub async fn login(
+    repo: &impl SpecRepository,
+    username: &str,
+    password: &str,
+) -> Result<Session, AppError> {
+    let user = repo.find_user(username).await?
+        .ok_or(AppError::Unauthorized)?;
+
+    if !verify_password(password, &user.password_hash)? {
+        return Err(AppError::Unauthorized);
+    }
+
+    // Session expires in 24 hours
+    let expires = chrono_expires_24h();
+    let session = repo.create_session(user.id, &expires).await?;
+    Ok(session)
+}
+
+pub async fn change_password(
+    repo: &impl SpecRepository,
+    user: &User,
+    old_password: &str,
+    new_password: &str,
+) -> Result<(), AppError> {
+    if !verify_password(old_password, &user.password_hash)? {
+        return Err(AppError::Unauthorized);
+    }
+    let new_hash = hash_password(new_password)?;
+    repo.update_password(user.id, &new_hash).await?;
+    Ok(())
+}
+
+pub async fn get_dev_mode(repo: &impl SpecRepository) -> Result<bool, AppError> {
+    let val = repo.get_setting("dev_mode").await?;
+    Ok(val.as_deref() == Some("true"))
+}
+
+pub async fn set_dev_mode(repo: &impl SpecRepository, enabled: bool) -> Result<(), AppError> {
+    repo.set_setting("dev_mode", if enabled { "true" } else { "false" }).await?;
+    Ok(())
+}
+
+pub async fn validate_session(
+    repo: &impl SpecRepository,
+    token: &str,
+) -> Result<Option<(User, Session)>, AppError> {
+    Ok(repo.validate_session(token).await?)
+}
+
+pub async fn logout(
+    repo: &impl SpecRepository,
+    token: &str,
+) -> Result<(), AppError> {
+    repo.delete_session(token).await?;
+    Ok(())
+}
+
+fn chrono_expires_24h() -> String {
+    // Simple: current UTC + 24h as ISO string
+    // We avoid adding chrono dep by computing manually
+    // Use a fixed format that SQLite datetime() understands
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let expires = now + 86400;
+    // Format as ISO 8601
+    let secs_per_day = 86400u64;
+    let days_since_epoch = expires / secs_per_day;
+    let time_of_day = expires % secs_per_day;
+    let hours = time_of_day / 3600;
+    let minutes = (time_of_day % 3600) / 60;
+    let seconds = time_of_day % 60;
+
+    // Simple date calculation from days since epoch
+    let (year, month, day) = days_to_ymd(days_since_epoch);
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}", year, month, day, hours, minutes, seconds)
+}
+
+fn days_to_ymd(days: u64) -> (u64, u64, u64) {
+    // Algorithm from http://howardhinnant.github.io/date_algorithms.html
+    let z = days + 719468;
+    let era = z / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
+}
+
 pub fn render_report_markdown(report: &DependencyReport) -> String {
     let mut md = format!("# SanShain Dependency Report: Branch `{}`\n\n", report.branch);
 
@@ -275,10 +433,15 @@ mod tests {
         clients: Mutex<HashMap<String, i64>>,
         protected_branches: Mutex<Vec<String>>,
         next_id: Mutex<i64>,
+        users: Mutex<Vec<User>>,
+        sessions: Mutex<Vec<Session>>,
+        settings: Mutex<HashMap<String, String>>,
     }
 
     impl MockRepo {
         fn new() -> Self {
+            let mut settings = HashMap::new();
+            settings.insert("dev_mode".to_string(), "false".to_string());
             Self {
                 services: Mutex::new(HashMap::new()),
                 branches: Mutex::new(HashMap::new()),
@@ -286,6 +449,9 @@ mod tests {
                 clients: Mutex::new(HashMap::new()),
                 protected_branches: Mutex::new(vec!["main".to_string(), "master".to_string()]),
                 next_id: Mutex::new(1),
+                users: Mutex::new(Vec::new()),
+                sessions: Mutex::new(Vec::new()),
+                settings: Mutex::new(settings),
             }
         }
 
@@ -497,6 +663,61 @@ mod tests {
             let mut names: Vec<String> = clients.keys().cloned().collect();
             names.sort();
             Ok(names)
+        }
+
+        async fn user_count(&self) -> Result<i64, RepositoryError> {
+            Ok(self.users.lock().unwrap().len() as i64)
+        }
+
+        async fn find_user(&self, username: &str) -> Result<Option<User>, RepositoryError> {
+            Ok(self.users.lock().unwrap().iter().find(|u| u.username == username).cloned())
+        }
+
+        async fn create_user(&self, username: &str, password_hash: &str, is_admin: bool) -> Result<User, RepositoryError> {
+            let id = self.next_id();
+            let user = User { id, username: username.to_string(), password_hash: password_hash.to_string(), is_admin };
+            self.users.lock().unwrap().push(user.clone());
+            Ok(user)
+        }
+
+        async fn update_password(&self, user_id: i64, new_hash: &str) -> Result<(), RepositoryError> {
+            let mut users = self.users.lock().unwrap();
+            if let Some(u) = users.iter_mut().find(|u| u.id == user_id) {
+                u.password_hash = new_hash.to_string();
+            }
+            Ok(())
+        }
+
+        async fn create_session(&self, user_id: i64, expires_at: &str) -> Result<Session, RepositoryError> {
+            let token = format!("mock-token-{}", self.next_id());
+            let session = Session { token: token.clone(), user_id, expires_at: expires_at.to_string() };
+            self.sessions.lock().unwrap().push(session.clone());
+            Ok(session)
+        }
+
+        async fn validate_session(&self, token: &str) -> Result<Option<(User, Session)>, RepositoryError> {
+            let sessions = self.sessions.lock().unwrap();
+            if let Some(s) = sessions.iter().find(|s| s.token == token) {
+                let users = self.users.lock().unwrap();
+                if let Some(u) = users.iter().find(|u| u.id == s.user_id) {
+                    return Ok(Some((u.clone(), s.clone())));
+                }
+            }
+            Ok(None)
+        }
+
+        async fn delete_session(&self, token: &str) -> Result<(), RepositoryError> {
+            self.sessions.lock().unwrap().retain(|s| s.token != token);
+            Ok(())
+        }
+
+        async fn get_setting(&self, key: &str) -> Result<Option<String>, RepositoryError> {
+            Ok(self.settings.lock().unwrap().get(key).cloned())
+        }
+
+        async fn set_setting(&self, key: &str, value: &str) -> Result<(), RepositoryError> {
+            self.settings.lock().unwrap().insert(key.to_string(), value.to_string());
+            Ok(())
         }
     }
 

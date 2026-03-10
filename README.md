@@ -45,14 +45,33 @@ Request the OpenAPI snippet for a specific endpoint and record the dependency.
 `GET /require?clientname=WebClient&servicename=UserService&branch=main&path=/users&method=GET`
 `GET /require?clientname=WebClient&servicename=UserService&branch=feature/xyz&path=/users&method=GET&timeout=30`
 
-### 3. Protected Branches (Admin)
+### 3. Authentication
+
+SanShain uses session-based authentication with Argon2 password hashing.
+
+**First Start:** On first launch (empty user table), a `root` admin user is created with a random password printed to stderr. The DevOps engineer must change this password immediately.
+
+**Login:** `POST /auth/login` with `{"username": "...", "password": "..."}` returns a Bearer token (24h expiry).
+
+**Endpoints:**
+- `POST /auth/login` — Authenticate and receive a session token.
+- `POST /auth/logout` — Invalidate the current session (requires `Authorization: Bearer <token>`).
+- `GET /auth/me` — Get current user info (requires `Authorization: Bearer <token>`).
+- `POST /auth/change-password` — Change password (requires `Authorization: Bearer <token>`, body: `{"old_password": "...", "new_password": "..."}`).
+
+**Dev Mode:** By default, all API endpoints (`/provide`, `/require`, `/report`) are **locked** (return 403). An admin can enable "Dev Mode" via `POST /admin/settings/dev-mode` with `{"enabled": true}`, which opens all non-admin API endpoints without authentication.
+
+### 4. Admin API (Session-Based Authentication)
+All `/admin/*` endpoints require a valid admin session token (`Authorization: Bearer <token>`).
+
+#### Protected Branches
 Manage which branches enforce immutable endpoint paths. By default, `main` and `master` are protected. On non-protected (feature) branches, endpoint DTOs can be freely updated.
 
 - `GET /admin/protected-branches` — List all protected branch patterns.
 - `POST /admin/protected-branches` — Add a pattern: `{"pattern": "release"}`.
 - `DELETE /admin/protected-branches/:pattern` — Remove a pattern.
 
-### 4. Data Management (Admin)
+#### Data Management
 List and delete services, branches, and clients via the admin API. Deleting a service cascades to its branches, endpoints, and related dependencies.
 
 - `GET /admin/services` — List all services.
@@ -74,11 +93,18 @@ Generate a dependency report for a specific branch.
 - Rust (2024 edition)
 - SQLite
 
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `DATABASE_URL` | `sqlite:sanshain.db?mode=rwc` | Database connection string |
+| `BIND_ADDRESS` | `0.0.0.0:3000` | Address and port to listen on |
+
 ### Running the service
 ```bash
 cargo run
 ```
-The service listens on `0.0.0.0:3000` by default.
+On first start, the root admin credentials are printed to stderr. The service listens on `0.0.0.0:3000` by default. Override with `BIND_ADDRESS`.
 
 ### Docker
 Build and run with Docker:

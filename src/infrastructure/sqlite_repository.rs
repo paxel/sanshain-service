@@ -477,4 +477,134 @@ impl SpecRepository for SqliteSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
+
+    async fn user_count(&self) -> Result<i64, RepositoryError> {
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.0)
+    }
+
+    async fn find_user(&self, username: &str) -> Result<Option<User>, RepositoryError> {
+        let row: Option<(i64, String, String, bool)> = sqlx::query_as(
+            "SELECT id, username, password_hash, is_admin FROM users WHERE username = ?"
+        )
+        .bind(username)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(row.map(|(id, username, password_hash, is_admin)| User {
+            id,
+            username,
+            password_hash,
+            is_admin,
+        }))
+    }
+
+    async fn create_user(&self, username: &str, password_hash: &str, is_admin: bool) -> Result<User, RepositoryError> {
+        sqlx::query("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, ?)")
+            .bind(username)
+            .bind(password_hash)
+            .bind(is_admin)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        let row: (i64, String, String, bool) = sqlx::query_as(
+            "SELECT id, username, password_hash, is_admin FROM users WHERE username = ?"
+        )
+        .bind(username)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(User {
+            id: row.0,
+            username: row.1,
+            password_hash: row.2,
+            is_admin: row.3,
+        })
+    }
+
+    async fn update_password(&self, user_id: i64, new_hash: &str) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+            .bind(new_hash)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn create_session(&self, user_id: i64, expires_at: &str) -> Result<Session, RepositoryError> {
+        use rand::Rng;
+        let mut token_bytes = [0u8; 32];
+        rand::thread_rng().fill(&mut token_bytes);
+        let token = hex::encode(token_bytes);
+
+        sqlx::query("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)")
+            .bind(&token)
+            .bind(user_id)
+            .bind(expires_at)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(Session {
+            token,
+            user_id,
+            expires_at: expires_at.to_string(),
+        })
+    }
+
+    async fn validate_session(&self, token: &str) -> Result<Option<(User, Session)>, RepositoryError> {
+        let row: Option<(i64, i64, String, String, String, bool)> = sqlx::query_as(
+            r#"
+            SELECT s.user_id, u.id, u.username, u.password_hash, s.expires_at, u.is_admin
+            FROM sessions s
+            JOIN users u ON s.user_id = u.id
+            WHERE s.token = ? AND s.expires_at > datetime('now')
+            "#
+        )
+        .bind(token)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(row.map(|(_, user_id, username, password_hash, expires_at, is_admin)| {
+            let user = User { id: user_id, username, password_hash, is_admin };
+            let session = Session { token: token.to_string(), user_id, expires_at };
+            (user, session)
+        }))
+    }
+
+    async fn delete_session(&self, token: &str) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM sessions WHERE token = ?")
+            .bind(token)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn get_setting(&self, key: &str) -> Result<Option<String>, RepositoryError> {
+        let row: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = ?")
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.map(|r| r.0))
+    }
+
+    async fn set_setting(&self, key: &str, value: &str) -> Result<(), RepositoryError> {
+        sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
+            .bind(key)
+            .bind(value)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
 }

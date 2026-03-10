@@ -35,3 +35,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `.dockerignore` to optimize Docker build context.
 - SourceHut CI pipeline (`.build.yml`): build and test on Alpine Linux.
 - Per-adapter migration structure (`src/infrastructure/migrations/sqlite/`) with `run_migrations()` on `SqliteSpecRepository`.
+- Session-based authentication with Argon2 password hashing and 256-bit random session tokens.
+- Automatic root admin user creation on first start (password printed to stderr).
+- Auth endpoints: `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/change-password`.
+- Dev mode toggle (`POST /admin/settings/dev-mode`): when enabled, non-admin API endpoints are open without authentication; when disabled (default), all API endpoints require a valid session.
+- Admin endpoints always require a valid admin session token.
+- Configurable bind address via `BIND_ADDRESS` environment variable (default `0.0.0.0:3000`).

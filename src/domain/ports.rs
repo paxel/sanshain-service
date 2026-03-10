@@ -80,4 +80,33 @@ pub trait SpecRepository: Send + Sync {
 
     /// List all clients.
     fn list_clients(&self) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    // --- Auth ---
+
+    /// Count total users.
+    fn user_count(&self) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
+
+    /// Find a user by username.
+    fn find_user(&self, username: &str) -> impl Future<Output = Result<Option<User>, RepositoryError>> + Send;
+
+    /// Create a new user.
+    fn create_user(&self, username: &str, password_hash: &str, is_admin: bool) -> impl Future<Output = Result<User, RepositoryError>> + Send;
+
+    /// Update a user's password hash.
+    fn update_password(&self, user_id: i64, new_hash: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Create a session for a user, returning the session with a generated token.
+    fn create_session(&self, user_id: i64, expires_at: &str) -> impl Future<Output = Result<Session, RepositoryError>> + Send;
+
+    /// Validate a session token, returning the user and session if valid and not expired.
+    fn validate_session(&self, token: &str) -> impl Future<Output = Result<Option<(User, Session)>, RepositoryError>> + Send;
+
+    /// Delete a session (logout).
+    fn delete_session(&self, token: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Get a setting value by key.
+    fn get_setting(&self, key: &str) -> impl Future<Output = Result<Option<String>, RepositoryError>> + Send;
+
+    /// Set a setting value.
+    fn set_setting(&self, key: &str, value: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }
