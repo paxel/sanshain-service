@@ -92,19 +92,55 @@ pub async fn require_endpoint(
     branch: &str,
     path: &str,
     method: &str,
+    timeout_secs: Option<u64>,
 ) -> Result<String, AppError> {
     let client_id = repo.ensure_client(clientname).await?;
     let service_id = repo.ensure_service(servicename).await?;
 
     let method_upper = method.to_uppercase();
-    let endpoint = repo.find_endpoint(service_id, branch, path, &method_upper).await?;
 
-    let endpoint_id = endpoint.as_ref().map(|e| e.0);
-    let yaml_content = endpoint.map(|e| e.1);
+    let deadline = timeout_secs.map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
+    let poll_interval = std::time::Duration::from_millis(500);
 
-    repo.record_dependency(client_id, endpoint_id, service_id, branch, path, &method_upper).await?;
+    loop {
+        let endpoint = repo.find_endpoint(service_id, branch, path, &method_upper).await?;
 
-    yaml_content.ok_or(AppError::NotFound)
+        // Feature branch fallback: if not found on a non-protected branch, try protected branches
+        let endpoint = if endpoint.is_none() && !repo.is_branch_protected(branch).await? {
+            let protected = repo.list_protected_branches().await?;
+            let mut fallback = None;
+            for pb in &protected {
+                fallback = repo.find_endpoint(service_id, pb, path, &method_upper).await?;
+                if fallback.is_some() {
+                    tracing::info!(
+                        "Falling back to protected branch '{}' for {} {}",
+                        pb, method_upper, path
+                    );
+                    break;
+                }
+            }
+            fallback
+        } else {
+            endpoint
+        };
+
+        if let Some(ref ep) = endpoint {
+            let endpoint_id = Some(ep.0);
+            repo.record_dependency(client_id, endpoint_id, service_id, branch, path, &method_upper).await?;
+            return Ok(ep.1.clone());
+        }
+
+        // If no timeout or deadline passed, return NotFound
+        match deadline {
+            Some(dl) if std::time::Instant::now() < dl => {
+                tokio::time::sleep(poll_interval).await;
+            }
+            _ => {
+                repo.record_dependency(client_id, None, service_id, branch, path, &method_upper).await?;
+                return Err(AppError::NotFound);
+            }
+        }
+    }
 }
 
 pub async fn generate_report(
@@ -546,7 +582,7 @@ paths:
     #[tokio::test]
     async fn test_require_endpoint_not_found() {
         let repo = MockRepo::new();
-        let result = require_endpoint(&repo, "client", "svc", "main", "/missing", "GET").await;
+        let result = require_endpoint(&repo, "client", "svc", "main", "/missing", "GET", None).await;
         assert!(matches!(result, Err(AppError::NotFound)));
     }
 
@@ -566,7 +602,7 @@ paths:
           description: OK
 "#;
         provide_spec(&repo, "svc", "main", yaml).await.unwrap();
-        let result = require_endpoint(&repo, "client", "svc", "main", "/users", "GET").await;
+        let result = require_endpoint(&repo, "client", "svc", "main", "/users", "GET", None).await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("/users"));
     }
@@ -647,8 +683,65 @@ paths:
         assert!(result.is_ok());
 
         // Verify the endpoint was actually updated
-        let content = require_endpoint(&repo, "client", "svc", "feature/xyz", "/users", "GET").await.unwrap();
+        let content = require_endpoint(&repo, "client", "svc", "feature/xyz", "/users", "GET", None).await.unwrap();
         assert!(content.contains("Changed"));
+    }
+
+    #[tokio::test]
+    async fn test_require_feature_branch_fallback_to_main() {
+        let repo = MockRepo::new();
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        // Provide on main only
+        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+
+        // Require on a feature branch that has no endpoints — should fallback to main
+        let result = require_endpoint(&repo, "client", "svc", "feature/abc", "/users", "GET", None).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("/users"));
+    }
+
+    #[tokio::test]
+    async fn test_require_with_timeout_returns_not_found_after_expiry() {
+        let repo = MockRepo::new();
+        let start = std::time::Instant::now();
+        let result = require_endpoint(&repo, "client", "svc", "main", "/missing", "GET", Some(1)).await;
+        let elapsed = start.elapsed();
+        assert!(matches!(result, Err(AppError::NotFound)));
+        assert!(elapsed >= std::time::Duration::from_millis(500), "should have polled at least once");
+    }
+
+    #[tokio::test]
+    async fn test_require_no_fallback_on_protected_branch() {
+        let repo = MockRepo::new();
+        // Provide on main, require on master (also protected) — no fallback, should 404
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+
+        // master is protected, so no fallback — endpoint not on master → NotFound
+        let result = require_endpoint(&repo, "client", "svc", "master", "/users", "GET", None).await;
+        assert!(matches!(result, Err(AppError::NotFound)));
     }
 
     #[tokio::test]
@@ -783,7 +876,7 @@ paths:
           description: OK
 "#;
         provide_spec(&repo, "svc", "main", yaml).await.unwrap();
-        require_endpoint(&repo, "webclient", "svc", "main", "/users", "GET").await.unwrap();
+        require_endpoint(&repo, "webclient", "svc", "main", "/users", "GET", None).await.unwrap();
 
         let clients = list_clients(&repo).await.unwrap();
         assert!(clients.contains(&"webclient".to_string()));

@@ -37,9 +37,13 @@ Request the OpenAPI snippet for a specific endpoint and record the dependency.
 - `branch`: Branch name.
 - `path`: Endpoint path.
 - `method`: HTTP method (GET, POST, etc.).
+- `timeout` *(optional)*: Long-polling timeout in seconds. If the endpoint is not yet available, the server will poll until it appears or the timeout expires.
+
+**Feature Branch Fallback:** If the endpoint is not found on a non-protected (feature) branch, SanShain automatically falls back to protected branches (e.g., `main`, `master`).
 
 **Example:**
 `GET /require?clientname=WebClient&servicename=UserService&branch=main&path=/users&method=GET`
+`GET /require?clientname=WebClient&servicename=UserService&branch=feature/xyz&path=/users&method=GET&timeout=30`
 
 ### 3. Protected Branches (Admin)
 Manage which branches enforce immutable endpoint paths. By default, `main` and `master` are protected. On non-protected (feature) branches, endpoint DTOs can be freely updated.

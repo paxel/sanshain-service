@@ -94,6 +94,7 @@ struct RequireParams {
     branch: String,
     path: String,
     method: String,
+    timeout: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -149,6 +150,7 @@ async fn require(
         &params.branch,
         &params.path,
         &params.method,
+        params.timeout,
     )
     .await
     .map_err(app_error_to_status)
