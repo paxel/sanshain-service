@@ -76,6 +76,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Paginated YAML viewer for large OpenAPI files (80 lines per page) used in both service and client YAML views.
 - New admin API endpoints: `GET /admin/clients/{name}/branches` and `GET /admin/clients/{name}/branches/{branch}/endpoints` for client dependency drill-down.
 
+#### Graph View
+- Redesigned dependency graph: unified node model where services that are also clients appear as a single node (no artificial client/service split).
+- Top-down tree layout (`graph TD`) for clearer hierarchy visualization.
+- Cycle detection with red-colored edges and a warning banner when circular dependencies exist.
+- Detailed view toggle: labels each edge with endpoint path and HTTP method.
+- Color-coded legend distinguishing client-only, service-only, and dual-role nodes.
+- Improved mermaid theming with custom colors, fonts, and stroke styles.
+
 #### DevOps
 - GitHub Actions CI workflow: build and test on every push and pull request.
 - GitHub Actions Release workflow: manually triggered via GitHub UI to create a release with Linux binary, Dockerfile, docker-compose.yaml, and CHANGELOG.

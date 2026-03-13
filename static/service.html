@@ -7,7 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
     <script>
-        mermaid.initialize({startOnLoad: false});
+        mermaid.initialize({startOnLoad: false, theme: 'base', themeVariables: {fontSize: '14px', fontFamily: 'ui-sans-serif, system-ui, sans-serif'}});
     </script>
     <style>
         .endpoint-card {
@@ -68,18 +68,38 @@
     </div>
 
     <div id="graph-section" class="hidden">
-        <h2 class="text-xl font-semibold mb-6 flex items-center">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-semibold flex items-center">
                 <span class="bg-purple-100 text-purple-700 p-2 rounded-lg mr-3">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                               d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
                     </svg>
                 </span>
-            Dependency Graph
-        </h2>
+                Dependency Graph
+            </h2>
+            <div class="flex items-center space-x-3">
+                <label class="flex items-center space-x-2 text-sm text-slate-600 cursor-pointer select-none">
+                    <input type="checkbox" id="graph-detailed-toggle" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+                    <span>Detailed view</span>
+                </label>
+            </div>
+        </div>
+        <div id="graph-cycle-warning" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center">
+            <svg class="w-5 h-5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+            </svg>
+            <span id="graph-cycle-text">Circular dependencies detected (shown in red).</span>
+        </div>
         <div id="graph-container"
              class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex justify-center overflow-x-auto">
             <div id="mermaid-graph" class="mermaid"></div>
+        </div>
+        <div class="mt-4 flex flex-wrap gap-4 text-xs text-slate-500">
+            <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#ccfbf1;border:2px solid #14b8a6"></span> Client only</div>
+            <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#e0e7ff;border:2px solid #6366f1"></span> Service only</div>
+            <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#fef3c7;border:2px solid #f59e0b"></span> Client &amp; Service</div>
+            <div class="flex items-center gap-1.5"><span class="w-6 h-0.5 rounded" style="background:#ef4444"></span> Circular dependency</div>
         </div>
     </div>
 
@@ -631,6 +651,12 @@
         renderClientList(allClients.filter(name => name.toLowerCase().includes(q)));
     });
 
+    let lastGraphReport = null;
+
+    document.getElementById('graph-detailed-toggle').addEventListener('change', function() {
+        if (lastGraphReport) renderGraph(lastGraphReport, this.checked);
+    });
+
     async function showGraph() {
         document.getElementById('service-section').classList.add('hidden');
         document.getElementById('client-section').classList.add('hidden');
@@ -641,39 +667,166 @@
 
         try {
             const report = await fetchJSON('/report?branch=main');
+            lastGraphReport = report;
             if (report.dependency_graph.length === 0) {
                 graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">No dependencies found to visualize.</div>';
+                document.getElementById('graph-cycle-warning').classList.add('hidden');
                 return;
             }
-
-            let mmd = 'graph LR\n';
-            mmd += '  subgraph Clients\n';
-            const clients = [...new Set(report.dependency_graph.map(d => d.client))];
-            clients.forEach(c => mmd += `    ${c}([${c}])\n`);
-            mmd += '  end\n';
-
-            mmd += '  subgraph Services\n';
-            const services = [...new Set(report.dependency_graph.map(d => d.service))];
-            services.forEach(s => mmd += `    ${s}[[${s}]]\n`);
-            mmd += '  end\n';
-
-            const edges = new Set();
-            report.dependency_graph.forEach(d => {
-                const edge = `  ${d.client} --> ${d.service}`;
-                edges.add(edge);
-            });
-
-            mmd += Array.from(edges).join('\n');
-
-            // Clear and render
-            graphDiv.removeAttribute('data-processed');
-            graphDiv.innerHTML = mmd;
-            await mermaid.run({
-                nodes: [graphDiv]
-            });
+            const detailed = document.getElementById('graph-detailed-toggle').checked;
+            await renderGraph(report, detailed);
         } catch (err) {
             graphDiv.innerHTML = `<div class="text-red-500 p-4">Error generating graph: ${err.message}</div>`;
         }
+    }
+
+    function detectCycles(adjMap) {
+        const WHITE = 0, GRAY = 1, BLACK = 2;
+        const color = {};
+        const parent = {};
+        const cycleEdges = new Set();
+
+        for (const node of adjMap.keys()) color[node] = WHITE;
+
+        function dfs(u) {
+            color[u] = GRAY;
+            for (const v of (adjMap.get(u) || [])) {
+                if (color[v] === undefined) color[v] = WHITE;
+                if (color[v] === GRAY) {
+                    cycleEdges.add(`${u}-->${v}`);
+                    // trace back
+                    let cur = u;
+                    while (cur && cur !== v) {
+                        const p = parent[cur];
+                        if (p !== undefined) cycleEdges.add(`${p}-->${cur}`);
+                        cur = p;
+                    }
+                } else if (color[v] === WHITE) {
+                    parent[v] = u;
+                    dfs(v);
+                }
+            }
+            color[u] = BLACK;
+        }
+
+        for (const node of adjMap.keys()) {
+            if (color[node] === WHITE) dfs(node);
+        }
+        return cycleEdges;
+    }
+
+    function sanitizeId(name) {
+        return name.replace(/[^a-zA-Z0-9_]/g, '_');
+    }
+
+    async function renderGraph(report, detailed) {
+        const graphDiv = document.getElementById('mermaid-graph');
+        const warningDiv = document.getElementById('graph-cycle-warning');
+
+        // Collect all unique nodes and build adjacency
+        const allNodes = new Set();
+        const adjMap = new Map();
+        // edges: Map<"from->to", Set<"METHOD /path">>
+        const edgeLabels = new Map();
+
+        report.dependency_graph.forEach(d => {
+            const from = d.client;
+            const to = d.service;
+            allNodes.add(from);
+            allNodes.add(to);
+            if (!adjMap.has(from)) adjMap.set(from, []);
+            if (!adjMap.get(from).includes(to)) adjMap.get(from).push(to);
+            const key = `${from}-->${to}`;
+            if (!edgeLabels.has(key)) edgeLabels.set(key, new Set());
+            edgeLabels.get(key).add(`${d.method} ${d.path}`);
+        });
+
+        // Detect cycles
+        const cycleEdges = detectCycles(adjMap);
+        const hasCycles = cycleEdges.size > 0;
+
+        if (hasCycles) {
+            warningDiv.classList.remove('hidden');
+        } else {
+            warningDiv.classList.add('hidden');
+        }
+
+        // Determine which nodes are both client and service
+        const clientNodes = new Set(report.dependency_graph.map(d => d.client));
+        const serviceNodes = new Set(report.dependency_graph.map(d => d.service));
+
+        // Build mermaid
+        let mmd = 'graph TD\n';
+
+        // Style definitions
+        mmd += '  classDef serviceOnly fill:#e0e7ff,stroke:#6366f1,stroke-width:2px,color:#3730a3\n';
+        mmd += '  classDef clientOnly fill:#ccfbf1,stroke:#14b8a6,stroke-width:2px,color:#115e59\n';
+        mmd += '  classDef both fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n';
+        mmd += '  classDef cycleEdge stroke:#ef4444,stroke-width:3px\n';
+        mmd += '  linkStyle default stroke:#94a3b8,stroke-width:2px\n';
+
+        // Node declarations
+        for (const node of allNodes) {
+            const id = sanitizeId(node);
+            const isClient = clientNodes.has(node);
+            const isService = serviceNodes.has(node);
+            if (isClient && isService) {
+                mmd += `  ${id}([["${node}"])\n`;
+            } else if (isService) {
+                mmd += `  ${id}[["${node}"]]\n`;
+            } else {
+                mmd += `  ${id}(["${node}"])\n`;
+            }
+        }
+
+        // Assign classes
+        for (const node of allNodes) {
+            const id = sanitizeId(node);
+            const isClient = clientNodes.has(node);
+            const isService = serviceNodes.has(node);
+            if (isClient && isService) {
+                mmd += `  class ${id} both\n`;
+            } else if (isService) {
+                mmd += `  class ${id} serviceOnly\n`;
+            } else {
+                mmd += `  class ${id} clientOnly\n`;
+            }
+        }
+
+        // Edges
+        let edgeIndex = 0;
+        const cycleEdgeIndices = [];
+        const uniqueEdges = new Set();
+        report.dependency_graph.forEach(d => {
+            const key = `${d.client}-->${d.service}`;
+            if (uniqueEdges.has(key)) return;
+            uniqueEdges.add(key);
+
+            const fromId = sanitizeId(d.client);
+            const toId = sanitizeId(d.service);
+            const labels = edgeLabels.get(key);
+            const isCycle = cycleEdges.has(key);
+
+            if (detailed && labels && labels.size > 0) {
+                const labelText = [...labels].slice(0, 5).join('\\n') + (labels.size > 5 ? `\\n+${labels.size - 5} more` : '');
+                mmd += `  ${fromId} -->|"${labelText}"| ${toId}\n`;
+            } else {
+                mmd += `  ${fromId} --> ${toId}\n`;
+            }
+
+            if (isCycle) cycleEdgeIndices.push(edgeIndex);
+            edgeIndex++;
+        });
+
+        // Style cycle edges red
+        for (const idx of cycleEdgeIndices) {
+            mmd += `  linkStyle ${idx} stroke:#ef4444,stroke-width:3px\n`;
+        }
+
+        // Clear and render
+        graphDiv.removeAttribute('data-processed');
+        graphDiv.innerHTML = mmd;
+        await mermaid.run({ nodes: [graphDiv] });
     }
 
     function closeModal() {
