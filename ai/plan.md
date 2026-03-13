@@ -101,8 +101,9 @@ All client-side implementations (plugins, CLIs, hooks) must support a **timeout/
 
 ## 5. Phase 4: Deployment & Infrastructure
 - [x] **Docker**:
-    - [x] Create a multi-stage `Dockerfile` to optimize image size (build in Rust image, run in Alpine).
-    - [x] `docker-compose.yaml` for local development including the service and a persistent volume for the SQLite DB.
+    - [x] Create a multi-stage `Dockerfile` to build from source (useful without Rust toolchain).
+    - [x] `Dockerfile.release.template` for building Docker images from pre-compiled binaries during release.
+    - [x] `docker-compose.release.template.yaml` referencing the published GHCR image (version placeholder substituted at release time).
     - [x] `.dockerignore` to optimize build context.
 - [x] **Health Endpoint**:
     - [x] `GET /health` returns `200 OK` for liveness/readiness probes.

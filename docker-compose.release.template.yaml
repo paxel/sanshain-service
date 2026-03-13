@@ -1,6 +1,6 @@
 services:
   sanshain:
-    build: .
+    image: ghcr.io/paxel/sanshain-service:__VERSION__
     ports:
       - "3000:3000"
     volumes:

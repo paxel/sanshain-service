@@ -42,10 +42,19 @@ jobs:
 
       - name: Prepare release assets
         run: |
-          mkdir -p release-assets
+          mkdir -p release-assets/docker-context
           cp target/x86_64-unknown-linux-gnu/release/sanshain_service_bin release-assets/sanshain-linux-amd64
-          cp Dockerfile release-assets/
-          cp docker-compose.yaml release-assets/
+
+          # Prepare Dockerfile from template (copy binary into image)
+          cp Dockerfile.release.template release-assets/docker-context/Dockerfile
+          cp release-assets/sanshain-linux-amd64 release-assets/docker-context/sanshain-linux-amd64
+          cp -r static release-assets/docker-context/static
+
+          # Prepare docker-compose.yaml from template (substitute version)
+          sed 's|__VERSION__|${{ github.event.inputs.tag }}|g' docker-compose.release.template.yaml > release-assets/docker-compose.yaml
+
+          # Include Dockerfile and CHANGELOG in release assets
+          cp release-assets/docker-context/Dockerfile release-assets/Dockerfile
           cp CHANGELOG.md release-assets/
 
       - name: Create GitHub Release
@@ -79,7 +88,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: release-assets/docker-context
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

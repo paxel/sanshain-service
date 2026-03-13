@@ -31,7 +31,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - AGPL-3.0 License.
 - `GET /health` endpoint for liveness/readiness probes.
 - Multi-stage `Dockerfile` (build in Rust Alpine, run in Alpine).
-- `docker-compose.yaml` for local development with persistent SQLite volume.
+- `Dockerfile.release.template` for building Docker images from pre-compiled binaries during release.
+- `docker-compose.release.template.yaml` for running the published Docker image with a database volume.
 - `.dockerignore` to optimize Docker build context.
 - SourceHut CI pipeline (`.build.yml`): build and test on Alpine Linux.
 - Per-adapter migration structure (`src/infrastructure/migrations/sqlite/`) with `run_migrations()` on `SqliteSpecRepository`.
@@ -63,5 +64,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### DevOps
 - GitHub Actions CI workflow: build and test on every push and pull request.
 - GitHub Actions Release workflow: manually triggered via GitHub UI to create a release with Linux binary, Dockerfile, docker-compose.yaml, and CHANGELOG.
-- Docker image built and pushed to GitHub Container Registry (ghcr.io) on release.
+- Docker image built from release template (pre-compiled binary) and pushed to GitHub Container Registry (ghcr.io) on release.
+- Release includes a ready-to-use `Dockerfile` and `docker-compose.yaml` (with correct image version) generated from templates.
 - README updated with initial admin password setup procedure and installation options (source, binary, Docker).

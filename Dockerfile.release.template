@@ -1,0 +1,18 @@
+FROM alpine:3.21
+
+RUN apk add --no-cache sqlite-libs
+
+COPY sanshain-linux-amd64 /usr/local/bin/sanshain
+RUN chmod +x /usr/local/bin/sanshain
+COPY static/ /app/static/
+
+WORKDIR /app
+
+ENV DATABASE_URL="sqlite:/data/sanshain.db?mode=rwc"
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget -qO- http://localhost:3000/health || exit 1
+
+CMD ["sanshain"]

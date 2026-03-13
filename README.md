@@ -37,7 +37,7 @@ docker pull ghcr.io/paxel/sanshain-service:latest
 docker run -p 3000:3000 -v sanshain-data:/data ghcr.io/paxel/sanshain-service:latest
 ```
 
-Or use the `Dockerfile` and `docker-compose.yaml` included in each release.
+Or use the `Dockerfile` and `docker-compose.yaml` included in each [release](https://github.com/paxel/sanshain-service/releases) to run with Docker Compose.
 
 ### Initial Admin Setup
 
@@ -187,16 +187,14 @@ cargo run
 On first start, the root admin credentials are printed to stderr. The service listens on `0.0.0.0:3000` by default. Override with `BIND_ADDRESS`.
 
 ### Docker
-Build and run with Docker:
+The existing `Dockerfile` builds the service from source (multi-stage build). This is useful if you don't have a Rust toolchain installed:
 ```bash
 docker build -t sanshain .
 docker run -p 3000:3000 -v sanshain-data:/data sanshain
 ```
 
-Or use Docker Compose for local development:
-```bash
-docker compose up
-```
+For production use, pull the pre-built image from GHCR or use the `Dockerfile` and `docker-compose.yaml` from the [release assets](https://github.com/paxel/sanshain-service/releases).
+
 The SQLite database is persisted in a Docker volume at `/data/sanshain.db`.
 
 ### Health Check
