@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.1.0] - 2025-03-10
+## [0.1.0] - 2025-03-13
 
 ### Added
 - Initial release of Sanshain Service.
@@ -42,21 +42,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Dev mode toggle (`POST /admin/settings/dev-mode`): when enabled, non-admin API endpoints are open without authentication; when disabled (default), all API endpoints require a valid session.
 - Admin endpoints always require a valid admin session token.
 - Configurable bind address via `BIND_ADDRESS` environment variable (default `0.0.0.0:3000`).
-
-- `api.yaml` — Hand-written OpenAPI 3.0.3 specification for the client-facing `/provide` and `/require` endpoints, intended as the contract for all client plugins (Maven, Gradle, Cargo, Go, npm, etc.).
-
-### Changed
-- Consolidated SQLite migrations from four separate files into a single initial migration file (pre-release cleanup).
 - Initial admin setup message now includes a URL (`http://localhost:3000/admin.html`) for changing the password.
 - Upgraded all dependencies to latest releases: axum 0.7→0.8, sqlx 0.7→0.8, tower 0.4→0.5, tower-http 0.5→0.6, rand 0.8→0.9, openapiv3 2.0→2.2, argon2 0.5→0.6.0-rc.7.
-
-### Fixed
 - Admin dashboard now fetches and sends CSRF tokens for all state-changing requests (POST/DELETE).
-- Fixed dev mode toggle payload key (`dev_mode` → `enabled`) to match backend API.
-- Fixed change-password form field name (`current_password` → `old_password`) to match backend API.
-- Fixed 403 error on dashboard graph and service list: `fetchJSON` now sends the session Bearer token from localStorage with API requests.
+- `api.yaml` — Hand-written OpenAPI 3.0.3 specification for the client-facing `/provide` and `/require` endpoints, intended as the contract for all client plugins (Maven, Gradle, Cargo, Go, npm, etc.).
 
-### API Token Management
+#### API Token Management
 - API token management for programmatic/CI access: `POST /auth/tokens` (create), `GET /auth/tokens` (list), `DELETE /auth/tokens/{id}` (revoke).
 - Tokens use `san_` prefix (e.g., `san_a1b2c3...`) for easy identification; only SHA-256 hash stored in DB.
 - Raw token shown only once at creation time; tokens have configurable expiry (1–3650 days, default 365).
@@ -68,14 +59,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - One-time token display modal with copy-to-clipboard and Maven `settings.xml` usage hint.
 - Introduced Askama 0.13 for server-side HTML templating (compile-time checked, auto-escaped).
 
-### User Management
+#### User Management
 - Local user self-registration (`POST /auth/register`) — disabled by default, admin enables via `POST /admin/settings/local-users`.
 - Registered users require admin approval before login (prevents unauthorized access).
 - Admin endpoints for user management: list (`GET /admin/users`), approve (`POST /admin/users/{id}/approve`), delete (`DELETE /admin/users/{id}`).
 - `GET /admin/settings/local-users` to check local users setting status.
 - Admin dashboard UI: Local User Registration toggle, Users list with approve/delete actions and status badges (admin, approved, pending).
 
-### DevOps
+#### DevOps
 - GitHub Actions CI workflow: build and test on every push and pull request.
 - GitHub Actions Release workflow: manually triggered via GitHub UI to create a release with Linux binary, Dockerfile, docker-compose.yaml, and CHANGELOG.
 - Docker image built from release template (pre-compiled binary) and pushed to GitHub Container Registry (ghcr.io) on release.
