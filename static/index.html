@@ -111,7 +111,10 @@
 
     <script>
         async function fetchJSON(url) {
-            const res = await fetch(url);
+            const headers = {};
+            const token = localStorage.getItem('sanshain_token');
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const res = await fetch(url, { headers });
             if (!res.ok) throw new Error(`Fetch error: ${res.status}`);
             return res.json();
         }

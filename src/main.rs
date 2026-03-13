@@ -231,8 +231,9 @@ pub fn create_app(state: AppState) -> Router {
         .route_layer(middleware::from_fn_with_state(state.clone(), api_auth));
 
     Router::new()
-        .route("/", get(|| async { Redirect::permanent("/index.html") }))
+        .route("/", get(|| async { Redirect::permanent("/landing.html") }))
         .route("/health", get(health))
+        .route("/version", get(version))
         .route("/csrf-token", get(generate_csrf_token))
         .route("/auth/login", post(auth_login))
         .route("/auth/logout", post(auth_logout))
@@ -274,6 +275,17 @@ struct ReportParams {
 
 async fn health() -> StatusCode {
     StatusCode::OK
+}
+
+#[derive(Serialize)]
+struct VersionResponse {
+    version: &'static str,
+}
+
+async fn version() -> Json<VersionResponse> {
+    Json(VersionResponse {
+        version: env!("CARGO_PKG_VERSION"),
+    })
 }
 
 #[derive(Serialize)]

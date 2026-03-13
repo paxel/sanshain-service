@@ -60,7 +60,9 @@ Sanshain is a service designed to manage and distribute OpenAPI specifications f
 - [x] Implement a simple frontend to navigate and search for services and clients.
 - [x] Service overview: List branches and endpoints.
 - [x] Client overview: List used services and endpoints (integrated in branch view).
-- [x] Set the root URL (`/`) to redirect to the dashboard.
+- [x] Set the root URL (`/`) to redirect to the landing page.
+- [x] Landing page (`/landing.html`) with service info, version, and links to Admin Dashboard, Account, and Service Overview.
+- [x] `GET /version` endpoint returning the service version.
 - [x] Dependency graph visualization (further refinement).
 
 ## 3.5 Client API Contract

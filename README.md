@@ -156,6 +156,17 @@ Approved users can create long-lived API tokens for use in CI pipelines (Jenkins
 
 **User Account Page:** Visit `/account.html` to register, log in, change your password, and create/manage API tokens via the web UI.
 
+### Web Pages
+
+- `/` — Landing page with service info, version, and links to all pages.
+- `/index.html` — Service overview: registered services, dependency graphs, and compatibility reports.
+- `/admin.html` — Admin dashboard: manage services, branches, clients, protected branches, and settings.
+- `/account.html` — Account management: sign in, register, profile, and API tokens.
+
+### Version
+
+`GET /version` returns the service version as JSON: `{"version": "0.1.0"}`.
+
 ### 4. Admin API (Session-Based Authentication)
 All `/admin/*` endpoints require a valid admin session token (`Authorization: Bearer <token>`).
 
