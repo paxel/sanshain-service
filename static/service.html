@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sanshain - OpenAPI Distribution Service</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        mermaid.initialize({ startOnLoad: false });
+    </script>
+    <style>
+        .endpoint-card { transition: all 0.2s; }
+        .endpoint-card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+    <nav class="bg-indigo-700 text-white p-4 shadow-lg">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-2xl font-bold tracking-tight">Sanshain Dashboard</h1>
+            <div class="space-x-4">
+                <a href="/" class="hover:text-indigo-200">Services</a>
+                <a href="#graph" onclick="showGraph()" class="hover:text-indigo-200">Graph</a>
+                <a href="#clients" onclick="showClients()" class="hover:text-indigo-200">Clients</a>
+                <a href="/account.html" class="hover:text-indigo-200">Account</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mx-auto p-6">
+        <div id="service-section">
+            <h2 class="text-xl font-semibold mb-6 flex items-center">
+                <span class="bg-indigo-100 text-indigo-700 p-2 rounded-lg mr-3">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                    </svg>
+                </span>
+                Provided Services & Branches
+            </h2>
+            <div id="services-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Services will be loaded here -->
+                <div class="animate-pulse bg-white p-6 rounded-xl border border-slate-200 h-32"></div>
+                <div class="animate-pulse bg-white p-6 rounded-xl border border-slate-200 h-32"></div>
+            </div>
+        </div>
+
+        <div id="graph-section" class="hidden">
+            <h2 class="text-xl font-semibold mb-6 flex items-center">
+                <span class="bg-purple-100 text-purple-700 p-2 rounded-lg mr-3">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
+                    </svg>
+                </span>
+                Dependency Graph
+            </h2>
+            <div id="graph-container" class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex justify-center overflow-x-auto">
+                <div id="mermaid-graph" class="mermaid"></div>
+            </div>
+        </div>
+
+        <div id="client-section" class="hidden">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-semibold flex items-center">
+                    <span class="bg-teal-100 text-teal-700 p-2 rounded-lg mr-3">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                        </svg>
+                    </span>
+                    Client Dependencies
+                </h2>
+                <div class="relative w-64">
+                    <input type="text" id="client-search" placeholder="Search for clients..." 
+                        class="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    <div class="absolute left-3 top-2.5 text-slate-400">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            <div id="clients-list" class="space-y-4">
+                <!-- Clients will be loaded here -->
+                <div class="text-center py-10 text-slate-500">Select a branch to see detailed reports.</div>
+            </div>
+        </div>
+    </main>
+
+    <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+            <div class="p-6 border-b border-slate-100 flex justify-between items-center">
+                <h3 id="modal-title" class="text-2xl font-bold text-slate-800">Branch Details</h3>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 transition-colors">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div id="modal-content" class="p-6 overflow-y-auto flex-grow bg-slate-50">
+                <!-- Detailed branch/report info -->
+            </div>
+            <div class="p-4 border-t border-slate-100 flex justify-end bg-white rounded-b-2xl">
+                <a id="md-report-btn" href="#" target="_blank" class="bg-slate-800 text-white px-4 py-2 rounded-lg hover:bg-slate-700 transition-colors flex items-center">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    Download Markdown Report
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function fetchJSON(url) {
+            const headers = {};
+            const token = localStorage.getItem('sanshain_token');
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const res = await fetch(url, { headers });
+            if (!res.ok) throw new Error(`Fetch error: ${res.status}`);
+            return res.json();
+        }
+
+        async function loadServices() {
+            document.getElementById('service-section').classList.remove('hidden');
+            document.getElementById('client-section').classList.add('hidden');
+            document.getElementById('graph-section').classList.add('hidden');
+            const list = document.getElementById('services-list');
+            list.innerHTML = '<div class="col-span-full text-center py-10">Loading services...</div>';
+
+            try {
+                // Since we don't have a direct /services endpoint, we'll try to get all known branches
+                // But /report requires a branch. We need a way to discover branches.
+                
+                const report = await fetchJSON('/report?branch=main').catch(() => null);
+                
+                if (!report || (report.dependency_graph.length === 0 && report.unused_endpoints.length === 0)) {
+                    list.innerHTML = `
+                        <div class="col-span-full bg-white p-10 rounded-2xl border-2 border-dashed border-slate-200 text-center">
+                            <div class="text-slate-400 mb-4">
+                                <svg class="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+                                </svg>
+                            </div>
+                            <h3 class="text-lg font-medium text-slate-900">No services found for 'main'</h3>
+                            <p class="text-slate-500 mt-1">Provide an OpenAPI spec via POST /provide to see it here.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                renderReport(report, 'main');
+            } catch (err) {
+                list.innerHTML = `<div class="col-span-full text-red-500">Error: ${err.message}</div>`;
+            }
+        }
+
+        function renderReport(report, branchName) {
+            const list = document.getElementById('services-list');
+            list.innerHTML = '';
+            
+            // Group by service
+            const services = {};
+            [...report.dependency_graph, ...report.unused_endpoints].forEach(item => {
+                const sName = item.service_name || item.requested_service_name;
+                if (!services[sName]) services[sName] = { endpoints: [] };
+                services[sName].endpoints.push(item);
+            });
+
+            Object.entries(services).forEach(([name, data]) => {
+                const card = document.createElement('div');
+                card.className = 'bg-white p-6 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
+                card.onclick = () => showBranchDetails(name, branchName, report);
+                card.innerHTML = `
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="font-bold text-lg text-slate-800">${name}</h3>
+                        <span class="px-2 py-1 bg-slate-100 text-slate-600 text-xs font-semibold rounded uppercase tracking-wider">${branchName}</span>
+                    </div>
+                    <div class="text-sm text-slate-500">
+                        <div class="flex items-center mb-1">
+                            <span class="w-2 h-2 rounded-full bg-green-500 mr-2"></span>
+                            ${data.endpoints.length} endpoints defined
+                        </div>
+                    </div>
+                `;
+                list.appendChild(card);
+            });
+        }
+
+        async function showBranchDetails(serviceName, branchName, report) {
+            document.getElementById('modal').classList.remove('hidden');
+            document.getElementById('modal-title').innerText = `${serviceName} (${branchName})`;
+            document.getElementById('md-report-btn').href = `/report/markdown?branch=${branchName}`;
+            const content = document.getElementById('modal-content');
+            
+            const serviceEndpoints = [...report.dependency_graph, ...report.unused_endpoints]
+                .filter(e => (e.service_name || e.requested_service_name) === serviceName);
+
+            content.innerHTML = `
+                <div class="mb-8">
+                    <h4 class="text-sm font-semibold text-slate-400 uppercase tracking-widest mb-4">Endpoints</h4>
+                    <div class="space-y-3">
+                        ${serviceEndpoints.map(e => `
+                            <div class="bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-center">
+                                <div class="flex items-center">
+                                    <span class="px-2 py-1 rounded text-[10px] font-bold uppercase mr-3 ${getMethodColor(e.method || e.requested_method)}">
+                                        ${e.method || e.requested_method}
+                                    </span>
+                                    <span class="font-mono text-sm text-slate-700">${e.path || e.requested_path}</span>
+                                </div>
+                                <div class="text-xs text-slate-400">
+                                    ${e.clients ? `<span class="bg-indigo-50 text-indigo-600 px-2 py-1 rounded-full">${e.clients.length} clients</span>` : '<span class="italic text-slate-300">Unused</span>'}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function getMethodColor(m) {
+            const colors = {
+                'GET': 'bg-blue-100 text-blue-700',
+                'POST': 'bg-green-100 text-green-700',
+                'PUT': 'bg-amber-100 text-amber-700',
+                'DELETE': 'bg-red-100 text-red-700',
+                'PATCH': 'bg-purple-100 text-purple-700'
+            };
+            return colors[m.toUpperCase()] || 'bg-slate-100 text-slate-700';
+        }
+
+        function showClients() {
+            document.getElementById('service-section').classList.add('hidden');
+            document.getElementById('graph-section').classList.add('hidden');
+            document.getElementById('client-section').classList.remove('hidden');
+        }
+
+        async function showGraph() {
+            document.getElementById('service-section').classList.add('hidden');
+            document.getElementById('client-section').classList.add('hidden');
+            document.getElementById('graph-section').classList.remove('hidden');
+            
+            const graphDiv = document.getElementById('mermaid-graph');
+            graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">Generating dependency graph...</div>';
+            
+            try {
+                const report = await fetchJSON('/report?branch=main');
+                if (report.dependency_graph.length === 0) {
+                    graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">No dependencies found to visualize.</div>';
+                    return;
+                }
+
+                let mmd = 'graph LR\n';
+                mmd += '  subgraph Clients\n';
+                const clients = [...new Set(report.dependency_graph.map(d => d.client))];
+                clients.forEach(c => mmd += `    ${c}([${c}])\n`);
+                mmd += '  end\n';
+
+                mmd += '  subgraph Services\n';
+                const services = [...new Set(report.dependency_graph.map(d => d.service))];
+                services.forEach(s => mmd += `    ${s}[[${s}]]\n`);
+                mmd += '  end\n';
+                
+                const edges = new Set();
+                report.dependency_graph.forEach(d => {
+                    const edge = `  ${d.client} --> ${d.service}`;
+                    edges.add(edge);
+                });
+
+                mmd += Array.from(edges).join('\n');
+                
+                // Clear and render
+                graphDiv.removeAttribute('data-processed');
+                graphDiv.innerHTML = mmd;
+                await mermaid.run({
+                    nodes: [graphDiv]
+                });
+            } catch (err) {
+                graphDiv.innerHTML = `<div class="text-red-500 p-4">Error generating graph: ${err.message}</div>`;
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('modal').classList.add('hidden');
+        }
+
+        loadServices();
+    </script>
+</body>
+</html>

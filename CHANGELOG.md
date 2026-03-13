@@ -63,7 +63,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Auth middleware accepts both session cookies and `Authorization: Bearer san_...` API tokens.
 - User dashboard page (`/dashboard`) with Askama server-side templates for token management UI.
 - User account page (`/account.html`) — web frontend for self-registration, login, password change, and API token creation/management.
-- Landing page (`/landing.html`) with service info, version display, and links to Admin Dashboard, Account, and Service Overview pages.
+- Landing page (`/index.html`) with service info, version display, and links to Admin Dashboard, Account, and Service Overview pages.
 - `GET /version` endpoint returning the service version from `Cargo.toml`.
 - One-time token display modal with copy-to-clipboard and Maven `settings.xml` usage hint.
 - Introduced Askama 0.13 for server-side HTML templating (compile-time checked, auto-escaped).

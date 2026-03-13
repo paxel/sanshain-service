@@ -231,7 +231,7 @@ pub fn create_app(state: AppState) -> Router {
         .route_layer(middleware::from_fn_with_state(state.clone(), api_auth));
 
     Router::new()
-        .route("/", get(|| async { Redirect::permanent("/landing.html") }))
+        .route("/", get(|| async { Redirect::permanent("/index.html") }))
         .route("/health", get(health))
         .route("/version", get(version))
         .route("/csrf-token", get(generate_csrf_token))
@@ -824,7 +824,7 @@ async fn dashboard_page(
         }
         None => {
             // No auth — show login redirect page
-            Ok(axum::response::Redirect::temporary("/index.html").into_response())
+            Ok(axum::response::Redirect::temporary("/service.html").into_response())
         }
     }
 }

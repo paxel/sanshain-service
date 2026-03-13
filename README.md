@@ -159,7 +159,7 @@ Approved users can create long-lived API tokens for use in CI pipelines (Jenkins
 ### Web Pages
 
 - `/` — Landing page with service info, version, and links to all pages.
-- `/index.html` — Service overview: registered services, dependency graphs, and compatibility reports.
+- `/service.html` — Service overview: registered services, dependency graphs, and compatibility reports.
 - `/admin.html` — Admin dashboard: manage services, branches, clients, protected branches, and settings.
 - `/account.html` — Account management: sign in, register, profile, and API tokens.
 
