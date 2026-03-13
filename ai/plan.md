@@ -141,6 +141,17 @@ All client-side implementations (plugins, CLIs, hooks) must support a **timeout/
     - [x] Registered users require admin approval before they can log in.
     - [x] Admin endpoints: list users (`GET /admin/users`), approve (`POST /admin/users/{id}/approve`), delete (`DELETE /admin/users/{id}`).
     - [ ] External auth delegation (LDAP, Kerberos, Keycloak) — future work.
+- [x] **API Token Management (User Self-Service)**:
+    - [x] Domain model (`ApiToken`) and port methods for API tokens (CRUD).
+    - [x] SQLite migration: `api_tokens` table with `id`, `user_id`, `name`, `token_hash`, `created_at`, `expires_at`, `last_used_at`.
+    - [x] SQLite adapter: implement token CRUD in `sqlite_repository.rs`.
+    - [x] Application service: create (generate `san_` prefixed token, SHA-256 hash, store hash, return raw once), list, revoke tokens.
+    - [x] API endpoints: `POST /auth/tokens`, `GET /auth/tokens`, `DELETE /auth/tokens/{id}`.
+    - [x] Auth middleware: accept `Authorization: Bearer san_...` API tokens alongside session cookies.
+    - [x] Web UI: User dashboard with token management page (Askama server-side templates).
+    - [x] One-time token display modal with copy-to-clipboard and Maven usage hint.
+    - [x] Unit tests for token application services.
+    - [x] Integration tests for token API endpoints and Bearer token auth.
 - [ ] **Data Management**:
     - [x] Delete branches, clients, and services via the admin API.
     - [x] List services, branches, and clients via the admin API.
@@ -168,7 +179,7 @@ All client-side implementations (plugins, CLIs, hooks) must support a **timeout/
 - Static HTML + JS is acceptable for the current scope.
 - [x] Add security headers: CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy.
 - [x] Add CSRF protection for state-changing endpoints (POST/DELETE).
-- [ ] Consider server-side templates (Tera/Askama) only if XSS surface becomes a concern.
+- [x] Introduced Askama server-side templates for new pages (user dashboard/token management). Existing static pages to be migrated incrementally.
 
 ### 9.3 TLS Strategy
 - **Decision**: Rely on a reverse proxy (Traefik/Caddy/Nginx) for TLS termination.

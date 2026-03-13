@@ -71,24 +71,43 @@ use tower_http::services::ServeDir;
 use axum::response::Redirect;
 use axum::http::header::HeaderValue;
 
-/// Middleware: admin endpoints always require a valid admin session token.
+/// Resolve a user from either a session token or a san_ API token.
+async fn resolve_user(repo: &SqliteSpecRepository, token: &str) -> Result<Option<domain::models::User>, StatusCode> {
+    if token.starts_with("san_") {
+        // API token
+        let user = services::validate_api_token(repo, token)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if let Some(u) = user {
+            if u.approved {
+                return Ok(Some(u));
+            }
+        }
+        Ok(None)
+    } else {
+        // Session token
+        let result = services::validate_session(repo, token)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        Ok(result.map(|(u, _)| u))
+    }
+}
+
+/// Middleware: admin endpoints always require a valid admin session token or API token.
 async fn admin_auth(
     State(state): State<AppState>,
     req: axum::http::Request<Body>,
     next: middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
     let token = extract_bearer_token(&req).ok_or(StatusCode::UNAUTHORIZED)?;
-    let (user, _session) = services::validate_session(&state.repo, &token)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let user = resolve_user(&state.repo, &token).await?.ok_or(StatusCode::UNAUTHORIZED)?;
     if !user.is_admin {
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(next.run(req).await)
 }
 
-/// Middleware: non-admin API endpoints require dev_mode=true OR a valid session token.
+/// Middleware: non-admin API endpoints require dev_mode=true OR a valid session/API token.
 async fn api_auth(
     State(state): State<AppState>,
     req: axum::http::Request<Body>,
@@ -101,12 +120,9 @@ async fn api_auth(
         return Ok(next.run(req).await);
     }
 
-    // Dev mode off: require valid session
+    // Dev mode off: require valid session or API token
     let token = extract_bearer_token(&req).ok_or(StatusCode::FORBIDDEN)?;
-    let _valid = services::validate_session(&state.repo, &token)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let _user = resolve_user(&state.repo, &token).await?.ok_or(StatusCode::UNAUTHORIZED)?;
     Ok(next.run(req).await)
 }
 
@@ -223,6 +239,9 @@ pub fn create_app(state: AppState) -> Router {
         .route("/auth/me", get(auth_me))
         .route("/auth/change-password", post(auth_change_password))
         .route("/auth/register", post(auth_register))
+        .route("/auth/tokens", get(list_tokens).post(create_token))
+        .route("/auth/tokens/{id}", axum::routing::delete(revoke_token))
+        .route("/dashboard", get(dashboard_page))
         .merge(api_routes)
         .nest("/admin", admin_routes)
         .fallback_service(ServeDir::new("static"))
@@ -676,3 +695,127 @@ async fn admin_delete_user_handler(
         Err(StatusCode::NOT_FOUND)
     }
 }
+
+// --- API Token Management ---
+
+#[derive(Deserialize)]
+struct CreateTokenPayload {
+    name: String,
+    expires_in_days: Option<u64>,
+}
+
+#[derive(Serialize)]
+struct CreateTokenResponse {
+    id: String,
+    token: String,
+    name: String,
+    expires_in_days: u64,
+}
+
+#[derive(Serialize)]
+struct TokenListItem {
+    id: String,
+    name: String,
+    created_at: String,
+    expires_at: String,
+    last_used_at: Option<String>,
+}
+
+async fn create_token(
+    State(state): State<AppState>,
+    req: axum::http::Request<Body>,
+) -> Result<Json<CreateTokenResponse>, StatusCode> {
+    let token = extract_bearer_token(&req).ok_or(StatusCode::UNAUTHORIZED)?;
+    let user = resolve_user(&state.repo, &token).await?.ok_or(StatusCode::UNAUTHORIZED)?;
+
+    let body_bytes = axum::body::to_bytes(req.into_body(), 1024 * 64)
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let payload: CreateTokenPayload = serde_json::from_slice(&body_bytes)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let expires_in_days = payload.expires_in_days.unwrap_or(365);
+    let (id, raw_token) = services::create_api_token(&state.repo, user.id, &payload.name, expires_in_days)
+        .await
+        .map_err(app_error_to_status)?;
+
+    Ok(Json(CreateTokenResponse {
+        id,
+        token: raw_token,
+        name: payload.name,
+        expires_in_days,
+    }))
+}
+
+async fn list_tokens(
+    State(state): State<AppState>,
+    req: axum::http::Request<Body>,
+) -> Result<Json<Vec<TokenListItem>>, StatusCode> {
+    let token = extract_bearer_token(&req).ok_or(StatusCode::UNAUTHORIZED)?;
+    let user = resolve_user(&state.repo, &token).await?.ok_or(StatusCode::UNAUTHORIZED)?;
+
+    let tokens = services::list_api_tokens(&state.repo, user.id)
+        .await
+        .map_err(app_error_to_status)?;
+
+    Ok(Json(tokens.into_iter().map(|t| TokenListItem {
+        id: t.id,
+        name: t.name,
+        created_at: t.created_at,
+        expires_at: t.expires_at,
+        last_used_at: t.last_used_at,
+    }).collect()))
+}
+
+async fn revoke_token(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    req: axum::http::Request<Body>,
+) -> Result<StatusCode, StatusCode> {
+    let token = extract_bearer_token(&req).ok_or(StatusCode::UNAUTHORIZED)?;
+    let user = resolve_user(&state.repo, &token).await?.ok_or(StatusCode::UNAUTHORIZED)?;
+
+    let deleted = services::revoke_api_token(&state.repo, &id, user.id)
+        .await
+        .map_err(app_error_to_status)?;
+
+    if deleted {
+        Ok(StatusCode::OK)
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+// --- Dashboard (Askama template) ---
+
+#[derive(askama::Template)]
+#[template(path = "dashboard.html")]
+struct DashboardTemplate {
+    username: String,
+    is_admin: bool,
+}
+
+async fn dashboard_page(
+    State(state): State<AppState>,
+    req: axum::http::Request<Body>,
+) -> Result<axum::response::Response, StatusCode> {
+    let token = extract_bearer_token(&req);
+    match token {
+        Some(t) => {
+            let user = resolve_user(&state.repo, &t).await?.ok_or(StatusCode::UNAUTHORIZED)?;
+            let tmpl = DashboardTemplate {
+                username: user.username,
+                is_admin: user.is_admin,
+            };
+            let html = tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            Ok(axum::response::Html(html).into_response())
+        }
+        None => {
+            // No auth — show login redirect page
+            Ok(axum::response::Redirect::temporary("/index.html").into_response())
+        }
+    }
+}
+
+use axum::response::IntoResponse;
+use askama::Template;

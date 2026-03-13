@@ -55,6 +55,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Fixed dev mode toggle payload key (`dev_mode` → `enabled`) to match backend API.
 - Fixed change-password form field name (`current_password` → `old_password`) to match backend API.
 
+### API Token Management
+- API token management for programmatic/CI access: `POST /auth/tokens` (create), `GET /auth/tokens` (list), `DELETE /auth/tokens/{id}` (revoke).
+- Tokens use `san_` prefix (e.g., `san_a1b2c3...`) for easy identification; only SHA-256 hash stored in DB.
+- Raw token shown only once at creation time; tokens have configurable expiry (1–3650 days, default 365).
+- Auth middleware accepts both session cookies and `Authorization: Bearer san_...` API tokens.
+- User dashboard page (`/dashboard`) with Askama server-side templates for token management UI.
+- One-time token display modal with copy-to-clipboard and Maven `settings.xml` usage hint.
+- Introduced Askama 0.13 for server-side HTML templating (compile-time checked, auto-escaped).
+
 ### User Management
 - Local user self-registration (`POST /auth/register`) — disabled by default, admin enables via `POST /admin/settings/local-users`.
 - Registered users require admin approval before login (prevents unauthorized access).

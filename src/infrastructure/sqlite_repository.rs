@@ -641,4 +641,78 @@ impl SpecRepository for SqliteSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(())
     }
+
+    // --- API Tokens ---
+
+    async fn create_api_token(&self, id: &str, user_id: i64, name: &str, token_hash: &str, created_at: &str, expires_at: &str) -> Result<(), RepositoryError> {
+        sqlx::query("INSERT INTO api_tokens (id, user_id, name, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
+            .bind(id)
+            .bind(user_id)
+            .bind(name)
+            .bind(token_hash)
+            .bind(created_at)
+            .bind(expires_at)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                let msg = e.to_string();
+                if msg.contains("UNIQUE") {
+                    RepositoryError::Conflict
+                } else {
+                    RepositoryError::Internal(msg)
+                }
+            })?;
+        Ok(())
+    }
+
+    async fn list_api_tokens(&self, user_id: i64) -> Result<Vec<ApiToken>, RepositoryError> {
+        let rows: Vec<(String, i64, String, String, String, String, Option<String>)> = sqlx::query_as(
+            "SELECT id, user_id, name, token_hash, created_at, expires_at, last_used_at FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC"
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|(id, user_id, name, token_hash, created_at, expires_at, last_used_at)| ApiToken {
+            id, user_id, name, token_hash, created_at, expires_at, last_used_at,
+        }).collect())
+    }
+
+    async fn delete_api_token(&self, token_id: &str, user_id: i64) -> Result<bool, RepositoryError> {
+        let result = sqlx::query("DELETE FROM api_tokens WHERE id = ? AND user_id = ?")
+            .bind(token_id)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn validate_api_token(&self, token_hash: &str) -> Result<Option<User>, RepositoryError> {
+        let row: Option<(i64, String, String, bool, bool)> = sqlx::query_as(
+            r#"
+            SELECT u.id, u.username, u.password_hash, u.is_admin, u.approved
+            FROM api_tokens t
+            JOIN users u ON t.user_id = u.id
+            WHERE t.token_hash = ? AND t.expires_at > datetime('now')
+            "#
+        )
+        .bind(token_hash)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        if row.is_some() {
+            // Update last_used_at
+            let _ = sqlx::query("UPDATE api_tokens SET last_used_at = datetime('now') WHERE token_hash = ?")
+                .bind(token_hash)
+                .execute(&self.pool)
+                .await;
+        }
+
+        Ok(row.map(|(id, username, password_hash, is_admin, approved)| User {
+            id, username, password_hash, is_admin, approved,
+        }))
+    }
 }

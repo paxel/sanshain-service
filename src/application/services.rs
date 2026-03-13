@@ -390,6 +390,97 @@ pub async fn set_local_users_enabled(repo: &impl SpecRepository, enabled: bool) 
     Ok(())
 }
 
+// --- API Token Management ---
+
+/// Create a new API token. Returns (token_id, raw_token) — the raw token is shown only once.
+pub async fn create_api_token(
+    repo: &impl SpecRepository,
+    user_id: i64,
+    name: &str,
+    expires_in_days: u64,
+) -> Result<(String, String), AppError> {
+    if name.trim().is_empty() {
+        return Err(AppError::BadRequest("Token name must not be empty".into()));
+    }
+    if expires_in_days == 0 || expires_in_days > 3650 {
+        return Err(AppError::BadRequest("Expiry must be between 1 and 3650 days".into()));
+    }
+
+    // Generate random token with san_ prefix
+    use rand::Rng;
+    let mut token_bytes = [0u8; 32];
+    rand::rng().fill(&mut token_bytes);
+    let raw_token = format!("san_{}", hex::encode(token_bytes));
+
+    // SHA-256 hash for storage
+    use sha2::{Sha256, Digest};
+    let token_hash = hex::encode(Sha256::digest(raw_token.as_bytes()));
+
+    // Generate ID
+    let mut id_bytes = [0u8; 16];
+    rand::rng().fill(&mut id_bytes);
+    let id = hex::encode(id_bytes);
+
+    let now = current_utc_iso();
+    let expires_at = future_utc_iso(expires_in_days * 86400);
+
+    repo.create_api_token(&id, user_id, name.trim(), &token_hash, &now, &expires_at).await?;
+
+    Ok((id, raw_token))
+}
+
+pub async fn list_api_tokens(
+    repo: &impl SpecRepository,
+    user_id: i64,
+) -> Result<Vec<ApiToken>, AppError> {
+    Ok(repo.list_api_tokens(user_id).await?)
+}
+
+pub async fn revoke_api_token(
+    repo: &impl SpecRepository,
+    token_id: &str,
+    user_id: i64,
+) -> Result<bool, AppError> {
+    Ok(repo.delete_api_token(token_id, user_id).await?)
+}
+
+/// Validate a Bearer token that starts with "san_". Returns the user if valid.
+pub async fn validate_api_token(
+    repo: &impl SpecRepository,
+    raw_token: &str,
+) -> Result<Option<User>, AppError> {
+    use sha2::{Sha256, Digest};
+    let token_hash = hex::encode(Sha256::digest(raw_token.as_bytes()));
+    Ok(repo.validate_api_token(&token_hash).await?)
+}
+
+fn current_utc_iso() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    secs_to_iso(now)
+}
+
+fn future_utc_iso(offset_secs: u64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    secs_to_iso(now + offset_secs)
+}
+
+fn secs_to_iso(secs: u64) -> String {
+    let secs_per_day = 86400u64;
+    let days_since_epoch = secs / secs_per_day;
+    let time_of_day = secs % secs_per_day;
+    let hours = time_of_day / 3600;
+    let minutes = (time_of_day % 3600) / 60;
+    let seconds = time_of_day % 60;
+    let (year, month, day) = days_to_ymd(days_since_epoch);
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}", year, month, day, hours, minutes, seconds)
+}
+
 fn chrono_expires_24h() -> String {
     // Simple: current UTC + 24h as ISO string
     // We avoid adding chrono dep by computing manually
@@ -493,6 +584,7 @@ mod tests {
         users: Mutex<Vec<User>>,
         sessions: Mutex<Vec<Session>>,
         settings: Mutex<HashMap<String, String>>,
+        api_tokens: Mutex<Vec<ApiToken>>,
     }
 
     impl MockRepo {
@@ -509,6 +601,7 @@ mod tests {
                 users: Mutex::new(Vec::new()),
                 sessions: Mutex::new(Vec::new()),
                 settings: Mutex::new(settings),
+                api_tokens: Mutex::new(Vec::new()),
             }
         }
 
@@ -796,6 +889,44 @@ mod tests {
         async fn set_setting(&self, key: &str, value: &str) -> Result<(), RepositoryError> {
             self.settings.lock().unwrap().insert(key.to_string(), value.to_string());
             Ok(())
+        }
+
+        async fn create_api_token(&self, id: &str, user_id: i64, name: &str, token_hash: &str, created_at: &str, expires_at: &str) -> Result<(), RepositoryError> {
+            let mut tokens = self.api_tokens.lock().unwrap();
+            if tokens.iter().any(|t| t.user_id == user_id && t.name == name) {
+                return Err(RepositoryError::Conflict);
+            }
+            tokens.push(ApiToken {
+                id: id.to_string(),
+                user_id,
+                name: name.to_string(),
+                token_hash: token_hash.to_string(),
+                created_at: created_at.to_string(),
+                expires_at: expires_at.to_string(),
+                last_used_at: None,
+            });
+            Ok(())
+        }
+
+        async fn list_api_tokens(&self, user_id: i64) -> Result<Vec<ApiToken>, RepositoryError> {
+            let tokens = self.api_tokens.lock().unwrap();
+            Ok(tokens.iter().filter(|t| t.user_id == user_id).cloned().collect())
+        }
+
+        async fn delete_api_token(&self, token_id: &str, user_id: i64) -> Result<bool, RepositoryError> {
+            let mut tokens = self.api_tokens.lock().unwrap();
+            let len_before = tokens.len();
+            tokens.retain(|t| !(t.id == token_id && t.user_id == user_id));
+            Ok(tokens.len() < len_before)
+        }
+
+        async fn validate_api_token(&self, token_hash: &str) -> Result<Option<User>, RepositoryError> {
+            let tokens = self.api_tokens.lock().unwrap();
+            if let Some(t) = tokens.iter().find(|t| t.token_hash == token_hash) {
+                let users = self.users.lock().unwrap();
+                return Ok(users.iter().find(|u| u.id == t.user_id).cloned());
+            }
+            Ok(None)
         }
     }
 
@@ -1188,5 +1319,79 @@ paths:
 
         let removed = delete_client(&repo, "webclient").await.unwrap();
         assert!(!removed);
+    }
+
+    #[tokio::test]
+    async fn test_create_and_list_api_tokens() {
+        let repo = MockRepo::new();
+        // Create a user first
+        let user = repo.create_user("testuser", "hash", false, true).await.unwrap();
+
+        // Create a token
+        let (id, raw_token) = create_api_token(&repo, user.id, "jenkins-ci", 365).await.unwrap();
+        assert!(raw_token.starts_with("san_"));
+        assert!(!id.is_empty());
+
+        // List tokens
+        let tokens = list_api_tokens(&repo, user.id).await.unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].name, "jenkins-ci");
+
+        // Duplicate name should fail
+        let result = create_api_token(&repo, user.id, "jenkins-ci", 365).await;
+        assert!(matches!(result, Err(AppError::Conflict)));
+    }
+
+    #[tokio::test]
+    async fn test_revoke_api_token() {
+        let repo = MockRepo::new();
+        let user = repo.create_user("testuser", "hash", false, true).await.unwrap();
+
+        let (id, _) = create_api_token(&repo, user.id, "my-token", 365).await.unwrap();
+
+        let revoked = revoke_api_token(&repo, &id, user.id).await.unwrap();
+        assert!(revoked);
+
+        let tokens = list_api_tokens(&repo, user.id).await.unwrap();
+        assert_eq!(tokens.len(), 0);
+
+        // Revoking again should return false
+        let revoked = revoke_api_token(&repo, &id, user.id).await.unwrap();
+        assert!(!revoked);
+    }
+
+    #[tokio::test]
+    async fn test_validate_api_token() {
+        let repo = MockRepo::new();
+        let user = repo.create_user("testuser", "hash", false, true).await.unwrap();
+
+        let (_, raw_token) = create_api_token(&repo, user.id, "ci-token", 365).await.unwrap();
+
+        // Validate the raw token
+        let result = validate_api_token(&repo, &raw_token).await.unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().username, "testuser");
+
+        // Invalid token
+        let result = validate_api_token(&repo, "san_invalid").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_create_api_token_validation() {
+        let repo = MockRepo::new();
+        let user = repo.create_user("testuser", "hash", false, true).await.unwrap();
+
+        // Empty name
+        let result = create_api_token(&repo, user.id, "", 365).await;
+        assert!(matches!(result, Err(AppError::BadRequest(_))));
+
+        // Zero days
+        let result = create_api_token(&repo, user.id, "test", 0).await;
+        assert!(matches!(result, Err(AppError::BadRequest(_))));
+
+        // Too many days
+        let result = create_api_token(&repo, user.id, "test", 5000).await;
+        assert!(matches!(result, Err(AppError::BadRequest(_))));
     }
 }

@@ -134,6 +134,28 @@ Sanshain uses session-based authentication with Argon2 password hashing.
 
 **Local User Registration:** Disabled by default. An admin can enable it via `POST /admin/settings/local-users` with `{"enabled": true}`. When enabled, anyone can register via `POST /auth/register` with `{"username": "...", "password": "..."}`. Newly registered users must be **approved by an admin** before they can log in. This is intended for development/internal use; in production, delegate auth to an external service (LDAP, Kerberos, Keycloak).
 
+#### API Tokens (for CI/Programmatic Access)
+
+Approved users can create long-lived API tokens for use in CI pipelines (Jenkins, Maven, Gradle, etc.) without embedding credentials.
+
+**Endpoints:**
+- `POST /auth/tokens` — Create a token: `{"name": "jenkins-ci", "expires_in_days": 365}`. Returns the raw token **once** (prefixed `san_`).
+- `GET /auth/tokens` — List user's tokens (name, dates, last used — never the raw token).
+- `DELETE /auth/tokens/{id}` — Revoke a token.
+
+**Usage:** Send the token as a Bearer header: `Authorization: Bearer san_xxxxxxxxxxxx`
+
+**Maven `settings.xml`:**
+```xml
+<server>
+  <id>sanshain</id>
+  <username>ignored</username>
+  <password>san_xxxxxxxxxxxx</password>
+</server>
+```
+
+**User Dashboard:** Visit `/dashboard` (requires login) to create, view, and revoke tokens via the web UI.
+
 ### 4. Admin API (Session-Based Authentication)
 All `/admin/*` endpoints require a valid admin session token (`Authorization: Bearer <token>`).
 

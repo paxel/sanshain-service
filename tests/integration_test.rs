@@ -978,3 +978,127 @@ async fn test_user_registration_and_approval() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn test_api_token_crud_and_bearer_auth() {
+    let (app, token) = setup_app_with_admin().await;
+
+    // Create an API token
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/tokens")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&json!({
+                    "name": "jenkins-ci",
+                    "expires_in_days": 365
+                })).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let create_resp: Value = serde_json::from_slice(&body).unwrap();
+    let api_token = create_resp["token"].as_str().unwrap().to_string();
+    let token_id = create_resp["id"].as_str().unwrap().to_string();
+    assert!(api_token.starts_with("san_"));
+    assert_eq!(create_resp["name"], "jenkins-ci");
+
+    // List tokens
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/auth/tokens")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let tokens_list: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(tokens_list.as_array().unwrap().len(), 1);
+    assert_eq!(tokens_list[0]["name"], "jenkins-ci");
+
+    // Disable dev mode so API endpoints require auth
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/settings/dev-mode")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&json!({ "enabled": false })).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Use API token for /report (should work)
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/report?branch=main")
+                .header("Authorization", format!("Bearer {}", api_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Use invalid API token (should fail)
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/report?branch=main")
+                .header("Authorization", "Bearer san_invalid_token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    // Revoke the token
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(&format!("/auth/tokens/{}", token_id))
+                .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // List should be empty now
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/auth/tokens")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let tokens_list: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(tokens_list.as_array().unwrap().len(), 0);
+}

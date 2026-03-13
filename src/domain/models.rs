@@ -1,6 +1,17 @@
 use serde::Serialize;
 
 #[derive(Clone, Debug)]
+pub struct ApiToken {
+    pub id: String,
+    pub user_id: i64,
+    pub name: String,
+    pub token_hash: String,
+    pub created_at: String,
+    pub expires_at: String,
+    pub last_used_at: Option<String>,
+}
+
+#[derive(Clone, Debug)]
 pub struct User {
     pub id: i64,
     pub username: String,

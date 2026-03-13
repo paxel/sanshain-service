@@ -118,4 +118,18 @@ pub trait SpecRepository: Send + Sync {
 
     /// Set a setting value.
     fn set_setting(&self, key: &str, value: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    // --- API Tokens ---
+
+    /// Create an API token (stores the hash, not the raw token).
+    fn create_api_token(&self, id: &str, user_id: i64, name: &str, token_hash: &str, created_at: &str, expires_at: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// List all API tokens for a user (never includes raw token).
+    fn list_api_tokens(&self, user_id: i64) -> impl Future<Output = Result<Vec<ApiToken>, RepositoryError>> + Send;
+
+    /// Delete an API token by ID (only if owned by user_id).
+    fn delete_api_token(&self, token_id: &str, user_id: i64) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Validate an API token hash, returning the user if valid and not expired. Also updates last_used_at.
+    fn validate_api_token(&self, token_hash: &str) -> impl Future<Output = Result<Option<User>, RepositoryError>> + Send;
 }
