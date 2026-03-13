@@ -63,9 +63,6 @@ Sanshain is a service designed to manage and distribute OpenAPI specifications f
 - [x] Set the root URL (`/`) to redirect to the dashboard.
 - [x] Dependency graph visualization (further refinement).
 
-## 4. Advanced Features (Optional/Phase 2)
-- [ ] Add a "Release" flag to client requirements to distinguish between development/feature branch usage and production-ready dependencies.
-
 ## 4. Phase 3: Ecosystem & Tooling (Maven & Gradle Plugins)
 All client-side implementations (plugins, CLIs, hooks) must support a **timeout/retry mechanism** (configurable timeout and retry interval) when calling `require`, to handle asynchronous build orders where a consumer might build before a provider.
 
@@ -135,6 +132,11 @@ All client-side implementations (plugins, CLIs, hooks) must support a **timeout/
     - [x] Dev mode toggle: admin can open/close non-admin API endpoints without auth.
     - [x] Web dashboard for administrative tasks.
     - [x] **Protected Branch Configuration UI**: Toggle which branches are considered protected (immutable).
+- [x] **User Management**:
+    - [x] Local user registration (`POST /auth/register`) — disabled by default, admin enables via `POST /admin/settings/local-users`.
+    - [x] Registered users require admin approval before they can log in.
+    - [x] Admin endpoints: list users (`GET /admin/users`), approve (`POST /admin/users/{id}/approve`), delete (`DELETE /admin/users/{id}`).
+    - [ ] External auth delegation (LDAP, Kerberos, Keycloak) — future work.
 - [ ] **Data Management**:
     - [x] Delete branches, clients, and services via the admin API.
     - [x] List services, branches, and clients via the admin API.

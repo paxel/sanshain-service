@@ -201,6 +201,10 @@ pub fn create_app(state: AppState) -> Router {
         .route("/clients", get(admin_list_clients))
         .route("/clients/{name}", axum::routing::delete(admin_delete_client))
         .route("/settings/dev-mode", get(get_dev_mode).post(set_dev_mode))
+        .route("/settings/local-users", get(get_local_users).post(set_local_users))
+        .route("/users", get(admin_list_users))
+        .route("/users/{id}/approve", post(admin_approve_user))
+        .route("/users/{id}", axum::routing::delete(admin_delete_user_handler))
         .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth));
 
     let api_routes = Router::new()
@@ -218,6 +222,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/auth/logout", post(auth_logout))
         .route("/auth/me", get(auth_me))
         .route("/auth/change-password", post(auth_change_password))
+        .route("/auth/register", post(auth_register))
         .merge(api_routes)
         .nest("/admin", admin_routes)
         .fallback_service(ServeDir::new("static"))
@@ -353,6 +358,7 @@ struct LoginResponse {
 struct MeResponse {
     username: String,
     is_admin: bool,
+    approved: bool,
 }
 
 async fn auth_login(
@@ -391,6 +397,7 @@ async fn auth_me(
     Ok(Json(MeResponse {
         username: user.username,
         is_admin: user.is_admin,
+        approved: user.approved,
     }))
 }
 
@@ -567,4 +574,105 @@ async fn set_dev_mode(
         tracing::info!("Dev mode DISABLED — API endpoints require authentication.");
     }
     Ok(StatusCode::OK)
+}
+
+// --- Registration endpoint ---
+
+#[derive(Deserialize)]
+struct RegisterPayload {
+    username: String,
+    password: String,
+}
+
+async fn auth_register(
+    State(state): State<AppState>,
+    Json(payload): Json<RegisterPayload>,
+) -> Result<StatusCode, StatusCode> {
+    services::register_user(&state.repo, &payload.username, &payload.password)
+        .await
+        .map(|_| StatusCode::CREATED)
+        .map_err(app_error_to_status)
+}
+
+// --- Local users setting ---
+
+#[derive(Serialize)]
+struct LocalUsersResponse {
+    local_users_enabled: bool,
+}
+
+#[derive(Deserialize)]
+struct LocalUsersPayload {
+    enabled: bool,
+}
+
+async fn get_local_users(
+    State(state): State<AppState>,
+) -> Result<Json<LocalUsersResponse>, StatusCode> {
+    let enabled = services::get_local_users_enabled(&state.repo)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(Json(LocalUsersResponse { local_users_enabled: enabled }))
+}
+
+async fn set_local_users(
+    State(state): State<AppState>,
+    Json(payload): Json<LocalUsersPayload>,
+) -> Result<StatusCode, StatusCode> {
+    services::set_local_users_enabled(&state.repo, payload.enabled)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(StatusCode::OK)
+}
+
+// --- User management admin endpoints ---
+
+#[derive(Serialize)]
+struct UserResponse {
+    id: i64,
+    username: String,
+    is_admin: bool,
+    approved: bool,
+}
+
+async fn admin_list_users(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<UserResponse>>, StatusCode> {
+    let users = services::list_users(&state.repo)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(Json(users.into_iter().map(|u| UserResponse {
+        id: u.id,
+        username: u.username,
+        is_admin: u.is_admin,
+        approved: u.approved,
+    }).collect()))
+}
+
+async fn admin_approve_user(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Result<StatusCode, StatusCode> {
+    let approved = services::approve_user(&state.repo, id)
+        .await
+        .map_err(app_error_to_status)?;
+    if approved {
+        Ok(StatusCode::OK)
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn admin_delete_user_handler(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Result<StatusCode, StatusCode> {
+    let deleted = services::admin_delete_user(&state.repo, id)
+        .await
+        .map_err(app_error_to_status)?;
+    if deleted {
+        Ok(StatusCode::OK)
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
 }

@@ -487,33 +487,35 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn find_user(&self, username: &str) -> Result<Option<User>, RepositoryError> {
-        let row: Option<(i64, String, String, bool)> = sqlx::query_as(
-            "SELECT id, username, password_hash, is_admin FROM users WHERE username = ?"
+        let row: Option<(i64, String, String, bool, bool)> = sqlx::query_as(
+            "SELECT id, username, password_hash, is_admin, approved FROM users WHERE username = ?"
         )
         .bind(username)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        Ok(row.map(|(id, username, password_hash, is_admin)| User {
+        Ok(row.map(|(id, username, password_hash, is_admin, approved)| User {
             id,
             username,
             password_hash,
             is_admin,
+            approved,
         }))
     }
 
-    async fn create_user(&self, username: &str, password_hash: &str, is_admin: bool) -> Result<User, RepositoryError> {
-        sqlx::query("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, ?)")
+    async fn create_user(&self, username: &str, password_hash: &str, is_admin: bool, approved: bool) -> Result<User, RepositoryError> {
+        sqlx::query("INSERT INTO users (username, password_hash, is_admin, approved) VALUES (?, ?, ?, ?)")
             .bind(username)
             .bind(password_hash)
             .bind(is_admin)
+            .bind(approved)
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        let row: (i64, String, String, bool) = sqlx::query_as(
-            "SELECT id, username, password_hash, is_admin FROM users WHERE username = ?"
+        let row: (i64, String, String, bool, bool) = sqlx::query_as(
+            "SELECT id, username, password_hash, is_admin, approved FROM users WHERE username = ?"
         )
         .bind(username)
         .fetch_one(&self.pool)
@@ -525,7 +527,39 @@ impl SpecRepository for SqliteSpecRepository {
             username: row.1,
             password_hash: row.2,
             is_admin: row.3,
+            approved: row.4,
         })
+    }
+
+    async fn list_users(&self) -> Result<Vec<User>, RepositoryError> {
+        let rows: Vec<(i64, String, String, bool, bool)> = sqlx::query_as(
+            "SELECT id, username, password_hash, is_admin, approved FROM users ORDER BY username"
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|(id, username, password_hash, is_admin, approved)| User {
+            id, username, password_hash, is_admin, approved,
+        }).collect())
+    }
+
+    async fn approve_user(&self, user_id: i64) -> Result<bool, RepositoryError> {
+        let result = sqlx::query("UPDATE users SET approved = TRUE WHERE id = ? AND approved = FALSE")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn delete_user(&self, user_id: i64) -> Result<bool, RepositoryError> {
+        let result = sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
     }
 
     async fn update_password(&self, user_id: i64, new_hash: &str) -> Result<(), RepositoryError> {
@@ -560,9 +594,9 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn validate_session(&self, token: &str) -> Result<Option<(User, Session)>, RepositoryError> {
-        let row: Option<(i64, i64, String, String, String, bool)> = sqlx::query_as(
+        let row: Option<(i64, i64, String, String, String, bool, bool)> = sqlx::query_as(
             r#"
-            SELECT s.user_id, u.id, u.username, u.password_hash, s.expires_at, u.is_admin
+            SELECT s.user_id, u.id, u.username, u.password_hash, s.expires_at, u.is_admin, u.approved
             FROM sessions s
             JOIN users u ON s.user_id = u.id
             WHERE s.token = ? AND s.expires_at > datetime('now')
@@ -573,8 +607,8 @@ impl SpecRepository for SqliteSpecRepository {
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        Ok(row.map(|(_, user_id, username, password_hash, expires_at, is_admin)| {
-            let user = User { id: user_id, username, password_hash, is_admin };
+        Ok(row.map(|(_, user_id, username, password_hash, expires_at, is_admin, approved)| {
+            let user = User { id: user_id, username, password_hash, is_admin, approved };
             let session = Session { token: token.to_string(), user_id, expires_at };
             (user, session)
         }))

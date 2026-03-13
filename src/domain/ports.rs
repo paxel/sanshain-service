@@ -90,10 +90,19 @@ pub trait SpecRepository: Send + Sync {
     fn find_user(&self, username: &str) -> impl Future<Output = Result<Option<User>, RepositoryError>> + Send;
 
     /// Create a new user.
-    fn create_user(&self, username: &str, password_hash: &str, is_admin: bool) -> impl Future<Output = Result<User, RepositoryError>> + Send;
+    fn create_user(&self, username: &str, password_hash: &str, is_admin: bool, approved: bool) -> impl Future<Output = Result<User, RepositoryError>> + Send;
 
     /// Update a user's password hash.
     fn update_password(&self, user_id: i64, new_hash: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// List all users (id, username, is_admin, approved).
+    fn list_users(&self) -> impl Future<Output = Result<Vec<User>, RepositoryError>> + Send;
+
+    /// Approve a user by ID.
+    fn approve_user(&self, user_id: i64) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Delete a user by ID.
+    fn delete_user(&self, user_id: i64) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
 
     /// Create a session for a user, returning the session with a generated token.
     fn create_session(&self, user_id: i64, expires_at: &str) -> impl Future<Output = Result<Session, RepositoryError>> + Send;

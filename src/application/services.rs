@@ -256,7 +256,7 @@ pub async fn ensure_initial_admin(repo: &impl SpecRepository) -> Result<(), AppE
     if count == 0 {
         let password = generate_random_password();
         let password_hash = hash_password(&password)?;
-        let user = repo.create_user("root", &password_hash, true).await?;
+        let user = repo.create_user("root", &password_hash, true, true).await?;
 
         let expires_at = "2099-12-31T23:59:59";
         let session = repo.create_session(user.id, expires_at).await?;
@@ -284,6 +284,10 @@ pub async fn login(
 
     if !verify_password(password, &user.password_hash)? {
         return Err(AppError::Unauthorized);
+    }
+
+    if !user.approved {
+        return Err(AppError::Forbidden);
     }
 
     // Session expires in 24 hours
@@ -328,6 +332,61 @@ pub async fn logout(
     token: &str,
 ) -> Result<(), AppError> {
     repo.delete_session(token).await?;
+    Ok(())
+}
+
+pub async fn register_user(
+    repo: &impl SpecRepository,
+    username: &str,
+    password: &str,
+) -> Result<(), AppError> {
+    // Check if local users are enabled
+    let enabled = repo.get_setting("local_users_enabled").await?;
+    if enabled.as_deref() != Some("true") {
+        return Err(AppError::Forbidden);
+    }
+
+    if username.is_empty() || password.is_empty() {
+        return Err(AppError::BadRequest("Username and password must not be empty".to_string()));
+    }
+
+    // Check if username already exists
+    if repo.find_user(username).await?.is_some() {
+        return Err(AppError::Conflict);
+    }
+
+    let password_hash = hash_password(password)?;
+    repo.create_user(username, &password_hash, false, false).await?;
+    Ok(())
+}
+
+pub async fn list_users(
+    repo: &impl SpecRepository,
+) -> Result<Vec<User>, AppError> {
+    Ok(repo.list_users().await?)
+}
+
+pub async fn approve_user(
+    repo: &impl SpecRepository,
+    user_id: i64,
+) -> Result<bool, AppError> {
+    Ok(repo.approve_user(user_id).await?)
+}
+
+pub async fn admin_delete_user(
+    repo: &impl SpecRepository,
+    user_id: i64,
+) -> Result<bool, AppError> {
+    Ok(repo.delete_user(user_id).await?)
+}
+
+pub async fn get_local_users_enabled(repo: &impl SpecRepository) -> Result<bool, AppError> {
+    let val = repo.get_setting("local_users_enabled").await?;
+    Ok(val.as_deref() == Some("true"))
+}
+
+pub async fn set_local_users_enabled(repo: &impl SpecRepository, enabled: bool) -> Result<(), AppError> {
+    repo.set_setting("local_users_enabled", if enabled { "true" } else { "false" }).await?;
     Ok(())
 }
 
@@ -671,11 +730,32 @@ mod tests {
             Ok(self.users.lock().unwrap().iter().find(|u| u.username == username).cloned())
         }
 
-        async fn create_user(&self, username: &str, password_hash: &str, is_admin: bool) -> Result<User, RepositoryError> {
+        async fn create_user(&self, username: &str, password_hash: &str, is_admin: bool, approved: bool) -> Result<User, RepositoryError> {
             let id = self.next_id();
-            let user = User { id, username: username.to_string(), password_hash: password_hash.to_string(), is_admin };
+            let user = User { id, username: username.to_string(), password_hash: password_hash.to_string(), is_admin, approved };
             self.users.lock().unwrap().push(user.clone());
             Ok(user)
+        }
+
+        async fn list_users(&self) -> Result<Vec<User>, RepositoryError> {
+            Ok(self.users.lock().unwrap().clone())
+        }
+
+        async fn approve_user(&self, user_id: i64) -> Result<bool, RepositoryError> {
+            let mut users = self.users.lock().unwrap();
+            if let Some(u) = users.iter_mut().find(|u| u.id == user_id && !u.approved) {
+                u.approved = true;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+
+        async fn delete_user(&self, user_id: i64) -> Result<bool, RepositoryError> {
+            let mut users = self.users.lock().unwrap();
+            let len_before = users.len();
+            users.retain(|u| u.id != user_id);
+            Ok(users.len() < len_before)
         }
 
         async fn update_password(&self, user_id: i64, new_hash: &str) -> Result<(), RepositoryError> {

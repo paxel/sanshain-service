@@ -51,6 +51,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Fixed dev mode toggle payload key (`dev_mode` → `enabled`) to match backend API.
 - Fixed change-password form field name (`current_password` → `old_password`) to match backend API.
 
+### User Management
+- Local user self-registration (`POST /auth/register`) — disabled by default, admin enables via `POST /admin/settings/local-users`.
+- Registered users require admin approval before login (prevents unauthorized access).
+- Admin endpoints for user management: list (`GET /admin/users`), approve (`POST /admin/users/{id}/approve`), delete (`DELETE /admin/users/{id}`).
+- `GET /admin/settings/local-users` to check local users setting status.
+- Admin dashboard UI: Local User Registration toggle, Users list with approve/delete actions and status badges (admin, approved, pending).
+
 ### DevOps
 - GitHub Actions CI workflow: build and test on every push and pull request.
 - GitHub Actions Release workflow: manually triggered via GitHub UI to create a release with Linux binary, Dockerfile, docker-compose.yaml, and CHANGELOG.
