@@ -151,3 +151,33 @@ All client-side implementations (plugins, CLIs, hooks) must support a **timeout/
 - [x] Unit tests for OpenAPI splitting logic (`openapi::tests`).
 - [x] Unit tests for application services with mock repository (`application::services::tests`).
 - [x] Unit tests for markdown report rendering.
+
+## 9. Web Frontend Architecture Decisions
+
+### 9.1 REST-Only Communication
+- The service currently uses only REST endpoints. This is sufficient for the current scope.
+- SSE could replace long-polling in `/require` for better efficiency.
+
+### 9.2 Static Frontend Security
+- Static HTML + JS is acceptable for the current scope.
+- [ ] Add security headers: CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy.
+- [ ] Add CSRF protection for state-changing endpoints (POST/DELETE).
+- [ ] Consider server-side templates (Tera/Askama) only if XSS surface becomes a concern.
+
+### 9.3 TLS Strategy
+- **Decision**: Rely on a reverse proxy (Traefik/Caddy/Nginx) for TLS termination.
+- [ ] Add reverse proxy configuration to `docker-compose.yaml` for local HTTPS.
+- [ ] Document TLS setup in README for production deployments.
+
+### 9.4 Future: Real-Time Communication
+- If the UI grows in complexity:
+  - [ ] Implement SSE for server-to-client push (e.g., `/require` wait, live report updates).
+  - [ ] Add WebSocket support only when bidirectional real-time communication is needed.
+  - A full event bus (NATS/RabbitMQ) is not warranted until the architecture becomes multi-service.
+- **Security for WebSockets/SSE**:
+  - Authenticate on connection upgrade (validate session token).
+  - Validate `Origin` header to prevent cross-site hijacking.
+  - Rate-limit connections and messages.
+  - Sanitize all inbound WebSocket messages.
+  - Use `wss://` via reverse proxy TLS.
+  - Implement idle connection timeouts.

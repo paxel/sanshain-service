@@ -5,10 +5,15 @@ use axum::{
 };
 use serde_json::{json, Value};
 use sqlx::sqlite::SqlitePoolOptions;
+use std::sync::Arc;
+use std::collections::HashSet;
+use tokio::sync::RwLock;
 use tower::ServiceExt; // for `oneshot`
 use sanshain_service::{create_app, AppState};
 use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
 use sanshain_service::application::services;
+
+const TEST_CSRF_TOKEN: &str = "test-csrf-token";
 
 async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
     let pool = SqlitePoolOptions::new()
@@ -19,7 +24,9 @@ async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
     let repo = SqliteSpecRepository::new(pool);
     repo.run_migrations().await.unwrap();
 
-    let state = AppState { repo: repo.clone() };
+    let mut tokens = HashSet::new();
+    tokens.insert(TEST_CSRF_TOKEN.to_string());
+    let state = AppState { repo: repo.clone(), csrf_tokens: Arc::new(RwLock::new(tokens)) };
     let app = create_app(state);
     (app, repo)
 }
@@ -48,7 +55,9 @@ async fn setup_app_with_admin() -> (axum::Router, String) {
     use sanshain_service::domain::ports::SpecRepository;
     let session = repo.create_session(user.id, "2099-12-31T23:59:59").await.unwrap();
 
-    let state = AppState { repo };
+    let mut tokens = HashSet::new();
+    tokens.insert(TEST_CSRF_TOKEN.to_string());
+    let state = AppState { repo, csrf_tokens: Arc::new(RwLock::new(tokens)) };
     let app = create_app(state);
     (app, session.token)
 }
@@ -100,6 +109,7 @@ paths:
                 .method("POST")
                 .uri("/provide")
                 .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(serde_json::to_vec(&provide_payload).unwrap()))
                 .unwrap(),
         )
@@ -191,6 +201,7 @@ paths:
                 .method("POST")
                 .uri("/provide")
                 .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(serde_json::to_vec(&payload_v1).unwrap()))
                 .unwrap(),
         )
@@ -205,6 +216,7 @@ paths:
                 .method("POST")
                 .uri("/provide")
                 .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(serde_json::to_vec(&payload_v1).unwrap()))
                 .unwrap(),
         )
@@ -238,6 +250,7 @@ paths:
                 .method("POST")
                 .uri("/provide")
                 .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(serde_json::to_vec(&payload_modified).unwrap()))
                 .unwrap(),
         )
@@ -275,6 +288,7 @@ paths:
                 .method("POST")
                 .uri("/provide")
                 .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(serde_json::to_vec(&payload_v2).unwrap()))
                 .unwrap(),
         )
@@ -314,6 +328,7 @@ async fn test_protected_branches_api() {
                 .uri("/admin/protected-branches")
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(serde_json::to_vec(&json!({"pattern": "release"})).unwrap()))
                 .unwrap(),
         )
@@ -328,6 +343,7 @@ async fn test_protected_branches_api() {
                 .method("DELETE")
                 .uri("/admin/protected-branches/release")
                 .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -342,6 +358,7 @@ async fn test_protected_branches_api() {
                 .method("DELETE")
                 .uri("/admin/protected-branches/nonexistent")
                 .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -387,6 +404,7 @@ paths:
                 .method("POST")
                 .uri("/provide")
                 .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(serde_json::to_vec(&json!({
                     "servicename": "svc",
                     "branch": "feature/test",
@@ -405,6 +423,7 @@ paths:
                 .method("POST")
                 .uri("/provide")
                 .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(serde_json::to_vec(&json!({
                     "servicename": "svc",
                     "branch": "feature/test",
@@ -445,6 +464,7 @@ async fn test_admin_data_management() {
                 .uri("/admin/settings/dev-mode")
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(serde_json::to_vec(&json!({"enabled": true})).unwrap()))
                 .unwrap(),
         )
@@ -472,6 +492,7 @@ paths:
                 .method("POST")
                 .uri("/provide")
                 .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(serde_json::to_vec(&json!({
                     "servicename": "svc1",
                     "branch": "main",
@@ -554,6 +575,7 @@ paths:
                 .method("DELETE")
                 .uri("/admin/clients/client1")
                 .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -568,6 +590,7 @@ paths:
                 .method("DELETE")
                 .uri("/admin/clients/client1")
                 .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -582,6 +605,7 @@ paths:
                 .method("DELETE")
                 .uri("/admin/services/svc1")
                 .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -681,6 +705,7 @@ async fn test_auth_login_and_session() {
                 .method("POST")
                 .uri("/auth/login")
                 .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(serde_json::to_vec(&json!({
                     "username": "admin",
                     "password": "admin-pass"
@@ -720,6 +745,7 @@ async fn test_auth_login_and_session() {
                 .method("POST")
                 .uri("/auth/login")
                 .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(serde_json::to_vec(&json!({
                     "username": "admin",
                     "password": "wrong"
@@ -737,6 +763,7 @@ async fn test_auth_login_and_session() {
                 .method("POST")
                 .uri("/auth/logout")
                 .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -770,6 +797,7 @@ async fn test_dev_mode_toggle() {
                 .uri("/admin/settings/dev-mode")
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(serde_json::to_vec(&json!({"enabled": true})).unwrap()))
                 .unwrap(),
         )

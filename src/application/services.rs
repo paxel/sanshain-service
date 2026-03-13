@@ -218,20 +218,17 @@ pub async fn list_clients(
 
 pub fn hash_password(password: &str) -> Result<String, AppError> {
     use argon2::{Argon2, PasswordHasher};
-    use argon2::password_hash::SaltString;
-    use rand::rngs::OsRng;
 
-    let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     argon2
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map(|h| h.to_string())
         .map_err(|e| AppError::Internal(format!("password hash error: {}", e)))
 }
 
 pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
     use argon2::{Argon2, PasswordVerifier};
-    use argon2::password_hash::PasswordHash;
+    use argon2::password_hash::phc::PasswordHash;
 
     let parsed = PasswordHash::new(hash)
         .map_err(|e| AppError::Internal(format!("invalid hash: {}", e)))?;
@@ -240,10 +237,10 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
 
 pub fn generate_random_password() -> String {
     use rand::Rng;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let chars: Vec<char> = (0..24)
         .map(|_| {
-            let idx = rng.gen_range(0..62);
+            let idx = rng.random_range(0..62);
             match idx {
                 0..=9 => (b'0' + idx) as char,
                 10..=35 => (b'a' + idx - 10) as char,
@@ -264,14 +261,15 @@ pub async fn ensure_initial_admin(repo: &impl SpecRepository) -> Result<(), AppE
         let expires_at = "2099-12-31T23:59:59";
         let session = repo.create_session(user.id, expires_at).await?;
 
-        eprintln!("════════════════════════════════════════════");
+        eprintln!("════════════════════════════════════════════════════");
         eprintln!("  INITIAL ROOT USER CREATED");
         eprintln!("  Username: root");
         eprintln!("  Password: {}", password);
         eprintln!("  Token:    {}", session.token);
-        eprintln!("════════════════════════════════════════════");
-        eprintln!("  Change the password immediately via the admin API.");
-        eprintln!("════════════════════════════════════════════");
+        eprintln!("════════════════════════════════════════════════════");
+        eprintln!("  Change the password immediately at:");
+        eprintln!("  http://localhost:3000/admin.html");
+        eprintln!("════════════════════════════════════════════════════");
     }
     Ok(())
 }

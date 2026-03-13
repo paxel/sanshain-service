@@ -9,6 +9,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePoolOptions;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use std::collections::HashSet;
+use tokio::sync::RwLock;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod openapi;
@@ -22,6 +25,7 @@ use infrastructure::sqlite_repository::SqliteSpecRepository;
 #[derive(Clone)]
 pub struct AppState {
     pub repo: SqliteSpecRepository,
+    pub csrf_tokens: Arc<RwLock<HashSet<String>>>,
 }
 
 #[tokio::main]
@@ -49,7 +53,10 @@ pub async fn main() {
     // Ensure initial admin user exists
     services::ensure_initial_admin(&repo).await.expect("can't create initial admin");
 
-    let state = AppState { repo };
+    let state = AppState {
+        repo,
+        csrf_tokens: Arc::new(RwLock::new(HashSet::new())),
+    };
 
     let app = create_app(state);
 
@@ -62,6 +69,7 @@ pub async fn main() {
 
 use tower_http::services::ServeDir;
 use axum::response::Redirect;
+use axum::http::header::HeaderValue;
 
 /// Middleware: admin endpoints always require a valid admin session token.
 async fn admin_auth(
@@ -111,16 +119,87 @@ fn extract_bearer_token(req: &axum::http::Request<Body>) -> Option<String> {
     header.strip_prefix("Bearer ").map(|s| s.to_string())
 }
 
+/// Middleware: adds security headers to all responses.
+async fn security_headers(
+    req: axum::http::Request<Body>,
+    next: middleware::Next,
+) -> axum::response::Response {
+    let mut response = next.run(req).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        axum::http::header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'self'; \
+             script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; \
+             style-src 'self' 'unsafe-inline'; \
+             img-src 'self' data:; \
+             connect-src 'self'; \
+             font-src 'self'; \
+             frame-ancestors 'none'"
+        ),
+    );
+    headers.insert(
+        axum::http::header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        axum::http::header::X_FRAME_OPTIONS,
+        HeaderValue::from_static("DENY"),
+    );
+    headers.insert(
+        axum::http::HeaderName::from_static("referrer-policy"),
+        HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+    headers.insert(
+        axum::http::HeaderName::from_static("x-xss-protection"),
+        HeaderValue::from_static("1; mode=block"),
+    );
+    response
+}
+
+/// Middleware: validates CSRF token on state-changing requests (POST, DELETE, PUT, PATCH).
+async fn csrf_protection(
+    State(state): State<AppState>,
+    req: axum::http::Request<Body>,
+    next: middleware::Next,
+) -> Result<axum::response::Response, StatusCode> {
+    let method = req.method().clone();
+    if method == axum::http::Method::POST
+        || method == axum::http::Method::DELETE
+        || method == axum::http::Method::PUT
+        || method == axum::http::Method::PATCH
+    {
+        let csrf_token = req
+            .headers()
+            .get("X-CSRF-Token")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        match csrf_token {
+            Some(token) => {
+                let valid = state.csrf_tokens.read().await.contains(&token);
+                if !valid {
+                    return Err(StatusCode::FORBIDDEN);
+                }
+            }
+            None => {
+                return Err(StatusCode::FORBIDDEN);
+            }
+        }
+    }
+    Ok(next.run(req).await)
+}
+
 pub fn create_app(state: AppState) -> Router {
     let admin_routes = Router::new()
         .route("/protected-branches", get(list_protected_branches).post(add_protected_branch))
-        .route("/protected-branches/:pattern", axum::routing::delete(delete_protected_branch))
+        .route("/protected-branches/{pattern}", axum::routing::delete(delete_protected_branch))
         .route("/services", get(admin_list_services))
-        .route("/services/:name", axum::routing::delete(admin_delete_service))
-        .route("/services/:name/branches", get(admin_list_branches))
-        .route("/services/:name/branches/:branch", axum::routing::delete(admin_delete_branch))
+        .route("/services/{name}", axum::routing::delete(admin_delete_service))
+        .route("/services/{name}/branches", get(admin_list_branches))
+        .route("/services/{name}/branches/{branch}", axum::routing::delete(admin_delete_branch))
         .route("/clients", get(admin_list_clients))
-        .route("/clients/:name", axum::routing::delete(admin_delete_client))
+        .route("/clients/{name}", axum::routing::delete(admin_delete_client))
         .route("/settings/dev-mode", get(get_dev_mode).post(set_dev_mode))
         .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth));
 
@@ -134,6 +213,7 @@ pub fn create_app(state: AppState) -> Router {
     Router::new()
         .route("/", get(|| async { Redirect::permanent("/index.html") }))
         .route("/health", get(health))
+        .route("/csrf-token", get(generate_csrf_token))
         .route("/auth/login", post(auth_login))
         .route("/auth/logout", post(auth_logout))
         .route("/auth/me", get(auth_me))
@@ -141,6 +221,8 @@ pub fn create_app(state: AppState) -> Router {
         .merge(api_routes)
         .nest("/admin", admin_routes)
         .fallback_service(ServeDir::new("static"))
+        .layer(middleware::from_fn_with_state(state.clone(), csrf_protection))
+        .layer(middleware::from_fn(security_headers))
         .with_state(state)
 }
 
@@ -168,6 +250,22 @@ struct ReportParams {
 
 async fn health() -> StatusCode {
     StatusCode::OK
+}
+
+#[derive(Serialize)]
+struct CsrfTokenResponse {
+    csrf_token: String,
+}
+
+async fn generate_csrf_token(
+    State(state): State<AppState>,
+) -> Json<CsrfTokenResponse> {
+    use rand::Rng;
+    let mut bytes = [0u8; 32];
+    rand::rng().fill(&mut bytes);
+    let token: String = hex::encode(bytes);
+    state.csrf_tokens.write().await.insert(token.clone());
+    Json(CsrfTokenResponse { csrf_token: token })
 }
 
 fn app_error_to_status(e: AppError) -> StatusCode {
