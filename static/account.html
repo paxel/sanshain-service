@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sanshain - Account</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .fade-in { animation: fadeIn 0.2s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+
+    <!-- Nav (shown when logged in) -->
+    <nav id="nav-bar" class="hidden bg-indigo-700 text-white p-4 shadow-lg">
+        <div class="container mx-auto flex justify-between items-center">
+            <div class="flex items-center space-x-4">
+                <h1 class="text-2xl font-bold tracking-tight">Sanshain Account</h1>
+                <a href="/" class="text-indigo-200 hover:text-white text-sm">← Dashboard</a>
+            </div>
+            <div class="flex items-center space-x-4">
+                <span id="nav-username" class="text-indigo-200 text-sm"></span>
+                <button onclick="doLogout()" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded-lg text-sm transition-colors">Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Auth Screen (Login / Register) -->
+    <div id="auth-screen" class="min-h-screen flex items-center justify-center">
+        <div class="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm border border-slate-200">
+            <h1 class="text-2xl font-bold text-center mb-6 text-indigo-700">Sanshain</h1>
+
+            <!-- Tab switcher -->
+            <div class="flex mb-6 border-b border-slate-200">
+                <button id="tab-login" onclick="showTab('login')" class="flex-1 pb-2 text-sm font-medium text-center border-b-2 border-indigo-600 text-indigo-700">Sign In</button>
+                <button id="tab-register" onclick="showTab('register')" class="flex-1 pb-2 text-sm font-medium text-center border-b-2 border-transparent text-slate-400 hover:text-slate-600">Register</button>
+            </div>
+
+            <!-- Login Form -->
+            <div id="login-panel">
+                <div id="login-error" class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"></div>
+                <form id="login-form" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Username</label>
+                        <input type="text" id="login-username" required
+                            class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Password</label>
+                        <input type="password" id="login-password" required
+                            class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium">
+                        Sign In
+                    </button>
+                </form>
+            </div>
+
+            <!-- Register Form -->
+            <div id="register-panel" class="hidden">
+                <div id="register-error" class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"></div>
+                <div id="register-success" class="hidden bg-green-50 text-green-600 p-3 rounded-lg mb-4 text-sm"></div>
+                <form id="register-form" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Username</label>
+                        <input type="text" id="register-username" required
+                            class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Password</label>
+                        <input type="password" id="register-password" required minlength="6"
+                            class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Confirm Password</label>
+                        <input type="password" id="register-password-confirm" required minlength="6"
+                            class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium">
+                        Register
+                    </button>
+                </form>
+                <p class="text-xs text-slate-400 mt-3 text-center">After registration an admin must approve your account before you can log in.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Account Dashboard (logged in) -->
+    <div id="account-dashboard" class="hidden">
+        <main class="container mx-auto p-6 space-y-8">
+
+            <!-- Change Password -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <h2 class="text-lg font-semibold text-slate-800 mb-4">Change Password</h2>
+                <div id="pw-error" class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"></div>
+                <div id="pw-success" class="hidden bg-green-50 text-green-600 p-3 rounded-lg mb-4 text-sm"></div>
+                <form id="pw-form" class="space-y-4 max-w-sm">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Current Password</label>
+                        <input type="password" id="pw-current" required
+                            class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">New Password</label>
+                        <input type="password" id="pw-new" required minlength="6"
+                            class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium text-sm">
+                        Update Password
+                    </button>
+                </form>
+            </section>
+
+            <!-- API Tokens -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-800">API Tokens</h2>
+                        <p class="text-sm text-slate-500 mt-1">Create tokens to authenticate API requests from CI/CD pipelines or scripts.</p>
+                    </div>
+                    <button onclick="loadTokens()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                </div>
+
+                <!-- Create Token -->
+                <div class="bg-slate-50 rounded-lg p-4 mb-4">
+                    <h3 class="text-sm font-medium text-slate-700 mb-3">Create New Token</h3>
+                    <div id="token-create-error" class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-3 text-sm"></div>
+                    <div id="token-created" class="hidden bg-green-50 p-4 rounded-lg mb-3">
+                        <p class="text-sm font-medium text-green-800 mb-1">Token created successfully!</p>
+                        <p class="text-xs text-green-600 mb-2">Copy this token now — it will not be shown again.</p>
+                        <div class="flex items-center space-x-2">
+                            <code id="token-created-value" class="flex-1 bg-white text-green-900 px-3 py-2 rounded border border-green-200 text-xs font-mono break-all select-all"></code>
+                            <button onclick="copyToken()" class="bg-green-600 text-white px-3 py-1.5 rounded text-xs hover:bg-green-700 transition-colors">Copy</button>
+                        </div>
+                    </div>
+                    <form id="token-form" class="flex items-end space-x-3">
+                        <div class="flex-1">
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Token Name</label>
+                            <input type="text" id="token-name" required placeholder="e.g. ci-pipeline"
+                                class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <div class="w-32">
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Expires (days)</label>
+                            <input type="number" id="token-expires" value="365" min="1" max="3650"
+                                class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 transition-colors font-medium">
+                            Create
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Token List -->
+                <div id="tokens-list" class="space-y-2"></div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Confirm Modal -->
+    <div id="confirm-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+            <h3 class="text-lg font-bold text-slate-800 mb-2">Confirm</h3>
+            <p id="confirm-message" class="text-sm text-slate-600 mb-6"></p>
+            <div class="flex space-x-3">
+                <button id="confirm-yes" class="flex-1 bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors font-medium">Delete</button>
+                <button onclick="closeConfirmModal()" class="flex-1 bg-slate-100 text-slate-700 py-2 rounded-lg hover:bg-slate-200 transition-colors font-medium">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let token = localStorage.getItem('sanshain_token');
+        let csrfToken = null;
+
+        // --- CSRF ---
+        async function fetchCsrfToken() {
+            try {
+                const res = await fetch('/csrf-token');
+                if (res.ok) {
+                    const data = await res.json();
+                    csrfToken = data.csrf_token;
+                }
+            } catch (_) {}
+        }
+
+        // --- API helper ---
+        async function apiCall(url, options = {}) {
+            const headers = { ...options.headers };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            if (options.body && typeof options.body === 'object') {
+                headers['Content-Type'] = 'application/json';
+                options.body = JSON.stringify(options.body);
+            }
+            const method = (options.method || 'GET').toUpperCase();
+            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method) && csrfToken) {
+                headers['X-CSRF-Token'] = csrfToken;
+            }
+            const res = await fetch(url, { ...options, headers });
+            if (res.status === 401) {
+                token = null;
+                localStorage.removeItem('sanshain_token');
+                showAuth();
+                throw new Error('Session expired');
+            }
+            return res;
+        }
+
+        // --- Tab switching ---
+        function showTab(tab) {
+            const loginTab = document.getElementById('tab-login');
+            const registerTab = document.getElementById('tab-register');
+            const loginPanel = document.getElementById('login-panel');
+            const registerPanel = document.getElementById('register-panel');
+            if (tab === 'login') {
+                loginTab.classList.add('border-indigo-600', 'text-indigo-700');
+                loginTab.classList.remove('border-transparent', 'text-slate-400');
+                registerTab.classList.remove('border-indigo-600', 'text-indigo-700');
+                registerTab.classList.add('border-transparent', 'text-slate-400');
+                loginPanel.classList.remove('hidden');
+                registerPanel.classList.add('hidden');
+            } else {
+                registerTab.classList.add('border-indigo-600', 'text-indigo-700');
+                registerTab.classList.remove('border-transparent', 'text-slate-400');
+                loginTab.classList.remove('border-indigo-600', 'text-indigo-700');
+                loginTab.classList.add('border-transparent', 'text-slate-400');
+                registerPanel.classList.remove('hidden');
+                loginPanel.classList.add('hidden');
+            }
+        }
+
+        // --- Screen switching ---
+        function showAuth() {
+            document.getElementById('auth-screen').classList.remove('hidden');
+            document.getElementById('account-dashboard').classList.add('hidden');
+            document.getElementById('nav-bar').classList.add('hidden');
+        }
+
+        function showAccount() {
+            document.getElementById('auth-screen').classList.add('hidden');
+            document.getElementById('account-dashboard').classList.remove('hidden');
+            document.getElementById('nav-bar').classList.remove('hidden');
+            loadTokens();
+        }
+
+        // --- Login ---
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const errEl = document.getElementById('login-error');
+            errEl.classList.add('hidden');
+            try {
+                if (!csrfToken) await fetchCsrfToken();
+                const res = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
+                    body: JSON.stringify({
+                        username: document.getElementById('login-username').value,
+                        password: document.getElementById('login-password').value,
+                    }),
+                });
+                if (!res.ok) {
+                    errEl.textContent = res.status === 401 ? 'Invalid credentials or account not approved' : `Error: ${res.status}`;
+                    errEl.classList.remove('hidden');
+                    return;
+                }
+                const data = await res.json();
+                token = data.token;
+                localStorage.setItem('sanshain_token', token);
+                await loadMe();
+                showAccount();
+            } catch (err) {
+                errEl.textContent = err.message;
+                errEl.classList.remove('hidden');
+            }
+        });
+
+        // --- Register ---
+        document.getElementById('register-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const errEl = document.getElementById('register-error');
+            const successEl = document.getElementById('register-success');
+            errEl.classList.add('hidden');
+            successEl.classList.add('hidden');
+
+            const password = document.getElementById('register-password').value;
+            const confirm = document.getElementById('register-password-confirm').value;
+            if (password !== confirm) {
+                errEl.textContent = 'Passwords do not match.';
+                errEl.classList.remove('hidden');
+                return;
+            }
+
+            try {
+                if (!csrfToken) await fetchCsrfToken();
+                const res = await fetch('/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
+                    body: JSON.stringify({
+                        username: document.getElementById('register-username').value,
+                        password: password,
+                    }),
+                });
+                if (res.status === 201) {
+                    successEl.textContent = 'Registration successful! An admin must approve your account before you can log in.';
+                    successEl.classList.remove('hidden');
+                    document.getElementById('register-form').reset();
+                } else if (res.status === 409) {
+                    errEl.textContent = 'Username already taken.';
+                    errEl.classList.remove('hidden');
+                } else if (res.status === 403) {
+                    errEl.textContent = 'Registration is currently disabled.';
+                    errEl.classList.remove('hidden');
+                } else {
+                    errEl.textContent = `Registration failed (${res.status}).`;
+                    errEl.classList.remove('hidden');
+                }
+            } catch (err) {
+                errEl.textContent = err.message;
+                errEl.classList.remove('hidden');
+            }
+        });
+
+        // --- Logout ---
+        async function doLogout() {
+            try { await apiCall('/auth/logout', { method: 'POST' }); } catch (_) {}
+            token = null;
+            localStorage.removeItem('sanshain_token');
+            showAuth();
+        }
+
+        // --- Load current user ---
+        async function loadMe() {
+            try {
+                const res = await apiCall('/auth/me');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('nav-username').textContent = data.username;
+                }
+            } catch (_) {}
+        }
+
+        // --- Change Password ---
+        document.getElementById('pw-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const errEl = document.getElementById('pw-error');
+            const successEl = document.getElementById('pw-success');
+            errEl.classList.add('hidden');
+            successEl.classList.add('hidden');
+            try {
+                const res = await apiCall('/auth/change-password', {
+                    method: 'POST',
+                    body: {
+                        old_password: document.getElementById('pw-current').value,
+                        new_password: document.getElementById('pw-new').value,
+                    },
+                });
+                if (res.ok) {
+                    successEl.textContent = 'Password updated successfully.';
+                    successEl.classList.remove('hidden');
+                    document.getElementById('pw-form').reset();
+                } else {
+                    errEl.textContent = res.status === 401 ? 'Current password is incorrect.' : `Error: ${res.status}`;
+                    errEl.classList.remove('hidden');
+                }
+            } catch (err) {
+                errEl.textContent = err.message;
+                errEl.classList.remove('hidden');
+            }
+        });
+
+        // --- Tokens ---
+        async function loadTokens() {
+            const list = document.getElementById('tokens-list');
+            try {
+                const res = await apiCall('/auth/tokens');
+                if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load tokens.</p>'; return; }
+                const tokens = await res.json();
+                if (tokens.length === 0) {
+                    list.innerHTML = '<p class="text-sm text-slate-400 italic">No API tokens created yet.</p>';
+                    return;
+                }
+                list.innerHTML = tokens.map(t => `
+                    <div class="flex justify-between items-center bg-slate-50 px-4 py-3 rounded-lg fade-in">
+                        <div>
+                            <span class="font-medium text-slate-800">${escapeHtml(t.name)}</span>
+                            <div class="text-xs text-slate-400 mt-0.5">
+                                Created: ${escapeHtml(t.created_at)} · Expires: ${escapeHtml(t.expires_at)}
+                                ${t.last_used_at ? ' · Last used: ' + escapeHtml(t.last_used_at) : ''}
+                            </div>
+                        </div>
+                        <button onclick="confirmAction('Revoke token <strong>${escapeHtml(t.name)}</strong>?', () => revokeToken('${escapeAttr(t.id)}'))"
+                            class="text-red-500 hover:text-red-700 text-sm">Revoke</button>
+                    </div>
+                `).join('');
+            } catch (_) {
+                list.innerHTML = '<p class="text-sm text-red-500">Failed to load tokens.</p>';
+            }
+        }
+
+        document.getElementById('token-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const errEl = document.getElementById('token-create-error');
+            const createdEl = document.getElementById('token-created');
+            errEl.classList.add('hidden');
+            createdEl.classList.add('hidden');
+            try {
+                const res = await apiCall('/auth/tokens', {
+                    method: 'POST',
+                    body: {
+                        name: document.getElementById('token-name').value,
+                        expires_in_days: parseInt(document.getElementById('token-expires').value, 10),
+                    },
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('token-created-value').textContent = data.token;
+                    createdEl.classList.remove('hidden');
+                    document.getElementById('token-form').reset();
+                    document.getElementById('token-expires').value = '365';
+                    loadTokens();
+                } else {
+                    errEl.textContent = `Failed to create token (${res.status}).`;
+                    errEl.classList.remove('hidden');
+                }
+            } catch (err) {
+                errEl.textContent = err.message;
+                errEl.classList.remove('hidden');
+            }
+        });
+
+        function copyToken() {
+            const val = document.getElementById('token-created-value').textContent;
+            navigator.clipboard.writeText(val).catch(() => {});
+        }
+
+        async function revokeToken(id) {
+            try {
+                await apiCall(`/auth/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                loadTokens();
+            } catch (_) {}
+        }
+
+        // --- Confirm Modal ---
+        function confirmAction(message, onConfirm) {
+            document.getElementById('confirm-message').innerHTML = message;
+            document.getElementById('confirm-modal').classList.remove('hidden');
+            document.getElementById('confirm-yes').onclick = () => {
+                closeConfirmModal();
+                onConfirm();
+            };
+        }
+
+        function closeConfirmModal() {
+            document.getElementById('confirm-modal').classList.add('hidden');
+        }
+
+        // --- Helpers ---
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function escapeAttr(str) {
+            return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        }
+
+        // --- Check session on load ---
+        async function checkSession() {
+            if (!token) { showAuth(); return; }
+            try {
+                const res = await apiCall('/auth/me');
+                if (res.ok) {
+                    await loadMe();
+                    showAccount();
+                } else {
+                    showAuth();
+                }
+            } catch (_) { showAuth(); }
+        }
+
+        fetchCsrfToken().then(() => checkSession());
+    </script>
+</body>
+</html>

@@ -61,6 +61,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Raw token shown only once at creation time; tokens have configurable expiry (1–3650 days, default 365).
 - Auth middleware accepts both session cookies and `Authorization: Bearer san_...` API tokens.
 - User dashboard page (`/dashboard`) with Askama server-side templates for token management UI.
+- User account page (`/account.html`) — web frontend for self-registration, login, password change, and API token creation/management.
 - One-time token display modal with copy-to-clipboard and Maven `settings.xml` usage hint.
 - Introduced Askama 0.13 for server-side HTML templating (compile-time checked, auto-escaped).
 

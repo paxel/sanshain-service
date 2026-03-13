@@ -154,7 +154,7 @@ Approved users can create long-lived API tokens for use in CI pipelines (Jenkins
 </server>
 ```
 
-**User Dashboard:** Visit `/dashboard` (requires login) to create, view, and revoke tokens via the web UI.
+**User Account Page:** Visit `/account.html` to register, log in, change your password, and create/manage API tokens via the web UI.
 
 ### 4. Admin API (Session-Based Authentication)
 All `/admin/*` endpoints require a valid admin session token (`Authorization: Bearer <token>`).

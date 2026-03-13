@@ -6,6 +6,9 @@ RUN apk add --no-cache musl-dev sqlite-dev openssl-dev pkgconfig
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
+COPY static/ static/
+COPY templates/ templates/
+#COPY tests/ tests/
 
 RUN cargo build --release
 
