@@ -1,0 +1,134 @@
+openapi: "3.0.3"
+info:
+  title: Sanshain Client API
+  description: |
+    API contract for Sanshain clients (build plugins, CLIs).
+    Covers the two core operations: providing OpenAPI specs and requiring endpoint snippets.
+  version: "0.1.0"
+  license:
+    name: AGPL-3.0
+    url: https://www.gnu.org/licenses/agpl-3.0.html
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+
+paths:
+  /provide:
+    post:
+      operationId: provideSpec
+      summary: Upload an OpenAPI specification for a service branch
+      description: |
+        Parses the provided OpenAPI YAML, splits it into individual endpoint snippets,
+        and stores them for the given service and branch.
+
+        **Idempotency**: Re-uploading identical YAML for the same service/branch succeeds without modification.
+
+        **Immutability on protected branches**: If an endpoint already exists on a protected branch
+        with different content, the request is rejected with 409 Conflict.
+        Feature (non-protected) branches allow overwrites.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProvidePayload"
+      responses:
+        "202":
+          description: Specification accepted and stored.
+        "400":
+          description: Invalid request (e.g. malformed YAML or missing fields).
+          content:
+            text/plain:
+              schema:
+                type: string
+        "409":
+          description: |
+            Conflict — an endpoint on a protected branch already exists with different content.
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /require:
+    get:
+      operationId: requireEndpoint
+      summary: Retrieve an endpoint snippet and register a client dependency
+      description: |
+        Returns the OpenAPI YAML snippet for a specific endpoint of a service on a given branch.
+        Registers the calling client as a consumer of that endpoint.
+
+        **Long-polling**: If `timeout` is provided and the endpoint is not yet available,
+        the server waits up to `timeout` seconds for it to appear.
+
+        **Feature branch fallback**: If the endpoint is not found on the requested branch,
+        the server falls back to the `master` branch automatically.
+      parameters:
+        - name: clientname
+          in: query
+          required: true
+          description: Name of the client registering the dependency.
+          schema:
+            type: string
+        - name: servicename
+          in: query
+          required: true
+          description: Name of the service that provides the endpoint.
+          schema:
+            type: string
+        - name: branch
+          in: query
+          required: true
+          description: Branch name to retrieve the endpoint from.
+          schema:
+            type: string
+        - name: path
+          in: query
+          required: true
+          description: "API path of the endpoint (e.g. `/api/v1/users`)."
+          schema:
+            type: string
+        - name: method
+          in: query
+          required: true
+          description: "HTTP method (e.g. `GET`, `POST`)."
+          schema:
+            type: string
+        - name: timeout
+          in: query
+          required: false
+          description: |
+            Optional long-polling timeout in seconds. If the endpoint is not yet available,
+            the server waits up to this duration before returning 404.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+      responses:
+        "200":
+          description: The OpenAPI YAML snippet for the requested endpoint.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: Endpoint not found (after timeout, if specified).
+
+components:
+  schemas:
+    ProvidePayload:
+      type: object
+      required:
+        - servicename
+        - branch
+        - openapi_yaml
+      properties:
+        servicename:
+          type: string
+          description: Name of the service providing the specification.
+        branch:
+          type: string
+          description: Branch name for the specification.
+        openapi_yaml:
+          type: string
+          description: The full OpenAPI specification as a YAML string.

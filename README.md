@@ -78,6 +78,10 @@ This URL serves the Web Dashboard directly.
 - **Dependency Reports**: Identifies unused endpoints and missing dependencies.
 - **Web Dashboard**: Navigate services, branches, and client dependencies visually.
 
+## Client API Contract
+
+The client-facing API (`/provide` and `/require`) is formally specified in [`api.yaml`](api.yaml) as an OpenAPI 3.0.3 document. This file serves as the contract for all client plugins (Maven, Gradle, Cargo, Go, npm, etc.) and can be used with [OpenAPI Generator](https://openapi-generator.tech/) to produce client SDKs in any supported language.
+
 ## API Usage
 
 ### 1. `POST /provide`

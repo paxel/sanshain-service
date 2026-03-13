@@ -63,6 +63,9 @@ Sanshain is a service designed to manage and distribute OpenAPI specifications f
 - [x] Set the root URL (`/`) to redirect to the dashboard.
 - [x] Dependency graph visualization (further refinement).
 
+## 3.5 Client API Contract
+- [x] Hand-written `api.yaml` (OpenAPI 3.0.3) for `/provide` and `/require` — the contract for all client plugins.
+
 ## 4. Phase 3: Ecosystem & Tooling (Maven & Gradle Plugins)
 All client-side implementations (plugins, CLIs, hooks) must support a **timeout/retry mechanism** (configurable timeout and retry interval) when calling `require`, to handle asynchronous build orders where a consumer might build before a provider.
 
