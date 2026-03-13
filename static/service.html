@@ -38,16 +38,29 @@
 
 <main class="container mx-auto p-6">
     <div id="service-section">
-        <h2 class="text-xl font-semibold mb-6 flex items-center">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-semibold flex items-center">
                 <span class="bg-indigo-100 text-indigo-700 p-2 rounded-lg mr-3">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                               d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
                     </svg>
                 </span>
-            Provided Services & Branches
-        </h2>
-        <div id="services-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                Provided Services & Branches
+            </h2>
+            <div class="relative w-64">
+                <input type="text" id="service-search" placeholder="Search services..."
+                       class="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <div class="absolute left-3 top-2.5 text-slate-400">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                </div>
+            </div>
+        </div>
+        <div id="service-breadcrumb" class="flex items-center text-sm text-slate-500 mb-4 hidden"></div>
+        <div id="services-list" class="space-y-4">
             <!-- Services will be loaded here -->
             <div class="animate-pulse bg-white p-6 rounded-xl border border-slate-200 h-32"></div>
             <div class="animate-pulse bg-white p-6 rounded-xl border border-slate-200 h-32"></div>
@@ -141,126 +154,288 @@
         return res.json();
     }
 
+    let allServices = [];
+    let allServiceBranches = {}; // cache: serviceName -> branches[]
+    const YAML_PAGE_SIZE = 80; // lines per page for YAML viewer
+
     async function loadServices() {
         document.getElementById('service-section').classList.remove('hidden');
         document.getElementById('client-section').classList.add('hidden');
         document.getElementById('graph-section').classList.add('hidden');
         const list = document.getElementById('services-list');
-        list.innerHTML = '<div class="col-span-full text-center py-10">Loading services...</div>';
+        const breadcrumb = document.getElementById('service-breadcrumb');
+        breadcrumb.classList.add('hidden');
+        breadcrumb.innerHTML = '';
+        document.getElementById('service-search').value = '';
+        list.innerHTML = '<div class="text-center py-10">Loading services...</div>';
 
         try {
             const services = await fetchJSON('/admin/services');
-            if (!services || services.length === 0) {
-                list.innerHTML = `
-                        <div class="col-span-full bg-white p-10 rounded-2xl border-2 border-dashed border-slate-200 text-center">
-                            <div class="text-slate-400 mb-4">
-                                <svg class="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
-                                </svg>
+            allServices = services || [];
+            allServiceBranches = {};
+            // Pre-fetch branches for each service
+            for (const name of allServices) {
+                try {
+                    allServiceBranches[name] = await fetchJSON(`/admin/services/${encodeURIComponent(name)}/branches`);
+                } catch (_) {
+                    allServiceBranches[name] = [];
+                }
+            }
+            renderServiceList(allServices);
+        } catch (err) {
+            list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${err.message}</div>`;
+        }
+    }
+
+    function renderServiceList(services) {
+        const list = document.getElementById('services-list');
+        const breadcrumb = document.getElementById('service-breadcrumb');
+        breadcrumb.classList.add('hidden');
+        breadcrumb.innerHTML = '';
+
+        if (!services || services.length === 0) {
+            list.innerHTML = `
+                <div class="bg-white p-10 rounded-2xl border-2 border-dashed border-slate-200 text-center">
+                    <div class="text-slate-400 mb-4">
+                        <svg class="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-medium text-slate-900">No services found</h3>
+                    <p class="text-slate-500 mt-1">Provide an OpenAPI spec via POST /provide to see it here.</p>
+                </div>`;
+            return;
+        }
+
+        list.innerHTML = '';
+        for (const name of services) {
+            const branches = allServiceBranches[name] || [];
+            const card = document.createElement('div');
+            card.className = 'bg-white p-5 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
+            card.onclick = () => showServiceBranches(name);
+            card.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <span class="bg-indigo-100 text-indigo-700 p-2 rounded-lg mr-3">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                            </svg>
+                        </span>
+                        <div>
+                            <h3 class="font-bold text-lg text-slate-800">${name}</h3>
+                            <div class="text-sm text-slate-500">
+                                <span class="w-2 h-2 inline-block rounded-full bg-green-500 mr-1"></span>
+                                ${branches.length} branch${branches.length !== 1 ? 'es' : ''}
                             </div>
-                            <h3 class="text-lg font-medium text-slate-900">No services found</h3>
-                            <p class="text-slate-500 mt-1">Provide an OpenAPI spec via POST /provide to see it here.</p>
                         </div>
-                    `;
+                    </div>
+                    <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                    </svg>
+                </div>`;
+            list.appendChild(card);
+        }
+    }
+
+    document.getElementById('service-search').addEventListener('input', function() {
+        const q = this.value.toLowerCase();
+        if (!q) {
+            renderServiceList(allServices);
+            return;
+        }
+        renderServiceList(allServices.filter(name => name.toLowerCase().includes(q)));
+    });
+
+    async function showServiceBranches(serviceName) {
+        const list = document.getElementById('services-list');
+        const breadcrumb = document.getElementById('service-breadcrumb');
+        breadcrumb.classList.remove('hidden');
+        breadcrumb.innerHTML = `
+            <button onclick="loadServices()" class="hover:text-indigo-600 font-medium">Services</button>
+            <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+            <span class="text-slate-800 font-semibold">${serviceName}</span>`;
+
+        const branches = allServiceBranches[serviceName] || [];
+        list.innerHTML = '';
+
+        if (branches.length === 0) {
+            list.innerHTML = '<div class="text-center py-10 text-slate-400 italic">No branches found for this service.</div>';
+            return;
+        }
+
+        for (const branch of branches) {
+            const card = document.createElement('div');
+            card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
+            card.onclick = () => showServiceBranchEndpoints(serviceName, branch);
+            card.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <span class="bg-purple-100 text-purple-700 p-2 rounded-lg mr-3">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                            </svg>
+                        </span>
+                        <h3 class="font-semibold text-slate-800">${branch}</h3>
+                    </div>
+                    <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                    </svg>
+                </div>`;
+            list.appendChild(card);
+        }
+    }
+
+    async function showServiceBranchEndpoints(serviceName, branchName) {
+        const list = document.getElementById('services-list');
+        const breadcrumb = document.getElementById('service-breadcrumb');
+        breadcrumb.classList.remove('hidden');
+        breadcrumb.innerHTML = `
+            <button onclick="loadServices()" class="hover:text-indigo-600 font-medium">Services</button>
+            <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+            <button onclick="showServiceBranches('${serviceName}')" class="hover:text-indigo-600 font-medium">${serviceName}</button>
+            <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+            <span class="text-slate-800 font-semibold">${branchName}</span>`;
+
+        list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading endpoints...</div>';
+
+        try {
+            const report = await fetchJSON(`/report?branch=${encodeURIComponent(branchName)}`);
+            const serviceEndpoints = [
+                ...report.dependency_graph.filter(e => e.service === serviceName),
+                ...report.unused_endpoints.filter(e => e.service === serviceName)
+            ];
+
+            // Deduplicate by path+method
+            const seen = new Set();
+            const uniqueEndpoints = serviceEndpoints.filter(e => {
+                const key = `${e.method}:${e.path}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+
+            // Find clients per endpoint from dependency_graph
+            const clientsMap = {};
+            report.dependency_graph.filter(e => e.service === serviceName).forEach(e => {
+                const key = `${e.method}:${e.path}`;
+                if (!clientsMap[key]) clientsMap[key] = new Set();
+                clientsMap[key].add(e.client);
+            });
+
+            // Check which endpoints are unused
+            const unusedSet = new Set(report.unused_endpoints.filter(e => e.service === serviceName).map(e => `${e.method}:${e.path}`));
+
+            list.innerHTML = '';
+
+            if (uniqueEndpoints.length === 0) {
+                list.innerHTML = '<div class="text-center py-10 text-slate-400 italic">No endpoints found for this service on this branch.</div>';
                 return;
             }
 
-            list.innerHTML = '';
-            for (const name of services) {
-                const branches = await fetchJSON(`/admin/services/${encodeURIComponent(name)}/branches`);
+            // Summary bar
+            const summary = document.createElement('div');
+            summary.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-2 flex items-center justify-between';
+            const usedCount = uniqueEndpoints.filter(e => !unusedSet.has(`${e.method}:${e.path}`)).length;
+            const unusedCount = uniqueEndpoints.length - usedCount;
+            summary.innerHTML = `
+                <div class="text-sm text-slate-600">
+                    <span class="font-semibold text-slate-800">${uniqueEndpoints.length}</span> endpoints total &middot;
+                    <span class="text-green-600 font-medium">${usedCount} used</span> &middot;
+                    <span class="text-amber-600 font-medium">${unusedCount} unused</span>
+                </div>
+                <a href="/report/markdown?branch=${encodeURIComponent(branchName)}" target="_blank" class="text-xs bg-slate-800 text-white px-3 py-1.5 rounded-lg hover:bg-slate-700">Download Report</a>`;
+            list.appendChild(summary);
+
+            for (const ep of uniqueEndpoints) {
+                const key = `${ep.method}:${ep.path}`;
+                const isUnused = unusedSet.has(key);
+                const clients = clientsMap[key] ? [...clientsMap[key]] : [];
                 const card = document.createElement('div');
-                card.className = 'bg-white p-6 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
-                card.onclick = () => showServiceBranches(name, branches);
+                card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
+                card.onclick = () => showServiceEndpointYaml(serviceName, branchName, ep);
                 card.innerHTML = `
-                    <div class="flex justify-between items-start mb-4">
-                        <h3 class="font-bold text-lg text-slate-800">${name}</h3>
-                    </div>
-                    <div class="text-sm text-slate-500">
-                        <div class="flex items-center mb-1">
-                            <span class="w-2 h-2 rounded-full bg-green-500 mr-2"></span>
-                            ${branches.length} branch${branches.length !== 1 ? 'es' : ''}: ${branches.join(', ')}
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <span class="px-2 py-1 rounded text-[10px] font-bold uppercase mr-3 ${getMethodColor(ep.method)}">
+                                ${ep.method}
+                            </span>
+                            <span class="font-mono text-sm text-slate-700">${ep.path}</span>
                         </div>
-                    </div>
-                `;
+                        <div class="flex items-center">
+                            ${isUnused
+                                ? '<span class="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full mr-2">unused</span>'
+                                : `<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2">${clients.length} client${clients.length !== 1 ? 's' : ''}</span>`}
+                            <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                            </svg>
+                        </div>
+                    </div>`;
                 list.appendChild(card);
             }
         } catch (err) {
-            list.innerHTML = `<div class="col-span-full text-red-500">Error: ${err.message}</div>`;
+            list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${err.message}</div>`;
         }
     }
 
-    async function showServiceBranches(serviceName, branches) {
-        if (branches.length === 0) return;
-        const branch = branches[0];
-        try {
-            const report = await fetchJSON(`/report?branch=${encodeURIComponent(branch)}`);
-            showBranchDetails(serviceName, branch, report);
-        } catch (err) {
-            alert(`Error loading report for ${serviceName}/${branch}: ${err.message}`);
-        }
-    }
-
-    function renderReport(report, branchName) {
-        const list = document.getElementById('services-list');
-        list.innerHTML = '';
-
-        // Group by service
-        const services = {};
-        [...report.dependency_graph, ...report.unused_endpoints].forEach(item => {
-            const sName = item.service_name || item.requested_service_name;
-            if (!services[sName]) services[sName] = {endpoints: []};
-            services[sName].endpoints.push(item);
-        });
-
-        Object.entries(services).forEach(([name, data]) => {
-            const card = document.createElement('div');
-            card.className = 'bg-white p-6 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
-            card.onclick = () => showBranchDetails(name, branchName, report);
-            card.innerHTML = `
-                    <div class="flex justify-between items-start mb-4">
-                        <h3 class="font-bold text-lg text-slate-800">${name}</h3>
-                        <span class="px-2 py-1 bg-slate-100 text-slate-600 text-xs font-semibold rounded uppercase tracking-wider">${branchName}</span>
-                    </div>
-                    <div class="text-sm text-slate-500">
-                        <div class="flex items-center mb-1">
-                            <span class="w-2 h-2 rounded-full bg-green-500 mr-2"></span>
-                            ${data.endpoints.length} endpoints defined
-                        </div>
-                    </div>
-                `;
-            list.appendChild(card);
-        });
-    }
-
-    async function showBranchDetails(serviceName, branchName, report) {
+    async function showServiceEndpointYaml(serviceName, branchName, ep) {
         document.getElementById('modal').classList.remove('hidden');
-        document.getElementById('modal-title').innerText = `${serviceName} (${branchName})`;
-        document.getElementById('md-report-btn').href = `/report/markdown?branch=${branchName}`;
+        document.getElementById('modal-title').innerText = `${ep.method} ${ep.path} — ${serviceName} (${branchName})`;
+        document.getElementById('md-report-btn').href = `/report/markdown?branch=${encodeURIComponent(branchName)}`;
+        document.getElementById('md-report-btn').style.display = '';
         const content = document.getElementById('modal-content');
+        content.innerHTML = '<div class="text-center py-10 text-slate-500">Loading YAML...</div>';
 
-        const serviceEndpoints = [...report.dependency_graph, ...report.unused_endpoints]
-            .filter(e => (e.service_name || e.requested_service_name) === serviceName);
+        try {
+            const yamlText = await (async () => {
+                const headers = {};
+                const token = localStorage.getItem('sanshain_token');
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+                const res = await fetch(`/require?clientname=_viewer&servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}`, {headers});
+                if (!res.ok) throw new Error(`${res.status}`);
+                return res.text();
+            })();
+            renderPaginatedYaml(content, yamlText);
+        } catch (err) {
+            content.innerHTML = `<div class="text-slate-500 text-center py-10">YAML preview not available (${err.message})</div>`;
+        }
+    }
 
-        content.innerHTML = `
-                <div class="mb-8">
-                    <h4 class="text-sm font-semibold text-slate-400 uppercase tracking-widest mb-4">Endpoints</h4>
-                    <div class="space-y-3">
-                        ${serviceEndpoints.map(e => `
-                            <div class="bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-center">
-                                <div class="flex items-center">
-                                    <span class="px-2 py-1 rounded text-[10px] font-bold uppercase mr-3 ${getMethodColor(e.method || e.requested_method)}">
-                                        ${e.method || e.requested_method}
-                                    </span>
-                                    <span class="font-mono text-sm text-slate-700">${e.path || e.requested_path}</span>
-                                </div>
-                                <div class="text-xs text-slate-400">
-                                    ${e.clients ? `<span class="bg-indigo-50 text-indigo-600 px-2 py-1 rounded-full">${e.clients.length} clients</span>` : '<span class="italic text-slate-300">Unused</span>'}
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
+    function renderPaginatedYaml(container, yamlText) {
+        const lines = yamlText.split('\n');
+        const totalPages = Math.max(1, Math.ceil(lines.length / YAML_PAGE_SIZE));
+        let currentPage = 1;
+
+        function render() {
+            const start = (currentPage - 1) * YAML_PAGE_SIZE;
+            const end = Math.min(start + YAML_PAGE_SIZE, lines.length);
+            const pageLines = lines.slice(start, end);
+            const escaped = pageLines.join('\n').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+            let paginationHtml = '';
+            if (totalPages > 1) {
+                paginationHtml = `
+                    <div class="flex items-center justify-between mt-4">
+                        <button id="yaml-prev" class="px-3 py-1.5 rounded-lg text-sm font-medium ${currentPage <= 1 ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}" ${currentPage <= 1 ? 'disabled' : ''}>← Previous</button>
+                        <span class="text-sm text-slate-500">Page ${currentPage} of ${totalPages} &middot; Lines ${start + 1}–${end} of ${lines.length}</span>
+                        <button id="yaml-next" class="px-3 py-1.5 rounded-lg text-sm font-medium ${currentPage >= totalPages ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}" ${currentPage >= totalPages ? 'disabled' : ''}>Next →</button>
+                    </div>`;
+            }
+
+            container.innerHTML = `
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs text-slate-400">${lines.length} lines total</span>
                 </div>
-            `;
+                <pre class="bg-slate-800 text-green-300 p-4 rounded-xl text-sm overflow-x-auto whitespace-pre-wrap leading-relaxed">${escaped}</pre>
+                ${paginationHtml}`;
+
+            if (totalPages > 1) {
+                const prev = document.getElementById('yaml-prev');
+                const next = document.getElementById('yaml-next');
+                if (prev && currentPage > 1) prev.onclick = () => { currentPage--; render(); };
+                if (next && currentPage < totalPages) next.onclick = () => { currentPage++; render(); };
+            }
+        }
+        render();
     }
 
     function getMethodColor(m) {
@@ -444,7 +619,7 @@
         document.getElementById('md-report-btn').href = '#';
         document.getElementById('md-report-btn').style.display = 'none';
         const content = document.getElementById('modal-content');
-        content.innerHTML = `<pre class="bg-slate-800 text-green-300 p-4 rounded-xl text-sm overflow-x-auto whitespace-pre-wrap">${ep.yaml_content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`;
+        renderPaginatedYaml(content, ep.yaml_content);
     }
 
     document.getElementById('client-search').addEventListener('input', function() {

@@ -72,6 +72,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Default log level changed from `debug` to `info`; configurable via `RUST_LOG` environment variable (e.g., `RUST_LOG=sanshain_service=debug,tower_http=debug`).
 - Service overview page now dynamically discovers all provided services and branches instead of only querying the `main` branch.
 - Client drill-down view in service page: browse clients → branches → endpoints → YAML content, with search/filter support.
+- Service drill-down view: browse services → branches → endpoints (with used/unused status and client counts) → paginated YAML preview, with search/filter support.
+- Paginated YAML viewer for large OpenAPI files (80 lines per page) used in both service and client YAML views.
 - New admin API endpoints: `GET /admin/clients/{name}/branches` and `GET /admin/clients/{name}/branches/{branch}/endpoints` for client dependency drill-down.
 
 #### DevOps
