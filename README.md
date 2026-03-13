@@ -1,4 +1,4 @@
-# Sanshain Service
+# [Sanshain Service](https://github.com/paxel/sanshain-service)
 
 Sanshain is a service designed to manage and distribute OpenAPI specifications for microservices, tracking client-service dependencies and generating usage reports.
 
@@ -152,7 +152,7 @@ cargo build --release
 ```
 
 #### From GitHub Release
-Download the `sanshain-linux-amd64` binary from the [Releases](../../releases) page:
+Download the `sanshain-linux-amd64` binary from the [Releases](https://github.com/paxel/sanshain-service/releases) page:
 ```bash
 chmod +x sanshain-linux-amd64
 ./sanshain-linux-amd64
@@ -160,8 +160,8 @@ chmod +x sanshain-linux-amd64
 
 #### Docker (GitHub Container Registry)
 ```bash
-docker pull ghcr.io/<owner>/sanshainservice:latest
-docker run -p 3000:3000 -v sanshain-data:/data ghcr.io/<owner>/sanshainservice:latest
+docker pull ghcr.io/paxel/sanshain-service:latest
+docker run -p 3000:3000 -v sanshain-data:/data ghcr.io/paxel/sanshain-service:latest
 ```
 
 Or use the `Dockerfile` and `docker-compose.yaml` included in each release.
