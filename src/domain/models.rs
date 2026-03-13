@@ -65,3 +65,12 @@ pub struct DependencyInfo {
     pub path: String,
     pub method: String,
 }
+
+#[derive(Serialize, Clone, Debug)]
+pub struct ClientEndpointInfo {
+    pub service: String,
+    pub branch: String,
+    pub path: String,
+    pub method: String,
+    pub yaml_content: Option<String>,
+}

@@ -212,6 +212,7 @@ Generate a dependency report for a specific branch.
 |---|---|---|
 | `DATABASE_URL` | `sqlite:sanshain.db?mode=rwc` | Database connection string |
 | `BIND_ADDRESS` | `0.0.0.0:3000` | Address and port to listen on |
+| `RUST_LOG` | `sanshain_service=info,tower_http=info` | Log level filter (e.g., `sanshain_service=debug,tower_http=debug` for verbose output) |
 
 ### Running the service
 ```bash

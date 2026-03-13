@@ -33,7 +33,7 @@ pub async fn main() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "sanshain_service=debug,tower_http=debug".into()),
+                .unwrap_or_else(|_| "sanshain_service=info,tower_http=info".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -174,6 +174,7 @@ async fn security_headers(
 }
 
 /// Middleware: validates CSRF token on state-changing requests (POST, DELETE, PUT, PATCH).
+/// Skipped when dev_mode is enabled so that external tools (e.g. curl) can reach the API.
 async fn csrf_protection(
     State(state): State<AppState>,
     req: axum::http::Request<Body>,
@@ -185,21 +186,27 @@ async fn csrf_protection(
         || method == axum::http::Method::PUT
         || method == axum::http::Method::PATCH
     {
-        let csrf_token = req
-            .headers()
-            .get("X-CSRF-Token")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
+        // In dev mode, skip CSRF validation to allow unauthenticated API access
+        let dev_mode = services::get_dev_mode(&state.repo)
+            .await
+            .unwrap_or(false);
+        if !dev_mode {
+            let csrf_token = req
+                .headers()
+                .get("X-CSRF-Token")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
 
-        match csrf_token {
-            Some(token) => {
-                let valid = state.csrf_tokens.read().await.contains(&token);
-                if !valid {
+            match csrf_token {
+                Some(token) => {
+                    let valid = state.csrf_tokens.read().await.contains(&token);
+                    if !valid {
+                        return Err(StatusCode::FORBIDDEN);
+                    }
+                }
+                None => {
                     return Err(StatusCode::FORBIDDEN);
                 }
-            }
-            None => {
-                return Err(StatusCode::FORBIDDEN);
             }
         }
     }
@@ -216,6 +223,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/services/{name}/branches/{branch}", axum::routing::delete(admin_delete_branch))
         .route("/clients", get(admin_list_clients))
         .route("/clients/{name}", axum::routing::delete(admin_delete_client))
+        .route("/clients/{name}/branches", get(admin_list_client_branches))
+        .route("/clients/{name}/branches/{branch}/endpoints", get(admin_list_client_endpoints))
         .route("/settings/dev-mode", get(get_dev_mode).post(set_dev_mode))
         .route("/settings/local-users", get(get_local_users).post(set_local_users))
         .route("/users", get(admin_list_users))
@@ -248,6 +257,7 @@ pub fn create_app(state: AppState) -> Router {
         .fallback_service(ServeDir::new("static"))
         .layer(middleware::from_fn_with_state(state.clone(), csrf_protection))
         .layer(middleware::from_fn(security_headers))
+        .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state)
 }
 
@@ -306,11 +316,26 @@ async fn generate_csrf_token(
 
 fn app_error_to_status(e: AppError) -> StatusCode {
     match e {
-        AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
-        AppError::Conflict => StatusCode::CONFLICT,
-        AppError::NotFound => StatusCode::NOT_FOUND,
-        AppError::Unauthorized => StatusCode::UNAUTHORIZED,
-        AppError::Forbidden => StatusCode::FORBIDDEN,
+        AppError::BadRequest(ref msg) => {
+            tracing::warn!("Bad request: {}", msg);
+            StatusCode::BAD_REQUEST
+        }
+        AppError::Conflict => {
+            tracing::warn!("Conflict");
+            StatusCode::CONFLICT
+        }
+        AppError::NotFound => {
+            tracing::warn!("Not found");
+            StatusCode::NOT_FOUND
+        }
+        AppError::Unauthorized => {
+            tracing::warn!("Unauthorized");
+            StatusCode::UNAUTHORIZED
+        }
+        AppError::Forbidden => {
+            tracing::warn!("Forbidden");
+            StatusCode::FORBIDDEN
+        }
         AppError::Internal(msg) => {
             tracing::error!("Internal error: {}", msg);
             StatusCode::INTERNAL_SERVER_ERROR
@@ -569,6 +594,26 @@ async fn admin_delete_client(
     } else {
         Err(StatusCode::NOT_FOUND)
     }
+}
+
+async fn admin_list_client_branches(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Result<Json<Vec<String>>, StatusCode> {
+    services::list_client_branches(&state.repo, &name)
+        .await
+        .map(Json)
+        .map_err(app_error_to_status)
+}
+
+async fn admin_list_client_endpoints(
+    State(state): State<AppState>,
+    axum::extract::Path((name, branch)): axum::extract::Path<(String, String)>,
+) -> Result<Json<Vec<domain::models::ClientEndpointInfo>>, StatusCode> {
+    services::list_client_endpoints(&state.repo, &name, &branch)
+        .await
+        .map(Json)
+        .map_err(app_error_to_status)
 }
 
 // --- Dev mode admin endpoints ---

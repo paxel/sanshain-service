@@ -66,6 +66,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `GET /admin/settings/local-users` to check local users setting status.
 - Admin dashboard UI: Local User Registration toggle, Users list with approve/delete actions and status badges (admin, approved, pending).
 
+#### Observability
+- Added structured logging for all failed REST endpoint calls (warn-level for client errors, error-level for internal errors) to aid debugging.
+- Added HTTP request/response tracing via `tower-http` `TraceLayer` for full request lifecycle visibility.
+- Default log level changed from `debug` to `info`; configurable via `RUST_LOG` environment variable (e.g., `RUST_LOG=sanshain_service=debug,tower_http=debug`).
+- Service overview page now dynamically discovers all provided services and branches instead of only querying the `main` branch.
+- Client drill-down view in service page: browse clients → branches → endpoints → YAML content, with search/filter support.
+- New admin API endpoints: `GET /admin/clients/{name}/branches` and `GET /admin/clients/{name}/branches/{branch}/endpoints` for client dependency drill-down.
+
 #### DevOps
 - GitHub Actions CI workflow: build and test on every push and pull request.
 - GitHub Actions Release workflow: manually triggered via GitHub UI to create a release with Linux binary, Dockerfile, docker-compose.yaml, and CHANGELOG.

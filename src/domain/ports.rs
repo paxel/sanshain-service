@@ -81,6 +81,12 @@ pub trait SpecRepository: Send + Sync {
     /// List all clients.
     fn list_clients(&self) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
+    /// List all branches that a client has dependencies on.
+    fn list_client_branches(&self, client_name: &str) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    /// List all endpoints a client depends on for a given branch.
+    fn list_client_endpoints(&self, client_name: &str, branch: &str) -> impl Future<Output = Result<Vec<ClientEndpointInfo>, RepositoryError>> + Send;
+
     // --- Auth ---
 
     /// Count total users.

@@ -478,6 +478,41 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
+    async fn list_client_branches(&self, client_name: &str) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT d.requested_branch_name \
+             FROM dependencies d \
+             JOIN clients c ON d.client_id = c.id \
+             WHERE c.name = ? \
+             ORDER BY d.requested_branch_name"
+        )
+        .bind(client_name)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn list_client_endpoints(&self, client_name: &str, branch: &str) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
+        let rows: Vec<(String, String, String, String, Option<String>)> = sqlx::query_as(
+            "SELECT s.name, d.requested_branch_name, d.requested_path, d.requested_method, e.yaml_content \
+             FROM dependencies d \
+             JOIN clients c ON d.client_id = c.id \
+             JOIN services s ON d.requested_service_id = s.id \
+             LEFT JOIN endpoints e ON d.endpoint_id = e.id \
+             WHERE c.name = ? AND d.requested_branch_name = ? \
+             ORDER BY s.name, d.requested_path, d.requested_method"
+        )
+        .bind(client_name)
+        .bind(branch)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|(service, branch, path, method, yaml_content)| ClientEndpointInfo {
+            service, branch, path, method, yaml_content,
+        }).collect())
+    }
+
     async fn user_count(&self) -> Result<i64, RepositoryError> {
         let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
             .fetch_one(&self.pool)

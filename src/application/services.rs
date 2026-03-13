@@ -214,6 +214,21 @@ pub async fn list_clients(
     Ok(repo.list_clients().await?)
 }
 
+pub async fn list_client_branches(
+    repo: &impl SpecRepository,
+    client_name: &str,
+) -> Result<Vec<String>, AppError> {
+    Ok(repo.list_client_branches(client_name).await?)
+}
+
+pub async fn list_client_endpoints(
+    repo: &impl SpecRepository,
+    client_name: &str,
+    branch: &str,
+) -> Result<Vec<ClientEndpointInfo>, AppError> {
+    Ok(repo.list_client_endpoints(client_name, branch).await?)
+}
+
 // --- Auth ---
 
 pub fn hash_password(password: &str) -> Result<String, AppError> {
@@ -813,6 +828,14 @@ mod tests {
             let mut names: Vec<String> = clients.keys().cloned().collect();
             names.sort();
             Ok(names)
+        }
+
+        async fn list_client_branches(&self, _client_name: &str) -> Result<Vec<String>, RepositoryError> {
+            Ok(vec![])
+        }
+
+        async fn list_client_endpoints(&self, _client_name: &str, _branch: &str) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
+            Ok(vec![])
         }
 
         async fn user_count(&self) -> Result<i64, RepositoryError> {
