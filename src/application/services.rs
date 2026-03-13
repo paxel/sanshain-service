@@ -369,7 +369,7 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
 }
 
 pub fn render_report_markdown(report: &DependencyReport) -> String {
-    let mut md = format!("# SanShain Dependency Report: Branch `{}`\n\n", report.branch);
+    let mut md = format!("# Sanshain Dependency Report: Branch `{}`\n\n", report.branch);
 
     md.push_str("## Summary\n");
     md.push_str(&format!("- Total Dependencies: {}\n", report.dependency_graph.len()));
@@ -835,7 +835,7 @@ paths:
             missing_endpoints: vec![],
         };
         let md = render_report_markdown(&report);
-        assert!(md.contains("# SanShain Dependency Report: Branch `main`"));
+        assert!(md.contains("# Sanshain Dependency Report: Branch `main`"));
         assert!(md.contains("Total Dependencies: 0"));
         assert!(md.contains("No active dependencies recorded"));
     }

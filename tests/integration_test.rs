@@ -168,7 +168,7 @@ paths:
     assert_eq!(response.headers().get("content-type").unwrap(), "text/markdown; charset=utf-8");
     let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
     let md_report = String::from_utf8(body.to_vec()).unwrap();
-    assert!(md_report.contains("# SanShain Dependency Report: Branch `main`"));
+    assert!(md_report.contains("# Sanshain Dependency Report: Branch `main`"));
     assert!(md_report.contains("| client-a | test-service | `/users` | `GET` |"));
 }
 

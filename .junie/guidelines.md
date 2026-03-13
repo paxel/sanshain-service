@@ -1,4 +1,4 @@
-# SanShain Service Development Guidelines
+# Sanshain Service Development Guidelines
 
 ## Architecture
 This project follows **DDD Hexagonal/Onion Architecture**. All changes must maintain this structure:

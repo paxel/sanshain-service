@@ -1,6 +1,6 @@
-# SanShain Service
+# Sanshain Service
 
-SanShain is a service designed to manage and distribute OpenAPI specifications for microservices, tracking client-service dependencies and generating usage reports.
+Sanshain is a service designed to manage and distribute OpenAPI specifications for microservices, tracking client-service dependencies and generating usage reports.
 
 ## Service URL
 The service is available at: `http://localhost:3000` (default when running locally).
@@ -26,7 +26,7 @@ Provide an OpenAPI specification for a service branch.
 }
 ```
 
-**Note:** SanShain enforces an **Immutable Endpoint Path** policy within a branch. If the DTO/schema for an existing endpoint changes, you must increment the version in the path (e.g., `/api/v1/users` to `/api/v2/users`). Changes to the same path that alter the DTO will be rejected with `409 Conflict`.
+**Note:** Sanshain enforces an **Immutable Endpoint Path** policy within a branch. If the DTO/schema for an existing endpoint changes, you must increment the version in the path (e.g., `/api/v1/users` to `/api/v2/users`). Changes to the same path that alter the DTO will be rejected with `409 Conflict`.
 
 ### 2. `GET /require`
 Request the OpenAPI snippet for a specific endpoint and record the dependency.
@@ -39,7 +39,7 @@ Request the OpenAPI snippet for a specific endpoint and record the dependency.
 - `method`: HTTP method (GET, POST, etc.).
 - `timeout` *(optional)*: Long-polling timeout in seconds. If the endpoint is not yet available, the server will poll until it appears or the timeout expires.
 
-**Feature Branch Fallback:** If the endpoint is not found on a non-protected (feature) branch, SanShain automatically falls back to protected branches (e.g., `main`, `master`).
+**Feature Branch Fallback:** If the endpoint is not found on a non-protected (feature) branch, Sanshain automatically falls back to protected branches (e.g., `main`, `master`).
 
 **Example:**
 `GET /require?clientname=WebClient&servicename=UserService&branch=main&path=/users&method=GET`
@@ -47,7 +47,7 @@ Request the OpenAPI snippet for a specific endpoint and record the dependency.
 
 ### 3. Authentication
 
-SanShain uses session-based authentication with Argon2 password hashing.
+Sanshain uses session-based authentication with Argon2 password hashing.
 
 **First Start:** On first launch (empty user table), a `root` admin user is created with a random password printed to stderr. The DevOps engineer must change this password immediately.
 
@@ -127,7 +127,7 @@ The service uses SQLite by default. The database file `sanshain.db` will be crea
 
 ---
 
-SanShain (Japanese for "Sunshine") is a specialized REST service designed to manage, split, and distribute OpenAPI specifications. It acts as a central repository that allows microservices to "provide" their full API definitions and clients to "require" only the specific snippets (endpoints and necessary DTOs) they actually use.
+Sanshain (Japanese for "Sunshine") is a specialized REST service designed to manage, split, and distribute OpenAPI specifications. It acts as a central repository that allows microservices to "provide" their full API definitions and clients to "require" only the specific snippets (endpoints and necessary DTOs) they actually use.
 
 ## Use Cases
 
@@ -144,9 +144,56 @@ SanShain (Japanese for "Sunshine") is a specialized REST service designed to man
 - SQLite (default)
 
 ### Installation
+
+#### From Source
 ```bash
 cargo build --release
+./target/release/sanshain_service_bin
 ```
+
+#### From GitHub Release
+Download the `sanshain-linux-amd64` binary from the [Releases](../../releases) page:
+```bash
+chmod +x sanshain-linux-amd64
+./sanshain-linux-amd64
+```
+
+#### Docker (GitHub Container Registry)
+```bash
+docker pull ghcr.io/<owner>/sanshainservice:latest
+docker run -p 3000:3000 -v sanshain-data:/data ghcr.io/<owner>/sanshainservice:latest
+```
+
+Or use the `Dockerfile` and `docker-compose.yaml` included in each release.
+
+### Initial Admin Setup
+
+On first start (empty database), Sanshain creates a `root` admin account and prints a **random password to stderr**:
+
+```
+[INITIAL SETUP] Admin user created. Username: root, Password: <random>
+[INITIAL SETUP] Change this password immediately at http://localhost:3000/admin.html
+```
+
+**Important:** Copy this password from the startup logs immediately. It is only shown once.
+
+1. Open `http://localhost:3000/admin.html` in your browser.
+2. Log in with username `root` and the generated password.
+3. Change the password using the admin dashboard or via the API:
+   ```bash
+   # Login
+   TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"username":"root","password":"<initial-password>"}' | jq -r .token)
+
+   # Change password
+   curl -X POST http://localhost:3000/auth/change-password \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"old_password":"<initial-password>","new_password":"<new-secure-password>"}'
+   ```
+
+If you lose the initial password, delete the database file and restart the service to regenerate it.
 
 ### Running Tests
 ```bash

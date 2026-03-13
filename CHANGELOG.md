@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.1.0] - 2025-03-10
 
 ### Added
-- Initial release of SanShain Service.
+- Initial release of Sanshain Service.
 - `POST /provide` endpoint for uploading OpenAPI specifications.
 - `GET /require` endpoint for retrieving per-endpoint YAML snippets with dependency tracking.
 - `GET /report` and `GET /report/markdown` endpoints for dependency reports.
@@ -45,3 +45,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - Initial admin setup message now includes a URL (`http://localhost:3000/admin.html`) for changing the password.
 - Upgraded all dependencies to latest releases: axum 0.7→0.8, sqlx 0.7→0.8, tower 0.4→0.5, tower-http 0.5→0.6, rand 0.8→0.9, openapiv3 2.0→2.2, argon2 0.5→0.6.0-rc.7.
+
+### Fixed
+- Admin dashboard now fetches and sends CSRF tokens for all state-changing requests (POST/DELETE).
+- Fixed dev mode toggle payload key (`dev_mode` → `enabled`) to match backend API.
+- Fixed change-password form field name (`current_password` → `old_password`) to match backend API.
+
+### DevOps
+- GitHub Actions CI workflow: build and test on every push and pull request.
+- GitHub Actions Release workflow: manually triggered via GitHub UI to create a release with Linux binary, Dockerfile, docker-compose.yaml, and CHANGELOG.
+- Docker image built and pushed to GitHub Container Registry (ghcr.io) on release.
+- README updated with initial admin password setup procedure and installation options (source, binary, Docker).

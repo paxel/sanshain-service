@@ -1,6 +1,6 @@
-# Implementation Plan: SanShain Service
+# Implementation Plan: Sanshain Service
 
-SanShain is a service designed to manage and distribute OpenAPI specifications for microservices, tracking client-service dependencies and generating usage reports.
+Sanshain is a service designed to manage and distribute OpenAPI specifications for microservices, tracking client-service dependencies and generating usage reports.
 
 ## 1. Project Initialization & Infrastructure
 - [x] Initialize Rust project with `axum` or `actix-web` for the REST API.
@@ -70,7 +70,7 @@ SanShain is a service designed to manage and distribute OpenAPI specifications f
 All client-side implementations (plugins, CLIs, hooks) must support a **timeout/retry mechanism** (configurable timeout and retry interval) when calling `require`, to handle asynchronous build orders where a consumer might build before a provider.
 
 - [ ] **Maven Plugin**:
-    - [ ] `sanshain-provide`: Goal to upload a service's full OpenAPI spec to the SanShain service during the build (likely in `package` or `deploy` phase).
+    - [ ] `sanshain-provide`: Goal to upload a service's full OpenAPI spec to the Sanshain service during the build (likely in `package` or `deploy` phase).
     - [ ] `sanshain-require`: Goal to download required endpoint snippets before the code generation phase. Should support a configuration file listing required endpoints.
 - [ ] **Gradle Plugin**:
     - [ ] `sanshainProvide`: Task to upload the OpenAPI spec.
@@ -122,7 +122,7 @@ All client-side implementations (plugins, CLIs, hooks) must support a **timeout/
 
 ## 6. Documentation & Guidelines
 - [x] Create `README.md` in the service root explaining use cases, API usage, and example reports.
-- [x] Finalize `.junie/guidelines.md` with build, test, and development instructions specific to SanShain.
+- [x] Finalize `.junie/guidelines.md` with build, test, and development instructions specific to Sanshain.
 - [x] Add AGPL-3.0 License.
 - [x] Add `CHANGELOG.md` following Keep a Changelog format, linked from README.
 - [x] Add guidelines to maintain DDD structure, keep README and CHANGELOG updated, and keep all units tested.
@@ -133,7 +133,7 @@ All client-side implementations (plugins, CLIs, hooks) must support a **timeout/
     - [x] Automatic root admin user creation on first start (password printed to stderr).
     - [x] Auth endpoints: login, logout, me, change-password.
     - [x] Dev mode toggle: admin can open/close non-admin API endpoints without auth.
-    - [ ] Web dashboard for administrative tasks.
+    - [x] Web dashboard for administrative tasks.
     - [x] **Protected Branch Configuration UI**: Toggle which branches are considered protected (immutable).
 - [ ] **Data Management**:
     - [x] Delete branches, clients, and services via the admin API.
@@ -160,8 +160,8 @@ All client-side implementations (plugins, CLIs, hooks) must support a **timeout/
 
 ### 9.2 Static Frontend Security
 - Static HTML + JS is acceptable for the current scope.
-- [ ] Add security headers: CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy.
-- [ ] Add CSRF protection for state-changing endpoints (POST/DELETE).
+- [x] Add security headers: CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy.
+- [x] Add CSRF protection for state-changing endpoints (POST/DELETE).
 - [ ] Consider server-side templates (Tera/Askama) only if XSS surface becomes a concern.
 
 ### 9.3 TLS Strategy

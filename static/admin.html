@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SanShain - Admin Dashboard</title>
+    <title>Sanshain - Admin Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .fade-in { animation: fadeIn 0.2s ease-in; }
@@ -15,7 +15,7 @@
     <!-- Login Screen -->
     <div id="login-screen" class="min-h-screen flex items-center justify-center">
         <div class="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm border border-slate-200">
-            <h1 class="text-2xl font-bold text-center mb-6 text-indigo-700">SanShain Admin</h1>
+            <h1 class="text-2xl font-bold text-center mb-6 text-indigo-700">Sanshain Admin</h1>
             <div id="login-error" class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"></div>
             <form id="login-form" class="space-y-4">
                 <div>
@@ -40,7 +40,7 @@
         <nav class="bg-indigo-700 text-white p-4 shadow-lg">
             <div class="container mx-auto flex justify-between items-center">
                 <div class="flex items-center space-x-4">
-                    <h1 class="text-2xl font-bold tracking-tight">SanShain Admin</h1>
+                    <h1 class="text-2xl font-bold tracking-tight">Sanshain Admin</h1>
                     <a href="/" class="text-indigo-200 hover:text-white text-sm">← Back to Dashboard</a>
                 </div>
                 <div class="flex items-center space-x-4">
@@ -141,6 +141,17 @@
 
     <script>
         let token = localStorage.getItem('sanshain_token');
+        let csrfToken = null;
+
+        async function fetchCsrfToken() {
+            try {
+                const res = await fetch('/csrf-token');
+                if (res.ok) {
+                    const data = await res.json();
+                    csrfToken = data.csrf_token;
+                }
+            } catch (_) {}
+        }
 
         // --- Auth ---
         async function apiCall(url, options = {}) {
@@ -149,6 +160,10 @@
             if (options.body && typeof options.body === 'object') {
                 headers['Content-Type'] = 'application/json';
                 options.body = JSON.stringify(options.body);
+            }
+            const method = (options.method || 'GET').toUpperCase();
+            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method) && csrfToken) {
+                headers['X-CSRF-Token'] = csrfToken;
             }
             const res = await fetch(url, { ...options, headers });
             if (res.status === 401) {
@@ -176,9 +191,10 @@
             const errEl = document.getElementById('login-error');
             errEl.classList.add('hidden');
             try {
+                if (!csrfToken) await fetchCsrfToken();
                 const res = await fetch('/auth/login', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
                     body: JSON.stringify({
                         username: document.getElementById('login-username').value,
                         password: document.getElementById('login-password').value,
@@ -273,7 +289,7 @@
             try {
                 const res = await apiCall('/admin/settings/dev-mode', {
                     method: 'POST',
-                    body: { dev_mode: !devModeEnabled },
+                    body: { enabled: !devModeEnabled },
                 });
                 if (res.ok) {
                     devModeEnabled = !devModeEnabled;
@@ -457,7 +473,7 @@
                 const res = await apiCall('/auth/change-password', {
                     method: 'POST',
                     body: {
-                        current_password: document.getElementById('current-password').value,
+                        old_password: document.getElementById('current-password').value,
                         new_password: document.getElementById('new-password').value,
                     },
                 });
@@ -501,7 +517,7 @@
         }
 
         // --- Init ---
-        checkSession();
+        fetchCsrfToken().then(() => checkSession());
     </script>
 </body>
 </html>
