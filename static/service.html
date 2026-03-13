@@ -17,7 +17,8 @@
 <body class="bg-slate-50 text-slate-900 min-h-screen">
     <nav class="bg-indigo-700 text-white p-4 shadow-lg">
         <div class="container mx-auto flex justify-between items-center">
-            <h1 class="text-2xl font-bold tracking-tight">Sanshain Dashboard</h1>
+            <h1 class="text-2xl font-bold tracking-tight">Sanshain Service</h1>
+            <a href="/" class="text-indigo-200 hover:text-white text-sm">← Back to Dashboard</a>
             <div class="space-x-4">
                 <a href="/service.html" class="hover:text-indigo-200">Services</a>
                 <a href="#graph" onclick="showGraph()" class="hover:text-indigo-200">Graph</a>
@@ -110,6 +111,11 @@
     </div>
 
     <script>
+        // Redirect to login if no session token
+        if (!localStorage.getItem('sanshain_token')) {
+            window.location.href = '/account.html';
+        }
+
         async function fetchJSON(url) {
             const headers = {};
             const token = localStorage.getItem('sanshain_token');

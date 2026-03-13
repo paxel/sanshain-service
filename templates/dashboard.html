@@ -98,7 +98,7 @@
     </main>
 
     <script>
-        const sessionToken = localStorage.getItem('session_token');
+        const sessionToken = localStorage.getItem('sanshain_token');
         if (!sessionToken) {
             window.location.href = '/index.html';
         }
@@ -116,7 +116,7 @@
                 headers: { 'Authorization': 'Bearer ' + sessionToken }
             });
             if (res.status === 401) {
-                localStorage.removeItem('session_token');
+                localStorage.removeItem('sanshain_token');
                 window.location.href = '/index.html';
                 return;
             }
