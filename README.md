@@ -200,6 +200,27 @@ Generate a dependency report for a specific branch.
 **Query Parameters:**
 - `branch`: Branch name to report on.
 
+## Demo Script
+
+The `demo.sh` script populates a running Sanshain instance with sample data so you can explore the web UI immediately after deployment. It registers multiple services (with `main` and feature branches) and several clients with cross-service dependencies, producing a realistic dependency graph.
+
+**Prerequisites:** `curl` and `jq` must be installed.
+
+```bash
+# Against a local instance (dev mode must be enabled or a token provided)
+./demo.sh
+
+# Against a remote instance with an API token
+SANSHAIN_URL=https://sanshain.example.com SANSHAIN_TOKEN=san_xxxx ./demo.sh
+```
+
+| Variable | Default | Description |
+|---|---|---|
+| `SANSHAIN_URL` | `http://localhost:3000` | Base URL of the Sanshain instance |
+| `SANSHAIN_TOKEN` | *(empty)* | API token or session token for authentication |
+
+After the script completes, open the service overview page to browse the dependency graph and drill into individual services and clients.
+
 ## Development
 
 ### Prerequisites
