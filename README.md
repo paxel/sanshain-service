@@ -265,5 +265,8 @@ The service uses SQLite by default. The database file `sanshain.db` will be crea
 cargo test
 ```
 
+## Documentation
+See the [`docs/`](docs/) directory for detailed hands-on user guides (getting started, usage, administration, CI integration).
+
 ## Changelog
 See [CHANGELOG.md](CHANGELOG.md) for a detailed history of changes.

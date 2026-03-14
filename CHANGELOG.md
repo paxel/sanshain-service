@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - `ai/ai-rules.md` with Rust and service development best practices for AI-assisted development.
+- `docs/` Detailed User doc started.
+- `docs/user-guide.md` — Day-to-day usage guide covering concepts, web UI navigation, dependency reports, and build tool plugin overview (links to individual tools will be added as they become available).
+
 ### Changed
 - `demo.sh` now registers multiple services and clients (with feature branches) to populate a realistic dependency graph for UI testing; verbose YAML output replaced with a concise line-count summary.
 - `ai/plan.md` consolidated from ~200 lines to ~50 lines; completed items grouped into a summary, only open tasks listed individually.
