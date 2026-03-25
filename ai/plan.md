@@ -19,7 +19,7 @@ The following major milestones have been delivered and are fully functional:
 ## Open
 
 ### Infrastructure
-- [ ] PostgreSQL adapter with migrations in `src/infrastructure/migrations/postgres/`.
+- [x] PostgreSQL adapter with migrations in `src/infrastructure/migrations/postgres/`.
 
 ### Ecosystem & Tooling (Client Plugins)
 - [ ] Maven plugin (`sanshain-provide`, `sanshain-require`).

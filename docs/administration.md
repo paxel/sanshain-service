@@ -76,6 +76,19 @@ Click the **Change Password** button in the top navigation bar to open the passw
 
 Enter your current password and a new password, then click **Update Password**. The change takes effect immediately; existing sessions remain valid.
 
+## Database Configuration
+
+Sanshain supports two database backends: **SQLite** (default) and **PostgreSQL**. The backend is selected automatically based on the `DATABASE_URL` environment variable:
+
+| URL prefix | Backend |
+|---|---|
+| `sqlite:` or not set | SQLite |
+| `postgres://` or `postgresql://` | PostgreSQL |
+
+The current database backend and a masked connection URL are visible in the admin dashboard under **Database Configuration**. This section is read-only — to switch backends, change the `DATABASE_URL` environment variable and restart the service.
+
+For detailed setup instructions, see [Getting Started — PostgreSQL](getting-started.md#installation-with-docker-postgresql).
+
 ## Related Pages
 
 - **Account** (`/account.html`) — manage your own password and API tokens.

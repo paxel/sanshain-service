@@ -11,6 +11,7 @@ use tokio::sync::RwLock;
 use tower::ServiceExt; // for `oneshot`
 use sanshain_service::{create_app, AppState};
 use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
+use sanshain_service::infrastructure::database::DatabaseRepo;
 use sanshain_service::application::services;
 
 const TEST_CSRF_TOKEN: &str = "test-csrf-token";
@@ -26,7 +27,7 @@ async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
 
     let mut tokens = HashSet::new();
     tokens.insert(TEST_CSRF_TOKEN.to_string());
-    let state = AppState { repo: repo.clone(), csrf_tokens: Arc::new(RwLock::new(tokens)) };
+    let state = AppState { repo: DatabaseRepo::Sqlite(repo.clone()), db_url: "sqlite::memory:".to_string(), csrf_tokens: Arc::new(RwLock::new(tokens)) };
     let app = create_app(state);
     (app, repo)
 }
@@ -57,7 +58,7 @@ async fn setup_app_with_admin() -> (axum::Router, String) {
 
     let mut tokens = HashSet::new();
     tokens.insert(TEST_CSRF_TOKEN.to_string());
-    let state = AppState { repo, csrf_tokens: Arc::new(RwLock::new(tokens)) };
+    let state = AppState { repo: DatabaseRepo::Sqlite(repo), db_url: "sqlite::memory:".to_string(), csrf_tokens: Arc::new(RwLock::new(tokens)) };
     let app = create_app(state);
     (app, session.token)
 }

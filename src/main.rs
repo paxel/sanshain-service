@@ -8,6 +8,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::collections::HashSet;
@@ -20,11 +21,14 @@ pub mod application;
 pub mod infrastructure;
 
 use application::services::{self, AppError};
+use infrastructure::database::DatabaseRepo;
 use infrastructure::sqlite_repository::SqliteSpecRepository;
+use infrastructure::postgres_repository::PostgresSpecRepository;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub repo: SqliteSpecRepository,
+    pub repo: DatabaseRepo,
+    pub db_url: String,
     pub csrf_tokens: Arc<RwLock<HashSet<String>>>,
 }
 
@@ -41,20 +45,34 @@ pub async fn main() {
     let db_connection_str = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite:sanshain.db?mode=rwc".into());
 
-    let pool = SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect(&db_connection_str)
-        .await
-        .expect("can't connect to database");
-
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.expect("can't run migrations");
+    let repo = if db_connection_str.starts_with("postgres://") || db_connection_str.starts_with("postgresql://") {
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&db_connection_str)
+            .await
+            .expect("can't connect to PostgreSQL database");
+        let pg_repo = PostgresSpecRepository::new(pool);
+        pg_repo.run_migrations().await.expect("can't run PostgreSQL migrations");
+        tracing::info!("Using PostgreSQL database backend");
+        DatabaseRepo::Postgres(pg_repo)
+    } else {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(5)
+            .connect(&db_connection_str)
+            .await
+            .expect("can't connect to SQLite database");
+        let sqlite_repo = SqliteSpecRepository::new(pool);
+        sqlite_repo.run_migrations().await.expect("can't run SQLite migrations");
+        tracing::info!("Using SQLite database backend");
+        DatabaseRepo::Sqlite(sqlite_repo)
+    };
 
     // Ensure initial admin user exists
     services::ensure_initial_admin(&repo).await.expect("can't create initial admin");
 
     let state = AppState {
         repo,
+        db_url: db_connection_str,
         csrf_tokens: Arc::new(RwLock::new(HashSet::new())),
     };
 
@@ -72,7 +90,7 @@ use axum::response::Redirect;
 use axum::http::header::HeaderValue;
 
 /// Resolve a user from either a session token or a san_ API token.
-async fn resolve_user(repo: &SqliteSpecRepository, token: &str) -> Result<Option<domain::models::User>, StatusCode> {
+async fn resolve_user(repo: &DatabaseRepo, token: &str) -> Result<Option<domain::models::User>, StatusCode> {
     if token.starts_with("san_") {
         // API token
         let user = services::validate_api_token(repo, token)
@@ -227,6 +245,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/clients/{name}/branches/{branch}/endpoints", get(admin_list_client_endpoints))
         .route("/settings/dev-mode", get(get_dev_mode).post(set_dev_mode))
         .route("/settings/local-users", get(get_local_users).post(set_local_users))
+        .route("/settings/database", get(get_database_info))
         .route("/users", get(admin_list_users))
         .route("/users/{id}/approve", post(admin_approve_user))
         .route("/users/{id}", axum::routing::delete(admin_delete_user_handler))
@@ -285,6 +304,39 @@ struct ReportParams {
 
 async fn health() -> StatusCode {
     StatusCode::OK
+}
+
+#[derive(Serialize)]
+struct DatabaseInfoResponse {
+    backend: String,
+    url: String,
+}
+
+async fn get_database_info(
+    State(state): State<AppState>,
+) -> Json<DatabaseInfoResponse> {
+    // Mask credentials in the URL for display
+    let masked_url = mask_database_url(&state.db_url);
+    Json(DatabaseInfoResponse {
+        backend: state.repo.backend_name().to_string(),
+        url: masked_url,
+    })
+}
+
+fn mask_database_url(url: &str) -> String {
+    // For postgres URLs, mask the password
+    if let Some(at_pos) = url.find('@') {
+        if let Some(scheme_end) = url.find("://") {
+            let prefix = &url[..scheme_end + 3];
+            let user_pass = &url[scheme_end + 3..at_pos];
+            let rest = &url[at_pos..];
+            if let Some(colon) = user_pass.find(':') {
+                let user = &user_pass[..colon];
+                return format!("{}{}:****{}", prefix, user, rest);
+            }
+        }
+    }
+    url.to_string()
 }
 
 #[derive(Serialize)]

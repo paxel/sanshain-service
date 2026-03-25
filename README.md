@@ -14,7 +14,7 @@ Sanshain (Japanese for "Sunshine") is a specialized REST service designed to man
 
 ### Prerequisites
 - Rust (latest stable)
-- SQLite (default)
+- SQLite (default) or PostgreSQL
 
 ### Installation
 
@@ -225,13 +225,13 @@ After the script completes, open the service overview page to browse the depende
 
 ### Prerequisites
 - Rust (2024 edition)
-- SQLite
+- SQLite (default) or PostgreSQL
 
 ### Configuration
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_URL` | `sqlite:sanshain.db?mode=rwc` | Database connection string |
+| `DATABASE_URL` | `sqlite:sanshain.db?mode=rwc` | Database connection string. Use `postgres://user:pass@host:5432/dbname` for PostgreSQL. |
 | `BIND_ADDRESS` | `0.0.0.0:3000` | Address and port to listen on |
 | `RUST_LOG` | `sanshain_service=info,tower_http=info` | Log level filter (e.g., `sanshain_service=debug,tower_http=debug` for verbose output) |
 
@@ -250,13 +250,22 @@ docker run -p 3000:3000 -v sanshain-data:/data sanshain
 
 For production use, pull the pre-built image from GHCR or use the `Dockerfile` and `docker-compose.yaml` from the [release assets](https://github.com/paxel/sanshain-service/releases).
 
-The SQLite database is persisted in a Docker volume at `/data/sanshain.db`.
+The SQLite database is persisted in a Docker volume at `/data/sanshain.db`. For PostgreSQL, set `DATABASE_URL`:
+```bash
+docker run -p 3000:3000 -e DATABASE_URL=postgres://user:pass@host:5432/sanshain sanshain
+```
 
 ### Health Check
 `GET /health` returns `200 OK` when the service is running. Used by Docker `HEALTHCHECK` and Kubernetes probes.
 
 ### Database
 The service uses SQLite by default. The database file `sanshain.db` will be created automatically on the first run, and migrations will be applied. Each database adapter owns its migrations under `src/infrastructure/migrations/<db>/`.
+
+**PostgreSQL:** Set `DATABASE_URL` to a PostgreSQL connection string to use PostgreSQL instead:
+```bash
+DATABASE_URL=postgres://user:password@localhost:5432/sanshain cargo run
+```
+The backend is auto-detected from the URL prefix (`postgres://` or `postgresql://`). Migrations run automatically on startup. The current database backend is visible in the admin dashboard under **Database Configuration**.
 
 ---
 

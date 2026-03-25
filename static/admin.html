@@ -66,6 +66,28 @@
                 </div>
             </section>
 
+            <!-- Database Configuration -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div>
+                    <h2 class="text-lg font-semibold text-slate-800">Database Configuration</h2>
+                    <p class="text-sm text-slate-500 mt-1">Current database backend. Set <code class="bg-slate-100 px-1 rounded">DATABASE_URL</code> environment variable to switch (requires restart).</p>
+                </div>
+                <div class="mt-4 space-y-3">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-sm font-medium text-slate-600 w-20">Backend:</span>
+                        <span id="db-backend" class="font-mono text-sm bg-slate-50 px-3 py-1 rounded-lg text-slate-800">—</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <span class="text-sm font-medium text-slate-600 w-20">URL:</span>
+                        <span id="db-url" class="font-mono text-sm bg-slate-50 px-3 py-1 rounded-lg text-slate-800 break-all">—</span>
+                    </div>
+                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+                        <strong>PostgreSQL:</strong> Set <code class="bg-blue-100 px-1 rounded">DATABASE_URL=postgres://user:password@host:5432/dbname</code> and restart.<br>
+                        <strong>SQLite (default):</strong> <code class="bg-blue-100 px-1 rounded">DATABASE_URL=sqlite:sanshain.db?mode=rwc</code>
+                    </div>
+                </div>
+            </section>
+
             <!-- Protected Branches -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="flex justify-between items-center mb-4">
@@ -265,6 +287,7 @@
         // --- Load All ---
         function loadAll() {
             loadDevMode();
+            loadDatabaseInfo();
             loadProtectedBranches();
             loadServices();
             loadClients();
@@ -279,6 +302,18 @@
                 if (res.ok) {
                     const data = await res.json();
                     document.getElementById('admin-username').textContent = data.username;
+                }
+            } catch (_) {}
+        }
+
+        // --- Database Info ---
+        async function loadDatabaseInfo() {
+            try {
+                const res = await apiCall('/admin/settings/database');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('db-backend').textContent = data.backend === 'postgres' ? 'PostgreSQL' : 'SQLite';
+                    document.getElementById('db-url').textContent = data.url;
                 }
             } catch (_) {}
         }

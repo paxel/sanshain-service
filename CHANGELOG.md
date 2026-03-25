@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.2] - 2026-03-25
+
+### Added
+- PostgreSQL database backend as an alternative to SQLite, selectable via `DATABASE_URL` environment variable.
+- `PostgresSpecRepository` adapter with full feature parity to the SQLite adapter.
+- `DatabaseRepo` enum-based dispatch layer for runtime database backend selection.
+- PostgreSQL migration script (`src/infrastructure/migrations/postgres/`).
+- Admin dashboard "Database Configuration" section showing current backend and (masked) connection URL.
+- `GET /admin/settings/database` endpoint returning current database backend info.
+- Documentation: PostgreSQL setup guide in `docs/getting-started.md` (Docker, Docker Compose, bare metal) and Database Configuration section in `docs/administration.md`.
+
 ## [0.1.1] - 2026-03-14
 
 ### Added

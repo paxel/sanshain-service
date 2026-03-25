@@ -2,7 +2,7 @@
 
 This guide walks you through installing Sanshain Service, logging in for the first time, and configuring the essential settings.
 
-## Installation with Docker
+## Installation with Docker (SQLite — default)
 
 The quickest way to get Sanshain running is to pull the pre-built image from the GitHub Container Registry:
 
@@ -14,6 +14,98 @@ docker run -p 3000:3000 -v ~/sanshain-db-dir/:/data ghcr.io/paxel/sanshain-servi
 This creates a fresh SQLite database with secure defaults and generates a **root** account with a random password.
 
 > **Tip:** The database is persisted in the mounted volume (`~/sanshain-db-dir/`), so your data survives container restarts.
+
+## Installation with Docker (PostgreSQL)
+
+To use PostgreSQL instead of SQLite, set the `DATABASE_URL` environment variable to a PostgreSQL connection string. Sanshain auto-detects the backend from the URL prefix (`postgres://` or `postgresql://`).
+
+### 1. Start a PostgreSQL instance
+
+If you don't already have a PostgreSQL server, you can start one with Docker:
+
+```bash
+docker network create sanshain-net
+
+docker run -d --name sanshain-postgres --network sanshain-net \
+  -e POSTGRES_USER=sanshain \
+  -e POSTGRES_PASSWORD=changeme \
+  -e POSTGRES_DB=sanshain \
+  -v sanshain-pgdata:/var/lib/postgresql/data \
+  postgres:16
+```
+
+### 2. Start Sanshain with PostgreSQL
+
+```bash
+docker run -p 3000:3000 --network sanshain-net \
+  -e DATABASE_URL=postgres://sanshain:changeme@sanshain-postgres:5432/sanshain \
+  ghcr.io/paxel/sanshain-service:latest
+```
+
+Sanshain runs all required migrations automatically on startup — no manual schema setup is needed.
+
+### Docker Compose example (PostgreSQL)
+
+```yaml
+services:
+  sanshain:
+    image: ghcr.io/paxel/sanshain-service:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgres://sanshain:changeme@postgres:5432/sanshain
+      - RUST_LOG=sanshain_service=info,tower_http=info
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: sanshain
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: sanshain
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sanshain"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+```
+
+> **Production tip:** Replace `changeme` with a strong password and consider using Docker secrets or an external secret manager.
+
+## Running without Docker
+
+### SQLite (default)
+
+```bash
+cargo build --release
+./target/release/sanshain_service_bin
+```
+
+The SQLite database file `sanshain.db` is created automatically in the working directory.
+
+### PostgreSQL
+
+Ensure you have a running PostgreSQL server with a database created, then set `DATABASE_URL`:
+
+```bash
+# Create the database (if it doesn't exist yet)
+createdb -U postgres sanshain
+
+# Start Sanshain
+DATABASE_URL=postgres://postgres:yourpassword@localhost:5432/sanshain \
+  ./target/release/sanshain_service_bin
+```
+
+Migrations are applied automatically on startup.
 
 ## First Login
 
