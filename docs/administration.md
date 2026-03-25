@@ -37,7 +37,67 @@ When **Local User Registration** is enabled, anyone can create an account via th
 - **Off (default)** — only the admin can create users.
 - **On** — self-registration is open, but new accounts are created in a **pending** state and must be approved by an admin before the user can log in.
 
-This is intended for development and internal use. In production environments, consider delegating authentication to an external provider (LDAP, Keycloak, etc.).
+This is intended for development and internal use. For production environments, consider using LDAP authentication (see below).
+
+## Authentication Mode (LDAP)
+
+The **Authentication** section on the admin dashboard lets you choose how users authenticate:
+
+| Mode | Description |
+|------|-------------|
+| **Dev Mode** | No authentication required for public API endpoints. |
+| **Local Users** | Built-in user management with Argon2 password hashing. |
+| **LDAP** | Delegate authentication to an external LDAP / Active Directory server. |
+
+### Configuring LDAP
+
+1. Select the **LDAP** radio button in the Authentication section.
+2. Fill in the LDAP configuration form:
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| **Server URL** | LDAP server address. Use `ldaps://` for TLS. | `ldap://ldap.example.com:389` |
+| **Bind DN** | Service account DN used to search for users. | `cn=readonly,dc=example,dc=com` |
+| **Bind Password** | Password for the service account. | *(stored encrypted, shown as `****`)* |
+| **Base DN** | Search base for user lookups. | `dc=example,dc=com` |
+| **User Filter** | LDAP filter to find users. `{username}` is replaced with the login name. | `(uid={username})` |
+| **Admin Group DN** | Users who are members of this group get admin privileges. Leave empty to disable. | `cn=admins,ou=groups,dc=example,dc=com` |
+
+3. Click **Test Connection** to verify that Sanshain can reach the LDAP server and bind with the service account.
+4. Click **Save Authentication Settings** to apply.
+
+### How LDAP Login Works
+
+When LDAP mode is active:
+
+1. Sanshain binds to the LDAP server with the configured service account.
+2. It searches for the user using the **User Filter** under the **Base DN**.
+3. If found, it attempts a bind as the user with the provided password.
+4. On success, a **shadow account** is auto-provisioned in the local database (if it doesn't already exist). This allows sessions and API tokens to work exactly as with local users.
+5. If an **Admin Group DN** is configured, the user's `memberOf` attribute is checked to determine admin status.
+
+### API Endpoints
+
+The auth configuration can also be managed via the REST API:
+
+- `GET /admin/auth-config` — Returns the current auth mode and LDAP configuration (password redacted).
+- `PUT /admin/auth-config` — Set the auth mode and (optionally) LDAP configuration:
+  ```json
+  {
+    "auth_mode": "ldap",
+    "ldap_config": {
+      "server_url": "ldap://ldap.example.com:389",
+      "bind_dn": "cn=admin,dc=example,dc=com",
+      "bind_password": "secret",
+      "base_dn": "dc=example,dc=com",
+      "user_filter": "(uid={username})",
+      "admin_group": "cn=admins,ou=groups,dc=example,dc=com"
+    }
+  }
+  ```
+- `POST /admin/auth-config/test` — Test LDAP connectivity with the provided configuration.
+
+> **Note:** Submitting `"bind_password": "****"` in a PUT or test request preserves the previously stored password.
 
 ## User Management
 

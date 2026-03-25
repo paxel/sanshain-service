@@ -118,6 +118,72 @@
                 </div>
             </section>
 
+            <!-- Authentication Mode -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold text-slate-800">Authentication</h2>
+                    <p class="text-sm text-slate-500 mt-1">Select the authentication mode for the service.</p>
+                </div>
+                <div class="space-y-3">
+                    <div class="flex items-center space-x-6">
+                        <label class="flex items-center space-x-2 cursor-pointer">
+                            <input type="radio" name="auth-mode" value="dev" onchange="onAuthModeChange()" class="text-indigo-600 focus:ring-indigo-500">
+                            <span class="text-sm text-slate-700">Dev Mode</span>
+                        </label>
+                        <label class="flex items-center space-x-2 cursor-pointer">
+                            <input type="radio" name="auth-mode" value="local" onchange="onAuthModeChange()" class="text-indigo-600 focus:ring-indigo-500">
+                            <span class="text-sm text-slate-700">Local Users</span>
+                        </label>
+                        <label class="flex items-center space-x-2 cursor-pointer">
+                            <input type="radio" name="auth-mode" value="ldap" onchange="onAuthModeChange()" class="text-indigo-600 focus:ring-indigo-500">
+                            <span class="text-sm text-slate-700">LDAP</span>
+                        </label>
+                    </div>
+                    <!-- LDAP Config Form -->
+                    <div id="ldap-config-form" class="hidden mt-4 space-y-3 border-t border-slate-200 pt-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Server URL</label>
+                                <input type="text" id="ldap-server-url" placeholder="ldap://ldap.example.com:389"
+                                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Bind DN</label>
+                                <input type="text" id="ldap-bind-dn" placeholder="cn=admin,dc=example,dc=com"
+                                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Bind Password</label>
+                                <input type="password" id="ldap-bind-password" placeholder="••••••••"
+                                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Base DN</label>
+                                <input type="text" id="ldap-base-dn" placeholder="dc=example,dc=com"
+                                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-600 mb-1">User Filter</label>
+                                <input type="text" id="ldap-user-filter" placeholder="(uid={username})"
+                                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Admin Group DN</label>
+                                <input type="text" id="ldap-admin-group" placeholder="cn=admins,ou=groups,dc=example,dc=com"
+                                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                        </div>
+                        <div class="flex space-x-2 pt-2">
+                            <button onclick="testLdapConnection()" class="bg-slate-100 text-slate-700 px-4 py-1.5 rounded-lg text-sm hover:bg-slate-200 transition-colors">Test Connection</button>
+                        </div>
+                        <div id="ldap-test-result" class="hidden text-sm p-3 rounded-lg"></div>
+                    </div>
+                    <div class="pt-2">
+                        <button onclick="saveAuthConfig()" class="bg-indigo-600 text-white px-4 py-1.5 rounded-lg text-sm hover:bg-indigo-700 transition-colors">Save Authentication Settings</button>
+                    </div>
+                </div>
+            </section>
+
             <!-- Users -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="flex justify-between items-center mb-4">
@@ -294,6 +360,7 @@
             loadLocalUsers();
             loadUsers();
             loadMe();
+            loadAuthConfig();
         }
 
         async function loadMe() {
@@ -600,6 +667,92 @@
                 await apiCall(`/admin/clients/${encodeURIComponent(name)}`, { method: 'DELETE' });
                 loadClients();
             } catch (_) {}
+        }
+
+        // --- Auth Config ---
+        async function loadAuthConfig() {
+            try {
+                const res = await apiCall('/admin/auth-config');
+                if (res.ok) {
+                    const data = await res.json();
+                    const radios = document.querySelectorAll('input[name="auth-mode"]');
+                    radios.forEach(r => r.checked = r.value === data.auth_mode);
+                    onAuthModeChange();
+                    if (data.ldap_config) {
+                        document.getElementById('ldap-server-url').value = data.ldap_config.server_url || '';
+                        document.getElementById('ldap-bind-dn').value = data.ldap_config.bind_dn || '';
+                        document.getElementById('ldap-bind-password').value = data.ldap_config.bind_password || '';
+                        document.getElementById('ldap-base-dn').value = data.ldap_config.base_dn || '';
+                        document.getElementById('ldap-user-filter').value = data.ldap_config.user_filter || '';
+                        document.getElementById('ldap-admin-group').value = data.ldap_config.admin_group || '';
+                    }
+                }
+            } catch (_) {}
+        }
+
+        function onAuthModeChange() {
+            const selected = document.querySelector('input[name="auth-mode"]:checked');
+            const form = document.getElementById('ldap-config-form');
+            if (selected && selected.value === 'ldap') {
+                form.classList.remove('hidden');
+            } else {
+                form.classList.add('hidden');
+            }
+        }
+
+        function getLdapConfigFromForm() {
+            return {
+                server_url: document.getElementById('ldap-server-url').value,
+                bind_dn: document.getElementById('ldap-bind-dn').value,
+                bind_password: document.getElementById('ldap-bind-password').value || null,
+                base_dn: document.getElementById('ldap-base-dn').value,
+                user_filter: document.getElementById('ldap-user-filter').value || '(uid={username})',
+                admin_group: document.getElementById('ldap-admin-group').value,
+            };
+        }
+
+        async function saveAuthConfig() {
+            const selected = document.querySelector('input[name="auth-mode"]:checked');
+            if (!selected) return;
+            const body = { auth_mode: selected.value };
+            if (selected.value === 'ldap') {
+                body.ldap_config = getLdapConfigFromForm();
+            }
+            try {
+                const res = await apiCall('/admin/auth-config', { method: 'PUT', body });
+                if (res.ok) {
+                    loadDevMode();
+                    loadLocalUsers();
+                    alert('Authentication settings saved.');
+                } else {
+                    alert('Failed to save: ' + res.status);
+                }
+            } catch (e) { alert('Error: ' + e.message); }
+        }
+
+        async function testLdapConnection() {
+            const resultEl = document.getElementById('ldap-test-result');
+            resultEl.classList.remove('hidden', 'bg-green-50', 'text-green-700', 'bg-red-50', 'text-red-700');
+            resultEl.textContent = 'Testing…';
+            resultEl.classList.add('bg-slate-50', 'text-slate-600');
+            try {
+                const res = await apiCall('/admin/auth-config/test', {
+                    method: 'POST',
+                    body: getLdapConfigFromForm(),
+                });
+                resultEl.classList.remove('bg-slate-50', 'text-slate-600');
+                if (res.ok) {
+                    resultEl.textContent = '✓ Connection successful';
+                    resultEl.classList.add('bg-green-50', 'text-green-700');
+                } else {
+                    resultEl.textContent = '✗ Connection failed (HTTP ' + res.status + ')';
+                    resultEl.classList.add('bg-red-50', 'text-red-700');
+                }
+            } catch (e) {
+                resultEl.classList.remove('bg-slate-50', 'text-slate-600');
+                resultEl.textContent = '✗ ' + e.message;
+                resultEl.classList.add('bg-red-50', 'text-red-700');
+            }
         }
 
         // --- Change Password ---

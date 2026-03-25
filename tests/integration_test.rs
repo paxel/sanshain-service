@@ -1103,3 +1103,154 @@ async fn test_api_token_crud_and_bearer_auth() {
     let tokens_list: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(tokens_list.as_array().unwrap().len(), 0);
 }
+
+#[tokio::test]
+async fn test_auth_config_api() {
+    let (app, token) = setup_app_with_admin().await;
+
+    // GET auth-config — default should be "dev"
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/auth-config")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let data: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(data["auth_mode"], "dev");
+
+    // PUT auth-config — switch to local
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/admin/auth-config")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&json!({
+                    "auth_mode": "local"
+                })).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify it changed
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/auth-config")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let data: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(data["auth_mode"], "local");
+
+    // PUT auth-config — switch to ldap with config
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/admin/auth-config")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&json!({
+                    "auth_mode": "ldap",
+                    "ldap_config": {
+                        "server_url": "ldap://ldap.example.com:389",
+                        "bind_dn": "cn=admin,dc=example,dc=com",
+                        "bind_password": "secret",
+                        "base_dn": "dc=example,dc=com",
+                        "user_filter": "(uid={username})",
+                        "admin_group": "cn=admins,ou=groups,dc=example,dc=com"
+                    }
+                })).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify LDAP config is returned with redacted password
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/auth-config")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let data: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(data["auth_mode"], "ldap");
+    assert_eq!(data["ldap_config"]["server_url"], "ldap://ldap.example.com:389");
+    assert_eq!(data["ldap_config"]["bind_password"], "****");
+
+    // PUT with invalid auth mode should fail
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/admin/auth-config")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&json!({
+                    "auth_mode": "invalid"
+                })).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    // PUT ldap without config should fail
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/admin/auth-config")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&json!({
+                    "auth_mode": "ldap"
+                })).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    // Requires admin auth
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/auth-config")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}

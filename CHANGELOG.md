@@ -4,9 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.1.2] - 2026-03-25
+## [0.2.0] - 2026-03-25
 
 ### Added
+- **LDAP authentication support**: new Auth Mode selector (Dev / Local / LDAP) on the admin dashboard.
+- `AuthMode` enum and `LdapConfig` model in the domain layer; `AuthProvider` port trait for pluggable authentication.
+- `LdapAuthProvider` adapter (ldap3 crate) with bind-and-search authentication and group-based admin detection.
+- `LocalAuthProvider` adapter wrapping existing Argon2 password verification.
+- Auth-mode and LDAP config CRUD services in the application layer (`get_auth_mode`, `set_auth_mode`, `get_ldap_config`, `set_ldap_config`, `test_ldap_connection`, `login_with_provider`).
+- `GET /api/admin/auth-config`, `PUT /api/admin/auth-config`, and `POST /api/admin/auth-config/test` admin API endpoints.
+- Login handler dispatches to the active auth provider; LDAP users are auto-provisioned as shadow accounts.
+- Admin UI: Authentication section with radio buttons, LDAP configuration form, and "Test Connection" button.
+- Bind password is redacted (`****`) in API responses; re-submitting `****` preserves the stored password.
+- Unit tests for auth mode, LDAP config validation, provider dispatch (mock), and connection testing.
+- Integration test for auth-config API endpoints (CRUD, validation, auth requirement).
 - PostgreSQL database backend as an alternative to SQLite, selectable via `DATABASE_URL` environment variable.
 - `PostgresSpecRepository` adapter with full feature parity to the SQLite adapter.
 - `DatabaseRepo` enum-based dispatch layer for runtime database backend selection.

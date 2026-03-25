@@ -37,15 +37,73 @@ The following major milestones have been delivered and are fully functional:
 - [ ] Structured JSON logging.
 - [ ] OpenTelemetry tracing.
 
-### Administration
-- [ ] External auth delegation (LDAP, Kerberos, Keycloak).
+### Authentication — External Auth Support (LDAP first)
+
+The admin settings page gains an **Auth Mode** selector with three modes:
+1. **Dev Mode** — no authentication required (existing).
+2. **Local Users** — built-in user management with Argon2 passwords (existing).
+3. **LDAP** — delegate authentication to an external LDAP/AD server (new).
+
+#### Domain Layer
+- [x] Add `AuthMode` enum (`Dev`, `Local`, `Ldap`) to `models.rs`.
+- [x] Add `LdapConfig` model (server URL, bind DN, bind password, base DN, user filter, group filter, admin group, TLS toggle).
+- [x] Define `AuthProvider` port trait in `ports.rs` with `authenticate(username, password) -> Result<AuthenticatedUser>` and `test_connection() -> Result<()>`.
+
+#### Infrastructure Layer
+- [x] Add `ldap3` crate dependency.
+- [x] Implement `LdapAuthProvider` adapter in `src/infrastructure/ldap_provider.rs` implementing the `AuthProvider` port.
+- [x] Implement `LocalAuthProvider` adapter wrapping existing Argon2 logic.
+- [x] On LDAP login success, auto-provision a local `User` row (shadow account) so sessions/tokens work unchanged.
+
+#### Application Layer
+- [x] Add auth-mode setting helpers (`get_auth_mode`, `set_auth_mode`) in `services.rs`.
+- [x] Add LDAP config CRUD helpers (store as JSON in `settings` table).
+- [x] Refactor `login` service to dispatch to the active `AuthProvider` based on current auth mode.
+- [x] Add `test_ldap_connection` service function.
+
+#### Presentation / API
+- [x] Add `GET /api/admin/auth-config` and `PUT /api/admin/auth-config` endpoints.
+- [x] Add `POST /api/admin/auth-config/test` endpoint (test LDAP connectivity).
+- [x] Update login handler to use the provider-based flow.
+
+#### Admin UI — Auth Settings Panel
+- [x] Add "Authentication" section to admin page with auth-mode radio buttons (Dev / Local / LDAP).
+- [x] Show LDAP configuration form (server, bind DN, base DN, filters, TLS) when LDAP is selected.
+- [x] Add "Test Connection" button that calls the test endpoint.
+- [x] Persist changes via the new API endpoints.
+
+#### Testing
+- [x] Unit tests for `AuthProvider` dispatch logic (mock LDAP provider).
+- [x] Unit tests for LDAP config validation (missing fields, bad URL format).
+- [x] Integration tests for auth-config API endpoints.
+- [x] Integration test: login with local provider, login with mock LDAP provider.
+
+#### Documentation
+- [x] Update `docs/administration.md` with LDAP configuration instructions.
+- [x] Update `README.md` with LDAP feature mention.
+- [x] Update `CHANGELOG.md`.
+
+### Web Frontend — Modularisation
+
+The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Before adding more UI complexity, split into manageable pieces.
+
+#### Phase 1 — Extract shared layout & components (server-side)
+- [ ] Create a shared HTML layout partial (`templates/layout.html`) with nav, header, footer, common CSS/JS.
+- [ ] Convert `admin.html`, `account.html`, `service.html` to Askama templates extending the layout.
+- [ ] Extract reusable JS modules (fetch helpers, CSRF, toast notifications) into `static/js/common.js`.
+
+#### Phase 2 — Evaluate full UI framework (future)
+- [ ] Evaluate lightweight options (htmx, Alpine.js, Leptos) for progressive enhancement.
+- [ ] Decision record in `docs/adr/` once a choice is made.
+
+### Administration (other)
 - [ ] Branch max-age auto-cleanup.
 - [ ] Stale dependency pruning.
 - [ ] Background maintenance job for expiration/cleanup.
 
-### Web Frontend
+### Web Frontend (other)
 - [ ] SSE for `/require` long-polling and live updates.
 - [ ] WebSocket support (if bidirectional real-time needed).
 
 ### Documentation
-- [ ] Detailed hands-on user documentation (in `docs/`).
+- [x] Detailed hands-on user documentation (in `docs/`).

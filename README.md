@@ -132,7 +132,9 @@ Sanshain uses session-based authentication with Argon2 password hashing.
 
 **Dev Mode:** By default, all API endpoints (`/provide`, `/require`, `/report`) are **locked** (return 403). An admin can enable "Dev Mode" via `POST /admin/settings/dev-mode` with `{"enabled": true}`, which opens all non-admin API endpoints without authentication.
 
-**Local User Registration:** Disabled by default. An admin can enable it via `POST /admin/settings/local-users` with `{"enabled": true}`. When enabled, anyone can register via `POST /auth/register` with `{"username": "...", "password": "..."}`. Newly registered users must be **approved by an admin** before they can log in. This is intended for development/internal use; in production, delegate auth to an external service (LDAP, Kerberos, Keycloak).
+**Local User Registration:** Disabled by default. An admin can enable it via `POST /admin/settings/local-users` with `{"enabled": true}`. When enabled, anyone can register via `POST /auth/register` with `{"username": "...", "password": "..."}`. Newly registered users must be **approved by an admin** before they can log in.
+
+**LDAP Authentication:** Sanshain supports delegating authentication to an external LDAP/Active Directory server. Configure via the admin dashboard (Authentication section) or the `PUT /admin/auth-config` API endpoint. When LDAP mode is active, users authenticate against the LDAP server and are auto-provisioned as local shadow accounts (so sessions and API tokens work unchanged). Admin status can be derived from LDAP group membership. See `docs/administration.md` for detailed configuration instructions.
 
 #### API Tokens (for CI/Programmatic Access)
 

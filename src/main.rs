@@ -24,6 +24,8 @@ use application::services::{self, AppError};
 use infrastructure::database::DatabaseRepo;
 use infrastructure::sqlite_repository::SqliteSpecRepository;
 use infrastructure::postgres_repository::PostgresSpecRepository;
+use infrastructure::ldap_provider::LdapAuthProvider;
+use domain::models::{AuthMode, LdapConfig};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -246,6 +248,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/settings/dev-mode", get(get_dev_mode).post(set_dev_mode))
         .route("/settings/local-users", get(get_local_users).post(set_local_users))
         .route("/settings/database", get(get_database_info))
+        .route("/auth-config", get(get_auth_config).put(set_auth_config))
+        .route("/auth-config/test", post(test_auth_config))
         .route("/users", get(admin_list_users))
         .route("/users/{id}/approve", post(admin_approve_user))
         .route("/users/{id}", axum::routing::delete(admin_delete_user_handler))
@@ -473,9 +477,30 @@ async fn auth_login(
     State(state): State<AppState>,
     Json(payload): Json<LoginPayload>,
 ) -> Result<Json<LoginResponse>, StatusCode> {
-    let session = services::login(&state.repo, &payload.username, &payload.password)
-        .await
-        .map_err(app_error_to_status)?;
+    let auth_mode = services::get_auth_mode(&state.repo).await.map_err(app_error_to_status)?;
+    let session = match auth_mode {
+        AuthMode::Ldap => {
+            let ldap_config = services::get_ldap_config(&state.repo).await
+                .map_err(app_error_to_status)?
+                .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+            let provider = LdapAuthProvider::new(ldap_config);
+            services::login_with_provider(&state.repo, &provider, &payload.username, &payload.password)
+                .await
+                .map_err(app_error_to_status)?
+        }
+        AuthMode::Local => {
+            // Use existing local login
+            services::login(&state.repo, &payload.username, &payload.password)
+                .await
+                .map_err(app_error_to_status)?
+        }
+        AuthMode::Dev => {
+            // Dev mode — use local login (auth middleware skips checks anyway)
+            services::login(&state.repo, &payload.username, &payload.password)
+                .await
+                .map_err(app_error_to_status)?
+        }
+    };
     Ok(Json(LoginResponse {
         token: session.token,
         expires_at: session.expires_at,
@@ -750,6 +775,86 @@ async fn set_local_users(
     services::set_local_users_enabled(&state.repo, payload.enabled)
         .await
         .map_err(app_error_to_status)?;
+    Ok(StatusCode::OK)
+}
+
+// --- Auth Config endpoints ---
+
+#[derive(Serialize, Deserialize)]
+struct AuthConfigResponse {
+    auth_mode: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ldap_config: Option<LdapConfig>,
+}
+
+#[derive(Deserialize)]
+struct AuthConfigPayload {
+    auth_mode: String,
+    #[serde(default)]
+    ldap_config: Option<LdapConfig>,
+}
+
+async fn get_auth_config(
+    State(state): State<AppState>,
+) -> Result<Json<AuthConfigResponse>, StatusCode> {
+    let mode = services::get_auth_mode(&state.repo).await.map_err(app_error_to_status)?;
+    let ldap = services::get_ldap_config(&state.repo).await.map_err(app_error_to_status)?;
+    // Redact bind password in response
+    let ldap_redacted = ldap.map(|mut c| {
+        if c.bind_password.is_some() {
+            c.bind_password = Some("****".to_string());
+        }
+        c
+    });
+    Ok(Json(AuthConfigResponse {
+        auth_mode: mode.as_str().to_string(),
+        ldap_config: ldap_redacted,
+    }))
+}
+
+async fn set_auth_config(
+    State(state): State<AppState>,
+    Json(payload): Json<AuthConfigPayload>,
+) -> Result<StatusCode, StatusCode> {
+    let mode = AuthMode::from_str(&payload.auth_mode)
+        .ok_or(StatusCode::BAD_REQUEST)?;
+
+    if mode == AuthMode::Ldap {
+        let config = payload.ldap_config.ok_or(StatusCode::BAD_REQUEST)?;
+        // If password is "****", keep the existing one
+        let final_config = if config.bind_password.as_deref() == Some("****") {
+            let existing = services::get_ldap_config(&state.repo).await.map_err(app_error_to_status)?;
+            LdapConfig {
+                bind_password: existing.and_then(|e| e.bind_password),
+                ..config
+            }
+        } else {
+            config
+        };
+        services::set_ldap_config(&state.repo, &final_config).await.map_err(app_error_to_status)?;
+    }
+
+    services::set_auth_mode(&state.repo, &mode).await.map_err(app_error_to_status)?;
+    Ok(StatusCode::OK)
+}
+
+async fn test_auth_config(
+    State(state): State<AppState>,
+    Json(config): Json<LdapConfig>,
+) -> Result<StatusCode, StatusCode> {
+    // If password is "****", use existing stored password
+    let final_config = if config.bind_password.as_deref() == Some("****") {
+        let existing = services::get_ldap_config(&state.repo).await.map_err(app_error_to_status)?;
+        LdapConfig {
+            bind_password: existing.and_then(|e| e.bind_password),
+            ..config
+        }
+    } else {
+        config
+    };
+    final_config.validate().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let provider = LdapAuthProvider::new(final_config);
+    services::test_ldap_connection(&provider).await.map_err(app_error_to_status)?;
     Ok(StatusCode::OK)
 }
 

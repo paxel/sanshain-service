@@ -1,4 +1,76 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum AuthMode {
+    Dev,
+    Local,
+    Ldap,
+}
+
+impl AuthMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AuthMode::Dev => "dev",
+            AuthMode::Local => "local",
+            AuthMode::Ldap => "ldap",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "dev" => Some(AuthMode::Dev),
+            "local" => Some(AuthMode::Local),
+            "ldap" => Some(AuthMode::Ldap),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LdapConfig {
+    pub server_url: String,
+    pub bind_dn: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind_password: Option<String>,
+    pub base_dn: String,
+    #[serde(default = "LdapConfig::default_user_filter")]
+    pub user_filter: String,
+    #[serde(default)]
+    pub group_filter: String,
+    #[serde(default)]
+    pub admin_group: String,
+    #[serde(default)]
+    pub use_tls: bool,
+}
+
+impl LdapConfig {
+    fn default_user_filter() -> String {
+        "(uid={username})".to_string()
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.server_url.is_empty() {
+            return Err("Server URL must not be empty".to_string());
+        }
+        if !self.server_url.starts_with("ldap://") && !self.server_url.starts_with("ldaps://") {
+            return Err("Server URL must start with ldap:// or ldaps://".to_string());
+        }
+        if self.bind_dn.is_empty() {
+            return Err("Bind DN must not be empty".to_string());
+        }
+        if self.base_dn.is_empty() {
+            return Err("Base DN must not be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+/// Represents an authenticated user from any auth provider.
+#[derive(Clone, Debug)]
+pub struct AuthenticatedUser {
+    pub username: String,
+    pub is_admin: bool,
+}
 
 #[derive(Clone, Debug)]
 pub struct ApiToken {

@@ -1,6 +1,27 @@
 use crate::domain::models::*;
 use std::future::Future;
 
+/// Error type for authentication provider operations.
+#[derive(Debug)]
+pub enum AuthProviderError {
+    InvalidCredentials,
+    ConnectionFailed(String),
+    Internal(String),
+}
+
+/// Port trait for pluggable authentication providers.
+pub trait AuthProvider: Send + Sync {
+    /// Authenticate a user by username and password.
+    fn authenticate(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> impl Future<Output = Result<AuthenticatedUser, AuthProviderError>> + Send;
+
+    /// Test connectivity to the auth backend.
+    fn test_connection(&self) -> impl Future<Output = Result<(), AuthProviderError>> + Send;
+}
+
 #[derive(Debug)]
 pub enum RepositoryError {
     NotFound,

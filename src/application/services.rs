@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::domain::models::*;
-use crate::domain::ports::{RepositoryError, SpecRepository};
+use crate::domain::ports::{AuthProvider, AuthProviderError, RepositoryError, SpecRepository};
 use crate::openapi;
 
 #[derive(Debug)]
@@ -403,6 +403,91 @@ pub async fn get_local_users_enabled(repo: &impl SpecRepository) -> Result<bool,
 pub async fn set_local_users_enabled(repo: &impl SpecRepository, enabled: bool) -> Result<(), AppError> {
     repo.set_setting("local_users_enabled", if enabled { "true" } else { "false" }).await?;
     Ok(())
+}
+
+// --- Auth Mode & LDAP Config ---
+
+pub async fn get_auth_mode(repo: &impl SpecRepository) -> Result<AuthMode, AppError> {
+    let val = repo.get_setting("auth_mode").await?;
+    Ok(val.and_then(|v| AuthMode::from_str(&v)).unwrap_or_else(|| {
+        // Legacy compat: map old settings to AuthMode
+        AuthMode::Dev
+    }))
+}
+
+pub async fn set_auth_mode(repo: &impl SpecRepository, mode: &AuthMode) -> Result<(), AppError> {
+    repo.set_setting("auth_mode", mode.as_str()).await?;
+    // Keep legacy settings in sync
+    match mode {
+        AuthMode::Dev => {
+            repo.set_setting("dev_mode", "true").await?;
+            repo.set_setting("local_users_enabled", "false").await?;
+        }
+        AuthMode::Local => {
+            repo.set_setting("dev_mode", "false").await?;
+            repo.set_setting("local_users_enabled", "true").await?;
+        }
+        AuthMode::Ldap => {
+            repo.set_setting("dev_mode", "false").await?;
+            repo.set_setting("local_users_enabled", "false").await?;
+        }
+    }
+    Ok(())
+}
+
+pub async fn get_ldap_config(repo: &impl SpecRepository) -> Result<Option<LdapConfig>, AppError> {
+    let val = repo.get_setting("ldap_config").await?;
+    match val {
+        Some(json) => {
+            let config: LdapConfig = serde_json::from_str(&json)
+                .map_err(|e| AppError::Internal(format!("Invalid LDAP config JSON: {}", e)))?;
+            Ok(Some(config))
+        }
+        None => Ok(None),
+    }
+}
+
+pub async fn set_ldap_config(repo: &impl SpecRepository, config: &LdapConfig) -> Result<(), AppError> {
+    config.validate().map_err(|e| AppError::BadRequest(e))?;
+    let json = serde_json::to_string(config)
+        .map_err(|e| AppError::Internal(format!("Failed to serialize LDAP config: {}", e)))?;
+    repo.set_setting("ldap_config", &json).await?;
+    Ok(())
+}
+
+pub async fn test_ldap_connection(provider: &impl AuthProvider) -> Result<(), AppError> {
+    provider.test_connection().await.map_err(|e| match e {
+        AuthProviderError::ConnectionFailed(msg) => AppError::BadRequest(format!("Connection failed: {}", msg)),
+        AuthProviderError::Internal(msg) => AppError::Internal(msg),
+        AuthProviderError::InvalidCredentials => AppError::Unauthorized,
+    })
+}
+
+/// Login using the active auth provider. For LDAP, auto-provisions a shadow user.
+pub async fn login_with_provider(
+    repo: &impl SpecRepository,
+    provider: &impl AuthProvider,
+    username: &str,
+    password: &str,
+) -> Result<Session, AppError> {
+    let auth_user = provider.authenticate(username, password).await.map_err(|e| match e {
+        AuthProviderError::InvalidCredentials => AppError::Unauthorized,
+        AuthProviderError::ConnectionFailed(msg) => AppError::Internal(format!("Auth provider connection failed: {}", msg)),
+        AuthProviderError::Internal(msg) => AppError::Internal(msg),
+    })?;
+
+    // Ensure a local user row exists (shadow account for LDAP users)
+    let user = match repo.find_user(&auth_user.username).await? {
+        Some(u) => u,
+        None => {
+            // Auto-provision with a placeholder password hash (cannot be used for local login)
+            repo.create_user(&auth_user.username, "!ldap-managed!", auth_user.is_admin, true).await?
+        }
+    };
+
+    let expires = chrono_expires_24h();
+    let session = repo.create_session(user.id, &expires).await?;
+    Ok(session)
 }
 
 // --- API Token Management ---
@@ -1415,6 +1500,191 @@ paths:
 
         // Too many days
         let result = create_api_token(&repo, user.id, "test", 5000).await;
+        assert!(matches!(result, Err(AppError::BadRequest(_))));
+    }
+
+    // --- Auth Mode & LDAP Config tests ---
+
+    #[tokio::test]
+    async fn test_auth_mode_default_is_dev() {
+        let repo = MockRepo::new();
+        let mode = get_auth_mode(&repo).await.unwrap();
+        assert_eq!(mode, AuthMode::Dev);
+    }
+
+    #[tokio::test]
+    async fn test_set_and_get_auth_mode() {
+        let repo = MockRepo::new();
+
+        set_auth_mode(&repo, &AuthMode::Local).await.unwrap();
+        assert_eq!(get_auth_mode(&repo).await.unwrap(), AuthMode::Local);
+
+        set_auth_mode(&repo, &AuthMode::Ldap).await.unwrap();
+        assert_eq!(get_auth_mode(&repo).await.unwrap(), AuthMode::Ldap);
+
+        set_auth_mode(&repo, &AuthMode::Dev).await.unwrap();
+        assert_eq!(get_auth_mode(&repo).await.unwrap(), AuthMode::Dev);
+    }
+
+    #[tokio::test]
+    async fn test_set_auth_mode_syncs_legacy_settings() {
+        let repo = MockRepo::new();
+
+        set_auth_mode(&repo, &AuthMode::Local).await.unwrap();
+        assert!(!get_dev_mode(&repo).await.unwrap());
+        assert!(get_local_users_enabled(&repo).await.unwrap());
+
+        set_auth_mode(&repo, &AuthMode::Dev).await.unwrap();
+        assert!(get_dev_mode(&repo).await.unwrap());
+        assert!(!get_local_users_enabled(&repo).await.unwrap());
+
+        set_auth_mode(&repo, &AuthMode::Ldap).await.unwrap();
+        assert!(!get_dev_mode(&repo).await.unwrap());
+        assert!(!get_local_users_enabled(&repo).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_ldap_config_crud() {
+        let repo = MockRepo::new();
+
+        // Initially no config
+        assert!(get_ldap_config(&repo).await.unwrap().is_none());
+
+        let config = LdapConfig {
+            server_url: "ldap://localhost:389".to_string(),
+            bind_dn: "cn=admin,dc=example,dc=com".to_string(),
+            bind_password: Some("secret".to_string()),
+            base_dn: "dc=example,dc=com".to_string(),
+            user_filter: "(uid={username})".to_string(),
+            group_filter: String::new(),
+            admin_group: "cn=admins,ou=groups,dc=example,dc=com".to_string(),
+            use_tls: false,
+        };
+        set_ldap_config(&repo, &config).await.unwrap();
+
+        let loaded = get_ldap_config(&repo).await.unwrap().unwrap();
+        assert_eq!(loaded.server_url, "ldap://localhost:389");
+        assert_eq!(loaded.bind_dn, "cn=admin,dc=example,dc=com");
+        assert_eq!(loaded.bind_password, Some("secret".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_ldap_config_validation_empty_url() {
+        let repo = MockRepo::new();
+        let config = LdapConfig {
+            server_url: "".to_string(),
+            bind_dn: "cn=admin".to_string(),
+            bind_password: None,
+            base_dn: "dc=example".to_string(),
+            user_filter: "(uid={username})".to_string(),
+            group_filter: String::new(),
+            admin_group: String::new(),
+            use_tls: false,
+        };
+        let result = set_ldap_config(&repo, &config).await;
+        assert!(matches!(result, Err(AppError::BadRequest(_))));
+    }
+
+    #[tokio::test]
+    async fn test_ldap_config_validation_bad_url() {
+        let repo = MockRepo::new();
+        let config = LdapConfig {
+            server_url: "http://not-ldap".to_string(),
+            bind_dn: "cn=admin".to_string(),
+            bind_password: None,
+            base_dn: "dc=example".to_string(),
+            user_filter: "(uid={username})".to_string(),
+            group_filter: String::new(),
+            admin_group: String::new(),
+            use_tls: false,
+        };
+        let result = set_ldap_config(&repo, &config).await;
+        assert!(matches!(result, Err(AppError::BadRequest(_))));
+    }
+
+    #[tokio::test]
+    async fn test_ldap_config_validation_empty_bind_dn() {
+        let repo = MockRepo::new();
+        let config = LdapConfig {
+            server_url: "ldap://localhost".to_string(),
+            bind_dn: "".to_string(),
+            bind_password: None,
+            base_dn: "dc=example".to_string(),
+            user_filter: "(uid={username})".to_string(),
+            group_filter: String::new(),
+            admin_group: String::new(),
+            use_tls: false,
+        };
+        let result = set_ldap_config(&repo, &config).await;
+        assert!(matches!(result, Err(AppError::BadRequest(_))));
+    }
+
+    // --- AuthProvider dispatch test with mock ---
+
+    struct MockAuthProvider {
+        should_succeed: bool,
+        admin: bool,
+    }
+
+    impl AuthProvider for MockAuthProvider {
+        async fn authenticate(&self, username: &str, _password: &str) -> Result<AuthenticatedUser, crate::domain::ports::AuthProviderError> {
+            if self.should_succeed {
+                Ok(AuthenticatedUser { username: username.to_string(), is_admin: self.admin })
+            } else {
+                Err(crate::domain::ports::AuthProviderError::InvalidCredentials)
+            }
+        }
+        async fn test_connection(&self) -> Result<(), crate::domain::ports::AuthProviderError> {
+            if self.should_succeed {
+                Ok(())
+            } else {
+                Err(crate::domain::ports::AuthProviderError::ConnectionFailed("mock failure".to_string()))
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_login_with_provider_success() {
+        let repo = MockRepo::new();
+        let provider = MockAuthProvider { should_succeed: true, admin: false };
+        let session = login_with_provider(&repo, &provider, "ldapuser", "pass").await.unwrap();
+        assert!(!session.token.is_empty());
+
+        // Shadow user should have been created
+        let user = repo.find_user("ldapuser").await.unwrap().unwrap();
+        assert_eq!(user.username, "ldapuser");
+        assert!(user.approved);
+    }
+
+    #[tokio::test]
+    async fn test_login_with_provider_failure() {
+        let repo = MockRepo::new();
+        let provider = MockAuthProvider { should_succeed: false, admin: false };
+        let result = login_with_provider(&repo, &provider, "ldapuser", "wrong").await;
+        assert!(matches!(result, Err(AppError::Unauthorized)));
+    }
+
+    #[tokio::test]
+    async fn test_login_with_provider_admin_flag() {
+        let repo = MockRepo::new();
+        let provider = MockAuthProvider { should_succeed: true, admin: true };
+        login_with_provider(&repo, &provider, "adminuser", "pass").await.unwrap();
+
+        let user = repo.find_user("adminuser").await.unwrap().unwrap();
+        assert!(user.is_admin);
+    }
+
+    #[tokio::test]
+    async fn test_test_ldap_connection_success() {
+        let provider = MockAuthProvider { should_succeed: true, admin: false };
+        let result = test_ldap_connection(&provider).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_test_ldap_connection_failure() {
+        let provider = MockAuthProvider { should_succeed: false, admin: false };
+        let result = test_ldap_connection(&provider).await;
         assert!(matches!(result, Err(AppError::BadRequest(_))));
     }
 }
