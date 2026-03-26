@@ -29,3 +29,5 @@ hex = "0.4"
 sha2 = "0.10"
 askama = "0.13"
 ldap3 = { version = "0.11", default-features = false, features = ["tls-rustls"] }
+regex = "1"
+indexmap = "2"

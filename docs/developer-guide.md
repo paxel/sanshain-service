@@ -98,18 +98,18 @@ The `split_openapi` function takes a full OpenAPI 3.x YAML spec and produces one
 pub struct EndpointSpec {
     pub path: String,       // e.g., "/users/{id}"
     pub method: String,     // e.g., "GET"
-    pub operation_id: Option<String>,
-    pub yaml_snippet: String, // Standalone YAML with this operation + all components
+    pub yaml_content: String, // Standalone YAML with this operation + only referenced components
 }
 ```
 
 **How it works:**
 1. Parse YAML into an `openapiv3::OpenAPI` struct.
 2. Iterate over `paths` → for each path, iterate over methods (GET, POST, PUT, DELETE, PATCH).
-3. For each operation, construct a minimal OpenAPI document containing only that path/method but **all** `components` (schemas, security schemes, etc.).
-4. Serialize back to YAML.
+3. For each operation, construct a minimal OpenAPI document containing only that path/method.
+4. Extract only the referenced `components` (schemas, responses, parameters, etc.) by scanning `$ref` strings and transitively resolving nested references.
+5. Serialize back to YAML.
 
-> **Known limitation**: All schemas are included in every snippet, not just the ones referenced by that operation. This is noted in the plan as a future optimization.
+This ensures each snippet is self-contained and includes only the schemas/components actually used by that specific operation.
 
 ### Require Flow (`GET /require`)
 

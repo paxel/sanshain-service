@@ -4,7 +4,10 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.2.0] - 2026-03-25
+## [0.2.0] - 2026-03-26
+
+### Changed
+- **OpenAPI splitting now includes only referenced schemas**: each endpoint snippet contains only the `components/schemas` (and other component types) that are actually referenced by that operation, resolved transitively. Previously all schemas were included in every snippet.
 
 ### Added
 - **LDAP authentication support**: new Auth Mode selector (Dev / Local / LDAP) on the admin dashboard.

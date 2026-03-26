@@ -6,7 +6,7 @@ The following major milestones have been delivered and are fully functional:
 
 - **Core API**: `POST /provide` (with idempotency, immutability on protected branches, feature-branch override), `GET /require` (with long-polling, feature-branch fallback, dependency tracking), `GET /report` + `/report/markdown`.
 - **Architecture**: DDD Hexagonal/Onion (Domain → Application → Infrastructure → Presentation). SQLite adapter with auto-migrations.
-- **OpenAPI Splitting**: Per-endpoint YAML snippets with shared schema extraction (`openapiv3` crate).
+- **OpenAPI Splitting**: Per-endpoint YAML snippets with per-operation schema filtering — each snippet includes only the schemas/components transitively referenced by that operation (`openapiv3` crate).
 - **Authentication & Authorization**: Session-based auth (Argon2), root admin bootstrap, dev-mode toggle, local user registration with admin approval, API tokens (`san_` prefix, SHA-256 hashed).
 - **Admin API**: Protected branches CRUD, service/branch/client CRUD (cascade delete), user management (list/approve/delete), settings (dev-mode, local-users).
 - **Web UI**: Landing page, service overview (drill-down to endpoints + YAML), client overview, admin dashboard, account page (login/register/tokens), dependency graph (Mermaid, cycle detection, detail toggle).
