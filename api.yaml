@@ -114,6 +114,46 @@ paths:
         "404":
           description: Endpoint not found (after timeout, if specified).
 
+  /require-bundle:
+    post:
+      operationId: requireBundle
+      summary: Retrieve multiple endpoint snippets as a single merged OpenAPI spec
+      description: |
+        Returns a single merged OpenAPI YAML containing all requested endpoints from one service
+        on a given branch, with deduplicated schemas/components.
+        Registers the calling client as a consumer of each requested endpoint.
+
+        This solves the duplicate DTO problem for typed languages (e.g. Java): instead of
+        downloading separate specs per endpoint with overlapping schemas, clients receive
+        one consistent spec.
+
+        **Long-polling**: If `timeout` is provided and the service spec is not yet available,
+        the server waits up to `timeout` seconds for it to appear.
+
+        **Feature branch fallback**: If the spec is not found on the requested branch,
+        the server falls back to the `master` branch automatically.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequireBundlePayload"
+      responses:
+        "200":
+          description: A single merged OpenAPI YAML containing all requested endpoints with deduplicated schemas.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "400":
+          description: Invalid request (e.g. empty endpoints list or missing fields).
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: One or more requested endpoints not found (after timeout, if specified).
+
 components:
   schemas:
     ProvidePayload:
@@ -132,3 +172,44 @@ components:
         openapi_yaml:
           type: string
           description: The full OpenAPI specification as a YAML string.
+    RequireBundlePayload:
+      type: object
+      required:
+        - clientname
+        - servicename
+        - branch
+        - endpoints
+      properties:
+        clientname:
+          type: string
+          description: Name of the client registering the dependencies.
+        servicename:
+          type: string
+          description: Name of the service that provides the endpoints.
+        branch:
+          type: string
+          description: Branch name to retrieve the endpoints from.
+        endpoints:
+          type: array
+          description: List of endpoints to include in the merged spec.
+          items:
+            $ref: "#/components/schemas/RequireBundleEndpoint"
+        timeout:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            Optional long-polling timeout in seconds. If the service spec is not yet available,
+            the server waits up to this duration before returning 404.
+    RequireBundleEndpoint:
+      type: object
+      required:
+        - path
+        - method
+      properties:
+        path:
+          type: string
+          description: "API path of the endpoint (e.g. `/api/v1/users`)."
+        method:
+          type: string
+          description: "HTTP method (e.g. `GET`, `POST`)."
