@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0]
+
+### Added
+- **`POST /require-bundle` endpoint**: request multiple endpoints from a single service in one call and receive a single merged OpenAPI YAML with deduplicated schemas/components. Solves the problem of duplicate DTOs when clients (e.g., Java/Maven) require multiple endpoints that share the same models.
+- **`sanshain.yaml` client configuration format**: documented standard config file format for client plugins (Maven, Gradle, Cargo, etc.) covering provide, require, and require-bundle settings. See `docs/sanshain-yaml.md`.
+- **Server-side gzip compression**: responses are automatically gzip-compressed when clients send `Accept-Encoding: gzip`. Enabled via `tower-http` `CompressionLayer`. The `compression: true` option in `sanshain.yaml` is now functional.
+
+
 ## [0.2.0] - 2026-03-26
 
 ### Changed

@@ -206,6 +206,72 @@ fn extract_used_components(
     }
 }
 
+/// Merge multiple per-endpoint YAML snippets (from the same service) into a single OpenAPI spec
+/// with deduplicated schemas/components.
+pub fn merge_endpoint_yamls(yamls: &[String]) -> Result<String, String> {
+    if yamls.is_empty() {
+        return Err("No endpoint YAMLs to merge".to_string());
+    }
+
+    // Use the first snippet as the base (info, servers, openapi version)
+    let mut merged: OpenAPI = serde_yaml::from_str(&yamls[0])
+        .map_err(|e| format!("Failed to parse first endpoint YAML: {}", e))?;
+
+    // Merge paths and components from all subsequent snippets
+    for yaml in &yamls[1..] {
+        let spec: OpenAPI = serde_yaml::from_str(yaml)
+            .map_err(|e| format!("Failed to parse endpoint YAML: {}", e))?;
+
+        // Merge paths
+        for (path, path_item_ref) in spec.paths.paths {
+            merged.paths.paths
+                .entry(path.clone())
+                .and_modify(|existing| {
+                    // Merge operations into existing path item
+                    if let (ReferenceOr::Item(existing_item), ReferenceOr::Item(new_item)) =
+                        (existing, &path_item_ref)
+                    {
+                        if new_item.get.is_some() { existing_item.get = new_item.get.clone(); }
+                        if new_item.post.is_some() { existing_item.post = new_item.post.clone(); }
+                        if new_item.put.is_some() { existing_item.put = new_item.put.clone(); }
+                        if new_item.delete.is_some() { existing_item.delete = new_item.delete.clone(); }
+                        if new_item.options.is_some() { existing_item.options = new_item.options.clone(); }
+                        if new_item.head.is_some() { existing_item.head = new_item.head.clone(); }
+                        if new_item.patch.is_some() { existing_item.patch = new_item.patch.clone(); }
+                        if new_item.trace.is_some() { existing_item.trace = new_item.trace.clone(); }
+                    }
+                })
+                .or_insert(path_item_ref);
+        }
+
+        // Merge components (union — same name = same schema within one service)
+        if let Some(new_components) = spec.components {
+            let merged_components = merged.components.get_or_insert_with(Components::default);
+            for (name, schema) in new_components.schemas {
+                merged_components.schemas.entry(name).or_insert(schema);
+            }
+            for (name, resp) in new_components.responses {
+                merged_components.responses.entry(name).or_insert(resp);
+            }
+            for (name, param) in new_components.parameters {
+                merged_components.parameters.entry(name).or_insert(param);
+            }
+            for (name, rb) in new_components.request_bodies {
+                merged_components.request_bodies.entry(name).or_insert(rb);
+            }
+            for (name, h) in new_components.headers {
+                merged_components.headers.entry(name).or_insert(h);
+            }
+            for (name, ss) in new_components.security_schemes {
+                merged_components.security_schemes.entry(name).or_insert(ss);
+            }
+        }
+    }
+
+    serde_yaml::to_string(&merged)
+        .map_err(|e| format!("Failed to serialize merged YAML: {}", e))
+}
+
 fn get_methods(path_item: &PathItem) -> Vec<(String, &openapiv3::Operation)> {
     let mut methods = Vec::new();
     if let Some(op) = &path_item.get { methods.push(("get".to_string(), op)); }
@@ -482,5 +548,110 @@ components:
         assert_eq!(result.len(), 1);
         assert!(!result[0].yaml_content.contains("User"));
         assert!(!result[0].yaml_content.contains("components"));
+    }
+
+    #[test]
+    fn test_merge_deduplicates_shared_schema() {
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /orders:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Order'
+      responses:
+        '201':
+          description: Created
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
+    Order:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        id:
+          type: integer
+"#;
+        let specs = split_openapi(yaml).unwrap();
+        assert_eq!(specs.len(), 2);
+
+        let yamls: Vec<String> = specs.iter().map(|s| s.yaml_content.clone()).collect();
+        let merged = merge_endpoint_yamls(&yamls).unwrap();
+
+        // Both paths present
+        assert!(merged.contains("/users"));
+        assert!(merged.contains("/orders"));
+        // User schema appears exactly once (deduplicated)
+        assert!(merged.contains("User"));
+        assert!(merged.contains("Order"));
+        // Verify it parses back correctly
+        let parsed: OpenAPI = serde_yaml::from_str(&merged).unwrap();
+        assert_eq!(parsed.paths.paths.len(), 2);
+        let components = parsed.components.unwrap();
+        assert_eq!(components.schemas.len(), 2);
+    }
+
+    #[test]
+    fn test_merge_same_path_different_methods() {
+        // YAML dedup means only last /users wins in parsing, so let's build snippets manually
+        let snippet_get = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        let snippet_post = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    post:
+      responses:
+        '201':
+          description: Created
+"#;
+        let merged = merge_endpoint_yamls(&[snippet_get.to_string(), snippet_post.to_string()]).unwrap();
+        let parsed: OpenAPI = serde_yaml::from_str(&merged).unwrap();
+        assert_eq!(parsed.paths.paths.len(), 1);
+        let path_item = match parsed.paths.paths.get("/users").unwrap() {
+            ReferenceOr::Item(item) => item,
+            _ => panic!("Expected item"),
+        };
+        assert!(path_item.get.is_some());
+        assert!(path_item.post.is_some());
+    }
+
+    #[test]
+    fn test_merge_empty_input() {
+        let result = merge_endpoint_yamls(&[]);
+        assert!(result.is_err());
     }
 }

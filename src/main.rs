@@ -258,6 +258,7 @@ pub fn create_app(state: AppState) -> Router {
     let api_routes = Router::new()
         .route("/provide", post(provide))
         .route("/require", get(require))
+        .route("/require-bundle", post(require_bundle))
         .route("/report", get(report))
         .route("/report/markdown", get(report_markdown))
         .route_layer(middleware::from_fn_with_state(state.clone(), api_auth));
@@ -280,6 +281,7 @@ pub fn create_app(state: AppState) -> Router {
         .fallback_service(ServeDir::new("static"))
         .layer(middleware::from_fn_with_state(state.clone(), csrf_protection))
         .layer(middleware::from_fn(security_headers))
+        .layer(tower_http::compression::CompressionLayer::new())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -298,6 +300,21 @@ struct RequireParams {
     branch: String,
     path: String,
     method: String,
+    timeout: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct RequireBundleEndpoint {
+    path: String,
+    method: String,
+}
+
+#[derive(Deserialize)]
+struct RequireBundlePayload {
+    clientname: String,
+    servicename: String,
+    branch: String,
+    endpoints: Vec<RequireBundleEndpoint>,
     timeout: Option<u64>,
 }
 
@@ -421,6 +438,26 @@ async fn require(
         &params.path,
         &params.method,
         params.timeout,
+    )
+    .await
+    .map_err(app_error_to_status)
+}
+
+async fn require_bundle(
+    State(state): State<AppState>,
+    Json(payload): Json<RequireBundlePayload>,
+) -> Result<String, StatusCode> {
+    let endpoints: Vec<(String, String)> = payload.endpoints
+        .into_iter()
+        .map(|e| (e.path, e.method))
+        .collect();
+    services::require_bundle(
+        &state.repo,
+        &payload.clientname,
+        &payload.servicename,
+        &payload.branch,
+        &endpoints,
+        payload.timeout,
     )
     .await
     .map_err(app_error_to_status)

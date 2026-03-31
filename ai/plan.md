@@ -21,6 +21,21 @@ The following major milestones have been delivered and are fully functional:
 ### Infrastructure
 - [x] PostgreSQL adapter with migrations in `src/infrastructure/migrations/postgres/`.
 
+### Require Bundle (Merged Multi-Endpoint Require)
+- [x] `merge_endpoint_yamls` function in `openapi.rs` — merges per-endpoint YAML snippets with deduplicated schemas.
+- [x] `require_bundle` service function in `services.rs` — resolves multiple endpoints, records dependencies, returns merged YAML.
+- [x] `POST /require-bundle` handler and route in `main.rs`.
+- [x] Unit tests (openapi merge, service bundle logic).
+- [x] Integration test (provide → require-bundle → verify merged spec).
+- [x] `sanshain.yaml` client configuration format specification (`docs/sanshain-yaml.md`).
+- [x] CHANGELOG, README, plan.md updates.
+
+### Server-Side Compression
+- [x] Enable `compression-gzip` feature on `tower-http` in `Cargo.toml`.
+- [x] Add `CompressionLayer` to Axum router in `main.rs`.
+- [x] Integration tests for gzip compression.
+- [x] CHANGELOG update.
+
 ### Ecosystem & Tooling (Client Plugins)
 - [ ] Maven plugin (`sanshain-provide`, `sanshain-require`).
 - [ ] Gradle plugin (`sanshainProvide`, `sanshainRequire`).

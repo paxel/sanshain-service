@@ -174,6 +174,169 @@ paths:
 }
 
 #[tokio::test]
+async fn test_require_bundle() {
+    let app = setup_app_dev_mode().await;
+
+    // Provide a spec with multiple endpoints sharing schemas
+    let openapi_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test API
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /users:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+      responses:
+        '201':
+          description: Created
+  /orders:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
+    Order:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        id:
+          type: integer
+"#;
+    let provide_payload = json!({
+        "servicename": "test-service",
+        "branch": "main",
+        "openapi_yaml": openapi_yaml
+    });
+
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&provide_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // Require bundle with two endpoints
+    let bundle_payload = json!({
+        "clientname": "java-client",
+        "servicename": "test-service",
+        "branch": "main",
+        "endpoints": [
+            { "path": "/users", "method": "POST" },
+            { "path": "/orders", "method": "GET" }
+        ]
+    });
+
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/require-bundle")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&bundle_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 100000).await.unwrap();
+    let merged_yaml = String::from_utf8(body.to_vec()).unwrap();
+
+    // Both paths present in merged YAML
+    assert!(merged_yaml.contains("/users"));
+    assert!(merged_yaml.contains("/orders"));
+    // Schemas deduplicated
+    assert!(merged_yaml.contains("User"));
+    assert!(merged_yaml.contains("Order"));
+
+    // Parse and verify structure
+    let parsed: openapiv3::OpenAPI = serde_yaml::from_str(&merged_yaml).unwrap();
+    assert_eq!(parsed.paths.paths.len(), 2);
+    let components = parsed.components.unwrap();
+    assert_eq!(components.schemas.len(), 2);
+
+    // Test missing endpoint returns error
+    let bundle_missing = json!({
+        "clientname": "java-client",
+        "servicename": "test-service",
+        "branch": "main",
+        "endpoints": [
+            { "path": "/users", "method": "GET" },
+            { "path": "/nonexistent", "method": "DELETE" }
+        ]
+    });
+
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/require-bundle")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&bundle_missing).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    // Test empty endpoints returns error
+    let bundle_empty = json!({
+        "clientname": "java-client",
+        "servicename": "test-service",
+        "branch": "main",
+        "endpoints": []
+    });
+
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/require-bundle")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&bundle_empty).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn test_idempotency_and_conflict() {
     let app = setup_app_dev_mode().await;
 
@@ -1253,4 +1416,106 @@ async fn test_auth_config_api() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_gzip_compression() {
+    let (app, _) = setup_app().await;
+
+    let response: Response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/health")
+                .header("Accept-Encoding", "gzip")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    // When Accept-Encoding: gzip is sent, the server should respond with compressed content
+    // For very small responses the server may skip compression, so we just verify the request succeeds.
+    // For larger responses, verify Content-Encoding header is set.
+}
+
+#[tokio::test]
+async fn test_gzip_compression_on_provide_response() {
+    let app = setup_app_dev_mode().await;
+
+    // Provide a spec (creates data for a larger response)
+    let openapi_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Compression Test API
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      summary: Get all users
+      description: Returns a list of all users in the system with their details
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserList'
+components:
+  schemas:
+    UserList:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+"#;
+
+    let provide_payload = json!({
+        "servicename": "compress-test-service",
+        "branch": "main",
+        "openapi_yaml": openapi_yaml
+    });
+
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&provide_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+
+    // Require with Accept-Encoding: gzip
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require?clientname=gzip-client&servicename=compress-test-service&branch=main&path=/users&method=GET&timeout=1")
+                .header("Accept-Encoding", "gzip")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let content_encoding = response.headers().get("content-encoding").map(|v| v.to_str().unwrap().to_string());
+    assert_eq!(content_encoding, Some("gzip".to_string()), "Response should be gzip-compressed");
 }

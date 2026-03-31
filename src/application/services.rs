@@ -145,6 +145,87 @@ pub async fn require_endpoint(
     }
 }
 
+pub async fn require_bundle(
+    repo: &impl SpecRepository,
+    clientname: &str,
+    servicename: &str,
+    branch: &str,
+    endpoints: &[(String, String)], // Vec of (path, method)
+    timeout_secs: Option<u64>,
+) -> Result<String, AppError> {
+    if endpoints.is_empty() {
+        return Err(AppError::BadRequest("No endpoints requested".to_string()));
+    }
+
+    let client_id = repo.ensure_client(clientname).await?;
+    let service_id = repo.ensure_service(servicename).await?;
+
+    let deadline = timeout_secs.map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
+    let poll_interval = std::time::Duration::from_millis(500);
+
+    loop {
+        let mut yamls: Vec<String> = Vec::new();
+        let mut missing: Vec<(String, String)> = Vec::new();
+
+        for (path, method) in endpoints {
+            let method_upper = method.to_uppercase();
+            let endpoint = repo.find_endpoint(service_id, branch, path, &method_upper).await?;
+
+            // Feature branch fallback
+            let endpoint = if endpoint.is_none() && !repo.is_branch_protected(branch).await? {
+                let protected = repo.list_protected_branches().await?;
+                let mut fallback = None;
+                for pb in &protected {
+                    fallback = repo.find_endpoint(service_id, pb, path, &method_upper).await?;
+                    if fallback.is_some() {
+                        tracing::info!(
+                            "Falling back to protected branch '{}' for {} {}",
+                            pb, method_upper, path
+                        );
+                        break;
+                    }
+                }
+                fallback
+            } else {
+                endpoint
+            };
+
+            if let Some(ref ep) = endpoint {
+                repo.record_dependency(client_id, Some(ep.0), service_id, branch, path, &method_upper).await?;
+                yamls.push(ep.1.clone());
+            } else {
+                missing.push((path.clone(), method_upper));
+            }
+        }
+
+        if missing.is_empty() {
+            // All endpoints found — merge into single YAML
+            return openapi::merge_endpoint_yamls(&yamls)
+                .map_err(|e| AppError::Internal(e));
+        }
+
+        // If no timeout or deadline passed, record missing deps and return NotFound
+        match deadline {
+            Some(dl) if std::time::Instant::now() < dl => {
+                tokio::time::sleep(poll_interval).await;
+            }
+            _ => {
+                // Record dependencies for missing endpoints
+                for (path, method) in &missing {
+                    repo.record_dependency(client_id, None, service_id, branch, path, method).await?;
+                }
+                let missing_list: Vec<String> = missing.iter()
+                    .map(|(p, m)| format!("{} {}", m, p))
+                    .collect();
+                return Err(AppError::BadRequest(format!(
+                    "Missing endpoints: {}",
+                    missing_list.join(", ")
+                )));
+            }
+        }
+    }
+}
+
 pub async fn generate_report(
     repo: &impl SpecRepository,
     branch: &str,
@@ -1686,5 +1767,108 @@ paths:
         let provider = MockAuthProvider { should_succeed: false, admin: false };
         let result = test_ldap_connection(&provider).await;
         assert!(matches!(result, Err(AppError::BadRequest(_))));
+    }
+
+    // --- require_bundle tests ---
+
+    #[tokio::test]
+    async fn test_require_bundle_empty_endpoints() {
+        let repo = MockRepo::new();
+        let result = require_bundle(&repo, "client", "svc", "main", &[], None).await;
+        assert!(matches!(result, Err(AppError::BadRequest(_))));
+    }
+
+    #[tokio::test]
+    async fn test_require_bundle_all_found() {
+        let repo = MockRepo::new();
+        repo.add_protected_branch("main").await.unwrap();
+
+        let yaml = r#"openapi: 3.0.0
+info:
+  title: Test
+  version: '1.0'
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /orders:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Order'
+      responses:
+        '201':
+          description: Created
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
+    Order:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        id:
+          type: integer
+"#;
+        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+
+        let endpoints = vec![
+            ("/users".to_string(), "GET".to_string()),
+            ("/orders".to_string(), "POST".to_string()),
+        ];
+        let result = require_bundle(&repo, "client", "svc", "main", &endpoints, None).await.unwrap();
+
+        // Merged YAML should contain both paths and deduplicated schemas
+        assert!(result.contains("/users"));
+        assert!(result.contains("/orders"));
+        assert!(result.contains("User"));
+        assert!(result.contains("Order"));
+
+        // Parse and verify structure
+        let parsed: openapiv3::OpenAPI = serde_yaml::from_str(&result).unwrap();
+        assert_eq!(parsed.paths.paths.len(), 2);
+        let components = parsed.components.unwrap();
+        assert_eq!(components.schemas.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_require_bundle_partial_missing() {
+        let repo = MockRepo::new();
+        repo.add_protected_branch("main").await.unwrap();
+
+        let yaml = r#"openapi: 3.0.0
+info:
+  title: Test
+  version: '1.0'
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+
+        let endpoints = vec![
+            ("/users".to_string(), "GET".to_string()),
+            ("/missing".to_string(), "POST".to_string()),
+        ];
+        let result = require_bundle(&repo, "client", "svc", "main", &endpoints, None).await;
+        assert!(matches!(result, Err(AppError::BadRequest(_))));
+        if let Err(AppError::BadRequest(msg)) = result {
+            assert!(msg.contains("POST /missing"));
+        }
     }
 }
