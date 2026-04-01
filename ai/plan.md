@@ -113,7 +113,8 @@ The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Be
 
 ### Administration (other)
 - [x] Branch max-age auto-cleanup (default 30 days, configurable via admin API, hourly background task, protects protected branches).
-- [ ] Stale dependency pruning.
+- [x] Endpoint pruning on provide (soft-delete on protected branches, hard-delete on feature branches, re-introduction rejected as contract violation).
+- [ ] Stale dependency pruning (time-based cleanup of `dependencies` rows via `last_seen_at` timestamp).
 - [x] Background maintenance job for expiration/cleanup (branch cleanup runs hourly).
 
 ### Web Frontend (other)

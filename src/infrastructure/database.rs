@@ -82,6 +82,18 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, update_endpoint(branch_id, path, method, yaml_content))
     }
 
+    async fn soft_delete_endpoint(&self, branch_id: i64, path: &str, method: &str) -> Result<(), RepositoryError> {
+        delegate!(self, soft_delete_endpoint(branch_id, path, method))
+    }
+
+    async fn hard_delete_endpoint(&self, branch_id: i64, path: &str, method: &str) -> Result<(), RepositoryError> {
+        delegate!(self, hard_delete_endpoint(branch_id, path, method))
+    }
+
+    async fn is_endpoint_deleted(&self, branch_id: i64, path: &str, method: &str) -> Result<bool, RepositoryError> {
+        delegate!(self, is_endpoint_deleted(branch_id, path, method))
+    }
+
     async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {
         delegate!(self, delete_service(name))
     }

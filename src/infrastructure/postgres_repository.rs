@@ -67,7 +67,7 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn get_endpoints_for_branch(&self, branch_id: i64) -> Result<Vec<EndpointRecord>, RepositoryError> {
         let rows: Vec<(i64, String, String, String)> = sqlx::query_as(
-            "SELECT id, path, method, yaml_content FROM endpoints WHERE branch_id = $1"
+            "SELECT id, path, method, yaml_content FROM endpoints WHERE branch_id = $1 AND deleted = FALSE"
         )
         .bind(branch_id)
         .fetch_all(&self.pool)
@@ -126,7 +126,7 @@ impl SpecRepository for PostgresSpecRepository {
             SELECT e.id, e.yaml_content
             FROM endpoints e
             JOIN branches b ON e.branch_id = b.id
-            WHERE b.service_id = $1 AND b.name = $2 AND e.path = $3 AND e.method = $4
+            WHERE b.service_id = $1 AND b.name = $2 AND e.path = $3 AND e.method = $4 AND e.deleted = FALSE
             "#,
         )
         .bind(service_id)
@@ -223,6 +223,41 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(())
     }
 
+    async fn soft_delete_endpoint(&self, branch_id: i64, path: &str, method: &str) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE endpoints SET deleted = TRUE WHERE branch_id = $1 AND path = $2 AND method = $3")
+            .bind(branch_id)
+            .bind(path)
+            .bind(method)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn hard_delete_endpoint(&self, branch_id: i64, path: &str, method: &str) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM endpoints WHERE branch_id = $1 AND path = $2 AND method = $3")
+            .bind(branch_id)
+            .bind(path)
+            .bind(method)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn is_endpoint_deleted(&self, branch_id: i64, path: &str, method: &str) -> Result<bool, RepositoryError> {
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM endpoints WHERE branch_id = $1 AND path = $2 AND method = $3 AND deleted = TRUE"
+        )
+        .bind(branch_id)
+        .bind(path)
+        .bind(method)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.0 > 0)
+    }
+
     async fn get_report(&self, branch: &str) -> Result<DependencyReport, RepositoryError> {
         let mut conn = self.pool.acquire().await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -257,7 +292,7 @@ impl SpecRepository for PostgresSpecRepository {
             FROM endpoints e
             JOIN branches b ON e.branch_id = b.id
             JOIN services s ON b.service_id = s.id
-            WHERE b.name = $1 AND e.id NOT IN (
+            WHERE b.name = $1 AND e.deleted = FALSE AND e.id NOT IN (
                 SELECT endpoint_id FROM dependencies 
                 WHERE requested_branch_name = $2 AND endpoint_id IS NOT NULL
             )

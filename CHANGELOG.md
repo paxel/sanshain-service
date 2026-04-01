@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - **Web frontend modularisation (Phase 1)**: extracted shared Askama layout template (`templates/layout.html`) with nav, footer, and common CSS/JS. Landing page (`index.html`) and dashboard now extend the layout. Created `static/js/common.js` with shared fetch helpers, CSRF token management, HTML escaping, and confirm modal logic. Refactored `admin.html`, `account.html`, and `service.html` to use `common.js` instead of duplicating ~60 lines of JS each.
+- **Endpoint pruning on provide**: when a new spec is uploaded via `POST /provide`, endpoints present in the previous spec but missing from the new one are now removed. On protected branches, removed endpoints are soft-deleted (marked `deleted`) so that re-introducing them later is rejected as a contract violation. On feature branches, removed endpoints are hard-deleted and can be freely re-added.
 
 ### Fixed
 - **Duplicate dependencies**: added UNIQUE constraint on the dependencies table and `INSERT OR IGNORE` / `ON CONFLICT DO NOTHING` to prevent duplicate endpoint entries when clients re-register the same dependency.

@@ -67,6 +67,15 @@ pub async fn provide_spec(
                 }
             }
         } else {
+            // Check if this endpoint was previously soft-deleted on a protected branch
+            if is_protected && repo.is_endpoint_deleted(branch_id, &endpoint.path, &endpoint.method).await? {
+                tracing::warn!(
+                    "Rejected re-introduction of deleted endpoint {} {}: contract violation on protected branch",
+                    endpoint.method,
+                    endpoint.path
+                );
+                return Err(AppError::Conflict);
+            }
             to_insert.push(EndpointRecord {
                 id: None,
                 path: endpoint.path,
@@ -82,6 +91,23 @@ pub async fn provide_spec(
 
     for endpoint in &to_update {
         repo.update_endpoint(branch_id, &endpoint.path, &endpoint.method, &endpoint.yaml_content).await?;
+    }
+
+    // Remove endpoints that are no longer in the spec
+    for ((path, method), _) in &existing_map {
+        if is_protected {
+            tracing::info!(
+                "Soft-deleting {} {} on protected branch",
+                method, path
+            );
+            repo.soft_delete_endpoint(branch_id, path, method).await?;
+        } else {
+            tracing::info!(
+                "Deleting {} {} on feature branch",
+                method, path
+            );
+            repo.hard_delete_endpoint(branch_id, path, method).await?;
+        }
     }
 
     Ok(())
@@ -790,6 +816,7 @@ mod tests {
         services: Mutex<HashMap<String, i64>>,
         branches: Mutex<HashMap<(i64, String), i64>>,
         endpoints: Mutex<HashMap<i64, Vec<EndpointRecord>>>,
+        deleted_endpoints: Mutex<Vec<(i64, String, String)>>,
         clients: Mutex<HashMap<String, i64>>,
         protected_branches: Mutex<Vec<String>>,
         next_id: Mutex<i64>,
@@ -807,6 +834,7 @@ mod tests {
                 services: Mutex::new(HashMap::new()),
                 branches: Mutex::new(HashMap::new()),
                 endpoints: Mutex::new(HashMap::new()),
+                deleted_endpoints: Mutex::new(Vec::new()),
                 clients: Mutex::new(HashMap::new()),
                 protected_branches: Mutex::new(vec!["main".to_string(), "master".to_string()]),
                 next_id: Mutex::new(1),
@@ -849,7 +877,11 @@ mod tests {
 
         async fn get_endpoints_for_branch(&self, branch_id: i64) -> Result<Vec<EndpointRecord>, RepositoryError> {
             let endpoints = self.endpoints.lock().unwrap();
-            Ok(endpoints.get(&branch_id).cloned().unwrap_or_default())
+            let deleted = self.deleted_endpoints.lock().unwrap();
+            Ok(endpoints.get(&branch_id).cloned().unwrap_or_default()
+                .into_iter()
+                .filter(|ep| !deleted.contains(&(branch_id, ep.path.clone(), ep.method.clone())))
+                .collect())
         }
 
         async fn insert_endpoint(&self, branch_id: i64, endpoint: &EndpointRecord) -> Result<(), RepositoryError> {
@@ -881,9 +913,12 @@ mod tests {
             let key = (service_id, branch_name.to_string());
             if let Some(&branch_id) = branches.get(&key) {
                 let endpoints = self.endpoints.lock().unwrap();
+                let deleted = self.deleted_endpoints.lock().unwrap();
                 if let Some(eps) = endpoints.get(&branch_id) {
                     for ep in eps {
-                        if ep.path == path && ep.method == method {
+                        if ep.path == path && ep.method == method
+                            && !deleted.contains(&(branch_id, ep.path.clone(), ep.method.clone()))
+                        {
                             return Ok(Some((ep.id.unwrap(), ep.yaml_content.clone())));
                         }
                     }
@@ -949,6 +984,24 @@ mod tests {
                 }
             }
             Ok(())
+        }
+
+        async fn soft_delete_endpoint(&self, branch_id: i64, path: &str, method: &str) -> Result<(), RepositoryError> {
+            self.deleted_endpoints.lock().unwrap().push((branch_id, path.to_string(), method.to_string()));
+            Ok(())
+        }
+
+        async fn hard_delete_endpoint(&self, branch_id: i64, path: &str, method: &str) -> Result<(), RepositoryError> {
+            let mut endpoints = self.endpoints.lock().unwrap();
+            if let Some(eps) = endpoints.get_mut(&branch_id) {
+                eps.retain(|ep| !(ep.path == path && ep.method == method));
+            }
+            Ok(())
+        }
+
+        async fn is_endpoint_deleted(&self, branch_id: i64, path: &str, method: &str) -> Result<bool, RepositoryError> {
+            let deleted = self.deleted_endpoints.lock().unwrap();
+            Ok(deleted.contains(&(branch_id, path.to_string(), method.to_string())))
         }
 
         async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {
@@ -1224,6 +1277,137 @@ paths:
         provide_spec(&repo, "svc", "main", yaml1).await.unwrap();
         let result = provide_spec(&repo, "svc", "main", yaml2).await;
         assert!(matches!(result, Err(AppError::Conflict)));
+    }
+
+    #[tokio::test]
+    async fn test_provide_spec_soft_deletes_removed_endpoint_on_protected_branch() {
+        let repo = MockRepo::new();
+        let yaml_two_endpoints = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+  /orders:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        let yaml_one_endpoint = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        // Provide two endpoints on protected branch
+        provide_spec(&repo, "svc", "main", yaml_two_endpoints).await.unwrap();
+        let service_id = repo.ensure_service("svc").await.unwrap();
+        let branch_id = repo.ensure_branch(service_id, "main").await.unwrap();
+        assert_eq!(repo.get_endpoints_for_branch(branch_id).await.unwrap().len(), 2);
+
+        // Provide only one endpoint — /orders should be soft-deleted
+        provide_spec(&repo, "svc", "main", yaml_one_endpoint).await.unwrap();
+        let eps = repo.get_endpoints_for_branch(branch_id).await.unwrap();
+        assert_eq!(eps.len(), 1);
+        assert_eq!(eps[0].path, "/users");
+        assert!(repo.is_endpoint_deleted(branch_id, "/orders", "GET").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_provide_spec_rejects_reintroduction_on_protected_branch() {
+        let repo = MockRepo::new();
+        let yaml_two = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+  /orders:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        let yaml_one = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        provide_spec(&repo, "svc", "main", yaml_two).await.unwrap();
+        provide_spec(&repo, "svc", "main", yaml_one).await.unwrap();
+        // Re-introducing /orders should be rejected as contract violation
+        let result = provide_spec(&repo, "svc", "main", yaml_two).await;
+        assert!(matches!(result, Err(AppError::Conflict)));
+    }
+
+    #[tokio::test]
+    async fn test_provide_spec_hard_deletes_removed_endpoint_on_feature_branch() {
+        let repo = MockRepo::new();
+        let yaml_two = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+  /orders:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        let yaml_one = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        provide_spec(&repo, "svc", "feature-x", yaml_two).await.unwrap();
+        provide_spec(&repo, "svc", "feature-x", yaml_one).await.unwrap();
+        let service_id = repo.ensure_service("svc").await.unwrap();
+        let branch_id = repo.ensure_branch(service_id, "feature-x").await.unwrap();
+        let eps = repo.get_endpoints_for_branch(branch_id).await.unwrap();
+        assert_eq!(eps.len(), 1);
+        assert_eq!(eps[0].path, "/users");
+        // Not soft-deleted, actually removed
+        assert!(!repo.is_endpoint_deleted(branch_id, "/orders", "GET").await.unwrap());
+        // Re-introduction is allowed on feature branches
+        let result = provide_spec(&repo, "svc", "feature-x", yaml_two).await;
+        assert!(result.is_ok());
     }
 
     #[tokio::test]
