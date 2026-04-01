@@ -43,10 +43,9 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ matrix.arch }}-release-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-${{ matrix.arch }}-release-
+            ${{ runner.os }}-cargo-registry-
 
       - name: Install cross
         run: cargo install cross --git https://github.com/cross-rs/cross

@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.4]
+
+### Fixed
+- **CI build cache fix**: removed `target/` directory from the cargo cache to prevent stale proc-macro artifacts (`zerofrom_derive`) from causing cross-compilation failures.
+
 ## [0.4.3]
 
 ### Fixed
