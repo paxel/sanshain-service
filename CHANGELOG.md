@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0]
+
+### Changed
+- **Multi-architecture release builds**: GitHub Release now publishes Linux binaries for both `x86_64` and `aarch64`. Docker images are built as multi-platform manifests (`linux/amd64`, `linux/arm64`) and pushed to GHCR. Windows and macOS are not supported.
+- **Release binary naming**: binaries use standard architecture names (`sanshain-linux-x86_64`, `sanshain-linux-aarch64`) instead of Docker-style `amd64`/`arm64`.
+
 ## [0.3.0]
 
 ### Added

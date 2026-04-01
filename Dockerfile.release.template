@@ -1,8 +1,12 @@
 FROM alpine:3.21
 
+ARG TARGETARCH
+
 RUN apk add --no-cache sqlite-libs
 
-COPY sanshain-linux-amd64 /usr/local/bin/sanshain
+# Binary is placed as sanshain-${TARGETARCH} in the build context
+# (mapped from x86_64/aarch64 naming to Docker's amd64/arm64 convention)
+COPY sanshain-${TARGETARCH} /usr/local/bin/sanshain
 RUN chmod +x /usr/local/bin/sanshain
 COPY static/ /app/static/
 

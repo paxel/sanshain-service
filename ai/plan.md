@@ -42,6 +42,12 @@ The following major milestones have been delivered and are fully functional:
 - [ ] Rust (`cargo-sanshain` or `build.rs`).
 - [ ] Go (`go generate`), Python, JS/TS, Swift, Ruby, PHP, C/C++ integrations.
 
+### Multi-Architecture Builds
+- [x] Release workflow builds Linux binaries for x86_64 and aarch64 (matrix strategy with cross-compilation).
+- [x] Multi-platform Docker images (linux/amd64, linux/arm64) via Docker Buildx + QEMU.
+- [x] Dockerfile.release.template uses `TARGETARCH` for architecture-specific binary selection.
+- [x] Release binaries use standard architecture names (`x86_64`, `aarch64`) instead of Docker-style `amd64`/`arm64`.
+
 ### Deployment
 - [ ] Kubernetes manifests (Deployment, Service, Ingress, ConfigMap, Secret).
 - [ ] Helm chart.

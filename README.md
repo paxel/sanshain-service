@@ -25,10 +25,10 @@ cargo build --release
 ```
 
 #### From GitHub Release
-Download the `sanshain-linux-amd64` binary from the [Releases](https://github.com/paxel/sanshain-service/releases) page:
+Download the binary for your architecture from the [Releases](https://github.com/paxel/sanshain-service/releases) page (`sanshain-linux-x86_64` or `sanshain-linux-aarch64`):
 ```bash
-chmod +x sanshain-linux-amd64
-./sanshain-linux-amd64
+chmod +x sanshain-linux-x86_64
+./sanshain-linux-x86_64
 ```
 
 #### Docker (GitHub Container Registry)
