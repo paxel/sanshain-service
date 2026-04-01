@@ -277,6 +277,30 @@ pub fn create_app(state: AppState) -> Router {
         .route("/users/{id}", axum::routing::delete(admin_delete_user_handler))
         .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth));
 
+    let fragment_routes = Router::new()
+        .route("/admin/users", get(fragment_users))
+        .route("/admin/users/{id}/approve", post(fragment_approve_user))
+        .route("/admin/users/{id}", axum::routing::delete(fragment_delete_user))
+        .route("/admin/services", get(fragment_services))
+        .route("/admin/services/{name}", axum::routing::delete(fragment_delete_service))
+        .route("/admin/services/{name}/branches", get(fragment_branches))
+        .route("/admin/services/{name}/branches/{branch}", axum::routing::delete(fragment_delete_branch))
+        .route("/admin/clients", get(fragment_clients))
+        .route("/admin/clients/{name}", axum::routing::delete(fragment_delete_client))
+        .route("/admin/dev-mode", get(fragment_dev_mode))
+        .route("/admin/dev-mode/toggle", post(fragment_dev_mode_toggle))
+        .route("/admin/local-users", get(fragment_local_users))
+        .route("/admin/local-users/toggle", post(fragment_local_users_toggle))
+        .route("/admin/database-info", get(fragment_database_info))
+        .route("/admin/protected-branches", get(fragment_protected_branches).post(fragment_add_protected_branch))
+        .route("/admin/protected-branches/{pattern}", axum::routing::delete(fragment_delete_protected_branch))
+        .route("/admin/auth-config", get(fragment_auth_config))
+        .route("/admin/branch-max-age", get(fragment_branch_max_age).post(fragment_set_branch_max_age))
+        .route("/admin/branch-cleanup", post(fragment_branch_cleanup))
+        .route("/admin/dependency-max-age", get(fragment_dependency_max_age).post(fragment_set_dependency_max_age))
+        .route("/admin/dependency-cleanup", post(fragment_dependency_cleanup))
+        .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth));
+
     let api_routes = Router::new()
         .route("/provide", post(provide))
         .route("/require", get(require))
@@ -299,8 +323,10 @@ pub fn create_app(state: AppState) -> Router {
         .route("/auth/tokens", get(list_tokens).post(create_token))
         .route("/auth/tokens/{id}", axum::routing::delete(revoke_token))
         .route("/dashboard", get(dashboard_page))
+        .route("/admin.html", get(admin_page))
         .merge(api_routes)
         .nest("/admin", admin_routes)
+        .nest("/fragments", fragment_routes)
         .fallback_service(ServeDir::new("static"))
         .layer(middleware::from_fn_with_state(state.clone(), csrf_protection))
         .layer(middleware::from_fn(security_headers))
@@ -1180,3 +1206,325 @@ async fn dashboard_page(
 
 use axum::response::IntoResponse;
 use askama::Template;
+
+// --- Admin page (htmx-powered, served from Askama template) ---
+
+#[derive(Template)]
+#[template(path = "admin.html")]
+struct AdminPageTemplate {}
+
+async fn admin_page() -> Result<axum::response::Response, StatusCode> {
+    let tmpl = AdminPageTemplate {};
+    let html = tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(axum::response::Html(html).into_response())
+}
+
+// --- Fragment handlers (return HTML snippets for htmx) ---
+
+#[derive(Template)]
+#[template(path = "fragments/admin/users.html")]
+struct FragmentUsers {
+    users: Vec<domain::models::User>,
+}
+
+async fn fragment_users(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let users = services::list_users(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentUsers { users };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+async fn fragment_approve_user(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    services::approve_user(&state.repo, id).await.map_err(app_error_to_status)?;
+    let users = services::list_users(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentUsers { users };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+async fn fragment_delete_user(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    services::admin_delete_user(&state.repo, id).await.map_err(app_error_to_status)?;
+    let users = services::list_users(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentUsers { users };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+#[derive(Template)]
+#[template(path = "fragments/admin/services.html")]
+struct FragmentServices {
+    services: Vec<String>,
+}
+
+async fn fragment_services(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let services_list = services::list_services(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentServices { services: services_list };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+async fn fragment_delete_service(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    services::delete_service(&state.repo, &name).await.map_err(app_error_to_status)?;
+    let services_list = services::list_services(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentServices { services: services_list };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+#[derive(Template)]
+#[template(path = "fragments/admin/branches.html")]
+struct FragmentBranches {
+    service_name: String,
+    branches: Vec<String>,
+}
+
+async fn fragment_branches(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let branches = services::list_branches(&state.repo, &name).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentBranches { service_name: name, branches };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+async fn fragment_delete_branch(
+    State(state): State<AppState>,
+    axum::extract::Path((name, branch)): axum::extract::Path<(String, String)>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    services::delete_branch(&state.repo, &name, &branch).await.map_err(app_error_to_status)?;
+    // Return the full services list since the target is #services-list
+    let services_list = services::list_services(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentServices { services: services_list };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+#[derive(Template)]
+#[template(path = "fragments/admin/clients.html")]
+struct FragmentClients {
+    clients: Vec<String>,
+}
+
+async fn fragment_clients(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let clients = services::list_clients(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentClients { clients };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+async fn fragment_delete_client(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    services::delete_client(&state.repo, &name).await.map_err(app_error_to_status)?;
+    let clients = services::list_clients(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentClients { clients };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+#[derive(Template)]
+#[template(path = "fragments/admin/dev_mode.html")]
+struct FragmentDevMode {
+    enabled: bool,
+}
+
+async fn fragment_dev_mode(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let enabled = services::get_dev_mode(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentDevMode { enabled };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+async fn fragment_dev_mode_toggle(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let current = services::get_dev_mode(&state.repo).await.map_err(app_error_to_status)?;
+    services::set_dev_mode(&state.repo, !current).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentDevMode { enabled: !current };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+#[derive(Template)]
+#[template(path = "fragments/admin/local_users.html")]
+struct FragmentLocalUsers {
+    enabled: bool,
+}
+
+async fn fragment_local_users(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let enabled = services::get_local_users_enabled(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentLocalUsers { enabled };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+async fn fragment_local_users_toggle(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let current = services::get_local_users_enabled(&state.repo).await.map_err(app_error_to_status)?;
+    services::set_local_users_enabled(&state.repo, !current).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentLocalUsers { enabled: !current };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+#[derive(Template)]
+#[template(path = "fragments/admin/database_info.html")]
+struct FragmentDatabaseInfo {
+    backend: String,
+    url: String,
+}
+
+async fn fragment_database_info(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let masked_url = mask_database_url(&state.db_url);
+    let tmpl = FragmentDatabaseInfo {
+        backend: state.repo.backend_name().to_string(),
+        url: masked_url,
+    };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+#[derive(Template)]
+#[template(path = "fragments/admin/protected_branches.html")]
+struct FragmentProtectedBranches {
+    patterns: Vec<String>,
+}
+
+async fn fragment_protected_branches(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let patterns = services::list_protected_branches(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentProtectedBranches { patterns };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+#[derive(Deserialize)]
+struct FragmentAddBranchPattern {
+    pattern: String,
+}
+
+async fn fragment_add_protected_branch(
+    State(state): State<AppState>,
+    axum::extract::Form(payload): axum::extract::Form<FragmentAddBranchPattern>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    if !payload.pattern.is_empty() {
+        services::add_protected_branch(&state.repo, &payload.pattern).await.map_err(app_error_to_status)?;
+    }
+    let patterns = services::list_protected_branches(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentProtectedBranches { patterns };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+async fn fragment_delete_protected_branch(
+    State(state): State<AppState>,
+    axum::extract::Path(pattern): axum::extract::Path<String>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    services::remove_protected_branch(&state.repo, &pattern).await.map_err(app_error_to_status)?;
+    let patterns = services::list_protected_branches(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentProtectedBranches { patterns };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+#[derive(Template)]
+#[template(path = "fragments/admin/auth_config.html")]
+struct FragmentAuthConfig {
+    auth_mode: String,
+    ldap_server_url: String,
+    ldap_bind_dn: String,
+    ldap_bind_password: String,
+    ldap_base_dn: String,
+    ldap_user_filter: String,
+    ldap_admin_group: String,
+}
+
+async fn fragment_auth_config(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let mode = services::get_auth_mode(&state.repo).await.map_err(app_error_to_status)?;
+    let ldap = services::get_ldap_config(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentAuthConfig {
+        auth_mode: mode.as_str().to_string(),
+        ldap_server_url: ldap.as_ref().map(|c| c.server_url.clone()).unwrap_or_default(),
+        ldap_bind_dn: ldap.as_ref().map(|c| c.bind_dn.clone()).unwrap_or_default(),
+        ldap_bind_password: ldap.as_ref().and_then(|c| c.bind_password.as_ref()).map(|_| "****".to_string()).unwrap_or_default(),
+        ldap_base_dn: ldap.as_ref().map(|c| c.base_dn.clone()).unwrap_or_default(),
+        ldap_user_filter: ldap.as_ref().map(|c| c.user_filter.clone()).unwrap_or_default(),
+        ldap_admin_group: ldap.as_ref().map(|c| c.admin_group.clone()).unwrap_or_default(),
+    };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+#[derive(Template)]
+#[template(path = "fragments/admin/branch_max_age.html")]
+struct FragmentBranchMaxAge {
+    days: u64,
+}
+
+async fn fragment_branch_max_age(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let days = services::get_branch_max_age_days(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentBranchMaxAge { days };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+#[derive(Deserialize)]
+struct FragmentMaxAgeDays {
+    days: u64,
+}
+
+async fn fragment_set_branch_max_age(
+    State(state): State<AppState>,
+    axum::extract::Form(payload): axum::extract::Form<FragmentMaxAgeDays>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    services::set_branch_max_age_days(&state.repo, payload.days).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentBranchMaxAge { days: payload.days };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+async fn fragment_branch_cleanup(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let deleted = services::cleanup_stale_branches(&state.repo).await.map_err(app_error_to_status)?;
+    Ok(axum::response::Html(format!("Deleted {} stale branches", deleted)))
+}
+
+#[derive(Template)]
+#[template(path = "fragments/admin/dependency_max_age.html")]
+struct FragmentDependencyMaxAge {
+    days: u64,
+}
+
+async fn fragment_dependency_max_age(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let days = services::get_dependency_max_age_days(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentDependencyMaxAge { days };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+async fn fragment_set_dependency_max_age(
+    State(state): State<AppState>,
+    axum::extract::Form(payload): axum::extract::Form<FragmentMaxAgeDays>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    services::set_dependency_max_age_days(&state.repo, payload.days).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentDependencyMaxAge { days: payload.days };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+async fn fragment_dependency_cleanup(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let deleted = services::cleanup_stale_dependencies(&state.repo).await.map_err(app_error_to_status)?;
+    Ok(axum::response::Html(format!("Deleted {} stale dependencies", deleted)))
+}

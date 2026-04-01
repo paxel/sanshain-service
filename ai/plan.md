@@ -107,8 +107,10 @@ The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Be
 - [x] Convert `index.html` and `dashboard.html` to Askama templates extending the layout; refactor `admin.html`, `account.html`, `service.html` to use shared JS.
 - [x] Extract reusable JS modules (fetch helpers, CSRF, toast notifications) into `static/js/common.js`.
 
-#### Phase 2 — Evaluate full UI framework (future)
-- [ ] Evaluate lightweight options (htmx, Alpine.js, Leptos) for progressive enhancement.
+#### Phase 2 — htmx admin dashboard ✅
+- [x] Migrated admin.html to htmx: Askama template with server-rendered HTML fragments, ~80% JS eliminated.
+- [x] Added `/fragments/admin/*` routes for all dynamic sections (users, services, clients, settings, auth config, cleanup).
+- [x] Integration test for fragment endpoints.
 - [ ] Decision record in `docs/adr/` once a choice is made.
 
 ### Administration (other)

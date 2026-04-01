@@ -1,0 +1,419 @@
+{% extends "layout.html" %}
+
+{% block title %}Admin Dashboard{% endblock %}
+
+{% block head_extra %}
+<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+{% endblock %}
+
+{% block body %}
+<!-- Login Screen -->
+<div id="login-screen" class="min-h-screen flex items-center justify-center">
+    <div class="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm border border-slate-200">
+        <h1 class="text-2xl font-bold text-center mb-6 text-indigo-700">Sanshain Admin</h1>
+        <div id="login-error" class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"></div>
+        <form id="login-form" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-600 mb-1">Username</label>
+                <input type="text" id="login-username" required
+                    class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-600 mb-1">Password</label>
+                <input type="password" id="login-password" required
+                    class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium">
+                Sign In
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- Admin Dashboard -->
+<div id="admin-dashboard" class="hidden">
+    <nav class="bg-indigo-700 text-white p-4 shadow-lg">
+        <div class="container mx-auto flex justify-between items-center">
+            <div class="flex items-center space-x-4">
+                <h1 class="text-2xl font-bold tracking-tight">Sanshain Admin</h1>
+                <a href="/" class="text-indigo-200 hover:text-white text-sm">← Back to Dashboard</a>
+            </div>
+            <div class="flex items-center space-x-4">
+                <span id="admin-username" class="text-indigo-200 text-sm"></span>
+                <button onclick="changePassword()" class="text-indigo-200 hover:text-white text-sm">Change Password</button>
+                <button onclick="logout()" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded-lg text-sm transition-colors">Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mx-auto p-6 space-y-8">
+        <!-- Dev Mode Toggle -->
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div class="flex justify-between items-center">
+                <div>
+                    <h2 class="text-lg font-semibold text-slate-800">Developer Mode</h2>
+                    <p class="text-sm text-slate-500 mt-1">When enabled, API endpoints are accessible without authentication.</p>
+                </div>
+                <div id="dev-mode-container"
+                     hx-get="/fragments/admin/dev-mode"
+                     hx-trigger="load"
+                     hx-swap="innerHTML">
+                </div>
+            </div>
+        </section>
+
+        <!-- Database Configuration -->
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div>
+                <h2 class="text-lg font-semibold text-slate-800">Database Configuration</h2>
+                <p class="text-sm text-slate-500 mt-1">Current database backend. Set <code class="bg-slate-100 px-1 rounded">DATABASE_URL</code> environment variable to switch (requires restart).</p>
+            </div>
+            <div class="mt-4 space-y-3">
+                <div id="database-info-container"
+                     hx-get="/fragments/admin/database-info"
+                     hx-trigger="load"
+                     hx-swap="innerHTML">
+                </div>
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+                    <strong>PostgreSQL:</strong> Set <code class="bg-blue-100 px-1 rounded">DATABASE_URL=postgres://user:password@host:5432/dbname</code> and restart.<br>
+                    <strong>SQLite (default):</strong> <code class="bg-blue-100 px-1 rounded">DATABASE_URL=sqlite:sanshain.db?mode=rwc</code>
+                </div>
+            </div>
+        </section>
+
+        <!-- Protected Branches -->
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <h2 class="text-lg font-semibold text-slate-800">Protected Branches</h2>
+                    <p class="text-sm text-slate-500 mt-1">Endpoints on protected branches are immutable once provided.</p>
+                </div>
+                <form hx-post="/fragments/admin/protected-branches"
+                      hx-target="#protected-branches-list"
+                      hx-swap="innerHTML"
+                      class="flex space-x-2">
+                    <input type="text" name="pattern" placeholder="e.g. main, release/*"
+                        class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <button type="submit" class="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-indigo-700 transition-colors">Add</button>
+                </form>
+            </div>
+            <div id="protected-branches-list" class="space-y-2"
+                 hx-get="/fragments/admin/protected-branches"
+                 hx-trigger="load"
+                 hx-swap="innerHTML">
+            </div>
+        </section>
+
+        <!-- Local Users Toggle -->
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div class="flex justify-between items-center">
+                <div>
+                    <h2 class="text-lg font-semibold text-slate-800">Local User Registration</h2>
+                    <p class="text-sm text-slate-500 mt-1">When enabled, users can self-register via <code class="bg-slate-100 px-1 rounded">/auth/register</code>. New users require admin approval.</p>
+                </div>
+                <div id="local-users-container"
+                     hx-get="/fragments/admin/local-users"
+                     hx-trigger="load"
+                     hx-swap="innerHTML">
+                </div>
+            </div>
+        </section>
+
+        <!-- Authentication Mode -->
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div class="mb-4">
+                <h2 class="text-lg font-semibold text-slate-800">Authentication</h2>
+                <p class="text-sm text-slate-500 mt-1">Select the authentication mode for the service.</p>
+            </div>
+            <div id="auth-config-container"
+                 hx-get="/fragments/admin/auth-config"
+                 hx-trigger="load"
+                 hx-swap="innerHTML">
+            </div>
+        </section>
+
+        <!-- Branch Max Age -->
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div class="mb-4">
+                <h2 class="text-lg font-semibold text-slate-800">Branch Cleanup</h2>
+                <p class="text-sm text-slate-500 mt-1">Automatically delete branches older than the configured age.</p>
+            </div>
+            <div id="branch-max-age-container"
+                 hx-get="/fragments/admin/branch-max-age"
+                 hx-trigger="load"
+                 hx-swap="innerHTML">
+            </div>
+        </section>
+
+        <!-- Dependency Max Age -->
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div class="mb-4">
+                <h2 class="text-lg font-semibold text-slate-800">Dependency Cleanup</h2>
+                <p class="text-sm text-slate-500 mt-1">Automatically delete stale dependency records older than the configured age.</p>
+            </div>
+            <div id="dependency-max-age-container"
+                 hx-get="/fragments/admin/dependency-max-age"
+                 hx-trigger="load"
+                 hx-swap="innerHTML">
+            </div>
+        </section>
+
+        <!-- Users -->
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <h2 class="text-lg font-semibold text-slate-800">Users</h2>
+                    <p class="text-sm text-slate-500 mt-1">Manage registered users. Unapproved users cannot log in.</p>
+                </div>
+                <button hx-get="/fragments/admin/users"
+                        hx-target="#users-list"
+                        hx-swap="innerHTML"
+                        class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+            </div>
+            <div id="users-list" class="space-y-2"
+                 hx-get="/fragments/admin/users"
+                 hx-trigger="load"
+                 hx-swap="innerHTML">
+            </div>
+        </section>
+
+        <!-- Services -->
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold text-slate-800">Services</h2>
+                <button hx-get="/fragments/admin/services"
+                        hx-target="#services-list"
+                        hx-swap="innerHTML"
+                        class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+            </div>
+            <div id="services-list" class="space-y-2"
+                 hx-get="/fragments/admin/services"
+                 hx-trigger="load"
+                 hx-swap="innerHTML">
+            </div>
+        </section>
+
+        <!-- Clients -->
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold text-slate-800">Clients</h2>
+                <button hx-get="/fragments/admin/clients"
+                        hx-target="#clients-list"
+                        hx-swap="innerHTML"
+                        class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+            </div>
+            <div id="clients-list" class="space-y-2"
+                 hx-get="/fragments/admin/clients"
+                 hx-trigger="load"
+                 hx-swap="innerHTML">
+            </div>
+        </section>
+    </main>
+</div>
+
+<!-- Change Password Modal -->
+<div id="password-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+        <h3 class="text-lg font-bold text-slate-800 mb-4">Change Password</h3>
+        <div id="password-error" class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"></div>
+        <div id="password-success" class="hidden bg-green-50 text-green-600 p-3 rounded-lg mb-4 text-sm"></div>
+        <form id="password-form" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-600 mb-1">Current Password</label>
+                <input type="password" id="current-password" required
+                    class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-600 mb-1">New Password</label>
+                <input type="password" id="new-password" required
+                    class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <div class="flex space-x-3">
+                <button type="submit" class="flex-1 bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium">Update</button>
+                <button type="button" onclick="closePasswordModal()" class="flex-1 bg-slate-100 text-slate-700 py-2 rounded-lg hover:bg-slate-200 transition-colors font-medium">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Configure htmx to send auth token with all requests
+    document.addEventListener('htmx:configRequest', function(evt) {
+        if (sanshainToken) {
+            evt.detail.headers['Authorization'] = 'Bearer ' + sanshainToken;
+        }
+        if (csrfToken) {
+            evt.detail.headers['X-CSRF-Token'] = csrfToken;
+        }
+    });
+
+    function onSessionExpired() { showLogin(); }
+
+    function showLogin() {
+        document.getElementById('login-screen').classList.remove('hidden');
+        document.getElementById('admin-dashboard').classList.add('hidden');
+    }
+
+    function showDashboard() {
+        document.getElementById('login-screen').classList.add('hidden');
+        document.getElementById('admin-dashboard').classList.remove('hidden');
+        // htmx hx-trigger="load" handles loading all fragments
+        htmx.process(document.getElementById('admin-dashboard'));
+    }
+
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errEl = document.getElementById('login-error');
+        errEl.classList.add('hidden');
+        try {
+            if (!csrfToken) await fetchCsrfToken();
+            const res = await fetch('/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
+                body: JSON.stringify({
+                    username: document.getElementById('login-username').value,
+                    password: document.getElementById('login-password').value,
+                }),
+            });
+            if (!res.ok) {
+                errEl.textContent = res.status === 401 ? 'Invalid credentials' : `Error: ${res.status}`;
+                errEl.classList.remove('hidden');
+                return;
+            }
+            const data = await res.json();
+            sanshainToken = data.token;
+            localStorage.setItem('sanshain_token', sanshainToken);
+            showDashboard();
+        } catch (err) {
+            errEl.textContent = err.message;
+            errEl.classList.remove('hidden');
+        }
+    });
+
+    async function logout() {
+        try { await apiCall('/auth/logout', { method: 'POST' }); } catch (_) {}
+        sanshainToken = null;
+        localStorage.removeItem('sanshain_token');
+        showLogin();
+    }
+
+    async function checkSession() {
+        if (!sanshainToken) { showLogin(); return; }
+        try {
+            const res = await apiCall('/auth/me');
+            if (res.ok) {
+                const data = await res.json();
+                document.getElementById('admin-username').textContent = data.username;
+                showDashboard();
+            } else {
+                showLogin();
+            }
+        } catch (_) { showLogin(); }
+    }
+
+    // --- Auth Config (still needs JS for LDAP test + save with JSON body) ---
+    async function saveAuthConfig() {
+        const selected = document.querySelector('input[name="auth-mode"]:checked');
+        if (!selected) return;
+        const body = { auth_mode: selected.value };
+        if (selected.value === 'ldap') {
+            body.ldap_config = {
+                server_url: document.getElementById('ldap-server-url').value,
+                bind_dn: document.getElementById('ldap-bind-dn').value,
+                bind_password: document.getElementById('ldap-bind-password').value || null,
+                base_dn: document.getElementById('ldap-base-dn').value,
+                user_filter: document.getElementById('ldap-user-filter').value || '(uid={username})',
+                admin_group: document.getElementById('ldap-admin-group').value,
+            };
+        }
+        try {
+            const res = await apiCall('/admin/auth-config', { method: 'PUT', body });
+            if (res.ok) {
+                // Reload toggles that may have changed
+                htmx.ajax('GET', '/fragments/admin/dev-mode', '#dev-mode-container');
+                htmx.ajax('GET', '/fragments/admin/local-users', '#local-users-container');
+                alert('Authentication settings saved.');
+            } else {
+                alert('Failed to save: ' + res.status);
+            }
+        } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    async function testLdapConnection() {
+        const resultEl = document.getElementById('ldap-test-result');
+        resultEl.classList.remove('hidden', 'bg-green-50', 'text-green-700', 'bg-red-50', 'text-red-700');
+        resultEl.textContent = 'Testing…';
+        resultEl.classList.add('bg-slate-50', 'text-slate-600');
+        try {
+            const res = await apiCall('/admin/auth-config/test', {
+                method: 'POST',
+                body: {
+                    server_url: document.getElementById('ldap-server-url').value,
+                    bind_dn: document.getElementById('ldap-bind-dn').value,
+                    bind_password: document.getElementById('ldap-bind-password').value || null,
+                    base_dn: document.getElementById('ldap-base-dn').value,
+                    user_filter: document.getElementById('ldap-user-filter').value || '(uid={username})',
+                    admin_group: document.getElementById('ldap-admin-group').value,
+                },
+            });
+            resultEl.classList.remove('bg-slate-50', 'text-slate-600');
+            if (res.ok) {
+                resultEl.textContent = '✓ Connection successful';
+                resultEl.classList.add('bg-green-50', 'text-green-700');
+            } else {
+                resultEl.textContent = '✗ Connection failed (HTTP ' + res.status + ')';
+                resultEl.classList.add('bg-red-50', 'text-red-700');
+            }
+        } catch (e) {
+            resultEl.classList.remove('bg-slate-50', 'text-slate-600');
+            resultEl.textContent = '✗ ' + e.message;
+            resultEl.classList.add('bg-red-50', 'text-red-700');
+        }
+    }
+
+    // --- Change Password ---
+    function changePassword() {
+        document.getElementById('password-modal').classList.remove('hidden');
+        document.getElementById('password-error').classList.add('hidden');
+        document.getElementById('password-success').classList.add('hidden');
+        document.getElementById('password-form').reset();
+    }
+
+    function closePasswordModal() {
+        document.getElementById('password-modal').classList.add('hidden');
+    }
+
+    document.getElementById('password-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errEl = document.getElementById('password-error');
+        const successEl = document.getElementById('password-success');
+        errEl.classList.add('hidden');
+        successEl.classList.add('hidden');
+        try {
+            const res = await apiCall('/auth/change-password', {
+                method: 'POST',
+                body: {
+                    old_password: document.getElementById('current-password').value,
+                    new_password: document.getElementById('new-password').value,
+                },
+            });
+            if (res.ok) {
+                successEl.textContent = 'Password updated successfully.';
+                successEl.classList.remove('hidden');
+                setTimeout(closePasswordModal, 1500);
+            } else {
+                errEl.textContent = res.status === 401 ? 'Current password is incorrect' : `Error: ${res.status}`;
+                errEl.classList.remove('hidden');
+            }
+        } catch (err) {
+            errEl.textContent = err.message;
+            errEl.classList.remove('hidden');
+        }
+    });
+
+    // --- Init ---
+    fetchCsrfToken().then(() => checkSession());
+</script>
+{% endblock %}

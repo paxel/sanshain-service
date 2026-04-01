@@ -1,0 +1,14 @@
+{% if patterns.is_empty() %}
+<p class="text-sm text-slate-400 italic">No protected branch patterns.</p>
+{% else %}
+{% for p in patterns %}
+<div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
+    <span class="font-mono text-sm text-slate-700">{{ p }}</span>
+    <button hx-delete="/fragments/admin/protected-branches/{{ p }}"
+            hx-target="#protected-branches-list"
+            hx-swap="innerHTML"
+            hx-confirm="Remove pattern {{ p }}?"
+            class="text-red-500 hover:text-red-700 text-sm">Remove</button>
+</div>
+{% endfor %}
+{% endif %}

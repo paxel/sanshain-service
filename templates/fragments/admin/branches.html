@@ -1,0 +1,14 @@
+{% if branches.is_empty() %}
+<p class="text-xs text-slate-400 italic">No branches</p>
+{% else %}
+{% for b in branches %}
+<div class="flex justify-between items-center bg-white px-3 py-1.5 rounded border border-slate-100 fade-in">
+    <span class="text-sm font-mono text-slate-600">{{ b }}</span>
+    <button hx-delete="/fragments/admin/services/{{ service_name }}/branches/{{ b }}"
+            hx-target="#services-list"
+            hx-swap="innerHTML"
+            hx-confirm="Delete branch {{ b }} from {{ service_name }}?"
+            class="text-red-400 hover:text-red-600 text-xs">Delete</button>
+</div>
+{% endfor %}
+{% endif %}

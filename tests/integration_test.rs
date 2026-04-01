@@ -1758,3 +1758,112 @@ async fn test_dependency_max_age_api() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["deleted"], 0);
 }
+
+#[tokio::test]
+async fn test_htmx_fragment_endpoints() {
+    let (app, admin_token) = setup_app_with_admin().await;
+
+    // GET /fragments/admin/users — should return HTML fragment
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/fragments/admin/users")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = String::from_utf8(
+        axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec()
+    ).unwrap();
+    assert!(body.contains("admin")); // at least the admin user should appear
+
+    // GET /fragments/admin/dev-mode — should return toggle HTML
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/fragments/admin/dev-mode")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = String::from_utf8(
+        axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec()
+    ).unwrap();
+    assert!(body.contains("hx-post")); // should contain htmx attributes
+
+    // POST /fragments/admin/dev-mode/toggle — should toggle and return HTML
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/fragments/admin/dev-mode/toggle")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = String::from_utf8(
+        axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec()
+    ).unwrap();
+    assert!(body.contains("Enabled")); // dev mode was off, now on
+
+    // GET /fragments/admin/services — should return HTML (empty list)
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/fragments/admin/services")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = String::from_utf8(
+        axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec()
+    ).unwrap();
+    assert!(body.contains("No services"));
+
+    // GET /fragments/admin/database-info — should return backend info
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/fragments/admin/database-info")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = String::from_utf8(
+        axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec()
+    ).unwrap();
+    assert!(body.contains("sqlite") || body.contains("SQLite") || body.contains("Backend"));
+
+    // GET /admin.html — should return the full admin page template
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin.html")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = String::from_utf8(
+        axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec()
+    ).unwrap();
+    assert!(body.contains("htmx.org"));
+    assert!(body.contains("hx-get"));
+}

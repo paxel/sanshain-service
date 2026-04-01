@@ -1,0 +1,32 @@
+{% if users.is_empty() %}
+<p class="text-sm text-slate-400 italic">No users registered.</p>
+{% else %}
+{% for u in users %}
+<div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
+    <div class="flex items-center space-x-3">
+        <span class="font-medium text-slate-800">{{ u.username }}</span>
+        {% if u.is_admin %}<span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">admin</span>{% endif %}
+        {% if u.approved %}
+        <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">approved</span>
+        {% else %}
+        <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">pending</span>
+        {% endif %}
+    </div>
+    <div class="flex items-center space-x-2">
+        {% if !u.approved %}
+        <button hx-post="/fragments/admin/users/{{ u.id }}/approve"
+                hx-target="#users-list"
+                hx-swap="innerHTML"
+                class="text-green-600 hover:text-green-800 text-sm">Approve</button>
+        {% endif %}
+        {% if !u.is_admin %}
+        <button hx-delete="/fragments/admin/users/{{ u.id }}"
+                hx-target="#users-list"
+                hx-swap="innerHTML"
+                hx-confirm="Delete user {{ u.username }}?"
+                class="text-red-500 hover:text-red-700 text-sm">Delete</button>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+{% endif %}
