@@ -48,33 +48,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.arch }}-release-
 
-      - name: Install musl tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-          if [ "${{ matrix.arch }}" = "aarch64" ]; then
-            # Install aarch64 musl cross-compiler from musl.cc
-            curl -fsSL --retry 5 --retry-delay 3 -o /tmp/aarch64-linux-musl-cross.tgz \
-              https://musl.cc/aarch64-linux-musl-cross.tgz
-            sudo tar xzf /tmp/aarch64-linux-musl-cross.tgz -C /opt
-            echo "/opt/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
-          fi
-
-      - name: Configure cross-compilation for aarch64
-        if: matrix.arch == 'aarch64'
-        run: |
-          mkdir -p .cargo
-          cat >> .cargo/config.toml <<EOF
-          [target.aarch64-unknown-linux-musl]
-          linker = "aarch64-linux-musl-gcc"
-          EOF
-
-      - name: Set CC for aarch64 musl cross-compilation
-        if: matrix.arch == 'aarch64'
-        run: echo "CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc" >> $GITHUB_ENV
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cross build --release --target ${{ matrix.target }}
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
