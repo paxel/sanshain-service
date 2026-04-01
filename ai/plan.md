@@ -118,9 +118,9 @@ The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Be
 - [ ] Decision record in `docs/adr/` once a choice is made.
 
 ### Administration (other)
-- [ ] Branch max-age auto-cleanup.
+- [x] Branch max-age auto-cleanup (default 30 days, configurable via admin API, hourly background task, protects protected branches).
 - [ ] Stale dependency pruning.
-- [ ] Background maintenance job for expiration/cleanup.
+- [x] Background maintenance job for expiration/cleanup (branch cleanup runs hourly).
 
 ### Web Frontend (other)
 - [ ] SSE for `/require` long-polling and live updates.

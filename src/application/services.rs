@@ -635,6 +635,37 @@ pub async fn validate_api_token(
     Ok(repo.validate_api_token(&token_hash).await?)
 }
 
+// --- Branch max-age cleanup ---
+
+const DEFAULT_BRANCH_MAX_AGE_DAYS: u64 = 30;
+
+pub async fn get_branch_max_age_days(repo: &impl SpecRepository) -> Result<u64, AppError> {
+    match repo.get_setting("branch_max_age_days").await? {
+        Some(v) => Ok(v.parse::<u64>().unwrap_or(DEFAULT_BRANCH_MAX_AGE_DAYS)),
+        None => Ok(DEFAULT_BRANCH_MAX_AGE_DAYS),
+    }
+}
+
+pub async fn set_branch_max_age_days(repo: &impl SpecRepository, days: u64) -> Result<(), AppError> {
+    if days == 0 {
+        return Err(AppError::BadRequest("Branch max-age must be at least 1 day".to_string()));
+    }
+    repo.set_setting("branch_max_age_days", &days.to_string()).await?;
+    Ok(())
+}
+
+/// Delete non-protected branches older than the configured max-age. Returns count deleted.
+pub async fn cleanup_stale_branches(repo: &impl SpecRepository) -> Result<u64, AppError> {
+    let max_age_days = get_branch_max_age_days(repo).await?;
+    let cutoff_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .saturating_sub(max_age_days * 86400);
+    let cutoff_iso = secs_to_iso(cutoff_secs);
+    Ok(repo.delete_stale_branches(&cutoff_iso).await?)
+}
+
 fn current_utc_iso() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1116,6 +1147,10 @@ mod tests {
                 return Ok(users.iter().find(|u| u.id == t.user_id).cloned());
             }
             Ok(None)
+        }
+
+        async fn delete_stale_branches(&self, _cutoff_iso: &str) -> Result<u64, RepositoryError> {
+            Ok(0)
         }
     }
 
@@ -1870,5 +1905,36 @@ paths:
         if let Err(AppError::BadRequest(msg)) = result {
             assert!(msg.contains("POST /missing"));
         }
+    }
+
+    // --- Branch max-age cleanup tests ---
+
+    #[tokio::test]
+    async fn test_branch_max_age_default() {
+        let repo = MockRepo::new();
+        let days = get_branch_max_age_days(&repo).await.unwrap();
+        assert_eq!(days, 30);
+    }
+
+    #[tokio::test]
+    async fn test_set_and_get_branch_max_age() {
+        let repo = MockRepo::new();
+        set_branch_max_age_days(&repo, 7).await.unwrap();
+        let days = get_branch_max_age_days(&repo).await.unwrap();
+        assert_eq!(days, 7);
+    }
+
+    #[tokio::test]
+    async fn test_set_branch_max_age_zero_rejected() {
+        let repo = MockRepo::new();
+        let result = set_branch_max_age_days(&repo, 0).await;
+        assert!(matches!(result, Err(AppError::BadRequest(_))));
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_stale_branches_returns_zero_on_empty() {
+        let repo = MockRepo::new();
+        let deleted = cleanup_stale_branches(&repo).await.unwrap();
+        assert_eq!(deleted, 0);
     }
 }

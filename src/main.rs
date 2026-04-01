@@ -78,6 +78,20 @@ pub async fn main() {
         csrf_tokens: Arc::new(RwLock::new(HashSet::new())),
     };
 
+    // Spawn background branch cleanup task (runs every hour)
+    let cleanup_repo = state.repo.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+        loop {
+            interval.tick().await;
+            match services::cleanup_stale_branches(&cleanup_repo).await {
+                Ok(0) => {},
+                Ok(n) => tracing::info!("Branch cleanup: deleted {} stale branches", n),
+                Err(e) => tracing::warn!("Branch cleanup failed: {:?}", e),
+            }
+        }
+    });
+
     let app = create_app(state);
 
     let bind_address = std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0:3000".into());
@@ -250,6 +264,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/settings/database", get(get_database_info))
         .route("/auth-config", get(get_auth_config).put(set_auth_config))
         .route("/auth-config/test", post(test_auth_config))
+        .route("/settings/branch-max-age", get(get_branch_max_age).post(set_branch_max_age))
+        .route("/settings/branch-cleanup", post(trigger_branch_cleanup))
         .route("/users", get(admin_list_users))
         .route("/users/{id}/approve", post(admin_approve_user))
         .route("/users/{id}", axum::routing::delete(admin_delete_user_handler))
@@ -903,6 +919,44 @@ struct UserResponse {
     username: String,
     is_admin: bool,
     approved: bool,
+}
+
+#[derive(Serialize)]
+struct BranchMaxAgeResponse {
+    days: u64,
+}
+
+#[derive(Deserialize)]
+struct BranchMaxAgePayload {
+    days: u64,
+}
+
+async fn get_branch_max_age(
+    State(state): State<AppState>,
+) -> Result<Json<BranchMaxAgeResponse>, StatusCode> {
+    let days = services::get_branch_max_age_days(&state.repo)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(Json(BranchMaxAgeResponse { days }))
+}
+
+async fn set_branch_max_age(
+    State(state): State<AppState>,
+    Json(payload): Json<BranchMaxAgePayload>,
+) -> Result<StatusCode, StatusCode> {
+    services::set_branch_max_age_days(&state.repo, payload.days)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(StatusCode::OK)
+}
+
+async fn trigger_branch_cleanup(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let deleted = services::cleanup_stale_branches(&state.repo)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(Json(serde_json::json!({ "deleted": deleted })))
 }
 
 async fn admin_list_users(

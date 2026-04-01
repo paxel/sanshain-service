@@ -159,4 +159,8 @@ pub trait SpecRepository: Send + Sync {
 
     /// Validate an API token hash, returning the user if valid and not expired. Also updates last_used_at.
     fn validate_api_token(&self, token_hash: &str) -> impl Future<Output = Result<Option<User>, RepositoryError>> + Send;
+
+    /// Delete non-protected branches that haven't been updated since the given cutoff ISO timestamp.
+    /// Returns the number of deleted branches.
+    fn delete_stale_branches(&self, cutoff_iso: &str) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
 }

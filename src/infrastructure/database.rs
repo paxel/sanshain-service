@@ -177,4 +177,8 @@ impl SpecRepository for DatabaseRepo {
     async fn validate_api_token(&self, token_hash: &str) -> Result<Option<User>, RepositoryError> {
         delegate!(self, validate_api_token(token_hash))
     }
+
+    async fn delete_stale_branches(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
+        delegate!(self, delete_stale_branches(cutoff_iso))
+    }
 }

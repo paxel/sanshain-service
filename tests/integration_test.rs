@@ -1519,3 +1519,105 @@ components:
     let content_encoding = response.headers().get("content-encoding").map(|v| v.to_str().unwrap().to_string());
     assert_eq!(content_encoding, Some("gzip".to_string()), "Response should be gzip-compressed");
 }
+
+#[tokio::test]
+async fn test_branch_max_age_api() {
+    let (app, admin_token) = setup_app_with_admin().await;
+
+    // GET default max-age
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/settings/branch-max-age")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["days"], 30);
+
+    // SET max-age to 7 days
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/settings/branch-max-age")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&json!({"days": 7})).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify it changed
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/settings/branch-max-age")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["days"], 7);
+
+    // SET 0 should fail
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/settings/branch-max-age")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&json!({"days": 0})).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    // Trigger cleanup (should delete 0 on empty DB)
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/settings/branch-cleanup")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["deleted"], 0);
+
+    // Requires admin auth
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/settings/branch-max-age")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}

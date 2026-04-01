@@ -38,7 +38,17 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn ensure_branch(&self, service_id: i64, branch_name: &str) -> Result<i64, RepositoryError> {
-        sqlx::query("INSERT OR IGNORE INTO branches (service_id, name) VALUES (?, ?)")
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        sqlx::query("INSERT OR IGNORE INTO branches (service_id, name, updated_at) VALUES (?, ?, ?)")
+            .bind(service_id)
+            .bind(branch_name)
+            .bind(&now)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        sqlx::query("UPDATE branches SET updated_at = ? WHERE service_id = ? AND name = ?")
+            .bind(&now)
             .bind(service_id)
             .bind(branch_name)
             .execute(&self.pool)
@@ -722,6 +732,65 @@ impl SpecRepository for SqliteSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn delete_stale_branches(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
+        // Delete endpoints and dependencies for stale non-protected branches, then the branches themselves
+        let stale_branch_ids: Vec<(i64,)> = sqlx::query_as(
+            r#"
+            SELECT b.id FROM branches b
+            JOIN services s ON b.service_id = s.id
+            WHERE b.updated_at < ?
+            AND NOT EXISTS (
+                SELECT 1 FROM protected_branches pb WHERE b.name GLOB pb.pattern OR b.name = pb.pattern
+            )
+            "#,
+        )
+        .bind(cutoff_iso)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        if stale_branch_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let count = stale_branch_ids.len() as u64;
+        for (branch_id,) in &stale_branch_ids {
+            // Delete dependencies referencing endpoints on this branch
+            sqlx::query("DELETE FROM dependencies WHERE endpoint_id IN (SELECT id FROM endpoints WHERE branch_id = ?)")
+                .bind(branch_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            // Delete dependencies referencing this branch by name
+            sqlx::query(
+                r#"DELETE FROM dependencies WHERE requested_branch_name = (
+                    SELECT name FROM branches WHERE id = ?
+                ) AND requested_service_id = (
+                    SELECT service_id FROM branches WHERE id = ?
+                )"#
+            )
+                .bind(branch_id)
+                .bind(branch_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            // Delete endpoints
+            sqlx::query("DELETE FROM endpoints WHERE branch_id = ?")
+                .bind(branch_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            // Delete branch
+            sqlx::query("DELETE FROM branches WHERE id = ?")
+                .bind(branch_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+
+        Ok(count)
     }
 
     async fn validate_api_token(&self, token_hash: &str) -> Result<Option<User>, RepositoryError> {

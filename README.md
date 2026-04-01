@@ -136,6 +136,8 @@ Sanshain uses session-based authentication with Argon2 password hashing.
 
 **LDAP Authentication:** Sanshain supports delegating authentication to an external LDAP/Active Directory server. Configure via the admin dashboard (Authentication section) or the `PUT /admin/auth-config` API endpoint. When LDAP mode is active, users authenticate against the LDAP server and are auto-provisioned as local shadow accounts (so sessions and API tokens work unchanged). Admin status can be derived from LDAP group membership. See `docs/administration.md` for detailed configuration instructions.
 
+**Branch Max-Age Auto-Cleanup:** Non-protected branches are automatically deleted after a configurable period of inactivity (default: 30 days). A background task runs every hour. Configure via `GET/POST /admin/settings/branch-max-age` (body: `{"days": 30}`). Trigger immediate cleanup via `POST /admin/settings/branch-cleanup`. Protected branches (e.g., `main`, `master`) are never cleaned up.
+
 #### API Tokens (for CI/Programmatic Access)
 
 Approved users can create long-lived API tokens for use in CI pipelines (Jenkins, Maven, Gradle, etc.) without embedding credentials.
