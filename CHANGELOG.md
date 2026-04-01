@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0]
+
+- **Node.js 20 deprecation warnings**: set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` in the release workflow to silence GitHub Actions Node.js 20 deprecation annotations.
+
 ## [0.4.4]
 
 ### Fixed
