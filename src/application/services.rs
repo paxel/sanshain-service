@@ -692,6 +692,37 @@ pub async fn cleanup_stale_branches(repo: &impl SpecRepository) -> Result<u64, A
     Ok(repo.delete_stale_branches(&cutoff_iso).await?)
 }
 
+// --- Stale dependency pruning ---
+
+const DEFAULT_DEPENDENCY_MAX_AGE_DAYS: u64 = 30;
+
+pub async fn get_dependency_max_age_days(repo: &impl SpecRepository) -> Result<u64, AppError> {
+    match repo.get_setting("dependency_max_age_days").await? {
+        Some(v) => Ok(v.parse::<u64>().unwrap_or(DEFAULT_DEPENDENCY_MAX_AGE_DAYS)),
+        None => Ok(DEFAULT_DEPENDENCY_MAX_AGE_DAYS),
+    }
+}
+
+pub async fn set_dependency_max_age_days(repo: &impl SpecRepository, days: u64) -> Result<(), AppError> {
+    if days == 0 {
+        return Err(AppError::BadRequest("Dependency max-age must be at least 1 day".to_string()));
+    }
+    repo.set_setting("dependency_max_age_days", &days.to_string()).await?;
+    Ok(())
+}
+
+/// Delete dependency rows older than the configured max-age. Returns count deleted.
+pub async fn cleanup_stale_dependencies(repo: &impl SpecRepository) -> Result<u64, AppError> {
+    let max_age_days = get_dependency_max_age_days(repo).await?;
+    let cutoff_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .saturating_sub(max_age_days * 86400);
+    let cutoff_iso = secs_to_iso(cutoff_secs);
+    Ok(repo.delete_stale_dependencies(&cutoff_iso).await?)
+}
+
 fn current_utc_iso() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1203,6 +1234,10 @@ mod tests {
         }
 
         async fn delete_stale_branches(&self, _cutoff_iso: &str) -> Result<u64, RepositoryError> {
+            Ok(0)
+        }
+
+        async fn delete_stale_dependencies(&self, _cutoff_iso: &str) -> Result<u64, RepositoryError> {
             Ok(0)
         }
     }
@@ -2119,6 +2154,37 @@ paths:
     async fn test_cleanup_stale_branches_returns_zero_on_empty() {
         let repo = MockRepo::new();
         let deleted = cleanup_stale_branches(&repo).await.unwrap();
+        assert_eq!(deleted, 0);
+    }
+
+    // --- Stale dependency pruning tests ---
+
+    #[tokio::test]
+    async fn test_dependency_max_age_default() {
+        let repo = MockRepo::new();
+        let days = get_dependency_max_age_days(&repo).await.unwrap();
+        assert_eq!(days, 30);
+    }
+
+    #[tokio::test]
+    async fn test_set_and_get_dependency_max_age() {
+        let repo = MockRepo::new();
+        set_dependency_max_age_days(&repo, 14).await.unwrap();
+        let days = get_dependency_max_age_days(&repo).await.unwrap();
+        assert_eq!(days, 14);
+    }
+
+    #[tokio::test]
+    async fn test_set_dependency_max_age_zero_rejected() {
+        let repo = MockRepo::new();
+        let result = set_dependency_max_age_days(&repo, 0).await;
+        assert!(matches!(result, Err(AppError::BadRequest(_))));
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_stale_dependencies_returns_zero_on_empty() {
+        let repo = MockRepo::new();
+        let deleted = cleanup_stale_dependencies(&repo).await.unwrap();
         assert_eq!(deleted, 0);
     }
 }

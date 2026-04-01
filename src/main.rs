@@ -89,6 +89,11 @@ pub async fn main() {
                 Ok(n) => tracing::info!("Branch cleanup: deleted {} stale branches", n),
                 Err(e) => tracing::warn!("Branch cleanup failed: {:?}", e),
             }
+            match services::cleanup_stale_dependencies(&cleanup_repo).await {
+                Ok(0) => {},
+                Ok(n) => tracing::info!("Dependency cleanup: pruned {} stale dependencies", n),
+                Err(e) => tracing::warn!("Dependency cleanup failed: {:?}", e),
+            }
         }
     });
 
@@ -265,6 +270,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/auth-config/test", post(test_auth_config))
         .route("/settings/branch-max-age", get(get_branch_max_age).post(set_branch_max_age))
         .route("/settings/branch-cleanup", post(trigger_branch_cleanup))
+        .route("/settings/dependency-max-age", get(get_dependency_max_age).post(set_dependency_max_age))
+        .route("/settings/dependency-cleanup", post(trigger_dependency_cleanup))
         .route("/users", get(admin_list_users))
         .route("/users/{id}/approve", post(admin_approve_user))
         .route("/users/{id}", axum::routing::delete(admin_delete_user_handler))
@@ -955,6 +962,44 @@ async fn trigger_branch_cleanup(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let deleted = services::cleanup_stale_branches(&state.repo)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(Json(serde_json::json!({ "deleted": deleted })))
+}
+
+#[derive(Serialize)]
+struct DependencyMaxAgeResponse {
+    days: u64,
+}
+
+#[derive(Deserialize)]
+struct DependencyMaxAgePayload {
+    days: u64,
+}
+
+async fn get_dependency_max_age(
+    State(state): State<AppState>,
+) -> Result<Json<DependencyMaxAgeResponse>, StatusCode> {
+    let days = services::get_dependency_max_age_days(&state.repo)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(Json(DependencyMaxAgeResponse { days }))
+}
+
+async fn set_dependency_max_age(
+    State(state): State<AppState>,
+    Json(payload): Json<DependencyMaxAgePayload>,
+) -> Result<StatusCode, StatusCode> {
+    services::set_dependency_max_age_days(&state.repo, payload.days)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(StatusCode::OK)
+}
+
+async fn trigger_dependency_cleanup(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let deleted = services::cleanup_stale_dependencies(&state.repo)
         .await
         .map_err(app_error_to_status)?;
     Ok(Json(serde_json::json!({ "deleted": deleted })))

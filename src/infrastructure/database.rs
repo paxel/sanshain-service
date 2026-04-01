@@ -193,4 +193,8 @@ impl SpecRepository for DatabaseRepo {
     async fn delete_stale_branches(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
         delegate!(self, delete_stale_branches(cutoff_iso))
     }
+
+    async fn delete_stale_dependencies(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
+        delegate!(self, delete_stale_dependencies(cutoff_iso))
+    }
 }

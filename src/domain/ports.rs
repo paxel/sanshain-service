@@ -172,4 +172,8 @@ pub trait SpecRepository: Send + Sync {
     /// Delete non-protected branches that haven't been updated since the given cutoff ISO timestamp.
     /// Returns the number of deleted branches.
     fn delete_stale_branches(&self, cutoff_iso: &str) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
+
+    /// Delete dependency rows whose `last_seen_at` is older than the given cutoff ISO timestamp.
+    /// Returns the number of deleted rows.
+    fn delete_stale_dependencies(&self, cutoff_iso: &str) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
 }
