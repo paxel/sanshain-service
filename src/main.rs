@@ -297,6 +297,7 @@ pub fn create_app(state: AppState) -> Router {
         .fallback_service(ServeDir::new("static"))
         .layer(middleware::from_fn_with_state(state.clone(), csrf_protection))
         .layer(middleware::from_fn(security_headers))
+        .layer(tower_http::decompression::RequestDecompressionLayer::new())
         .layer(tower_http::compression::CompressionLayer::new())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state)

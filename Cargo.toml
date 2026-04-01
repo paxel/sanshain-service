@@ -20,7 +20,7 @@ chrono = { version = "0.4", features = ["std", "clock"], default-features = fals
 sqlx = { version = "0.8", features = [ "runtime-tokio", "tls-rustls", "sqlite", "postgres" ] }
 openapiv3 = "2.2"
 serde_yaml = "0.9"
-tower-http = { version = "0.6", features = ["cors", "fs", "set-header", "trace", "compression-gzip"] }
+tower-http = { version = "0.6", features = ["cors", "fs", "set-header", "trace", "compression-gzip", "decompression-gzip"] }
 tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -32,3 +32,6 @@ askama = "0.13"
 ldap3 = { version = "0.11", default-features = false, features = ["tls-rustls"] }
 regex = "1"
 indexmap = "2"
+
+[dev-dependencies]
+flate2 = "1"

@@ -9,6 +9,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - **Branch max-age auto-cleanup**: non-protected branches are automatically deleted after a configurable period of inactivity (default: 30 days). A background task runs hourly. Admins can configure the max-age via `GET/POST /admin/settings/branch-max-age` and trigger immediate cleanup via `POST /admin/settings/branch-cleanup`.
 
+### Fixed
+- **Gzip request decompression**: the server now decompresses gzip-encoded request bodies (`Content-Encoding: gzip`), fixing failures when clients (e.g., Maven plugin) upload specs with compression enabled.
+
 ### Changed
 - **Multi-architecture release builds**: GitHub Release now publishes Linux binaries for both `x86_64` and `aarch64`. Docker images are built as multi-platform manifests (`linux/amd64`, `linux/arm64`) and pushed to GHCR. Windows and macOS are not supported.
 - **Release binary naming**: binaries use standard architecture names (`sanshain-linux-x86_64`, `sanshain-linux-aarch64`) instead of Docker-style `amd64`/`arm64`.

@@ -1521,6 +1521,54 @@ components:
 }
 
 #[tokio::test]
+async fn test_gzip_request_decompression() {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+
+    let app = setup_app_dev_mode().await;
+
+    let openapi_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Gzip Request Test
+  version: 1.0.0
+paths:
+  /items:
+    get:
+      summary: Get items
+      responses:
+        '200':
+          description: OK
+"#;
+
+    let payload = serde_json::to_vec(&json!({
+        "servicename": "gzip-request-test",
+        "branch": "main",
+        "openapi_yaml": openapi_yaml
+    })).unwrap();
+
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&payload).unwrap();
+    let compressed = encoder.finish().unwrap();
+
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("Content-Encoding", "gzip")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(compressed))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(response.status().is_success(), "Server should accept gzip-compressed request body, got {}", response.status());
+}
+
+#[tokio::test]
 async fn test_branch_max_age_api() {
     let (app, admin_token) = setup_app_with_admin().await;
 

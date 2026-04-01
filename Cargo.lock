@@ -1837,6 +1837,7 @@ dependencies = [
  "askama",
  "axum",
  "chrono",
+ "flate2",
  "hex",
  "indexmap",
  "ldap3",
