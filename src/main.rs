@@ -102,7 +102,6 @@ pub async fn main() {
 }
 
 use tower_http::services::ServeDir;
-use axum::response::Redirect;
 use axum::http::header::HeaderValue;
 
 /// Resolve a user from either a session token or a san_ API token.
@@ -280,7 +279,8 @@ pub fn create_app(state: AppState) -> Router {
         .route_layer(middleware::from_fn_with_state(state.clone(), api_auth));
 
     Router::new()
-        .route("/", get(|| async { Redirect::permanent("/index.html") }))
+        .route("/", get(index_page))
+        .route("/index.html", get(index_page))
         .route("/health", get(health))
         .route("/version", get(version))
         .route("/csrf-token", get(generate_csrf_token))
@@ -1092,7 +1092,17 @@ async fn revoke_token(
     }
 }
 
-// --- Dashboard (Askama template) ---
+// --- Askama page templates ---
+
+#[derive(askama::Template)]
+#[template(path = "index.html")]
+struct IndexTemplate {}
+
+async fn index_page() -> Result<axum::response::Response, StatusCode> {
+    let tmpl = IndexTemplate {};
+    let html = tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(axum::response::Html(html).into_response())
+}
 
 #[derive(askama::Template)]
 #[template(path = "dashboard.html")]

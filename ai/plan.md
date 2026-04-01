@@ -36,12 +36,6 @@ The following major milestones have been delivered and are fully functional:
 - [x] Integration tests for gzip compression.
 - [x] CHANGELOG update.
 
-### Ecosystem & Tooling (Client Plugins)
-- [ ] Maven plugin (`sanshain-provide`, `sanshain-require`).
-- [ ] Gradle plugin (`sanshainProvide`, `sanshainRequire`).
-- [ ] Rust (`cargo-sanshain` or `build.rs`).
-- [ ] Go (`go generate`), Python, JS/TS, Swift, Ruby, PHP, C/C++ integrations.
-
 ### Multi-Architecture Builds
 - [x] Release workflow builds Linux binaries for x86_64 and aarch64 (matrix strategy with cross-compilation).
 - [x] Multi-platform Docker images (linux/amd64, linux/arm64) via Docker Buildx + QEMU.
@@ -109,9 +103,9 @@ The admin settings page gains an **Auth Mode** selector with three modes:
 The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Before adding more UI complexity, split into manageable pieces.
 
 #### Phase 1 — Extract shared layout & components (server-side)
-- [ ] Create a shared HTML layout partial (`templates/layout.html`) with nav, header, footer, common CSS/JS.
-- [ ] Convert `admin.html`, `account.html`, `service.html` to Askama templates extending the layout.
-- [ ] Extract reusable JS modules (fetch helpers, CSRF, toast notifications) into `static/js/common.js`.
+- [x] Create a shared HTML layout partial (`templates/layout.html`) with nav, header, footer, common CSS/JS.
+- [x] Convert `index.html` and `dashboard.html` to Askama templates extending the layout; refactor `admin.html`, `account.html`, `service.html` to use shared JS.
+- [x] Extract reusable JS modules (fetch helpers, CSRF, toast notifications) into `static/js/common.js`.
 
 #### Phase 2 — Evaluate full UI framework (future)
 - [ ] Evaluate lightweight options (htmx, Alpine.js, Leptos) for progressive enhancement.

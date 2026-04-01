@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sanshain - Admin Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/js/common.js"></script>
     <style>
         .fade-in { animation: fadeIn 0.2s ease-in; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -254,40 +255,8 @@
     </div>
 
     <script>
-        let token = localStorage.getItem('sanshain_token');
-        let csrfToken = null;
-
-        async function fetchCsrfToken() {
-            try {
-                const res = await fetch('/csrf-token');
-                if (res.ok) {
-                    const data = await res.json();
-                    csrfToken = data.csrf_token;
-                }
-            } catch (_) {}
-        }
-
-        // --- Auth ---
-        async function apiCall(url, options = {}) {
-            const headers = { ...options.headers };
-            if (token) headers['Authorization'] = `Bearer ${token}`;
-            if (options.body && typeof options.body === 'object') {
-                headers['Content-Type'] = 'application/json';
-                options.body = JSON.stringify(options.body);
-            }
-            const method = (options.method || 'GET').toUpperCase();
-            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method) && csrfToken) {
-                headers['X-CSRF-Token'] = csrfToken;
-            }
-            const res = await fetch(url, { ...options, headers });
-            if (res.status === 401) {
-                token = null;
-                localStorage.removeItem('sanshain_token');
-                showLogin();
-                throw new Error('Session expired');
-            }
-            return res;
-        }
+        // Use sanshainToken from common.js
+        function onSessionExpired() { showLogin(); }
 
         function showLogin() {
             document.getElementById('login-screen').classList.remove('hidden');
@@ -320,8 +289,8 @@
                     return;
                 }
                 const data = await res.json();
-                token = data.token;
-                localStorage.setItem('sanshain_token', token);
+                sanshainToken = data.token;
+                localStorage.setItem('sanshain_token', sanshainToken);
                 showDashboard();
             } catch (err) {
                 errEl.textContent = err.message;
@@ -331,13 +300,13 @@
 
         async function logout() {
             try { await apiCall('/auth/logout', { method: 'POST' }); } catch (_) {}
-            token = null;
+            sanshainToken = null;
             localStorage.removeItem('sanshain_token');
             showLogin();
         }
 
         async function checkSession() {
-            if (!token) { showLogin(); return; }
+            if (!sanshainToken) { showLogin(); return; }
             try {
                 const res = await apiCall('/auth/me');
                 if (res.ok) {
@@ -794,31 +763,6 @@
                 errEl.classList.remove('hidden');
             }
         });
-
-        // --- Confirm Modal ---
-        function confirmDelete(message, onConfirm) {
-            document.getElementById('confirm-message').innerHTML = message;
-            document.getElementById('confirm-modal').classList.remove('hidden');
-            document.getElementById('confirm-yes').onclick = () => {
-                closeConfirmModal();
-                onConfirm();
-            };
-        }
-
-        function closeConfirmModal() {
-            document.getElementById('confirm-modal').classList.add('hidden');
-        }
-
-        // --- Helpers ---
-        function escapeHtml(str) {
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
-        }
-
-        function escapeAttr(str) {
-            return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        }
 
         // --- Init ---
         fetchCsrfToken().then(() => checkSession());

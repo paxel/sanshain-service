@@ -1,17 +1,8 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sanshain - OpenAPI Distribution Service</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        .fade-in { animation: fadeIn 0.3s ease-in; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-    </style>
-</head>
-<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+{% extends "layout.html" %}
 
+{% block title %}OpenAPI Distribution Service{% endblock %}
+
+{% block body %}
     <nav class="bg-indigo-700 text-white p-4 shadow-lg">
         <div class="container mx-auto flex justify-between items-center">
             <h1 class="text-2xl font-bold tracking-tight">Sanshain</h1>
@@ -30,7 +21,7 @@
         </div>
 
         <div class="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            <a href="/admin.html"
+            <a href="/admin"
                class="block bg-white rounded-2xl shadow-md border border-slate-200 p-6 hover:shadow-lg hover:border-indigo-300 transition-all">
                 <div class="text-indigo-600 mb-3">
                     <svg class="w-10 h-10 mx-auto" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
@@ -42,7 +33,7 @@
                 <p class="text-sm text-slate-500 text-center">Manage services, branches, clients, protected branches, and system settings.</p>
             </a>
 
-            <a href="/account.html"
+            <a href="/account"
                class="block bg-white rounded-2xl shadow-md border border-slate-200 p-6 hover:shadow-lg hover:border-indigo-300 transition-all">
                 <div class="text-indigo-600 mb-3">
                     <svg class="w-10 h-10 mx-auto" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
@@ -54,7 +45,7 @@
                 <p class="text-sm text-slate-500 text-center">Sign in, register, manage your profile, and generate API tokens.</p>
             </a>
 
-            <a href="/service.html"
+            <a href="/services"
                class="block bg-white rounded-2xl shadow-md border border-slate-200 p-6 hover:shadow-lg hover:border-indigo-300 transition-all">
                 <div class="text-indigo-600 mb-3">
                     <svg class="w-10 h-10 mx-auto" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
@@ -76,18 +67,10 @@
             </ul>
         </div>
     </main>
+{% endblock %}
 
-    <footer class="text-center text-sm text-slate-400 py-6">
-        Sanshain &mdash; OpenAPI Distribution Service
-    </footer>
-
+{% block scripts %}
     <script>
-        fetch('/version')
-            .then(r => r.json())
-            .then(data => {
-                document.getElementById('version-badge').textContent = `v${data.version}`;
-            })
-            .catch(() => {});
+        loadVersionBadge('version-badge');
     </script>
-</body>
-</html>
+{% endblock %}
