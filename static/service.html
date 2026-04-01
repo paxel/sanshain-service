@@ -80,6 +80,9 @@
                 Dependency Graph
             </h2>
             <div class="flex items-center space-x-3">
+                <select id="graph-branch-select" class="rounded-lg border border-slate-300 text-sm text-slate-700 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="">Loading branches...</option>
+                </select>
                 <label class="flex items-center space-x-2 text-sm text-slate-600 cursor-pointer select-none">
                     <input type="checkbox" id="graph-detailed-toggle" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
                     <span>Detailed view</span>
@@ -663,11 +666,44 @@
         document.getElementById('client-section').classList.add('hidden');
         document.getElementById('graph-section').classList.remove('hidden');
 
+        // Populate branch selector from all known service branches
+        const branchSelect = document.getElementById('graph-branch-select');
+        const allBranchNames = new Set();
+        for (const branches of Object.values(allServiceBranches)) {
+            for (const b of branches) allBranchNames.add(typeof b === 'string' ? b : b.name);
+        }
+        if (allBranchNames.size === 0) {
+            branchSelect.innerHTML = '<option value="">No branches found</option>';
+        } else {
+            const prev = branchSelect.value;
+            branchSelect.innerHTML = '';
+            for (const name of [...allBranchNames].sort()) {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name;
+                branchSelect.appendChild(opt);
+            }
+            // Prefer previous selection, then 'main', then first
+            if (allBranchNames.has(prev)) branchSelect.value = prev;
+            else if (allBranchNames.has('main')) branchSelect.value = 'main';
+        }
+
+        await loadGraph();
+    }
+
+    document.getElementById('graph-branch-select').addEventListener('change', () => loadGraph());
+
+    async function loadGraph() {
         const graphDiv = document.getElementById('mermaid-graph');
+        const branch = document.getElementById('graph-branch-select').value;
+        if (!branch) {
+            graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">No branch selected.</div>';
+            return;
+        }
         graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">Generating dependency graph...</div>';
 
         try {
-            const report = await fetchJSON('/report?branch=main');
+            const report = await fetchJSON(`/report?branch=${encodeURIComponent(branch)}`);
             lastGraphReport = report;
             if (report.dependency_graph.length === 0) {
                 graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">No dependencies found to visualize.</div>';

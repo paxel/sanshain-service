@@ -154,6 +154,7 @@ impl SpecRepository for PostgresSpecRepository {
             INSERT INTO dependencies 
             (client_id, endpoint_id, requested_service_id, requested_branch_name, requested_path, requested_method)
             VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT DO NOTHING
             "#,
         )
         .bind(client_id)

@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS dependencies (
     requested_branch_name TEXT NOT NULL,
     requested_path TEXT NOT NULL,
     requested_method TEXT NOT NULL,
+    UNIQUE(client_id, endpoint_id, requested_service_id, requested_branch_name, requested_path, requested_method),
     FOREIGN KEY(client_id) REFERENCES clients(id),
     FOREIGN KEY(endpoint_id) REFERENCES endpoints(id),
     FOREIGN KEY(requested_service_id) REFERENCES services(id)

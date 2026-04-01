@@ -151,7 +151,7 @@ impl SpecRepository for SqliteSpecRepository {
     ) -> Result<(), RepositoryError> {
         sqlx::query(
             r#"
-            INSERT INTO dependencies 
+            INSERT OR IGNORE INTO dependencies 
             (client_id, endpoint_id, requested_service_id, requested_branch_name, requested_path, requested_method)
             VALUES (?, ?, ?, ?, ?, ?)
             "#,
