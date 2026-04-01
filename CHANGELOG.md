@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.1] - 2026-04-01
+
+### Fixed
+- **Cross-compilation fix**: aarch64-unknown-linux-musl builds now use the correct musl cross-compiler toolchain instead of glibc, fixing linker errors with undefined symbols (`open64`, `stat64`, etc.).
+
 ## [0.4.0] - 2026-04-01
 
 ### Added

@@ -49,7 +49,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y musl-tools
           if [ "${{ matrix.arch }}" = "aarch64" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu
+            sudo apt-get install -y gcc-aarch64-linux-gnu musl-dev
+            # Install aarch64 musl cross-compiler
+            wget -q https://musl.cc/aarch64-linux-musl-cross.tgz
+            tar xzf aarch64-linux-musl-cross.tgz -C /opt
+            echo "/opt/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
           fi
 
       - name: Configure cross-compilation for aarch64
@@ -58,8 +62,12 @@ jobs:
           mkdir -p .cargo
           cat >> .cargo/config.toml <<EOF
           [target.aarch64-unknown-linux-musl]
-          linker = "aarch64-linux-gnu-gcc"
+          linker = "aarch64-linux-musl-gcc"
           EOF
+
+      - name: Set CC for aarch64 musl cross-compilation
+        if: matrix.arch == 'aarch64'
+        run: echo "CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc" >> $GITHUB_ENV
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
