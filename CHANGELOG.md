@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.2]
+
+### Changed
+- **Release workflow tag trigger**: the GitHub Actions release workflow now triggers automatically on `vX.X.X` version tags in addition to manual `workflow_dispatch`.
+
+### Fixed
+- **aarch64 cross-compilation CI fix**: replaced unreliable `wget` with `curl --retry` for downloading the musl cross-compiler toolchain, and removed unnecessary apt packages (`gcc-aarch64-linux-gnu`, `musl-dev`) that could cause exit code 4 failures.
+
 ## [0.4.1] - 2026-04-01
 
 ### Fixed

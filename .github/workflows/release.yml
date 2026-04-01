@@ -1,19 +1,23 @@
 name: Release
 
 on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       tag:
         description: "Release tag (e.g. v0.1.0)"
         required: true
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-
 permissions:
   contents: write
   packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
   build-binary:
@@ -49,10 +53,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y musl-tools
           if [ "${{ matrix.arch }}" = "aarch64" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu musl-dev
-            # Install aarch64 musl cross-compiler
-            wget -q https://musl.cc/aarch64-linux-musl-cross.tgz
-            tar xzf aarch64-linux-musl-cross.tgz -C /opt
+            # Install aarch64 musl cross-compiler from musl.cc
+            curl -fsSL --retry 5 --retry-delay 3 -o /tmp/aarch64-linux-musl-cross.tgz \
+              https://musl.cc/aarch64-linux-musl-cross.tgz
+            sudo tar xzf /tmp/aarch64-linux-musl-cross.tgz -C /opt
             echo "/opt/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
           fi
 
@@ -98,7 +102,7 @@ jobs:
           chmod +x release-assets/sanshain-linux-x86_64 release-assets/sanshain-linux-aarch64
 
           # Prepare docker-compose.yaml from template (substitute version)
-          sed 's|__VERSION__|${{ github.event.inputs.tag }}|g' docker-compose.release.template.yaml > release-assets/docker-compose.yaml
+          sed 's|__VERSION__|${{ env.RELEASE_TAG }}|g' docker-compose.release.template.yaml > release-assets/docker-compose.yaml
 
           cp Dockerfile.release.template release-assets/Dockerfile
           cp CHANGELOG.md release-assets/
@@ -106,8 +110,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag }}
-          name: Sanshain ${{ github.event.inputs.tag }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Sanshain ${{ env.RELEASE_TAG }}
           body_path: CHANGELOG.md
           files: |
             release-assets/sanshain-linux-x86_64
@@ -135,7 +139,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=${{ github.event.inputs.tag }}
+            type=raw,value=${{ env.RELEASE_TAG }}
             type=raw,value=latest
 
       - name: Prepare Docker build context

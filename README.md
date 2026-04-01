@@ -169,7 +169,7 @@ Approved users can create long-lived API tokens for use in CI pipelines (Jenkins
 
 ### Version
 
-`GET /version` returns the service version as JSON: `{"version": "0.4.1"}`.
+`GET /version` returns the service version as JSON: `{"version": "0.5.0"}`.
 
 ### 4. Admin API (Session-Based Authentication)
 All `/admin/*` endpoints require a valid admin session token (`Authorization: Bearer <token>`).
