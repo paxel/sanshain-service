@@ -511,7 +511,9 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn list_services(&self) -> Result<Vec<String>, RepositoryError> {
-        let rows: Vec<(String,)> = sqlx::query_as("SELECT name FROM services ORDER BY name")
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT s.name FROM services s INNER JOIN branches b ON b.service_id = s.id ORDER BY s.name"
+        )
             .fetch_all(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -530,7 +532,9 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn list_clients(&self) -> Result<Vec<String>, RepositoryError> {
-        let rows: Vec<(String,)> = sqlx::query_as("SELECT name FROM clients ORDER BY name")
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT c.name FROM clients c INNER JOIN dependencies d ON d.client_id = c.id ORDER BY c.name"
+        )
             .fetch_all(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;

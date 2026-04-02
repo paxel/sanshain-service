@@ -1867,3 +1867,139 @@ async fn test_htmx_fragment_endpoints() {
     assert!(body.contains("htmx.org"));
     assert!(body.contains("hx-get"));
 }
+
+#[tokio::test]
+async fn test_require_does_not_create_phantom_service() {
+    let (app, admin_token) = setup_app_with_admin().await;
+
+    // A client requires an endpoint from a service that was never provided
+    let require_payload = json!({
+        "clientname": "my-client",
+        "servicename": "phantom-service",
+        "branch": "main",
+        "path": "/health",
+        "method": "GET"
+    });
+
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/require?clientname=my-client&servicename=phantom-service&branch=main&path=/health&method=GET")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    // The require may succeed or return not-found, either way the service list should be clean
+    let _ = response.status();
+
+    // List services via admin API — phantom-service should NOT appear
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/services")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let services: Vec<String> = serde_json::from_slice(&body).unwrap();
+    assert!(
+        !services.contains(&"phantom-service".to_string()),
+        "phantom-service should not appear in services list when it has no branches"
+    );
+}
+
+#[tokio::test]
+async fn test_delete_service_does_not_create_phantom_client() {
+    let (app, admin_token) = setup_app_with_admin().await;
+
+    // Upload a spec so the service exists
+    let yaml = "openapi: '3.0.0'\ninfo:\n  title: Svc\n  version: '1.0'\npaths:\n  /health:\n    get:\n      operationId: getHealth\n      responses:\n        '200':\n          description: OK\n";
+    let provide_payload = json!({
+        "servicename": "temp-service",
+        "branch": "main",
+        "openapi_yaml": yaml
+    });
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&provide_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+
+    // A client requires an endpoint from that service
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/require?clientname=orphan-client&servicename=temp-service&branch=main&path=/health&method=GET")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify client appears in the list
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/clients")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let clients: Vec<String> = serde_json::from_slice(&body).unwrap();
+    assert!(clients.contains(&"orphan-client".to_string()));
+
+    // Delete the service — this removes dependencies but leaves the client row
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/admin/services/temp-service")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Client should NOT appear in the list anymore (no dependencies left)
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/clients")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let clients: Vec<String> = serde_json::from_slice(&body).unwrap();
+    assert!(
+        !clients.contains(&"orphan-client".to_string()),
+        "orphan-client should not appear in clients list after its service was deleted"
+    );
+}
