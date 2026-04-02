@@ -20,8 +20,12 @@
             </div>
             <div>
                 <label class="block text-sm font-medium text-slate-600 mb-1">Password</label>
-                <input type="password" id="login-password" required
-                    class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <div class="flex">
+                    <input type="password" id="login-password" required
+                        class="w-full px-3 py-2 rounded-l-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <button type="button" onclick="togglePasswordVisibility('login-password', this)"
+                        class="px-3 py-2 bg-slate-100 border border-l-0 border-slate-300 rounded-r-lg text-xs text-slate-600 hover:bg-slate-200">Show</button>
+                </div>
             </div>
             <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium">
                 Sign In
@@ -287,7 +291,7 @@
             localStorage.setItem('sanshain_token', sanshainToken);
             showDashboard();
         } catch (err) {
-            errEl.textContent = err.message;
+            errEl.textContent = friendlyError(err);
             errEl.classList.remove('hidden');
         }
     });
@@ -408,7 +412,7 @@
                 errEl.classList.remove('hidden');
             }
         } catch (err) {
-            errEl.textContent = err.message;
+            errEl.textContent = friendlyError(err);
             errEl.classList.remove('hidden');
         }
     });

@@ -15,7 +15,7 @@ RUN cargo build --release
 # Stage 2: Runtime
 FROM alpine:3.21
 
-RUN apk add --no-cache sqlite-libs
+RUN apk add --no-cache sqlite-libs tini
 
 COPY --from=builder /app/target/release/sanshain_service_bin /usr/local/bin/sanshain
 COPY static/ /app/static/
@@ -29,4 +29,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget -qO- http://localhost:3000/health || exit 1
 
+ENTRYPOINT ["tini", "--"]
 CMD ["sanshain"]

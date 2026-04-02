@@ -4,6 +4,14 @@
 let sanshainToken = localStorage.getItem('sanshain_token');
 let csrfToken = null;
 
+// --- Network error helper ---
+function friendlyError(err) {
+    if (err instanceof TypeError && (err.message.includes('NetworkError') || err.message.includes('Failed to fetch') || err.message.includes('Load failed'))) {
+        return 'Server is not reachable. Please check that the service is running.';
+    }
+    return err.message || String(err);
+}
+
 // --- CSRF ---
 async function fetchCsrfToken() {
     try {
@@ -77,4 +85,17 @@ function loadVersionBadge(elementId) {
             if (el) el.textContent = `v${data.version}`;
         })
         .catch(() => {});
+}
+
+// --- Password visibility toggle ---
+function togglePasswordVisibility(inputId, btn) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    if (input.type === 'password') {
+        input.type = 'text';
+        btn.textContent = 'Hide';
+    } else {
+        input.type = 'password';
+        btn.textContent = 'Show';
+    }
 }

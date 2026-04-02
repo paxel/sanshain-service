@@ -2,7 +2,7 @@ FROM alpine:3.21
 
 ARG TARGETARCH
 
-RUN apk add --no-cache sqlite-libs
+RUN apk add --no-cache sqlite-libs tini
 
 # Binary is placed as sanshain-${TARGETARCH} in the build context
 # (mapped from x86_64/aarch64 naming to Docker's amd64/arm64 convention)
@@ -19,4 +19,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget -qO- http://localhost:3000/health || exit 1
 
+ENTRYPOINT ["tini", "--"]
 CMD ["sanshain"]

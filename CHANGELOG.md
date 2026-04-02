@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.1]
+
+### Fixed
+- **Broken navigation links on landing page**: the index page linked to `/admin`, `/account`, and `/services` which had no matching routes. Added redirect routes for `/account` → `/account.html` and `/services` → `/service.html`, and changed the admin link to point to `/admin.html` (since `/admin` is reserved for the API namespace).
+- **Unhelpful error on server unreachable**: login and registration forms showed a raw browser "NetworkError" when the server was not running. Now displays a clear "Server is not reachable" message. Added show/hide password toggle buttons to all password fields.
+- **Docker container ignores Ctrl+C**: the container kept running (as "unhealthy") after pressing Ctrl+C because PID 1 did not handle signals. Added `tini` as init process in both Dockerfiles, `init: true` in docker-compose template, and graceful shutdown signal handling (SIGINT/SIGTERM) in the server.
+- **Aggressive browser caching of static files**: updated JS/HTML was not picked up by browsers without a hard reload. Added `Cache-Control: no-cache, must-revalidate` header to all static file responses so browsers always revalidate with the server.
+- **CSP blocked htmx from unpkg.com**: the Content-Security-Policy `script-src` directive did not include `https://unpkg.com`, causing the browser to block the htmx script on the admin dashboard.
+
 ## [0.5.0]
 
 ### Added

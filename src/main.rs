@@ -103,7 +103,31 @@ pub async fn main() {
     let addr: SocketAddr = bind_address.parse().expect("invalid BIND_ADDRESS");
     tracing::debug!("listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .unwrap();
+    tracing::info!("Server shut down gracefully");
+}
+
+async fn shutdown_signal() {
+    use tokio::signal;
+    let ctrl_c = async {
+        signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => { tracing::info!("Received SIGINT, shutting down..."); },
+        _ = terminate => { tracing::info!("Received SIGTERM, shutting down..."); },
+    }
 }
 
 use tower_http::services::ServeDir;
@@ -184,7 +208,7 @@ async fn security_headers(
         axum::http::header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static(
             "default-src 'self'; \
-             script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; \
+             script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com; \
              style-src 'self' 'unsafe-inline'; \
              img-src 'self' data:; \
              connect-src 'self'; \
@@ -324,10 +348,19 @@ pub fn create_app(state: AppState) -> Router {
         .route("/auth/tokens/{id}", axum::routing::delete(revoke_token))
         .route("/dashboard", get(dashboard_page))
         .route("/admin.html", get(admin_page))
+        .route("/account", get(account_page))
+        .route("/services", get(services_page))
         .merge(api_routes)
         .nest("/admin", admin_routes)
         .nest("/fragments", fragment_routes)
-        .fallback_service(ServeDir::new("static"))
+        .fallback_service(
+            tower::ServiceBuilder::new()
+                .layer(tower_http::set_header::SetResponseHeaderLayer::if_not_present(
+                    axum::http::header::CACHE_CONTROL,
+                    HeaderValue::from_static("no-cache, must-revalidate"),
+                ))
+                .service(ServeDir::new("static"))
+        )
         .layer(middleware::from_fn_with_state(state.clone(), csrf_protection))
         .layer(middleware::from_fn(security_headers))
         .layer(tower_http::decompression::RequestDecompressionLayer::new())
@@ -1206,6 +1239,16 @@ async fn dashboard_page(
 
 use axum::response::IntoResponse;
 use askama::Template;
+
+// --- Static page redirects (serve .html files at clean URLs) ---
+
+async fn account_page() -> impl IntoResponse {
+    axum::response::Redirect::permanent("/account.html")
+}
+
+async fn services_page() -> impl IntoResponse {
+    axum::response::Redirect::permanent("/service.html")
+}
 
 // --- Admin page (htmx-powered, served from Askama template) ---
 
