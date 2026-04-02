@@ -87,6 +87,14 @@
                     <input type="checkbox" id="graph-detailed-toggle" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
                     <span>Detailed view</span>
                 </label>
+                <button id="graph-copy" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors" title="Copy Mermaid code to clipboard">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg>
+                    Copy
+                </button>
+                <button id="graph-download" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors" title="Download Mermaid file">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+                    Download
+                </button>
             </div>
         </div>
         <div id="graph-cycle-warning" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center">
@@ -418,13 +426,14 @@
                 if (!res.ok) throw new Error(`${res.status}`);
                 return res.text();
             })();
-            renderPaginatedYaml(content, yamlText);
+            renderPaginatedYaml(content, yamlText, `${serviceName}_${ep.method}_${ep.path.replace(/\//g, '_')}.yaml`);
         } catch (err) {
             content.innerHTML = `<div class="text-slate-500 text-center py-10">YAML preview not available (${err.message})</div>`;
         }
     }
 
-    function renderPaginatedYaml(container, yamlText) {
+    function renderPaginatedYaml(container, yamlText, filename) {
+        filename = filename || 'endpoint.yaml';
         const lines = yamlText.split('\n');
         const totalPages = Math.max(1, Math.ceil(lines.length / YAML_PAGE_SIZE));
         let currentPage = 1;
@@ -448,6 +457,16 @@
             container.innerHTML = `
                 <div class="flex items-center justify-between mb-2">
                     <span class="text-xs text-slate-400">${lines.length} lines total</span>
+                    <div class="flex gap-2">
+                        <button id="yaml-copy" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors" title="Copy to clipboard">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg>
+                            Copy
+                        </button>
+                        <button id="yaml-download" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors" title="Download YAML file">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+                            Download
+                        </button>
+                    </div>
                 </div>
                 <pre class="bg-slate-800 text-green-300 p-4 rounded-xl text-sm overflow-x-auto whitespace-pre-wrap leading-relaxed">${escaped}</pre>
                 ${paginationHtml}`;
@@ -458,6 +477,29 @@
                 if (prev && currentPage > 1) prev.onclick = () => { currentPage--; render(); };
                 if (next && currentPage < totalPages) next.onclick = () => { currentPage++; render(); };
             }
+
+            const copyBtn = document.getElementById('yaml-copy');
+            if (copyBtn) copyBtn.onclick = () => {
+                navigator.clipboard.writeText(yamlText).then(() => {
+                    copyBtn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copied!`;
+                    setTimeout(() => {
+                        copyBtn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg> Copy`;
+                    }, 2000);
+                });
+            };
+
+            const dlBtn = document.getElementById('yaml-download');
+            if (dlBtn) dlBtn.onclick = () => {
+                const blob = new Blob([yamlText], { type: 'application/x-yaml' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            };
         }
         render();
     }
@@ -643,7 +685,7 @@
         document.getElementById('md-report-btn').href = '#';
         document.getElementById('md-report-btn').style.display = 'none';
         const content = document.getElementById('modal-content');
-        renderPaginatedYaml(content, ep.yaml_content);
+        renderPaginatedYaml(content, ep.yaml_content, `${ep.service}_${ep.method}_${ep.path.replace(/\//g, '_')}.yaml`);
     }
 
     document.getElementById('client-search').addEventListener('input', function() {
@@ -656,6 +698,7 @@
     });
 
     let lastGraphReport = null;
+    let lastMermaidCode = '';
 
     document.getElementById('graph-detailed-toggle').addEventListener('change', function() {
         if (lastGraphReport) renderGraph(lastGraphReport, this.checked);
@@ -860,11 +903,39 @@
             mmd += `  linkStyle ${idx} stroke:#ef4444,stroke-width:3px\n`;
         }
 
+        // Store mermaid code for copy/download
+        lastMermaidCode = mmd;
+
         // Clear and render
         graphDiv.removeAttribute('data-processed');
         graphDiv.innerHTML = mmd;
         await mermaid.run({ nodes: [graphDiv] });
     }
+
+    document.getElementById('graph-copy').onclick = () => {
+        if (!lastMermaidCode) return;
+        const btn = document.getElementById('graph-copy');
+        navigator.clipboard.writeText(lastMermaidCode).then(() => {
+            btn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copied!`;
+            setTimeout(() => {
+                btn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg> Copy`;
+            }, 2000);
+        });
+    };
+
+    document.getElementById('graph-download').onclick = () => {
+        if (!lastMermaidCode) return;
+        const branch = document.getElementById('graph-branch-select').value || 'graph';
+        const blob = new Blob([lastMermaidCode], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `dependency_graph_${branch}.mmd`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
 
     function closeModal() {
         document.getElementById('modal').classList.add('hidden');

@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0]
+
+### Added
+- **YAML viewer copy & download buttons**: the paginated YAML display on the service overview page now includes "Copy" (clipboard) and "Download" (`.yaml` file) buttons for easy content export.
+- **Graph view copy & download buttons**: the dependency graph view now includes "Copy" (clipboard) and "Download" (`.mmd` file) buttons to export the generated Mermaid code.
+
 ## [0.5.1]
 
 ### Fixed
