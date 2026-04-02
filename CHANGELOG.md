@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.6.0]
 
+### Changed
+- **Descriptive errors for missing endpoints**: `/require` and `/require-bundle` now return the missing endpoint details (method, path, service name, branch) in the response body instead of a bare 404/400 status. `/require-bundle` with partially missing endpoints now returns 404 (was 400) with a list of all missing endpoints, helping clients identify which endpoints were removed on the service side.
+
 ### Fixed
 - **Phantom services in service list**: services that were only referenced by client dependencies (via `/require`) but never had specs uploaded no longer appear in the services list with 0 branches.
 - **Phantom clients in client list**: clients whose dependencies were removed (e.g., after deleting a service) no longer appear in the clients list with 0 branches.

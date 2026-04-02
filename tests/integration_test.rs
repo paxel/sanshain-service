@@ -311,7 +311,10 @@ components:
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body_str = String::from_utf8_lossy(&body);
+    assert!(body_str.contains("DELETE /nonexistent"), "Error body should list the missing endpoint");
 
     // Test empty endpoints returns error
     let bundle_empty = json!({
@@ -2002,4 +2005,57 @@ async fn test_delete_service_does_not_create_phantom_client() {
         !clients.contains(&"orphan-client".to_string()),
         "orphan-client should not appear in clients list after its service was deleted"
     );
+}
+
+#[tokio::test]
+async fn test_require_missing_endpoint_returns_descriptive_error() {
+    let app = setup_app_dev_mode().await;
+
+    // Provide a spec with only /users
+    let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+    let payload = json!({
+        "servicename": "err-svc",
+        "branch": "main",
+        "openapi_yaml": yaml
+    });
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // Require a non-existent endpoint — should get 404 with descriptive body
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/require?clientname=test-client&servicename=err-svc&branch=main&path=/missing&method=GET")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body_str = String::from_utf8_lossy(&body);
+    assert!(body_str.contains("GET /missing"), "Error body should contain the missing endpoint: {}", body_str);
+    assert!(body_str.contains("err-svc"), "Error body should contain the service name: {}", body_str);
 }

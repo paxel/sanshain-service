@@ -8,7 +8,7 @@ use crate::openapi;
 pub enum AppError {
     BadRequest(String),
     Conflict,
-    NotFound,
+    NotFound(String),
     Unauthorized,
     Forbidden,
     Internal(String),
@@ -17,7 +17,7 @@ pub enum AppError {
 impl From<RepositoryError> for AppError {
     fn from(e: RepositoryError) -> Self {
         match e {
-            RepositoryError::NotFound => AppError::NotFound,
+            RepositoryError::NotFound => AppError::NotFound("Not found".to_string()),
             RepositoryError::Conflict => AppError::Conflict,
             RepositoryError::Internal(msg) => AppError::Internal(msg),
         }
@@ -165,7 +165,10 @@ pub async fn require_endpoint(
             }
             _ => {
                 repo.record_dependency(client_id, None, service_id, branch, path, &method_upper).await?;
-                return Err(AppError::NotFound);
+                return Err(AppError::NotFound(format!(
+                    "Endpoint not found: {} {} on service '{}' branch '{}'",
+                    method_upper, path, servicename, branch
+                )));
             }
         }
     }
@@ -243,9 +246,9 @@ pub async fn require_bundle(
                 let missing_list: Vec<String> = missing.iter()
                     .map(|(p, m)| format!("{} {}", m, p))
                     .collect();
-                return Err(AppError::BadRequest(format!(
-                    "Missing endpoints: {}",
-                    missing_list.join(", ")
+                return Err(AppError::NotFound(format!(
+                    "Missing endpoints on service '{}' branch '{}': {}",
+                    servicename, branch, missing_list.join(", ")
                 )));
             }
         }
@@ -1456,7 +1459,7 @@ paths:
     async fn test_require_endpoint_not_found() {
         let repo = MockRepo::new();
         let result = require_endpoint(&repo, "client", "svc", "main", "/missing", "GET", None).await;
-        assert!(matches!(result, Err(AppError::NotFound)));
+        assert!(matches!(result, Err(AppError::NotFound(_))));
     }
 
     #[tokio::test]
@@ -1590,7 +1593,7 @@ paths:
         let start = std::time::Instant::now();
         let result = require_endpoint(&repo, "client", "svc", "main", "/missing", "GET", Some(1)).await;
         let elapsed = start.elapsed();
-        assert!(matches!(result, Err(AppError::NotFound)));
+        assert!(matches!(result, Err(AppError::NotFound(_))));
         assert!(elapsed >= std::time::Duration::from_millis(500), "should have polled at least once");
     }
 
@@ -1614,7 +1617,7 @@ paths:
 
         // master is protected, so no fallback — endpoint not on master → NotFound
         let result = require_endpoint(&repo, "client", "svc", "master", "/users", "GET", None).await;
-        assert!(matches!(result, Err(AppError::NotFound)));
+        assert!(matches!(result, Err(AppError::NotFound(_))));
     }
 
     #[tokio::test]
@@ -2120,8 +2123,8 @@ paths:
             ("/missing".to_string(), "POST".to_string()),
         ];
         let result = require_bundle(&repo, "client", "svc", "main", &endpoints, None).await;
-        assert!(matches!(result, Err(AppError::BadRequest(_))));
-        if let Err(AppError::BadRequest(msg)) = result {
+        assert!(matches!(result, Err(AppError::NotFound(_))));
+        if let Err(AppError::NotFound(msg)) = result {
             assert!(msg.contains("POST /missing"));
         }
     }

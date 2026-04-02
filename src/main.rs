@@ -480,8 +480,8 @@ fn app_error_to_status(e: AppError) -> StatusCode {
             tracing::warn!("Conflict");
             StatusCode::CONFLICT
         }
-        AppError::NotFound => {
-            tracing::warn!("Not found");
+        AppError::NotFound(ref msg) => {
+            tracing::warn!("Not found: {}", msg);
             StatusCode::NOT_FOUND
         }
         AppError::Unauthorized => {
@@ -499,6 +499,18 @@ fn app_error_to_status(e: AppError) -> StatusCode {
     }
 }
 
+fn app_error_to_status_with_body(e: AppError) -> (StatusCode, String) {
+    let body = match &e {
+        AppError::BadRequest(msg) => msg.clone(),
+        AppError::NotFound(msg) => msg.clone(),
+        AppError::Internal(msg) => msg.clone(),
+        AppError::Conflict => "Conflict".to_string(),
+        AppError::Unauthorized => "Unauthorized".to_string(),
+        AppError::Forbidden => "Forbidden".to_string(),
+    };
+    (app_error_to_status(e), body)
+}
+
 async fn provide(
     State(state): State<AppState>,
     Json(payload): Json<ProvidePayload>,
@@ -512,7 +524,7 @@ async fn provide(
 async fn require(
     State(state): State<AppState>,
     Query(params): Query<RequireParams>,
-) -> Result<String, StatusCode> {
+) -> Result<String, (StatusCode, String)> {
     services::require_endpoint(
         &state.repo,
         &params.clientname,
@@ -523,13 +535,13 @@ async fn require(
         params.timeout,
     )
     .await
-    .map_err(app_error_to_status)
+    .map_err(|e| app_error_to_status_with_body(e))
 }
 
 async fn require_bundle(
     State(state): State<AppState>,
     Json(payload): Json<RequireBundlePayload>,
-) -> Result<String, StatusCode> {
+) -> Result<String, (StatusCode, String)> {
     let endpoints: Vec<(String, String)> = payload.endpoints
         .into_iter()
         .map(|e| (e.path, e.method))
@@ -543,7 +555,7 @@ async fn require_bundle(
         payload.timeout,
     )
     .await
-    .map_err(app_error_to_status)
+    .map_err(|e| app_error_to_status_with_body(e))
 }
 
 async fn report(
