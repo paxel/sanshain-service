@@ -13,6 +13,7 @@ This guide covers the day-to-day workflows for developers using Sanshain Service
 | **Report**                  | Generate a dependency report showing used, unused, and missing endpoints for a branch.                                   |
 | **Protected branch**        | A branch (e.g. `main`) where endpoint schemas are immutable — changes require a path version bump.                       |
 | **Feature branch fallback** | If an endpoint is not found on a feature branch, Sanshain falls back to a protected branch.                              |
+| **Dry run**                 | A validation-only mode (`dry_run: true`) that checks contracts without persisting data. Designed for PR validation in CI. |
 
 ## Build Tool Integration
 
@@ -38,14 +39,17 @@ When you use a Sanshain plugin, the following happens automatically:
 
 1. The plugin reads your OpenAPI YAML file and uploads it to Sanshain for the current service and branch.
 2. Sanshain parses the YAML and splits it into one snippet per endpoint (path + method).
-3. On a **protected branch**, if an endpoint path already exists with a different schema, the request is rejected. Bump the path version (e.g. `/api/v1/users` → `/api/v2/users`) and retry.
+3. On a **protected branch**, if an endpoint path already exists with a different schema, the request is rejected with a descriptive error message (including the method, path, branch, and service name). Bump the path version (e.g. `/api/v1/users` → `/api/v2/users`) and retry.
 4. On a **feature branch**, existing endpoint schemas are freely overwritten.
+5. If `dry_run` is set to `true`, all validation runs but nothing is stored — useful for CI checks.
 
 ### Requiring an endpoint
 
 1. The plugin requests the OpenAPI snippet for a specific endpoint and records your service as a dependent client.
 2. Sanshain returns the minimal OpenAPI document containing only the requested endpoint and its referenced schemas.
 3. The plugin feeds this snippet into a code generator to produce typed client code in your language.
+4. If the endpoint is not found, the response includes a descriptive error message listing the service, branch, and endpoint details.
+5. If `dry_run` is set to `true`, the lookup runs but no dependency is recorded.
 
 ### Long-polling
 
@@ -73,6 +77,8 @@ Each branch view shows the total number of endpoints, how many are used by at le
 
 ![Branch detail with endpoint usage](images/Screenshot_20260314_080025.png)
 
+The YAML viewer includes **Copy** and **Download** buttons for easy export of endpoint specifications.
+
 ### Dependency Graph
 
 The **Graph** tab visualises the dependency relationships between services and clients on the selected branch.
@@ -85,6 +91,8 @@ The **Graph** tab visualises the dependency relationships between services and c
 - **Red** edges indicate circular dependencies.
 
 Toggle **Detailed view** to show individual endpoint paths on the edges.
+
+Use the **Copy** button to copy the generated Mermaid code to the clipboard, or **Download** to save it as a `.mmd` file.
 
 ### Dependency Report
 
@@ -105,6 +113,6 @@ See [reports/demo.md](reports/demo.md) for an example report.
 
 ## Next Steps
 
-- [CI Integration](ci-integration.md) — Setting up API tokens for CI pipelines.
+- [CI Integration](ci-integration.md) — Setting up API tokens and dry-run validation for CI pipelines.
 - [Administration](administration.md) — Managing users, protected branches, and settings.
 - [Getting Started](getting-started.md) — Installation and first-time setup.

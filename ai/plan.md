@@ -123,5 +123,14 @@ The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Be
 - [ ] SSE for `/require` long-polling and live updates.
 - [ ] WebSocket support (if bidirectional real-time needed).
 
+### 0.6.0 Features
+- [x] Dry-run mode for `/provide`, `/require`, `/require-bundle` (validate without persisting).
+- [x] Descriptive error messages for provide conflicts (409) and missing endpoints (404).
+- [x] Phantom services/clients fix (only list entries with actual data).
+- [x] YAML viewer copy & download buttons.
+- [x] Graph view copy & download buttons (Mermaid code).
+- [x] Documentation updates for 0.6.0 (README, api.yaml, user-guide, ci-integration, developer-guide).
+
 ### Documentation
 - [x] Detailed hands-on user documentation (in `docs/`).
+- [x] CI integration guide (`docs/ci-integration.md`) with dry-run examples and GitHub Actions workflow.

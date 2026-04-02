@@ -92,11 +92,19 @@ Provide an OpenAPI specification for a service branch.
 {
   "servicename": "UserService",
   "branch": "main",
-  "openapi_yaml": "..."
+  "openapi_yaml": "...",
+  "dry_run": false
 }
 ```
 
-**Note:** Sanshain enforces an **Immutable Endpoint Path** policy within a branch. If the DTO/schema for an existing endpoint changes, you must increment the version in the path (e.g., `/api/v1/users` to `/api/v2/users`). Changes to the same path that alter the DTO will be rejected with `409 Conflict`.
+| Field | Required | Description |
+|---|---|---|
+| `servicename` | Yes | Name of the service providing the specification. |
+| `branch` | Yes | Branch name for the specification. |
+| `openapi_yaml` | Yes | The full OpenAPI specification as a YAML string. |
+| `dry_run` | No | When `true`, validates the spec (parsing, conflict detection) without storing anything. Defaults to `false`. |
+
+**Note:** Sanshain enforces an **Immutable Endpoint Path** policy within a branch. If the DTO/schema for an existing endpoint changes, you must increment the version in the path (e.g., `/api/v1/users` to `/api/v2/users`). Changes to the same path that alter the DTO will be rejected with `409 Conflict` and a descriptive error message including the method, path, branch, and service name.
 
 ### 2. `GET /require`
 Request the OpenAPI snippet for a specific endpoint and record the dependency.
@@ -108,14 +116,53 @@ Request the OpenAPI snippet for a specific endpoint and record the dependency.
 - `path`: Endpoint path.
 - `method`: HTTP method (GET, POST, etc.).
 - `timeout` *(optional)*: Long-polling timeout in seconds. If the endpoint is not yet available, the server will poll until it appears or the timeout expires.
+- `dry_run` *(optional)*: When `true`, validates the endpoint lookup without recording a dependency. Defaults to `false`.
+
+If the requested endpoint is not found, the response includes a descriptive error message listing the service name, branch, and endpoint details.
 
 **Feature Branch Fallback:** If the endpoint is not found on a non-protected (feature) branch, Sanshain automatically falls back to protected branches (e.g., `main`, `master`).
 
 **Example:**
 `GET /require?clientname=WebClient&servicename=UserService&branch=main&path=/users&method=GET`
 `GET /require?clientname=WebClient&servicename=UserService&branch=feature/xyz&path=/users&method=GET&timeout=30`
+`GET /require?clientname=WebClient&servicename=UserService&branch=main&path=/users&method=GET&dry_run=true`
 
-### 3. Authentication
+### 3. `POST /require-bundle`
+Request multiple endpoint snippets merged into a single OpenAPI spec and record the dependencies.
+
+**Payload:**
+```json
+{
+  "clientname": "WebClient",
+  "servicename": "UserService",
+  "branch": "main",
+  "endpoints": [
+    { "path": "/users", "method": "GET" },
+    { "path": "/users/{id}", "method": "POST" }
+  ],
+  "timeout": 30,
+  "dry_run": false
+}
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `clientname` | Yes | Name of the client registering the dependencies. |
+| `servicename` | Yes | Name of the service that provides the endpoints. |
+| `branch` | Yes | Branch name to retrieve the endpoints from. |
+| `endpoints` | Yes | List of `{path, method}` objects to include in the merged spec. |
+| `timeout` | No | Long-polling timeout in seconds. |
+| `dry_run` | No | When `true`, validates all endpoints without recording dependencies. Defaults to `false`. |
+
+If some requested endpoints are missing, the response returns `404` with a descriptive message listing all missing endpoints.
+
+### 4. Dry-Run Mode (CI Validation)
+
+All three endpoints (`/provide`, `/require`, `/require-bundle`) support a `dry_run` parameter. When set to `true`, the request runs full validation (YAML parsing, conflict detection, endpoint lookup) but **does not persist any data** — no specs are stored, no client dependencies are recorded.
+
+This enables CI pipelines to test whether a feature branch would be valid against the main branch before allowing a PR to be merged, without polluting the database with temporary data.
+
+### 5. Authentication
 
 Sanshain uses session-based authentication with Argon2 password hashing.
 
@@ -169,9 +216,9 @@ Approved users can create long-lived API tokens for use in CI pipelines (Jenkins
 
 ### Version
 
-`GET /version` returns the service version as JSON: `{"version": "0.5.0"}`.
+`GET /version` returns the service version as JSON: `{"version": "0.6.0"}`.
 
-### 4. Admin API (Session-Based Authentication)
+### 6. Admin API (Session-Based Authentication)
 All `/admin/*` endpoints require a valid admin session token (`Authorization: Bearer <token>`).
 
 #### Protected Branches
@@ -198,7 +245,7 @@ List and delete services, branches, and clients via the admin API. Deleting a se
 - `GET /admin/settings/local-users` — Check if local user registration is enabled.
 - `POST /admin/settings/local-users` — Enable/disable local user registration: `{"enabled": true}`.
 
-### 5. `GET /report`
+### 7. `GET /report`
 Generate a dependency report for a specific branch.
 
 **Query Parameters:**

@@ -374,6 +374,8 @@ struct ProvidePayload {
     servicename: String,
     branch: String,
     openapi_yaml: String,
+    #[serde(default)]
+    dry_run: bool,
 }
 
 #[derive(Deserialize)]
@@ -384,6 +386,8 @@ struct RequireParams {
     path: String,
     method: String,
     timeout: Option<u64>,
+    #[serde(default)]
+    dry_run: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -399,6 +403,8 @@ struct RequireBundlePayload {
     branch: String,
     endpoints: Vec<RequireBundleEndpoint>,
     timeout: Option<u64>,
+    #[serde(default)]
+    dry_run: bool,
 }
 
 #[derive(Deserialize)]
@@ -476,8 +482,8 @@ fn app_error_to_status(e: AppError) -> StatusCode {
             tracing::warn!("Bad request: {}", msg);
             StatusCode::BAD_REQUEST
         }
-        AppError::Conflict => {
-            tracing::warn!("Conflict");
+        AppError::Conflict(ref msg) => {
+            tracing::warn!("Conflict: {}", msg);
             StatusCode::CONFLICT
         }
         AppError::NotFound(ref msg) => {
@@ -504,7 +510,7 @@ fn app_error_to_status_with_body(e: AppError) -> (StatusCode, String) {
         AppError::BadRequest(msg) => msg.clone(),
         AppError::NotFound(msg) => msg.clone(),
         AppError::Internal(msg) => msg.clone(),
-        AppError::Conflict => "Conflict".to_string(),
+        AppError::Conflict(msg) => msg.clone(),
         AppError::Unauthorized => "Unauthorized".to_string(),
         AppError::Forbidden => "Forbidden".to_string(),
     };
@@ -514,28 +520,44 @@ fn app_error_to_status_with_body(e: AppError) -> (StatusCode, String) {
 async fn provide(
     State(state): State<AppState>,
     Json(payload): Json<ProvidePayload>,
-) -> Result<StatusCode, StatusCode> {
-    services::provide_spec(&state.repo, &payload.servicename, &payload.branch, &payload.openapi_yaml)
-        .await
+) -> Result<StatusCode, (StatusCode, String)> {
+    let result = if payload.dry_run {
+        services::provide_spec_dry_run(&state.repo, &payload.servicename, &payload.branch, &payload.openapi_yaml).await
+    } else {
+        services::provide_spec(&state.repo, &payload.servicename, &payload.branch, &payload.openapi_yaml).await
+    };
+    result
         .map(|_| StatusCode::ACCEPTED)
-        .map_err(app_error_to_status)
+        .map_err(app_error_to_status_with_body)
 }
 
 async fn require(
     State(state): State<AppState>,
     Query(params): Query<RequireParams>,
 ) -> Result<String, (StatusCode, String)> {
-    services::require_endpoint(
-        &state.repo,
-        &params.clientname,
-        &params.servicename,
-        &params.branch,
-        &params.path,
-        &params.method,
-        params.timeout,
-    )
-    .await
-    .map_err(|e| app_error_to_status_with_body(e))
+    let dry_run = params.dry_run.unwrap_or(false);
+    let result = if dry_run {
+        services::require_endpoint_dry_run(
+            &state.repo,
+            &params.clientname,
+            &params.servicename,
+            &params.branch,
+            &params.path,
+            &params.method,
+            params.timeout,
+        ).await
+    } else {
+        services::require_endpoint(
+            &state.repo,
+            &params.clientname,
+            &params.servicename,
+            &params.branch,
+            &params.path,
+            &params.method,
+            params.timeout,
+        ).await
+    };
+    result.map_err(|e| app_error_to_status_with_body(e))
 }
 
 async fn require_bundle(
@@ -546,16 +568,26 @@ async fn require_bundle(
         .into_iter()
         .map(|e| (e.path, e.method))
         .collect();
-    services::require_bundle(
-        &state.repo,
-        &payload.clientname,
-        &payload.servicename,
-        &payload.branch,
-        &endpoints,
-        payload.timeout,
-    )
-    .await
-    .map_err(|e| app_error_to_status_with_body(e))
+    let result = if payload.dry_run {
+        services::require_bundle_dry_run(
+            &state.repo,
+            &payload.clientname,
+            &payload.servicename,
+            &payload.branch,
+            &endpoints,
+            payload.timeout,
+        ).await
+    } else {
+        services::require_bundle(
+            &state.repo,
+            &payload.clientname,
+            &payload.servicename,
+            &payload.branch,
+            &endpoints,
+            payload.timeout,
+        ).await
+    };
+    result.map_err(|e| app_error_to_status_with_body(e))
 }
 
 async fn report(

@@ -45,6 +45,7 @@ paths:
         "409":
           description: |
             Conflict — an endpoint on a protected branch already exists with different content.
+            The response body includes the method, path, branch, and service name.
           content:
             text/plain:
               schema:
@@ -104,6 +105,15 @@ paths:
             type: integer
             format: int64
             minimum: 0
+        - name: dry_run
+          in: query
+          required: false
+          description: |
+            When true, validates the endpoint lookup without recording a dependency.
+            Useful for CI dry-run checks.
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
           description: The OpenAPI YAML snippet for the requested endpoint.
@@ -112,7 +122,13 @@ paths:
               schema:
                 type: string
         "404":
-          description: Endpoint not found (after timeout, if specified).
+          description: |
+            Endpoint not found (after timeout, if specified).
+            The response body contains a descriptive error message with the service name, branch, and endpoint details.
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /require-bundle:
     post:
@@ -152,7 +168,13 @@ paths:
               schema:
                 type: string
         "404":
-          description: One or more requested endpoints not found (after timeout, if specified).
+          description: |
+            One or more requested endpoints not found (after timeout, if specified).
+            The response body lists all missing endpoints with service name, branch, and endpoint details.
+          content:
+            text/plain:
+              schema:
+                type: string
 
 components:
   schemas:
@@ -172,6 +194,12 @@ components:
         openapi_yaml:
           type: string
           description: The full OpenAPI specification as a YAML string.
+        dry_run:
+          type: boolean
+          default: false
+          description: |
+            When true, validates the spec (parsing, conflict detection) without storing anything.
+            Useful for CI dry-run checks.
     RequireBundlePayload:
       type: object
       required:
@@ -201,6 +229,12 @@ components:
           description: |
             Optional long-polling timeout in seconds. If the service spec is not yet available,
             the server waits up to this duration before returning 404.
+        dry_run:
+          type: boolean
+          default: false
+          description: |
+            When true, validates all endpoint lookups without recording dependencies.
+            Useful for CI dry-run checks.
     RequireBundleEndpoint:
       type: object
       required:

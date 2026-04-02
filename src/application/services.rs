@@ -7,7 +7,7 @@ use crate::openapi;
 #[derive(Debug)]
 pub enum AppError {
     BadRequest(String),
-    Conflict,
+    Conflict(String),
     NotFound(String),
     Unauthorized,
     Forbidden,
@@ -18,7 +18,7 @@ impl From<RepositoryError> for AppError {
     fn from(e: RepositoryError) -> Self {
         match e {
             RepositoryError::NotFound => AppError::NotFound("Not found".to_string()),
-            RepositoryError::Conflict => AppError::Conflict,
+            RepositoryError::Conflict => AppError::Conflict("Conflict".to_string()),
             RepositoryError::Internal(msg) => AppError::Internal(msg),
         }
     }
@@ -29,6 +29,25 @@ pub async fn provide_spec(
     servicename: &str,
     branch: &str,
     openapi_yaml: &str,
+) -> Result<(), AppError> {
+    provide_spec_inner(repo, servicename, branch, openapi_yaml, false).await
+}
+
+pub async fn provide_spec_dry_run(
+    repo: &impl SpecRepository,
+    servicename: &str,
+    branch: &str,
+    openapi_yaml: &str,
+) -> Result<(), AppError> {
+    provide_spec_inner(repo, servicename, branch, openapi_yaml, true).await
+}
+
+async fn provide_spec_inner(
+    repo: &impl SpecRepository,
+    servicename: &str,
+    branch: &str,
+    openapi_yaml: &str,
+    dry_run: bool,
 ) -> Result<(), AppError> {
     let endpoints = openapi::split_openapi(openapi_yaml)
         .map_err(|e| AppError::BadRequest(e))?;
@@ -56,7 +75,10 @@ pub async fn provide_spec(
                         endpoint.method,
                         endpoint.path
                     );
-                    return Err(AppError::Conflict);
+                    return Err(AppError::Conflict(format!(
+                        "DTO changed for {} {} on protected branch '{}' of service '{}'",
+                        endpoint.method, endpoint.path, branch, servicename
+                    )));
                 } else {
                     tracing::info!(
                         "Updating {} {} on feature branch",
@@ -74,7 +96,10 @@ pub async fn provide_spec(
                     endpoint.method,
                     endpoint.path
                 );
-                return Err(AppError::Conflict);
+                return Err(AppError::Conflict(format!(
+                    "Re-introduction of deleted endpoint {} {} on protected branch '{}' of service '{}'",
+                    endpoint.method, endpoint.path, branch, servicename
+                )));
             }
             to_insert.push(EndpointRecord {
                 id: None,
@@ -83,6 +108,10 @@ pub async fn provide_spec(
                 yaml_content: endpoint.yaml_content,
             });
         }
+    }
+
+    if dry_run {
+        return Ok(());
     }
 
     for endpoint in &to_insert {
@@ -122,7 +151,32 @@ pub async fn require_endpoint(
     method: &str,
     timeout_secs: Option<u64>,
 ) -> Result<String, AppError> {
-    let client_id = repo.ensure_client(clientname).await?;
+    require_endpoint_inner(repo, clientname, servicename, branch, path, method, timeout_secs, false).await
+}
+
+pub async fn require_endpoint_dry_run(
+    repo: &impl SpecRepository,
+    clientname: &str,
+    servicename: &str,
+    branch: &str,
+    path: &str,
+    method: &str,
+    timeout_secs: Option<u64>,
+) -> Result<String, AppError> {
+    require_endpoint_inner(repo, clientname, servicename, branch, path, method, timeout_secs, true).await
+}
+
+async fn require_endpoint_inner(
+    repo: &impl SpecRepository,
+    clientname: &str,
+    servicename: &str,
+    branch: &str,
+    path: &str,
+    method: &str,
+    timeout_secs: Option<u64>,
+    dry_run: bool,
+) -> Result<String, AppError> {
+    let client_id = if dry_run { 0 } else { repo.ensure_client(clientname).await? };
     let service_id = repo.ensure_service(servicename).await?;
 
     let method_upper = method.to_uppercase();
@@ -153,8 +207,10 @@ pub async fn require_endpoint(
         };
 
         if let Some(ref ep) = endpoint {
-            let endpoint_id = Some(ep.0);
-            repo.record_dependency(client_id, endpoint_id, service_id, branch, path, &method_upper).await?;
+            if !dry_run {
+                let endpoint_id = Some(ep.0);
+                repo.record_dependency(client_id, endpoint_id, service_id, branch, path, &method_upper).await?;
+            }
             return Ok(ep.1.clone());
         }
 
@@ -164,7 +220,9 @@ pub async fn require_endpoint(
                 tokio::time::sleep(poll_interval).await;
             }
             _ => {
-                repo.record_dependency(client_id, None, service_id, branch, path, &method_upper).await?;
+                if !dry_run {
+                    repo.record_dependency(client_id, None, service_id, branch, path, &method_upper).await?;
+                }
                 return Err(AppError::NotFound(format!(
                     "Endpoint not found: {} {} on service '{}' branch '{}'",
                     method_upper, path, servicename, branch
@@ -179,14 +237,37 @@ pub async fn require_bundle(
     clientname: &str,
     servicename: &str,
     branch: &str,
+    endpoints: &[(String, String)],
+    timeout_secs: Option<u64>,
+) -> Result<String, AppError> {
+    require_bundle_inner(repo, clientname, servicename, branch, endpoints, timeout_secs, false).await
+}
+
+pub async fn require_bundle_dry_run(
+    repo: &impl SpecRepository,
+    clientname: &str,
+    servicename: &str,
+    branch: &str,
+    endpoints: &[(String, String)],
+    timeout_secs: Option<u64>,
+) -> Result<String, AppError> {
+    require_bundle_inner(repo, clientname, servicename, branch, endpoints, timeout_secs, true).await
+}
+
+async fn require_bundle_inner(
+    repo: &impl SpecRepository,
+    clientname: &str,
+    servicename: &str,
+    branch: &str,
     endpoints: &[(String, String)], // Vec of (path, method)
     timeout_secs: Option<u64>,
+    dry_run: bool,
 ) -> Result<String, AppError> {
     if endpoints.is_empty() {
         return Err(AppError::BadRequest("No endpoints requested".to_string()));
     }
 
-    let client_id = repo.ensure_client(clientname).await?;
+    let client_id = if dry_run { 0 } else { repo.ensure_client(clientname).await? };
     let service_id = repo.ensure_service(servicename).await?;
 
     let deadline = timeout_secs.map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
@@ -220,7 +301,9 @@ pub async fn require_bundle(
             };
 
             if let Some(ref ep) = endpoint {
-                repo.record_dependency(client_id, Some(ep.0), service_id, branch, path, &method_upper).await?;
+                if !dry_run {
+                    repo.record_dependency(client_id, Some(ep.0), service_id, branch, path, &method_upper).await?;
+                }
                 yamls.push(ep.1.clone());
             } else {
                 missing.push((path.clone(), method_upper));
@@ -240,8 +323,10 @@ pub async fn require_bundle(
             }
             _ => {
                 // Record dependencies for missing endpoints
-                for (path, method) in &missing {
-                    repo.record_dependency(client_id, None, service_id, branch, path, method).await?;
+                if !dry_run {
+                    for (path, method) in &missing {
+                        repo.record_dependency(client_id, None, service_id, branch, path, method).await?;
+                    }
                 }
                 let missing_list: Vec<String> = missing.iter()
                     .map(|(p, m)| format!("{} {}", m, p))
@@ -477,7 +562,7 @@ pub async fn register_user(
 
     // Check if username already exists
     if repo.find_user(username).await?.is_some() {
-        return Err(AppError::Conflict);
+        return Err(AppError::Conflict("Username already exists".to_string()));
     }
 
     let password_hash = hash_password(password)?;
@@ -1314,7 +1399,7 @@ paths:
 "#;
         provide_spec(&repo, "svc", "main", yaml1).await.unwrap();
         let result = provide_spec(&repo, "svc", "main", yaml2).await;
-        assert!(matches!(result, Err(AppError::Conflict)));
+        assert!(matches!(result, Err(AppError::Conflict(_))));
     }
 
     #[tokio::test]
@@ -1399,7 +1484,7 @@ paths:
         provide_spec(&repo, "svc", "main", yaml_one).await.unwrap();
         // Re-introducing /orders should be rejected as contract violation
         let result = provide_spec(&repo, "svc", "main", yaml_two).await;
-        assert!(matches!(result, Err(AppError::Conflict)));
+        assert!(matches!(result, Err(AppError::Conflict(_))));
     }
 
     #[tokio::test]
@@ -1651,7 +1736,7 @@ paths:
         // "main" is protected by default
         provide_spec(&repo, "svc", "main", yaml1).await.unwrap();
         let result = provide_spec(&repo, "svc", "main", yaml2).await;
-        assert!(matches!(result, Err(AppError::Conflict)));
+        assert!(matches!(result, Err(AppError::Conflict(_))));
     }
 
     #[tokio::test]
@@ -1785,7 +1870,7 @@ paths:
 
         // Duplicate name should fail
         let result = create_api_token(&repo, user.id, "jenkins-ci", 365).await;
-        assert!(matches!(result, Err(AppError::Conflict)));
+        assert!(matches!(result, Err(AppError::Conflict(_))));
     }
 
     #[tokio::test]

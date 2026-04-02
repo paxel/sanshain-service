@@ -69,7 +69,7 @@ sequenceDiagram
     participant Splitter as openapi.rs
     participant Repo as Repository
 
-    Client->>Handler: POST /provide {service, branch, version, yaml}
+    Client->>Handler: POST /provide {service, branch, version, yaml, dry_run?}
     Handler->>Service: provide_spec(...)
     Service->>Splitter: split_openapi(yaml)
     Splitter-->>Service: Vec<EndpointSpec>
@@ -79,16 +79,21 @@ sequenceDiagram
     else Version exists, same content
         Service-->>Handler: 200 OK (idempotent)
     else New version
-        Service->>Repo: upsert_service, insert endpoints
-        Service-->>Handler: 201 Created
+        alt dry_run = true
+            Service-->>Handler: 202 Accepted (validated, not stored)
+        else
+            Service->>Repo: upsert_service, insert endpoints
+            Service-->>Handler: 201 Created
+        end
     end
     Handler-->>Client: Response
 ```
 
 **Key behaviors:**
 - **Idempotency**: Re-providing the same version with identical content is a no-op (200).
-- **Immutability on protected branches**: Once a version is published on a protected branch (e.g., `main`), it cannot be overwritten. Returns 409.
+- **Immutability on protected branches**: Once a version is published on a protected branch (e.g., `main`), it cannot be overwritten. Returns 409 with a descriptive error message (method, path, branch, service name).
 - **Feature-branch override**: Non-protected branches allow version overwrites (useful for CI iteration).
+- **Dry run**: When `dry_run: true`, all validation runs (parsing, splitting, conflict detection) but nothing is persisted. Returns 202 on success.
 
 ### OpenAPI Splitting (`openapi.rs`)
 
@@ -120,17 +125,23 @@ sequenceDiagram
     participant Service as Application Service
     participant Repo as Repository
 
-    Consumer->>Handler: GET /require?service=X&branch=main&path=/foo&method=GET
+    Consumer->>Handler: GET /require?service=X&branch=main&path=/foo&method=GET&dry_run=false
     Handler->>Service: require_endpoint(...)
     Service->>Repo: lookup endpoint
     alt Found
+        alt dry_run = false
+            Service->>Repo: record dependency
+        end
         Service-->>Handler: EndpointSpec YAML
     else Not found, feature branch requested
         Service->>Repo: fallback to default branch
         alt Found on default
+            alt dry_run = false
+                Service->>Repo: record dependency
+            end
             Service-->>Handler: EndpointSpec YAML (fallback)
         else Still not found
-            Service-->>Handler: 404
+            Service-->>Handler: 404 (descriptive error message)
         end
     end
     Handler-->>Consumer: YAML snippet or 404
@@ -140,7 +151,9 @@ sequenceDiagram
 
 **Feature-branch fallback**: If a consumer requests a feature branch that doesn't exist, Sanshain falls back to the default branch. This means consumers on `main` always get `main` specs, while feature branches get their own overrides if available.
 
-**Dependency tracking**: Every `require` call is recorded, building a dependency graph (Service A → Service B endpoint). This powers the report and graph features.
+**Dependency tracking**: Every `require` call (unless `dry_run=true`) is recorded, building a dependency graph (Service A → Service B endpoint). This powers the report and graph features.
+
+**Descriptive errors**: When an endpoint is not found, the 404 response body includes the service name, branch, and endpoint details. For `/require-bundle`, all missing endpoints are listed.
 
 ---
 
@@ -403,7 +416,13 @@ Located in `tests/integration_test.rs`. These spin up a real Axum server with an
 | `test_protected_branch_immutability` | Cannot overwrite version on protected branch |
 | `test_report_endpoints` | JSON and markdown report generation |
 | `test_auth_config_api` | Auth mode and LDAP config CRUD |
-| ... | 13 tests total |
+| `test_require_does_not_create_phantom_service` | Phantom service prevention |
+| `test_delete_service_does_not_create_phantom_client` | Phantom client prevention |
+| `test_require_missing_endpoint_returns_descriptive_error` | Descriptive 404 error messages |
+| `test_provide_conflict_returns_descriptive_error` | Descriptive 409 error messages |
+| `test_provide_dry_run_does_not_store_data` | Dry-run provide validation |
+| `test_require_dry_run_does_not_create_dependency` | Dry-run require validation |
+| ... | 26 tests total |
 
 ### Running Tests
 

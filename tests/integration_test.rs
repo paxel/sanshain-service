@@ -2059,3 +2059,166 @@ paths:
     assert!(body_str.contains("GET /missing"), "Error body should contain the missing endpoint: {}", body_str);
     assert!(body_str.contains("err-svc"), "Error body should contain the service name: {}", body_str);
 }
+
+#[tokio::test]
+async fn test_provide_conflict_returns_descriptive_error() {
+    let app = setup_app_dev_mode().await;
+
+    let yaml1 = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+    let yaml2 = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      description: Changed DTO
+      responses:
+        '200':
+          description: OK
+"#;
+
+    // Provide first version
+    let payload = json!({ "servicename": "conflict-svc", "branch": "main", "openapi_yaml": yaml1 });
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST").uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // Provide changed version on protected branch — should get 409 with descriptive body
+    let payload2 = json!({ "servicename": "conflict-svc", "branch": "main", "openapi_yaml": yaml2 });
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST").uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload2).unwrap()))
+                .unwrap(),
+        ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body_str = String::from_utf8_lossy(&body);
+    assert!(body_str.contains("GET"), "Error body should contain method: {}", body_str);
+    assert!(body_str.contains("/users"), "Error body should contain path: {}", body_str);
+    assert!(body_str.contains("conflict-svc"), "Error body should contain service name: {}", body_str);
+}
+
+#[tokio::test]
+async fn test_provide_dry_run_does_not_store_data() {
+    let app = setup_app_dev_mode().await;
+
+    let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /items:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+
+    // Provide with dry_run=true
+    let payload = json!({ "servicename": "dry-svc", "branch": "main", "openapi_yaml": yaml, "dry_run": true });
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST").uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // Require the endpoint — should NOT be found since dry_run didn't store it
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/require?clientname=dry-client&servicename=dry-svc&branch=main&path=/items&method=GET")
+                .body(Body::empty())
+                .unwrap(),
+        ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_require_dry_run_does_not_create_dependency() {
+    let (app, admin_token) = setup_app_with_admin().await;
+
+    let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /health:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+
+    // Provide a real spec
+    let payload = json!({ "servicename": "dryreq-svc", "branch": "main", "openapi_yaml": yaml });
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST").uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // Require with dry_run=true — should return the YAML but not create a client
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/require?clientname=dry-client&servicename=dryreq-svc&branch=main&path=/health&method=GET&dry_run=true")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Client should NOT appear in the clients list
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/clients")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let clients: Vec<String> = serde_json::from_slice(&body).unwrap();
+    assert!(
+        !clients.contains(&"dry-client".to_string()),
+        "dry-client should not appear after dry_run require"
+    );
+}

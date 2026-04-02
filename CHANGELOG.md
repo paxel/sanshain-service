@@ -6,7 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.6.0]
 
+### Added
+- **Dry-run mode for provide and require**: all three endpoints (`/provide`, `/require`, `/require-bundle`) now accept a `dry_run` parameter (boolean, in JSON body or query string). When `true`, the request validates everything (YAML parsing, conflict detection, endpoint lookup) but does not persist any data — no specs are stored, no client dependencies are recorded. This enables CI pipelines to test whether a feature branch would be valid against the main branch before allowing a PR to be merged.
+
 ### Changed
+- **Descriptive errors for provide conflicts**: `/provide` now returns a descriptive error message in the response body on 409 Conflict, including the method, path, branch, and service name (e.g., "DTO changed for GET /users on protected branch 'main' of service 'my-svc'").
 - **Descriptive errors for missing endpoints**: `/require` and `/require-bundle` now return the missing endpoint details (method, path, service name, branch) in the response body instead of a bare 404/400 status. `/require-bundle` with partially missing endpoints now returns 404 (was 400) with a list of all missing endpoints, helping clients identify which endpoints were removed on the service side.
 
 ### Fixed
