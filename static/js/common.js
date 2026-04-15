@@ -87,6 +87,46 @@ function loadVersionBadge(elementId) {
         .catch(() => {});
 }
 
+// --- Staleness detection ---
+// Checks the server's version + instance_id against what was stored in sessionStorage.
+// If they differ (server restarted or updated), shows a reload banner at the top of the page.
+function checkStaleness() {
+    fetch('/version')
+        .then(r => r.json())
+        .then(data => {
+            const key = `${data.version}::${data.instance_id}`;
+            const stored = sessionStorage.getItem('sanshain_instance');
+            if (!stored) {
+                // First visit this session — store and move on
+                sessionStorage.setItem('sanshain_instance', key);
+                return;
+            }
+            if (stored !== key) {
+                showReloadBanner();
+            }
+        })
+        .catch(() => {});
+}
+
+function showReloadBanner() {
+    if (document.getElementById('sanshain-reload-banner')) return;
+    const banner = document.createElement('div');
+    banner.id = 'sanshain-reload-banner';
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#fef3c7;border-bottom:2px solid #f59e0b;padding:10px 16px;display:flex;align-items:center;justify-content:center;gap:12px;font-size:14px;color:#92400e;font-family:ui-sans-serif,system-ui,sans-serif;';
+    banner.innerHTML = `
+        <svg style="width:20px;height:20px;flex-shrink:0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z"/>
+        </svg>
+        <span>The server has been updated or restarted. You may be viewing stale data.</span>
+        <button onclick="sessionStorage.setItem('sanshain_instance','');location.reload()" style="background:#f59e0b;color:white;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px;">Reload</button>
+        <button onclick="this.parentElement.remove();sessionStorage.setItem('sanshain_instance','')" style="background:none;border:none;cursor:pointer;color:#92400e;font-size:18px;line-height:1;padding:0 4px;" title="Dismiss">&times;</button>
+    `;
+    document.body.prepend(banner);
+}
+
+// Run staleness check on every page load
+checkStaleness();
+
 // --- Password visibility toggle ---
 function togglePasswordVisibility(inputId, btn) {
     const input = document.getElementById(inputId);

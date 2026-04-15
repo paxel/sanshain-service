@@ -27,7 +27,7 @@ async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
 
     let mut tokens = HashSet::new();
     tokens.insert(TEST_CSRF_TOKEN.to_string());
-    let state = AppState { repo: DatabaseRepo::Sqlite(repo.clone()), db_url: "sqlite::memory:".to_string(), csrf_tokens: Arc::new(RwLock::new(tokens)) };
+    let state = AppState { repo: DatabaseRepo::Sqlite(repo.clone()), db_url: "sqlite::memory:".to_string(), csrf_tokens: Arc::new(RwLock::new(tokens)), instance_id: "test".to_string() };
     let app = create_app(state);
     (app, repo)
 }
@@ -58,7 +58,7 @@ async fn setup_app_with_admin() -> (axum::Router, String) {
 
     let mut tokens = HashSet::new();
     tokens.insert(TEST_CSRF_TOKEN.to_string());
-    let state = AppState { repo: DatabaseRepo::Sqlite(repo), db_url: "sqlite::memory:".to_string(), csrf_tokens: Arc::new(RwLock::new(tokens)) };
+    let state = AppState { repo: DatabaseRepo::Sqlite(repo), db_url: "sqlite::memory:".to_string(), csrf_tokens: Arc::new(RwLock::new(tokens)), instance_id: "test".to_string() };
     let app = create_app(state);
     (app, session.token)
 }

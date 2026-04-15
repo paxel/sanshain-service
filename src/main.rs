@@ -32,6 +32,7 @@ pub struct AppState {
     pub repo: DatabaseRepo,
     pub db_url: String,
     pub csrf_tokens: Arc<RwLock<HashSet<String>>>,
+    pub instance_id: String,
 }
 
 #[tokio::main]
@@ -72,10 +73,14 @@ pub async fn main() {
     // Ensure initial admin user exists
     services::ensure_initial_admin(&repo).await.expect("can't create initial admin");
 
+    let instance_id = uuid::Uuid::new_v4().to_string();
+    tracing::info!("Instance ID: {}", instance_id);
+
     let state = AppState {
         repo,
         db_url: db_connection_str,
         csrf_tokens: Arc::new(RwLock::new(HashSet::new())),
+        instance_id,
     };
 
     // Spawn background branch cleanup task (runs every hour)
@@ -452,11 +457,15 @@ fn mask_database_url(url: &str) -> String {
 #[derive(Serialize)]
 struct VersionResponse {
     version: &'static str,
+    instance_id: String,
 }
 
-async fn version() -> Json<VersionResponse> {
+async fn version(
+    State(state): State<AppState>,
+) -> Json<VersionResponse> {
     Json(VersionResponse {
         version: env!("CARGO_PKG_VERSION"),
+        instance_id: state.instance_id.clone(),
     })
 }
 

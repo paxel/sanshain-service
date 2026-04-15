@@ -346,10 +346,13 @@ function renderCustomGraph(report, svgElement) {
         const delta = e.deltaY > 0 ? 0.9 : 1.1;
         const newScale = Math.max(0.2, Math.min(3, scale * delta));
 
-        // Zoom toward cursor
+        // Convert mouse position from screen pixels to SVG viewBox coordinates
         const rect = svgElement.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
+        const vb = svgElement.viewBox.baseVal;
+        const mx = ((e.clientX - rect.left) / rect.width) * vb.width;
+        const my = ((e.clientY - rect.top) / rect.height) * vb.height;
+
+        // Zoom toward cursor in SVG space
         panX = mx - (mx - panX) * (newScale / scale);
         panY = my - (my - panY) * (newScale / scale);
         scale = newScale;
@@ -359,15 +362,21 @@ function renderCustomGraph(report, svgElement) {
     svgElement.addEventListener('mousedown', e => {
         if (e.button !== 0) return;
         isPanning = true;
-        startX = e.clientX - panX;
-        startY = e.clientY - panY;
+        startX = e.clientX;
+        startY = e.clientY;
         svgElement.style.cursor = 'grabbing';
     });
 
     window.addEventListener('mousemove', e => {
         if (!isPanning) return;
-        panX = e.clientX - startX;
-        panY = e.clientY - startY;
+        const rect = svgElement.getBoundingClientRect();
+        const vb = svgElement.viewBox.baseVal;
+        const dx = ((e.clientX - startX) / rect.width) * vb.width;
+        const dy = ((e.clientY - startY) / rect.height) * vb.height;
+        panX += dx;
+        panY += dy;
+        startX = e.clientX;
+        startY = e.clientY;
         updateTransform();
     });
 
