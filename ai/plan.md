@@ -119,6 +119,11 @@ The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Be
 - [x] Stale dependency pruning (time-based cleanup of `dependencies` rows via `last_seen_at` timestamp).
 - [x] Background maintenance job for expiration/cleanup (branch cleanup runs hourly).
 
+### Custom Dependency Graph Visualization
+- [x] Custom dagre-based SVG graph as default view (MVP): topological layout, color-coded nodes, red cycle edges, hover tooltips, click-to-highlight, zoom/pan.
+- [ ] Edge bundling / merge at endpoint entry points (polish phase).
+- [ ] Export as PNG (polish phase).
+
 ### Web Frontend (other)
 - [ ] SSE for `/require` long-polling and live updates.
 - [ ] WebSocket support (if bidirectional real-time needed).

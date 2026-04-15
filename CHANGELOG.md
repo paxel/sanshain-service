@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.6.0]
 
 ### Added
+- **Custom interactive dependency graph (MVP)**: added a new dagre-based SVG graph view as the default dependency visualization, replacing Mermaid as the primary view. Features topological top-down layout (clients on top, services below), color-coded nodes (client-only, service-only, both), red dashed edges for circular dependencies, hover tooltips showing HTTP method and path on edges, click-to-highlight connected subgraph (dims unrelated nodes), and mouse wheel zoom + drag pan. Mermaid and Detailed views remain available via a view-mode toggle. Copy and Download buttons adapt to the active view (SVG export for custom graph, `.mmd` for Mermaid).
 - **Dry-run mode for provide and require**: all three endpoints (`/provide`, `/require`, `/require-bundle`) now accept a `dry_run` parameter (boolean, in JSON body or query string). When `true`, the request validates everything (YAML parsing, conflict detection, endpoint lookup) but does not persist any data — no specs are stored, no client dependencies are recorded. This enables CI pipelines to test whether a feature branch would be valid against the main branch before allowing a PR to be merged.
 
 ### Changed

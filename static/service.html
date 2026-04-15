@@ -6,6 +6,8 @@
     <title>Sanshain - OpenAPI Distribution Service</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/js/common.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@dagrejs/dagre@1.1.4/dist/dagre.min.js"></script>
+    <script src="/js/graph.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
     <script>
         mermaid.initialize({startOnLoad: false, theme: 'base', themeVariables: {fontSize: '14px', fontFamily: 'ui-sans-serif, system-ui, sans-serif'}});
@@ -83,10 +85,11 @@
                 <select id="graph-branch-select" class="rounded-lg border border-slate-300 text-sm text-slate-700 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <option value="">Loading branches...</option>
                 </select>
-                <label class="flex items-center space-x-2 text-sm text-slate-600 cursor-pointer select-none">
-                    <input type="checkbox" id="graph-detailed-toggle" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
-                    <span>Detailed view</span>
-                </label>
+                <div class="inline-flex rounded-lg border border-slate-300 text-sm overflow-hidden">
+                    <button id="graph-mode-custom" class="px-3 py-1.5 bg-indigo-600 text-white" onclick="switchGraphMode('custom')">Graph</button>
+                    <button id="graph-mode-mermaid" class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50" onclick="switchGraphMode('mermaid')">Mermaid</button>
+                    <button id="graph-mode-detailed" class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50" onclick="switchGraphMode('detailed')">Detailed</button>
+                </div>
                 <button id="graph-copy" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors" title="Copy Mermaid code to clipboard">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg>
                     Copy
@@ -104,8 +107,9 @@
             <span id="graph-cycle-text">Circular dependencies detected (shown in red).</span>
         </div>
         <div id="graph-container"
-             class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex justify-center overflow-x-auto">
-            <div id="mermaid-graph" class="mermaid"></div>
+             class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+            <svg id="custom-graph" class="w-full" style="min-height:400px"></svg>
+            <div id="mermaid-graph" class="mermaid hidden"></div>
         </div>
         <div class="mt-4 flex flex-wrap gap-4 text-xs text-slate-500">
             <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#ccfbf1;border:2px solid #14b8a6"></span> Client only</div>
@@ -699,10 +703,32 @@
 
     let lastGraphReport = null;
     let lastMermaidCode = '';
+    let currentGraphMode = 'custom';
 
-    document.getElementById('graph-detailed-toggle').addEventListener('change', function() {
-        if (lastGraphReport) renderGraph(lastGraphReport, this.checked);
-    });
+    function switchGraphMode(mode) {
+        currentGraphMode = mode;
+        ['custom','mermaid','detailed'].forEach(m => {
+            const btn = document.getElementById(`graph-mode-${m}`);
+            if (btn) {
+                btn.className = m === mode
+                    ? 'px-3 py-1.5 bg-indigo-600 text-white'
+                    : 'px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50';
+            }
+        });
+        if (lastGraphReport) {
+            const customSvg = document.getElementById('custom-graph');
+            const mermaidDiv = document.getElementById('mermaid-graph');
+            if (mode === 'custom') {
+                customSvg.classList.remove('hidden');
+                mermaidDiv.classList.add('hidden');
+                renderCustomGraph(lastGraphReport, customSvg);
+            } else {
+                customSvg.classList.add('hidden');
+                mermaidDiv.classList.remove('hidden');
+                renderGraph(lastGraphReport, mode === 'detailed');
+            }
+        }
+    }
 
     async function showGraph() {
         document.getElementById('service-section').classList.add('hidden');
@@ -737,25 +763,48 @@
     document.getElementById('graph-branch-select').addEventListener('change', () => loadGraph());
 
     async function loadGraph() {
+        const customSvg = document.getElementById('custom-graph');
         const graphDiv = document.getElementById('mermaid-graph');
         const branch = document.getElementById('graph-branch-select').value;
         if (!branch) {
+            customSvg.classList.add('hidden');
+            graphDiv.classList.remove('hidden');
             graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">No branch selected.</div>';
             return;
         }
-        graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">Generating dependency graph...</div>';
+        // Show loading in the active container
+        if (currentGraphMode === 'custom') {
+            while (customSvg.firstChild) customSvg.removeChild(customSvg.firstChild);
+            customSvg.classList.remove('hidden');
+            graphDiv.classList.add('hidden');
+        } else {
+            customSvg.classList.add('hidden');
+            graphDiv.classList.remove('hidden');
+            graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">Generating dependency graph...</div>';
+        }
 
         try {
             const report = await fetchJSON(`/report?branch=${encodeURIComponent(branch)}`);
             lastGraphReport = report;
             if (report.dependency_graph.length === 0) {
+                customSvg.classList.add('hidden');
+                graphDiv.classList.remove('hidden');
                 graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">No dependencies found to visualize.</div>';
                 document.getElementById('graph-cycle-warning').classList.add('hidden');
                 return;
             }
-            const detailed = document.getElementById('graph-detailed-toggle').checked;
-            await renderGraph(report, detailed);
+            if (currentGraphMode === 'custom') {
+                customSvg.classList.remove('hidden');
+                graphDiv.classList.add('hidden');
+                renderCustomGraph(report, customSvg);
+            } else {
+                customSvg.classList.add('hidden');
+                graphDiv.classList.remove('hidden');
+                await renderGraph(report, currentGraphMode === 'detailed');
+            }
         } catch (err) {
+            customSvg.classList.add('hidden');
+            graphDiv.classList.remove('hidden');
             graphDiv.innerHTML = `<div class="text-red-500 p-4">Error generating graph: ${err.message}</div>`;
         }
     }
@@ -913,9 +962,17 @@
     }
 
     document.getElementById('graph-copy').onclick = () => {
-        if (!lastMermaidCode) return;
+        let content;
+        if (currentGraphMode === 'custom') {
+            const svg = document.getElementById('custom-graph');
+            if (!svg.firstChild) return;
+            content = getCustomGraphSVG(svg);
+        } else {
+            if (!lastMermaidCode) return;
+            content = lastMermaidCode;
+        }
         const btn = document.getElementById('graph-copy');
-        navigator.clipboard.writeText(lastMermaidCode).then(() => {
+        navigator.clipboard.writeText(content).then(() => {
             btn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copied!`;
             setTimeout(() => {
                 btn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg> Copy`;
@@ -924,13 +981,25 @@
     };
 
     document.getElementById('graph-download').onclick = () => {
-        if (!lastMermaidCode) return;
         const branch = document.getElementById('graph-branch-select').value || 'graph';
-        const blob = new Blob([lastMermaidCode], { type: 'text/plain' });
+        let content, filename, mime;
+        if (currentGraphMode === 'custom') {
+            const svg = document.getElementById('custom-graph');
+            if (!svg.firstChild) return;
+            content = getCustomGraphSVG(svg);
+            filename = `dependency_graph_${branch}.svg`;
+            mime = 'image/svg+xml';
+        } else {
+            if (!lastMermaidCode) return;
+            content = lastMermaidCode;
+            filename = `dependency_graph_${branch}.mmd`;
+            mime = 'text/plain';
+        }
+        const blob = new Blob([content], { type: mime });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `dependency_graph_${branch}.mmd`;
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
