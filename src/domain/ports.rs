@@ -34,8 +34,14 @@ pub trait SpecRepository: Send + Sync {
     /// Ensure a service exists and return its ID.
     fn ensure_service(&self, name: &str) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
 
+    /// Find a service by name (read-only, does not create). Returns None if not found.
+    fn find_service(&self, name: &str) -> impl Future<Output = Result<Option<i64>, RepositoryError>> + Send;
+
     /// Ensure a branch exists for a service and return its ID.
     fn ensure_branch(&self, service_id: i64, branch_name: &str) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
+
+    /// Find a branch by service ID and name (read-only, does not create). Returns None if not found.
+    fn find_branch(&self, service_id: i64, branch_name: &str) -> impl Future<Output = Result<Option<i64>, RepositoryError>> + Send;
 
     /// Fetch all existing endpoints for a branch.
     fn get_endpoints_for_branch(&self, branch_id: i64) -> impl Future<Output = Result<Vec<EndpointRecord>, RepositoryError>> + Send;

@@ -46,6 +46,23 @@ impl SqliteSpecRepository {
 }
 
 impl SpecRepository for SqliteSpecRepository {
+    async fn find_service(&self, name: &str) -> Result<Option<i64>, RepositoryError> {
+        let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM services WHERE name = ?")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.map(|r| r.0))
+    }
+    async fn find_branch(&self, service_id: i64, branch_name: &str) -> Result<Option<i64>, RepositoryError> {
+        let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM branches WHERE service_id = ? AND name = ?")
+            .bind(service_id)
+            .bind(branch_name)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.map(|r| r.0))
+    }
     async fn ensure_service(&self, name: &str) -> Result<i64, RepositoryError> {
         sqlx::query("INSERT OR IGNORE INTO services (name) VALUES (?)")
             .bind(name)

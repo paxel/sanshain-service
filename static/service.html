@@ -34,7 +34,6 @@
             <a href="/service.html" class="hover:text-indigo-200">Services</a>
             <a href="#graph" onclick="showGraph()" class="hover:text-indigo-200">Graph</a>
             <a href="#clients" onclick="showClients()" class="hover:text-indigo-200">Clients</a>
-            <a href="/account.html" class="hover:text-indigo-200">Account</a>
         </div>
     </div>
 </nav>
@@ -335,20 +334,30 @@
         list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading endpoints...</div>';
 
         try {
-            const report = await fetchJSON(`/report?branch=${encodeURIComponent(branchName)}`);
-            const serviceEndpoints = [
+            // Fetch actual provided endpoints from admin API
+            const providedEndpoints = await fetchJSON(`/admin/services/${encodeURIComponent(serviceName)}/branches/${encodeURIComponent(branchName)}/endpoints`);
+            // Also fetch report for client/usage info
+            let report = { dependency_graph: [], unused_endpoints: [] };
+            try {
+                report = await fetchJSON(`/report?branch=${encodeURIComponent(branchName)}`);
+            } catch (_) {}
+
+            // Build endpoint list from provided endpoints (authoritative source)
+            const uniqueEndpoints = (providedEndpoints || []).map(e => ({ path: e.path, method: e.method, service: serviceName }));
+
+            // Also add any report-only endpoints not already in provided list
+            const providedKeys = new Set(uniqueEndpoints.map(e => `${e.method}:${e.path}`));
+            const reportEndpoints = [
                 ...report.dependency_graph.filter(e => e.service === serviceName),
                 ...report.unused_endpoints.filter(e => e.service === serviceName)
             ];
-
-            // Deduplicate by path+method
-            const seen = new Set();
-            const uniqueEndpoints = serviceEndpoints.filter(e => {
+            for (const e of reportEndpoints) {
                 const key = `${e.method}:${e.path}`;
-                if (seen.has(key)) return false;
-                seen.add(key);
-                return true;
-            });
+                if (!providedKeys.has(key)) {
+                    providedKeys.add(key);
+                    uniqueEndpoints.push(e);
+                }
+            }
 
             // Find clients per endpoint from dependency_graph
             const clientsMap = {};
@@ -358,8 +367,9 @@
                 clientsMap[key].add(e.client);
             });
 
-            // Check which endpoints are unused
-            const unusedSet = new Set(report.unused_endpoints.filter(e => e.service === serviceName).map(e => `${e.method}:${e.path}`));
+            // Check which endpoints are unused (provided but no clients)
+            const usedKeys = new Set(report.dependency_graph.filter(e => e.service === serviceName).map(e => `${e.method}:${e.path}`));
+            const unusedSet = new Set(uniqueEndpoints.filter(e => !usedKeys.has(`${e.method}:${e.path}`)).map(e => `${e.method}:${e.path}`));
 
             list.innerHTML = '';
 
@@ -400,7 +410,7 @@
                         <div class="flex items-center">
                             ${isUnused
                                 ? '<span class="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full mr-2">unused</span>'
-                                : `<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2">${clients.length} client${clients.length !== 1 ? 's' : ''}</span>`}
+                                : `<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2 relative client-badge-wrapper" data-clients="${clients.map(c => c).join(',')}" onclick="event.stopPropagation(); toggleClientPopover(this)">${clients.length} client${clients.length !== 1 ? 's' : ''} ▾</span>`}
                             <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                             </svg>
@@ -705,6 +715,44 @@
         render();
     }
 
+    function toggleClientPopover(badge) {
+        // Close any existing popover
+        document.querySelectorAll('.client-popover').forEach(p => p.remove());
+        const clients = badge.dataset.clients.split(',').filter(Boolean);
+        if (clients.length === 0) return;
+        const popover = document.createElement('div');
+        popover.className = 'client-popover absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 py-1 min-w-[180px]';
+        popover.innerHTML = clients.map(c =>
+            `<button class="block w-full text-left px-3 py-1.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700" onclick="event.stopPropagation(); navigateToClient('${c}')">${c}</button>`
+        ).join('');
+        badge.style.position = 'relative';
+        badge.appendChild(popover);
+        // Close on outside click
+        setTimeout(() => {
+            const handler = (e) => { if (!badge.contains(e.target)) { popover.remove(); document.removeEventListener('click', handler); } };
+            document.addEventListener('click', handler);
+        }, 0);
+    }
+
+    function navigateToClient(clientName) {
+        document.querySelectorAll('.client-popover').forEach(p => p.remove());
+        // Switch to clients tab and show that client's branches
+        document.getElementById('service-section').classList.add('hidden');
+        document.getElementById('client-section').classList.remove('hidden');
+        document.getElementById('graph-section').classList.add('hidden');
+        document.getElementById('modal').classList.add('hidden');
+        showClientBranches(clientName);
+    }
+
+    function navigateToServiceEndpoint(serviceName, branch, path, method) {
+        // Switch to services tab and show that service's branch endpoints
+        document.getElementById('client-section').classList.add('hidden');
+        document.getElementById('service-section').classList.remove('hidden');
+        document.getElementById('graph-section').classList.add('hidden');
+        document.getElementById('modal').classList.add('hidden');
+        showServiceBranchEndpoints(serviceName, branch);
+    }
+
     function getMethodColor(m) {
         const colors = {
             'GET': 'bg-blue-100 text-blue-700',
@@ -868,7 +916,7 @@
                         </div>
                         <div class="flex items-center">
                             ${ep.yaml_content
-                                ? '<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2">resolved</span>'
+                                ? `<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2 cursor-pointer hover:bg-green-100" onclick="event.stopPropagation(); navigateToServiceEndpoint('${ep.service}', '${ep.branch}', '${ep.path}', '${ep.method}')">resolved → ${ep.service}</span>`
                                 : '<span class="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full mr-2">pending</span>'}
                             ${ep.yaml_content ? '<svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>' : ''}
                         </div>

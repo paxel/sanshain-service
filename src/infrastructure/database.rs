@@ -33,9 +33,14 @@ impl SpecRepository for DatabaseRepo {
     async fn ensure_service(&self, name: &str) -> Result<i64, RepositoryError> {
         delegate!(self, ensure_service(name))
     }
-
+    async fn find_service(&self, name: &str) -> Result<Option<i64>, RepositoryError> {
+        delegate!(self, find_service(name))
+    }
     async fn ensure_branch(&self, service_id: i64, branch_name: &str) -> Result<i64, RepositoryError> {
         delegate!(self, ensure_branch(service_id, branch_name))
+    }
+    async fn find_branch(&self, service_id: i64, branch_name: &str) -> Result<Option<i64>, RepositoryError> {
+        delegate!(self, find_branch(service_id, branch_name))
     }
 
     async fn get_endpoints_for_branch(&self, branch_id: i64) -> Result<Vec<EndpointRecord>, RepositoryError> {

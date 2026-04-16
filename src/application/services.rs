@@ -52,8 +52,20 @@ async fn provide_spec_inner(
     let endpoints = openapi::split_openapi(openapi_yaml)
         .map_err(|e| AppError::BadRequest(e))?;
 
-    let service_id = repo.ensure_service(servicename).await?;
-    let branch_id = repo.ensure_branch(service_id, branch).await?;
+    let (_service_id, branch_id) = if dry_run {
+        // Read-only: don't create service/branch records
+        match repo.find_service(servicename).await? {
+            Some(sid) => match repo.find_branch(sid, branch).await? {
+                Some(bid) => (sid, bid),
+                None => return Ok(()), // Branch doesn't exist, nothing to validate against
+            },
+            None => return Ok(()), // Service doesn't exist, nothing to validate against
+        }
+    } else {
+        let sid = repo.ensure_service(servicename).await?;
+        let bid = repo.ensure_branch(sid, branch).await?;
+        (sid, bid)
+    };
     let is_protected = repo.is_branch_protected(branch).await?;
 
     let existing = repo.get_endpoints_for_branch(branch_id).await?;
@@ -277,7 +289,16 @@ async fn require_endpoint_inner(
     dry_run: bool,
 ) -> Result<String, AppError> {
     let client_id = if dry_run { 0 } else { repo.ensure_client(clientname).await? };
-    let service_id = repo.ensure_service(servicename).await?;
+    let service_id = if dry_run {
+        match repo.find_service(servicename).await? {
+            Some(id) => id,
+            None => return Err(AppError::NotFound(format!(
+                "Service '{}' not found", servicename
+            ))),
+        }
+    } else {
+        repo.ensure_service(servicename).await?
+    };
 
     let method_upper = method.to_uppercase();
 
@@ -368,7 +389,16 @@ async fn require_bundle_inner(
     }
 
     let client_id = if dry_run { 0 } else { repo.ensure_client(clientname).await? };
-    let service_id = repo.ensure_service(servicename).await?;
+    let service_id = if dry_run {
+        match repo.find_service(servicename).await? {
+            Some(id) => id,
+            None => return Err(AppError::NotFound(format!(
+                "Service '{}' not found", servicename
+            ))),
+        }
+    } else {
+        repo.ensure_service(servicename).await?
+    };
 
     let deadline = timeout_secs.map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
     let poll_interval = std::time::Duration::from_millis(500);
@@ -1084,7 +1114,10 @@ mod tests {
             services.insert(name.to_string(), id);
             Ok(id)
         }
-
+        async fn find_service(&self, name: &str) -> Result<Option<i64>, RepositoryError> {
+            let services = self.services.lock().unwrap();
+            Ok(services.get(name).copied())
+        }
         async fn ensure_branch(&self, service_id: i64, branch_name: &str) -> Result<i64, RepositoryError> {
             let mut branches = self.branches.lock().unwrap();
             let key = (service_id, branch_name.to_string());
@@ -1094,6 +1127,11 @@ mod tests {
             let id = self.next_id();
             branches.insert(key, id);
             Ok(id)
+        }
+        async fn find_branch(&self, service_id: i64, branch_name: &str) -> Result<Option<i64>, RepositoryError> {
+            let branches = self.branches.lock().unwrap();
+            let key = (service_id, branch_name.to_string());
+            Ok(branches.get(&key).copied())
         }
 
         async fn get_endpoints_for_branch(&self, branch_id: i64) -> Result<Vec<EndpointRecord>, RepositoryError> {
@@ -2557,5 +2595,37 @@ paths:
         let repo = MockRepo::new();
         let deleted = cleanup_stale_dependencies(&repo).await.unwrap();
         assert_eq!(deleted, 0);
+    }
+
+    #[tokio::test]
+    async fn test_dry_run_provide_does_not_create_records() {
+        let repo = MockRepo::new();
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        // Dry-run provide for a new service should not create service/branch/endpoint records
+        provide_spec_dry_run(&repo, "ghost-service", "main", yaml).await.unwrap();
+        assert!(repo.services.lock().unwrap().is_empty(), "dry-run should not create service");
+        assert!(repo.branches.lock().unwrap().is_empty(), "dry-run should not create branch");
+        assert!(repo.endpoints.lock().unwrap().is_empty(), "dry-run should not create endpoints");
+    }
+
+    #[tokio::test]
+    async fn test_dry_run_require_does_not_create_records() {
+        let repo = MockRepo::new();
+        // Dry-run require for a non-existent service should return NotFound, not create records
+        let result = require_endpoint_dry_run(&repo, "ghost-client", "ghost-service", "main", "/foo", "GET", None).await;
+        assert!(result.is_err(), "should return error for non-existent service");
+        assert!(repo.services.lock().unwrap().is_empty(), "dry-run should not create service");
+        assert!(repo.clients.lock().unwrap().is_empty(), "dry-run should not create client");
     }
 }

@@ -4,32 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.7.2]
-### Changed
-- **Dedicated read-only admin endpoints for the UI**: the frontend no longer abuses the business-logic `/require` endpoint (with `clientname=_viewer&dry_run=true`) to fetch YAML previews. Three new read-only admin endpoints replace it: `GET /admin/endpoint-yaml` (fetch YAML content), `GET /admin/endpoint-versions` (fetch version history), and `GET /admin/services/{name}/branches/{branch}/endpoints` (list endpoints for a service branch). This eliminates the `_viewer` ghost client issue and enforces proper separation between business APIs and UI data access.
-
-## [0.7.1]
-### Fixed
-- **Diff view readability**: stored diffs now render with colored add/remove spans instead of unstyled black text on dark background.
-
-### Added
-- **Dark/light mode toggle**: a 🌙/☀️ button in the navigation bar lets users switch between light and dark themes. Preference is stored in a cookie (`sanshain_theme`) and persists across sessions and pages.
-
 ## [0.7.0]
+
 ### Added
 - **Backward compatibility checking for protected branches**: instead of rejecting all YAML changes on protected branches, the service now parses and compares the old and new OpenAPI specs structurally. Backward-compatible changes (adding optional fields, new schemas, new endpoints) are accepted; breaking changes (removing fields, changing types, removing response codes or schemas) are rejected with a descriptive error.
 - **Endpoint version history**: every backward-compatible update on a protected branch records a new version with the full YAML content and a unified diff from the previous version. New `GET /endpoint-versions` API endpoint returns the version history for a given endpoint (query params: `servicename`, `branch`, `path`, `method`).
 - **`endpoint_versions` database table**: new migration adds version tracking storage for both SQLite and PostgreSQL backends.
 - **Version history & diff UI**: when viewing an endpoint with multiple versions, the modal now shows a tabbed interface with "Current YAML" and "Version History" tabs. The history tab lists all versions with expandable YAML view and diff-from-previous buttons, plus a compare tool to diff any two arbitrary versions using client-side LCS diff with color-coded added/removed lines.
+- **Dark/light mode toggle**: a 🌙/☀️ button in the navigation bar lets users switch between light and dark themes. Preference is stored in a cookie (`sanshain_theme`) and persists across sessions and pages.
+- **Dedicated read-only admin endpoints for the UI**: three new read-only admin endpoints replace the previous pattern of abusing `/require` for YAML previews: `GET /admin/endpoint-yaml` (fetch YAML content), `GET /admin/endpoint-versions` (fetch version history), and `GET /admin/services/{name}/branches/{branch}/endpoints` (list endpoints for a service branch). This eliminates the `_viewer` ghost client issue and enforces proper separation between business APIs and UI data access.
+- **Stale UI detection**: each page now checks the server's version and instance ID on load. When the server has been restarted or updated, a yellow banner appears offering a one-click reload, eliminating the need to manually clear browser cache.
+- **Custom interactive dependency graph (MVP)**: added a new dagre-based SVG graph view as the default dependency visualization, replacing Mermaid as the primary view. Features topological top-down layout (clients on top, services below), color-coded nodes (client-only, service-only, both), red dashed edges for circular dependencies, hover tooltips showing HTTP method and path on edges, click-to-highlight connected subgraph (dims unrelated nodes), and mouse wheel zoom + drag pan. Mermaid and Detailed views remain available via a view-mode toggle. Copy and Download buttons adapt to the active view (SVG export for custom graph, `.mmd` for Mermaid).
+
+- **Cross-navigation between services and clients**: the "N clients" badge on service endpoints now shows a dropdown listing each client with a click-to-navigate link. The "resolved" badge on client endpoints now links back to the providing service endpoint. This makes it easy to explore the dependency graph directly from the endpoint views.
+
 ### Fixed
 - **Dependency graph filtering**: fixed over-aggressive JOIN that hid valid endpoints from the dependency report/UI. Now uses LEFT JOIN with a WHERE filter so dependencies are shown unless the target endpoint is explicitly soft-deleted.
+- **Diff view readability**: stored diffs now render with colored add/remove spans instead of unstyled black text on dark background.
+- **Service endpoints not visible in UI**: the service detail page was fetching endpoints only from the `/report` endpoint (dependency graph + unused), which meant services with no client dependencies (e.g., dry-run-service) showed "No endpoints found". Now fetches the authoritative list from `/admin/services/{name}/branches/{branch}/endpoints` and merges report data for client/usage info.
+- **Dry-run mode no longer creates database records**: `provide` and `require` with `dry_run=true` previously called `ensure_service`/`ensure_branch`/`ensure_client` which created service, branch, and client records as a side effect. Now uses read-only `find_service`/`find_branch` lookups so dry-run is truly side-effect-free.
+- **Graph zoom/pan not centering on mouse cursor**: zoom via mouse wheel now correctly centers on the cursor position, and panning moves at the expected speed. Previously, the coordinate conversion between screen pixels and SVG viewBox space was missing, causing the graph to drift down-right when zooming.
 
 ## [0.6.0]
 
 ### Added
-- **Stale UI detection**: each page now checks the server's version and instance ID on load. When the server has been restarted or updated, a yellow banner appears offering a one-click reload, eliminating the need to manually clear browser cache.
-- **Custom interactive dependency graph (MVP)**: added a new dagre-based SVG graph view as the default dependency visualization, replacing Mermaid as the primary view. Features topological top-down layout (clients on top, services below), color-coded nodes (client-only, service-only, both), red dashed edges for circular dependencies, hover tooltips showing HTTP method and path on edges, click-to-highlight connected subgraph (dims unrelated nodes), and mouse wheel zoom + drag pan. Mermaid and Detailed views remain available via a view-mode toggle. Copy and Download buttons adapt to the active view (SVG export for custom graph, `.mmd` for Mermaid).
 - **Dry-run mode for provide and require**: all three endpoints (`/provide`, `/require`, `/require-bundle`) now accept a `dry_run` parameter (boolean, in JSON body or query string). When `true`, the request validates everything (YAML parsing, conflict detection, endpoint lookup) but does not persist any data — no specs are stored, no client dependencies are recorded. This enables CI pipelines to test whether a feature branch would be valid against the main branch before allowing a PR to be merged.
+- **YAML viewer copy & download buttons**: the paginated YAML display on the service overview page now includes "Copy" (clipboard) and "Download" (`.yaml` file) buttons for easy content export.
+- **Graph view copy & download buttons**: the dependency graph view now includes "Copy" (clipboard) and "Download" (`.mmd` file) buttons to export the generated Mermaid code.
 
 ### Changed
 - **Descriptive errors for provide conflicts**: `/provide` now returns a descriptive error message in the response body on 409 Conflict, including the method, path, branch, and service name (e.g., "DTO changed for GET /users on protected branch 'main' of service 'my-svc'").
@@ -38,11 +39,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - **Phantom services in service list**: services that were only referenced by client dependencies (via `/require`) but never had specs uploaded no longer appear in the services list with 0 branches.
 - **Phantom clients in client list**: clients whose dependencies were removed (e.g., after deleting a service) no longer appear in the clients list with 0 branches.
-- **Graph zoom/pan not centering on mouse cursor**: zoom via mouse wheel now correctly centers on the cursor position, and panning moves at the expected speed. Previously, the coordinate conversion between screen pixels and SVG viewBox space was missing, causing the graph to drift down-right when zooming.
-
-### Added
-- **YAML viewer copy & download buttons**: the paginated YAML display on the service overview page now includes "Copy" (clipboard) and "Download" (`.yaml` file) buttons for easy content export.
-- **Graph view copy & download buttons**: the dependency graph view now includes "Copy" (clipboard) and "Download" (`.mmd` file) buttons to export the generated Mermaid code.
 
 ## [0.5.1]
 
