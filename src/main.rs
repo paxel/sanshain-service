@@ -336,6 +336,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/require-bundle", post(require_bundle))
         .route("/report", get(report))
         .route("/report/markdown", get(report_markdown))
+        .route("/endpoint-versions", get(endpoint_versions))
         .route_layer(middleware::from_fn_with_state(state.clone(), api_auth));
 
     Router::new()
@@ -623,6 +624,30 @@ async fn report_markdown(
         "text/markdown; charset=utf-8".parse().unwrap(),
     );
     Ok((headers, md))
+}
+
+#[derive(Deserialize)]
+struct EndpointVersionsParams {
+    servicename: String,
+    branch: String,
+    path: String,
+    method: String,
+}
+
+async fn endpoint_versions(
+    State(state): State<AppState>,
+    Query(params): Query<EndpointVersionsParams>,
+) -> Result<Json<Vec<domain::models::EndpointVersion>>, (StatusCode, String)> {
+    services::get_endpoint_version_history(
+        &state.repo,
+        &params.servicename,
+        &params.branch,
+        &params.path,
+        &params.method,
+    )
+    .await
+    .map(Json)
+    .map_err(|e| app_error_to_status_with_body(e))
 }
 
 // --- Auth endpoints ---

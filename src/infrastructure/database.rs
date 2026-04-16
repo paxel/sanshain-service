@@ -197,4 +197,20 @@ impl SpecRepository for DatabaseRepo {
     async fn delete_stale_dependencies(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
         delegate!(self, delete_stale_dependencies(cutoff_iso))
     }
+
+    async fn get_endpoint_id(&self, branch_id: i64, path: &str, method: &str) -> Result<Option<i64>, RepositoryError> {
+        delegate!(self, get_endpoint_id(branch_id, path, method))
+    }
+
+    async fn insert_endpoint_version(&self, endpoint_id: i64, version: i32, yaml_content: &str, diff: Option<&str>, created_at: &str) -> Result<(), RepositoryError> {
+        delegate!(self, insert_endpoint_version(endpoint_id, version, yaml_content, diff, created_at))
+    }
+
+    async fn get_latest_endpoint_version(&self, endpoint_id: i64) -> Result<i32, RepositoryError> {
+        delegate!(self, get_latest_endpoint_version(endpoint_id))
+    }
+
+    async fn get_endpoint_versions(&self, endpoint_id: i64) -> Result<Vec<EndpointVersion>, RepositoryError> {
+        delegate!(self, get_endpoint_versions(endpoint_id))
+    }
 }

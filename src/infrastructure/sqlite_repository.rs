@@ -896,4 +896,57 @@ impl SpecRepository for SqliteSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(result.rows_affected())
     }
+
+    async fn get_endpoint_id(&self, branch_id: i64, path: &str, method: &str) -> Result<Option<i64>, RepositoryError> {
+        let row: Option<(i64,)> = sqlx::query_as(
+            "SELECT id FROM endpoints WHERE branch_id = ? AND path = ? AND method = ? AND deleted = 0"
+        )
+        .bind(branch_id)
+        .bind(path)
+        .bind(method)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.map(|(id,)| id))
+    }
+
+    async fn insert_endpoint_version(&self, endpoint_id: i64, version: i32, yaml_content: &str, diff: Option<&str>, created_at: &str) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT INTO endpoint_versions (endpoint_id, version, yaml_content, diff_from_previous, created_at) VALUES (?, ?, ?, ?, ?)"
+        )
+        .bind(endpoint_id)
+        .bind(version)
+        .bind(yaml_content)
+        .bind(diff)
+        .bind(created_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn get_latest_endpoint_version(&self, endpoint_id: i64) -> Result<i32, RepositoryError> {
+        let row: Option<(i32,)> = sqlx::query_as(
+            "SELECT MAX(version) FROM endpoint_versions WHERE endpoint_id = ?"
+        )
+        .bind(endpoint_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.and_then(|(v,)| Some(v)).unwrap_or(0))
+    }
+
+    async fn get_endpoint_versions(&self, endpoint_id: i64) -> Result<Vec<EndpointVersion>, RepositoryError> {
+        let rows: Vec<(i64, i64, i32, String, Option<String>, String)> = sqlx::query_as(
+            "SELECT id, endpoint_id, version, yaml_content, diff_from_previous, created_at FROM endpoint_versions WHERE endpoint_id = ? ORDER BY version ASC"
+        )
+        .bind(endpoint_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|(id, endpoint_id, version, yaml_content, diff_from_previous, created_at)| EndpointVersion {
+            id, endpoint_id, version, yaml_content, diff_from_previous, created_at,
+        }).collect())
+    }
 }

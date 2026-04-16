@@ -70,15 +70,25 @@ async fn provide_spec_inner(
         if let Some(existing_yaml) = existing_map.remove(&key) {
             if existing_yaml != endpoint.yaml_content {
                 if is_protected {
-                    tracing::warn!(
-                        "Rejected update for {} {}: DTO changed on protected branch",
+                    // Check backward compatibility instead of rejecting outright
+                    if let Err(reason) = openapi::check_backward_compatibility(&existing_yaml, &endpoint.yaml_content) {
+                        tracing::warn!(
+                            "Rejected update for {} {}: breaking change on protected branch: {}",
+                            endpoint.method,
+                            endpoint.path,
+                            reason
+                        );
+                        return Err(AppError::Conflict(format!(
+                            "Breaking change for {} {} on protected branch '{}' of service '{}': {}",
+                            endpoint.method, endpoint.path, branch, servicename, reason
+                        )));
+                    }
+                    tracing::info!(
+                        "Accepting backward-compatible update for {} {} on protected branch",
                         endpoint.method,
                         endpoint.path
                     );
-                    return Err(AppError::Conflict(format!(
-                        "DTO changed for {} {} on protected branch '{}' of service '{}'",
-                        endpoint.method, endpoint.path, branch, servicename
-                    )));
+                    to_update.push(endpoint);
                 } else {
                     tracing::info!(
                         "Updating {} {} on feature branch",
@@ -119,6 +129,20 @@ async fn provide_spec_inner(
     }
 
     for endpoint in &to_update {
+        // Record version history for protected branch updates
+        if is_protected {
+            if let Some(endpoint_id) = repo.get_endpoint_id(branch_id, &endpoint.path, &endpoint.method).await? {
+                let existing_endpoints = repo.get_endpoints_for_branch(branch_id).await?;
+                let old_yaml = existing_endpoints.iter()
+                    .find(|e| e.path == endpoint.path && e.method == endpoint.method)
+                    .map(|e| e.yaml_content.as_str());
+                let latest_version = repo.get_latest_endpoint_version(endpoint_id).await?;
+                let new_version = latest_version + 1;
+                let diff = old_yaml.map(|old| openapi::generate_diff(old, &endpoint.yaml_content));
+                let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                repo.insert_endpoint_version(endpoint_id, new_version, &endpoint.yaml_content, diff.as_deref(), &now).await?;
+            }
+        }
         repo.update_endpoint(branch_id, &endpoint.path, &endpoint.method, &endpoint.yaml_content).await?;
     }
 
@@ -140,6 +164,27 @@ async fn provide_spec_inner(
     }
 
     Ok(())
+}
+
+pub async fn get_endpoint_version_history(
+    repo: &impl SpecRepository,
+    servicename: &str,
+    branch: &str,
+    path: &str,
+    method: &str,
+) -> Result<Vec<EndpointVersion>, AppError> {
+    let service_id = repo.ensure_service(servicename).await?;
+    let branch_id = repo.ensure_branch(service_id, branch).await?;
+    let method_upper = method.to_uppercase();
+
+    let endpoint_id = repo.get_endpoint_id(branch_id, path, &method_upper).await?
+        .ok_or_else(|| AppError::NotFound(format!(
+            "Endpoint {} {} not found on branch '{}' of service '{}'",
+            method_upper, path, branch, servicename
+        )))?;
+
+    let versions = repo.get_endpoint_versions(endpoint_id).await?;
+    Ok(versions)
 }
 
 pub async fn require_endpoint(
@@ -943,6 +988,7 @@ mod tests {
         sessions: Mutex<Vec<Session>>,
         settings: Mutex<HashMap<String, String>>,
         api_tokens: Mutex<Vec<ApiToken>>,
+        endpoint_versions: Mutex<Vec<EndpointVersion>>,
     }
 
     impl MockRepo {
@@ -961,6 +1007,7 @@ mod tests {
                 sessions: Mutex::new(Vec::new()),
                 settings: Mutex::new(settings),
                 api_tokens: Mutex::new(Vec::new()),
+                endpoint_versions: Mutex::new(Vec::new()),
             }
         }
 
@@ -1328,6 +1375,45 @@ mod tests {
         async fn delete_stale_dependencies(&self, _cutoff_iso: &str) -> Result<u64, RepositoryError> {
             Ok(0)
         }
+
+        async fn get_endpoint_id(&self, branch_id: i64, path: &str, method: &str) -> Result<Option<i64>, RepositoryError> {
+            let endpoints = self.endpoints.lock().unwrap();
+            let deleted = self.deleted_endpoints.lock().unwrap();
+            if let Some(eps) = endpoints.get(&branch_id) {
+                for ep in eps {
+                    if ep.path == path && ep.method == method
+                        && !deleted.contains(&(branch_id, ep.path.clone(), ep.method.clone()))
+                    {
+                        return Ok(ep.id);
+                    }
+                }
+            }
+            Ok(None)
+        }
+
+        async fn insert_endpoint_version(&self, endpoint_id: i64, version: i32, yaml_content: &str, diff: Option<&str>, created_at: &str) -> Result<(), RepositoryError> {
+            let mut versions = self.endpoint_versions.lock().unwrap();
+            let next_id = versions.len() as i64 + 1;
+            versions.push(EndpointVersion {
+                id: next_id,
+                endpoint_id,
+                version,
+                yaml_content: yaml_content.to_string(),
+                diff_from_previous: diff.map(|s| s.to_string()),
+                created_at: created_at.to_string(),
+            });
+            Ok(())
+        }
+
+        async fn get_latest_endpoint_version(&self, endpoint_id: i64) -> Result<i32, RepositoryError> {
+            let versions = self.endpoint_versions.lock().unwrap();
+            Ok(versions.iter().filter(|v| v.endpoint_id == endpoint_id).map(|v| v.version).max().unwrap_or(0))
+        }
+
+        async fn get_endpoint_versions(&self, endpoint_id: i64) -> Result<Vec<EndpointVersion>, RepositoryError> {
+            let versions = self.endpoint_versions.lock().unwrap();
+            Ok(versions.iter().filter(|v| v.endpoint_id == endpoint_id).cloned().collect())
+        }
     }
 
     #[tokio::test]
@@ -1370,7 +1456,7 @@ paths:
     }
 
     #[tokio::test]
-    async fn test_provide_spec_conflict_on_changed_dto() {
+    async fn test_provide_spec_allows_backward_compatible_change_on_protected_branch() {
         let repo = MockRepo::new();
         let yaml1 = r#"
 openapi: 3.0.0
@@ -1398,8 +1484,127 @@ paths:
           description: OK
 "#;
         provide_spec(&repo, "svc", "main", yaml1).await.unwrap();
+        // Adding a description is backward-compatible, should succeed
+        let result = provide_spec(&repo, "svc", "main", yaml2).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_provide_spec_rejects_breaking_change_on_protected_branch() {
+        let repo = MockRepo::new();
+        let yaml1 = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
+"#;
+        let yaml2 = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: integer
+"#;
+        provide_spec(&repo, "svc", "main", yaml1).await.unwrap();
+        // Changing property type is a breaking change
         let result = provide_spec(&repo, "svc", "main", yaml2).await;
         assert!(matches!(result, Err(AppError::Conflict(_))));
+    }
+
+    #[tokio::test]
+    async fn test_provide_spec_records_version_on_protected_branch_update() {
+        let repo = MockRepo::new();
+        let yaml1 = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
+"#;
+        let yaml2 = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+"#;
+        provide_spec(&repo, "svc", "main", yaml1).await.unwrap();
+        // Adding a new optional field is backward-compatible
+        let result = provide_spec(&repo, "svc", "main", yaml2).await;
+        assert!(result.is_ok());
+
+        // Check that a version was recorded
+        let versions = repo.endpoint_versions.lock().unwrap();
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0].version, 1);
+        assert!(versions[0].diff_from_previous.is_some());
     }
 
     #[tokio::test]
@@ -1706,7 +1911,7 @@ paths:
     }
 
     #[tokio::test]
-    async fn test_provide_spec_protected_branch_rejects_update() {
+    async fn test_provide_spec_protected_branch_rejects_breaking_update() {
         let repo = MockRepo::new();
         let yaml1 = r#"
 openapi: 3.0.0
@@ -1719,6 +1924,17 @@ paths:
       responses:
         '200':
           description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
 "#;
         let yaml2 = r#"
 openapi: 3.0.0
@@ -1728,10 +1944,20 @@ info:
 paths:
   /users:
     get:
-      description: Changed
       responses:
         '200':
           description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: integer
 "#;
         // "main" is protected by default
         provide_spec(&repo, "svc", "main", yaml1).await.unwrap();

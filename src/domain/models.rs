@@ -146,3 +146,13 @@ pub struct ClientEndpointInfo {
     pub method: String,
     pub yaml_content: Option<String>,
 }
+
+#[derive(Serialize, Clone, Debug)]
+pub struct EndpointVersion {
+    pub id: i64,
+    pub endpoint_id: i64,
+    pub version: i32,
+    pub yaml_content: String,
+    pub diff_from_previous: Option<String>,
+    pub created_at: String,
+}

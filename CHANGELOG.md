@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0]
+
+### Added
+- **Backward compatibility checking for protected branches**: instead of rejecting all YAML changes on protected branches, the service now parses and compares the old and new OpenAPI specs structurally. Backward-compatible changes (adding optional fields, new schemas, new endpoints) are accepted; breaking changes (removing fields, changing types, removing response codes or schemas) are rejected with a descriptive error.
+- **Endpoint version history**: every backward-compatible update on a protected branch records a new version with the full YAML content and a unified diff from the previous version. New `GET /endpoint-versions` API endpoint returns the version history for a given endpoint (query params: `servicename`, `branch`, `path`, `method`).
+- **`endpoint_versions` database table**: new migration adds version tracking storage for both SQLite and PostgreSQL backends.
+
 ## [0.6.0]
 
 ### Added

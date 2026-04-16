@@ -176,4 +176,16 @@ pub trait SpecRepository: Send + Sync {
     /// Delete dependency rows whose `last_seen_at` is older than the given cutoff ISO timestamp.
     /// Returns the number of deleted rows.
     fn delete_stale_dependencies(&self, cutoff_iso: &str) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
+
+    /// Get the endpoint ID for a given branch, path, and method.
+    fn get_endpoint_id(&self, branch_id: i64, path: &str, method: &str) -> impl Future<Output = Result<Option<i64>, RepositoryError>> + Send;
+
+    /// Insert a new endpoint version record.
+    fn insert_endpoint_version(&self, endpoint_id: i64, version: i32, yaml_content: &str, diff: Option<&str>, created_at: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Get the latest version number for an endpoint (0 if none).
+    fn get_latest_endpoint_version(&self, endpoint_id: i64) -> impl Future<Output = Result<i32, RepositoryError>> + Send;
+
+    /// Get the version history for an endpoint.
+    fn get_endpoint_versions(&self, endpoint_id: i64) -> impl Future<Output = Result<Vec<EndpointVersion>, RepositoryError>> + Send;
 }

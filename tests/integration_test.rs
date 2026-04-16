@@ -391,8 +391,8 @@ paths:
         .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
-    // 3. Third provide (changed DTO on same path) -> should be CONFLICT
-    let openapi_v1_modified = r#"
+    // 3. Third provide (backward-compatible change) -> should be ACCEPTED
+    let openapi_v1_compat = r#"
 openapi: 3.0.0
 info:
   title: Test API
@@ -400,15 +400,15 @@ info:
 paths:
   /users:
     get:
-      description: Modified DTO
+      description: Added description
       responses:
         '200':
           description: OK
 "#;
-    let payload_modified = json!({
+    let payload_compat = json!({
         "servicename": "test-service",
         "branch": "main",
-        "openapi_yaml": openapi_v1_modified
+        "openapi_yaml": openapi_v1_compat
     });
 
     let response = app.clone()
@@ -418,14 +418,103 @@ paths:
                 .uri("/provide")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&payload_modified).unwrap()))
+                .body(Body::from(serde_json::to_vec(&payload_compat).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // 3b. Breaking change (removed response code) -> should be CONFLICT
+    let openapi_v1_breaking = r#"
+openapi: 3.0.0
+info:
+  title: Test API
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      description: Added description
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
+"#;
+    // First provide the version with schema
+    let payload_with_schema = json!({
+        "servicename": "test-service",
+        "branch": "main",
+        "openapi_yaml": openapi_v1_breaking
+    });
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload_with_schema).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // Now try to change the type — breaking
+    let openapi_v1_type_change = r#"
+openapi: 3.0.0
+info:
+  title: Test API
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      description: Added description
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: integer
+"#;
+    let payload_breaking = json!({
+        "servicename": "test-service",
+        "branch": "main",
+        "openapi_yaml": openapi_v1_type_change
+    });
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload_breaking).unwrap()))
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
 
-    // 4. Fourth provide (new path) -> should be ACCEPTED
+    // 4. Fourth provide (new path added, existing /users unchanged) -> should be ACCEPTED
     let openapi_v2 = r#"
 openapi: 3.0.0
 info:
@@ -434,14 +523,26 @@ info:
 paths:
   /users:
     get:
+      description: Added description
       responses:
         '200':
           description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
   /v2/users:
     get:
       responses:
         '200':
           description: OK
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
 "#;
     let payload_v2 = json!({
         "servicename": "test-service",
@@ -2075,6 +2176,17 @@ paths:
       responses:
         '200':
           description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
 "#;
     let yaml2 = r#"
 openapi: 3.0.0
@@ -2084,10 +2196,20 @@ info:
 paths:
   /users:
     get:
-      description: Changed DTO
       responses:
         '200':
           description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: integer
 "#;
 
     // Provide first version
@@ -2103,7 +2225,7 @@ paths:
         ).await.unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
-    // Provide changed version on protected branch — should get 409 with descriptive body
+    // Provide breaking change on protected branch — should get 409 with descriptive body
     let payload2 = json!({ "servicename": "conflict-svc", "branch": "main", "openapi_yaml": yaml2 });
     let response: Response = app.clone()
         .oneshot(

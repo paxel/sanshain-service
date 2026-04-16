@@ -33,6 +33,7 @@ askama = "0.13"
 ldap3 = { version = "0.11", default-features = false, features = ["tls-rustls"] }
 regex = "1"
 indexmap = "2"
+similar = "2"
 
 [dev-dependencies]
 flate2 = "1"

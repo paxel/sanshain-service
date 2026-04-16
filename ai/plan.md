@@ -136,6 +136,17 @@ The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Be
 - [x] Graph view copy & download buttons (Mermaid code).
 - [x] Documentation updates for 0.6.0 (README, api.yaml, user-guide, ci-integration, developer-guide).
 
+### 0.7.0 Features — Backward Compatibility & Version History
+- [x] Backward compatibility checker in `openapi.rs` (structural comparison: schemas, properties, types, response codes).
+- [x] Protected branches now accept backward-compatible changes instead of rejecting all changes.
+- [x] Endpoint version history: each compatible update on a protected branch records a version with YAML content and unified diff.
+- [x] `GET /endpoint-versions` API endpoint for retrieving version history.
+- [x] `endpoint_versions` migration for SQLite and PostgreSQL.
+- [x] Domain model (`EndpointVersion`), port trait methods, and repository implementations.
+- [x] Unit tests (backward-compatible allowed, breaking rejected, version recording).
+- [x] Integration tests updated for new behavior.
+- [x] CHANGELOG updated.
+
 ### Documentation
 - [x] Detailed hands-on user documentation (in `docs/`).
 - [x] CI integration guide (`docs/ci-integration.md`) with dry-run examples and GitHub Actions workflow.
