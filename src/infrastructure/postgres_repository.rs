@@ -294,7 +294,10 @@ impl SpecRepository for PostgresSpecRepository {
             FROM dependencies d
             JOIN clients c ON d.client_id = c.id
             JOIN services s ON d.requested_service_id = s.id
+            LEFT JOIN branches b ON b.service_id = s.id AND b.name = d.requested_branch_name
+            LEFT JOIN endpoints e ON e.branch_id = b.id AND e.path = d.requested_path AND e.method = d.requested_method
             WHERE d.requested_branch_name = $1
+            AND (e.id IS NULL OR e.deleted = FALSE)
             "#,
         )
         .bind(branch)

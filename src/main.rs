@@ -292,6 +292,9 @@ pub fn create_app(state: AppState) -> Router {
         .route("/clients/{name}", axum::routing::delete(admin_delete_client))
         .route("/clients/{name}/branches", get(admin_list_client_branches))
         .route("/clients/{name}/branches/{branch}/endpoints", get(admin_list_client_endpoints))
+        .route("/services/{name}/branches/{branch}/endpoints", get(admin_list_service_endpoints))
+        .route("/endpoint-yaml", get(admin_get_endpoint_yaml))
+        .route("/endpoint-versions", get(admin_get_endpoint_versions))
         .route("/settings/dev-mode", get(get_dev_mode).post(set_dev_mode))
         .route("/settings/local-users", get(get_local_users).post(set_local_users))
         .route("/settings/database", get(get_database_info))
@@ -889,6 +892,63 @@ async fn admin_list_client_endpoints(
         .await
         .map(Json)
         .map_err(app_error_to_status)
+}
+
+// --- Read-only UI endpoints (no side effects) ---
+
+#[derive(Deserialize)]
+struct AdminEndpointYamlParams {
+    servicename: String,
+    branch: String,
+    path: String,
+    method: String,
+}
+
+async fn admin_get_endpoint_yaml(
+    State(state): State<AppState>,
+    Query(params): Query<AdminEndpointYamlParams>,
+) -> Result<String, (StatusCode, String)> {
+    services::get_endpoint_yaml(
+        &state.repo,
+        &params.servicename,
+        &params.branch,
+        &params.path,
+        &params.method,
+    )
+    .await
+    .map_err(app_error_to_status_with_body)
+}
+
+#[derive(Serialize)]
+struct AdminEndpointInfo {
+    path: String,
+    method: String,
+}
+
+async fn admin_list_service_endpoints(
+    State(state): State<AppState>,
+    axum::extract::Path((name, branch)): axum::extract::Path<(String, String)>,
+) -> Result<Json<Vec<AdminEndpointInfo>>, StatusCode> {
+    services::list_service_endpoints(&state.repo, &name, &branch)
+        .await
+        .map(|eps| Json(eps.into_iter().map(|e| AdminEndpointInfo { path: e.path, method: e.method }).collect()))
+        .map_err(app_error_to_status)
+}
+
+async fn admin_get_endpoint_versions(
+    State(state): State<AppState>,
+    Query(params): Query<EndpointVersionsParams>,
+) -> Result<Json<Vec<domain::models::EndpointVersion>>, (StatusCode, String)> {
+    services::get_endpoint_version_history(
+        &state.repo,
+        &params.servicename,
+        &params.branch,
+        &params.path,
+        &params.method,
+    )
+    .await
+    .map(Json)
+    .map_err(app_error_to_status_with_body)
 }
 
 // --- Dev mode admin endpoints ---

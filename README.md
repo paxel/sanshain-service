@@ -74,9 +74,12 @@ This URL serves the Web Dashboard directly.
 
 ## Core Features
 - **OpenAPI Splitting**: Automatically splits large OpenAPI files into per-endpoint snippets.
+- **Backward Compatibility Checking**: Protected branches accept backward-compatible schema changes and reject breaking changes.
+- **Endpoint Version History**: Every accepted update on a protected branch is versioned with full YAML and unified diffs.
 - **Dependency Tracking**: Records which clients depend on which service endpoints.
 - **Dependency Reports**: Identifies unused endpoints and missing dependencies.
-- **Web Dashboard**: Navigate services, branches, and client dependencies visually.
+- **Web Dashboard**: Navigate services, branches, and client dependencies visually, with dark/light mode toggle.
+- **Dry-Run Mode**: Validate specs and dependencies without persisting data — ideal for CI pipelines.
 
 ## Client API Contract
 
@@ -104,7 +107,9 @@ Provide an OpenAPI specification for a service branch.
 | `openapi_yaml` | Yes | The full OpenAPI specification as a YAML string. |
 | `dry_run` | No | When `true`, validates the spec (parsing, conflict detection) without storing anything. Defaults to `false`. |
 
-**Note:** Sanshain enforces an **Immutable Endpoint Path** policy within a branch. If the DTO/schema for an existing endpoint changes, you must increment the version in the path (e.g., `/api/v1/users` to `/api/v2/users`). Changes to the same path that alter the DTO will be rejected with `409 Conflict` and a descriptive error message including the method, path, branch, and service name.
+**Protected Branch Behavior:** On protected branches (e.g., `main`, `master`), Sanshain performs a **backward compatibility check** when an endpoint's schema changes. Backward-compatible changes — such as adding optional fields, new schemas, or new endpoints — are accepted. Breaking changes — such as removing fields, changing types, or removing response codes — are rejected with `409 Conflict` and a descriptive error message. Each accepted update records a new version in the endpoint's version history (see `GET /endpoint-versions` below).
+
+On **feature branches**, endpoint schemas can be freely overwritten without compatibility checks.
 
 ### 2. `GET /require`
 Request the OpenAPI snippet for a specific endpoint and record the dependency.
@@ -156,13 +161,31 @@ Request multiple endpoint snippets merged into a single OpenAPI spec and record 
 
 If some requested endpoints are missing, the response returns `404` with a descriptive message listing all missing endpoints.
 
-### 4. Dry-Run Mode (CI Validation)
+### 4. `GET /endpoint-versions`
+Retrieve the version history for an endpoint on a protected branch, including the full YAML at each version and a unified diff from the previous version.
+
+**Query Parameters:**
+- `servicename`: Name of the service.
+- `branch`: Branch name.
+- `path`: Endpoint path.
+- `method`: HTTP method.
+
+**Example:**
+`GET /endpoint-versions?servicename=UserService&branch=main&path=/users&method=POST`
+
+**Response:** An array of version objects, each containing:
+- `version_number` — Sequential version number.
+- `yaml_content` — Full YAML content at that version.
+- `diff_from_previous` — Unified diff from the previous version (empty for version 1).
+- `created_at` — Timestamp of the version.
+
+### 5. Dry-Run Mode (CI Validation)
 
 All three endpoints (`/provide`, `/require`, `/require-bundle`) support a `dry_run` parameter. When set to `true`, the request runs full validation (YAML parsing, conflict detection, endpoint lookup) but **does not persist any data** — no specs are stored, no client dependencies are recorded.
 
 This enables CI pipelines to test whether a feature branch would be valid against the main branch before allowing a PR to be merged, without polluting the database with temporary data.
 
-### 5. Authentication
+### 6. Authentication
 
 Sanshain uses session-based authentication with Argon2 password hashing.
 
@@ -210,15 +233,17 @@ Approved users can create long-lived API tokens for use in CI pipelines (Jenkins
 ### Web Pages
 
 - `/` — Landing page with service info, version, and links to all pages.
-- `/service.html` — Service overview: registered services, dependency graphs, and compatibility reports.
+- `/service.html` — Service overview: registered services, dependency graphs, compatibility reports, and endpoint version history with diff viewer.
 - `/admin.html` — Admin dashboard: manage services, branches, clients, protected branches, and settings.
 - `/account.html` — Account management: sign in, register, profile, and API tokens.
 
+All pages include a 🌙/☀️ **dark/light mode toggle** in the navigation bar. The preference is stored in a cookie and persists across sessions.
+
 ### Version
 
-`GET /version` returns the service version as JSON: `{"version": "0.6.0"}`.
+`GET /version` returns the service version as JSON: `{"version": "0.7.1"}`.
 
-### 6. Admin API (Session-Based Authentication)
+### 7. Admin API (Session-Based Authentication)
 All `/admin/*` endpoints require a valid admin session token (`Authorization: Bearer <token>`).
 
 #### Protected Branches
@@ -227,6 +252,13 @@ Manage which branches enforce immutable endpoint paths. By default, `main` and `
 - `GET /admin/protected-branches` — List all protected branch patterns.
 - `POST /admin/protected-branches` — Add a pattern: `{"pattern": "release"}`.
 - `DELETE /admin/protected-branches/:pattern` — Remove a pattern.
+
+#### Read-Only Endpoints (UI Data Access)
+Dedicated read-only endpoints used by the web UI to fetch endpoint data without side effects. These replace the previous approach of calling business-logic endpoints (`/require`) from the frontend.
+
+- `GET /admin/endpoint-yaml?servicename=...&branch=...&path=...&method=...` — Fetch the YAML content for a specific endpoint (with feature-branch fallback).
+- `GET /admin/endpoint-versions?servicename=...&branch=...&path=...&method=...` — Fetch the version history for a specific endpoint.
+- `GET /admin/services/:name/branches/:branch/endpoints` — List all (non-deleted) endpoints for a service branch.
 
 #### Data Management
 List and delete services, branches, and clients via the admin API. Deleting a service cascades to its branches, endpoints, and related dependencies.
@@ -245,7 +277,7 @@ List and delete services, branches, and clients via the admin API. Deleting a se
 - `GET /admin/settings/local-users` — Check if local user registration is enabled.
 - `POST /admin/settings/local-users` — Enable/disable local user registration: `{"enabled": true}`.
 
-### 7. `GET /report`
+### 8. `GET /report`
 Generate a dependency report for a specific branch.
 
 **Query Parameters:**
@@ -253,7 +285,17 @@ Generate a dependency report for a specific branch.
 
 ## Demo Script
 
-The `demo.sh` script populates a running Sanshain instance with sample data so you can explore the web UI immediately after deployment. It registers multiple services (with `main` and feature branches) and several clients with cross-service dependencies, producing a realistic dependency graph.
+The `demo.sh` script populates a running Sanshain instance with sample data so you can explore the web UI immediately after deployment. It demonstrates 13 feature scenarios with 6 realistic microservices (user-service, order-service, notification-service, payment-service, inventory-service, and web-frontend), including:
+
+- Services acting as both providers and consumers
+- Circular dependencies (order↔payment, order↔inventory)
+- Backward-compatible updates on protected branches
+- Breaking change rejection
+- Endpoint version history with diffs
+- Require-bundle (multi-endpoint fetch)
+- Dry-run mode
+- Dependency reports (JSON + Markdown)
+- Feature-branch fallback to main
 
 **Prerequisites:** `curl` and `jq` must be installed.
 

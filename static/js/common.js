@@ -1,7 +1,104 @@
 // Sanshain — shared JS utilities
 // Used by admin, account, service, and dashboard pages.
-
 let sanshainToken = localStorage.getItem('sanshain_token');
+
+// --- Dark / Light theme ---
+(function() {
+    // Read preference from cookie, default to 'light'
+    function getThemeCookie() {
+        const m = document.cookie.match(/(?:^|;\s*)sanshain_theme=(\w+)/);
+        return m ? m[1] : null;
+    }
+    function setThemeCookie(theme) {
+        document.cookie = `sanshain_theme=${theme};path=/;max-age=${365*24*3600};SameSite=Lax`;
+    }
+    function applyTheme(theme) {
+        const html = document.documentElement;
+        if (theme === 'dark') {
+            html.classList.add('dark');
+        } else {
+            html.classList.remove('dark');
+        }
+    }
+    const saved = getThemeCookie() || 'light';
+    applyTheme(saved);
+
+    // Inject global dark-mode CSS overrides
+    const style = document.createElement('style');
+    style.textContent = `
+        html.dark body { background: #0f172a !important; color: #e2e8f0 !important; }
+        html.dark nav { background: #312e81 !important; }
+        html.dark .bg-white { background: #1e293b !important; }
+        html.dark .bg-slate-50 { background: #1e293b !important; }
+        html.dark .bg-slate-100 { background: #334155 !important; }
+        html.dark .bg-slate-200 { background: #475569 !important; }
+        html.dark .text-slate-900 { color: #e2e8f0 !important; }
+        html.dark .text-slate-800 { color: #cbd5e1 !important; }
+        html.dark .text-slate-700 { color: #cbd5e1 !important; }
+        html.dark .text-slate-600 { color: #94a3b8 !important; }
+        html.dark .text-slate-500 { color: #94a3b8 !important; }
+        html.dark .border-slate-200 { border-color: #475569 !important; }
+        html.dark .border-slate-300 { border-color: #475569 !important; }
+        html.dark input, html.dark select, html.dark textarea {
+            background: #1e293b !important; color: #e2e8f0 !important; border-color: #475569 !important;
+        }
+        html.dark .bg-slate-800 { background: #0f172a !important; }
+        html.dark pre { color: #e2e8f0 !important; }
+        html.dark .shadow-lg { box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3) !important; }
+        html.dark .shadow-md { box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3) !important; }
+        html.dark .divide-slate-200 > :not(:first-child) { border-color: #475569 !important; }
+        html.dark code { background: #334155 !important; color: #e2e8f0 !important; }
+        html.dark .bg-amber-100 { background: #78350f !important; }
+        html.dark .text-amber-700 { color: #fbbf24 !important; }
+        html.dark .bg-green-100 { background: #064e3b !important; }
+        html.dark .text-green-700 { color: #6ee7b7 !important; }
+        html.dark .bg-red-100 { background: #7f1d1d !important; }
+        html.dark .text-red-700 { color: #fca5a5 !important; }
+        html.dark .bg-blue-100 { background: #1e3a5f !important; }
+        html.dark .text-blue-700 { color: #93c5fd !important; }
+        html.dark .bg-indigo-50 { background: #312e81 !important; }
+        html.dark .text-indigo-700 { color: #a5b4fc !important; }
+        html.dark .bg-yellow-50 { background: #422006 !important; }
+        html.dark .text-yellow-700 { color: #fde047 !important; }
+        html.dark table th { background: #334155 !important; color: #e2e8f0 !important; }
+        html.dark table td { border-color: #475569 !important; }
+        html.dark .endpoint-card:hover { box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.4) !important; }
+        /* Modal overlay */
+        html.dark [class*="bg-black/"] { background: rgba(0,0,0,0.7) !important; }
+        /* Diff pre blocks — ensure text is always light on dark bg */
+        .diff-pre { background: #1e293b !important; color: #e2e8f0 !important; }
+    `;
+    document.head.appendChild(style);
+
+    // Expose toggle function globally
+    window.sanshainToggleTheme = function() {
+        const current = getThemeCookie() || 'light';
+        const next = current === 'dark' ? 'light' : 'dark';
+        setThemeCookie(next);
+        applyTheme(next);
+        // Update toggle button icons if present
+        document.querySelectorAll('.theme-toggle-icon').forEach(el => {
+            el.textContent = next === 'dark' ? '☀️' : '🌙';
+        });
+    };
+    // After DOM ready, inject toggle button into nav
+    document.addEventListener('DOMContentLoaded', () => {
+        const nav = document.querySelector('nav .container');
+        if (!nav) return;
+        const btn = document.createElement('button');
+        btn.className = 'theme-toggle-btn ml-3 px-2 py-1 rounded-lg text-lg hover:bg-indigo-600 transition-colors';
+        btn.title = 'Toggle dark/light mode';
+        btn.innerHTML = `<span class="theme-toggle-icon">${(getThemeCookie() || 'light') === 'dark' ? '☀️' : '🌙'}</span>`;
+        btn.onclick = window.sanshainToggleTheme;
+        // Find the right-side flex container in nav
+        const rightSide = nav.querySelector('.flex.items-center.space-x-4:last-child') || nav.querySelector('.flex.items-center:last-child') || nav.lastElementChild;
+        if (rightSide && rightSide !== nav.firstElementChild) {
+            rightSide.prepend(btn);
+        } else {
+            nav.appendChild(btn);
+        }
+    });
+})();
 let csrfToken = null;
 
 // --- Network error helper ---

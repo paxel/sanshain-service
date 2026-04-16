@@ -419,21 +419,218 @@
         document.getElementById('md-report-btn').href = `/report/markdown?branch=${encodeURIComponent(branchName)}`;
         document.getElementById('md-report-btn').style.display = '';
         const content = document.getElementById('modal-content');
-        content.innerHTML = '<div class="text-center py-10 text-slate-500">Loading YAML...</div>';
+        content.innerHTML = '<div class="text-center py-10 text-slate-500">Loading...</div>';
+
+        let yamlText = null;
+        let versions = [];
 
         try {
-            const yamlText = await (async () => {
-                const headers = {};
-                const token = localStorage.getItem('sanshain_token');
-                if (token) headers['Authorization'] = `Bearer ${token}`;
-                const res = await fetch(`/require?clientname=_viewer&servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}`, {headers});
-                if (!res.ok) throw new Error(`${res.status}`);
-                return res.text();
-            })();
-            renderPaginatedYaml(content, yamlText, `${serviceName}_${ep.method}_${ep.path.replace(/\//g, '_')}.yaml`);
+            const headers = {};
+            const token = localStorage.getItem('sanshain_token');
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const res = await fetch(`/admin/endpoint-yaml?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}`, {headers});
+            if (!res.ok) throw new Error(`${res.status}`);
+            yamlText = await res.text();
         } catch (err) {
             content.innerHTML = `<div class="text-slate-500 text-center py-10">YAML preview not available (${err.message})</div>`;
+            return;
         }
+
+        try {
+            versions = await fetchJSON(`/admin/endpoint-versions?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}`);
+        } catch (_) { versions = []; }
+
+        const filename = `${serviceName}_${ep.method}_${ep.path.replace(/\//g, '_')}.yaml`;
+
+        if (!versions || versions.length === 0) {
+            renderPaginatedYaml(content, yamlText, filename);
+            return;
+        }
+
+        // Tabbed UI: Current YAML | Version History
+        content.innerHTML = `
+            <div class="flex border-b border-slate-200 mb-4">
+                <button id="tab-yaml" class="px-4 py-2 text-sm font-medium border-b-2 border-indigo-600 text-indigo-600">Current YAML</button>
+                <button id="tab-versions" class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700">Version History (${versions.length})</button>
+            </div>
+            <div id="tab-yaml-content"></div>
+            <div id="tab-versions-content" class="hidden"></div>`;
+
+        const yamlTab = document.getElementById('tab-yaml');
+        const versionsTab = document.getElementById('tab-versions');
+        const yamlContent = document.getElementById('tab-yaml-content');
+        const versionsContent = document.getElementById('tab-versions-content');
+
+        function activateTab(tab) {
+            [yamlTab, versionsTab].forEach(t => { t.classList.remove('border-indigo-600','text-indigo-600'); t.classList.add('border-transparent','text-slate-500'); });
+            tab.classList.remove('border-transparent','text-slate-500');
+            tab.classList.add('border-indigo-600','text-indigo-600');
+            yamlContent.classList.toggle('hidden', tab !== yamlTab);
+            versionsContent.classList.toggle('hidden', tab !== versionsTab);
+        }
+        yamlTab.onclick = () => activateTab(yamlTab);
+        versionsTab.onclick = () => activateTab(versionsTab);
+
+        renderPaginatedYaml(yamlContent, yamlText, filename);
+        renderVersionHistory(versionsContent, versions);
+    }
+
+    function simpleDiff(a, b) {
+        const aLines = a.split('\n');
+        const bLines = b.split('\n');
+        const result = [];
+        // Simple LCS-based diff
+        const m = aLines.length, n = bLines.length;
+        // For large files, fall back to line-by-line comparison
+        if (m + n > 5000) {
+            let ai = 0, bi = 0;
+            while (ai < m || bi < n) {
+                if (ai < m && bi < n && aLines[ai] === bLines[bi]) {
+                    result.push({ type: 'ctx', line: aLines[ai] });
+                    ai++; bi++;
+                } else if (bi < n) {
+                    result.push({ type: 'add', line: bLines[bi] });
+                    bi++;
+                } else {
+                    result.push({ type: 'del', line: aLines[ai] });
+                    ai++;
+                }
+            }
+            return result;
+        }
+        // LCS table
+        const dp = Array.from({length: m+1}, () => new Uint16Array(n+1));
+        for (let i = m-1; i >= 0; i--)
+            for (let j = n-1; j >= 0; j--)
+                dp[i][j] = aLines[i] === bLines[j] ? dp[i+1][j+1]+1 : Math.max(dp[i+1][j], dp[i][j+1]);
+        let i = 0, j = 0;
+        while (i < m || j < n) {
+            if (i < m && j < n && aLines[i] === bLines[j]) {
+                result.push({ type: 'ctx', line: aLines[i] });
+                i++; j++;
+            } else if (j < n && (i >= m || dp[i][j+1] >= dp[i+1][j])) {
+                result.push({ type: 'add', line: bLines[j] });
+                j++;
+            } else {
+                result.push({ type: 'del', line: aLines[i] });
+                i++;
+            }
+        }
+        return result;
+    }
+
+    function renderDiffHtml(diffLines) {
+        const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return diffLines.map(d => {
+            if (d.type === 'add') return `<span class="text-green-400">+ ${esc(d.line)}</span>`;
+            if (d.type === 'del') return `<span class="text-red-400">- ${esc(d.line)}</span>`;
+            return `<span class="text-slate-400">  ${esc(d.line)}</span>`;
+        }).join('\n');
+    }
+
+    function renderVersionHistory(container, versions) {
+        // versions sorted by version number ascending
+        versions.sort((a,b) => a.version - b.version);
+
+        let html = `<div class="space-y-3">
+            <div class="flex items-center gap-3 mb-4">
+                <label class="text-sm font-medium text-slate-600">Compare:</label>
+                <select id="diff-from" class="text-sm border border-slate-300 rounded-lg px-2 py-1">
+                    ${versions.map(v => `<option value="${v.version}"${v.version === versions[0].version ? ' selected' : ''}>v${v.version} (${v.created_at})</option>`).join('')}
+                </select>
+                <span class="text-slate-400">→</span>
+                <select id="diff-to" class="text-sm border border-slate-300 rounded-lg px-2 py-1">
+                    ${versions.map(v => `<option value="${v.version}"${v.version === versions[versions.length-1].version ? ' selected' : ''}>v${v.version} (${v.created_at})</option>`).join('')}
+                </select>
+                <button id="diff-go" class="px-3 py-1 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Diff</button>
+            </div>
+            <div id="diff-output"></div>
+            <h4 class="text-sm font-semibold text-slate-700 mt-6 mb-2">All Versions</h4>`;
+
+        for (const v of [...versions].reverse()) {
+            const hasDiff = v.diff_from_previous && v.diff_from_previous.trim().length > 0;
+            html += `
+            <div class="bg-white border border-slate-200 rounded-xl p-3">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-sm font-semibold text-slate-700">Version ${v.version}</span>
+                        <span class="text-xs text-slate-400 ml-2">${v.created_at}</span>
+                    </div>
+                    <div class="flex gap-2">
+                        <button class="ver-yaml-btn text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200" data-version="${v.version}">View YAML</button>
+                        ${hasDiff ? `<button class="ver-diff-btn text-xs px-2 py-1 bg-amber-100 text-amber-700 rounded hover:bg-amber-200" data-version="${v.version}">Diff from v${v.version - 1}</button>` : ''}
+                    </div>
+                </div>
+                <div id="ver-detail-${v.version}" class="hidden mt-3"></div>
+            </div>`;
+        }
+        html += '</div>';
+        container.innerHTML = html;
+
+        const versionMap = {};
+        versions.forEach(v => versionMap[v.version] = v);
+
+        // Diff between any two versions
+        document.getElementById('diff-go').onclick = () => {
+            const fromV = parseInt(document.getElementById('diff-from').value);
+            const toV = parseInt(document.getElementById('diff-to').value);
+            const output = document.getElementById('diff-output');
+            if (fromV === toV) {
+                output.innerHTML = '<div class="text-sm text-slate-500 italic">Same version selected.</div>';
+                return;
+            }
+            const vFrom = versionMap[fromV];
+            const vTo = versionMap[toV];
+            if (!vFrom || !vTo) { output.innerHTML = '<div class="text-sm text-red-500">Version not found.</div>'; return; }
+            const diff = simpleDiff(vFrom.yaml_content, vTo.yaml_content);
+            const adds = diff.filter(d => d.type === 'add').length;
+            const dels = diff.filter(d => d.type === 'del').length;
+            output.innerHTML = `
+                <div class="text-xs text-slate-500 mb-1">v${fromV} → v${toV}: <span class="text-green-600">+${adds}</span> / <span class="text-red-600">-${dels}</span> lines</div>
+                <pre class="diff-pre bg-slate-800 p-4 rounded-xl text-sm overflow-x-auto whitespace-pre-wrap leading-relaxed">${renderDiffHtml(diff)}</pre>`;
+        };
+
+        // Per-version YAML view buttons
+        container.querySelectorAll('.ver-yaml-btn').forEach(btn => {
+            btn.onclick = () => {
+                const ver = parseInt(btn.dataset.version);
+                const detail = document.getElementById(`ver-detail-${ver}`);
+                if (!detail.classList.contains('hidden')) { detail.classList.add('hidden'); return; }
+                detail.classList.remove('hidden');
+                const v = versionMap[ver];
+                const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                detail.innerHTML = `<pre class="bg-slate-800 text-green-300 p-4 rounded-xl text-sm overflow-x-auto whitespace-pre-wrap leading-relaxed">${esc(v.yaml_content)}</pre>`;
+            };
+        });
+
+        // Per-version diff buttons (diff from previous)
+        container.querySelectorAll('.ver-diff-btn').forEach(btn => {
+            btn.onclick = () => {
+                const ver = parseInt(btn.dataset.version);
+                const detail = document.getElementById(`ver-detail-${ver}`);
+                if (!detail.classList.contains('hidden')) { detail.classList.add('hidden'); return; }
+                detail.classList.remove('hidden');
+                const v = versionMap[ver];
+                const prev = versionMap[ver - 1];
+                if (prev) {
+                    const diff = simpleDiff(prev.yaml_content, v.yaml_content);
+                    const adds = diff.filter(d => d.type === 'add').length;
+                    const dels = diff.filter(d => d.type === 'del').length;
+                    detail.innerHTML = `
+                        <div class="text-xs text-slate-500 mb-1">v${ver-1} → v${ver}: <span class="text-green-600">+${adds}</span> / <span class="text-red-600">-${dels}</span></div>
+                        <pre class="diff-pre bg-slate-800 p-4 rounded-xl text-sm overflow-x-auto whitespace-pre-wrap leading-relaxed">${renderDiffHtml(diff)}</pre>`;
+                } else if (v.diff_from_previous) {
+                    // Parse stored unified diff into colored spans
+                    const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                    const coloredDiff = v.diff_from_previous.split('\n').map(line => {
+                        if (line.startsWith('+')) return `<span class="text-green-400">` + esc(line) + `</span>`;
+                        if (line.startsWith('-')) return `<span class="text-red-400">` + esc(line) + `</span>`;
+                        return `<span class="text-slate-300">` + esc(line) + `</span>`;
+                    }).join('\n');
+                    detail.innerHTML = `<pre class="diff-pre bg-slate-800 p-4 rounded-xl text-sm overflow-x-auto whitespace-pre-wrap leading-relaxed">${coloredDiff}</pre>`;
+                }
+            };
+        });
     }
 
     function renderPaginatedYaml(container, yamlText, filename) {
@@ -900,11 +1097,11 @@
             const isClient = clientNodes.has(node);
             const isService = serviceNodes.has(node);
             if (isClient && isService) {
-                mmd += `  ${id}([["${node}"])\n`;
+                mmd += `  ${id}["${node}"]\n`;
             } else if (isService) {
-                mmd += `  ${id}[["${node}"]]\n`;
+                mmd += `  ${id}["${node}"]\n`;
             } else {
-                mmd += `  ${id}(["${node}"])\n`;
+                mmd += `  ${id}("${node}")\n`;
             }
         }
 

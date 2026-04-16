@@ -146,7 +146,9 @@ The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Be
 - [x] Unit tests (backward-compatible allowed, breaking rejected, version recording).
 - [x] Integration tests updated for new behavior.
 - [x] CHANGELOG updated.
-
+- [x] README.md updated with backward compatibility, endpoint-versions API, dark/light mode, demo.sh description.
+- [x] `docs/user-guide.md` updated with backward compatibility, version history/diff viewer, dark mode sections.
 ### Documentation
 - [x] Detailed hands-on user documentation (in `docs/`).
 - [x] CI integration guide (`docs/ci-integration.md`) with dry-run examples and GitHub Actions workflow.
+- [x] Updated screenshots for version history/diff viewer, dependency graph, and stale data banner added to `docs/user-guide.md`.

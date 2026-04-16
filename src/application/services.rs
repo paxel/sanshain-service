@@ -126,6 +126,13 @@ async fn provide_spec_inner(
 
     for endpoint in &to_insert {
         repo.insert_endpoint(branch_id, endpoint).await?;
+        // Record version 1 (baseline) for new endpoints on protected branches
+        if is_protected {
+            if let Some(endpoint_id) = repo.get_endpoint_id(branch_id, &endpoint.path, &endpoint.method).await? {
+                let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                repo.insert_endpoint_version(endpoint_id, 1, &endpoint.yaml_content, None, &now).await?;
+            }
+        }
     }
 
     for endpoint in &to_update {
@@ -164,6 +171,54 @@ async fn provide_spec_inner(
     }
 
     Ok(())
+}
+
+/// Read-only: fetch the YAML content for a specific endpoint (no side effects).
+pub async fn get_endpoint_yaml(
+    repo: &impl SpecRepository,
+    servicename: &str,
+    branch: &str,
+    path: &str,
+    method: &str,
+) -> Result<String, AppError> {
+    let service_id = repo.ensure_service(servicename).await?;
+    let method_upper = method.to_uppercase();
+
+    let endpoint = repo.find_endpoint(service_id, branch, path, &method_upper).await?;
+
+    // Feature branch fallback
+    let endpoint = if endpoint.is_none() && !repo.is_branch_protected(branch).await? {
+        let protected = repo.list_protected_branches().await?;
+        let mut fallback = None;
+        for pb in &protected {
+            fallback = repo.find_endpoint(service_id, pb, path, &method_upper).await?;
+            if fallback.is_some() {
+                break;
+            }
+        }
+        fallback
+    } else {
+        endpoint
+    };
+
+    endpoint
+        .map(|(_, yaml)| yaml)
+        .ok_or_else(|| AppError::NotFound(format!(
+            "Endpoint not found: {} {} on service '{}' branch '{}'",
+            method_upper, path, servicename, branch
+        )))
+}
+
+/// Read-only: list all (non-deleted) endpoints for a service branch.
+pub async fn list_service_endpoints(
+    repo: &impl SpecRepository,
+    servicename: &str,
+    branch: &str,
+) -> Result<Vec<EndpointRecord>, AppError> {
+    let service_id = repo.ensure_service(servicename).await?;
+    let branch_id = repo.ensure_branch(service_id, branch).await?;
+    let endpoints = repo.get_endpoints_for_branch(branch_id).await?;
+    Ok(endpoints)
 }
 
 pub async fn get_endpoint_version_history(
@@ -1600,11 +1655,13 @@ components:
         let result = provide_spec(&repo, "svc", "main", yaml2).await;
         assert!(result.is_ok());
 
-        // Check that a version was recorded
+        // Check that versions were recorded (v1 = baseline, v2 = update with diff)
         let versions = repo.endpoint_versions.lock().unwrap();
-        assert_eq!(versions.len(), 1);
+        assert_eq!(versions.len(), 2);
         assert_eq!(versions[0].version, 1);
-        assert!(versions[0].diff_from_previous.is_some());
+        assert!(versions[0].diff_from_previous.is_none());
+        assert_eq!(versions[1].version, 2);
+        assert!(versions[1].diff_from_previous.is_some());
     }
 
     #[tokio::test]

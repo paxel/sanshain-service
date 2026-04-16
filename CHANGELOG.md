@@ -4,12 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.7.0]
+## [0.7.2]
+### Changed
+- **Dedicated read-only admin endpoints for the UI**: the frontend no longer abuses the business-logic `/require` endpoint (with `clientname=_viewer&dry_run=true`) to fetch YAML previews. Three new read-only admin endpoints replace it: `GET /admin/endpoint-yaml` (fetch YAML content), `GET /admin/endpoint-versions` (fetch version history), and `GET /admin/services/{name}/branches/{branch}/endpoints` (list endpoints for a service branch). This eliminates the `_viewer` ghost client issue and enforces proper separation between business APIs and UI data access.
 
+## [0.7.1]
+### Fixed
+- **Diff view readability**: stored diffs now render with colored add/remove spans instead of unstyled black text on dark background.
+
+### Added
+- **Dark/light mode toggle**: a 🌙/☀️ button in the navigation bar lets users switch between light and dark themes. Preference is stored in a cookie (`sanshain_theme`) and persists across sessions and pages.
+
+## [0.7.0]
 ### Added
 - **Backward compatibility checking for protected branches**: instead of rejecting all YAML changes on protected branches, the service now parses and compares the old and new OpenAPI specs structurally. Backward-compatible changes (adding optional fields, new schemas, new endpoints) are accepted; breaking changes (removing fields, changing types, removing response codes or schemas) are rejected with a descriptive error.
 - **Endpoint version history**: every backward-compatible update on a protected branch records a new version with the full YAML content and a unified diff from the previous version. New `GET /endpoint-versions` API endpoint returns the version history for a given endpoint (query params: `servicename`, `branch`, `path`, `method`).
 - **`endpoint_versions` database table**: new migration adds version tracking storage for both SQLite and PostgreSQL backends.
+- **Version history & diff UI**: when viewing an endpoint with multiple versions, the modal now shows a tabbed interface with "Current YAML" and "Version History" tabs. The history tab lists all versions with expandable YAML view and diff-from-previous buttons, plus a compare tool to diff any two arbitrary versions using client-side LCS diff with color-coded added/removed lines.
+### Fixed
+- **Dependency graph filtering**: fixed over-aggressive JOIN that hid valid endpoints from the dependency report/UI. Now uses LEFT JOIN with a WHERE filter so dependencies are shown unless the target endpoint is explicitly soft-deleted.
 
 ## [0.6.0]
 

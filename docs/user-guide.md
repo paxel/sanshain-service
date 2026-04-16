@@ -11,7 +11,7 @@ This guide covers the day-to-day workflows for developers using Sanshain Service
 | **Provide**                 | Upload a full OpenAPI YAML for a service on a given branch. Sanshain splits it into per-endpoint snippets automatically. |
 | **Require**                 | Request the OpenAPI snippet for a single endpoint and record the caller as a dependent client.                           |
 | **Report**                  | Generate a dependency report showing used, unused, and missing endpoints for a branch.                                   |
-| **Protected branch**        | A branch (e.g. `main`) where endpoint schemas are immutable — changes require a path version bump.                       |
+| **Protected branch**        | A branch (e.g. `main`) where only backward-compatible schema changes are allowed. Breaking changes are rejected.          |
 | **Feature branch fallback** | If an endpoint is not found on a feature branch, Sanshain falls back to a protected branch.                              |
 | **Dry run**                 | A validation-only mode (`dry_run: true`) that checks contracts without persisting data. Designed for PR validation in CI. |
 
@@ -39,8 +39,8 @@ When you use a Sanshain plugin, the following happens automatically:
 
 1. The plugin reads your OpenAPI YAML file and uploads it to Sanshain for the current service and branch.
 2. Sanshain parses the YAML and splits it into one snippet per endpoint (path + method).
-3. On a **protected branch**, if an endpoint path already exists with a different schema, the request is rejected with a descriptive error message (including the method, path, branch, and service name). Bump the path version (e.g. `/api/v1/users` → `/api/v2/users`) and retry.
-4. On a **feature branch**, existing endpoint schemas are freely overwritten.
+3. On a **protected branch**, Sanshain performs a **backward compatibility check**. Backward-compatible changes (adding optional fields, new schemas, new endpoints) are accepted and a new version is recorded. Breaking changes (removing fields, changing types, removing response codes) are rejected with `409 Conflict`.
+4. On a **feature branch**, existing endpoint schemas are freely overwritten without compatibility checks.
 5. If `dry_run` is set to `true`, all validation runs but nothing is stored — useful for CI checks.
 
 ### Requiring an endpoint
@@ -79,11 +79,21 @@ Each branch view shows the total number of endpoints, how many are used by at le
 
 The YAML viewer includes **Copy** and **Download** buttons for easy export of endpoint specifications.
 
+#### Version History & Diff Viewer
+
+For endpoints on protected branches, the modal shows a **Version History** tab listing all recorded versions. You can:
+
+- View the full YAML at any version.
+- See the diff from the previous version (color-coded: green for additions, red for deletions).
+- Compare any two arbitrary versions using the version comparison tool.
+
+![Version history and diff viewer](images/Screenshot_20260416_200543.png)
+
 ### Dependency Graph
 
 The **Graph** tab visualises the dependency relationships between services and clients on the selected branch.
 
-![Dependency graph](images/Screenshot_20260314_075937.png)
+![Dependency graph](images/Screenshot_20260416_200931.png)
 
 - **Green** nodes are clients only.
 - **Purple** nodes are services only.
@@ -93,6 +103,16 @@ The **Graph** tab visualises the dependency relationships between services and c
 Toggle **Detailed view** to show individual endpoint paths on the edges.
 
 Use the **Copy** button to copy the generated Mermaid code to the clipboard, or **Download** to save it as a `.mmd` file.
+
+### Stale Data Detection
+
+When the server is restarted or updated, a yellow banner appears at the top of the page offering a one-click reload. This ensures you always see the latest data without manually clearing the browser cache.
+
+![Stale data detection banner](images/Screenshot_20260416_200709.png)
+
+### Dark / Light Mode
+
+All pages include a 🌙/☀️ toggle in the navigation bar to switch between dark and light themes. Your preference is saved in a cookie and persists across sessions and pages.
 
 ### Dependency Report
 
