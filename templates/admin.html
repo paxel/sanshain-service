@@ -262,9 +262,16 @@
 
     function showDashboard() {
         document.getElementById('login-screen').classList.add('hidden');
-        document.getElementById('admin-dashboard').classList.remove('hidden');
-        // htmx hx-trigger="load" handles loading all fragments
-        htmx.process(document.getElementById('admin-dashboard'));
+        const dashboard = document.getElementById('admin-dashboard');
+        dashboard.classList.remove('hidden');
+        // Ensure htmx picks up the now-visible subtree
+        htmx.process(dashboard);
+        // The hx-trigger="load" events fired (or failed due to missing auth) while the
+        // dashboard was hidden and before the user was authenticated. Re-trigger them
+        // now so fragments like the dev-mode switch render immediately without a refresh.
+        dashboard.querySelectorAll('[hx-trigger~="load"]').forEach(el => {
+            htmx.trigger(el, 'load');
+        });
     }
 
     document.getElementById('login-form').addEventListener('submit', async (e) => {

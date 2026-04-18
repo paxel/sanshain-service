@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.1]
+
+### Fixed
+- **Admin page config switches missing after login**: after signing in, config fragments such as the Developer Mode switch were not rendered until the page was manually refreshed. The `hx-trigger="load"` events fired (and failed without an auth token) while the dashboard was still hidden on the login screen. `showDashboard()` now re-triggers the `load` event on every lazy htmx container inside the dashboard so fragments render immediately after login.
+
 ## [0.7.0]
 
 ### Added

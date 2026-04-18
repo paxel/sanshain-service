@@ -152,3 +152,7 @@ The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Be
 - [x] Detailed hands-on user documentation (in `docs/`).
 - [x] CI integration guide (`docs/ci-integration.md`) with dry-run examples and GitHub Actions workflow.
 - [x] Updated screenshots for version history/diff viewer, dependency graph, and stale data banner added to `docs/user-guide.md`.
+
+### 0.7.1 Features — Post-demo fixes
+- [x] Fix admin page layout so config switches (e.g. dev mode) render immediately after login without a refresh.
+- [x] Bump project version from 0.7.0 to 0.7.1 in `Cargo.toml` and update `CHANGELOG.md`.
