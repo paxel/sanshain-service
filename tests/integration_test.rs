@@ -6,8 +6,9 @@ use axum::{
 use serde_json::{json, Value};
 use sqlx::sqlite::SqlitePoolOptions;
 use std::sync::Arc;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use tokio::sync::RwLock;
+use chrono::Utc;
 use tower::ServiceExt; // for `oneshot`
 use sanshain_service::{create_app, AppState};
 use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
@@ -25,8 +26,8 @@ async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
     let repo = SqliteSpecRepository::new(pool);
     repo.run_migrations().await.unwrap();
 
-    let mut tokens = HashSet::new();
-    tokens.insert(TEST_CSRF_TOKEN.to_string());
+    let mut tokens = HashMap::new();
+    tokens.insert(TEST_CSRF_TOKEN.to_string(), Utc::now());
     let state = AppState { repo: DatabaseRepo::Sqlite(repo.clone()), db_url: "sqlite::memory:".to_string(), csrf_tokens: Arc::new(RwLock::new(tokens)), instance_id: "test".to_string() };
     let app = create_app(state);
     (app, repo)
@@ -56,8 +57,8 @@ async fn setup_app_with_admin() -> (axum::Router, String) {
     use sanshain_service::domain::ports::SpecRepository;
     let session = repo.create_session(user.id, "2099-12-31T23:59:59").await.unwrap();
 
-    let mut tokens = HashSet::new();
-    tokens.insert(TEST_CSRF_TOKEN.to_string());
+    let mut tokens = HashMap::new();
+    tokens.insert(TEST_CSRF_TOKEN.to_string(), Utc::now());
     let state = AppState { repo: DatabaseRepo::Sqlite(repo), db_url: "sqlite::memory:".to_string(), csrf_tokens: Arc::new(RwLock::new(tokens)), instance_id: "test".to_string() };
     let app = create_app(state);
     (app, session.token)

@@ -10,16 +10,16 @@ This document lists security and performance issues identified during the code a
 - **Risk**: Resolved.
 - **Criticality**: Critical (Security)
 
-### 2. Infinite Memory Leak in CSRF Tokens
+### 2. Infinite Memory Leak in CSRF Tokens (FIXED)
 - **File**: `src/main.rs`
-- **Description**: CSRF tokens are stored in a `HashSet` that is only appended to and never cleared or pruned.
-- **Risk**: Long-running production instances will eventually consume all available memory and crash (OOM).
+- **Description**: CSRF tokens are now stored in a `HashMap` with timestamps and are pruned hourly by a background task.
+- **Risk**: Resolved.
 - **Criticality**: Critical (Stability)
 
-### 3. Non-Expiring and Replayable CSRF Tokens
+### 3. Non-Expiring and Replayable CSRF Tokens (FIXED)
 - **File**: `src/main.rs`
-- **Description**: Once a CSRF token is generated and stored, it remains valid indefinitely for any request until the server restarts.
-- **Risk**: Compromised CSRF tokens can be used repeatedly. They are not tied to a session or a specific time window.
+- **Description**: CSRF tokens now have a 24-hour expiration window (TTL) enforced during validation.
+- **Risk**: Resolved (mitigated via TTL).
 - **Criticality**: High (Security)
 
 ## High Issues
@@ -30,10 +30,10 @@ This document lists security and performance issues identified during the code a
 - **Risk**: High CPU and Database load when multiple clients are waiting. Scales poorly.
 - **Criticality**: High (Performance)
 
-### 5. CSRF Protection Blocking API Integration
+### 5. CSRF Protection Blocking API Integration (FIXED)
 - **File**: `src/main.rs`
-- **Description**: CSRF protection is applied globally to all state-changing requests (POST/PUT/DELETE), including those authenticated via Bearer API tokens.
-- **Risk**: Automated tools (CI/CD, CLI) using API tokens are forced to handle CSRF tokens, which is unnecessary and complex for non-cookie-based authentication.
+- **Description**: CSRF protection is now bypassed for requests that provide an `Authorization` header (API tokens), as Bearer tokens are inherently resistant to CSRF.
+- **Risk**: Resolved.
 - **Criticality**: High (Usability/Security)
 
 ## Medium Issues

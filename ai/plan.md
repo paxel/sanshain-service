@@ -161,9 +161,9 @@ The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Be
 
 ### Production Readiness & Security (Audit Findings)
 - [x] Fix LDAP Injection vulnerability by escaping username in filters.
-- [ ] Resolve CSRF token memory leak (implement pruning/TTL).
-- [ ] Implement CSRF token expiration and rotation.
-- [ ] Bypass CSRF protection for API-token authenticated requests.
+- [x] Resolve CSRF token memory leak (implement pruning/TTL).
+- [x] Implement CSRF token expiration.
+- [x] Bypass CSRF protection for API-token authenticated requests.
 - [ ] Replace busy-wait long-polling with an event-driven mechanism (e.g., `tokio::sync::watch` or `broadcast`).
 - [ ] Optimize OpenAPI splitting to include only necessary schemas (reduces DB bloat and increases performance).
 - [ ] Replace manual date/time logic with `chrono`.

@@ -11,9 +11,10 @@ use sqlx::sqlite::{SqlitePoolOptions, SqliteConnectOptions, SqliteJournalMode, S
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::str::FromStr;
 use tokio::sync::RwLock;
+use chrono::{DateTime, Utc, Duration};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod openapi;
@@ -32,7 +33,7 @@ use domain::models::{AuthMode, LdapConfig};
 pub struct AppState {
     pub repo: DatabaseRepo,
     pub db_url: String,
-    pub csrf_tokens: Arc<RwLock<HashSet<String>>>,
+    pub csrf_tokens: Arc<RwLock<HashMap<String, DateTime<Utc>>>>,
     pub instance_id: String,
 }
 
@@ -86,12 +87,13 @@ pub async fn main() {
     let state = AppState {
         repo,
         db_url: db_connection_str,
-        csrf_tokens: Arc::new(RwLock::new(HashSet::new())),
+        csrf_tokens: Arc::new(RwLock::new(HashMap::new())),
         instance_id,
     };
 
     // Spawn background branch cleanup task (runs every hour)
     let cleanup_repo = state.repo.clone();
+    let cleanup_csrf = state.csrf_tokens.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
         loop {
@@ -105,6 +107,19 @@ pub async fn main() {
                 Ok(0) => {},
                 Ok(n) => tracing::info!("Dependency cleanup: pruned {} stale dependencies", n),
                 Err(e) => tracing::warn!("Dependency cleanup failed: {:?}", e),
+            }
+
+            // Prune expired CSRF tokens (older than 24 hours)
+            {
+                let mut tokens = cleanup_csrf.write().await;
+                let now = Utc::now();
+                let max_age = Duration::hours(24);
+                let before_count = tokens.len();
+                tokens.retain(|_, created_at| now - *created_at < max_age);
+                let after_count = tokens.len();
+                if before_count > after_count {
+                    tracing::info!("CSRF cleanup: pruned {} expired tokens", before_count - after_count);
+                }
             }
         }
     });
@@ -260,6 +275,13 @@ async fn csrf_protection(
         || method == axum::http::Method::PUT
         || method == axum::http::Method::PATCH
     {
+        // Bypass CSRF for requests using Authorization headers (API tokens or manual sessions).
+        // If an Authorization header is present, the client is not relying on browser-automatic
+        // cookie transmission, which is the vector for CSRF.
+        if req.headers().contains_key(axum::http::header::AUTHORIZATION) {
+            return Ok(next.run(req).await);
+        }
+
         // In dev mode, skip CSRF validation to allow unauthenticated API access
         let dev_mode = services::get_dev_mode(&state.repo)
             .await
@@ -268,15 +290,21 @@ async fn csrf_protection(
             let csrf_token = req
                 .headers()
                 .get("X-CSRF-Token")
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.to_string());
+                .and_then(|v| v.to_str().ok());
 
             match csrf_token {
                 Some(token) => {
-                    let valid = state.csrf_tokens.read().await.contains(&token);
-                    if !valid {
-                        return Err(StatusCode::FORBIDDEN);
+                    let tokens = state.csrf_tokens.read().await;
+                    if let Some(created_at) = tokens.get(token) {
+                        let now = Utc::now();
+                        let max_age = Duration::hours(24);
+                        if now - *created_at < max_age {
+                            // Token is valid and not expired
+                            drop(tokens);
+                            return Ok(next.run(req).await);
+                        }
                     }
+                    return Err(StatusCode::FORBIDDEN);
                 }
                 None => {
                     return Err(StatusCode::FORBIDDEN);
@@ -492,7 +520,7 @@ async fn generate_csrf_token(
     let mut bytes = [0u8; 32];
     rand::rng().fill(&mut bytes);
     let token: String = hex::encode(bytes);
-    state.csrf_tokens.write().await.insert(token.clone());
+    state.csrf_tokens.write().await.insert(token.clone(), Utc::now());
     Json(CsrfTokenResponse { csrf_token: token })
 }
 
