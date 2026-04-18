@@ -7,11 +7,12 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::sqlite::{SqlitePoolOptions, SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::collections::HashSet;
+use std::str::FromStr;
 use tokio::sync::RwLock;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -59,9 +60,15 @@ pub async fn main() {
         tracing::info!("Using PostgreSQL database backend");
         DatabaseRepo::Postgres(pg_repo)
     } else {
+        let connection_options = SqliteConnectOptions::from_str(&db_connection_str)
+            .expect("invalid database URL")
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(std::time::Duration::from_secs(5))
+            .synchronous(SqliteSynchronous::Normal);
+
         let pool = SqlitePoolOptions::new()
-            .max_connections(5)
-            .connect(&db_connection_str)
+            .max_connections(1)
+            .connect_with(connection_options)
             .await
             .expect("can't connect to SQLite database");
         let sqlite_repo = SqliteSpecRepository::new(pool);

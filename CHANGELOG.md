@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.7.1]
 
+### Added
+- **Transactional specification updates**: `provide` operations (uploading a new OpenAPI spec) now apply all endpoint inserts, updates, and deletions within a single database transaction. This ensures that the main endpoint data and the version history always stay in sync, even if the database is under load or the disk is slow.
+- **SQLite reliability tuning**: optimized SQLite configuration for better performance and reliability, especially on Docker for Mac. Enabled **WAL (Write-Ahead Logging)** mode and **Normal** synchronous mode to allow concurrent reads and writes, set a **5-second busy timeout** to prevent "database is locked" errors, and limited the connection pool to a single writer to avoid lock contention on FUSE-mounted volumes.
+
 ### Fixed
 - **Admin page config switches missing after login**: after signing in, config fragments such as the Developer Mode switch were not rendered until the page was manually refreshed. The `hx-trigger="load"` events fired (and failed without an auth token) while the dashboard was still hidden on the login screen. `showDashboard()` now re-triggers the `load` event on every lazy htmx container inside the dashboard so fragments render immediately after login.
 

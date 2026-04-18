@@ -74,8 +74,7 @@ async fn provide_spec_inner(
         .map(|e| ((e.path, e.method), e.yaml_content))
         .collect();
 
-    let mut to_insert = Vec::new();
-    let mut to_update = Vec::new();
+    let mut changes = Vec::new();
 
     for endpoint in endpoints {
         let key = (endpoint.path.clone(), endpoint.method.clone());
@@ -100,15 +99,18 @@ async fn provide_spec_inner(
                         endpoint.method,
                         endpoint.path
                     );
-                    to_update.push(endpoint);
                 } else {
                     tracing::info!(
                         "Updating {} {} on feature branch",
                         endpoint.method,
                         endpoint.path
                     );
-                    to_update.push(endpoint);
                 }
+                changes.push(SpecChange::Update {
+                    path: endpoint.path,
+                    method: endpoint.method,
+                    yaml_content: endpoint.yaml_content,
+                });
             }
         } else {
             // Check if this endpoint was previously soft-deleted on a protected branch
@@ -123,8 +125,7 @@ async fn provide_spec_inner(
                     endpoint.method, endpoint.path, branch, servicename
                 )));
             }
-            to_insert.push(EndpointRecord {
-                id: None,
+            changes.push(SpecChange::Insert {
                 path: endpoint.path,
                 method: endpoint.method,
                 yaml_content: endpoint.yaml_content,
@@ -132,55 +133,27 @@ async fn provide_spec_inner(
         }
     }
 
-    if dry_run {
-        return Ok(());
-    }
-
-    for endpoint in &to_insert {
-        repo.insert_endpoint(branch_id, endpoint).await?;
-        // Record version 1 (baseline) for new endpoints on protected branches
-        if is_protected {
-            if let Some(endpoint_id) = repo.get_endpoint_id(branch_id, &endpoint.path, &endpoint.method).await? {
-                let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-                repo.insert_endpoint_version(endpoint_id, 1, &endpoint.yaml_content, None, &now).await?;
-            }
-        }
-    }
-
-    for endpoint in &to_update {
-        // Record version history for protected branch updates
-        if is_protected {
-            if let Some(endpoint_id) = repo.get_endpoint_id(branch_id, &endpoint.path, &endpoint.method).await? {
-                let existing_endpoints = repo.get_endpoints_for_branch(branch_id).await?;
-                let old_yaml = existing_endpoints.iter()
-                    .find(|e| e.path == endpoint.path && e.method == endpoint.method)
-                    .map(|e| e.yaml_content.as_str());
-                let latest_version = repo.get_latest_endpoint_version(endpoint_id).await?;
-                let new_version = latest_version + 1;
-                let diff = old_yaml.map(|old| openapi::generate_diff(old, &endpoint.yaml_content));
-                let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-                repo.insert_endpoint_version(endpoint_id, new_version, &endpoint.yaml_content, diff.as_deref(), &now).await?;
-            }
-        }
-        repo.update_endpoint(branch_id, &endpoint.path, &endpoint.method, &endpoint.yaml_content).await?;
-    }
-
     // Remove endpoints that are no longer in the spec
-    for ((path, method), _) in &existing_map {
+    for ((path, method), _) in existing_map {
         if is_protected {
             tracing::info!(
                 "Soft-deleting {} {} on protected branch",
                 method, path
             );
-            repo.soft_delete_endpoint(branch_id, path, method).await?;
         } else {
             tracing::info!(
                 "Deleting {} {} on feature branch",
                 method, path
             );
-            repo.hard_delete_endpoint(branch_id, path, method).await?;
         }
+        changes.push(SpecChange::Delete { path, method, soft_delete: is_protected });
     }
+
+    if dry_run {
+        return Ok(());
+    }
+
+    repo.apply_spec_changes(branch_id, changes, is_protected).await?;
 
     Ok(())
 }
@@ -1506,6 +1479,50 @@ mod tests {
         async fn get_endpoint_versions(&self, endpoint_id: i64) -> Result<Vec<EndpointVersion>, RepositoryError> {
             let versions = self.endpoint_versions.lock().unwrap();
             Ok(versions.iter().filter(|v| v.endpoint_id == endpoint_id).cloned().collect())
+        }
+
+        async fn apply_spec_changes(&self, branch_id: i64, changes: Vec<SpecChange>, is_protected: bool) -> Result<(), RepositoryError> {
+            let now = current_utc_iso();
+            for change in changes {
+                match change {
+                    SpecChange::Insert { path, method, yaml_content } => {
+                        let endpoint_record = EndpointRecord {
+                            id: None,
+                            path: path.clone(),
+                            method: method.clone(),
+                            yaml_content: yaml_content.clone(),
+                        };
+                        self.insert_endpoint(branch_id, &endpoint_record).await?;
+                        if is_protected {
+                            if let Some(endpoint_id) = self.get_endpoint_id(branch_id, &path, &method).await? {
+                                self.insert_endpoint_version(endpoint_id, 1, &yaml_content, None, &now).await?;
+                            }
+                        }
+                    }
+                    SpecChange::Update { path, method, yaml_content } => {
+                        if is_protected {
+                            if let Some(endpoint_id) = self.get_endpoint_id(branch_id, &path, &method).await? {
+                                let old_yaml = self.endpoints.lock().unwrap().get(&branch_id)
+                                    .and_then(|ev| ev.iter().find(|e| e.path == path && e.method == method))
+                                    .map(|e| e.yaml_content.clone());
+                                
+                                let current_version = self.get_latest_endpoint_version(endpoint_id).await?;
+                                let diff = old_yaml.as_ref().map(|old| crate::openapi::generate_diff(old, &yaml_content));
+                                self.insert_endpoint_version(endpoint_id, current_version + 1, &yaml_content, diff.as_deref(), &now).await?;
+                            }
+                        }
+                        self.update_endpoint(branch_id, &path, &method, &yaml_content).await?;
+                    }
+                    SpecChange::Delete { path, method, soft_delete } => {
+                        if soft_delete {
+                            self.soft_delete_endpoint(branch_id, &path, &method).await?;
+                        } else {
+                            self.hard_delete_endpoint(branch_id, &path, &method).await?;
+                        }
+                    }
+                }
+            }
+            Ok(())
         }
     }
 

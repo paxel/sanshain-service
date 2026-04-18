@@ -218,4 +218,8 @@ impl SpecRepository for DatabaseRepo {
     async fn get_endpoint_versions(&self, endpoint_id: i64) -> Result<Vec<EndpointVersion>, RepositoryError> {
         delegate!(self, get_endpoint_versions(endpoint_id))
     }
+
+    async fn apply_spec_changes(&self, branch_id: i64, changes: Vec<SpecChange>, is_protected: bool) -> Result<(), RepositoryError> {
+        delegate!(self, apply_spec_changes(branch_id, changes, is_protected))
+    }
 }

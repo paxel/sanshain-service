@@ -948,4 +948,110 @@ impl SpecRepository for PostgresSpecRepository {
             id, endpoint_id, version, yaml_content, diff_from_previous, created_at,
         }).collect())
     }
+
+    async fn apply_spec_changes(
+        &self,
+        branch_id: i64,
+        changes: Vec<SpecChange>,
+        is_protected: bool,
+    ) -> Result<(), RepositoryError> {
+        let mut tx = self.pool.begin().await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let now = now_iso();
+
+        for change in changes {
+            match change {
+                SpecChange::Insert { path, method, yaml_content } => {
+                    sqlx::query("INSERT INTO endpoints (branch_id, path, method, yaml_content, deleted) VALUES ($1, $2, $3, $4, false)")
+                        .bind(branch_id)
+                        .bind(&path)
+                        .bind(&method)
+                        .bind(&yaml_content)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+                    if is_protected {
+                        let row: (i64,) = sqlx::query_as("SELECT id FROM endpoints WHERE branch_id = $1 AND path = $2 AND method = $3 AND deleted = false")
+                            .bind(branch_id)
+                            .bind(&path)
+                            .bind(&method)
+                            .fetch_one(&mut *tx)
+                            .await
+                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                        
+                        sqlx::query("INSERT INTO endpoint_versions (endpoint_id, version, yaml_content, diff_from_previous, created_at) VALUES ($1, 1, $2, NULL, $3)")
+                            .bind(row.0)
+                            .bind(&yaml_content)
+                            .bind(&now)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                    }
+                }
+                SpecChange::Update { path, method, yaml_content } => {
+                    if is_protected {
+                        let row: (i64, String) = sqlx::query_as("SELECT id, yaml_content FROM endpoints WHERE branch_id = $1 AND path = $2 AND method = $3 AND deleted = false")
+                            .bind(branch_id)
+                            .bind(&path)
+                            .bind(&method)
+                            .fetch_one(&mut *tx)
+                            .await
+                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                        
+                        let endpoint_id = row.0;
+                        let old_yaml = row.1;
+                        
+                        let version_row: (i32,) = sqlx::query_as("SELECT COALESCE(MAX(version), 0) FROM endpoint_versions WHERE endpoint_id = $1")
+                            .bind(endpoint_id)
+                            .fetch_one(&mut *tx)
+                            .await
+                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                        
+                        let diff = crate::openapi::generate_diff(&old_yaml, &yaml_content);
+                        
+                        sqlx::query("INSERT INTO endpoint_versions (endpoint_id, version, yaml_content, diff_from_previous, created_at) VALUES ($1, $2, $3, $4, $5)")
+                            .bind(endpoint_id)
+                            .bind(version_row.0 + 1)
+                            .bind(&yaml_content)
+                            .bind(diff)
+                            .bind(&now)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                    }
+
+                    sqlx::query("UPDATE endpoints SET yaml_content = $1, deleted = false WHERE branch_id = $2 AND path = $3 AND method = $4")
+                        .bind(&yaml_content)
+                        .bind(branch_id)
+                        .bind(&path)
+                        .bind(&method)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                }
+                SpecChange::Delete { path, method, soft_delete } => {
+                    if soft_delete {
+                        sqlx::query("UPDATE endpoints SET deleted = true WHERE branch_id = $1 AND path = $2 AND method = $3")
+                            .bind(branch_id)
+                            .bind(&path)
+                            .bind(&method)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                    } else {
+                        sqlx::query("DELETE FROM endpoints WHERE branch_id = $1 AND path = $2 AND method = $3")
+                            .bind(branch_id)
+                            .bind(&path)
+                            .bind(&method)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                    }
+                }
+            }
+        }
+
+        tx.commit().await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
 }

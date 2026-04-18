@@ -156,3 +156,22 @@ pub struct EndpointVersion {
     pub diff_from_previous: Option<String>,
     pub created_at: String,
 }
+
+#[derive(Debug, Clone)]
+pub enum SpecChange {
+    Insert {
+        path: String,
+        method: String,
+        yaml_content: String,
+    },
+    Update {
+        path: String,
+        method: String,
+        yaml_content: String,
+    },
+    Delete {
+        path: String,
+        method: String,
+        soft_delete: bool,
+    },
+}

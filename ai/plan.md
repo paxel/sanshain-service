@@ -156,3 +156,5 @@ The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Be
 ### 0.7.1 Features — Post-demo fixes
 - [x] Fix admin page layout so config switches (e.g. dev mode) render immediately after login without a refresh.
 - [x] Bump project version from 0.7.0 to 0.7.1 in `Cargo.toml` and update `CHANGELOG.md`.
+- [x] Transactional specification updates: inserts, updates, and deletions in `/provide` are now atomic.
+- [x] SQLite reliability tuning: enabled WAL mode, busy timeout (5s), and single writer pool for Mac Docker stability.

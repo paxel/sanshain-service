@@ -194,4 +194,12 @@ pub trait SpecRepository: Send + Sync {
 
     /// Get the version history for an endpoint.
     fn get_endpoint_versions(&self, endpoint_id: i64) -> impl Future<Output = Result<Vec<EndpointVersion>, RepositoryError>> + Send;
+
+    /// Apply a set of specification changes (insert, update, delete) atomically.
+    fn apply_spec_changes(
+        &self,
+        branch_id: i64,
+        changes: Vec<SpecChange>,
+        is_protected: bool,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }
