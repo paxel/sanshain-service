@@ -28,7 +28,8 @@ async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
 
     let mut tokens = HashMap::new();
     tokens.insert(TEST_CSRF_TOKEN.to_string(), Utc::now());
-    let state = AppState { repo: DatabaseRepo::Sqlite(repo.clone()), db_url: "sqlite::memory:".to_string(), csrf_tokens: Arc::new(RwLock::new(tokens)), instance_id: "test".to_string() };
+    let (spec_updated_tx, _) = tokio::sync::broadcast::channel(100);
+    let state = AppState { repo: DatabaseRepo::Sqlite(repo.clone()), db_url: "sqlite::memory:".to_string(), csrf_tokens: Arc::new(RwLock::new(tokens)), instance_id: "test".to_string(), spec_updated_tx };
     let app = create_app(state);
     (app, repo)
 }
@@ -59,7 +60,8 @@ async fn setup_app_with_admin() -> (axum::Router, String) {
 
     let mut tokens = HashMap::new();
     tokens.insert(TEST_CSRF_TOKEN.to_string(), Utc::now());
-    let state = AppState { repo: DatabaseRepo::Sqlite(repo), db_url: "sqlite::memory:".to_string(), csrf_tokens: Arc::new(RwLock::new(tokens)), instance_id: "test".to_string() };
+    let (spec_updated_tx, _) = tokio::sync::broadcast::channel(100);
+    let state = AppState { repo: DatabaseRepo::Sqlite(repo), db_url: "sqlite::memory:".to_string(), csrf_tokens: Arc::new(RwLock::new(tokens)), instance_id: "test".to_string(), spec_updated_tx };
     let app = create_app(state);
     (app, session.token)
 }
@@ -1978,7 +1980,7 @@ async fn test_require_does_not_create_phantom_service() {
     let (app, admin_token) = setup_app_with_admin().await;
 
     // A client requires an endpoint from a service that was never provided
-    let require_payload = json!({
+    let _require_payload = json!({
         "clientname": "my-client",
         "servicename": "phantom-service",
         "branch": "main",

@@ -35,6 +35,7 @@ pub struct AppState {
     pub db_url: String,
     pub csrf_tokens: Arc<RwLock<HashMap<String, DateTime<Utc>>>>,
     pub instance_id: String,
+    pub spec_updated_tx: tokio::sync::broadcast::Sender<()>,
 }
 
 #[tokio::main]
@@ -84,11 +85,13 @@ pub async fn main() {
     let instance_id = uuid::Uuid::new_v4().to_string();
     tracing::info!("Instance ID: {}", instance_id);
 
+    let (spec_updated_tx, _) = tokio::sync::broadcast::channel(100);
     let state = AppState {
         repo,
         db_url: db_connection_str,
         csrf_tokens: Arc::new(RwLock::new(HashMap::new())),
         instance_id,
+        spec_updated_tx,
     };
 
     // Spawn background branch cleanup task (runs every hour)
@@ -574,6 +577,11 @@ async fn provide(
     } else {
         services::provide_spec(&state.repo, &payload.servicename, &payload.branch, &payload.openapi_yaml).await
     };
+
+    if result.is_ok() && !payload.dry_run {
+        let _ = state.spec_updated_tx.send(());
+    }
+
     result
         .map(|_| StatusCode::ACCEPTED)
         .map_err(app_error_to_status_with_body)
@@ -584,9 +592,11 @@ async fn require(
     Query(params): Query<RequireParams>,
 ) -> Result<String, (StatusCode, String)> {
     let dry_run = params.dry_run.unwrap_or(false);
+    let notifier = Some(state.spec_updated_tx.subscribe());
     let result = if dry_run {
         services::require_endpoint_dry_run(
             &state.repo,
+            notifier,
             &params.clientname,
             &params.servicename,
             &params.branch,
@@ -597,6 +607,7 @@ async fn require(
     } else {
         services::require_endpoint(
             &state.repo,
+            notifier,
             &params.clientname,
             &params.servicename,
             &params.branch,
@@ -616,9 +627,11 @@ async fn require_bundle(
         .into_iter()
         .map(|e| (e.path, e.method))
         .collect();
+    let notifier = Some(state.spec_updated_tx.subscribe());
     let result = if payload.dry_run {
         services::require_bundle_dry_run(
             &state.repo,
+            notifier,
             &payload.clientname,
             &payload.servicename,
             &payload.branch,
@@ -628,6 +641,7 @@ async fn require_bundle(
     } else {
         services::require_bundle(
             &state.repo,
+            notifier,
             &payload.clientname,
             &payload.servicename,
             &payload.branch,

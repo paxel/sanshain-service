@@ -24,10 +24,10 @@ This document lists security and performance issues identified during the code a
 
 ## High Issues
 
-### 4. Inefficient Long-Polling (Busy-Wait)
+### 4. Inefficient Long-Polling (Busy-Wait) (FIXED)
 - **File**: `src/application/services.rs`
-- **Description**: The `/require` and `/require-bundle` endpoints implement long-polling by looping and sleeping for 500ms while re-querying the database each time.
-- **Risk**: High CPU and Database load when multiple clients are waiting. Scales poorly.
+- **Description**: The `/require` and `/require-bundle` endpoints now use `tokio::sync::broadcast` to wake up immediately when a new spec is provided, instead of polling every 500ms.
+- **Risk**: Resolved.
 - **Criticality**: High (Performance)
 
 ### 5. CSRF Protection Blocking API Integration (FIXED)

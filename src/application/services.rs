@@ -229,6 +229,7 @@ pub async fn get_endpoint_version_history(
 
 pub async fn require_endpoint(
     repo: &impl SpecRepository,
+    notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     clientname: &str,
     servicename: &str,
     branch: &str,
@@ -236,11 +237,12 @@ pub async fn require_endpoint(
     method: &str,
     timeout_secs: Option<u64>,
 ) -> Result<String, AppError> {
-    require_endpoint_inner(repo, clientname, servicename, branch, path, method, timeout_secs, false).await
+    require_endpoint_inner(repo, notifier, clientname, servicename, branch, path, method, timeout_secs, false).await
 }
 
 pub async fn require_endpoint_dry_run(
     repo: &impl SpecRepository,
+    notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     clientname: &str,
     servicename: &str,
     branch: &str,
@@ -248,11 +250,12 @@ pub async fn require_endpoint_dry_run(
     method: &str,
     timeout_secs: Option<u64>,
 ) -> Result<String, AppError> {
-    require_endpoint_inner(repo, clientname, servicename, branch, path, method, timeout_secs, true).await
+    require_endpoint_inner(repo, notifier, clientname, servicename, branch, path, method, timeout_secs, true).await
 }
 
 async fn require_endpoint_inner(
     repo: &impl SpecRepository,
+    mut notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     clientname: &str,
     servicename: &str,
     branch: &str,
@@ -310,10 +313,32 @@ async fn require_endpoint_inner(
 
         // If no timeout or deadline passed, return NotFound
         match deadline {
-            Some(dl) if std::time::Instant::now() < dl => {
-                tokio::time::sleep(poll_interval).await;
+            Some(dl) => {
+                let now = std::time::Instant::now();
+                if now < dl {
+                    let timeout = dl - now;
+                    match notifier.as_mut() {
+                        Some(rx) => {
+                            tokio::select! {
+                                _ = tokio::time::sleep(timeout) => {},
+                                _ = rx.recv() => {}, // Wake up on spec update (ignore lagged error)
+                            }
+                        }
+                        None => {
+                            tokio::time::sleep(poll_interval.min(timeout)).await;
+                        }
+                    }
+                } else {
+                    if !dry_run {
+                        repo.record_dependency(client_id, None, service_id, branch, path, &method_upper).await?;
+                    }
+                    return Err(AppError::NotFound(format!(
+                        "Endpoint not found: {} {} on service '{}' branch '{}'",
+                        method_upper, path, servicename, branch
+                    )));
+                }
             }
-            _ => {
+            None => {
                 if !dry_run {
                     repo.record_dependency(client_id, None, service_id, branch, path, &method_upper).await?;
                 }
@@ -328,28 +353,31 @@ async fn require_endpoint_inner(
 
 pub async fn require_bundle(
     repo: &impl SpecRepository,
+    notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     clientname: &str,
     servicename: &str,
     branch: &str,
     endpoints: &[(String, String)],
     timeout_secs: Option<u64>,
 ) -> Result<String, AppError> {
-    require_bundle_inner(repo, clientname, servicename, branch, endpoints, timeout_secs, false).await
+    require_bundle_inner(repo, notifier, clientname, servicename, branch, endpoints, timeout_secs, false).await
 }
 
 pub async fn require_bundle_dry_run(
     repo: &impl SpecRepository,
+    notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     clientname: &str,
     servicename: &str,
     branch: &str,
     endpoints: &[(String, String)],
     timeout_secs: Option<u64>,
 ) -> Result<String, AppError> {
-    require_bundle_inner(repo, clientname, servicename, branch, endpoints, timeout_secs, true).await
+    require_bundle_inner(repo, notifier, clientname, servicename, branch, endpoints, timeout_secs, true).await
 }
 
 async fn require_bundle_inner(
     repo: &impl SpecRepository,
+    mut notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     clientname: &str,
     servicename: &str,
     branch: &str,
@@ -421,8 +449,36 @@ async fn require_bundle_inner(
 
         // If no timeout or deadline passed, record missing deps and return NotFound
         match deadline {
-            Some(dl) if std::time::Instant::now() < dl => {
-                tokio::time::sleep(poll_interval).await;
+            Some(dl) => {
+                let now = std::time::Instant::now();
+                if now < dl {
+                    let timeout = dl - now;
+                    match notifier.as_mut() {
+                        Some(rx) => {
+                            tokio::select! {
+                                _ = tokio::time::sleep(timeout) => {},
+                                _ = rx.recv() => {}, // Wake up on spec update
+                            }
+                        }
+                        None => {
+                            tokio::time::sleep(poll_interval.min(timeout)).await;
+                        }
+                    }
+                } else {
+                    // Record dependencies for missing endpoints
+                    if !dry_run {
+                        for (path, method) in &missing {
+                            repo.record_dependency(client_id, None, service_id, branch, path, method).await?;
+                        }
+                    }
+                    let missing_list: Vec<String> = missing.iter()
+                        .map(|(p, m)| format!("{} {}", m, p))
+                        .collect();
+                    return Err(AppError::NotFound(format!(
+                        "Missing endpoints on service '{}' branch '{}': {}",
+                        servicename, branch, missing_list.join(", ")
+                    )));
+                }
             }
             _ => {
                 // Record dependencies for missing endpoints
@@ -1860,7 +1916,7 @@ paths:
     #[tokio::test]
     async fn test_require_endpoint_not_found() {
         let repo = MockRepo::new();
-        let result = require_endpoint(&repo, "client", "svc", "main", "/missing", "GET", None).await;
+        let result = require_endpoint(&repo, None, "client", "svc", "main", "/missing", "GET", None).await;
         assert!(matches!(result, Err(AppError::NotFound(_))));
     }
 
@@ -1880,7 +1936,7 @@ paths:
           description: OK
 "#;
         provide_spec(&repo, "svc", "main", yaml).await.unwrap();
-        let result = require_endpoint(&repo, "client", "svc", "main", "/users", "GET", None).await;
+        let result = require_endpoint(&repo, None, "client", "svc", "main", "/users", "GET", None).await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("/users"));
     }
@@ -1961,7 +2017,7 @@ paths:
         assert!(result.is_ok());
 
         // Verify the endpoint was actually updated
-        let content = require_endpoint(&repo, "client", "svc", "feature/xyz", "/users", "GET", None).await.unwrap();
+        let content = require_endpoint(&repo, None, "client", "svc", "feature/xyz", "/users", "GET", None).await.unwrap();
         assert!(content.contains("Changed"));
     }
 
@@ -1984,7 +2040,7 @@ paths:
         provide_spec(&repo, "svc", "main", yaml).await.unwrap();
 
         // Require on a feature branch that has no endpoints — should fallback to main
-        let result = require_endpoint(&repo, "client", "svc", "feature/abc", "/users", "GET", None).await;
+        let result = require_endpoint(&repo, None, "client", "svc", "feature/abc", "/users", "GET", None).await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("/users"));
     }
@@ -1993,7 +2049,7 @@ paths:
     async fn test_require_with_timeout_returns_not_found_after_expiry() {
         let repo = MockRepo::new();
         let start = std::time::Instant::now();
-        let result = require_endpoint(&repo, "client", "svc", "main", "/missing", "GET", Some(1)).await;
+        let result = require_endpoint(&repo, None, "client", "svc", "main", "/missing", "GET", Some(1)).await;
         let elapsed = start.elapsed();
         assert!(matches!(result, Err(AppError::NotFound(_))));
         assert!(elapsed >= std::time::Duration::from_millis(500), "should have polled at least once");
@@ -2018,7 +2074,7 @@ paths:
         provide_spec(&repo, "svc", "main", yaml).await.unwrap();
 
         // master is protected, so no fallback — endpoint not on master → NotFound
-        let result = require_endpoint(&repo, "client", "svc", "master", "/users", "GET", None).await;
+        let result = require_endpoint(&repo, None, "client", "svc", "master", "/users", "GET", None).await;
         assert!(matches!(result, Err(AppError::NotFound(_))));
     }
 
@@ -2175,7 +2231,7 @@ paths:
           description: OK
 "#;
         provide_spec(&repo, "svc", "main", yaml).await.unwrap();
-        require_endpoint(&repo, "webclient", "svc", "main", "/users", "GET", None).await.unwrap();
+        require_endpoint(&repo, None, "webclient", "svc", "main", "/users", "GET", None).await.unwrap();
 
         let clients = list_clients(&repo).await.unwrap();
         assert!(clients.contains(&"webclient".to_string()));
@@ -2454,7 +2510,7 @@ paths:
     #[tokio::test]
     async fn test_require_bundle_empty_endpoints() {
         let repo = MockRepo::new();
-        let result = require_bundle(&repo, "client", "svc", "main", &[], None).await;
+        let result = require_bundle(&repo, None, "client", "svc", "main", &[], None).await;
         assert!(matches!(result, Err(AppError::BadRequest(_))));
     }
 
@@ -2508,7 +2564,7 @@ components:
             ("/users".to_string(), "GET".to_string()),
             ("/orders".to_string(), "POST".to_string()),
         ];
-        let result = require_bundle(&repo, "client", "svc", "main", &endpoints, None).await.unwrap();
+        let result = require_bundle(&repo, None, "client", "svc", "main", &endpoints, None).await.unwrap();
 
         // Merged YAML should contain both paths and deduplicated schemas
         assert!(result.contains("/users"));
@@ -2545,7 +2601,7 @@ paths:
             ("/users".to_string(), "GET".to_string()),
             ("/missing".to_string(), "POST".to_string()),
         ];
-        let result = require_bundle(&repo, "client", "svc", "main", &endpoints, None).await;
+        let result = require_bundle(&repo, None, "client", "svc", "main", &endpoints, None).await;
         assert!(matches!(result, Err(AppError::NotFound(_))));
         if let Err(AppError::NotFound(msg)) = result {
             assert!(msg.contains("POST /missing"));
@@ -2640,7 +2696,7 @@ paths:
     async fn test_dry_run_require_does_not_create_records() {
         let repo = MockRepo::new();
         // Dry-run require for a non-existent service should return NotFound, not create records
-        let result = require_endpoint_dry_run(&repo, "ghost-client", "ghost-service", "main", "/foo", "GET", None).await;
+        let result = require_endpoint_dry_run(&repo, None, "ghost-client", "ghost-service", "main", "/foo", "GET", None).await;
         assert!(result.is_err(), "should return error for non-existent service");
         assert!(repo.services.lock().unwrap().is_empty(), "dry-run should not create service");
         assert!(repo.clients.lock().unwrap().is_empty(), "dry-run should not create client");
