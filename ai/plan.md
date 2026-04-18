@@ -158,3 +158,13 @@ The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Be
 - [x] Bump project version from 0.7.0 to 0.7.1 in `Cargo.toml` and update `CHANGELOG.md`.
 - [x] Transactional specification updates: inserts, updates, and deletions in `/provide` are now atomic.
 - [x] SQLite reliability tuning: enabled WAL mode, busy timeout (5s), and single writer pool for Mac Docker stability.
+
+### Production Readiness & Security (Audit Findings)
+- [x] Fix LDAP Injection vulnerability by escaping username in filters.
+- [ ] Resolve CSRF token memory leak (implement pruning/TTL).
+- [ ] Implement CSRF token expiration and rotation.
+- [ ] Bypass CSRF protection for API-token authenticated requests.
+- [ ] Replace busy-wait long-polling with an event-driven mechanism (e.g., `tokio::sync::watch` or `broadcast`).
+- [ ] Optimize OpenAPI splitting to include only necessary schemas (reduces DB bloat and increases performance).
+- [ ] Replace manual date/time logic with `chrono`.
+- [ ] Clean up `unwrap()` calls in critical paths.

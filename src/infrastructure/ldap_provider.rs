@@ -7,6 +7,21 @@ pub struct LdapAuthProvider {
     config: LdapConfig,
 }
 
+fn escape_ldap_filter(val: &str) -> String {
+    let mut escaped = String::with_capacity(val.len());
+    for c in val.chars() {
+        match c {
+            '\\' => escaped.push_str("\\5c"),
+            '*' => escaped.push_str("\\2a"),
+            '(' => escaped.push_str("\\28"),
+            ')' => escaped.push_str("\\29"),
+            '\0' => escaped.push_str("\\00"),
+            _ => escaped.push(c),
+        }
+    }
+    escaped
+}
+
 impl LdapAuthProvider {
     pub fn new(config: LdapConfig) -> Self {
         Self { config }
@@ -40,7 +55,8 @@ impl AuthProvider for LdapAuthProvider {
         let mut ldap = self.connect().await?;
 
         // Search for the user
-        let filter = self.config.user_filter.replace("{username}", username);
+        let escaped_username = escape_ldap_filter(username);
+        let filter = self.config.user_filter.replace("{username}", &escaped_username);
         let (rs, _result) = ldap
             .search(&self.config.base_dn, Scope::Subtree, &filter, vec!["dn", "cn", "memberOf"])
             .await
@@ -94,5 +110,24 @@ impl AuthProvider for LdapAuthProvider {
         let mut ldap = self.connect().await?;
         let _ = ldap.unbind().await;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_escape_ldap_filter() {
+        assert_eq!(escape_ldap_filter("user"), "user");
+        assert_eq!(escape_ldap_filter("user*"), "user\\2a");
+        assert_eq!(escape_ldap_filter("user("), "user\\28");
+        assert_eq!(escape_ldap_filter("user)"), "user\\29");
+        assert_eq!(escape_ldap_filter("user\\"), "user\\5c");
+        assert_eq!(escape_ldap_filter("user\0"), "user\\00");
+        assert_eq!(
+            escape_ldap_filter("admin)(|(user=*"),
+            "admin\\29\\28|\\28user=\\2a"
+        );
     }
 }

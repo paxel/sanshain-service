@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **SQLite reliability tuning**: optimized SQLite configuration for better performance and reliability, especially on Docker for Mac. Enabled **WAL (Write-Ahead Logging)** mode and **Normal** synchronous mode to allow concurrent reads and writes, set a **5-second busy timeout** to prevent "database is locked" errors, and limited the connection pool to a single writer to avoid lock contention on FUSE-mounted volumes.
 
 ### Fixed
+- **LDAP Injection Vulnerability**: added filter escaping for usernames in the LDAP authentication provider. This prevents attackers from using special LDAP characters (e.g., `*`, `(`, `)`) to bypass authentication or probe the directory.
 - **Admin page config switches missing after login**: after signing in, config fragments such as the Developer Mode switch were not rendered until the page was manually refreshed. The `hx-trigger="load"` events fired (and failed without an auth token) while the dashboard was still hidden on the login screen. `showDashboard()` now re-triggers the `load` event on every lazy htmx container inside the dashboard so fragments render immediately after login.
 
 ## [0.7.0]
