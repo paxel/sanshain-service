@@ -6,6 +6,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use axum_prometheus::PrometheusMetricLayer;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::{SqlitePoolOptions, SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
 use sqlx::postgres::PgPoolOptions;
@@ -40,13 +41,16 @@ pub struct AppState {
 
 #[tokio::main]
 pub async fn main() {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "sanshain_service=info,tower_http=info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "sanshain_service=info,tower_http=info".into());
+    
+    let registry = tracing_subscriber::registry().with(filter);
+
+    if std::env::var("LOG_FORMAT").unwrap_or_default() == "json" {
+        registry.with(tracing_subscriber::fmt::layer().json()).init();
+    } else {
+        registry.with(tracing_subscriber::fmt::layer()).init();
+    }
 
     let db_connection_str = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite:sanshain.db?mode=rwc".into());
@@ -127,7 +131,10 @@ pub async fn main() {
         }
     });
 
-    let app = create_app(state);
+    let (prometheus_layer, prometheus_handle) = PrometheusMetricLayer::pair();
+    let app = create_app(state)
+        .layer(prometheus_layer)
+        .route("/metrics", get(|| async move { prometheus_handle.render() }));
 
     let bind_address = std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0:3000".into());
     let addr: SocketAddr = bind_address.parse().expect("invalid BIND_ADDRESS");

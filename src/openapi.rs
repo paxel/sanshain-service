@@ -166,7 +166,7 @@ fn extract_used_components_optimized(
 
 /// Extract all `$ref` strings from a YAML representation.
 fn collect_refs_from_yaml(yaml: &str) -> HashSet<String> {
-    let re = Regex::new(r#"\$ref:\s*'?\"?#/components/(\w+)/(\w+)'?\"?"#).unwrap();
+    let re = Regex::new(r#"\$ref:\s*'?\"?#/components/(\w+)/(\w+)'?\"?"#).expect("failed to compile reference regex");
     let mut refs = HashSet::new();
     for cap in re.captures_iter(yaml) {
         // Store as "category/name", e.g. "schemas/User"

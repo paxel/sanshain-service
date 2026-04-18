@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sanshain
+  labels:
+    app: sanshain
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: sanshain
+  template:
+    metadata:
+      labels:
+        app: sanshain
+    spec:
+      containers:
+      - name: sanshain
+        image: ghcr.io/sanshain/sanshain-service:latest
+        ports:
+        - containerPort: 3000
+        envFrom:
+        - configMapRef:
+            name: sanshain-config
+        - secretRef:
+            name: sanshain-secrets
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10

@@ -2,29 +2,6 @@ use sqlx::PgPool;
 use crate::domain::models::*;
 use crate::domain::ports::{RepositoryError, SpecRepository};
 
-fn now_iso() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let secs_per_day = 86400u64;
-    let days = secs / secs_per_day;
-    let tod = secs % secs_per_day;
-    let h = tod / 3600;
-    let m = (tod % 3600) / 60;
-    let s = tod % 60;
-    let z = days + 719468;
-    let era = z / 146097;
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if mo <= 2 { y + 1 } else { y };
-    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}", y, mo, d, h, m, s)
-}
 
 #[derive(Clone)]
 pub struct PostgresSpecRepository {
@@ -189,7 +166,7 @@ impl SpecRepository for PostgresSpecRepository {
         path: &str,
         method: &str,
     ) -> Result<(), RepositoryError> {
-        let now = now_iso();
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         sqlx::query(
             r#"
             INSERT INTO dependencies 
@@ -956,7 +933,7 @@ impl SpecRepository for PostgresSpecRepository {
         is_protected: bool,
     ) -> Result<(), RepositoryError> {
         let mut tx = self.pool.begin().await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        let now = now_iso();
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
         for change in changes {
             match change {

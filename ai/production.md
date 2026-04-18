@@ -63,7 +63,8 @@ This document lists security and performance issues identified during the code a
 - **Description**: Replaced hundreds of lines of manual date/time and ISO string formatting logic with the `chrono` library.
 - **Criticality**: Low (Maintainability)
 
-### 10. Use of `unwrap()` in Production Code
-- **Files**: Various
-- **Description**: Multiple instances of `.unwrap()` on system time durations and other operations that could theoretically fail in edge cases.
+### 10. Use of `unwrap()` in Production Code (FIXED)
+- **Files**: `src/infrastructure/sqlite_repository.rs`, `src/infrastructure/postgres_repository.rs`, `src/openapi.rs`, `src/infrastructure/ldap_provider.rs`
+- **Description**: Replaced manual date/time logic and associated `.unwrap()` calls in repositories with `chrono`. Added defensive `.expect()` or better error handling for regex and LDAP searches.
+- **Risk**: Resolved.
 - **Criticality**: Low (Robustness)
