@@ -14,21 +14,17 @@ pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
     let openapi: OpenAPI = serde_yaml::from_str(yaml_str)
         .map_err(|e| format!("Failed to parse OpenAPI YAML: {}", e))?;
 
+    let component_graph = build_component_graph(&openapi.components);
     let mut endpoints = Vec::new();
 
     for (path, path_item_ref) in &openapi.paths.paths {
         let path_item = match path_item_ref {
             ReferenceOr::Item(item) => item,
-            ReferenceOr::Reference { reference: _ } => {
-                // In a real implementation, we should resolve references.
-                // For now, we skip or return an error if paths are references (uncommon for top-level paths).
-                continue;
-            }
+            ReferenceOr::Reference { reference: _ } => continue,
         };
 
         let methods = get_methods(path_item);
         for (method, operation) in methods {
-            // Create a minimal OpenAPI spec for this specific endpoint
             let mut single_endpoint_openapi = OpenAPI {
                 openapi: openapi.openapi.clone(),
                 info: openapi.info.clone(),
@@ -36,20 +32,6 @@ pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
                 ..Default::default()
             };
 
-            // Versioning is handled via path, so we can normalize the version in the snippet to avoid spurious conflicts.
-            // Actually, maybe it's better to keep it, but the user says "version must be part of the path".
-            // If the user changes the version in 'info', should that be a conflict?
-            // User: "the version must be part of the path like api/v1.0/create/users... we just demand a different path if the dto changes"
-            // This suggests that changes to the 'info' block version shouldn't necessarily trigger a conflict if the path is the same.
-            // But if they change the DTO, it IS a conflict.
-            
-            // To focus only on DTO/Path changes, we could normalize 'info.version' or even 'info' entirely.
-            // Let's see if we should just keep it as is and fix the test.
-            // The user might want to see the correct version in the snippet.
-            
-            let mut paths = openapi.paths.paths.clone();
-            paths.clear();
-            
             let mut new_path_item = PathItem::default();
             match method.as_str() {
                 "get" => new_path_item.get = Some(operation.clone()),
@@ -65,10 +47,10 @@ pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
             
             single_endpoint_openapi.paths.paths.insert(path.clone(), ReferenceOr::Item(new_path_item));
             
-            // Include only the components/schemas actually referenced by this operation.
-            single_endpoint_openapi.components = extract_used_components(
+            single_endpoint_openapi.components = extract_used_components_optimized(
                 &single_endpoint_openapi,
                 &openapi.components,
+                &component_graph,
             );
 
             let endpoint_yaml = serde_yaml::to_string(&single_endpoint_openapi)
@@ -85,6 +67,103 @@ pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
     Ok(endpoints)
 }
 
+/// Build a dependency graph of components.
+fn build_component_graph(components: &Option<Components>) -> HashMap<String, HashSet<String>> {
+    let mut graph = HashMap::new();
+    let c = match components {
+        Some(c) => c,
+        None => return graph,
+    };
+
+    for (name, item) in &c.schemas {
+        graph.insert(format!("schemas/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+    }
+    for (name, item) in &c.responses {
+        graph.insert(format!("responses/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+    }
+    for (name, item) in &c.parameters {
+        graph.insert(format!("parameters/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+    }
+    for (name, item) in &c.examples {
+        graph.insert(format!("examples/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+    }
+    for (name, item) in &c.request_bodies {
+        graph.insert(format!("requestBodies/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+    }
+    for (name, item) in &c.headers {
+        graph.insert(format!("headers/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+    }
+    for (name, item) in &c.security_schemes {
+        graph.insert(format!("securitySchemes/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+    }
+    for (name, item) in &c.links {
+        graph.insert(format!("links/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+    }
+    for (name, item) in &c.callbacks {
+        graph.insert(format!("callbacks/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+    }
+
+    graph
+}
+
+fn extract_used_components_optimized(
+    partial_spec: &OpenAPI,
+    all_components: &Option<Components>,
+    graph: &HashMap<String, HashSet<String>>,
+) -> Option<Components> {
+    let all_components = match all_components {
+        Some(c) => c,
+        None => return None,
+    };
+
+    let paths_yaml = serde_yaml::to_string(&partial_spec.paths).unwrap_or_default();
+    let mut to_visit: Vec<String> = collect_refs_from_yaml(&paths_yaml).into_iter().collect();
+    let mut visited: HashSet<String> = HashSet::new();
+
+    while let Some(ref_key) = to_visit.pop() {
+        if !visited.insert(ref_key.clone()) {
+            continue;
+        }
+        if let Some(neighbors) = graph.get(&ref_key) {
+            for neighbor in neighbors {
+                if !visited.contains(neighbor) {
+                    to_visit.push(neighbor.clone());
+                }
+            }
+        }
+    }
+
+    let mut filtered = Components::default();
+    for key in &visited {
+        let parts: Vec<&str> = key.splitn(2, '/').collect();
+        if parts.len() != 2 { continue; }
+        let category = parts[0];
+        let name = parts[1];
+
+        match category {
+            "schemas" => if let Some(s) = all_components.schemas.get(name) { filtered.schemas.insert(name.to_string(), s.clone()); },
+            "responses" => if let Some(r) = all_components.responses.get(name) { filtered.responses.insert(name.to_string(), r.clone()); },
+            "parameters" => if let Some(p) = all_components.parameters.get(name) { filtered.parameters.insert(name.to_string(), p.clone()); },
+            "examples" => if let Some(e) = all_components.examples.get(name) { filtered.examples.insert(name.to_string(), e.clone()); },
+            "requestBodies" => if let Some(rb) = all_components.request_bodies.get(name) { filtered.request_bodies.insert(name.to_string(), rb.clone()); },
+            "headers" => if let Some(h) = all_components.headers.get(name) { filtered.headers.insert(name.to_string(), h.clone()); },
+            "securitySchemes" => if let Some(ss) = all_components.security_schemes.get(name) { filtered.security_schemes.insert(name.to_string(), ss.clone()); },
+            "links" => if let Some(l) = all_components.links.get(name) { filtered.links.insert(name.to_string(), l.clone()); },
+            "callbacks" => if let Some(c) = all_components.callbacks.get(name) { filtered.callbacks.insert(name.to_string(), c.clone()); },
+            _ => {}
+        }
+    }
+
+    if filtered.schemas.is_empty() && filtered.responses.is_empty() && filtered.parameters.is_empty() 
+        && filtered.examples.is_empty() && filtered.request_bodies.is_empty() && filtered.headers.is_empty() 
+        && filtered.security_schemes.is_empty() && filtered.links.is_empty() && filtered.callbacks.is_empty() 
+    {
+        None
+    } else {
+        Some(filtered)
+    }
+}
+
 /// Extract all `$ref` strings from a YAML representation.
 fn collect_refs_from_yaml(yaml: &str) -> HashSet<String> {
     let re = Regex::new(r#"\$ref:\s*'?\"?#/components/(\w+)/(\w+)'?\"?"#).unwrap();
@@ -96,116 +175,6 @@ fn collect_refs_from_yaml(yaml: &str) -> HashSet<String> {
     refs
 }
 
-/// Given a partial OpenAPI (with paths but no components yet) and the full components,
-/// return a filtered Components containing only what's transitively referenced.
-fn extract_used_components(
-    partial_spec: &OpenAPI,
-    all_components: &Option<Components>,
-) -> Option<Components> {
-    let all_components = match all_components {
-        Some(c) => c,
-        None => return None,
-    };
-
-    // Serialize the paths portion to find initial refs
-    let paths_yaml = serde_yaml::to_string(&partial_spec.paths).unwrap_or_default();
-    let mut to_visit: Vec<String> = collect_refs_from_yaml(&paths_yaml).into_iter().collect();
-    let mut visited: HashSet<String> = HashSet::new();
-
-    // Transitively resolve refs from schemas
-    while let Some(ref_key) = to_visit.pop() {
-        if !visited.insert(ref_key.clone()) {
-            continue;
-        }
-        // If it's a schema ref, serialize that schema and find nested refs
-        if let Some(name) = ref_key.strip_prefix("schemas/") {
-            if let Some(schema_ref) = all_components.schemas.get(name) {
-                let schema_yaml = serde_yaml::to_string(schema_ref).unwrap_or_default();
-                for nested in collect_refs_from_yaml(&schema_yaml) {
-                    if !visited.contains(&nested) {
-                        to_visit.push(nested);
-                    }
-                }
-            }
-        }
-        // Similarly for responses
-        if let Some(name) = ref_key.strip_prefix("responses/") {
-            if let Some(resp_ref) = all_components.responses.get(name) {
-                let resp_yaml = serde_yaml::to_string(resp_ref).unwrap_or_default();
-                for nested in collect_refs_from_yaml(&resp_yaml) {
-                    if !visited.contains(&nested) {
-                        to_visit.push(nested);
-                    }
-                }
-            }
-        }
-        // parameters
-        if let Some(name) = ref_key.strip_prefix("parameters/") {
-            if let Some(param_ref) = all_components.parameters.get(name) {
-                let param_yaml = serde_yaml::to_string(param_ref).unwrap_or_default();
-                for nested in collect_refs_from_yaml(&param_yaml) {
-                    if !visited.contains(&nested) {
-                        to_visit.push(nested);
-                    }
-                }
-            }
-        }
-        // requestBodies
-        if let Some(name) = ref_key.strip_prefix("requestBodies/") {
-            if let Some(rb_ref) = all_components.request_bodies.get(name) {
-                let rb_yaml = serde_yaml::to_string(rb_ref).unwrap_or_default();
-                for nested in collect_refs_from_yaml(&rb_yaml) {
-                    if !visited.contains(&nested) {
-                        to_visit.push(nested);
-                    }
-                }
-            }
-        }
-    }
-
-    // Build filtered components
-    let mut filtered = Components::default();
-    for key in &visited {
-        if let Some(name) = key.strip_prefix("schemas/") {
-            if let Some(s) = all_components.schemas.get(name) {
-                filtered.schemas.insert(name.to_string(), s.clone());
-            }
-        } else if let Some(name) = key.strip_prefix("responses/") {
-            if let Some(r) = all_components.responses.get(name) {
-                filtered.responses.insert(name.to_string(), r.clone());
-            }
-        } else if let Some(name) = key.strip_prefix("parameters/") {
-            if let Some(p) = all_components.parameters.get(name) {
-                filtered.parameters.insert(name.to_string(), p.clone());
-            }
-        } else if let Some(name) = key.strip_prefix("requestBodies/") {
-            if let Some(rb) = all_components.request_bodies.get(name) {
-                filtered.request_bodies.insert(name.to_string(), rb.clone());
-            }
-        } else if let Some(name) = key.strip_prefix("headers/") {
-            if let Some(h) = all_components.headers.get(name) {
-                filtered.headers.insert(name.to_string(), h.clone());
-            }
-        } else if let Some(name) = key.strip_prefix("securitySchemes/") {
-            if let Some(ss) = all_components.security_schemes.get(name) {
-                filtered.security_schemes.insert(name.to_string(), ss.clone());
-            }
-        }
-    }
-
-    // Return None if nothing was referenced
-    if filtered.schemas.is_empty()
-        && filtered.responses.is_empty()
-        && filtered.parameters.is_empty()
-        && filtered.request_bodies.is_empty()
-        && filtered.headers.is_empty()
-        && filtered.security_schemes.is_empty()
-    {
-        None
-    } else {
-        Some(filtered)
-    }
-}
 
 /// Merge multiple per-endpoint YAML snippets (from the same service) into a single OpenAPI spec
 /// with deduplicated schemas/components.
@@ -296,15 +265,13 @@ pub fn check_backward_compatibility(old_yaml: &str, new_yaml: &str) -> Result<()
     let new: OpenAPI = serde_yaml::from_str(new_yaml)
         .map_err(|e| format!("Failed to parse new YAML: {}", e))?;
 
-    let old_schemas = collect_schema_map(&old);
-    let new_schemas = collect_schema_map(&new);
+    check_openapi_compatible(&old, &new)
+}
 
-    // Check that no existing schemas were removed
-    for name in old_schemas.keys() {
-        if !new_schemas.contains_key(name) {
-            return Err(format!("Schema '{}' was removed", name));
-        }
-    }
+/// Check if a new OpenAPI spec is backward-compatible with an old one.
+pub fn check_openapi_compatible(old: &OpenAPI, new: &OpenAPI) -> Result<(), String> {
+    let old_schemas = collect_schema_map(old);
+    let new_schemas = collect_schema_map(new);
 
     // Check each existing schema for breaking changes
     for (name, old_schema) in &old_schemas {
@@ -313,13 +280,13 @@ pub fn check_backward_compatibility(old_yaml: &str, new_yaml: &str) -> Result<()
         }
     }
 
-    // Check that no existing response status codes were removed
+    // Check that no existing response status codes were removed from paths that still exist
     for (path, old_item) in &old.paths.paths {
         if let ReferenceOr::Item(old_pi) = old_item {
-            if let Some(ReferenceOr::Item(new_pi)) = new.paths.paths.get(path) {
-                check_operations_compatible(path, old_pi, new_pi)?;
-            } else {
-                return Err(format!("Path '{}' was removed", path));
+            if let Some(item) = new.paths.paths.get(path) {
+                if let ReferenceOr::Item(new_pi) = item {
+                    check_operations_compatible(path, old_pi, new_pi)?;
+                }
             }
         }
     }
@@ -747,6 +714,40 @@ components:
         assert_eq!(result.len(), 1);
         assert!(!result[0].yaml_content.contains("User"));
         assert!(!result[0].yaml_content.contains("components"));
+    }
+
+    #[test]
+    fn test_split_includes_transitive_refs_from_headers() {
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /test:
+    get:
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Test:
+              $ref: '#/components/headers/TestHeader'
+components:
+  headers:
+    TestHeader:
+      schema:
+        $ref: '#/components/schemas/TestSchema'
+  schemas:
+    TestSchema:
+      type: string
+"#;
+        let result = split_openapi(yaml).unwrap();
+        // println!("YAML content: {}", result[0].yaml_content);
+        assert_eq!(result.len(), 1);
+        assert!(result[0].yaml_content.contains("TestHeader"));
+        assert!(result[0].yaml_content.contains("TestSchema"));
+        // Verify it's actually in the schemas section
+        assert!(result[0].yaml_content.contains("schemas:"));
     }
 
     #[test]

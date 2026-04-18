@@ -52,14 +52,19 @@ async fn provide_spec_inner(
     let endpoints = openapi::split_openapi(openapi_yaml)
         .map_err(|e| AppError::BadRequest(e))?;
 
-    let (_service_id, branch_id) = if dry_run {
-        // Read-only: don't create service/branch records
+    let (_sid, bid) = if dry_run {
         match repo.find_service(servicename).await? {
             Some(sid) => match repo.find_branch(sid, branch).await? {
                 Some(bid) => (sid, bid),
-                None => return Ok(()), // Branch doesn't exist, nothing to validate against
+                None => {
+                    // Branch doesn't exist, nothing to check against
+                    return Ok(());
+                }
             },
-            None => return Ok(()), // Service doesn't exist, nothing to validate against
+            None => {
+                // Service doesn't exist, nothing to check against
+                return Ok(());
+            }
         }
     } else {
         let sid = repo.ensure_service(servicename).await?;
@@ -68,7 +73,28 @@ async fn provide_spec_inner(
     };
     let is_protected = repo.is_branch_protected(branch).await?;
 
-    let existing = repo.get_endpoints_for_branch(branch_id).await?;
+    if is_protected {
+        let existing = repo.get_endpoints_for_branch(bid).await?;
+        if !existing.is_empty() {
+            let existing_yamls: Vec<String> = existing.iter().map(|e| e.yaml_content.clone()).collect();
+            let old_full_yaml = openapi::merge_endpoint_yamls(&existing_yamls)
+                .map_err(|e| AppError::Internal(format!("Failed to merge existing endpoints for compatibility check: {}", e)))?;
+            
+            if let Err(reason) = openapi::check_backward_compatibility(&old_full_yaml, openapi_yaml) {
+                tracing::warn!(
+                    "Rejected update for service '{}' branch '{}': breaking changes: {}",
+                    servicename, branch, reason
+                );
+                return Err(AppError::Conflict(format!(
+                    "Breaking changes detected on protected branch '{}' of service '{}': {}",
+                    branch, servicename, reason
+                )));
+            }
+            tracing::info!("Spec update is backward-compatible for protected branch '{}'", branch);
+        }
+    }
+
+    let existing = repo.get_endpoints_for_branch(bid).await?;
     let mut existing_map: HashMap<(String, String), String> = existing
         .into_iter()
         .map(|e| ((e.path, e.method), e.yaml_content))
@@ -80,22 +106,10 @@ async fn provide_spec_inner(
         let key = (endpoint.path.clone(), endpoint.method.clone());
         if let Some(existing_yaml) = existing_map.remove(&key) {
             if existing_yaml != endpoint.yaml_content {
+                // Compatibility check already done for the whole spec
                 if is_protected {
-                    // Check backward compatibility instead of rejecting outright
-                    if let Err(reason) = openapi::check_backward_compatibility(&existing_yaml, &endpoint.yaml_content) {
-                        tracing::warn!(
-                            "Rejected update for {} {}: breaking change on protected branch: {}",
-                            endpoint.method,
-                            endpoint.path,
-                            reason
-                        );
-                        return Err(AppError::Conflict(format!(
-                            "Breaking change for {} {} on protected branch '{}' of service '{}': {}",
-                            endpoint.method, endpoint.path, branch, servicename, reason
-                        )));
-                    }
                     tracing::info!(
-                        "Accepting backward-compatible update for {} {} on protected branch",
+                        "Updating {} {} on protected branch (backward-compatible)",
                         endpoint.method,
                         endpoint.path
                     );
@@ -114,7 +128,7 @@ async fn provide_spec_inner(
             }
         } else {
             // Check if this endpoint was previously soft-deleted on a protected branch
-            if is_protected && repo.is_endpoint_deleted(branch_id, &endpoint.path, &endpoint.method).await? {
+            if is_protected && repo.is_endpoint_deleted(bid, &endpoint.path, &endpoint.method).await? {
                 tracing::warn!(
                     "Rejected re-introduction of deleted endpoint {} {}: contract violation on protected branch",
                     endpoint.method,
@@ -153,7 +167,7 @@ async fn provide_spec_inner(
         return Ok(());
     }
 
-    repo.apply_spec_changes(branch_id, changes, is_protected).await?;
+    repo.apply_spec_changes(bid, changes, is_protected).await?;
 
     Ok(())
 }
@@ -930,12 +944,8 @@ pub async fn set_branch_max_age_days(repo: &impl SpecRepository, days: u64) -> R
 /// Delete non-protected branches older than the configured max-age. Returns count deleted.
 pub async fn cleanup_stale_branches(repo: &impl SpecRepository) -> Result<u64, AppError> {
     let max_age_days = get_branch_max_age_days(repo).await?;
-    let cutoff_secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        .saturating_sub(max_age_days * 86400);
-    let cutoff_iso = secs_to_iso(cutoff_secs);
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(max_age_days as i64);
+    let cutoff_iso = cutoff.format("%Y-%m-%dT%H:%M:%S").to_string();
     Ok(repo.delete_stale_branches(&cutoff_iso).await?)
 }
 
@@ -961,77 +971,23 @@ pub async fn set_dependency_max_age_days(repo: &impl SpecRepository, days: u64) 
 /// Delete dependency rows older than the configured max-age. Returns count deleted.
 pub async fn cleanup_stale_dependencies(repo: &impl SpecRepository) -> Result<u64, AppError> {
     let max_age_days = get_dependency_max_age_days(repo).await?;
-    let cutoff_secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        .saturating_sub(max_age_days * 86400);
-    let cutoff_iso = secs_to_iso(cutoff_secs);
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(max_age_days as i64);
+    let cutoff_iso = cutoff.format("%Y-%m-%dT%H:%M:%S").to_string();
     Ok(repo.delete_stale_dependencies(&cutoff_iso).await?)
 }
 
 fn current_utc_iso() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    secs_to_iso(now)
+    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string()
 }
 
 fn future_utc_iso(offset_secs: u64) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    secs_to_iso(now + offset_secs)
-}
-
-fn secs_to_iso(secs: u64) -> String {
-    let secs_per_day = 86400u64;
-    let days_since_epoch = secs / secs_per_day;
-    let time_of_day = secs % secs_per_day;
-    let hours = time_of_day / 3600;
-    let minutes = (time_of_day % 3600) / 60;
-    let seconds = time_of_day % 60;
-    let (year, month, day) = days_to_ymd(days_since_epoch);
-    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}", year, month, day, hours, minutes, seconds)
+    let now = chrono::Utc::now();
+    let duration = chrono::Duration::seconds(offset_secs as i64);
+    (now + duration).format("%Y-%m-%dT%H:%M:%S").to_string()
 }
 
 fn chrono_expires_24h() -> String {
-    // Simple: current UTC + 24h as ISO string
-    // We avoid adding chrono dep by computing manually
-    // Use a fixed format that SQLite datetime() understands
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let expires = now + 86400;
-    // Format as ISO 8601
-    let secs_per_day = 86400u64;
-    let days_since_epoch = expires / secs_per_day;
-    let time_of_day = expires % secs_per_day;
-    let hours = time_of_day / 3600;
-    let minutes = (time_of_day % 3600) / 60;
-    let seconds = time_of_day % 60;
-
-    // Simple date calculation from days since epoch
-    let (year, month, day) = days_to_ymd(days_since_epoch);
-    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}", year, month, day, hours, minutes, seconds)
-}
-
-fn days_to_ymd(days: u64) -> (u64, u64, u64) {
-    // Algorithm from http://howardhinnant.github.io/date_algorithms.html
-    let z = days + 719468;
-    let era = z / 146097;
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    (y, m, d)
+    future_utc_iso(86400)
 }
 
 pub fn render_report_markdown(report: &DependencyReport) -> String {

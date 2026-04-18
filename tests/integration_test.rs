@@ -2242,8 +2242,7 @@ components:
     assert_eq!(response.status(), StatusCode::CONFLICT);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let body_str = String::from_utf8_lossy(&body);
-    assert!(body_str.contains("GET"), "Error body should contain method: {}", body_str);
-    assert!(body_str.contains("/users"), "Error body should contain path: {}", body_str);
+    assert!(body_str.contains("User"), "Error body should contain schema name: {}", body_str);
     assert!(body_str.contains("conflict-svc"), "Error body should contain service name: {}", body_str);
 }
 

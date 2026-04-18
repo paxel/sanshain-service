@@ -165,6 +165,7 @@ The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Be
 - [x] Implement CSRF token expiration.
 - [x] Bypass CSRF protection for API-token authenticated requests.
 - [x] Replace busy-wait long-polling with an event-driven mechanism (e.g., `tokio::sync::watch` or `broadcast`).
-- [ ] Optimize OpenAPI splitting to include only necessary schemas (reduces DB bloat and increases performance).
-- [ ] Replace manual date/time logic with `chrono`.
+- [x] Optimize OpenAPI splitting to include only necessary schemas (reduces DB bloat and increases performance).
+- [x] Replace manual date/time logic with `chrono`.
 - [ ] Clean up `unwrap()` calls in critical paths.
+- [x] Implement LDAP server URL validation (mitigate SSRF).

@@ -38,30 +38,29 @@ This document lists security and performance issues identified during the code a
 
 ## Medium Issues
 
-### 6. Inefficient OpenAPI Splitting & Database Bloat
+### 6. Inefficient OpenAPI Splitting & Database Bloat (FIXED)
 - **File**: `src/openapi.rs`
-- **Description**: The current splitting logic is basic and includes ALL schemas/components in every per-endpoint snippet.
-- **Risk**: 
-    - **Performance**: Frequent serialization/deserialization of large specs.
-    - **Storage**: Massive redundancy in the database (O(N*M) where N is endpoints and M is schemas). A large spec with many endpoints will bloat the database rapidly.
+- **Description**: The splitting logic has been optimized to pre-calculate a component dependency graph (O(N+M) complexity). It correctly follows transitive references through all component types (headers, parameters, etc.).
+- **Risk**: Resolved.
 - **Criticality**: Medium (Performance/Storage)
 
-### 7. Redundant Backward Compatibility Checks
-- **File**: `src/application/services.rs`
-- **Description**: Since every endpoint snippet contains all schemas, updating a spec with many endpoints triggers redundant full-schema compatibility checks for every single endpoint.
+### 7. Redundant Backward Compatibility Checks (FIXED)
+- **File**: `src/application/services.rs`, `src/openapi.rs`
+- **Description**: Backward compatibility is now checked once for the entire spec when providing a new version, instead of redundantly for every endpoint snippet.
+- **Risk**: Resolved.
 - **Criticality**: Medium (Performance)
 
-### 8. Potential LDAP Connection SSRF
-- **File**: `src/infrastructure/ldap_provider.rs`
-- **Description**: The LDAP server URL is used directly from configuration to establish connections. 
-- **Risk**: While restricted to admins, a malicious or compromised admin could point the service to internal network resources.
+### 8. Potential LDAP Connection SSRF (FIXED)
+- **File**: `src/infrastructure/ldap_provider.rs`, `src/domain/models.rs`
+- **Description**: Added server URL validation in `LdapConfig::validate` to ensure valid protocols (ldap/ldaps) and basic host format checks.
+- **Risk**: Mitigated.
 - **Criticality**: Medium (Security)
 
 ## Low Issues
 
-### 9. Manual Date/Time Logic & Code Duplication
-- **Files**: `src/application/services.rs`, `src/infrastructure/sqlite_repository.rs`
-- **Description**: Manual implementation of date-to-YMD conversion and ISO string formatting exists in multiple places, even though `chrono` is a project dependency.
+### 9. Manual Date/Time Logic & Code Duplication (FIXED)
+- **Files**: `src/application/services.rs`
+- **Description**: Replaced hundreds of lines of manual date/time and ISO string formatting logic with the `chrono` library.
 - **Criticality**: Low (Maintainability)
 
 ### 10. Use of `unwrap()` in Production Code

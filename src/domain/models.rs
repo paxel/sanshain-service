@@ -55,6 +55,14 @@ impl LdapConfig {
         if !self.server_url.starts_with("ldap://") && !self.server_url.starts_with("ldaps://") {
             return Err("Server URL must start with ldap:// or ldaps://".to_string());
         }
+        let host_part = if self.server_url.starts_with("ldap://") {
+            &self.server_url[7..]
+        } else {
+            &self.server_url[8..]
+        };
+        if host_part.is_empty() || host_part.contains(' ') || host_part.starts_with('/') {
+            return Err("Invalid LDAP server host".to_string());
+        }
         if self.bind_dn.is_empty() {
             return Err("Bind DN must not be empty".to_string());
         }
