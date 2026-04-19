@@ -35,9 +35,15 @@ The service follows security best practices in most areas, including authenticat
 - **Recommendation**: Implement a rate-limiting middleware (e.g., using `tower-limit`) for sensitive endpoints like `/auth/login` and `/provide`.
 
 ### 7. Dependency Vulnerabilities (Risk: Low)
-- **Status**: **MONITORED**
-- **Details**: A manual check of major dependencies (`axum`, `sqlx`, `tokio`) shows they are on recent versions. `argon2` is currently using a release candidate version.
-- **Recommendation**: Integrate `cargo audit` into the CI pipeline to automatically detect and flag CVEs in dependencies. Upgrade `argon2` to a stable release once available.
+- **Status**: **FIXED / MONITORED**
+- **Details**: A comprehensive `cargo audit` identified several vulnerabilities in direct and indirect dependencies.
+  - **ring** (v0.16.20): Fixed by upgrading `ldap3` to `v0.12.1`.
+  - **rand** (v0.8/v0.9): Fixed by upgrading to `v0.10.1`.
+  - **argon2** (v0.6.0-rc.8): Replaced with stable `v0.5.3` to avoid yanked dependencies.
+  - **rustls-webpki** & **time**: Resolved via `cargo update`.
+  - **rsa** (v0.9.10): Identified in `sqlx-mysql` (Marvin Attack). Since the service does not use MySQL, this is not exploitable. No fixed version is currently available for the 0.9.x branch of `rsa`.
+- **Action Taken**: Updated `Cargo.toml` and executed `cargo update`. `cargo audit` now passes (with one ignored non-exploitable finding).
+- **Recommendation**: Maintain regular dependency audits and consider moving to `sqlx` 0.9 once a stable release is available, which is expected to resolve the `rsa` issue.
 
 ## Code Quality & Bugs
 - **Clippy Audit**: A full `cargo clippy` run identified 28 issues including redundant closures, complex types, and collapsible `if` statements. All 28 issues have been fixed in the current development version.

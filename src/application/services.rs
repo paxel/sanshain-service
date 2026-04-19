@@ -624,17 +624,19 @@ pub async fn list_client_endpoints(
 
 pub fn hash_password(password: &str) -> Result<String, AppError> {
     use argon2::{Argon2, PasswordHasher};
+    use argon2::password_hash::{SaltString, rand_core::OsRng};
 
     let argon2 = Argon2::default();
+    let salt = SaltString::generate(&mut OsRng);
     argon2
-        .hash_password(password.as_bytes())
+        .hash_password(password.as_bytes(), &salt)
         .map(|h| h.to_string())
         .map_err(|e| AppError::Internal(format!("password hash error: {}", e)))
 }
 
 pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
     use argon2::{Argon2, PasswordVerifier};
-    use argon2::password_hash::phc::PasswordHash;
+    use argon2::password_hash::PasswordHash;
 
     let parsed = PasswordHash::new(hash)
         .map_err(|e| AppError::Internal(format!("invalid hash: {}", e)))?;
@@ -642,7 +644,7 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
 }
 
 pub fn generate_random_password() -> String {
-    use rand::Rng;
+    use rand::RngExt;
     let mut rng = rand::rng();
     let chars: Vec<char> = (0..24)
         .map(|_| {
@@ -899,7 +901,7 @@ pub async fn create_api_token(
     }
 
     // Generate random token with san_ prefix
-    use rand::Rng;
+    use rand::RngExt;
     let mut token_bytes = [0u8; 32];
     rand::rng().fill(&mut token_bytes);
     let raw_token = format!("san_{}", hex::encode(token_bytes));

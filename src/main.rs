@@ -634,7 +634,7 @@ struct CsrfTokenResponse {
 async fn generate_csrf_token(
     State(state): State<AppState>,
 ) -> Json<CsrfTokenResponse> {
-    use rand::Rng;
+    use rand::RngExt;
     let mut bytes = [0u8; 32];
     rand::rng().fill(&mut bytes);
     let token: String = hex::encode(bytes);

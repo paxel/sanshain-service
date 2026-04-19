@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.7.1]
+## [0.8.0] - 2026-04-19
 
 ### Changed
 - **Admin Dashboard Refactoring**: reorganized the admin page into a tabbed interface (Observability, User Management, System Config, Services & Clients).
@@ -27,6 +27,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Enhanced Log Viewer**: expanded log viewer height and added a "Copy Logs" button for easier troubleshooting.
 
 ### Fixed
+- **Security Dependency Updates**: resolved multiple high and medium severity vulnerabilities identified by `cargo audit`.
+  - Upgraded `ldap3` to `v0.12.1` to fix vulnerable/unmaintained `ring` `v0.16.20`.
+  - Upgraded `rand` to `v0.10.1` to resolve soundness issues in `v0.8`/`v0.9`.
+  - Downgraded `argon2` to stable `v0.5.3` to avoid yanked dependencies (`digest`, `password-hash`) in `v0.6.0-rc.8`.
+  - Resolved vulnerabilities in `rustls-webpki` and `time` via `cargo update`.
 - **Code Quality & Maintenance**: resolved all remaining `clippy::type_complexity` and `clippy::too_many_arguments` issues by introducing parameter objects and database row structs, eliminating the need for `#[allow]` annotations.
 - **Improved AuthMode parsing**: implemented `std::str::FromStr` for `AuthMode` for better idiomatic string parsing.
 - **Optimized OpenAPI splitting**: pre-calculates a component dependency graph, reducing complexity from O(N*M) to O(N+M) for faster updates.

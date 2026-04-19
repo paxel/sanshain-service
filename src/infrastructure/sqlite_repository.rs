@@ -737,7 +737,7 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn create_session(&self, user_id: i64, expires_at: &str) -> Result<Session, RepositoryError> {
-        use rand::Rng;
+        use rand::RngExt;
         let mut token_bytes = [0u8; 32];
         rand::rng().fill(&mut token_bytes);
         let token = hex::encode(token_bytes);
