@@ -27,7 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Enhanced Log Viewer**: expanded log viewer height and added a "Copy Logs" button for easier troubleshooting.
 
 ### Fixed
-- **Code Quality & Maintenance**: addressed 28 clippy warnings/errors across the codebase, including redundant closures, collapsible if statements, and complex type definitions.
+- **Code Quality & Maintenance**: resolved all remaining `clippy::type_complexity` and `clippy::too_many_arguments` issues by introducing parameter objects and database row structs, eliminating the need for `#[allow]` annotations.
 - **Improved AuthMode parsing**: implemented `std::str::FromStr` for `AuthMode` for better idiomatic string parsing.
 - **Optimized OpenAPI splitting**: pre-calculates a component dependency graph, reducing complexity from O(N*M) to O(N+M) for faster updates.
 - **Improved Backward Compatibility checking**: validates compatibility once for the entire specification, eliminating O(N*M) redundancy.

@@ -24,6 +24,23 @@ impl From<RepositoryError> for AppError {
     }
 }
 
+pub struct RequireEndpointParams<'a> {
+    pub clientname: &'a str,
+    pub servicename: &'a str,
+    pub branch: &'a str,
+    pub path: &'a str,
+    pub method: &'a str,
+    pub timeout_secs: Option<u64>,
+}
+
+pub struct RequireBundleParams<'a> {
+    pub clientname: &'a str,
+    pub servicename: &'a str,
+    pub branch: &'a str,
+    pub endpoints: &'a [(String, String)],
+    pub timeout_secs: Option<u64>,
+}
+
 pub async fn provide_spec(
     repo: &impl SpecRepository,
     servicename: &str,
@@ -242,32 +259,20 @@ pub async fn get_endpoint_version_history(
     Ok(versions)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn require_endpoint(
     repo: &impl SpecRepository,
     notifier: Option<tokio::sync::broadcast::Receiver<()>>,
-    clientname: &str,
-    servicename: &str,
-    branch: &str,
-    path: &str,
-    method: &str,
-    timeout_secs: Option<u64>,
+    params: RequireEndpointParams<'_>,
 ) -> Result<String, AppError> {
-    require_endpoint_inner(repo, notifier, clientname, servicename, branch, path, method, timeout_secs, false).await
+    require_endpoint_inner(repo, notifier, params, false).await
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn require_endpoint_dry_run(
     repo: &impl SpecRepository,
     notifier: Option<tokio::sync::broadcast::Receiver<()>>,
-    clientname: &str,
-    servicename: &str,
-    branch: &str,
-    path: &str,
-    method: &str,
-    timeout_secs: Option<u64>,
+    params: RequireEndpointParams<'_>,
 ) -> Result<String, AppError> {
-    require_endpoint_inner(repo, notifier, clientname, servicename, branch, path, method, timeout_secs, true).await
+    require_endpoint_inner(repo, notifier, params, true).await
 }
 
 async fn find_endpoint_with_fallback(
@@ -316,43 +321,37 @@ async fn find_endpoint_with_fallback(
     Ok(None)
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn require_endpoint_inner(
     repo: &impl SpecRepository,
     mut notifier: Option<tokio::sync::broadcast::Receiver<()>>,
-    clientname: &str,
-    servicename: &str,
-    branch: &str,
-    path: &str,
-    method: &str,
-    timeout_secs: Option<u64>,
+    params: RequireEndpointParams<'_>,
     dry_run: bool,
 ) -> Result<String, AppError> {
-    tracing::debug!("Client '{}' requiring endpoint '{} {}' from service '{}' branch '{}' (dry_run: {})", clientname, method, path, servicename, branch, dry_run);
-    let client_id = if dry_run { 0 } else { repo.ensure_client(clientname).await? };
+    tracing::debug!("Client '{}' requiring endpoint '{} {}' from service '{}' branch '{}' (dry_run: {})", params.clientname, params.method, params.path, params.servicename, params.branch, dry_run);
+    let client_id = if dry_run { 0 } else { repo.ensure_client(params.clientname).await? };
     let service_id = if dry_run {
-        match repo.find_service(servicename).await? {
+        match repo.find_service(params.servicename).await? {
             Some(id) => id,
             None => return Err(AppError::NotFound(format!(
-                "Service '{}' not found", servicename
+                "Service '{}' not found", params.servicename
             ))),
         }
     } else {
-        repo.ensure_service(servicename).await?
+        repo.ensure_service(params.servicename).await?
     };
 
-    let method_upper = method.to_uppercase();
+    let method_upper = params.method.to_uppercase();
 
-    let deadline = timeout_secs.map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
+    let deadline = params.timeout_secs.map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
     let poll_interval = std::time::Duration::from_millis(500);
 
     loop {
-        let endpoint = find_endpoint_with_fallback(repo, service_id, servicename, branch, path, &method_upper).await?;
+        let endpoint = find_endpoint_with_fallback(repo, service_id, params.servicename, params.branch, params.path, &method_upper).await?;
 
         if let Some(ref ep) = endpoint {
             if !dry_run {
                 let endpoint_id = Some(ep.0);
-                repo.record_dependency(client_id, endpoint_id, service_id, branch, path, &method_upper).await?;
+                repo.record_dependency(client_id, endpoint_id, service_id, params.branch, params.path, &method_upper).await?;
             }
             return Ok(ep.1.clone());
         }
@@ -376,21 +375,21 @@ async fn require_endpoint_inner(
                     }
                 } else {
                     if !dry_run {
-                        repo.record_dependency(client_id, None, service_id, branch, path, &method_upper).await?;
+                        repo.record_dependency(client_id, None, service_id, params.branch, params.path, &method_upper).await?;
                     }
                     return Err(AppError::NotFound(format!(
                         "Endpoint not found: {} {} on service '{}' branch '{}'",
-                        method_upper, path, servicename, branch
+                        method_upper, params.path, params.servicename, params.branch
                     )));
                 }
             }
             None => {
                 if !dry_run {
-                    repo.record_dependency(client_id, None, service_id, branch, path, &method_upper).await?;
+                    repo.record_dependency(client_id, None, service_id, params.branch, params.path, &method_upper).await?;
                 }
                 return Err(AppError::NotFound(format!(
                     "Endpoint not found: {} {} on service '{}' branch '{}'",
-                    method_upper, path, servicename, branch
+                    method_upper, params.path, params.servicename, params.branch
                 )));
             }
         }
@@ -400,69 +399,56 @@ async fn require_endpoint_inner(
 pub async fn require_bundle(
     repo: &impl SpecRepository,
     notifier: Option<tokio::sync::broadcast::Receiver<()>>,
-    clientname: &str,
-    servicename: &str,
-    branch: &str,
-    endpoints: &[(String, String)],
-    timeout_secs: Option<u64>,
+    params: RequireBundleParams<'_>,
 ) -> Result<String, AppError> {
-    require_bundle_inner(repo, notifier, clientname, servicename, branch, endpoints, timeout_secs, false).await
+    require_bundle_inner(repo, notifier, params, false).await
 }
 
 pub async fn require_bundle_dry_run(
     repo: &impl SpecRepository,
     notifier: Option<tokio::sync::broadcast::Receiver<()>>,
-    clientname: &str,
-    servicename: &str,
-    branch: &str,
-    endpoints: &[(String, String)],
-    timeout_secs: Option<u64>,
+    params: RequireBundleParams<'_>,
 ) -> Result<String, AppError> {
-    require_bundle_inner(repo, notifier, clientname, servicename, branch, endpoints, timeout_secs, true).await
+    require_bundle_inner(repo, notifier, params, true).await
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn require_bundle_inner(
     repo: &impl SpecRepository,
     mut notifier: Option<tokio::sync::broadcast::Receiver<()>>,
-    clientname: &str,
-    servicename: &str,
-    branch: &str,
-    endpoints: &[(String, String)], // Vec of (path, method)
-    timeout_secs: Option<u64>,
+    params: RequireBundleParams<'_>,
     dry_run: bool,
 ) -> Result<String, AppError> {
-    tracing::debug!("Client '{}' requiring bundle from service '{}' branch '{}' (dry_run: {})", clientname, servicename, branch, dry_run);
-    if endpoints.is_empty() {
+    tracing::debug!("Client '{}' requiring bundle from service '{}' branch '{}' (dry_run: {})", params.clientname, params.servicename, params.branch, dry_run);
+    if params.endpoints.is_empty() {
         return Err(AppError::BadRequest("No endpoints requested".to_string()));
     }
 
-    let client_id = if dry_run { 0 } else { repo.ensure_client(clientname).await? };
+    let client_id = if dry_run { 0 } else { repo.ensure_client(params.clientname).await? };
     let service_id = if dry_run {
-        match repo.find_service(servicename).await? {
+        match repo.find_service(params.servicename).await? {
             Some(id) => id,
             None => return Err(AppError::NotFound(format!(
-                "Service '{}' not found", servicename
+                "Service '{}' not found", params.servicename
             ))),
         }
     } else {
-        repo.ensure_service(servicename).await?
+        repo.ensure_service(params.servicename).await?
     };
 
-    let deadline = timeout_secs.map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
+    let deadline = params.timeout_secs.map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
     let poll_interval = std::time::Duration::from_millis(500);
 
     loop {
         let mut yamls: Vec<String> = Vec::new();
         let mut missing: Vec<(String, String)> = Vec::new();
 
-        for (path, method) in endpoints {
+        for (path, method) in params.endpoints {
             let method_upper = method.to_uppercase();
-            let endpoint = find_endpoint_with_fallback(repo, service_id, servicename, branch, path, &method_upper).await?;
+            let endpoint = find_endpoint_with_fallback(repo, service_id, params.servicename, params.branch, path, &method_upper).await?;
 
             if let Some(ref ep) = endpoint {
                 if !dry_run {
-                    repo.record_dependency(client_id, Some(ep.0), service_id, branch, path, &method_upper).await?;
+                    repo.record_dependency(client_id, Some(ep.0), service_id, params.branch, path, &method_upper).await?;
                 }
                 yamls.push(ep.1.clone());
             } else {
@@ -497,7 +483,7 @@ async fn require_bundle_inner(
                     // Record dependencies for missing endpoints
                     if !dry_run {
                         for (path, method) in &missing {
-                            repo.record_dependency(client_id, None, service_id, branch, path, method).await?;
+                            repo.record_dependency(client_id, None, service_id, params.branch, path, method).await?;
                         }
                     }
                     let missing_list: Vec<String> = missing.iter()
@@ -505,7 +491,7 @@ async fn require_bundle_inner(
                         .collect();
                     return Err(AppError::NotFound(format!(
                         "Missing endpoints on service '{}' branch '{}': {}",
-                        servicename, branch, missing_list.join(", ")
+                        params.servicename, params.branch, missing_list.join(", ")
                     )));
                 }
             }
@@ -513,7 +499,7 @@ async fn require_bundle_inner(
                 // Record dependencies for missing endpoints
                 if !dry_run {
                     for (path, method) in &missing {
-                        repo.record_dependency(client_id, None, service_id, branch, path, method).await?;
+                        repo.record_dependency(client_id, None, service_id, params.branch, path, method).await?;
                     }
                 }
                 let missing_list: Vec<String> = missing.iter()
@@ -521,7 +507,7 @@ async fn require_bundle_inner(
                     .collect();
                 return Err(AppError::NotFound(format!(
                     "Missing endpoints on service '{}' branch '{}': {}",
-                    servicename, branch, missing_list.join(", ")
+                    params.servicename, params.branch, missing_list.join(", ")
                 )));
             }
         }
@@ -1941,7 +1927,14 @@ paths:
     #[tokio::test]
     async fn test_require_endpoint_not_found() {
         let repo = MockRepo::new();
-        let result = require_endpoint(&repo, None, "client", "svc", "main", "/missing", "GET", None).await;
+        let result = require_endpoint(&repo, None, RequireEndpointParams {
+            clientname: "client",
+            servicename: "svc",
+            branch: "main",
+            path: "/missing",
+            method: "GET",
+            timeout_secs: None,
+        }).await;
         assert!(matches!(result, Err(AppError::NotFound(_))));
     }
 
@@ -1961,7 +1954,14 @@ paths:
           description: OK
 "#;
         provide_spec(&repo, "svc", "main", yaml).await.unwrap();
-        let result = require_endpoint(&repo, None, "client", "svc", "main", "/users", "GET", None).await;
+        let result = require_endpoint(&repo, None, RequireEndpointParams {
+            clientname: "client",
+            servicename: "svc",
+            branch: "main",
+            path: "/users",
+            method: "GET",
+            timeout_secs: None,
+        }).await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("/users"));
     }
@@ -2042,7 +2042,14 @@ paths:
         assert!(result.is_ok());
 
         // Verify the endpoint was actually updated
-        let content = require_endpoint(&repo, None, "client", "svc", "feature/xyz", "/users", "GET", None).await.unwrap();
+        let content = require_endpoint(&repo, None, RequireEndpointParams {
+            clientname: "client",
+            servicename: "svc",
+            branch: "feature/xyz",
+            path: "/users",
+            method: "GET",
+            timeout_secs: None,
+        }).await.unwrap();
         assert!(content.contains("Changed"));
     }
 
@@ -2065,7 +2072,14 @@ paths:
         provide_spec(&repo, "svc", "main", yaml).await.unwrap();
 
         // Require on a feature branch that has no endpoints — should fallback to main
-        let result = require_endpoint(&repo, None, "client", "svc", "feature/abc", "/users", "GET", None).await;
+        let result = require_endpoint(&repo, None, RequireEndpointParams {
+            clientname: "client",
+            servicename: "svc",
+            branch: "feature/abc",
+            path: "/users",
+            method: "GET",
+            timeout_secs: None,
+        }).await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("/users"));
     }
@@ -2074,7 +2088,14 @@ paths:
     async fn test_require_with_timeout_returns_not_found_after_expiry() {
         let repo = MockRepo::new();
         let start = std::time::Instant::now();
-        let result = require_endpoint(&repo, None, "client", "svc", "main", "/missing", "GET", Some(1)).await;
+        let result = require_endpoint(&repo, None, RequireEndpointParams {
+            clientname: "client",
+            servicename: "svc",
+            branch: "main",
+            path: "/missing",
+            method: "GET",
+            timeout_secs: Some(1),
+        }).await;
         let elapsed = start.elapsed();
         assert!(matches!(result, Err(AppError::NotFound(_))));
         assert!(elapsed >= std::time::Duration::from_millis(500), "should have polled at least once");
@@ -2099,7 +2120,14 @@ paths:
         provide_spec(&repo, "svc", "main", yaml).await.unwrap();
 
         // master is protected, so no fallback — endpoint not on master → NotFound
-        let result = require_endpoint(&repo, None, "client", "svc", "master", "/users", "GET", None).await;
+        let result = require_endpoint(&repo, None, RequireEndpointParams {
+            clientname: "client",
+            servicename: "svc",
+            branch: "master",
+            path: "/users",
+            method: "GET",
+            timeout_secs: None,
+        }).await;
         assert!(matches!(result, Err(AppError::NotFound(_))));
     }
 
@@ -2256,7 +2284,14 @@ paths:
           description: OK
 "#;
         provide_spec(&repo, "svc", "main", yaml).await.unwrap();
-        require_endpoint(&repo, None, "webclient", "svc", "main", "/users", "GET", None).await.unwrap();
+        require_endpoint(&repo, None, RequireEndpointParams {
+            clientname: "webclient",
+            servicename: "svc",
+            branch: "main",
+            path: "/users",
+            method: "GET",
+            timeout_secs: None,
+        }).await.unwrap();
 
         let clients = list_clients(&repo).await.unwrap();
         assert!(clients.contains(&"webclient".to_string()));
@@ -2535,7 +2570,13 @@ paths:
     #[tokio::test]
     async fn test_require_bundle_empty_endpoints() {
         let repo = MockRepo::new();
-        let result = require_bundle(&repo, None, "client", "svc", "main", &[], None).await;
+        let result = require_bundle(&repo, None, RequireBundleParams {
+            clientname: "client",
+            servicename: "svc",
+            branch: "main",
+            endpoints: &[],
+            timeout_secs: None,
+        }).await;
         assert!(matches!(result, Err(AppError::BadRequest(_))));
     }
 
@@ -2589,7 +2630,13 @@ components:
             ("/users".to_string(), "GET".to_string()),
             ("/orders".to_string(), "POST".to_string()),
         ];
-        let result = require_bundle(&repo, None, "client", "svc", "main", &endpoints, None).await.unwrap();
+        let result = require_bundle(&repo, None, RequireBundleParams {
+            clientname: "client",
+            servicename: "svc",
+            branch: "main",
+            endpoints: &endpoints,
+            timeout_secs: None,
+        }).await.unwrap();
 
         // Merged YAML should contain both paths and deduplicated schemas
         assert!(result.contains("/users"));
@@ -2626,7 +2673,13 @@ paths:
             ("/users".to_string(), "GET".to_string()),
             ("/missing".to_string(), "POST".to_string()),
         ];
-        let result = require_bundle(&repo, None, "client", "svc", "main", &endpoints, None).await;
+        let result = require_bundle(&repo, None, RequireBundleParams {
+            clientname: "client",
+            servicename: "svc",
+            branch: "main",
+            endpoints: &endpoints,
+            timeout_secs: None,
+        }).await;
         assert!(matches!(result, Err(AppError::NotFound(_))));
         if let Err(AppError::NotFound(msg)) = result {
             assert!(msg.contains("POST /missing"));
@@ -2721,7 +2774,14 @@ paths:
     async fn test_dry_run_require_does_not_create_records() {
         let repo = MockRepo::new();
         // Dry-run require for a non-existent service should return NotFound, not create records
-        let result = require_endpoint_dry_run(&repo, None, "ghost-client", "ghost-service", "main", "/foo", "GET", None).await;
+        let result = require_endpoint_dry_run(&repo, None, RequireEndpointParams {
+            clientname: "ghost-client",
+            servicename: "ghost-service",
+            branch: "main",
+            path: "/foo",
+            method: "GET",
+            timeout_secs: None,
+        }).await;
         assert!(result.is_err(), "should return error for non-existent service");
         assert!(repo.services.lock().unwrap().is_empty(), "dry-run should not create service");
         assert!(repo.clients.lock().unwrap().is_empty(), "dry-run should not create client");

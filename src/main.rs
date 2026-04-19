@@ -708,28 +708,18 @@ async fn require(
 ) -> Result<String, (StatusCode, String)> {
     let dry_run = params.dry_run.unwrap_or(false);
     let notifier = Some(state.spec_updated_tx.subscribe());
+    let req_params = services::RequireEndpointParams {
+        clientname: &params.clientname,
+        servicename: &params.servicename,
+        branch: &params.branch,
+        path: &params.path,
+        method: &params.method,
+        timeout_secs: params.timeout,
+    };
     let result = if dry_run {
-        services::require_endpoint_dry_run(
-            &state.repo,
-            notifier,
-            &params.clientname,
-            &params.servicename,
-            &params.branch,
-            &params.path,
-            &params.method,
-            params.timeout,
-        ).await
+        services::require_endpoint_dry_run(&state.repo, notifier, req_params).await
     } else {
-        services::require_endpoint(
-            &state.repo,
-            notifier,
-            &params.clientname,
-            &params.servicename,
-            &params.branch,
-            &params.path,
-            &params.method,
-            params.timeout,
-        ).await
+        services::require_endpoint(&state.repo, notifier, req_params).await
     };
     result.map_err(app_error_to_status_with_body)
 }
@@ -743,26 +733,17 @@ async fn require_bundle(
         .map(|e| (e.path, e.method))
         .collect();
     let notifier = Some(state.spec_updated_tx.subscribe());
+    let req_params = services::RequireBundleParams {
+        clientname: &payload.clientname,
+        servicename: &payload.servicename,
+        branch: &payload.branch,
+        endpoints: &endpoints,
+        timeout_secs: payload.timeout,
+    };
     let result = if payload.dry_run {
-        services::require_bundle_dry_run(
-            &state.repo,
-            notifier,
-            &payload.clientname,
-            &payload.servicename,
-            &payload.branch,
-            &endpoints,
-            payload.timeout,
-        ).await
+        services::require_bundle_dry_run(&state.repo, notifier, req_params).await
     } else {
-        services::require_bundle(
-            &state.repo,
-            notifier,
-            &payload.clientname,
-            &payload.servicename,
-            &payload.branch,
-            &endpoints,
-            payload.timeout,
-        ).await
+        services::require_bundle(&state.repo, notifier, req_params).await
     };
     result.map_err(app_error_to_status_with_body)
 }

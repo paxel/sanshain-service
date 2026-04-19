@@ -1,7 +1,32 @@
-use sqlx::SqlitePool;
+use sqlx::{SqlitePool, FromRow};
 
 use crate::domain::models::*;
 use crate::domain::ports::{RepositoryError, SpecRepository};
+
+#[derive(FromRow)]
+struct ApiTokenRow {
+    id: String,
+    user_id: i64,
+    name: String,
+    token_hash: String,
+    created_at: String,
+    expires_at: String,
+    last_used_at: Option<String>,
+}
+
+impl From<ApiTokenRow> for ApiToken {
+    fn from(row: ApiTokenRow) -> Self {
+        Self {
+            id: row.id,
+            user_id: row.user_id,
+            name: row.name,
+            token_hash: row.token_hash,
+            created_at: row.created_at,
+            expires_at: row.expires_at,
+            last_used_at: row.last_used_at,
+        }
+    }
+}
 
 
 #[derive(Clone)]
@@ -805,8 +830,7 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn list_api_tokens(&self, user_id: i64) -> Result<Vec<ApiToken>, RepositoryError> {
-        #[allow(clippy::type_complexity)]
-        let rows: Vec<(String, i64, String, String, String, String, Option<String>)> = sqlx::query_as(
+        let rows: Vec<ApiTokenRow> = sqlx::query_as(
             "SELECT id, user_id, name, token_hash, created_at, expires_at, last_used_at FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC"
         )
         .bind(user_id)
@@ -814,9 +838,7 @@ impl SpecRepository for SqliteSpecRepository {
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        Ok(rows.into_iter().map(|(id, user_id, name, token_hash, created_at, expires_at, last_used_at)| ApiToken {
-            id, user_id, name, token_hash, created_at, expires_at, last_used_at,
-        }).collect())
+        Ok(rows.into_iter().map(ApiToken::from).collect())
     }
 
     async fn delete_api_token(&self, token_id: &str, user_id: i64) -> Result<bool, RepositoryError> {
