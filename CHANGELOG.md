@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.8.1] - 2026-04-19
 
+### Added
+- **Complex Scenario Demo**: added `demo2.sh`, a realistic scenario with 30 services representing a complex data pipeline and ML system with central orchestration and infrastructure wrappers.
+
 ### Fixed
 - **Release workflow and binary naming**: fixed the GitHub Actions release failure by updating all references from the legacy `sanshain_service_bin` name to the new idiomatic `sanshain_service` name.
 - **Project architecture alignment**: ensured Dockerfile and documentation are fully aligned with the binary-library separation refactor.
