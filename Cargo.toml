@@ -4,13 +4,6 @@ version = "0.8.0"
 edition = "2024"
 license = "AGPL-3.0"
 
-[lib]
-path = "src/main.rs"
-
-[[bin]]
-name = "sanshain_service_bin"
-path = "src/main.rs"
-
 [dependencies]
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
@@ -28,15 +21,15 @@ argon2 = "0.5"
 rand = "0.10"
 uuid = { version = "1", features = ["v4"] }
 hex = "0.4"
-sha2 = "0.10"
-askama = "0.13"
+sha2 = "0.11"
+askama = "0.15"
 ldap3 = { version = "0.12", default-features = false, features = ["tls-rustls-ring"] }
 regex = "1"
 indexmap = "2"
-similar = "2"
+similar = "3"
 axum-prometheus = "0.10"
 metrics-exporter-prometheus = "0.18"
-sysinfo = "0.33"
+sysinfo = "0.38"
 
 [dev-dependencies]
 flate2 = "1"

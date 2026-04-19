@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - **Admin Dashboard Refactoring**: reorganized the admin page into a tabbed interface (Observability, User Management, System Config, Services & Clients).
+- **Dependency Updates**: updated core dependencies to their latest major/minor versions (askama v0.15, similar v3, sysinfo v0.38, sha2 v0.11) and refreshed the lockfile.
+- **Security & Safety Verification**: confirmed zero unsafe code usage via `cargo geiger` and performed a security sweep with `cargo audit`. Acknowledged a known vulnerability in `rsa` (via `sqlx-mysql`) with no current upstream fix, noting it does not impact the service's runtime as MySQL is not used.
 
 ### Added
 - **AI Clippy Rule**: added a mandatory rule for AI agents to run `cargo clippy` and verify tests for every task involving code changes.
