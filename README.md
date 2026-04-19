@@ -21,7 +21,7 @@ Sanshain (Japanese for "Sunshine") is a specialized REST service designed to man
 #### From Source
 ```bash
 cargo build --release
-./target/release/sanshain_service_bin
+./target/release/sanshain_service
 ```
 
 #### From GitHub Release
@@ -241,7 +241,7 @@ All pages include a 🌙/☀️ **dark/light mode toggle** in the navigation bar
 
 ### Version
 
-`GET /version` returns the service version as JSON: `{"version": "0.8.0"}`.
+`GET /version` returns the service version as JSON: `{"version": "0.8.1"}`.
 
 ### 7. Admin API (Session-Based Authentication)
 All `/admin/*` endpoints require a valid admin session token (`Authorization: Bearer <token>`).

@@ -17,7 +17,7 @@ FROM alpine:3.21
 
 RUN apk add --no-cache sqlite-libs tini
 
-COPY --from=builder /app/target/release/sanshain_service_bin /usr/local/bin/sanshain
+COPY --from=builder /app/target/release/sanshain_service /usr/local/bin/sanshain
 COPY static/ /app/static/
 
 WORKDIR /app

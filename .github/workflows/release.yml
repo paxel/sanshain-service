@@ -58,7 +58,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sanshain-linux-${{ matrix.arch }}
-          path: target/${{ matrix.target }}/release/sanshain_service_bin
+          path: target/${{ matrix.target }}/release/sanshain_service
 
   release:
     needs: build-binary
@@ -75,8 +75,8 @@ jobs:
         run: |
           mkdir -p release-assets
 
-          cp binaries/sanshain-linux-x86_64/sanshain_service_bin release-assets/sanshain-linux-x86_64
-          cp binaries/sanshain-linux-aarch64/sanshain_service_bin release-assets/sanshain-linux-aarch64
+          cp binaries/sanshain-linux-x86_64/sanshain_service release-assets/sanshain-linux-x86_64
+          cp binaries/sanshain-linux-aarch64/sanshain_service release-assets/sanshain-linux-aarch64
           chmod +x release-assets/sanshain-linux-x86_64 release-assets/sanshain-linux-aarch64
 
           # Prepare docker-compose.yaml from template (substitute version)
@@ -125,8 +125,8 @@ jobs:
           mkdir -p docker-context
           cp Dockerfile.release.template docker-context/Dockerfile
           # Rename to Docker's TARGETARCH convention (amd64/arm64) for Dockerfile COPY
-          cp binaries/sanshain-linux-x86_64/sanshain_service_bin docker-context/sanshain-amd64
-          cp binaries/sanshain-linux-aarch64/sanshain_service_bin docker-context/sanshain-arm64
+          cp binaries/sanshain-linux-x86_64/sanshain_service docker-context/sanshain-amd64
+          cp binaries/sanshain-linux-aarch64/sanshain_service docker-context/sanshain-arm64
           cp -r static docker-context/static
 
       - name: Build and push multi-platform Docker image

@@ -87,7 +87,7 @@ volumes:
 
 ```bash
 cargo build --release
-./target/release/sanshain_service_bin
+./target/release/sanshain_service
 ```
 
 The SQLite database file `sanshain.db` is created automatically in the working directory.
