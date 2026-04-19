@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.2] - 2026-04-19
+
+### Added
+- **Dependency Graph Clustering**: implemented structural clustering for the custom dependency graph. Services sharing the same set of clients are now automatically grouped into dashed "Cluster" boxes to reduce visual noise in large-scale scenarios like `demo2.sh`.
+- **Intelligent Cluster Naming**: added an algorithm that identifies global "noise" words (common prefixes/suffixes) across all services and filters them out to generate concise, meaningful labels for clusters (e.g., "ETL" or "ML"). Labels are omitted if no distinctive common words are found.
+- **Improved Graph Spacing & Compaction**: updated the Dagre layout with significantly increased rank spacing. Implemented a "bricks in a wall" vertical and horizontal staggering effect to "compact" large clusters into overlapping multiple rows, drastically reducing horizontal space while keeping standalone services on a clean, single line per rank.
+- **Structured Per-Rank Repacking**: added a math-based post-layout step that treats each rank as a 1D packing problem. Standalone nodes and clusters (as single blocks with their compacted width) are re-packed left-to-right with a uniform gap around each rank's original midpoint, reclaiming the horizontal space freed by cluster compaction and eliminating visual misalignment between clustered and non-clustered rows.
+- **Elegant Curved Edge Routing**: replaced the stale Dagre polyline waypoints (which were routing around pre-compaction node positions and creating chaotic detours) with freshly-computed cubic Bezier curves. Top-to-bottom edges now use vertical tangents proportional to rank distance for a smooth "river" flow, while same-rank/reverse edges use a lateral S-curve bow so arrows never cut through nodes.
+- **Dagre Compound Graph Support**: migrated the custom graph renderer to use Dagre's compound graph layout for stable cluster positioning.
+
+### Fixed
+- **Dependency Graph Z-index**: fixed an issue where cluster boxes were overlapping arrows by reordering SVG rendering. Clusters are now drawn in the background behind edges and nodes.
+- **Admin UX - Developer Mode Visibility**: moved the "Developer Mode" (auth bypass) toggle from the "System Config" tab to the "User Management" tab in the admin dashboard for better discoverability and logical grouping. Added a clearer "Auth Bypass" warning badge.
+
 ## [0.8.1] - 2026-04-19
 
 ### Added

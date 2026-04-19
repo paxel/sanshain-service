@@ -179,6 +179,24 @@
 
         <!-- Tab: Users -->
         <div id="pane-users" class="hidden space-y-8">
+            <!-- Developer Mode -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-lg font-semibold text-slate-800">Developer Mode</h2>
+                            <span class="bg-amber-100 text-amber-700 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">Auth Bypass</span>
+                        </div>
+                        <p class="text-sm text-slate-500 mt-1">When enabled, all API endpoints are accessible without authentication. Use only for local development or debugging.</p>
+                    </div>
+                    <div id="dev-mode-container"
+                         hx-get="/fragments/admin/dev-mode"
+                         hx-trigger="load"
+                         hx-swap="innerHTML">
+                    </div>
+                </div>
+            </section>
+
             <!-- Local Users Toggle -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="flex justify-between items-center">
@@ -229,21 +247,6 @@
 
         <!-- Tab: System -->
         <div id="pane-system" class="hidden space-y-8">
-            <!-- Dev Mode Toggle -->
-            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                <div class="flex justify-between items-center">
-                    <div>
-                        <h2 class="text-lg font-semibold text-slate-800">Developer Mode</h2>
-                        <p class="text-sm text-slate-500 mt-1">When enabled, API endpoints are accessible without authentication.</p>
-                    </div>
-                    <div id="dev-mode-container"
-                         hx-get="/fragments/admin/dev-mode"
-                         hx-trigger="load"
-                         hx-swap="innerHTML">
-                    </div>
-                </div>
-            </section>
-
             <!-- Database Configuration -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div>
