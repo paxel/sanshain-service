@@ -35,6 +35,8 @@ regex = "1"
 indexmap = "2"
 similar = "2"
 axum-prometheus = "0.10"
+metrics-exporter-prometheus = "0.18"
+sysinfo = "0.33"
 
 [dev-dependencies]
 flate2 = "1"

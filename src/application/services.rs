@@ -49,6 +49,7 @@ async fn provide_spec_inner(
     openapi_yaml: &str,
     dry_run: bool,
 ) -> Result<(), AppError> {
+    tracing::debug!("Providing spec for service '{}' branch '{}' (dry_run: {})", servicename, branch, dry_run);
     let endpoints = openapi::split_openapi(openapi_yaml)
         .map_err(|e| AppError::BadRequest(e))?;
 
@@ -278,6 +279,7 @@ async fn require_endpoint_inner(
     timeout_secs: Option<u64>,
     dry_run: bool,
 ) -> Result<String, AppError> {
+    tracing::debug!("Client '{}' requiring endpoint '{} {}' from service '{}' branch '{}' (dry_run: {})", clientname, method, path, servicename, branch, dry_run);
     let client_id = if dry_run { 0 } else { repo.ensure_client(clientname).await? };
     let service_id = if dry_run {
         match repo.find_service(servicename).await? {
@@ -399,6 +401,7 @@ async fn require_bundle_inner(
     timeout_secs: Option<u64>,
     dry_run: bool,
 ) -> Result<String, AppError> {
+    tracing::debug!("Client '{}' requiring bundle from service '{}' branch '{}' (dry_run: {})", clientname, servicename, branch, dry_run);
     if endpoints.is_empty() {
         return Err(AppError::BadRequest("No endpoints requested".to_string()));
     }
@@ -838,6 +841,7 @@ pub async fn login_with_provider(
     username: &str,
     password: &str,
 ) -> Result<Session, AppError> {
+    tracing::info!("Login attempt for user: {}", username);
     let auth_user = provider.authenticate(username, password).await.map_err(|e| match e {
         AuthProviderError::InvalidCredentials => AppError::Unauthorized,
         AuthProviderError::ConnectionFailed(msg) => AppError::Internal(format!("Auth provider connection failed: {}", msg)),

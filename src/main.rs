@@ -12,11 +12,13 @@ use sqlx::sqlite::{SqlitePoolOptions, SqliteConnectOptions, SqliteJournalMode, S
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::collections::{HashMap, VecDeque};
 use std::str::FromStr;
 use tokio::sync::RwLock;
 use chrono::{DateTime, Utc, Duration};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 
 pub mod openapi;
 pub mod domain;
@@ -37,14 +39,105 @@ pub struct AppState {
     pub csrf_tokens: Arc<RwLock<HashMap<String, DateTime<Utc>>>>,
     pub instance_id: String,
     pub spec_updated_tx: tokio::sync::broadcast::Sender<()>,
+    pub log_buffer: Arc<std::sync::Mutex<VecDeque<domain::models::LogEntry>>>,
+    pub business_logic_debug: Arc<AtomicBool>,
+    pub admin_user_debug: Arc<AtomicBool>,
+    pub requests_total: Arc<AtomicU64>,
+    pub failures_total: Arc<AtomicU64>,
+    pub process_start_time: DateTime<Utc>,
+    pub prometheus_handle: metrics_exporter_prometheus::PrometheusHandle,
+}
+
+struct LogVisitor<'a> {
+    message: &'a mut String,
+}
+
+impl<'a> tracing::field::Visit for LogVisitor<'a> {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            *self.message = format!("{:?}", value);
+        }
+    }
+
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        if field.name() == "message" {
+            *self.message = value.to_string();
+        }
+    }
+}
+
+struct LogCaptureLayer {
+    buffer: Arc<std::sync::Mutex<VecDeque<domain::models::LogEntry>>>,
+    business_logic_debug: Arc<AtomicBool>,
+    admin_user_debug: Arc<AtomicBool>,
+}
+
+impl<S> tracing_subscriber::Layer<S> for LogCaptureLayer
+where
+    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+{
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+        let metadata = event.metadata();
+        let target = metadata.target();
+        let level_str = metadata.level().to_string();
+
+        // Check if debug flags permit this message
+        if level_str == "DEBUG" {
+            if target.starts_with("sanshain_service::application") {
+                if !self.business_logic_debug.load(Ordering::Relaxed) {
+                    return;
+                }
+            } else if !self.admin_user_debug.load(Ordering::Relaxed) {
+                // For all other targets (including main.rs/presentation)
+                return;
+            }
+        }
+
+        let mut message = String::new();
+        let mut visitor = LogVisitor { message: &mut message };
+        event.record(&mut visitor);
+
+        if message.is_empty() {
+            // Some events might not have a message field, skip them or use a placeholder
+            return;
+        }
+
+        let entry = domain::models::LogEntry {
+            timestamp: Utc::now().to_rfc3339(),
+            level: level_str,
+            target: target.to_string(),
+            message,
+        };
+
+        if let Ok(mut buf) = self.buffer.lock() {
+            if buf.len() >= 100 {
+                buf.pop_front();
+            }
+            buf.push_back(entry);
+        }
+    }
 }
 
 #[tokio::main]
 pub async fn main() {
+    let business_logic_debug = Arc::new(AtomicBool::new(false));
+    let admin_user_debug = Arc::new(AtomicBool::new(false));
+    let requests_total = Arc::new(AtomicU64::new(0));
+    let failures_total = Arc::new(AtomicU64::new(0));
+    let log_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(101)));
+
+    let capture_layer = LogCaptureLayer {
+        buffer: log_buffer.clone(),
+        business_logic_debug: business_logic_debug.clone(),
+        admin_user_debug: admin_user_debug.clone(),
+    };
+
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "sanshain_service=info,tower_http=info".into());
     
-    let registry = tracing_subscriber::registry().with(filter);
+    let registry = tracing_subscriber::registry()
+        .with(filter)
+        .with(capture_layer);
 
     if std::env::var("LOG_FORMAT").unwrap_or_default() == "json" {
         registry.with(tracing_subscriber::fmt::layer().json()).init();
@@ -89,6 +182,7 @@ pub async fn main() {
     let instance_id = uuid::Uuid::new_v4().to_string();
     tracing::info!("Instance ID: {}", instance_id);
 
+    let (prometheus_layer, prometheus_handle) = PrometheusMetricLayer::pair();
     let (spec_updated_tx, _) = tokio::sync::broadcast::channel(100);
     let state = AppState {
         repo,
@@ -96,6 +190,13 @@ pub async fn main() {
         csrf_tokens: Arc::new(RwLock::new(HashMap::new())),
         instance_id,
         spec_updated_tx,
+        log_buffer,
+        business_logic_debug,
+        admin_user_debug,
+        requests_total,
+        failures_total,
+        process_start_time: Utc::now(),
+        prometheus_handle,
     };
 
     // Spawn background branch cleanup task (runs every hour)
@@ -131,10 +232,12 @@ pub async fn main() {
         }
     });
 
-    let (prometheus_layer, prometheus_handle) = PrometheusMetricLayer::pair();
-    let app = create_app(state)
+    let app = create_app(state.clone())
         .layer(prometheus_layer)
-        .route("/metrics", get(|| async move { prometheus_handle.render() }));
+        .route("/metrics", get(move || {
+            let handle = state.prometheus_handle.clone();
+            async move { handle.render() }
+        }));
 
     let bind_address = std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0:3000".into());
     let addr: SocketAddr = bind_address.parse().expect("invalid BIND_ADDRESS");
@@ -350,6 +453,9 @@ pub fn create_app(state: AppState) -> Router {
         .route("/settings/dependency-max-age", get(get_dependency_max_age).post(set_dependency_max_age))
         .route("/settings/dependency-cleanup", post(trigger_dependency_cleanup))
         .route("/users", get(admin_list_users))
+        .route("/observability/logs", get(admin_get_logs))
+        .route("/observability/stats", get(admin_get_stats))
+        .route("/observability/debug-config", get(admin_get_debug_config).post(admin_set_debug_config))
         .route("/users/{id}/approve", post(admin_approve_user))
         .route("/users/{id}", axum::routing::delete(admin_delete_user_handler))
         .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth));
@@ -415,6 +521,7 @@ pub fn create_app(state: AppState) -> Router {
                 ))
                 .service(ServeDir::new("static"))
         )
+        .layer(middleware::from_fn_with_state(state.clone(), request_counter))
         .layer(middleware::from_fn_with_state(state.clone(), csrf_protection))
         .layer(middleware::from_fn(security_headers))
         .layer(tower_http::decompression::RequestDecompressionLayer::new())
@@ -1764,4 +1871,68 @@ async fn fragment_dependency_cleanup(
 ) -> Result<axum::response::Html<String>, StatusCode> {
     let deleted = services::cleanup_stale_dependencies(&state.repo).await.map_err(app_error_to_status)?;
     Ok(axum::response::Html(format!("Deleted {} stale dependencies", deleted)))
+}
+
+async fn request_counter(
+    State(state): State<AppState>,
+    req: axum::http::Request<Body>,
+    next: middleware::Next,
+) -> axum::response::Response {
+    let path = req.uri().path();
+    let is_business = path == "/provide"
+        || path == "/require"
+        || path == "/require-bundle"
+        || path == "/report"
+        || path == "/report/markdown"
+        || path == "/endpoint-versions";
+
+    if is_business {
+        state.requests_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    let response = next.run(req).await;
+    if is_business && response.status().is_server_error() {
+        state.failures_total.fetch_add(1, Ordering::Relaxed);
+    }
+    response
+}
+
+async fn admin_get_logs(State(state): State<AppState>) -> Json<Vec<domain::models::LogEntry>> {
+    let logs = state.log_buffer.lock().unwrap();
+    Json(logs.iter().cloned().collect())
+}
+
+async fn admin_get_stats(State(state): State<AppState>) -> Json<domain::models::SystemStats> {
+    let mut sys = System::new_with_specifics(
+        RefreshKind::nothing()
+            .with_cpu(CpuRefreshKind::everything())
+            .with_memory(MemoryRefreshKind::everything()),
+    );
+    sys.refresh_all();
+
+    Json(domain::models::SystemStats {
+        cpu_usage: sys.global_cpu_usage(),
+        memory_used: sys.used_memory(),
+        memory_total: sys.total_memory(),
+        system_uptime: System::uptime(),
+        process_uptime: (Utc::now() - state.process_start_time).num_seconds() as u64,
+        requests_total: state.requests_total.load(Ordering::Relaxed),
+        failures_total: state.failures_total.load(Ordering::Relaxed),
+    })
+}
+
+async fn admin_get_debug_config(State(state): State<AppState>) -> Json<domain::models::DebugConfig> {
+    Json(domain::models::DebugConfig {
+        business_logic_debug: state.business_logic_debug.load(Ordering::Relaxed),
+        admin_user_debug: state.admin_user_debug.load(Ordering::Relaxed),
+    })
+}
+
+async fn admin_set_debug_config(
+    State(state): State<AppState>,
+    Json(payload): Json<domain::models::DebugConfig>,
+) -> StatusCode {
+    state.business_logic_debug.store(payload.business_logic_debug, Ordering::Relaxed);
+    state.admin_user_debug.store(payload.admin_user_debug, Ordering::Relaxed);
+    StatusCode::OK
 }

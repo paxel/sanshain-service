@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.3]
+
+### Changed
+- **Admin Dashboard Refactoring**: reorganized the admin page into a tabbed interface (Observability, User Management, System Config, Services & Clients) to reduce visual clutter and improve navigation.
+- **Improved Request Tracking**: the request and failure counters now focus on business logic endpoints (`/provide`, `/require`, etc.), excluding administrative and static traffic for more meaningful metrics.
+- **Process-aware Uptime**: added process uptime tracking to the observability dashboard, allowing admins to distinguish between service restarts and system-wide uptime.
+- **Enhanced Log Viewer**: expanded the log viewer height for better readability and added a "Copy Logs" button for easier troubleshooting and bug reporting.
+
+## [0.7.2]
+
+### Added
+- **System Observability Dashboard**: added a new "System Observability" section to the admin dashboard providing real-time monitoring and debugging tools.
+- **In-memory Log Buffer**: implemented a 100-message ring buffer that captures application logs in real-time, viewable directly from the admin page with level filtering (Info, Warn, Error).
+- **Live System Statistics**: added real-time tracking of CPU usage, memory consumption, system uptime, and aggregate request/failure counters using the `sysinfo` library.
+- **Dynamic Debug Tracing**: introduced toggleable debug flags for "Business Logic" and "Admin/User Activity". These allow enabling detailed `DEBUG` level tracing for specific subsystems at runtime without requiring a service restart.
+- **Custom Tracing Layer**: implemented a custom `tracing-subscriber` layer that intercepts logs, applies dynamic filtering, and populates the in-memory buffer.
+- **Request & Failure Counters**: added a global middleware to track total processed requests and server-side failures (5xx) for high-level health monitoring.
+
 ## [0.7.1]
 
 ### Added

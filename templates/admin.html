@@ -50,168 +50,303 @@
         </div>
     </nav>
 
-    <main class="container mx-auto p-6 space-y-8">
-        <!-- Dev Mode Toggle -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <div class="flex justify-between items-center">
+    <!-- Tabs Navigation -->
+    <div class="bg-white border-b border-slate-200 sticky top-0 z-40">
+        <div class="container mx-auto px-6">
+            <div class="flex space-x-8">
+                <button onclick="switchTab('observability')" id="tab-observability" class="px-1 py-4 text-sm font-medium border-b-2 border-indigo-600 text-indigo-600 whitespace-nowrap">
+                    📊 Observability
+                </button>
+                <button onclick="switchTab('users')" id="tab-users" class="px-1 py-4 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-indigo-600 hover:border-slate-300 whitespace-nowrap">
+                    👥 User Management
+                </button>
+                <button onclick="switchTab('system')" id="tab-system" class="px-1 py-4 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-indigo-600 hover:border-slate-300 whitespace-nowrap">
+                    ⚙️ System Config
+                </button>
+                <button onclick="switchTab('objects')" id="tab-objects" class="px-1 py-4 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-indigo-600 hover:border-slate-300 whitespace-nowrap">
+                    📦 Services & Clients
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <main class="container mx-auto p-6">
+        <!-- Tab: Observability -->
+        <div id="pane-observability" class="space-y-8">
+            <!-- System Observability -->
+            <section id="observability" class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div class="flex justify-between items-center mb-6">
                 <div>
-                    <h2 class="text-lg font-semibold text-slate-800">Developer Mode</h2>
-                    <p class="text-sm text-slate-500 mt-1">When enabled, API endpoints are accessible without authentication.</p>
+                    <h2 class="text-lg font-semibold text-slate-800">System Observability</h2>
+                    <p class="text-sm text-slate-500 mt-1">Monitor system performance, logs, and manage debug tracing.</p>
                 </div>
-                <div id="dev-mode-container"
-                     hx-get="/fragments/admin/dev-mode"
+                <div class="flex items-center space-x-4">
+                    <a href="/metrics" target="_blank" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1 rounded-lg transition-colors border border-slate-200">📊 Raw Metrics</a>
+                    <button onclick="loadObservability()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh All</button>
+                </div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Resources</span>
+                    <div class="mt-2 flex items-end justify-between">
+                        <div>
+                            <div class="text-2xl font-bold text-slate-800" id="stat-cpu">0%</div>
+                            <div class="text-xs text-slate-500">CPU Usage</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-sm font-semibold text-slate-700" id="stat-mem">0 / 0 MB</div>
+                            <div class="text-xs text-slate-500">Memory</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Throughput</span>
+                    <div class="mt-2 flex items-end justify-between">
+                        <div>
+                            <div class="text-2xl font-bold text-slate-800" id="stat-requests">0</div>
+                            <div class="text-xs text-slate-500">Requests</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-sm font-semibold text-red-600" id="stat-failures">0</div>
+                            <div class="text-xs text-slate-500">Failures</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Availability</span>
+                    <div class="mt-2 flex items-end justify-between">
+                        <div>
+                            <div class="text-2xl font-bold text-slate-800" id="stat-uptime">0s</div>
+                            <div class="text-xs text-slate-500">Process Uptime</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-sm font-semibold text-slate-700" id="stat-sys-uptime">0s</div>
+                            <div class="text-xs text-slate-500">System Uptime</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Debug Toggles -->
+            <div class="border-t border-slate-100 pt-6 mb-8">
+                <h3 class="text-sm font-semibold text-slate-800 mb-4 uppercase tracking-tight">Debug Tracing</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="flex justify-between items-center bg-slate-50 p-4 rounded-lg border border-slate-100">
+                        <div>
+                            <span class="block text-sm font-medium text-slate-700">Business Logic</span>
+                            <span class="text-xs text-slate-500">Detailed logs for service layer and OpenAPI processing.</span>
+                        </div>
+                        <button id="toggle-debug-logic" onclick="toggleDebug('logic')"
+                            class="relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none bg-slate-200">
+                            <span id="dot-debug-logic" class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform translate-x-1"></span>
+                        </button>
+                    </div>
+                    <div class="flex justify-between items-center bg-slate-50 p-4 rounded-lg border border-slate-100">
+                        <div>
+                            <span class="block text-sm font-medium text-slate-700">Admin & User Activity</span>
+                            <span class="text-xs text-slate-500">Detailed logs for presentation and auth layer.</span>
+                        </div>
+                        <button id="toggle-debug-admin" onclick="toggleDebug('admin')"
+                            class="relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none bg-slate-200">
+                            <span id="dot-debug-admin" class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform translate-x-1"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Log Viewer -->
+            <div class="border-t border-slate-100 pt-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-sm font-semibold text-slate-800 uppercase tracking-tight">Live Log Buffer (Last 100)</h3>
+                    <div class="flex space-x-2">
+                        <button onclick="copyLogs()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1 rounded-lg transition-colors border border-slate-200">📋 Copy Logs</button>
+                        <select id="log-filter" onchange="renderLogs()" class="text-xs border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none">
+                            <option value="ALL">All Levels</option>
+                            <option value="INFO">Info & Up</option>
+                            <option value="WARN">Warn & Up</option>
+                            <option value="ERROR">Errors Only</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="log-container" class="bg-slate-900 rounded-lg p-4 font-mono text-[10px] leading-relaxed overflow-y-auto h-[600px] text-slate-300">
+                    <div class="text-slate-500 italic">No logs captured yet.</div>
+                </div>
+            </div>
+        </section>
+        </div>
+
+        <!-- Tab: Users -->
+        <div id="pane-users" class="hidden space-y-8">
+            <!-- Local Users Toggle -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-800">Local User Registration</h2>
+                        <p class="text-sm text-slate-500 mt-1">When enabled, users can self-register via <code class="bg-slate-100 px-1 rounded">/auth/register</code>. New users require admin approval.</p>
+                    </div>
+                    <div id="local-users-container"
+                         hx-get="/fragments/admin/local-users"
+                         hx-trigger="load"
+                         hx-swap="innerHTML">
+                    </div>
+                </div>
+            </section>
+
+            <!-- Authentication Mode -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold text-slate-800">Authentication</h2>
+                    <p class="text-sm text-slate-500 mt-1">Select the authentication mode for the service.</p>
+                </div>
+                <div id="auth-config-container"
+                     hx-get="/fragments/admin/auth-config"
                      hx-trigger="load"
                      hx-swap="innerHTML">
                 </div>
-            </div>
-        </section>
+            </section>
 
-        <!-- Database Configuration -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <div>
-                <h2 class="text-lg font-semibold text-slate-800">Database Configuration</h2>
-                <p class="text-sm text-slate-500 mt-1">Current database backend. Set <code class="bg-slate-100 px-1 rounded">DATABASE_URL</code> environment variable to switch (requires restart).</p>
-            </div>
-            <div class="mt-4 space-y-3">
-                <div id="database-info-container"
-                     hx-get="/fragments/admin/database-info"
+            <!-- Users -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-800">Users</h2>
+                        <p class="text-sm text-slate-500 mt-1">Manage registered users. Unapproved users cannot log in.</p>
+                    </div>
+                    <button hx-get="/fragments/admin/users"
+                            hx-target="#users-list"
+                            hx-swap="innerHTML"
+                            class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                </div>
+                <div id="users-list" class="space-y-2"
+                     hx-get="/fragments/admin/users"
                      hx-trigger="load"
                      hx-swap="innerHTML">
                 </div>
-                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
-                    <strong>PostgreSQL:</strong> Set <code class="bg-blue-100 px-1 rounded">DATABASE_URL=postgres://user:password@host:5432/dbname</code> and restart.<br>
-                    <strong>SQLite (default):</strong> <code class="bg-blue-100 px-1 rounded">DATABASE_URL=sqlite:sanshain.db?mode=rwc</code>
-                </div>
-            </div>
-        </section>
+            </section>
+        </div>
 
-        <!-- Protected Branches -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <div class="flex justify-between items-center mb-4">
-                <div>
-                    <h2 class="text-lg font-semibold text-slate-800">Protected Branches</h2>
-                    <p class="text-sm text-slate-500 mt-1">Endpoints on protected branches are immutable once provided.</p>
+        <!-- Tab: System -->
+        <div id="pane-system" class="hidden space-y-8">
+            <!-- Dev Mode Toggle -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-800">Developer Mode</h2>
+                        <p class="text-sm text-slate-500 mt-1">When enabled, API endpoints are accessible without authentication.</p>
+                    </div>
+                    <div id="dev-mode-container"
+                         hx-get="/fragments/admin/dev-mode"
+                         hx-trigger="load"
+                         hx-swap="innerHTML">
+                    </div>
                 </div>
-                <form hx-post="/fragments/admin/protected-branches"
-                      hx-target="#protected-branches-list"
-                      hx-swap="innerHTML"
-                      class="flex space-x-2">
-                    <input type="text" name="pattern" placeholder="e.g. main, release/*"
-                        class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <button type="submit" class="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-indigo-700 transition-colors">Add</button>
-                </form>
-            </div>
-            <div id="protected-branches-list" class="space-y-2"
-                 hx-get="/fragments/admin/protected-branches"
-                 hx-trigger="load"
-                 hx-swap="innerHTML">
-            </div>
-        </section>
+            </section>
 
-        <!-- Local Users Toggle -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <div class="flex justify-between items-center">
+            <!-- Database Configuration -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div>
-                    <h2 class="text-lg font-semibold text-slate-800">Local User Registration</h2>
-                    <p class="text-sm text-slate-500 mt-1">When enabled, users can self-register via <code class="bg-slate-100 px-1 rounded">/auth/register</code>. New users require admin approval.</p>
+                    <h2 class="text-lg font-semibold text-slate-800">Database Configuration</h2>
+                    <p class="text-sm text-slate-500 mt-1">Current database backend. Set <code class="bg-slate-100 px-1 rounded">DATABASE_URL</code> environment variable to switch (requires restart).</p>
                 </div>
-                <div id="local-users-container"
-                     hx-get="/fragments/admin/local-users"
+                <div class="mt-4 space-y-3">
+                    <div id="database-info-container"
+                         hx-get="/fragments/admin/database-info"
+                         hx-trigger="load"
+                         hx-swap="innerHTML">
+                    </div>
+                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+                        <strong>PostgreSQL:</strong> Set <code class="bg-blue-100 px-1 rounded">DATABASE_URL=postgres://user:password@host:5432/dbname</code> and restart.<br>
+                        <strong>SQLite (default):</strong> <code class="bg-blue-100 px-1 rounded">DATABASE_URL=sqlite:sanshain.db?mode=rwc</code>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Protected Branches -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-800">Protected Branches</h2>
+                        <p class="text-sm text-slate-500 mt-1">Endpoints on protected branches are immutable once provided.</p>
+                    </div>
+                    <form hx-post="/fragments/admin/protected-branches"
+                          hx-target="#protected-branches-list"
+                          hx-swap="innerHTML"
+                          class="flex space-x-2">
+                        <input type="text" name="pattern" placeholder="e.g. main, release/*"
+                            class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <button type="submit" class="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-indigo-700 transition-colors">Add</button>
+                    </form>
+                </div>
+                <div id="protected-branches-list" class="space-y-2"
+                     hx-get="/fragments/admin/protected-branches"
                      hx-trigger="load"
                      hx-swap="innerHTML">
                 </div>
-            </div>
-        </section>
+            </section>
 
-        <!-- Authentication Mode -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <div class="mb-4">
-                <h2 class="text-lg font-semibold text-slate-800">Authentication</h2>
-                <p class="text-sm text-slate-500 mt-1">Select the authentication mode for the service.</p>
-            </div>
-            <div id="auth-config-container"
-                 hx-get="/fragments/admin/auth-config"
-                 hx-trigger="load"
-                 hx-swap="innerHTML">
-            </div>
-        </section>
-
-        <!-- Branch Max Age -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <div class="mb-4">
-                <h2 class="text-lg font-semibold text-slate-800">Branch Cleanup</h2>
-                <p class="text-sm text-slate-500 mt-1">Automatically delete branches older than the configured age.</p>
-            </div>
-            <div id="branch-max-age-container"
-                 hx-get="/fragments/admin/branch-max-age"
-                 hx-trigger="load"
-                 hx-swap="innerHTML">
-            </div>
-        </section>
-
-        <!-- Dependency Max Age -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <div class="mb-4">
-                <h2 class="text-lg font-semibold text-slate-800">Dependency Cleanup</h2>
-                <p class="text-sm text-slate-500 mt-1">Automatically delete stale dependency records older than the configured age.</p>
-            </div>
-            <div id="dependency-max-age-container"
-                 hx-get="/fragments/admin/dependency-max-age"
-                 hx-trigger="load"
-                 hx-swap="innerHTML">
-            </div>
-        </section>
-
-        <!-- Users -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <div class="flex justify-between items-center mb-4">
-                <div>
-                    <h2 class="text-lg font-semibold text-slate-800">Users</h2>
-                    <p class="text-sm text-slate-500 mt-1">Manage registered users. Unapproved users cannot log in.</p>
+            <!-- Branch Max Age -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold text-slate-800">Branch Cleanup</h2>
+                    <p class="text-sm text-slate-500 mt-1">Automatically delete branches older than the configured age.</p>
                 </div>
-                <button hx-get="/fragments/admin/users"
-                        hx-target="#users-list"
-                        hx-swap="innerHTML"
-                        class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
-            </div>
-            <div id="users-list" class="space-y-2"
-                 hx-get="/fragments/admin/users"
-                 hx-trigger="load"
-                 hx-swap="innerHTML">
-            </div>
-        </section>
+                <div id="branch-max-age-container"
+                     hx-get="/fragments/admin/branch-max-age"
+                     hx-trigger="load"
+                     hx-swap="innerHTML">
+                </div>
+            </section>
 
-        <!-- Services -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-lg font-semibold text-slate-800">Services</h2>
-                <button hx-get="/fragments/admin/services"
-                        hx-target="#services-list"
-                        hx-swap="innerHTML"
-                        class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
-            </div>
-            <div id="services-list" class="space-y-2"
-                 hx-get="/fragments/admin/services"
-                 hx-trigger="load"
-                 hx-swap="innerHTML">
-            </div>
-        </section>
+            <!-- Dependency Max Age -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold text-slate-800">Dependency Cleanup</h2>
+                    <p class="text-sm text-slate-500 mt-1">Automatically delete stale dependency records older than the configured age.</p>
+                </div>
+                <div id="dependency-max-age-container"
+                     hx-get="/fragments/admin/dependency-max-age"
+                     hx-trigger="load"
+                     hx-swap="innerHTML">
+                </div>
+            </section>
+        </div>
 
-        <!-- Clients -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-lg font-semibold text-slate-800">Clients</h2>
-                <button hx-get="/fragments/admin/clients"
-                        hx-target="#clients-list"
-                        hx-swap="innerHTML"
-                        class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
-            </div>
-            <div id="clients-list" class="space-y-2"
-                 hx-get="/fragments/admin/clients"
-                 hx-trigger="load"
-                 hx-swap="innerHTML">
-            </div>
-        </section>
+        <!-- Tab: Services & Clients -->
+        <div id="pane-objects" class="hidden space-y-8">
+            <!-- Services -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-slate-800">Services</h2>
+                    <button hx-get="/fragments/admin/services"
+                            hx-target="#services-list"
+                            hx-swap="innerHTML"
+                            class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                </div>
+                <div id="services-list" class="space-y-2"
+                     hx-get="/fragments/admin/services"
+                     hx-trigger="load"
+                     hx-swap="innerHTML">
+                </div>
+            </section>
+
+            <!-- Clients -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-slate-800">Clients</h2>
+                    <button hx-get="/fragments/admin/clients"
+                            hx-target="#clients-list"
+                            hx-swap="innerHTML"
+                            class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                </div>
+                <div id="clients-list" class="space-y-2"
+                     hx-get="/fragments/admin/clients"
+                     hx-trigger="load"
+                     hx-swap="innerHTML">
+                </div>
+            </section>
+        </div>
     </main>
 </div>
 
@@ -384,6 +519,43 @@
         }
     }
 
+    // --- Tabs ---
+    let activeTab = 'observability';
+    function switchTab(tabId) {
+        activeTab = tabId;
+        const tabs = ['observability', 'users', 'system', 'objects'];
+        tabs.forEach(id => {
+            const btn = document.getElementById(`tab-${id}`);
+            const pane = document.getElementById(`pane-${id}`);
+            if (!btn || !pane) return;
+            if (id === tabId) {
+                btn.classList.remove('border-transparent', 'text-slate-500');
+                btn.classList.add('border-indigo-600', 'text-indigo-600');
+                pane.classList.remove('hidden');
+            } else {
+                btn.classList.remove('border-indigo-600', 'text-indigo-600');
+                btn.classList.add('border-transparent', 'text-slate-500');
+                pane.classList.add('hidden');
+            }
+        });
+    }
+
+    function copyLogs() {
+        const container = document.getElementById('log-container');
+        if (!container) return;
+        const text = container.innerText;
+        navigator.clipboard.writeText(text).then(() => {
+            const btn = document.querySelector('button[onclick="copyLogs()"]');
+            const originalText = btn.textContent;
+            btn.textContent = '✓ Copied!';
+            btn.classList.replace('text-slate-600', 'text-green-600');
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.classList.replace('text-green-600', 'text-slate-600');
+            }, 2000);
+        });
+    }
+
     // --- Change Password ---
     function changePassword() {
         document.getElementById('password-modal').classList.remove('hidden');
@@ -424,7 +596,161 @@
         }
     });
 
+    // --- Observability ---
+    async function loadObservability() {
+        loadStats();
+        loadDebugConfig();
+        loadLogs();
+    }
+
+    async function loadStats() {
+        try {
+            const res = await apiCall('/admin/observability/stats');
+            if (res.ok) {
+                const data = await res.json();
+                document.getElementById('stat-cpu').textContent = `${data.cpu_usage.toFixed(1)}%`;
+                document.getElementById('stat-mem').textContent = `${(data.memory_used / 1024 / 1024).toFixed(0)} / ${(data.memory_total / 1024 / 1024).toFixed(0)} MB`;
+                document.getElementById('stat-requests').textContent = data.requests_total;
+                document.getElementById('stat-failures').textContent = data.failures_total;
+                document.getElementById('stat-uptime').textContent = formatUptime(data.process_uptime);
+                const sysUptimeEl = document.getElementById('stat-sys-uptime');
+                if (sysUptimeEl) sysUptimeEl.textContent = formatUptime(data.system_uptime);
+            }
+        } catch (_) {}
+    }
+
+    function formatUptime(seconds) {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = seconds % 60;
+        if (h > 0) return `${h}h ${m}m ${s}s`;
+        if (m > 0) return `${m}m ${s}s`;
+        return `${s}s`;
+    }
+
+    let debugConfig = { business_logic_debug: false, admin_user_debug: false };
+
+    async function loadDebugConfig() {
+        try {
+            const res = await apiCall('/admin/observability/debug-config');
+            if (res.ok) {
+                debugConfig = await res.json();
+                updateDebugUI();
+            }
+        } catch (_) {}
+    }
+
+    function updateDebugUI() {
+        const logicToggle = document.getElementById('toggle-debug-logic');
+        const logicDot = document.getElementById('dot-debug-logic');
+        const adminToggle = document.getElementById('toggle-debug-admin');
+        const adminDot = document.getElementById('dot-debug-admin');
+
+        if (!logicToggle || !logicDot || !adminToggle || !adminDot) return;
+
+        if (debugConfig.business_logic_debug) {
+            logicToggle.classList.remove('bg-slate-200');
+            logicToggle.classList.add('bg-indigo-600');
+            logicDot.classList.remove('translate-x-1');
+            logicDot.classList.add('translate-x-6');
+        } else {
+            logicToggle.classList.remove('bg-indigo-600');
+            logicToggle.classList.add('bg-slate-200');
+            logicDot.classList.remove('translate-x-6');
+            logicDot.classList.add('translate-x-1');
+        }
+
+        if (debugConfig.admin_user_debug) {
+            adminToggle.classList.remove('bg-slate-200');
+            adminToggle.classList.add('bg-indigo-600');
+            adminDot.classList.remove('translate-x-1');
+            adminDot.classList.add('translate-x-6');
+        } else {
+            adminToggle.classList.remove('bg-indigo-600');
+            adminToggle.classList.add('bg-slate-200');
+            adminDot.classList.remove('translate-x-6');
+            adminDot.classList.add('translate-x-1');
+        }
+    }
+
+    async function toggleDebug(type) {
+        if (type === 'logic') {
+            debugConfig.business_logic_debug = !debugConfig.business_logic_debug;
+        } else {
+            debugConfig.admin_user_debug = !debugConfig.admin_user_debug;
+        }
+        try {
+            await apiCall('/admin/observability/debug-config', {
+                method: 'POST',
+                body: debugConfig,
+            });
+            updateDebugUI();
+        } catch (_) {}
+    }
+
+    let currentLogs = [];
+
+    async function loadLogs() {
+        try {
+            const res = await apiCall('/admin/observability/logs');
+            if (res.ok) {
+                currentLogs = await res.json();
+                renderLogs();
+            }
+        } catch (_) {}
+    }
+
+    function renderLogs() {
+        const container = document.getElementById('log-container');
+        const filter = document.getElementById('log-filter').value;
+        if (!container) return;
+
+        const filtered = currentLogs.filter(l => {
+            if (filter === 'ALL') return true;
+            if (filter === 'INFO') return ['INFO', 'WARN', 'ERROR'].includes(l.level);
+            if (filter === 'WARN') return ['WARN', 'ERROR'].includes(l.level);
+            if (filter === 'ERROR') return l.level === 'ERROR';
+            return true;
+        });
+
+        if (filtered.length === 0) {
+            container.innerHTML = '<div class="text-slate-500 italic">No logs captured yet.</div>';
+            return;
+        }
+
+        container.innerHTML = filtered.map(l => {
+            const color = {
+                'ERROR': 'text-red-400',
+                'WARN': 'text-amber-400',
+                'INFO': 'text-indigo-300',
+                'DEBUG': 'text-slate-500',
+                'TRACE': 'text-slate-600'
+            }[l.level] || 'text-slate-300';
+
+            return `<div class="mb-1"><span class="text-slate-500">[${l.timestamp.substring(11, 19)}]</span> <span class="${color} font-bold">${l.level.padEnd(5)}</span> <span class="text-indigo-400">${escapeHtml(l.target)}</span>: ${escapeHtml(l.message)}</div>`;
+        }).join('');
+
+        // Scroll to bottom
+        container.scrollTop = container.scrollHeight;
+    }
+
+    // Auto-refresh observability every 5s if dashboard is visible and active tab is observability
+    setInterval(() => {
+        if (document.getElementById('admin-dashboard') && !document.getElementById('admin-dashboard').classList.contains('hidden')) {
+            if (activeTab === 'observability') {
+                loadStats();
+                loadLogs();
+            }
+        }
+    }, 5000);
+
     // --- Init ---
-    fetchCsrfToken().then(() => checkSession());
+    fetchCsrfToken().then(() => {
+        checkSession().then(() => {
+            if (!document.getElementById('admin-dashboard').classList.contains('hidden')) {
+                loadObservability();
+            }
+        });
+    });
 </script>
 {% endblock %}

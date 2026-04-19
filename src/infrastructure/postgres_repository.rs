@@ -14,6 +14,7 @@ impl PostgresSpecRepository {
     }
 
     pub async fn run_migrations(&self) -> Result<(), sqlx::migrate::MigrateError> {
+        tracing::info!("Running PostgreSQL migrations...");
         sqlx::migrate!("src/infrastructure/migrations/postgres")
             .run(&self.pool)
             .await

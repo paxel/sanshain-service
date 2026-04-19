@@ -183,3 +183,28 @@ pub enum SpecChange {
         soft_delete: bool,
     },
 }
+
+#[derive(Serialize, Clone, Debug)]
+pub struct LogEntry {
+    pub timestamp: String,
+    pub level: String,
+    pub target: String,
+    pub message: String,
+}
+
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct SystemStats {
+    pub cpu_usage: f32,
+    pub memory_used: u64,
+    pub memory_total: u64,
+    pub system_uptime: u64,
+    pub process_uptime: u64,
+    pub requests_total: u64,
+    pub failures_total: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct DebugConfig {
+    pub business_logic_debug: bool,
+    pub admin_user_debug: bool,
+}

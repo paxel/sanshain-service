@@ -68,3 +68,9 @@ This document lists security and performance issues identified during the code a
 - **Description**: Replaced manual date/time logic and associated `.unwrap()` calls in repositories with `chrono`. Added defensive `.expect()` or better error handling for regex and LDAP searches.
 - **Risk**: Resolved.
 - **Criticality**: Low (Robustness)
+
+### 11. Lack of Runtime Observability & Debugging (FIXED)
+- **Files**: `src/main.rs`, `src/application/services.rs`, `src/domain/models.rs`, `static/admin.html`, `templates/admin.html`
+- **Description**: Added an in-memory log buffer (RingBuffer), real-time system stats (CPU, Mem, Uptime), and dynamic debug flags to toggle detailed tracing without a restart. Improved UX in 0.7.3 with tabbed admin interface, process-aware uptime, business-logic request counters, and enhanced log viewer with copy support.
+- **Risk**: Resolved.
+- **Criticality**: Medium (Operability)

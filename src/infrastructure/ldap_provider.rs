@@ -52,6 +52,7 @@ impl AuthProvider for LdapAuthProvider {
         username: &str,
         password: &str,
     ) -> Result<AuthenticatedUser, AuthProviderError> {
+        tracing::debug!("LDAP authenticating user: {}", username);
         let mut ldap = self.connect().await?;
 
         // Search for the user

@@ -15,6 +15,7 @@ impl SqliteSpecRepository {
     }
 
     pub async fn run_migrations(&self) -> Result<(), sqlx::migrate::MigrateError> {
+        tracing::info!("Running SQLite migrations...");
         sqlx::migrate!("src/infrastructure/migrations/sqlite")
             .run(&self.pool)
             .await

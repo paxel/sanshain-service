@@ -172,3 +172,19 @@ The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Be
 - [x] Integrate Prometheus metrics exporter.
 - [x] Support structured JSON logging via `LOG_FORMAT=json`.
 - [x] Implement LDAP server URL validation (mitigate SSRF).
+
+### Runtime Observability & Debugging
+- [x] Add `sysinfo` dependency and define `LogEntry`, `SystemStats`, `DebugConfig` models.
+- [x] Update `AppState` with in-memory log buffer (VecDeque), dynamic debug flags (AtomicBool), and request/failure counters (AtomicU64).
+- [x] Implement `LogCaptureLayer` for `tracing` to capture logs into the buffer with dynamic subsystem-based filtering.
+- [x] Add admin API endpoints: `GET /admin/api/logs`, `GET /admin/api/stats`, `GET /admin/api/debug-config`, `POST /admin/api/debug-config`.
+- [x] Instrument critical paths (provide, require, login, migrations) with `debug!` and `info!` logs.
+- [x] Add "System Observability" section to admin dashboard: real-time stats grid, debug toggles, and 100-message log viewer with level filtering.
+- [x] Implement auto-refresh logic for stats and logs in the web UI.
+- [x] Update CHANGELOG, production readiness audit, and plan.md.
+
+### Admin UX & Observability Refinement (0.7.3)
+- [x] Admin dashboard reorganized into a tabbed interface (Observability, User Management, System Config, Services & Clients).
+- [x] Process-level uptime tracking added to distinguishing service restarts from system uptime.
+- [x] Business logic request counting (excludes administrative/static traffic for cleaner metrics).
+- [x] Enhanced Log Viewer: increased height (600px) and added "Copy Logs" clipboard integration.

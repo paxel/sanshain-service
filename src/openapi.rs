@@ -11,6 +11,7 @@ pub struct EndpointSpec {
 }
 
 pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
+    tracing::debug!("Splitting OpenAPI specification ({} bytes)", yaml_str.len());
     let openapi: OpenAPI = serde_yaml::from_str(yaml_str)
         .map_err(|e| format!("Failed to parse OpenAPI YAML: {}", e))?;
 
@@ -260,6 +261,7 @@ pub fn generate_diff(old: &str, new: &str) -> String {
 /// Adding new optional/required fields, new response codes, or new schemas is OK.
 /// Returns Ok(()) if compatible, Err(description) if breaking.
 pub fn check_backward_compatibility(old_yaml: &str, new_yaml: &str) -> Result<(), String> {
+    tracing::debug!("Checking backward compatibility...");
     let old: OpenAPI = serde_yaml::from_str(old_yaml)
         .map_err(|e| format!("Failed to parse old YAML: {}", e))?;
     let new: OpenAPI = serde_yaml::from_str(new_yaml)
