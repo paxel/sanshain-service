@@ -115,6 +115,18 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, list_services())
     }
 
+    async fn list_services_detailed(&self) -> Result<Vec<ServiceSummary>, RepositoryError> {
+        delegate!(self, list_services_detailed())
+    }
+
+    async fn set_fallback_branch(&self, service_name: &str, branch: Option<&str>) -> Result<(), RepositoryError> {
+        delegate!(self, set_fallback_branch(service_name, branch))
+    }
+
+    async fn get_fallback_branch(&self, service_name: &str) -> Result<Option<String>, RepositoryError> {
+        delegate!(self, get_fallback_branch(service_name))
+    }
+
     async fn list_branches(&self, service_name: &str) -> Result<Vec<String>, RepositoryError> {
         delegate!(self, list_branches(service_name))
     }

@@ -518,6 +518,35 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
+    async fn list_services_detailed(&self) -> Result<Vec<ServiceSummary>, RepositoryError> {
+        let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+            "SELECT DISTINCT s.name, s.fallback_branch FROM services s INNER JOIN branches b ON b.service_id = s.id ORDER BY s.name"
+        )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|(name, fallback_branch)| ServiceSummary { name, fallback_branch }).collect())
+    }
+
+    async fn set_fallback_branch(&self, service_name: &str, branch: Option<&str>) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE services SET fallback_branch = $1 WHERE name = $2")
+            .bind(branch)
+            .bind(service_name)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn get_fallback_branch(&self, service_name: &str) -> Result<Option<String>, RepositoryError> {
+        let row: Option<(Option<String>,)> = sqlx::query_as("SELECT fallback_branch FROM services WHERE name = $1")
+            .bind(service_name)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.and_then(|r| r.0))
+    }
+
     async fn list_branches(&self, service_name: &str) -> Result<Vec<String>, RepositoryError> {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT b.name FROM branches b JOIN services s ON b.service_id = s.id WHERE s.name = $1 ORDER BY b.name"

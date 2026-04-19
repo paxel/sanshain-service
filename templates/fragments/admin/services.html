@@ -5,18 +5,31 @@
 <div class="bg-slate-50 rounded-lg p-4 fade-in">
     <div class="flex justify-between items-center">
         <div class="flex items-center space-x-3">
-            <button hx-get="/fragments/admin/services/{{ svc }}/branches"
+            <button hx-get="/fragments/admin/services/{{ svc.name }}/branches"
                     hx-target="#branches-{{ loop.index }}"
                     hx-swap="innerHTML"
                     onclick="let c=document.getElementById('branches-{{ loop.index }}'); if(!c.classList.contains('hidden')){c.classList.add('hidden');this.textContent='▶';event.preventDefault();return false;}else{c.classList.remove('hidden');this.textContent='▼';}"
                     class="text-slate-400 hover:text-slate-600 text-sm">▶</button>
-            <span class="font-medium text-slate-800">{{ svc }}</span>
+            <span class="font-medium text-slate-800">{{ svc.name }}</span>
         </div>
-        <button hx-delete="/fragments/admin/services/{{ svc }}"
-                hx-target="#services-list"
-                hx-swap="innerHTML"
-                hx-confirm="Delete service {{ svc }} and all its data?"
-                class="text-red-500 hover:text-red-700 text-sm">Delete</button>
+        <div class="flex items-center space-x-4">
+            <form hx-post="/fragments/admin/services/{{ svc.name }}/fallback-branch"
+                  hx-target="#services-list"
+                  hx-swap="innerHTML"
+                  class="flex items-center space-x-2">
+                <label class="text-xs text-slate-500">Fallback:</label>
+                <input type="text" name="branch" 
+                       value="{{ svc.fallback_branch.as_deref().unwrap_or_default() }}"
+                       placeholder="default"
+                       class="text-xs border border-slate-200 rounded px-2 py-1 w-24 focus:outline-none focus:border-indigo-300">
+                <button type="submit" class="text-xs bg-slate-200 hover:bg-slate-300 px-2 py-1 rounded">Set</button>
+            </form>
+            <button hx-delete="/fragments/admin/services/{{ svc.name }}"
+                    hx-target="#services-list"
+                    hx-swap="innerHTML"
+                    hx-confirm="Delete service {{ svc.name }} and all its data?"
+                    class="text-red-500 hover:text-red-700 text-sm">Delete</button>
+        </div>
     </div>
     <div id="branches-{{ loop.index }}" class="hidden mt-3 ml-8 space-y-1"></div>
 </div>

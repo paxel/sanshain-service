@@ -5,8 +5,9 @@ use axum::{
 };
 use serde_json::{json, Value};
 use sqlx::sqlite::SqlitePoolOptions;
-use std::sync::Arc;
-use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
+use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::collections::{HashMap, VecDeque};
 use tokio::sync::RwLock;
 use chrono::Utc;
 use tower::ServiceExt; // for `oneshot`
@@ -16,6 +17,15 @@ use sanshain_service::infrastructure::database::DatabaseRepo;
 use sanshain_service::application::services;
 
 const TEST_CSRF_TOKEN: &str = "test-csrf-token";
+
+static TEST_PROMETHEUS_HANDLE: OnceLock<metrics_exporter_prometheus::PrometheusHandle> = OnceLock::new();
+
+fn get_test_prometheus_handle() -> metrics_exporter_prometheus::PrometheusHandle {
+    TEST_PROMETHEUS_HANDLE.get_or_init(|| {
+        let (_, handle) = axum_prometheus::PrometheusMetricLayer::pair();
+        handle
+    }).clone()
+}
 
 async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
     let pool = SqlitePoolOptions::new()
@@ -29,7 +39,20 @@ async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
     let mut tokens = HashMap::new();
     tokens.insert(TEST_CSRF_TOKEN.to_string(), Utc::now());
     let (spec_updated_tx, _) = tokio::sync::broadcast::channel(100);
-    let state = AppState { repo: DatabaseRepo::Sqlite(repo.clone()), db_url: "sqlite::memory:".to_string(), csrf_tokens: Arc::new(RwLock::new(tokens)), instance_id: "test".to_string(), spec_updated_tx };
+    let state = AppState {
+        repo: DatabaseRepo::Sqlite(repo.clone()),
+        db_url: "sqlite::memory:".to_string(),
+        csrf_tokens: Arc::new(RwLock::new(tokens)),
+        instance_id: "test".to_string(),
+        spec_updated_tx,
+        log_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+        business_logic_debug: Arc::new(AtomicBool::new(false)),
+        admin_user_debug: Arc::new(AtomicBool::new(false)),
+        requests_total: Arc::new(AtomicU64::new(0)),
+        failures_total: Arc::new(AtomicU64::new(0)),
+        process_start_time: Utc::now(),
+        prometheus_handle: get_test_prometheus_handle(),
+    };
     let app = create_app(state);
     (app, repo)
 }
@@ -61,7 +84,20 @@ async fn setup_app_with_admin() -> (axum::Router, String) {
     let mut tokens = HashMap::new();
     tokens.insert(TEST_CSRF_TOKEN.to_string(), Utc::now());
     let (spec_updated_tx, _) = tokio::sync::broadcast::channel(100);
-    let state = AppState { repo: DatabaseRepo::Sqlite(repo), db_url: "sqlite::memory:".to_string(), csrf_tokens: Arc::new(RwLock::new(tokens)), instance_id: "test".to_string(), spec_updated_tx };
+    let state = AppState {
+        repo: DatabaseRepo::Sqlite(repo),
+        db_url: "sqlite::memory:".to_string(),
+        csrf_tokens: Arc::new(RwLock::new(tokens)),
+        instance_id: "test".to_string(),
+        spec_updated_tx,
+        log_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+        business_logic_debug: Arc::new(AtomicBool::new(false)),
+        admin_user_debug: Arc::new(AtomicBool::new(false)),
+        requests_total: Arc::new(AtomicU64::new(0)),
+        failures_total: Arc::new(AtomicU64::new(0)),
+        process_start_time: Utc::now(),
+        prometheus_handle: get_test_prometheus_handle(),
+    };
     let app = create_app(state);
     (app, session.token)
 }

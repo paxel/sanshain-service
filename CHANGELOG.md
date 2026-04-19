@@ -4,44 +4,41 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.7.3]
-
-### Changed
-- **Admin Dashboard Refactoring**: reorganized the admin page into a tabbed interface (Observability, User Management, System Config, Services & Clients) to reduce visual clutter and improve navigation.
-- **Improved Request Tracking**: the request and failure counters now focus on business logic endpoints (`/provide`, `/require`, etc.), excluding administrative and static traffic for more meaningful metrics.
-- **Process-aware Uptime**: added process uptime tracking to the observability dashboard, allowing admins to distinguish between service restarts and system-wide uptime.
-- **Enhanced Log Viewer**: expanded the log viewer height for better readability and added a "Copy Logs" button for easier troubleshooting and bug reporting.
-
-## [0.7.2]
-
-### Added
-- **System Observability Dashboard**: added a new "System Observability" section to the admin dashboard providing real-time monitoring and debugging tools.
-- **In-memory Log Buffer**: implemented a 100-message ring buffer that captures application logs in real-time, viewable directly from the admin page with level filtering (Info, Warn, Error).
-- **Live System Statistics**: added real-time tracking of CPU usage, memory consumption, system uptime, and aggregate request/failure counters using the `sysinfo` library.
-- **Dynamic Debug Tracing**: introduced toggleable debug flags for "Business Logic" and "Admin/User Activity". These allow enabling detailed `DEBUG` level tracing for specific subsystems at runtime without requiring a service restart.
-- **Custom Tracing Layer**: implemented a custom `tracing-subscriber` layer that intercepts logs, applies dynamic filtering, and populates the in-memory buffer.
-- **Request & Failure Counters**: added a global middleware to track total processed requests and server-side failures (5xx) for high-level health monitoring.
-
 ## [0.7.1]
 
+### Changed
+- **Admin Dashboard Refactoring**: reorganized the admin page into a tabbed interface (Observability, User Management, System Config, Services & Clients).
+
 ### Added
-- **Transactional specification updates**: `provide` operations (uploading a new OpenAPI spec) now apply all endpoint inserts, updates, and deletions within a single database transaction. This ensures that the main endpoint data and the version history always stay in sync, even if the database is under load or the disk is slow.
-- **SQLite reliability tuning**: optimized SQLite configuration for better performance and reliability, especially on Docker for Mac. Enabled **WAL (Write-Ahead Logging)** mode and **Normal** synchronous mode to allow concurrent reads and writes, set a **5-second busy timeout** to prevent "database is locked" errors, and limited the connection pool to a single writer to avoid lock contention on FUSE-mounted volumes.
+- **Process-aware Uptime**: added process uptime tracking to the observability dashboard to distinguish between service restarts and system-wide uptime.
+- **System Observability Dashboard**: added a new "System Observability" section to the admin dashboard with real-time monitoring and debugging tools.
+- **In-memory Log Buffer**: implemented a 100-message ring buffer that captures application logs in real-time with level filtering.
+- **Live System Statistics**: added real-time tracking of CPU, memory, uptime, and request/failure counters using `sysinfo`.
+- **Improved Request Tracking**: focused request and failure counters on business logic endpoints, excluding admin and static traffic.
+- **Dynamic Debug Tracing**: introduced toggleable debug flags for "Business Logic" and "Admin/User Activity" to enable detailed tracing at runtime.
+- **Custom Tracing Layer**: implemented a custom `tracing-subscriber` layer to intercept logs and populate the in-memory buffer.
+- **Request & Failure Counters**: added a global middleware to track total requests and 5xx failures for high-level health monitoring.
+- **Transactional specification updates**: `provide` operations now apply all database changes within a single transaction to ensure data and history sync.
+- **SQLite reliability tuning**: optimized SQLite with WAL mode, normal synchronous mode, and a 5-second busy timeout for better concurrent performance.
+- **Service-specific Fallback Branch**: introduced per-service custom fallback branches prioritized during endpoint resolution.
+- **Service Detail Enhancement**: updated the Admin UI to allow configuring fallback branches for each registered service via an inline form.
+- **Enhanced Log Viewer**: expanded log viewer height and added a "Copy Logs" button for easier troubleshooting.
 
 ### Fixed
-- **Optimized OpenAPI splitting**: the splitting logic now pre-calculates a component dependency graph, reducing the complexity from O(N*M) to O(N+M) where N is the number of endpoints and M is the number of components. This significantly speeds up specification updates for services with many endpoints and/or large component blocks. It also correctly follows transitive references through all OpenAPI component types (headers, parameters, security schemes, etc.).
-- **Improved Backward Compatibility checking**: backward compatibility is now validated once for the entire specification when providing a new version, rather than redundantly for every individual endpoint snippet. This eliminates O(N*M) redundancy in the validation phase.
-- **LDAP Server URL validation**: added basic validation for LDAP server URLs in the configuration to ensure they use valid protocols (`ldap://` or `ldaps://`) and have a valid host format, helping to mitigate potential SSRF risks.
-- **Date/Time library migration**: replaced manual date-to-YMD conversion and ISO string formatting logic with the `chrono` library throughout the application service layer, improving maintainability and reducing code duplication.
-- **CSRF Token Memory Leak & Security**: replaced the infinite-growth `HashSet` for CSRF tokens with a `HashMap` that tracks creation time. Added a background task to prune tokens older than 24 hours and enforced this TTL during request validation.
-- **CSRF Bypass for API Tokens**: requests using `Authorization: Bearer` headers (API tokens) now bypass CSRF protection. This simplifies integration for automated tools and CLI clients, while maintaining protection for session-based browser access (though both currently use Bearer tokens, the infrastructure is now prepared for cookie-based auth if needed).
-- **Event-driven Long-polling**: replaced the 500ms busy-wait loop in `/require` and `/require-bundle` with a `tokio::sync::watch` or `broadcast` mechanism. Waiting clients now wake up immediately when a new spec is provided, reducing latency and server load.
-- **Improved error handling and robustness**: replaced multiple unsafe `.unwrap()` calls in critical paths (including repositories and OpenAPI processing) with proper error handling and descriptive `.expect()` calls, reducing the risk of panics in edge cases.
-- **Prometheus Metrics**: integrated `axum-prometheus` to expose standard HTTP metrics (request counts, latency, histograms) at the `/metrics` endpoint.
-- **Structured JSON Logging**: added support for JSON log format via the `LOG_FORMAT=json` environment variable, facilitating easier log ingestion for production monitoring systems.
-- **Kubernetes Deployment**: added a full set of Kubernetes manifests (Deployment, Service, Ingress, ConfigMap, Secret) and Kustomization support in the `deploy/kubernetes/` directory.
-- **LDAP Injection Vulnerability**: added filter escaping for usernames in the LDAP authentication provider. This prevents attackers from using special LDAP characters (e.g., `*`, `(`, `)`) to bypass authentication or probe the directory.
-- **Admin page config switches missing after login**: after signing in, config fragments such as the Developer Mode switch were not rendered until the page was manually refreshed. The `hx-trigger="load"` events fired (and failed without an auth token) while the dashboard was still hidden on the login screen. `showDashboard()` now re-triggers the `load` event on every lazy htmx container inside the dashboard so fragments render immediately after login.
+- **Optimized OpenAPI splitting**: pre-calculates a component dependency graph, reducing complexity from O(N*M) to O(N+M) for faster updates.
+- **Improved Backward Compatibility checking**: validates compatibility once for the entire specification, eliminating O(N*M) redundancy.
+- **LDAP Server URL validation**: added basic validation for LDAP server URLs to ensure valid protocols and host formats, mitigating SSRF risks.
+- **Date/Time library migration**: replaced manual date formatting with the `chrono` library throughout the application service layer.
+- **CSRF Token Memory Leak & Security**: replaced `HashSet` with a `HashMap` that tracks creation time and prunes tokens older than 24 hours.
+- **CSRF Bypass for API Tokens**: requests using `Authorization: Bearer` headers now bypass CSRF protection for easier automation.
+- **Event-driven Long-polling**: replaced the busy-wait loop in `/require` with a `tokio::sync` watch/broadcast mechanism for immediate wake-ups.
+- **Improved error handling and robustness**: replaced unsafe `.unwrap()` calls in critical paths with proper error handling and descriptive `.expect()`.
+- **Prometheus Metrics**: integrated `axum-prometheus` to expose standard HTTP metrics at the `/metrics` endpoint.
+- **Structured JSON Logging**: added support for JSON log format via the `LOG_FORMAT=json` environment variable.
+- **Kubernetes Deployment**: added a full set of Kubernetes manifests and Kustomization support in `deploy/kubernetes/`.
+- **LDAP Injection Vulnerability**: added filter escaping for usernames in the LDAP authentication provider to prevent injection attacks.
+- **Admin page config switches missing after login**: fixed a bug where dashboard fragments wouldn't render immediately after login without a refresh.
+- **Integration Test Stability**: resolved a race condition and panic in integration tests caused by multiple Prometheus recorder registrations.
 
 ## [0.7.0]
 

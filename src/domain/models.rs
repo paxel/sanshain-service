@@ -156,6 +156,12 @@ pub struct ClientEndpointInfo {
 }
 
 #[derive(Serialize, Clone, Debug)]
+pub struct ServiceSummary {
+    pub name: String,
+    pub fallback_branch: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
 pub struct EndpointVersion {
     pub id: i64,
     pub endpoint_id: i64,

@@ -183,8 +183,16 @@ The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Be
 - [x] Implement auto-refresh logic for stats and logs in the web UI.
 - [x] Update CHANGELOG, production readiness audit, and plan.md.
 
-### Admin UX & Observability Refinement (0.7.3)
+### Admin UX & Observability Refinement
 - [x] Admin dashboard reorganized into a tabbed interface (Observability, User Management, System Config, Services & Clients).
 - [x] Process-level uptime tracking added to distinguishing service restarts from system uptime.
 - [x] Business logic request counting (excludes administrative/static traffic for cleaner metrics).
 - [x] Enhanced Log Viewer: increased height (600px) and added "Copy Logs" clipboard integration.
+
+### Service-specific Fallback Branch
+- [x] Create database migrations for SQLite and Postgres to add a `fallback_branch` column to the `services` table.
+- [x] Update the `SpecRepository` trait and its implementations (SQLite, Postgres, Mock) to support getting and setting the service-specific fallback branch.
+- [x] Modify the endpoint resolution logic in `src/application/services.rs` to prioritize the service-specific fallback branch before falling back to global protected branches.
+- [x] Add Admin API endpoints and HTMX fragments in `src/main.rs` to allow viewing and configuring the fallback branch for each service.
+- [x] Update the Admin UI templates to display and manage the fallback branch configuration in the Services list.
+- [x] Fixed integration test stability by implementing a singleton `PrometheusHandle` provider.

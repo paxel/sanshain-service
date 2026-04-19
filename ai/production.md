@@ -71,6 +71,11 @@ This document lists security and performance issues identified during the code a
 
 ### 11. Lack of Runtime Observability & Debugging (FIXED)
 - **Files**: `src/main.rs`, `src/application/services.rs`, `src/domain/models.rs`, `static/admin.html`, `templates/admin.html`
-- **Description**: Added an in-memory log buffer (RingBuffer), real-time system stats (CPU, Mem, Uptime), and dynamic debug flags to toggle detailed tracing without a restart. Improved UX in 0.7.3 with tabbed admin interface, process-aware uptime, business-logic request counters, and enhanced log viewer with copy support.
+- **Description**: Added an in-memory log buffer (RingBuffer), real-time system stats (CPU, Mem, Uptime), and dynamic debug flags to toggle detailed tracing without a restart. Improved UX with tabbed admin interface, process-aware uptime, business-logic request counters, and enhanced log viewer with copy support.
 - **Risk**: Resolved.
 - **Criticality**: Medium (Operability)
+
+### 12. Service-specific Fallback Configuration (FIXED)
+- **Files**: `src/main.rs`, `src/application/services.rs`, `src/domain/ports.rs`, `src/infrastructure/sqlite_repository.rs`, `src/infrastructure/postgres_repository.rs`
+- **Description**: Added support for configuring a `fallback_branch` per service. This branch is prioritized when resolving endpoints that are missing from the requested feature branch, before falling back to global protected branches. Includes database schema updates and Admin UI integration.
+- **Criticality**: Low (Flexibility)

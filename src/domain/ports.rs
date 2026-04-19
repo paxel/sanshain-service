@@ -111,6 +111,15 @@ pub trait SpecRepository: Send + Sync {
     /// List all services.
     fn list_services(&self) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
+    /// List all services with detailed information (like fallback branch).
+    fn list_services_detailed(&self) -> impl Future<Output = Result<Vec<ServiceSummary>, RepositoryError>> + Send;
+
+    /// Set the fallback branch for a service.
+    fn set_fallback_branch(&self, service_name: &str, branch: Option<&str>) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Get the fallback branch for a service.
+    fn get_fallback_branch(&self, service_name: &str) -> impl Future<Output = Result<Option<String>, RepositoryError>> + Send;
+
     /// List all branches for a service.
     fn list_branches(&self, service_name: &str) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 

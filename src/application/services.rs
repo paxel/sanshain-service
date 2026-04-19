@@ -268,6 +268,52 @@ pub async fn require_endpoint_dry_run(
     require_endpoint_inner(repo, notifier, clientname, servicename, branch, path, method, timeout_secs, true).await
 }
 
+async fn find_endpoint_with_fallback(
+    repo: &impl SpecRepository,
+    service_id: i64,
+    servicename: &str,
+    branch: &str,
+    path: &str,
+    method_upper: &str,
+) -> Result<Option<(i64, String)>, RepositoryError> {
+    let endpoint = repo.find_endpoint(service_id, branch, path, method_upper).await?;
+    if endpoint.is_some() || repo.is_branch_protected(branch).await? {
+        return Ok(endpoint);
+    }
+
+    // 1. Try service-specific fallback branch
+    if let Ok(Some(sfb)) = repo.get_fallback_branch(servicename).await {
+        // Only try if it's different from the requested branch (redundant due to is_branch_protected check above, but safer)
+        if sfb != branch {
+            if let Some(ep) = repo.find_endpoint(service_id, &sfb, path, method_upper).await? {
+                tracing::info!(
+                    "Falling back to service-specific branch '{}' for {} {}",
+                    sfb, method_upper, path
+                );
+                return Ok(Some(ep));
+            }
+        }
+    }
+
+    // 2. Try global protected branches
+    let protected = repo.list_protected_branches().await?;
+    for pb in &protected {
+        // Skip if it's the same as the requested branch (already tried)
+        if pb == branch {
+            continue;
+        }
+        if let Some(ep) = repo.find_endpoint(service_id, pb, path, method_upper).await? {
+            tracing::info!(
+                "Falling back to protected branch '{}' for {} {}",
+                pb, method_upper, path
+            );
+            return Ok(Some(ep));
+        }
+    }
+
+    Ok(None)
+}
+
 async fn require_endpoint_inner(
     repo: &impl SpecRepository,
     mut notifier: Option<tokio::sync::broadcast::Receiver<()>>,
@@ -298,26 +344,7 @@ async fn require_endpoint_inner(
     let poll_interval = std::time::Duration::from_millis(500);
 
     loop {
-        let endpoint = repo.find_endpoint(service_id, branch, path, &method_upper).await?;
-
-        // Feature branch fallback: if not found on a non-protected branch, try protected branches
-        let endpoint = if endpoint.is_none() && !repo.is_branch_protected(branch).await? {
-            let protected = repo.list_protected_branches().await?;
-            let mut fallback = None;
-            for pb in &protected {
-                fallback = repo.find_endpoint(service_id, pb, path, &method_upper).await?;
-                if fallback.is_some() {
-                    tracing::info!(
-                        "Falling back to protected branch '{}' for {} {}",
-                        pb, method_upper, path
-                    );
-                    break;
-                }
-            }
-            fallback
-        } else {
-            endpoint
-        };
+        let endpoint = find_endpoint_with_fallback(repo, service_id, servicename, branch, path, &method_upper).await?;
 
         if let Some(ref ep) = endpoint {
             if !dry_run {
@@ -427,26 +454,7 @@ async fn require_bundle_inner(
 
         for (path, method) in endpoints {
             let method_upper = method.to_uppercase();
-            let endpoint = repo.find_endpoint(service_id, branch, path, &method_upper).await?;
-
-            // Feature branch fallback
-            let endpoint = if endpoint.is_none() && !repo.is_branch_protected(branch).await? {
-                let protected = repo.list_protected_branches().await?;
-                let mut fallback = None;
-                for pb in &protected {
-                    fallback = repo.find_endpoint(service_id, pb, path, &method_upper).await?;
-                    if fallback.is_some() {
-                        tracing::info!(
-                            "Falling back to protected branch '{}' for {} {}",
-                            pb, method_upper, path
-                        );
-                        break;
-                    }
-                }
-                fallback
-            } else {
-                endpoint
-            };
+            let endpoint = find_endpoint_with_fallback(repo, service_id, servicename, branch, path, &method_upper).await?;
 
             if let Some(ref ep) = endpoint {
                 if !dry_run {
@@ -570,6 +578,28 @@ pub async fn list_services(
     repo: &impl SpecRepository,
 ) -> Result<Vec<String>, AppError> {
     Ok(repo.list_services().await?)
+}
+
+pub async fn list_services_detailed(
+    repo: &impl SpecRepository,
+) -> Result<Vec<ServiceSummary>, AppError> {
+    Ok(repo.list_services_detailed().await?)
+}
+
+pub async fn set_fallback_branch(
+    repo: &impl SpecRepository,
+    service_name: &str,
+    branch: Option<&str>,
+) -> Result<(), AppError> {
+    repo.set_fallback_branch(service_name, branch).await?;
+    Ok(())
+}
+
+pub async fn get_fallback_branch(
+    repo: &impl SpecRepository,
+    service_name: &str,
+) -> Result<Option<String>, AppError> {
+    Ok(repo.get_fallback_branch(service_name).await?)
 }
 
 pub async fn list_branches(
@@ -1058,6 +1088,7 @@ mod tests {
         clients: Mutex<HashMap<String, i64>>,
         protected_branches: Mutex<Vec<String>>,
         next_id: Mutex<i64>,
+        fallback_branches: Mutex<HashMap<String, String>>,
         users: Mutex<Vec<User>>,
         sessions: Mutex<Vec<Session>>,
         settings: Mutex<HashMap<String, String>>,
@@ -1077,6 +1108,7 @@ mod tests {
                 clients: Mutex::new(HashMap::new()),
                 protected_branches: Mutex::new(vec!["main".to_string(), "master".to_string()]),
                 next_id: Mutex::new(1),
+                fallback_branches: Mutex::new(HashMap::new()),
                 users: Mutex::new(Vec::new()),
                 sessions: Mutex::new(Vec::new()),
                 settings: Mutex::new(settings),
@@ -1297,6 +1329,35 @@ mod tests {
             } else {
                 Ok(false)
             }
+        }
+
+        async fn list_services_detailed(&self) -> Result<Vec<ServiceSummary>, RepositoryError> {
+            let services = self.services.lock().unwrap();
+            let fallbacks = self.fallback_branches.lock().unwrap();
+            let mut result = Vec::new();
+            for name in services.keys() {
+                result.push(ServiceSummary {
+                    name: name.clone(),
+                    fallback_branch: fallbacks.get(name).cloned(),
+                });
+            }
+            result.sort_by(|a, b| a.name.cmp(&b.name));
+            Ok(result)
+        }
+
+        async fn set_fallback_branch(&self, service_name: &str, branch: Option<&str>) -> Result<(), RepositoryError> {
+            let mut fallbacks = self.fallback_branches.lock().unwrap();
+            if let Some(b) = branch {
+                fallbacks.insert(service_name.to_string(), b.to_string());
+            } else {
+                fallbacks.remove(service_name);
+            }
+            Ok(())
+        }
+
+        async fn get_fallback_branch(&self, service_name: &str) -> Result<Option<String>, RepositoryError> {
+            let fallbacks = self.fallback_branches.lock().unwrap();
+            Ok(fallbacks.get(service_name).cloned())
         }
 
         async fn list_services(&self) -> Result<Vec<String>, RepositoryError> {

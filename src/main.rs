@@ -466,6 +466,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/users/{id}", axum::routing::delete(fragment_delete_user))
         .route("/admin/services", get(fragment_services))
         .route("/admin/services/{name}", axum::routing::delete(fragment_delete_service))
+        .route("/admin/services/{name}/fallback-branch", post(fragment_set_fallback_branch))
         .route("/admin/services/{name}/branches", get(fragment_branches))
         .route("/admin/services/{name}/branches/{branch}", axum::routing::delete(fragment_delete_branch))
         .route("/admin/clients", get(fragment_clients))
@@ -1602,13 +1603,13 @@ async fn fragment_delete_user(
 #[derive(Template)]
 #[template(path = "fragments/admin/services.html")]
 struct FragmentServices {
-    services: Vec<String>,
+    services: Vec<domain::models::ServiceSummary>,
 }
 
 async fn fragment_services(
     State(state): State<AppState>,
 ) -> Result<axum::response::Html<String>, StatusCode> {
-    let services_list = services::list_services(&state.repo).await.map_err(app_error_to_status)?;
+    let services_list = services::list_services_detailed(&state.repo).await.map_err(app_error_to_status)?;
     let tmpl = FragmentServices { services: services_list };
     Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
 }
@@ -1618,7 +1619,7 @@ async fn fragment_delete_service(
     axum::extract::Path(name): axum::extract::Path<String>,
 ) -> Result<axum::response::Html<String>, StatusCode> {
     services::delete_service(&state.repo, &name).await.map_err(app_error_to_status)?;
-    let services_list = services::list_services(&state.repo).await.map_err(app_error_to_status)?;
+    let services_list = services::list_services_detailed(&state.repo).await.map_err(app_error_to_status)?;
     let tmpl = FragmentServices { services: services_list };
     Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
 }
@@ -1645,7 +1646,29 @@ async fn fragment_delete_branch(
 ) -> Result<axum::response::Html<String>, StatusCode> {
     services::delete_branch(&state.repo, &name, &branch).await.map_err(app_error_to_status)?;
     // Return the full services list since the target is #services-list
-    let services_list = services::list_services(&state.repo).await.map_err(app_error_to_status)?;
+    let services_list = services::list_services_detailed(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentServices { services: services_list };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+#[derive(Deserialize)]
+struct SetFallbackBranchParams {
+    branch: String,
+}
+
+async fn fragment_set_fallback_branch(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+    axum::extract::Form(params): axum::extract::Form<SetFallbackBranchParams>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let branch = if params.branch.trim().is_empty() {
+        None
+    } else {
+        Some(params.branch.trim())
+    };
+    services::set_fallback_branch(&state.repo, &name, branch).await.map_err(app_error_to_status)?;
+    
+    let services_list = services::list_services_detailed(&state.repo).await.map_err(app_error_to_status)?;
     let tmpl = FragmentServices { services: services_list };
     Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
 }
