@@ -51,7 +51,7 @@ async fn provide_spec_inner(
 ) -> Result<(), AppError> {
     tracing::debug!("Providing spec for service '{}' branch '{}' (dry_run: {})", servicename, branch, dry_run);
     let endpoints = openapi::split_openapi(openapi_yaml)
-        .map_err(|e| AppError::BadRequest(e))?;
+        .map_err(AppError::BadRequest)?;
 
     let (_sid, bid) = if dry_run {
         match repo.find_service(servicename).await? {
@@ -242,6 +242,7 @@ pub async fn get_endpoint_version_history(
     Ok(versions)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn require_endpoint(
     repo: &impl SpecRepository,
     notifier: Option<tokio::sync::broadcast::Receiver<()>>,
@@ -255,6 +256,7 @@ pub async fn require_endpoint(
     require_endpoint_inner(repo, notifier, clientname, servicename, branch, path, method, timeout_secs, false).await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn require_endpoint_dry_run(
     repo: &impl SpecRepository,
     notifier: Option<tokio::sync::broadcast::Receiver<()>>,
@@ -284,14 +286,14 @@ async fn find_endpoint_with_fallback(
     // 1. Try service-specific fallback branch
     if let Ok(Some(sfb)) = repo.get_fallback_branch(servicename).await {
         // Only try if it's different from the requested branch (redundant due to is_branch_protected check above, but safer)
-        if sfb != branch {
-            if let Some(ep) = repo.find_endpoint(service_id, &sfb, path, method_upper).await? {
-                tracing::info!(
-                    "Falling back to service-specific branch '{}' for {} {}",
-                    sfb, method_upper, path
-                );
-                return Ok(Some(ep));
-            }
+        if sfb != branch
+            && let Some(ep) = repo.find_endpoint(service_id, &sfb, path, method_upper).await?
+        {
+            tracing::info!(
+                "Falling back to service-specific branch '{}' for {} {}",
+                sfb, method_upper, path
+            );
+            return Ok(Some(ep));
         }
     }
 
@@ -314,6 +316,7 @@ async fn find_endpoint_with_fallback(
     Ok(None)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn require_endpoint_inner(
     repo: &impl SpecRepository,
     mut notifier: Option<tokio::sync::broadcast::Receiver<()>>,
@@ -418,6 +421,7 @@ pub async fn require_bundle_dry_run(
     require_bundle_inner(repo, notifier, clientname, servicename, branch, endpoints, timeout_secs, true).await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn require_bundle_inner(
     repo: &impl SpecRepository,
     mut notifier: Option<tokio::sync::broadcast::Receiver<()>>,
@@ -469,7 +473,7 @@ async fn require_bundle_inner(
         if missing.is_empty() {
             // All endpoints found — merge into single YAML
             return openapi::merge_endpoint_yamls(&yamls)
-                .map_err(|e| AppError::Internal(e));
+                .map_err(AppError::Internal);
         }
 
         // If no timeout or deadline passed, record missing deps and return NotFound
@@ -810,7 +814,7 @@ pub async fn set_local_users_enabled(repo: &impl SpecRepository, enabled: bool) 
 
 pub async fn get_auth_mode(repo: &impl SpecRepository) -> Result<AuthMode, AppError> {
     let val = repo.get_setting("auth_mode").await?;
-    Ok(val.and_then(|v| AuthMode::from_str(&v)).unwrap_or_else(|| {
+    Ok(val.and_then(|v| v.parse().ok()).unwrap_or({
         // Legacy compat: map old settings to AuthMode
         AuthMode::Dev
     }))
@@ -849,7 +853,7 @@ pub async fn get_ldap_config(repo: &impl SpecRepository) -> Result<Option<LdapCo
 }
 
 pub async fn set_ldap_config(repo: &impl SpecRepository, config: &LdapConfig) -> Result<(), AppError> {
-    config.validate().map_err(|e| AppError::BadRequest(e))?;
+    config.validate().map_err(AppError::BadRequest)?;
     let json = serde_json::to_string(config)
         .map_err(|e| AppError::Internal(format!("Failed to serialize LDAP config: {}", e)))?;
     repo.set_setting("ldap_config", &json).await?;
@@ -1041,7 +1045,7 @@ pub fn render_report_markdown(report: &DependencyReport) -> String {
         for dep in &report.dependency_graph {
             md.push_str(&format!("| {} | {} | `{}` | `{}` |\n", dep.client, dep.service, dep.path, dep.method));
         }
-        md.push_str("\n");
+        md.push('\n');
     }
 
     md.push_str("## Unused Endpoints\n");
@@ -1054,7 +1058,7 @@ pub fn render_report_markdown(report: &DependencyReport) -> String {
         for ep in &report.unused_endpoints {
             md.push_str(&format!("| {} | `{}` | `{}` |\n", ep.service, ep.path, ep.method));
         }
-        md.push_str("\n");
+        md.push('\n');
     }
 
     md.push_str("## Missing Requirements\n");
@@ -1067,7 +1071,7 @@ pub fn render_report_markdown(report: &DependencyReport) -> String {
         for ep in &report.missing_endpoints {
             md.push_str(&format!("| {} | {} | `{}` | `{}` |\n", ep.client, ep.service, ep.path, ep.method));
         }
-        md.push_str("\n");
+        md.push('\n');
     }
 
     md

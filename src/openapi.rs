@@ -258,7 +258,9 @@ pub fn generate_diff(old: &str, new: &str) -> String {
 /// - No existing required request fields changed type
 /// - No existing response fields removed
 /// - No existing response status codes removed
+///
 /// Adding new optional/required fields, new response codes, or new schemas is OK.
+///
 /// Returns Ok(()) if compatible, Err(description) if breaking.
 pub fn check_backward_compatibility(old_yaml: &str, new_yaml: &str) -> Result<(), String> {
     tracing::debug!("Checking backward compatibility...");
@@ -284,12 +286,10 @@ pub fn check_openapi_compatible(old: &OpenAPI, new: &OpenAPI) -> Result<(), Stri
 
     // Check that no existing response status codes were removed from paths that still exist
     for (path, old_item) in &old.paths.paths {
-        if let ReferenceOr::Item(old_pi) = old_item {
-            if let Some(item) = new.paths.paths.get(path) {
-                if let ReferenceOr::Item(new_pi) = item {
-                    check_operations_compatible(path, old_pi, new_pi)?;
-                }
-            }
+        if let ReferenceOr::Item(old_pi) = old_item
+            && let Some(ReferenceOr::Item(new_pi)) = new.paths.paths.get(path)
+        {
+            check_operations_compatible(path, old_pi, new_pi)?;
         }
     }
 
@@ -350,13 +350,13 @@ fn check_schema_compatible(name: &str, old: &openapiv3::Schema, new: &openapiv3:
 
         // Check no property types changed
         for (prop_name, old_type) in &old_props {
-            if let Some(new_type) = new_props.get(prop_name) {
-                if old_type != new_type {
-                    return Err(format!(
-                        "Property '{}' in schema '{}' changed type from '{}' to '{}'",
-                        prop_name, name, old_type, new_type
-                    ));
-                }
+            if let Some(new_type) = new_props.get(prop_name)
+                && old_type != new_type
+            {
+                return Err(format!(
+                    "Property '{}' in schema '{}' changed type from '{}' to '{}'",
+                    prop_name, name, old_type, new_type
+                ));
             }
         }
     }

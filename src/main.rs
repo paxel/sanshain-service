@@ -280,10 +280,10 @@ async fn resolve_user(repo: &DatabaseRepo, token: &str) -> Result<Option<domain:
         let user = services::validate_api_token(repo, token)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        if let Some(u) = user {
-            if u.approved {
-                return Ok(Some(u));
-            }
+        if let Some(u) = user
+            && u.approved
+        {
+            return Ok(Some(u));
         }
         Ok(None)
     } else {
@@ -597,15 +597,15 @@ async fn get_database_info(
 
 fn mask_database_url(url: &str) -> String {
     // For postgres URLs, mask the password
-    if let Some(at_pos) = url.find('@') {
-        if let Some(scheme_end) = url.find("://") {
-            let prefix = &url[..scheme_end + 3];
-            let user_pass = &url[scheme_end + 3..at_pos];
-            let rest = &url[at_pos..];
-            if let Some(colon) = user_pass.find(':') {
-                let user = &user_pass[..colon];
-                return format!("{}{}:****{}", prefix, user, rest);
-            }
+    if let Some(at_pos) = url.find('@')
+        && let Some(scheme_end) = url.find("://")
+    {
+        let prefix = &url[..scheme_end + 3];
+        let user_pass = &url[scheme_end + 3..at_pos];
+        let rest = &url[at_pos..];
+        if let Some(colon) = user_pass.find(':') {
+            let user = &user_pass[..colon];
+            return format!("{}{}:****{}", prefix, user, rest);
         }
     }
     url.to_string()
@@ -731,7 +731,7 @@ async fn require(
             params.timeout,
         ).await
     };
-    result.map_err(|e| app_error_to_status_with_body(e))
+    result.map_err(app_error_to_status_with_body)
 }
 
 async fn require_bundle(
@@ -764,7 +764,7 @@ async fn require_bundle(
             payload.timeout,
         ).await
     };
-    result.map_err(|e| app_error_to_status_with_body(e))
+    result.map_err(app_error_to_status_with_body)
 }
 
 async fn report(
@@ -814,7 +814,7 @@ async fn endpoint_versions(
     )
     .await
     .map(Json)
-    .map_err(|e| app_error_to_status_with_body(e))
+    .map_err(app_error_to_status_with_body)
 }
 
 // --- Auth endpoints ---
@@ -1238,8 +1238,8 @@ async fn set_auth_config(
     State(state): State<AppState>,
     Json(payload): Json<AuthConfigPayload>,
 ) -> Result<StatusCode, StatusCode> {
-    let mode = AuthMode::from_str(&payload.auth_mode)
-        .ok_or(StatusCode::BAD_REQUEST)?;
+    let mode: AuthMode = payload.auth_mode.parse()
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
 
     if mode == AuthMode::Ldap {
         let config = payload.ldap_config.ok_or(StatusCode::BAD_REQUEST)?;

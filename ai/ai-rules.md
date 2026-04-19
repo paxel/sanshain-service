@@ -69,6 +69,12 @@
 - Include request context (method, path, status) in log entries.
 - Use structured logging fields, not string interpolation.
 
+### AI Workflow Rules
+- For every task that involves code changes, you MUST run `cargo clippy -- -D warnings` and ensure it passes before submitting.
+- Always verify that all existing and new tests pass using `cargo test`.
+- Use the `update_status` tool to keep the user informed about progress.
+- The current project version is defined by `Cargo.toml` for all documentation purposes.
+
 ### Documentation
 - Keep `README.md` current with every new feature or endpoint.
 - Update `CHANGELOG.md` (Keep a Changelog format) with every user-facing change.

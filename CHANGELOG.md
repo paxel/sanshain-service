@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Admin Dashboard Refactoring**: reorganized the admin page into a tabbed interface (Observability, User Management, System Config, Services & Clients).
 
 ### Added
+- **AI Clippy Rule**: added a mandatory rule for AI agents to run `cargo clippy` and verify tests for every task involving code changes.
+- **Security Audit**: performed a comprehensive security audit covering SQL injection, path traversal, access control, and web security headers. Findings documented in `ai/security-audit.md`.
 - **Process-aware Uptime**: added process uptime tracking to the observability dashboard to distinguish between service restarts and system-wide uptime.
 - **System Observability Dashboard**: added a new "System Observability" section to the admin dashboard with real-time monitoring and debugging tools.
 - **In-memory Log Buffer**: implemented a 100-message ring buffer that captures application logs in real-time with level filtering.
@@ -25,6 +27,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Enhanced Log Viewer**: expanded log viewer height and added a "Copy Logs" button for easier troubleshooting.
 
 ### Fixed
+- **Code Quality & Maintenance**: addressed 28 clippy warnings/errors across the codebase, including redundant closures, collapsible if statements, and complex type definitions.
+- **Improved AuthMode parsing**: implemented `std::str::FromStr` for `AuthMode` for better idiomatic string parsing.
 - **Optimized OpenAPI splitting**: pre-calculates a component dependency graph, reducing complexity from O(N*M) to O(N+M) for faster updates.
 - **Improved Backward Compatibility checking**: validates compatibility once for the entire specification, eliminating O(N*M) redundancy.
 - **LDAP Server URL validation**: added basic validation for LDAP server URLs to ensure valid protocols and host formats, mitigating SSRF risks.

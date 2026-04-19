@@ -16,6 +16,7 @@ The project follows **DDD Hexagonal (Onion) Architecture**:
 ## Key Features
 
 - Upload and store OpenAPI specs per service/branch.
+- Structural backward compatibility checking on protected branches.
 - Split specs into per-endpoint YAML snippets for clients.
 - Track client→endpoint dependencies across branches.
 - Generate dependency reports (unused endpoints, missing requirements).

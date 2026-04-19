@@ -5,42 +5,17 @@
 The following major milestones have been delivered and are fully functional:
 
 - **Core API**: `POST /provide` (with idempotency, immutability on protected branches, feature-branch override), `GET /require` (with long-polling, feature-branch fallback, dependency tracking), `GET /report` + `/report/markdown`.
-- **Architecture**: DDD Hexagonal/Onion (Domain → Application → Infrastructure → Presentation). SQLite adapter with auto-migrations.
-- **OpenAPI Splitting**: Per-endpoint YAML snippets with per-operation schema filtering — each snippet includes only the schemas/components transitively referenced by that operation (`openapiv3` crate).
-- **Authentication & Authorization**: Session-based auth (Argon2), root admin bootstrap, dev-mode toggle, local user registration with admin approval, API tokens (`san_` prefix, SHA-256 hashed).
-- **Admin API**: Protected branches CRUD, service/branch/client CRUD (cascade delete), user management (list/approve/delete), settings (dev-mode, local-users).
-- **Web UI**: Landing page, service overview (drill-down to endpoints + YAML), client overview, admin dashboard, account page (login/register/tokens), dependency graph (Mermaid, cycle detection, detail toggle).
-- **DevOps**: Multi-stage Dockerfile, release Dockerfile template, docker-compose template, GitHub Actions CI + Release workflow (GHCR push), `.dockerignore`, health endpoint.
-- **Security**: CSP/X-Content-Type-Options/X-Frame-Options headers, CSRF tokens, Askama server-side templates.
-- **Observability**: Structured logging (warn/error for failures), `tower-http` TraceLayer, configurable `RUST_LOG`.
-- **Testing**: Integration tests (provide/require/report), unit tests (OpenAPI splitting, application services with mocks, markdown rendering, token services).
-- **Documentation**: README, CHANGELOG, `api.yaml` (OpenAPI 3.0.3 contract), demo script.
+- **Architecture**: DDD Hexagonal/Onion (Domain → Application → Infrastructure → Presentation). SQLite & PostgreSQL adapters with auto-migrations.
+- **OpenAPI Splitting & Bundling**: Optimized per-endpoint YAML snippets with transitive schema filtering; `POST /require-bundle` for merged multi-endpoint requirements.
+- **Backward Compatibility & Versions**: Structural compatibility checking on protected branches; endpoint version history with diff viewer.
+- **Authentication**: Multi-mode auth (Dev / Local / LDAP); API tokens; shadow accounts for LDAP users.
+- **Web UI & UX**: Askama-templated landing page; htmx-powered admin dashboard; tabbed interface; dark/light mode; custom dagre-based dependency graph (MVP).
+- **Security & Reliability**: CSRF protection (with API bypass); LDAP injection mitigation; transactional spec updates; SQLite WAL mode; cleanup jobs for stale branches/dependencies.
+- **Observability**: In-memory log buffer; real-time system stats (sysinfo); request/failure counters; Prometheus metrics; JSON logging; dynamic debug flags.
+- **DevOps**: Multi-stage/multi-platform Docker builds (x86_64, aarch64); GitHub Actions CI/Release; Health checks.
+- **AI Rules & Maintenance**: Added mandatory Clippy and test verification rules for AI-assisted development in `ai/ai-rules.md`.
 
 ## Open
-
-### Infrastructure
-- [x] PostgreSQL adapter with migrations in `src/infrastructure/migrations/postgres/`.
-
-### Require Bundle (Merged Multi-Endpoint Require)
-- [x] `merge_endpoint_yamls` function in `openapi.rs` — merges per-endpoint YAML snippets with deduplicated schemas.
-- [x] `require_bundle` service function in `services.rs` — resolves multiple endpoints, records dependencies, returns merged YAML.
-- [x] `POST /require-bundle` handler and route in `main.rs`.
-- [x] Unit tests (openapi merge, service bundle logic).
-- [x] Integration test (provide → require-bundle → verify merged spec).
-- [x] `sanshain.yaml` client configuration format specification (`docs/sanshain-yaml.md`).
-- [x] CHANGELOG, README, plan.md updates.
-
-### Server-Side Compression
-- [x] Enable `compression-gzip` feature on `tower-http` in `Cargo.toml`.
-- [x] Add `CompressionLayer` to Axum router in `main.rs`.
-- [x] Integration tests for gzip compression.
-- [x] CHANGELOG update.
-
-### Multi-Architecture Builds
-- [x] Release workflow builds Linux binaries for x86_64 and aarch64 (matrix strategy with cross-compilation).
-- [x] Multi-platform Docker images (linux/amd64, linux/arm64) via Docker Buildx + QEMU.
-- [x] Dockerfile.release.template uses `TARGETARCH` for architecture-specific binary selection.
-- [x] Release binaries use standard architecture names (`x86_64`, `aarch64`) instead of Docker-style `amd64`/`arm64`.
 
 ### Deployment
 - [ ] Kubernetes manifests (Deployment, Service, Ingress, ConfigMap, Secret).
@@ -48,151 +23,12 @@ The following major milestones have been delivered and are fully functional:
 - [ ] Reverse proxy TLS config + documentation.
 
 ### Observability (Advanced)
-- [ ] Prometheus metrics exporter.
-- [ ] Structured JSON logging.
 - [ ] OpenTelemetry tracing.
 
-### Authentication — External Auth Support (LDAP first)
+### Custom Dependency Graph Visualization (Polish)
+- [ ] Edge bundling / merge at endpoint entry points.
+- [ ] Export as PNG.
 
-The admin settings page gains an **Auth Mode** selector with three modes:
-1. **Dev Mode** — no authentication required (existing).
-2. **Local Users** — built-in user management with Argon2 passwords (existing).
-3. **LDAP** — delegate authentication to an external LDAP/AD server (new).
-
-#### Domain Layer
-- [x] Add `AuthMode` enum (`Dev`, `Local`, `Ldap`) to `models.rs`.
-- [x] Add `LdapConfig` model (server URL, bind DN, bind password, base DN, user filter, group filter, admin group, TLS toggle).
-- [x] Define `AuthProvider` port trait in `ports.rs` with `authenticate(username, password) -> Result<AuthenticatedUser>` and `test_connection() -> Result<()>`.
-
-#### Infrastructure Layer
-- [x] Add `ldap3` crate dependency.
-- [x] Implement `LdapAuthProvider` adapter in `src/infrastructure/ldap_provider.rs` implementing the `AuthProvider` port.
-- [x] Implement `LocalAuthProvider` adapter wrapping existing Argon2 logic.
-- [x] On LDAP login success, auto-provision a local `User` row (shadow account) so sessions/tokens work unchanged.
-
-#### Application Layer
-- [x] Add auth-mode setting helpers (`get_auth_mode`, `set_auth_mode`) in `services.rs`.
-- [x] Add LDAP config CRUD helpers (store as JSON in `settings` table).
-- [x] Refactor `login` service to dispatch to the active `AuthProvider` based on current auth mode.
-- [x] Add `test_ldap_connection` service function.
-
-#### Presentation / API
-- [x] Add `GET /api/admin/auth-config` and `PUT /api/admin/auth-config` endpoints.
-- [x] Add `POST /api/admin/auth-config/test` endpoint (test LDAP connectivity).
-- [x] Update login handler to use the provider-based flow.
-
-#### Admin UI — Auth Settings Panel
-- [x] Add "Authentication" section to admin page with auth-mode radio buttons (Dev / Local / LDAP).
-- [x] Show LDAP configuration form (server, bind DN, base DN, filters, TLS) when LDAP is selected.
-- [x] Add "Test Connection" button that calls the test endpoint.
-- [x] Persist changes via the new API endpoints.
-
-#### Testing
-- [x] Unit tests for `AuthProvider` dispatch logic (mock LDAP provider).
-- [x] Unit tests for LDAP config validation (missing fields, bad URL format).
-- [x] Integration tests for auth-config API endpoints.
-- [x] Integration test: login with local provider, login with mock LDAP provider.
-
-#### Documentation
-- [x] Update `docs/administration.md` with LDAP configuration instructions.
-- [x] Update `README.md` with LDAP feature mention.
-- [x] Update `CHANGELOG.md`.
-
-### Web Frontend — Modularisation
-
-The static HTML files are growing (admin.html 674 LOC, service.html 840 LOC). Before adding more UI complexity, split into manageable pieces.
-
-#### Phase 1 — Extract shared layout & components (server-side)
-- [x] Create a shared HTML layout partial (`templates/layout.html`) with nav, header, footer, common CSS/JS.
-- [x] Convert `index.html` and `dashboard.html` to Askama templates extending the layout; refactor `admin.html`, `account.html`, `service.html` to use shared JS.
-- [x] Extract reusable JS modules (fetch helpers, CSRF, toast notifications) into `static/js/common.js`.
-
-#### Phase 2 — htmx admin dashboard ✅
-- [x] Migrated admin.html to htmx: Askama template with server-rendered HTML fragments, ~80% JS eliminated.
-- [x] Added `/fragments/admin/*` routes for all dynamic sections (users, services, clients, settings, auth config, cleanup).
-- [x] Integration test for fragment endpoints.
-- [ ] Decision record in `docs/adr/` once a choice is made.
-
-### Administration (other)
-- [x] Branch max-age auto-cleanup (default 30 days, configurable via admin API, hourly background task, protects protected branches).
-- [x] Endpoint pruning on provide (soft-delete on protected branches, hard-delete on feature branches, re-introduction rejected as contract violation).
-- [x] Stale dependency pruning (time-based cleanup of `dependencies` rows via `last_seen_at` timestamp).
-- [x] Background maintenance job for expiration/cleanup (branch cleanup runs hourly).
-
-### Custom Dependency Graph Visualization
-- [x] Custom dagre-based SVG graph as default view (MVP): topological layout, color-coded nodes, red cycle edges, hover tooltips, click-to-highlight, zoom/pan.
-- [ ] Edge bundling / merge at endpoint entry points (polish phase).
-- [ ] Export as PNG (polish phase).
-
-### Web Frontend (other)
+### Web Frontend (Advanced)
 - [ ] SSE for `/require` long-polling and live updates.
 - [ ] WebSocket support (if bidirectional real-time needed).
-
-### 0.6.0 Features
-- [x] Dry-run mode for `/provide`, `/require`, `/require-bundle` (validate without persisting).
-- [x] Descriptive error messages for provide conflicts (409) and missing endpoints (404).
-- [x] Phantom services/clients fix (only list entries with actual data).
-- [x] YAML viewer copy & download buttons.
-- [x] Graph view copy & download buttons (Mermaid code).
-- [x] Documentation updates for 0.6.0 (README, api.yaml, user-guide, ci-integration, developer-guide).
-
-### 0.7.0 Features — Backward Compatibility & Version History
-- [x] Backward compatibility checker in `openapi.rs` (structural comparison: schemas, properties, types, response codes).
-- [x] Protected branches now accept backward-compatible changes instead of rejecting all changes.
-- [x] Endpoint version history: each compatible update on a protected branch records a version with YAML content and unified diff.
-- [x] `GET /endpoint-versions` API endpoint for retrieving version history.
-- [x] `endpoint_versions` migration for SQLite and PostgreSQL.
-- [x] Domain model (`EndpointVersion`), port trait methods, and repository implementations.
-- [x] Unit tests (backward-compatible allowed, breaking rejected, version recording).
-- [x] Integration tests updated for new behavior.
-- [x] CHANGELOG updated.
-- [x] README.md updated with backward compatibility, endpoint-versions API, dark/light mode, demo.sh description.
-- [x] `docs/user-guide.md` updated with backward compatibility, version history/diff viewer, dark mode sections.
-### Documentation
-- [x] Detailed hands-on user documentation (in `docs/`).
-- [x] CI integration guide (`docs/ci-integration.md`) with dry-run examples and GitHub Actions workflow.
-- [x] Updated screenshots for version history/diff viewer, dependency graph, and stale data banner added to `docs/user-guide.md`.
-
-### 0.7.1 Features — Post-demo fixes
-- [x] Fix admin page layout so config switches (e.g. dev mode) render immediately after login without a refresh.
-- [x] Bump project version from 0.7.0 to 0.7.1 in `Cargo.toml` and update `CHANGELOG.md`.
-- [x] Transactional specification updates: inserts, updates, and deletions in `/provide` are now atomic.
-- [x] SQLite reliability tuning: enabled WAL mode, busy timeout (5s), and single writer pool for Mac Docker stability.
-
-### Production Readiness & Security (Audit Findings)
-- [x] Fix LDAP Injection vulnerability by escaping username in filters.
-- [x] Resolve CSRF token memory leak (implement pruning/TTL).
-- [x] Implement CSRF token expiration.
-- [x] Bypass CSRF protection for API-token authenticated requests.
-- [x] Replace busy-wait long-polling with an event-driven mechanism (e.g., `tokio::sync::watch` or `broadcast`).
-- [x] Optimize OpenAPI splitting to include only necessary schemas (reduces DB bloat and increases performance).
-- [x] Replace manual date/time logic with `chrono`.
-- [x] Clean up `unwrap()` calls in critical paths.
-- [x] Implement Kubernetes manifests for production deployment.
-- [x] Integrate Prometheus metrics exporter.
-- [x] Support structured JSON logging via `LOG_FORMAT=json`.
-- [x] Implement LDAP server URL validation (mitigate SSRF).
-
-### Runtime Observability & Debugging
-- [x] Add `sysinfo` dependency and define `LogEntry`, `SystemStats`, `DebugConfig` models.
-- [x] Update `AppState` with in-memory log buffer (VecDeque), dynamic debug flags (AtomicBool), and request/failure counters (AtomicU64).
-- [x] Implement `LogCaptureLayer` for `tracing` to capture logs into the buffer with dynamic subsystem-based filtering.
-- [x] Add admin API endpoints: `GET /admin/api/logs`, `GET /admin/api/stats`, `GET /admin/api/debug-config`, `POST /admin/api/debug-config`.
-- [x] Instrument critical paths (provide, require, login, migrations) with `debug!` and `info!` logs.
-- [x] Add "System Observability" section to admin dashboard: real-time stats grid, debug toggles, and 100-message log viewer with level filtering.
-- [x] Implement auto-refresh logic for stats and logs in the web UI.
-- [x] Update CHANGELOG, production readiness audit, and plan.md.
-
-### Admin UX & Observability Refinement
-- [x] Admin dashboard reorganized into a tabbed interface (Observability, User Management, System Config, Services & Clients).
-- [x] Process-level uptime tracking added to distinguishing service restarts from system uptime.
-- [x] Business logic request counting (excludes administrative/static traffic for cleaner metrics).
-- [x] Enhanced Log Viewer: increased height (600px) and added "Copy Logs" clipboard integration.
-
-### Service-specific Fallback Branch
-- [x] Create database migrations for SQLite and Postgres to add a `fallback_branch` column to the `services` table.
-- [x] Update the `SpecRepository` trait and its implementations (SQLite, Postgres, Mock) to support getting and setting the service-specific fallback branch.
-- [x] Modify the endpoint resolution logic in `src/application/services.rs` to prioritize the service-specific fallback branch before falling back to global protected branches.
-- [x] Add Admin API endpoints and HTMX fragments in `src/main.rs` to allow viewing and configuring the fallback branch for each service.
-- [x] Update the Admin UI templates to display and manage the fallback branch configuration in the Services list.
-- [x] Fixed integration test stability by implementing a singleton `PrometheusHandle` provider.

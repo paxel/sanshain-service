@@ -791,6 +791,7 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn list_api_tokens(&self, user_id: i64) -> Result<Vec<ApiToken>, RepositoryError> {
+        #[allow(clippy::type_complexity)]
         let rows: Vec<(String, i64, String, String, String, String, Option<String>)> = sqlx::query_as(
             "SELECT id, user_id, name, token_hash, created_at, expires_at, last_used_at FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC"
         )
@@ -939,7 +940,7 @@ impl SpecRepository for PostgresSpecRepository {
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(row.and_then(|(v,)| Some(v)).unwrap_or(0))
+        Ok(row.map(|(v,)| v).unwrap_or(0))
     }
 
     async fn get_endpoint_versions(&self, endpoint_id: i64) -> Result<Vec<EndpointVersion>, RepositoryError> {

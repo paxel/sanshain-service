@@ -15,13 +15,17 @@ impl AuthMode {
             AuthMode::Ldap => "ldap",
         }
     }
+}
 
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for AuthMode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "dev" => Some(AuthMode::Dev),
-            "local" => Some(AuthMode::Local),
-            "ldap" => Some(AuthMode::Ldap),
-            _ => None,
+            "dev" => Ok(AuthMode::Dev),
+            "local" => Ok(AuthMode::Local),
+            "ldap" => Ok(AuthMode::Ldap),
+            _ => Err(()),
         }
     }
 }
