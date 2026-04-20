@@ -89,12 +89,19 @@ function graphDetectCycles(adjMap) {
 
 // ── Main renderer ────────────────────────────────────────────────────
 
-function renderCustomGraph(report, svgElement) {
+function renderCustomGraph(report, svgElement, direction) {
     // Clear previous content
     while (svgElement.firstChild) svgElement.removeChild(svgElement.firstChild);
 
     const deps = report.dependency_graph;
     if (!deps || deps.length === 0) return;
+
+    // Layout direction: 'TB' (default, top→bottom) or 'LR' (left→right).
+    // In LR mode the rank axis becomes X, so we swap the roles of x/y
+    // across the entire post-layout pipeline (brick stagger, rank packing,
+    // cluster bounds, edge tangents).
+    const dir = direction === 'LR' ? 'LR' : 'TB';
+    const isLR = dir === 'LR';
 
     // Build graph data
     const allNodes = new Set();
@@ -149,13 +156,18 @@ function renderCustomGraph(report, svgElement) {
     }
 
     const g = new dagre.graphlib.Graph({ compound: true });
-    g.setGraph({ 
-        rankdir: 'TB', 
-        nodesep: 50, 
-        ranksep: 180, 
-        edgesep: 50, 
-        marginx: 40, 
-        marginy: 60 
+    g.setGraph({
+        rankdir: dir,
+        // In LR mode the along-rank separation is vertical; nodes are only
+        // ~40px tall so they'd overlap with the default 50px. Give them room.
+        nodesep: isLR ? 80 : 50,
+        // LR no longer does brick staggering along X, so ranksep can stay
+        // tight — just enough gap between rank columns of 160px nodes to
+        // leave room for the Bezier edge curvature between layers.
+        ranksep: isLR ? 110 : 180,
+        edgesep: 50,
+        marginx: 40,
+        marginy: 60
     });
     g.setDefaultEdgeLabel(() => ({}));
 
@@ -181,104 +193,118 @@ function renderCustomGraph(report, svgElement) {
     // All offsets relative to Dagre output are recorded in node(X)Offsets
     // maps so edges can be interpolated precisely.
 
-    const nodeOffsets = new Map();   // dy per node
-    const nodeXOffsets = new Map();  // dx per node
+    // Axis abstraction: F = along-flow (within a rank), R = rank axis.
+    // TB: F=x, R=y, along-flow node extent = nodeW.
+    // LR: F=y, R=x, along-flow node extent = nodeH.
+    const F = isLR ? 'y' : 'x';
+    const R = isLR ? 'x' : 'y';
+    const nodeFlowExtent = isLR ? nodeH : nodeW;
+
+    const nodeFOffsets = new Map();  // delta along flow axis
+    const nodeROffsets = new Map();  // delta along rank axis (for brick stagger)
     for (const node of allNodes) {
-        nodeOffsets.set(node, 0);
-        nodeXOffsets.set(node, 0);
+        nodeFOffsets.set(node, 0);
+        nodeROffsets.set(node, 0);
     }
 
     // Step 1 — compute intra-cluster compacted geometry (members become a
-    // 2-row brick pattern centered at the cluster's original center).
-    // Also compute each cluster's new effective width.
-    const GAP = 30;            // horizontal gap between units on a rank
-    const BRICK_GAP_X = 15;    // horizontal gap between adjacent bricks
-    const BRICK_DY = 45;       // vertical offset of odd-indexed bricks
-    const clusterGeom = new Map(); // cid -> {origCenterX, rankY, width, members:[{id, dx, dy}]}
+    // 2-row brick pattern centered at the cluster's original flow-center).
+    // Flow-axis spacings must exceed the node's flow-axis extent, otherwise
+    // bricks collide. In LR the flow extent is nodeH (40), so gaps can be
+    // tighter than TB (flow extent nodeW=160).
+    const GAP = isLR ? 25 : 30;           // gap between units on a rank (flow axis)
+    const BRICK_GAP = isLR ? 12 : 15;     // gap between adjacent bricks (flow axis)
+    // Brick stagger along the rank axis. In LR this shifts X, and must
+    // leave room next to nodeW-wide neighbours — bump it up.
+    // In TB the rank axis is Y and nodes are 40px tall, so we need >40 to
+    // avoid vertical overlap between staggered brick rows; use 70 for a
+    // comfortable 30px clearance.
+    // In LR the rank axis is X and nodes are nodeW=160 wide, so the second
+    // brick row must be shifted by more than nodeW to clear the first row
+    // horizontally. 200 gives a comfortable 40px X-clearance between
+    // staggered members. TB keeps 70 (nodeH=40 + 30px gap).
+    const BRICK_DR = isLR ? 200 : 70;
+    const clusterGeom = new Map(); // cid -> {origCenterF, rankR, width, members}
 
     clusters.forEach(c => {
-        const sortedMembers = [...c.members].sort((a, b) => g.node(a).x - g.node(b).x);
-        const origXs = sortedMembers.map(m => g.node(m).x);
-        const origCenterX = (Math.min(...origXs) + Math.max(...origXs)) / 2;
-        const rankY = g.node(sortedMembers[0]).y; // all cluster members share a rank
+        const sortedMembers = [...c.members].sort((a, b) => g.node(a)[F] - g.node(b)[F]);
+        const origFs = sortedMembers.map(m => g.node(m)[F]);
+        const origCenterF = (Math.min(...origFs) + Math.max(...origFs)) / 2;
+        const rankR = g.node(sortedMembers[0])[R]; // all cluster members share a rank
 
-        // Two-row brick layout: row 0 at dy=0, row 1 at dy=BRICK_DY, step = nodeW/2 + gap
-        const stepX = nodeW / 2 + BRICK_GAP_X;
+        // In LR (horizontal) mode we skip brick weaving entirely: cluster
+        // members stack straight under each other along the flow axis (Y),
+        // no rank-axis (X) stagger. This gives a cleaner, readable column
+        // per cluster. In TB we keep the 2-row brick pattern to reduce
+        // horizontal footprint.
+        const stepF = isLR
+            ? nodeFlowExtent + BRICK_GAP       // full node + gap, no overlap
+            : nodeFlowExtent / 2 + BRICK_GAP;  // half-step for brick overlap
         const n = sortedMembers.length;
-        const totalSpan = (n - 1) * stepX;
-        const startX = -totalSpan / 2; // relative to cluster center
-        const width = totalSpan + nodeW;
+        const totalSpan = (n - 1) * stepF;
+        const startF = -totalSpan / 2;
+        const width = totalSpan + nodeFlowExtent;
 
         const members = sortedMembers.map((m, i) => ({
             id: m,
-            relX: startX + i * stepX,       // relative to cluster center
-            dy: (i % 2) * BRICK_DY,
+            relF: startF + i * stepF,                  // relative to cluster flow-center
+            dr: isLR ? 0 : (i % 2) * BRICK_DR,         // no stagger in LR
         }));
 
-        clusterGeom.set(c.id, { origCenterX, rankY, width, members });
+        clusterGeom.set(c.id, { origCenterF, rankR, width, members });
     });
 
-    // Step 2 — group all layout units by rank (Y) and re-pack horizontally.
-    // A "unit" is either a standalone node or a cluster (as a single block).
-    // This reclaims the horizontal space freed by cluster compaction and
-    // keeps gaps uniform, so standalone nodes on this rank (and visually
-    // on adjacent ranks) look aligned rather than floating.
-    const unitsByRank = new Map(); // rankY -> [{type, id, cx, width}]
-    // Standalone nodes
+    // Step 2 — group layout units by rank and re-pack along the flow axis.
+    const unitsByRank = new Map(); // rankR -> [{type, id, cf, width}]
     for (const node of allNodes) {
         if (clusterMap.has(node)) continue;
         const nd = g.node(node);
-        const key = Math.round(nd.y);
+        const key = Math.round(nd[R]);
         if (!unitsByRank.has(key)) unitsByRank.set(key, []);
-        unitsByRank.get(key).push({ type: 'node', id: node, cx: nd.x, width: nd.width });
+        const w = isLR ? nd.height : nd.width;
+        unitsByRank.get(key).push({ type: 'node', id: node, cf: nd[F], width: w });
     }
-    // Clusters
     clusterGeom.forEach((geom, cid) => {
-        const key = Math.round(geom.rankY);
+        const key = Math.round(geom.rankR);
         if (!unitsByRank.has(key)) unitsByRank.set(key, []);
-        unitsByRank.get(key).push({ type: 'cluster', id: cid, cx: geom.origCenterX, width: geom.width });
+        unitsByRank.get(key).push({ type: 'cluster', id: cid, cf: geom.origCenterF, width: geom.width });
     });
 
-    // Pack each rank: sort by original center-X, then place left-to-right
-    // keeping the same midpoint (so the whole rank stays centered in the
-    // graph and aligned with other ranks).
     unitsByRank.forEach(units => {
-        units.sort((a, b) => a.cx - b.cx);
+        units.sort((a, b) => a.cf - b.cf);
         const totalWidth = units.reduce((s, u) => s + u.width, 0) + GAP * (units.length - 1);
-        const oldMid = (units[0].cx + units[units.length - 1].cx) / 2;
+        const oldMid = (units[0].cf + units[units.length - 1].cf) / 2;
         let cursor = oldMid - totalWidth / 2;
         units.forEach(u => {
-            const newCx = cursor + u.width / 2;
-            u.newCx = newCx;
+            u.newCf = cursor + u.width / 2;
             cursor += u.width + GAP;
         });
     });
 
-    // Step 3 — apply computed positions to every node.
+    // Step 3 — apply computed positions.
     unitsByRank.forEach(units => {
         units.forEach(u => {
             if (u.type === 'node') {
                 const nd = g.node(u.id);
-                nodeXOffsets.set(u.id, u.newCx - nd.x);
+                nodeFOffsets.set(u.id, u.newCf - nd[F]);
             } else {
                 const geom = clusterGeom.get(u.id);
                 geom.members.forEach(m => {
                     const nd = g.node(m.id);
-                    const targetX = u.newCx + m.relX;
-                    const targetY = geom.rankY + m.dy;
-                    nodeXOffsets.set(m.id, targetX - nd.x);
-                    nodeOffsets.set(m.id, targetY - nd.y);
+                    const targetF = u.newCf + m.relF;
+                    const targetR = geom.rankR + m.dr;
+                    nodeFOffsets.set(m.id, targetF - nd[F]);
+                    nodeROffsets.set(m.id, targetR - nd[R]);
                 });
-                geom.finalCenterX = u.newCx;
+                geom.finalCenterF = u.newCf;
             }
         });
     });
 
-    // Apply offsets to nodes
     for (const node of allNodes) {
         const nd = g.node(node);
-        nd.y += nodeOffsets.get(node) || 0;
-        nd.x += nodeXOffsets.get(node) || 0;
+        nd[F] += nodeFOffsets.get(node) || 0;
+        nd[R] += nodeROffsets.get(node) || 0;
     }
 
     // Step 4 — update cluster bounding boxes to enclose their (now moved)
@@ -297,29 +323,39 @@ function renderCustomGraph(report, svgElement) {
         const padX = 20;
         const padY = 20;
         const labelPad = c.label ? 20 : 0;
-        nd.width = (maxX - minX) + 2 * padX;
-        nd.height = (maxY - minY) + 2 * padY + labelPad;
-        nd.x = (minX + maxX) / 2;
-        nd.y = (minY + maxY) / 2 + labelPad / 2;
+        // Label lives on the rank-axis start side: top in TB, left in LR.
+        if (isLR) {
+            nd.width = (maxX - minX) + 2 * padX + labelPad;
+            nd.height = (maxY - minY) + 2 * padY;
+            nd.x = (minX + maxX) / 2 - labelPad / 2;
+            nd.y = (minY + maxY) / 2;
+        } else {
+            nd.width = (maxX - minX) + 2 * padX;
+            nd.height = (maxY - minY) + 2 * padY + labelPad;
+            nd.x = (minX + maxX) / 2;
+            nd.y = (minY + maxY) / 2 + labelPad / 2;
+        }
     });
 
-    // Recompute edge endpoints from final node positions (ignore Dagre's
-    // now-stale intermediate waypoints — they routed around pre-move
-    // coordinates and produce chaotic detours after compaction).
+    // Recompute edge endpoints from final node positions. Anchor on the
+    // rank-axis border of each node (top/bottom for TB, left/right for LR).
+    // Rank-axis node extent: nodeH in TB, nodeW in LR.
+    const nodeRankExtent = isLR ? nodeW : nodeH;
     g.edges().forEach(e => {
         const edgeData = g.edge(e);
         const nv = g.node(e.v);
         const nw = g.node(e.w);
-        // Anchor on node border (top/bottom edge) for top-to-bottom flow.
-        const vIsAbove = nv.y <= nw.y;
-        const p0 = { x: nv.x, y: nv.y + (vIsAbove ? nodeH / 2 : -nodeH / 2) };
-        const p1 = { x: nw.x, y: nw.y + (vIsAbove ? -nodeH / 2 : nodeH / 2) };
+        const vIsBefore = nv[R] <= nw[R];
+        const p0 = { x: nv.x, y: nv.y };
+        const p1 = { x: nw.x, y: nw.y };
+        p0[R] += vIsBefore ? nodeRankExtent / 2 : -nodeRankExtent / 2;
+        p1[R] += vIsBefore ? -nodeRankExtent / 2 : nodeRankExtent / 2;
         edgeData.points = [p0, p1];
     });
 
     const graphInfo = g.graph();
-    const svgW = graphInfo.width + 40;
-    const svgH = graphInfo.height + 160; // Extra room for staggering
+    const svgW = graphInfo.width + (isLR ? 160 : 40);
+    const svgH = graphInfo.height + (isLR ? 40 : 160); // Extra room for brick staggering
 
     svgElement.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
     svgElement.style.minHeight = Math.min(svgH + 40, 800) + 'px';
@@ -367,12 +403,22 @@ function renderCustomGraph(report, svgElement) {
         group.appendChild(rect);
         if (c.label) {
             const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            text.setAttribute('x', nd.x);
-            text.setAttribute('y', nd.y - nd.height / 2 + 15);
-            text.setAttribute('text-anchor', 'middle');
             text.setAttribute('fill', '#64748b');
             text.setAttribute('font-size', '10');
             text.setAttribute('font-weight', 'bold');
+            if (isLR) {
+                // Vertical label on the left edge of the cluster.
+                const lx = nd.x - nd.width / 2 + 12;
+                const ly = nd.y;
+                text.setAttribute('x', lx);
+                text.setAttribute('y', ly);
+                text.setAttribute('text-anchor', 'middle');
+                text.setAttribute('transform', `rotate(-90 ${lx} ${ly})`);
+            } else {
+                text.setAttribute('x', nd.x);
+                text.setAttribute('y', nd.y - nd.height / 2 + 15);
+                text.setAttribute('text-anchor', 'middle');
+            }
             text.textContent = c.label.toUpperCase() + ' CLUSTER';
             group.appendChild(text);
         }
@@ -390,34 +436,33 @@ function renderCustomGraph(report, svgElement) {
         const p0 = points[0];
         const p1 = points[points.length - 1];
 
-        // Elegant cubic Bezier routing.
-        //  - Normal top→bottom edges: control points pulled vertically so
-        //    curves leave/enter nodes perpendicular to their border, giving
-        //    a smooth "river" look without random detours.
-        //  - Same-rank or reverse edges (|dy| small): use a lateral S-curve
-        //    that bows outward so arrows don't cut straight through nodes.
-        const dx = p1.x - p0.x;
-        const dy = p1.y - p0.y;
-        const absDy = Math.abs(dy);
-        let d;
-        if (absDy < 30) {
-            // Sideways / same-rank: bow downward (or upward) via horizontal tangents.
-            const bow = Math.max(40, Math.abs(dx) * 0.3);
-            const sign = dx >= 0 ? 1 : -1;
-            const c1x = p0.x + sign * bow;
-            const c2x = p1.x - sign * bow;
-            const c1y = p0.y + bow * 0.6;
-            const c2y = p1.y + bow * 0.6;
-            d = `M ${p0.x} ${p0.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${p1.x} ${p1.y}`;
+        // Elegant cubic Bezier routing, rank-axis aware.
+        //  - Normal cross-rank edges: control points pulled along the rank
+        //    axis (Y in TB, X in LR) so curves leave/enter nodes
+        //    perpendicular to their border — a smooth "river" flow.
+        //  - Same-rank / reverse edges (tiny rank delta): S-curve that bows
+        //    sideways along the flow axis so arrows don't cut through nodes.
+        const dF = p1[F] - p0[F];
+        const dR = p1[R] - p0[R];
+        const absDR = Math.abs(dR);
+        const c1 = { x: p0.x, y: p0.y };
+        const c2 = { x: p1.x, y: p1.y };
+        if (absDR < 30) {
+            // Sideways / same-rank: tangents along the flow axis.
+            const bow = Math.max(40, Math.abs(dF) * 0.3);
+            const sign = dF >= 0 ? 1 : -1;
+            c1[F] = p0[F] + sign * bow;
+            c2[F] = p1[F] - sign * bow;
+            c1[R] = p0[R] + bow * 0.6;
+            c2[R] = p1[R] + bow * 0.6;
         } else {
-            // Vertical flow: tangent strength proportional to vertical distance,
-            // clamped so short hops stay gentle and long hops don't overshoot.
-            const tension = Math.min(Math.max(absDy * 0.5, 40), 140);
-            const dir = dy >= 0 ? 1 : -1;
-            const c1 = { x: p0.x, y: p0.y + dir * tension };
-            const c2 = { x: p1.x, y: p1.y - dir * tension };
-            d = `M ${p0.x} ${p0.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p1.x} ${p1.y}`;
+            // Cross-rank: tangents along the rank axis.
+            const tension = Math.min(Math.max(absDR * 0.5, 40), 140);
+            const dir = dR >= 0 ? 1 : -1;
+            c1[R] = p0[R] + dir * tension;
+            c2[R] = p1[R] - dir * tension;
         }
+        const d = `M ${p0.x} ${p0.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p1.x} ${p1.y}`;
 
         // Invisible wide hit area for hover
         const hitArea = document.createElementNS('http://www.w3.org/2000/svg', 'path');

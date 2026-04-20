@@ -27,7 +27,10 @@
 <nav class="bg-indigo-700 text-white p-4 shadow-lg">
     <div class="container mx-auto flex justify-between items-center">
         <div class="flex items-center space-x-4">
-            <h1 class="text-2xl font-bold tracking-tight">Sanshain Service</h1>
+            <a href="/" class="flex items-center space-x-3">
+                <img src="/images/sonne.png" alt="Sanshain" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
+                <h1 class="text-2xl font-bold tracking-tight">Sanshain Service</h1>
+            </a>
             <a href="/" class="text-indigo-200 hover:text-white text-sm">← Back to Dashboard</a>
         </div>
         <div class="space-x-4">
@@ -89,11 +92,18 @@
                     <button id="graph-mode-mermaid" class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50" onclick="switchGraphMode('mermaid')">Mermaid</button>
                     <button id="graph-mode-detailed" class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50" onclick="switchGraphMode('detailed')">Detailed</button>
                 </div>
-                <button id="graph-copy" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors" title="Copy Mermaid code to clipboard">
+                <button id="graph-direction-toggle"
+                        class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+                        onclick="toggleGraphDirection()"
+                        title="Pivot graph direction (vertical ↔ horizontal)">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m-4 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                    <span id="graph-direction-label">Vertical</span>
+                </button>
+                <button id="graph-copy" class="hidden inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors" title="Copy Mermaid code to clipboard">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg>
                     Copy
                 </button>
-                <button id="graph-download" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors" title="Download Mermaid file">
+                <button id="graph-download" class="hidden inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors" title="Download Mermaid file">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
                     Download
                 </button>
@@ -950,6 +960,17 @@
     let lastGraphReport = null;
     let lastMermaidCode = '';
     let currentGraphMode = 'custom';
+    let currentGraphDirection = 'TB'; // 'TB' = vertical (top→bottom), 'LR' = horizontal (left→right)
+
+    function toggleGraphDirection() {
+        currentGraphDirection = currentGraphDirection === 'TB' ? 'LR' : 'TB';
+        const label = document.getElementById('graph-direction-label');
+        if (label) label.textContent = currentGraphDirection === 'TB' ? 'Vertical' : 'Horizontal';
+        const customSvg = document.getElementById('custom-graph');
+        if (currentGraphMode === 'custom' && lastGraphReport && customSvg) {
+            renderCustomGraph(lastGraphReport, customSvg, currentGraphDirection);
+        }
+    }
 
     function switchGraphMode(mode) {
         currentGraphMode = mode;
@@ -961,13 +982,21 @@
                     : 'px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50';
             }
         });
+        // Direction toggle only matters for the custom graph renderer;
+        // Copy/Download export the mermaid code so they only make sense in mermaid/detailed modes.
+        const dirBtn = document.getElementById('graph-direction-toggle');
+        const copyBtn = document.getElementById('graph-copy');
+        const dlBtn = document.getElementById('graph-download');
+        if (dirBtn) dirBtn.classList.toggle('hidden', mode !== 'custom');
+        if (copyBtn) copyBtn.classList.toggle('hidden', mode === 'custom');
+        if (dlBtn) dlBtn.classList.toggle('hidden', mode === 'custom');
         if (lastGraphReport) {
             const customSvg = document.getElementById('custom-graph');
             const mermaidDiv = document.getElementById('mermaid-graph');
             if (mode === 'custom') {
                 customSvg.classList.remove('hidden');
                 mermaidDiv.classList.add('hidden');
-                renderCustomGraph(lastGraphReport, customSvg);
+                renderCustomGraph(lastGraphReport, customSvg, currentGraphDirection);
             } else {
                 customSvg.classList.add('hidden');
                 mermaidDiv.classList.remove('hidden');
@@ -1042,7 +1071,7 @@
             if (currentGraphMode === 'custom') {
                 customSvg.classList.remove('hidden');
                 graphDiv.classList.add('hidden');
-                renderCustomGraph(report, customSvg);
+                renderCustomGraph(report, customSvg, currentGraphDirection);
             } else {
                 customSvg.classList.add('hidden');
                 graphDiv.classList.remove('hidden');

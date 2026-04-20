@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="static/images/sonne.png" alt="Sanshain Logo" width="320">
+</p>
+
 # [Sanshain Service](https://github.com/paxel/sanshain-service)
 
 Sanshain (Japanese for "Sunshine") is a specialized REST service designed to manage, split, and distribute OpenAPI specifications. It acts as a central repository that allows microservices to "provide" their full API definitions and clients to "require" only the specific snippets (endpoints and necessary DTOs) they actually use **at build time**.
