@@ -63,41 +63,6 @@ function _measureNode(name) {
     };
 }
 
-function _identifyNoiseWords(allNodes) {
-    const splitWords = (s) => s.split(/(?=[A-Z])|[^a-zA-Z0-9]/).filter(w => w.length > 1).map(w => w.toLowerCase());
-    const wordCounts = {};
-    const nodesArray = Array.from(allNodes);
-    nodesArray.forEach(s => {
-        const words = new Set(splitWords(s));
-        words.forEach(w => {
-            wordCounts[w] = (wordCounts[w] || 0) + 1;
-        });
-    });
-
-    const noise = new Set();
-    const threshold = Math.max(2, nodesArray.length * 0.4); 
-    for (const [w, count] of Object.entries(wordCounts)) {
-        if (count >= threshold) noise.add(w);
-    }
-    return noise;
-}
-
-function _getClusterLabel(members, noiseWords) {
-    if (members.length < 2) return "";
-    const splitWords = (s) => s.split(/(?=[A-Z])|[^a-zA-Z0-9]/).filter(w => w.length > 1).map(w => w.toLowerCase());
-    const allMembersWords = members.map(splitWords);
-
-    let commonWords = allMembersWords[0];
-    for (let i = 1; i < allMembersWords.length; i++) {
-        commonWords = commonWords.filter(w => allMembersWords[i].includes(w));
-    }
-
-    const filtered = commonWords.filter(w => !noiseWords.has(w));
-    if (filtered.length === 0) return "";
-
-    // Capitalize and join, but keep it short
-    return filtered.slice(0, 3).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-}
 
 // ── Cycle detection (reusable from service.html) ─────────────────────
 
@@ -177,33 +142,8 @@ function renderCustomGraph(report, svgElement, direction) {
         warningDiv.classList.toggle('hidden', cycleEdges.size === 0);
     }
 
-    // ── Dagre layout & Clustering ────────────────────────────────────
-    const noiseWords = _identifyNoiseWords(allNodes);
-    const serviceToClients = new Map();
-    deps.forEach(d => {
-        if (!serviceToClients.has(d.service)) serviceToClients.set(d.service, new Set());
-        serviceToClients.get(d.service).add(d.client);
-    });
-
-    const groups = new Map();
-    for (const [service, clients] of serviceToClients) {
-        const key = Array.from(clients).sort().join('|');
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(service);
-    }
-
-    const clusters = [];
-    const clusterMap = new Map();
-    for (const [key, members] of groups) {
-        if (members.length > 1) {
-            const label = _getClusterLabel(members, noiseWords);
-            const cid = 'cluster_' + clusters.length;
-            clusters.push({ id: cid, label, members });
-            members.forEach(m => clusterMap.set(m, cid));
-        }
-    }
-
-    const g = new dagre.graphlib.Graph({ compound: true });
+    // ── Dagre layout ─────────────────────────────────────────────────
+    const g = new dagre.graphlib.Graph();
     g.setGraph({
         rankdir: dir,
         // In LR mode the along-rank separation is vertical; nodes are only
@@ -224,11 +164,7 @@ function renderCustomGraph(report, svgElement, direction) {
         const m = _measureNode(node);
         nodeMetrics.set(node, m);
         g.setNode(node, { label: node, width: m.width, height: m.height });
-        if (clusterMap.has(node)) g.setParent(node, clusterMap.get(node));
     }
-    clusters.forEach(c => {
-        g.setNode(c.id, { label: c.label });
-    });
 
     const nodeRole = new Map();
     for (const node of allNodes) {
@@ -253,11 +189,10 @@ function renderCustomGraph(report, svgElement, direction) {
     dagre.layout(g);
 
     // ── Structured layout (math-based compaction) ────────────────────
-    // After Dagre has assigned coordinates, we post-process each rank to:
-    //  (a) compact cluster members into an overlapping "bricks" grid
-    //  (b) re-pack all rank elements (standalone nodes + clusters as
-    //      single units) with a uniform gap so empty space is reclaimed.
-    // All offsets relative to Dagre output are recorded in node(X)Offsets
+    // After Dagre has assigned coordinates, we post-process each rank to
+    // re-pack all nodes with a uniform gap so empty space is reclaimed
+    // and nodes follow a logical "client-to-server" flow (Autobahn layout).
+    // All offsets relative to Dagre output are recorded in nodeFOffsets
     // maps so edges can be interpolated precisely.
 
     // Axis abstraction: F = along-flow (within a rank), R = rank axis.
@@ -267,80 +202,24 @@ function renderCustomGraph(report, svgElement, direction) {
     const R = isLR ? 'x' : 'y';
 
     const nodeFOffsets = new Map();  // delta along flow axis
-    const nodeROffsets = new Map();  // delta along rank axis (for brick stagger)
     for (const node of allNodes) {
         nodeFOffsets.set(node, 0);
-        nodeROffsets.set(node, 0);
     }
 
-    // Step 1 — compute intra-cluster compacted geometry (members become a
-    // 2-row brick pattern centered at the cluster's original flow-center).
-    // Flow-axis spacings must exceed the node's flow-axis extent, otherwise
-    // bricks collide. In LR the flow extent is node height (40), so gaps can be
-    // tighter than TB (flow extent node width ≈ 160).
     const GAP = isLR ? 25 : 30;           // gap between units on a rank (flow axis)
     const GROUP_GAP = isLR ? 60 : 80;     // larger gap between different roles (flow axis)
-    const BRICK_GAP = isLR ? 12 : 15;     // gap between adjacent bricks (flow axis)
-    // Brick stagger along the rank axis. In LR this shifts X, and must
-    // leave room next to node neighbours — bump it up.
-    // In TB the rank axis is Y and nodes can be up to ~76px tall (3 lines),
-    // so we need >76 to avoid vertical overlap between staggered brick rows;
-    // use 100 for comfortable clearance.
-    const BRICK_DR = isLR ? 200 : 100;
-    const clusterGeom = new Map(); // cid -> {origCenterF, rankR, width, members}
 
-    clusters.forEach(c => {
-        const sortedMembers = [...c.members].sort((a, b) => g.node(a)[F] - g.node(b)[F]);
-        const origFs = sortedMembers.map(m => g.node(m)[F]);
-        const origCenterF = (Math.min(...origFs) + Math.max(...origFs)) / 2;
-        const rankR = g.node(sortedMembers[0])[R]; // all cluster members share a rank
-
-        // In LR (horizontal) mode we skip brick weaving entirely: cluster
-        // members stack straight under each other along the flow axis (Y),
-        // no rank-axis (X) stagger. This gives a cleaner, readable column
-        // per cluster. In TB we keep the 2-row brick pattern to reduce
-        // horizontal footprint.
-        const maxFlowExtent = Math.max(...c.members.map(m => {
-            const mnd = g.node(m);
-            return isLR ? mnd.height : mnd.width;
-        }));
-        const stepF = isLR
-            ? maxFlowExtent + BRICK_GAP       // full node + gap, no overlap
-            : maxFlowExtent / 2 + BRICK_GAP;  // half-step for brick overlap
-        const n = sortedMembers.length;
-        const totalSpan = (n - 1) * stepF;
-        const startF = -totalSpan / 2;
-        const width = totalSpan + maxFlowExtent;
-
-        const members = sortedMembers.map((m, i) => ({
-            id: m,
-            relF: startF + i * stepF,                  // relative to cluster flow-center
-            dr: isLR ? 0 : (i % 2) * BRICK_DR,         // no stagger in LR
-        }));
-
-        clusterGeom.set(c.id, { origCenterF, rankR, width, members });
-    });
-
-    // Step 2 — group layout units by rank and re-pack along the flow axis.
-    const unitsByRank = new Map(); // rankR -> [{type, id, cf, width}]
+    // Step 1 — group nodes by rank and re-pack along the flow axis.
+    const unitsByRank = new Map(); // rankR -> [{id, cf, width, role}]
     for (const node of allNodes) {
-        if (clusterMap.has(node)) continue;
         const nd = g.node(node);
         const key = Math.round(nd[R]);
         if (!unitsByRank.has(key)) unitsByRank.set(key, []);
         const w = isLR ? nd.height : nd.width;
-        unitsByRank.get(key).push({ type: 'node', id: node, cf: nd[F], width: w });
+        unitsByRank.get(key).push({ id: node, cf: nd[F], width: w, role: nodeRole.get(node) });
     }
-    clusterGeom.forEach((geom, cid) => {
-        const key = Math.round(geom.rankR);
-        if (!unitsByRank.has(key)) unitsByRank.set(key, []);
-        unitsByRank.get(key).push({ type: 'cluster', id: cid, cf: geom.origCenterF, width: geom.width });
-    });
 
     unitsByRank.forEach(units => {
-        units.forEach(u => {
-            u.role = u.type === 'node' ? nodeRole.get(u.id) : clusterRole.get(u.id);
-        });
         units.sort((a, b) => {
             if (a.role !== b.role) return a.role - b.role;
             return a.cf - b.cf;
@@ -354,7 +233,7 @@ function renderCustomGraph(report, svgElement, direction) {
             }
         }
 
-        const oldMid = (units[0].cf + units[units.length - 1].cf) / 2;
+        const oldMid = (units[0].cf + (units.length > 1 ? units[units.length - 1].cf : units[0].cf)) / 2;
         let cursor = oldMid - totalWidth / 2;
         for (let i = 0; i < units.length; i++) {
             const u = units[i];
@@ -365,61 +244,18 @@ function renderCustomGraph(report, svgElement, direction) {
         }
     });
 
-    // Step 3 — apply computed positions.
+    // Step 2 — apply computed positions.
     unitsByRank.forEach(units => {
         units.forEach(u => {
-            if (u.type === 'node') {
-                const nd = g.node(u.id);
-                nodeFOffsets.set(u.id, u.newCf - nd[F]);
-            } else {
-                const geom = clusterGeom.get(u.id);
-                geom.members.forEach(m => {
-                    const nd = g.node(m.id);
-                    const targetF = u.newCf + m.relF;
-                    const targetR = geom.rankR + m.dr;
-                    nodeFOffsets.set(m.id, targetF - nd[F]);
-                    nodeROffsets.set(m.id, targetR - nd[R]);
-                });
-                geom.finalCenterF = u.newCf;
-            }
+            const nd = g.node(u.id);
+            nodeFOffsets.set(u.id, u.newCf - nd[F]);
         });
     });
 
     for (const node of allNodes) {
         const nd = g.node(node);
         nd[F] += nodeFOffsets.get(node) || 0;
-        nd[R] += nodeROffsets.get(node) || 0;
     }
-
-    // Step 4 — update cluster bounding boxes to enclose their (now moved)
-    // members, with padding and space reserved for the label.
-    clusters.forEach(c => {
-        const nd = g.node(c.id);
-        if (!nd) return;
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        c.members.forEach(m => {
-            const mnd = g.node(m);
-            minX = Math.min(minX, mnd.x - mnd.width / 2);
-            maxX = Math.max(maxX, mnd.x + mnd.width / 2);
-            minY = Math.min(minY, mnd.y - mnd.height / 2);
-            maxY = Math.max(maxY, mnd.y + mnd.height / 2);
-        });
-        const padX = 20;
-        const padY = 20;
-        const labelPad = c.label ? 20 : 0;
-        // Label lives on the rank-axis start side: top in TB, left in LR.
-        if (isLR) {
-            nd.width = (maxX - minX) + 2 * padX + labelPad;
-            nd.height = (maxY - minY) + 2 * padY;
-            nd.x = (minX + maxX) / 2 - labelPad / 2;
-            nd.y = (minY + maxY) / 2;
-        } else {
-            nd.width = (maxX - minX) + 2 * padX;
-            nd.height = (maxY - minY) + 2 * padY + labelPad;
-            nd.x = (minX + maxX) / 2;
-            nd.y = (minY + maxY) / 2 + labelPad / 2;
-        }
-    });
 
     // Recompute edge endpoints from final node positions. Anchor on the
     // rank-axis border of each node (top/bottom for TB, left/right for LR).
@@ -440,8 +276,8 @@ function renderCustomGraph(report, svgElement, direction) {
     });
 
     const graphInfo = g.graph();
-    const svgW = graphInfo.width + (isLR ? 160 : 40);
-    const svgH = graphInfo.height + (isLR ? 40 : 160); // Extra room for brick staggering
+    const svgW = graphInfo.width + 40;
+    const svgH = graphInfo.height + 40;
 
     svgElement.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
     svgElement.style.minHeight = Math.min(svgH + 40, 800) + 'px';
@@ -469,47 +305,6 @@ function renderCustomGraph(report, svgElement, direction) {
     const mainG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     mainG.setAttribute('class', 'graph-main');
     svgElement.appendChild(mainG);
-
-    // ── Render clusters (first, so they are in background) ────────────
-    clusters.forEach(c => {
-        const nd = g.node(c.id);
-        if (!nd) return;
-        const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        group.setAttribute('class', 'graph-cluster');
-        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        rect.setAttribute('x', nd.x - nd.width / 2);
-        rect.setAttribute('y', nd.y - nd.height / 2);
-        rect.setAttribute('width', nd.width);
-        rect.setAttribute('height', nd.height);
-        rect.setAttribute('rx', '12'); rect.setAttribute('ry', '12');
-        rect.setAttribute('fill', '#f8fafc');
-        rect.setAttribute('stroke', '#cbd5e1');
-        rect.setAttribute('stroke-width', '2');
-        rect.setAttribute('stroke-dasharray', '5 5');
-        group.appendChild(rect);
-        if (c.label) {
-            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            text.setAttribute('fill', '#64748b');
-            text.setAttribute('font-size', '10');
-            text.setAttribute('font-weight', 'bold');
-            if (isLR) {
-                // Vertical label on the left edge of the cluster.
-                const lx = nd.x - nd.width / 2 + 12;
-                const ly = nd.y;
-                text.setAttribute('x', lx);
-                text.setAttribute('y', ly);
-                text.setAttribute('text-anchor', 'middle');
-                text.setAttribute('transform', `rotate(-90 ${lx} ${ly})`);
-            } else {
-                text.setAttribute('x', nd.x);
-                text.setAttribute('y', nd.y - nd.height / 2 + 15);
-                text.setAttribute('text-anchor', 'middle');
-            }
-            text.textContent = c.label.toUpperCase() + ' CLUSTER';
-            group.appendChild(text);
-        }
-        mainG.appendChild(group);
-    });
 
     // ── Render edges ─────────────────────────────────────────────────
     const edgeElements = new Map(); // "from-->to" -> { path, hitArea }

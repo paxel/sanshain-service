@@ -23,6 +23,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - **Graph Layout Crash**: fixed a "nodeW is not defined" reference error in the dependency graph renderer caused by stale fixed-size layout remnants.
 
+### Removed
+- **Dependency Graph Clustering**: removed the structural clustering and brick-staggering layout. While intended to reduce noise, the automatic grouping was found to be confusing and unpredictable in many architectural scenarios. The graph now uses a cleaner, simplified layout while preserving the Autobahn role-based grouping.
+
 ## [0.9.0] - 2026-04-20
 
 ### Added
