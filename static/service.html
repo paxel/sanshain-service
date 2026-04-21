@@ -404,7 +404,7 @@
             } catch (_) {}
 
             // Build endpoint list from provided endpoints (authoritative source)
-            const uniqueEndpoints = (providedEndpoints || []).map(e => ({ path: e.path, method: e.method, service: serviceName }));
+            const uniqueEndpoints = (providedEndpoints || []).map(e => ({ api_type: e.api_type, path: e.path, method: e.method, service: serviceName }));
 
             // Also add any report-only endpoints not already in provided list
             const providedKeys = new Set(uniqueEndpoints.map(e => `${e.method}:${e.path}`));
@@ -462,6 +462,9 @@
                 card.innerHTML = `
                     <div class="flex items-center justify-between">
                         <div class="flex items-center">
+                            <span class="px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider mr-2 bg-slate-100 text-slate-500 border border-slate-200">
+                                ${ep.api_type || 'REST'}
+                            </span>
                             <span class="px-2 py-1 rounded text-[10px] font-bold uppercase mr-3 ${getMethodColor(ep.method)}">
                                 ${ep.method}
                             </span>
@@ -498,7 +501,8 @@
             const headers = {};
             const token = localStorage.getItem('sanshain_token');
             if (token) headers['Authorization'] = `Bearer ${token}`;
-            const res = await fetch(`/admin/endpoint-yaml?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}`, {headers});
+            const apiType = (ep.api_type || 'openapi').toLowerCase();
+            const res = await fetch(`/admin/endpoint-yaml?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${apiType}`, {headers});
             if (!res.ok) throw new Error(`${res.status}`);
             yamlText = await res.text();
         } catch (err) {
@@ -507,7 +511,8 @@
         }
 
         try {
-            versions = await fetchJSON(`/admin/endpoint-versions?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}`);
+            const apiType = (ep.api_type || 'openapi').toLowerCase();
+            versions = await fetchJSON(`/admin/endpoint-versions?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${apiType}`);
         } catch (_) { versions = []; }
 
         const filename = `${serviceName}_${ep.method}_${ep.path.replace(/\//g, '_')}.yaml`;
@@ -978,6 +983,9 @@
                 card.innerHTML = `
                     <div class="flex items-center justify-between">
                         <div class="flex items-center">
+                            <span class="px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider mr-2 bg-slate-100 text-slate-500 border border-slate-200">
+                                ${ep.api_type || 'REST'}
+                            </span>
                             <span class="px-2 py-1 rounded text-[10px] font-bold uppercase mr-3 ${getMethodColor(ep.method)}">
                                 ${ep.method}
                             </span>
@@ -1209,7 +1217,7 @@
             if (!adjMap.get(from).includes(to)) adjMap.get(from).push(to);
             const key = `${from}-->${to}`;
             if (!edgeLabels.has(key)) edgeLabels.set(key, new Set());
-            edgeLabels.get(key).add(`${d.method} ${d.path}`);
+            edgeLabels.get(key).add(`[${d.api_type || 'REST'}] ${d.method} ${d.path}`);
         });
 
         // Detect cycles

@@ -1,5 +1,41 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ApiType {
+    OpenApi,
+    AsyncApi,
+    Proto,
+}
+
+impl ApiType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ApiType::OpenApi => "openapi",
+            ApiType::AsyncApi => "asyncapi",
+            ApiType::Proto => "proto",
+        }
+    }
+}
+
+impl std::str::FromStr for ApiType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "openapi" | "rest" => Ok(ApiType::OpenApi),
+            "asyncapi" | "kafka" | "async" => Ok(ApiType::AsyncApi),
+            "proto" | "grpc" => Ok(ApiType::Proto),
+            _ => Err(format!("Unknown API type: {}", s)),
+        }
+    }
+}
+
+impl Default for ApiType {
+    fn default() -> Self {
+        ApiType::OpenApi
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum AuthMode {
     Dev,
@@ -114,6 +150,7 @@ pub struct Session {
 #[derive(Clone, Debug)]
 pub struct EndpointRecord {
     pub id: Option<i64>,
+    pub api_type: ApiType,
     pub path: String,
     pub normalized_path: String,
     pub method: String,
@@ -130,6 +167,7 @@ pub struct DependencyReport {
 
 #[derive(Serialize, Clone, Debug)]
 pub struct EndpointInfo {
+    pub api_type: ApiType,
     pub service: String,
     pub path: String,
     pub method: String,
@@ -137,6 +175,7 @@ pub struct EndpointInfo {
 
 #[derive(Serialize, Clone, Debug)]
 pub struct MissingEndpointInfo {
+    pub api_type: ApiType,
     pub client: String,
     pub service: String,
     pub path: String,
@@ -145,6 +184,7 @@ pub struct MissingEndpointInfo {
 
 #[derive(Serialize, Clone, Debug)]
 pub struct DependencyInfo {
+    pub api_type: ApiType,
     pub client: String,
     pub service: String,
     pub path: String,
@@ -153,6 +193,7 @@ pub struct DependencyInfo {
 
 #[derive(Serialize, Clone, Debug)]
 pub struct ClientEndpointInfo {
+    pub api_type: ApiType,
     pub service: String,
     pub branch: String,
     pub path: String,
@@ -179,18 +220,21 @@ pub struct EndpointVersion {
 #[derive(Debug, Clone)]
 pub enum SpecChange {
     Insert {
+        api_type: ApiType,
         path: String,
         normalized_path: String,
         method: String,
         yaml_content: String,
     },
     Update {
+        api_type: ApiType,
         path: String,
         normalized_path: String,
         method: String,
         yaml_content: String,
     },
     Delete {
+        api_type: ApiType,
         path: String,
         method: String,
         soft_delete: bool,

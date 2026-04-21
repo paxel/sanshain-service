@@ -15,6 +15,8 @@ use chrono::{DateTime, Utc, Duration};
 use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 
 pub mod openapi;
+pub mod asyncapi;
+pub mod proto;
 pub mod domain;
 pub mod application;
 pub mod infrastructure;
@@ -22,7 +24,7 @@ pub mod infrastructure;
 use application::services::{self, AppError};
 use infrastructure::database::DatabaseRepo;
 use infrastructure::ldap_provider::LdapAuthProvider;
-use domain::models::{AuthMode, LdapConfig};
+use domain::models::{AuthMode, LdapConfig, ApiType};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -348,7 +350,11 @@ pub fn create_app(state: AppState) -> Router {
 
     let api_routes = Router::new()
         .route("/provide", post(provide))
+        .route("/provide/asyncapi", post(provide_asyncapi))
+        .route("/provide/grpc", post(provide_proto))
         .route("/require", get(require))
+        .route("/require/asyncapi", get(require_asyncapi))
+        .route("/require/grpc", get(require_proto))
         .route("/require-bundle", post(require_bundle))
         .route("/report", get(report))
         .route("/report/markdown", get(report_markdown))
@@ -403,6 +409,24 @@ struct ProvidePayload {
 }
 
 #[derive(Deserialize)]
+struct ProvideAsyncApiPayload {
+    servicename: String,
+    branch: String,
+    asyncapi_yaml: String,
+    #[serde(default)]
+    dry_run: bool,
+}
+
+#[derive(Deserialize)]
+struct ProvideProtoPayload {
+    servicename: String,
+    branch: String,
+    proto_content: String,
+    #[serde(default)]
+    dry_run: bool,
+}
+
+#[derive(Deserialize)]
 struct RequireParams {
     clientname: String,
     servicename: String,
@@ -429,6 +453,8 @@ struct RequireBundlePayload {
     timeout: Option<u64>,
     #[serde(default)]
     dry_run: bool,
+    #[serde(default)]
+    api_type: ApiType,
 }
 
 #[derive(Deserialize)]
@@ -550,9 +576,47 @@ async fn provide(
     Json(payload): Json<ProvidePayload>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let result = if payload.dry_run {
-        services::provide_spec_dry_run(&state.repo, &payload.servicename, &payload.branch, &payload.openapi_yaml).await
+        services::provide_spec_dry_run(&state.repo, &payload.servicename, &payload.branch, ApiType::OpenApi, &payload.openapi_yaml).await
     } else {
-        services::provide_spec(&state.repo, &payload.servicename, &payload.branch, &payload.openapi_yaml).await
+        services::provide_spec(&state.repo, &payload.servicename, &payload.branch, ApiType::OpenApi, &payload.openapi_yaml).await
+    };
+
+    if result.is_ok() && !payload.dry_run {
+        let _ = state.spec_updated_tx.send(());
+    }
+
+    result
+        .map(|_| StatusCode::ACCEPTED)
+        .map_err(app_error_to_status_with_body)
+}
+
+async fn provide_asyncapi(
+    State(state): State<AppState>,
+    Json(payload): Json<ProvideAsyncApiPayload>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let result = if payload.dry_run {
+        services::provide_spec_dry_run(&state.repo, &payload.servicename, &payload.branch, ApiType::AsyncApi, &payload.asyncapi_yaml).await
+    } else {
+        services::provide_spec(&state.repo, &payload.servicename, &payload.branch, ApiType::AsyncApi, &payload.asyncapi_yaml).await
+    };
+
+    if result.is_ok() && !payload.dry_run {
+        let _ = state.spec_updated_tx.send(());
+    }
+
+    result
+        .map(|_| StatusCode::ACCEPTED)
+        .map_err(app_error_to_status_with_body)
+}
+
+async fn provide_proto(
+    State(state): State<AppState>,
+    Json(payload): Json<ProvideProtoPayload>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let result = if payload.dry_run {
+        services::provide_spec_dry_run(&state.repo, &payload.servicename, &payload.branch, ApiType::Proto, &payload.proto_content).await
+    } else {
+        services::provide_spec(&state.repo, &payload.servicename, &payload.branch, ApiType::Proto, &payload.proto_content).await
     };
 
     if result.is_ok() && !payload.dry_run {
@@ -568,12 +632,35 @@ async fn require(
     State(state): State<AppState>,
     Query(params): Query<RequireParams>,
 ) -> Result<String, (StatusCode, String)> {
+    require_internal(state, params, ApiType::OpenApi).await
+}
+
+async fn require_asyncapi(
+    State(state): State<AppState>,
+    Query(params): Query<RequireParams>,
+) -> Result<String, (StatusCode, String)> {
+    require_internal(state, params, ApiType::AsyncApi).await
+}
+
+async fn require_proto(
+    State(state): State<AppState>,
+    Query(params): Query<RequireParams>,
+) -> Result<String, (StatusCode, String)> {
+    require_internal(state, params, ApiType::Proto).await
+}
+
+async fn require_internal(
+    state: AppState,
+    params: RequireParams,
+    api_type: ApiType,
+) -> Result<String, (StatusCode, String)> {
     let dry_run = params.dry_run.unwrap_or(false);
     let notifier = Some(state.spec_updated_tx.subscribe());
     let req_params = services::RequireEndpointParams {
         clientname: &params.clientname,
         servicename: &params.servicename,
         branch: &params.branch,
+        api_type,
         path: &params.path,
         method: &params.method,
         timeout_secs: params.timeout,
@@ -599,6 +686,7 @@ async fn require_bundle(
         clientname: &payload.clientname,
         servicename: &payload.servicename,
         branch: &payload.branch,
+        api_type: payload.api_type,
         endpoints: &endpoints,
         timeout_secs: payload.timeout,
     };
@@ -656,6 +744,8 @@ async fn report_isolation(
 struct EndpointVersionsParams {
     servicename: String,
     branch: String,
+    #[serde(default)]
+    api_type: ApiType,
     path: String,
     method: String,
 }
@@ -668,6 +758,7 @@ async fn endpoint_versions(
         &state.repo,
         &params.servicename,
         &params.branch,
+        params.api_type,
         &params.path,
         &params.method,
     )
@@ -923,6 +1014,8 @@ async fn admin_list_client_endpoints(
 struct AdminEndpointYamlParams {
     servicename: String,
     branch: String,
+    #[serde(default)]
+    api_type: ApiType,
     path: String,
     method: String,
 }
@@ -935,6 +1028,7 @@ async fn admin_get_endpoint_yaml(
         &state.repo,
         &params.servicename,
         &params.branch,
+        params.api_type,
         &params.path,
         &params.method,
     )
@@ -944,6 +1038,7 @@ async fn admin_get_endpoint_yaml(
 
 #[derive(Serialize)]
 struct AdminEndpointInfo {
+    api_type: ApiType,
     path: String,
     method: String,
 }
@@ -954,7 +1049,7 @@ async fn admin_list_service_endpoints(
 ) -> Result<Json<Vec<AdminEndpointInfo>>, StatusCode> {
     services::list_service_endpoints(&state.repo, &name, &branch)
         .await
-        .map(|eps| Json(eps.into_iter().map(|e| AdminEndpointInfo { path: e.path, method: e.method }).collect()))
+        .map(|eps| Json(eps.into_iter().map(|e| AdminEndpointInfo { api_type: e.api_type, path: e.path, method: e.method }).collect()))
         .map_err(app_error_to_status)
 }
 
@@ -966,6 +1061,7 @@ async fn admin_get_endpoint_versions(
         &state.repo,
         &params.servicename,
         &params.branch,
+        params.api_type,
         &params.path,
         &params.method,
     )

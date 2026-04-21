@@ -28,6 +28,7 @@ pub struct RequireEndpointParams<'a> {
     pub clientname: &'a str,
     pub servicename: &'a str,
     pub branch: &'a str,
+    pub api_type: ApiType,
     pub path: &'a str,
     pub method: &'a str,
     pub timeout_secs: Option<u64>,
@@ -37,6 +38,7 @@ pub struct RequireBundleParams<'a> {
     pub clientname: &'a str,
     pub servicename: &'a str,
     pub branch: &'a str,
+    pub api_type: ApiType,
     pub endpoints: &'a [(String, String)],
     pub timeout_secs: Option<u64>,
 }
@@ -45,31 +47,57 @@ pub async fn provide_spec(
     repo: &impl SpecRepository,
     servicename: &str,
     branch: &str,
-    openapi_yaml: &str,
+    api_type: ApiType,
+    content: &str,
 ) -> Result<(), AppError> {
-    provide_spec_inner(repo, servicename, branch, openapi_yaml, false).await
+    provide_spec_inner(repo, servicename, branch, api_type, content, false).await
 }
 
 pub async fn provide_spec_dry_run(
     repo: &impl SpecRepository,
     servicename: &str,
     branch: &str,
-    openapi_yaml: &str,
+    api_type: ApiType,
+    content: &str,
 ) -> Result<(), AppError> {
-    provide_spec_inner(repo, servicename, branch, openapi_yaml, true).await
+    provide_spec_inner(repo, servicename, branch, api_type, content, true).await
 }
 
 async fn provide_spec_inner(
     repo: &impl SpecRepository,
     servicename: &str,
     branch: &str,
-    openapi_yaml: &str,
+    api_type: ApiType,
+    content: &str,
     dry_run: bool,
 ) -> Result<(), AppError> {
-    tracing::debug!("Providing spec for service '{}' branch '{}' (dry_run: {})", servicename, branch, dry_run);
-    let endpoints = openapi::split_openapi(openapi_yaml)
-        .map_err(AppError::BadRequest)?;
-    tracing::debug!("Successfully split spec into {} endpoints for service '{}'", endpoints.len(), servicename);
+    tracing::debug!("Providing {:?} for service '{}' branch '{}' (dry_run: {})", api_type, servicename, branch, dry_run);
+    
+    let endpoints = match api_type {
+        ApiType::OpenApi => openapi::split_openapi(content).map_err(AppError::BadRequest)?,
+        ApiType::AsyncApi => crate::asyncapi::split_asyncapi(content)
+            .map_err(AppError::BadRequest)?
+            .into_iter()
+            .map(|s| openapi::EndpointSpec {
+                normalized_path: s.channel.clone(),
+                path: s.channel,
+                method: s.operation,
+                yaml_content: s.yaml_content,
+            })
+            .collect(),
+        ApiType::Proto => crate::proto::split_proto(content)
+            .map_err(AppError::BadRequest)?
+            .into_iter()
+            .map(|s| openapi::EndpointSpec {
+                normalized_path: s.service.clone(),
+                path: s.service,
+                method: s.method,
+                yaml_content: s.content,
+            })
+            .collect(),
+    };
+    
+    tracing::debug!("Successfully split {:?} into {} endpoints for service '{}'", api_type, endpoints.len(), servicename);
 
     let (_sid, bid) = if dry_run {
         match repo.find_service(servicename).await? {
@@ -92,43 +120,50 @@ async fn provide_spec_inner(
     };
     let is_protected = repo.is_branch_protected(branch).await?;
 
-    if is_protected {
+    if is_protected && api_type == ApiType::OpenApi {
         let existing = repo.get_endpoints_for_branch(bid).await?;
         if !existing.is_empty() {
-            let existing_yamls: Vec<String> = existing.iter().map(|e| e.yaml_content.clone()).collect();
-            let old_full_yaml = openapi::merge_endpoint_yamls(&existing_yamls)
-                .map_err(|e| AppError::Internal(format!("Failed to merge existing endpoints for compatibility check: {}", e)))?;
+            let existing_yamls: Vec<String> = existing.into_iter()
+                .filter(|e| e.api_type == ApiType::OpenApi)
+                .map(|e| e.yaml_content)
+                .collect();
             
-            if let Err(reason) = openapi::check_backward_compatibility(&old_full_yaml, openapi_yaml) {
-                tracing::warn!(
-                    "Rejected update for service '{}' branch '{}': breaking changes: {}",
-                    servicename, branch, reason
-                );
-                return Err(AppError::Conflict(format!(
-                    "Breaking changes detected on protected branch '{}' of service '{}': {}",
-                    branch, servicename, reason
-                )));
+            if !existing_yamls.is_empty() {
+                let old_full_yaml = openapi::merge_endpoint_yamls(&existing_yamls)
+                    .map_err(|e| AppError::Internal(format!("Failed to merge existing endpoints for compatibility check: {}", e)))?;
+                
+                if let Err(reason) = openapi::check_backward_compatibility(&old_full_yaml, content) {
+                    tracing::warn!(
+                        "Rejected update for service '{}' branch '{}': breaking changes: {}",
+                        servicename, branch, reason
+                    );
+                    return Err(AppError::Conflict(format!(
+                        "Breaking changes detected on protected branch '{}' of service '{}': {}",
+                        branch, servicename, reason
+                    )));
+                }
+                tracing::info!("Spec update is backward-compatible for protected branch '{}'", branch);
             }
-            tracing::info!("Spec update is backward-compatible for protected branch '{}'", branch);
         }
     }
 
     let existing = repo.get_endpoints_for_branch(bid).await?;
-    let mut existing_map: HashMap<(String, String), (String, String)> = existing
+    let mut existing_map: HashMap<(ApiType, String, String), (String, String)> = existing
         .into_iter()
-        .map(|e| ((e.normalized_path, e.method), (e.path, e.yaml_content)))
+        .map(|e| ((e.api_type, e.normalized_path, e.method), (e.path, e.yaml_content)))
         .collect();
 
     let mut changes = Vec::new();
 
     for endpoint in endpoints {
-        let key = (endpoint.normalized_path.clone(), endpoint.method.clone());
+        let key = (api_type, endpoint.normalized_path.clone(), endpoint.method.clone());
         if let Some((old_path, existing_yaml)) = existing_map.remove(&key) {
             if existing_yaml != endpoint.yaml_content || old_path != endpoint.path {
                 // Compatibility check already done for the whole spec
                 if is_protected {
                     tracing::info!(
-                        "Updating {} {} (normalized as {}) on protected branch '{}' of service '{}' (backward-compatible)",
+                        "Updating {:?} {} {} (normalized as {}) on protected branch '{}' of service '{}' (backward-compatible)",
+                        api_type,
                         endpoint.method,
                         endpoint.path,
                         endpoint.normalized_path,
@@ -137,7 +172,8 @@ async fn provide_spec_inner(
                     );
                 } else {
                     tracing::info!(
-                        "Updating {} {} (normalized as {}) on feature branch '{}' of service '{}'",
+                        "Updating {:?} {} {} (normalized as {}) on feature branch '{}' of service '{}'",
+                        api_type,
                         endpoint.method,
                         endpoint.path,
                         endpoint.normalized_path,
@@ -146,6 +182,7 @@ async fn provide_spec_inner(
                     );
                 }
                 changes.push(SpecChange::Update {
+                    api_type,
                     path: endpoint.path,
                     normalized_path: endpoint.normalized_path,
                     method: endpoint.method,
@@ -154,18 +191,20 @@ async fn provide_spec_inner(
             }
         } else {
             // Check if this endpoint was previously soft-deleted on a protected branch
-            if is_protected && repo.is_endpoint_deleted(bid, &endpoint.path, &endpoint.method).await? {
+            if is_protected && repo.is_endpoint_deleted(bid, api_type, &endpoint.path, &endpoint.method).await? {
                 tracing::warn!(
-                    "Rejected re-introduction of deleted endpoint {} {}: contract violation on protected branch",
+                    "Rejected re-introduction of deleted {:?} endpoint {} {}: contract violation on protected branch",
+                    api_type,
                     endpoint.method,
                     endpoint.path
                 );
                 return Err(AppError::Conflict(format!(
-                    "Re-introduction of deleted endpoint {} {} on protected branch '{}' of service '{}'",
-                    endpoint.method, endpoint.path, branch, servicename
+                    "Re-introduction of deleted {:?} endpoint {} {} on protected branch '{}' of service '{}'",
+                    api_type, endpoint.method, endpoint.path, branch, servicename
                 )));
             }
             changes.push(SpecChange::Insert {
+                api_type,
                 path: endpoint.path,
                 normalized_path: endpoint.normalized_path,
                 method: endpoint.method,
@@ -175,19 +214,22 @@ async fn provide_spec_inner(
     }
 
     // Remove endpoints that are no longer in the spec
-    for ((_norm_path, method), (path, _)) in existing_map {
+    for ((old_api_type, _norm_path, method), (path, _)) in existing_map {
+        if old_api_type != api_type {
+            continue; // Only delete endpoints of the same type being provided
+        }
         if is_protected {
             tracing::info!(
-                "Soft-deleting {} {} on protected branch '{}' of service '{}'",
-                method, path, branch, servicename
+                "Soft-deleting {:?} {} {} on protected branch '{}' of service '{}'",
+                api_type, method, path, branch, servicename
             );
         } else {
             tracing::info!(
-                "Deleting {} {} on feature branch '{}' of service '{}'",
-                method, path, branch, servicename
+                "Deleting {:?} {} {} on feature branch '{}' of service '{}'",
+                api_type, method, path, branch, servicename
             );
         }
-        changes.push(SpecChange::Delete { path, method, soft_delete: is_protected });
+        changes.push(SpecChange::Delete { api_type, path, method, soft_delete: is_protected });
     }
 
     if dry_run {
@@ -206,34 +248,23 @@ pub async fn get_endpoint_yaml(
     repo: &impl SpecRepository,
     servicename: &str,
     branch: &str,
+    api_type: ApiType,
     path: &str,
     method: &str,
 ) -> Result<String, AppError> {
     let service_id = repo.ensure_service(servicename).await?;
-    let method_upper = method.to_uppercase();
-
-    let endpoint = repo.find_endpoint(service_id, branch, path, &method_upper).await?;
-
-    // Feature branch fallback
-    let endpoint = if endpoint.is_none() && !repo.is_branch_protected(branch).await? {
-        let protected = repo.list_protected_branches().await?;
-        let mut fallback = None;
-        for pb in &protected {
-            fallback = repo.find_endpoint(service_id, pb, path, &method_upper).await?;
-            if fallback.is_some() {
-                break;
-            }
-        }
-        fallback
-    } else {
-        endpoint
+    let method_to_use = match api_type {
+        ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
+        ApiType::Proto => method.to_string(),
     };
+
+    let endpoint = find_endpoint_with_fallback(repo, service_id, servicename, branch, api_type, path, &method_to_use).await?;
 
     endpoint
         .map(|(_, yaml)| yaml)
         .ok_or_else(|| AppError::NotFound(format!(
-            "Endpoint not found: {} {} on service '{}' branch '{}'",
-            method_upper, path, servicename, branch
+            "{:?} endpoint not found: {} {} on service '{}' branch '{}'",
+            api_type, method_to_use, path, servicename, branch
         )))
 }
 
@@ -255,17 +286,21 @@ pub async fn get_endpoint_version_history(
     repo: &impl SpecRepository,
     servicename: &str,
     branch: &str,
+    api_type: ApiType,
     path: &str,
     method: &str,
 ) -> Result<Vec<EndpointVersion>, AppError> {
     let service_id = repo.ensure_service(servicename).await?;
     let branch_id = repo.ensure_branch(service_id, branch).await?;
-    let method_upper = method.to_uppercase();
+    let method_to_use = match api_type {
+        ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
+        ApiType::Proto => method.to_string(),
+    };
 
-    let endpoint_id = repo.get_endpoint_id(branch_id, path, &method_upper).await?
+    let endpoint_id = repo.get_endpoint_id(branch_id, api_type, path, &method_to_use).await?
         .ok_or_else(|| AppError::NotFound(format!(
-            "Endpoint {} {} not found on branch '{}' of service '{}'",
-            method_upper, path, branch, servicename
+            "{:?} endpoint {} {} not found on branch '{}' of service '{}'",
+            api_type, method_to_use, path, branch, servicename
         )))?;
 
     let versions = repo.get_endpoint_versions(endpoint_id).await?;
@@ -293,11 +328,12 @@ async fn find_endpoint_with_fallback(
     service_id: i64,
     servicename: &str,
     branch: &str,
+    api_type: ApiType,
     path: &str,
-    method_upper: &str,
+    method_to_use: &str,
 ) -> Result<Option<(i64, String)>, RepositoryError> {
-    tracing::debug!("Searching for endpoint {} {} in service '{}' branch '{}'", method_upper, path, servicename, branch);
-    let endpoint = repo.find_endpoint(service_id, branch, path, method_upper).await?;
+    tracing::debug!("Searching for {:?} endpoint {} {} in service '{}' branch '{}'", api_type, method_to_use, path, servicename, branch);
+    let endpoint = repo.find_endpoint(service_id, branch, api_type, path, method_to_use).await?;
     if endpoint.is_some() || repo.is_branch_protected(branch).await? {
         return Ok(endpoint);
     }
@@ -306,11 +342,11 @@ async fn find_endpoint_with_fallback(
     if let Ok(Some(sfb)) = repo.get_fallback_branch(servicename).await {
         // Only try if it's different from the requested branch (redundant due to is_branch_protected check above, but safer)
         if sfb != branch
-            && let Some(ep) = repo.find_endpoint(service_id, &sfb, path, method_upper).await?
+            && let Some(ep) = repo.find_endpoint(service_id, &sfb, api_type, path, method_to_use).await?
         {
             tracing::info!(
-                "Falling back to service-specific branch '{}' for {} {}",
-                sfb, method_upper, path
+                "Falling back to service-specific branch '{}' for {:?} {} {}",
+                sfb, api_type, method_to_use, path
             );
             return Ok(Some(ep));
         }
@@ -323,10 +359,10 @@ async fn find_endpoint_with_fallback(
         if pb == branch {
             continue;
         }
-        if let Some(ep) = repo.find_endpoint(service_id, pb, path, method_upper).await? {
+        if let Some(ep) = repo.find_endpoint(service_id, pb, api_type, path, method_to_use).await? {
             tracing::info!(
-                "Falling back to protected branch '{}' for {} {}",
-                pb, method_upper, path
+                "Falling back to protected branch '{}' for {:?} {} {}",
+                pb, api_type, method_to_use, path
             );
             return Ok(Some(ep));
         }
@@ -354,20 +390,23 @@ async fn require_endpoint_inner(
         repo.ensure_service(params.servicename).await?
     };
 
-    let method_upper = params.method.to_uppercase();
+    let method_to_use = match params.api_type {
+        ApiType::OpenApi | ApiType::AsyncApi => params.method.to_uppercase(),
+        ApiType::Proto => params.method.to_string(),
+    };
 
     let deadline = params.timeout_secs.map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
     let poll_interval = std::time::Duration::from_millis(500);
 
     loop {
-        tracing::debug!("Polling for endpoint {} {} (service_id: {})", method_upper, params.path, service_id);
-        let endpoint = find_endpoint_with_fallback(repo, service_id, params.servicename, params.branch, params.path, &method_upper).await?;
+        tracing::debug!("Polling for {:?} endpoint {} {} (service_id: {})", params.api_type, method_to_use, params.path, service_id);
+        let endpoint = find_endpoint_with_fallback(repo, service_id, params.servicename, params.branch, params.api_type, params.path, &method_to_use).await?;
 
         if let Some(ref ep) = endpoint {
-            tracing::debug!("Found endpoint {} {} for client '{}'", method_upper, params.path, params.clientname);
+            tracing::debug!("Found {:?} endpoint {} {} for client '{}'", params.api_type, method_to_use, params.path, params.clientname);
             if !dry_run {
                 let endpoint_id = Some(ep.0);
-                repo.record_dependency(client_id, endpoint_id, service_id, params.branch, params.path, &method_upper).await?;
+                repo.record_dependency(client_id, endpoint_id, params.api_type, service_id, params.branch, params.path, &method_to_use).await?;
             }
             return Ok(ep.1.clone());
         }
@@ -391,21 +430,21 @@ async fn require_endpoint_inner(
                     }
                 } else {
                     if !dry_run {
-                        repo.record_dependency(client_id, None, service_id, params.branch, params.path, &method_upper).await?;
+                        repo.record_dependency(client_id, None, params.api_type, service_id, params.branch, params.path, &method_to_use).await?;
                     }
                     return Err(AppError::NotFound(format!(
-                        "Endpoint not found: {} {} on service '{}' branch '{}'",
-                        method_upper, params.path, params.servicename, params.branch
+                        "{:?} endpoint not found: {} {} on service '{}' branch '{}'",
+                        params.api_type, method_to_use, params.path, params.servicename, params.branch
                     )));
                 }
             }
             None => {
                 if !dry_run {
-                    repo.record_dependency(client_id, None, service_id, params.branch, params.path, &method_upper).await?;
+                    repo.record_dependency(client_id, None, params.api_type, service_id, params.branch, params.path, &method_to_use).await?;
                 }
                 return Err(AppError::NotFound(format!(
-                    "Endpoint not found: {} {} on service '{}' branch '{}'",
-                    method_upper, params.path, params.servicename, params.branch
+                    "{:?} endpoint not found: {} {} on service '{}' branch '{}'",
+                    params.api_type, method_to_use, params.path, params.servicename, params.branch
                 )));
             }
         }
@@ -459,25 +498,33 @@ async fn require_bundle_inner(
         let mut missing: Vec<(String, String)> = Vec::new();
 
         for (path, method) in params.endpoints {
-            let method_upper = method.to_uppercase();
-            tracing::debug!("Looking up endpoint {} {} for client '{}'", method_upper, path, params.clientname);
-            let endpoint = find_endpoint_with_fallback(repo, service_id, params.servicename, params.branch, path, &method_upper).await?;
+            let method_to_use = match params.api_type {
+                ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
+                ApiType::Proto => method.to_string(),
+            };
+            tracing::debug!("Looking up {:?} endpoint {} {} for client '{}'", params.api_type, method_to_use, path, params.clientname);
+            let endpoint = find_endpoint_with_fallback(repo, service_id, params.servicename, params.branch, params.api_type, path, &method_to_use).await?;
 
             if let Some(ref ep) = endpoint {
                 if !dry_run {
-                    repo.record_dependency(client_id, Some(ep.0), service_id, params.branch, path, &method_upper).await?;
+                    repo.record_dependency(client_id, Some(ep.0), params.api_type, service_id, params.branch, path, &method_to_use).await?;
                 }
                 yamls.push(ep.1.clone());
             } else {
-                missing.push((path.clone(), method_upper));
+                missing.push((path.clone(), method_to_use));
             }
         }
 
         if missing.is_empty() {
-            // All endpoints found — merge into single YAML
-            tracing::debug!("Merging {} endpoint YAMLs for bundle request from client '{}'", yamls.len(), params.clientname);
-            return openapi::merge_endpoint_yamls(&yamls)
-                .map_err(AppError::Internal);
+            // All endpoints found — merge into single YAML/content
+            tracing::debug!("Merging {} {:?} snippets for bundle request from client '{}'", yamls.len(), params.api_type, params.clientname);
+            return match params.api_type {
+                ApiType::OpenApi => openapi::merge_endpoint_yamls(&yamls).map_err(AppError::Internal),
+                _ => {
+                    // Basic fallback for AsyncAPI and Proto
+                    Ok(yamls.join("\n---\n"))
+                }
+            };
         }
 
         // If no timeout or deadline passed, record missing deps and return NotFound
@@ -501,7 +548,7 @@ async fn require_bundle_inner(
                     // Record dependencies for missing endpoints
                     if !dry_run {
                         for (path, method) in &missing {
-                            repo.record_dependency(client_id, None, service_id, params.branch, path, method).await?;
+                            repo.record_dependency(client_id, None, params.api_type, service_id, params.branch, path, method).await?;
                         }
                     }
                     let missing_list: Vec<String> = missing.iter()
@@ -517,7 +564,7 @@ async fn require_bundle_inner(
                 // Record dependencies for missing endpoints
                 if !dry_run {
                     for (path, method) in &missing {
-                        repo.record_dependency(client_id, None, service_id, params.branch, path, method).await?;
+                        repo.record_dependency(client_id, None, params.api_type, service_id, params.branch, path, method).await?;
                     }
                 }
                 let missing_list: Vec<String> = missing.iter()
@@ -1063,10 +1110,10 @@ pub fn render_report_markdown(report: &DependencyReport) -> String {
     if report.dependency_graph.is_empty() {
         md.push_str("No active dependencies recorded for this branch.\n\n");
     } else {
-        md.push_str("| Client | Service | Path | Method |\n");
-        md.push_str("| --- | --- | --- | --- |\n");
+        md.push_str("| Client | Service | Protocol | Path | Method |\n");
+        md.push_str("| --- | --- | --- | --- | --- |\n");
         for dep in &report.dependency_graph {
-            md.push_str(&format!("| {} | {} | `{}` | `{}` |\n", dep.client, dep.service, dep.path, dep.method));
+            md.push_str(&format!("| {} | {} | {:?} | `{}` | `{}` |\n", dep.client, dep.service, dep.api_type, dep.path, dep.method));
         }
         md.push('\n');
     }
@@ -1076,10 +1123,10 @@ pub fn render_report_markdown(report: &DependencyReport) -> String {
     if report.unused_endpoints.is_empty() {
         md.push_str("All provided endpoints are in use.\n\n");
     } else {
-        md.push_str("| Service | Path | Method |\n");
-        md.push_str("| --- | --- | --- |\n");
+        md.push_str("| Service | Protocol | Path | Method |\n");
+        md.push_str("| --- | --- | --- | --- |\n");
         for ep in &report.unused_endpoints {
-            md.push_str(&format!("| {} | `{}` | `{}` |\n", ep.service, ep.path, ep.method));
+            md.push_str(&format!("| {} | {:?} | `{}` | `{}` |\n", ep.service, ep.api_type, ep.path, ep.method));
         }
         md.push('\n');
     }
@@ -1089,10 +1136,10 @@ pub fn render_report_markdown(report: &DependencyReport) -> String {
     if report.missing_endpoints.is_empty() {
         md.push_str("No missing requirements identified.\n\n");
     } else {
-        md.push_str("| Client | Service | Path | Method |\n");
-        md.push_str("| --- | --- | --- | --- |\n");
+        md.push_str("| Client | Service | Protocol | Path | Method |\n");
+        md.push_str("| --- | --- | --- | --- | --- |\n");
         for ep in &report.missing_endpoints {
-            md.push_str(&format!("| {} | {} | `{}` | `{}` |\n", ep.client, ep.service, ep.path, ep.method));
+            md.push_str(&format!("| {} | {} | {:?} | `{}` | `{}` |\n", ep.client, ep.service, ep.api_type, ep.path, ep.method));
         }
         md.push('\n');
     }
@@ -1125,7 +1172,18 @@ pub fn render_isolation_report(report: &DependencyReport) -> String {
         md.push_str("| Target Service | Port | Protocol |\n");
         md.push_str("| --- | --- | --- |\n");
         for svc in services {
-            md.push_str(&format!("| {} | N/A | N/A |\n", svc));
+            // Find protocol if possible
+            let protocol = report.dependency_graph.iter()
+                .find(|d| d.client == client && d.service == svc)
+                .map(|d| format!("{:?}", d.api_type))
+                .or_else(|| {
+                    report.missing_endpoints.iter()
+                        .find(|d| d.client == client && d.service == svc)
+                        .map(|d| format!("{:?}", d.api_type))
+                })
+                .unwrap_or_else(|| "N/A".to_string());
+                
+            md.push_str(&format!("| {} | N/A | {} |\n", svc, protocol));
         }
         md.push('\n');
     }
@@ -1144,7 +1202,7 @@ mod tests {
         services: Mutex<HashMap<String, i64>>,
         branches: Mutex<HashMap<(i64, String), i64>>,
         endpoints: Mutex<HashMap<i64, Vec<EndpointRecord>>>,
-        deleted_endpoints: Mutex<Vec<(i64, String, String)>>,
+        deleted_endpoints: Mutex<Vec<(i64, ApiType, String, String)>>,
         clients: Mutex<HashMap<String, i64>>,
         protected_branches: Mutex<Vec<String>>,
         next_id: Mutex<i64>,
@@ -1220,7 +1278,7 @@ mod tests {
             let deleted = self.deleted_endpoints.lock().unwrap();
             Ok(endpoints.get(&branch_id).cloned().unwrap_or_default()
                 .into_iter()
-                .filter(|ep| !deleted.contains(&(branch_id, ep.path.clone(), ep.method.clone())))
+                .filter(|ep| !deleted.contains(&(branch_id, ep.api_type, ep.path.clone(), ep.method.clone())))
                 .collect())
         }
 
@@ -1246,6 +1304,7 @@ mod tests {
             &self,
             service_id: i64,
             branch_name: &str,
+            api_type: ApiType,
             path: &str,
             method: &str,
         ) -> Result<Option<(i64, String)>, RepositoryError> {
@@ -1257,8 +1316,8 @@ mod tests {
                 let deleted = self.deleted_endpoints.lock().unwrap();
                 if let Some(eps) = endpoints.get(&branch_id) {
                     for ep in eps {
-                        if ep.normalized_path == normalized_path && ep.method == method
-                            && !deleted.contains(&(branch_id, ep.path.clone(), ep.method.clone()))
+                        if ep.api_type == api_type && ep.normalized_path == normalized_path && ep.method == method
+                            && !deleted.contains(&(branch_id, api_type, ep.path.clone(), ep.method.clone()))
                         {
                             return Ok(Some((ep.id.unwrap(), ep.yaml_content.clone())));
                         }
@@ -1272,6 +1331,7 @@ mod tests {
             &self,
             _client_id: i64,
             _endpoint_id: Option<i64>,
+            _api_type: ApiType,
             _service_id: i64,
             _branch_name: &str,
             _path: &str,
@@ -1314,11 +1374,11 @@ mod tests {
             Ok(pb.clone())
         }
 
-        async fn update_endpoint(&self, branch_id: i64, path: &str, method: &str, yaml_content: &str) -> Result<(), RepositoryError> {
+        async fn update_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str, yaml_content: &str) -> Result<(), RepositoryError> {
             let mut endpoints = self.endpoints.lock().unwrap();
             if let Some(eps) = endpoints.get_mut(&branch_id) {
                 for ep in eps.iter_mut() {
-                    if ep.path == path && ep.method == method {
+                    if ep.api_type == api_type && ep.path == path && ep.method == method {
                         ep.yaml_content = yaml_content.to_string();
                         return Ok(());
                     }
@@ -1327,22 +1387,22 @@ mod tests {
             Ok(())
         }
 
-        async fn soft_delete_endpoint(&self, branch_id: i64, path: &str, method: &str) -> Result<(), RepositoryError> {
-            self.deleted_endpoints.lock().unwrap().push((branch_id, path.to_string(), method.to_string()));
+        async fn soft_delete_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<(), RepositoryError> {
+            self.deleted_endpoints.lock().unwrap().push((branch_id, api_type, path.to_string(), method.to_string()));
             Ok(())
         }
 
-        async fn hard_delete_endpoint(&self, branch_id: i64, path: &str, method: &str) -> Result<(), RepositoryError> {
+        async fn hard_delete_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<(), RepositoryError> {
             let mut endpoints = self.endpoints.lock().unwrap();
             if let Some(eps) = endpoints.get_mut(&branch_id) {
-                eps.retain(|ep| !(ep.path == path && ep.method == method));
+                eps.retain(|ep| !(ep.api_type == api_type && ep.path == path && ep.method == method));
             }
             Ok(())
         }
 
-        async fn is_endpoint_deleted(&self, branch_id: i64, path: &str, method: &str) -> Result<bool, RepositoryError> {
+        async fn is_endpoint_deleted(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<bool, RepositoryError> {
             let deleted = self.deleted_endpoints.lock().unwrap();
-            Ok(deleted.contains(&(branch_id, path.to_string(), method.to_string())))
+            Ok(deleted.contains(&(branch_id, api_type, path.to_string(), method.to_string())))
         }
 
         async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {
@@ -1580,14 +1640,14 @@ mod tests {
             Ok(0)
         }
 
-        async fn get_endpoint_id(&self, branch_id: i64, path: &str, method: &str) -> Result<Option<i64>, RepositoryError> {
+        async fn get_endpoint_id(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<Option<i64>, RepositoryError> {
             let normalized_path = crate::openapi::normalize_path(path);
             let endpoints = self.endpoints.lock().unwrap();
             let deleted = self.deleted_endpoints.lock().unwrap();
             if let Some(eps) = endpoints.get(&branch_id) {
                 for ep in eps {
-                    if ep.normalized_path == normalized_path && ep.method == method
-                        && !deleted.contains(&(branch_id, ep.path.clone(), ep.method.clone()))
+                    if ep.api_type == api_type && ep.normalized_path == normalized_path && ep.method == method
+                        && !deleted.contains(&(branch_id, api_type, ep.path.clone(), ep.method.clone()))
                     {
                         return Ok(ep.id);
                     }
@@ -1624,9 +1684,10 @@ mod tests {
             let now = current_utc_iso();
             for change in changes {
                 match change {
-                    SpecChange::Insert { path, normalized_path, method, yaml_content } => {
+                    SpecChange::Insert { api_type, path, normalized_path, method, yaml_content } => {
                         let endpoint_record = EndpointRecord {
                             id: None,
+                            api_type,
                             path: path.clone(),
                             normalized_path,
                             method: method.clone(),
@@ -1634,16 +1695,16 @@ mod tests {
                         };
                         self.insert_endpoint(branch_id, &endpoint_record).await?;
                         if is_protected {
-                            if let Some(endpoint_id) = self.get_endpoint_id(branch_id, &path, &method).await? {
+                            if let Some(endpoint_id) = self.get_endpoint_id(branch_id, api_type, &path, &method).await? {
                                 self.insert_endpoint_version(endpoint_id, 1, &yaml_content, None, &now).await?;
                             }
                         }
                     }
-                    SpecChange::Update { path, normalized_path, method, yaml_content } => {
+                    SpecChange::Update { api_type, path, normalized_path, method, yaml_content } => {
                         if is_protected {
-                            if let Some(endpoint_id) = self.get_endpoint_id(branch_id, &path, &method).await? {
+                            if let Some(endpoint_id) = self.get_endpoint_id(branch_id, api_type, &path, &method).await? {
                                 let old_yaml = self.endpoints.lock().unwrap().get(&branch_id)
-                                    .and_then(|ev| ev.iter().find(|e| e.path == path && e.method == method))
+                                    .and_then(|ev| ev.iter().find(|e| e.api_type == api_type && e.path == path && e.method == method))
                                     .map(|e| e.yaml_content.clone());
                                 
                                 let current_version = self.get_latest_endpoint_version(endpoint_id).await?;
@@ -1655,19 +1716,19 @@ mod tests {
                         {
                             let mut endpoints = self.endpoints.lock().unwrap();
                             if let Some(eps) = endpoints.get_mut(&branch_id) {
-                                if let Some(ep) = eps.iter_mut().find(|e| e.path == path && e.method == method) {
+                                if let Some(ep) = eps.iter_mut().find(|e| e.api_type == api_type && e.path == path && e.method == method) {
                                     ep.yaml_content = yaml_content.clone();
                                     ep.normalized_path = normalized_path;
                                 }
                             }
                         }
-                        self.update_endpoint(branch_id, &path, &method, &yaml_content).await?;
+                        self.update_endpoint(branch_id, api_type, &path, &method, &yaml_content).await?;
                     }
-                    SpecChange::Delete { path, method, soft_delete } => {
+                    SpecChange::Delete { api_type, path, method, soft_delete } => {
                         if soft_delete {
-                            self.soft_delete_endpoint(branch_id, &path, &method).await?;
+                            self.soft_delete_endpoint(branch_id, api_type, &path, &method).await?;
                         } else {
-                            self.hard_delete_endpoint(branch_id, &path, &method).await?;
+                            self.hard_delete_endpoint(branch_id, api_type, &path, &method).await?;
                         }
                     }
                 }
@@ -1693,13 +1754,14 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
         
         // 2. Require the endpoint with a different variable name
         let params = RequireEndpointParams {
             clientname: "client",
             servicename: "svc",
             branch: "main",
+            api_type: ApiType::OpenApi,
             path: "/api/{userId}",
             method: "GET",
             timeout_secs: None,
@@ -1712,6 +1774,7 @@ paths:
             clientname: "client",
             servicename: "svc",
             branch: "main",
+            api_type: ApiType::OpenApi,
             path: "//api//{uId}/",
             method: "GET",
             timeout_secs: None,
@@ -1735,7 +1798,7 @@ paths:
         '200':
           description: OK
 "#;
-        let result = provide_spec(&repo, "svc", "main", yaml).await;
+        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await;
         assert!(result.is_ok());
     }
 
@@ -1754,8 +1817,8 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
-        let result = provide_spec(&repo, "svc", "main", yaml).await;
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
+        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await;
         assert!(result.is_ok());
     }
 
@@ -1787,9 +1850,9 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", yaml1).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml1).await.unwrap();
         // Adding a description is backward-compatible, should succeed
-        let result = provide_spec(&repo, "svc", "main", yaml2).await;
+        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml2).await;
         assert!(result.is_ok());
     }
 
@@ -1842,9 +1905,9 @@ components:
         name:
           type: integer
 "#;
-        provide_spec(&repo, "svc", "main", yaml1).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml1).await.unwrap();
         // Changing property type is a breaking change
-        let result = provide_spec(&repo, "svc", "main", yaml2).await;
+        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml2).await;
         assert!(matches!(result, Err(AppError::Conflict(_))));
     }
 
@@ -1899,9 +1962,9 @@ components:
         email:
           type: string
 "#;
-        provide_spec(&repo, "svc", "main", yaml1).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml1).await.unwrap();
         // Adding a new optional field is backward-compatible
-        let result = provide_spec(&repo, "svc", "main", yaml2).await;
+        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml2).await;
         assert!(result.is_ok());
 
         // Check that versions were recorded (v1 = baseline, v2 = update with diff)
@@ -1946,17 +2009,17 @@ paths:
           description: OK
 "#;
         // Provide two endpoints on protected branch
-        provide_spec(&repo, "svc", "main", yaml_two_endpoints).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml_two_endpoints).await.unwrap();
         let service_id = repo.ensure_service("svc").await.unwrap();
         let branch_id = repo.ensure_branch(service_id, "main").await.unwrap();
         assert_eq!(repo.get_endpoints_for_branch(branch_id).await.unwrap().len(), 2);
 
         // Provide only one endpoint — /orders should be soft-deleted
-        provide_spec(&repo, "svc", "main", yaml_one_endpoint).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml_one_endpoint).await.unwrap();
         let eps = repo.get_endpoints_for_branch(branch_id).await.unwrap();
         assert_eq!(eps.len(), 1);
         assert_eq!(eps[0].path, "/users");
-        assert!(repo.is_endpoint_deleted(branch_id, "/orders", "GET").await.unwrap());
+        assert!(repo.is_endpoint_deleted(branch_id, ApiType::OpenApi, "/orders", "GET").await.unwrap());
     }
 
     #[tokio::test]
@@ -1991,10 +2054,10 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", yaml_two).await.unwrap();
-        provide_spec(&repo, "svc", "main", yaml_one).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml_two).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml_one).await.unwrap();
         // Re-introducing /orders should be rejected as contract violation
-        let result = provide_spec(&repo, "svc", "main", yaml_two).await;
+        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml_two).await;
         assert!(matches!(result, Err(AppError::Conflict(_))));
     }
 
@@ -2030,24 +2093,24 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "feature-x", yaml_two).await.unwrap();
-        provide_spec(&repo, "svc", "feature-x", yaml_one).await.unwrap();
+        provide_spec(&repo, "svc", "feature-x", ApiType::OpenApi, yaml_two).await.unwrap();
+        provide_spec(&repo, "svc", "feature-x", ApiType::OpenApi, yaml_one).await.unwrap();
         let service_id = repo.ensure_service("svc").await.unwrap();
         let branch_id = repo.ensure_branch(service_id, "feature-x").await.unwrap();
         let eps = repo.get_endpoints_for_branch(branch_id).await.unwrap();
         assert_eq!(eps.len(), 1);
         assert_eq!(eps[0].path, "/users");
         // Not soft-deleted, actually removed
-        assert!(!repo.is_endpoint_deleted(branch_id, "/orders", "GET").await.unwrap());
+        assert!(!repo.is_endpoint_deleted(branch_id, ApiType::OpenApi, "/orders", "GET").await.unwrap());
         // Re-introduction is allowed on feature branches
-        let result = provide_spec(&repo, "svc", "feature-x", yaml_two).await;
+        let result = provide_spec(&repo, "svc", "feature-x", ApiType::OpenApi, yaml_two).await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_provide_spec_invalid_yaml() {
         let repo = MockRepo::new();
-        let result = provide_spec(&repo, "svc", "main", "not valid [[[").await;
+        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, "not valid [[[").await;
         assert!(matches!(result, Err(AppError::BadRequest(_))));
     }
 
@@ -2058,6 +2121,7 @@ paths:
             clientname: "client",
             servicename: "svc",
             branch: "main",
+            api_type: ApiType::OpenApi,
             path: "/missing",
             method: "GET",
             timeout_secs: None,
@@ -2080,11 +2144,12 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
         let result = require_endpoint(&repo, None, RequireEndpointParams {
             clientname: "client",
             servicename: "svc",
             branch: "main",
+            api_type: ApiType::OpenApi,
             path: "/users",
             method: "GET",
             timeout_secs: None,
@@ -2112,17 +2177,20 @@ paths:
         let report = DependencyReport {
             branch: "dev".to_string(),
             dependency_graph: vec![DependencyInfo {
+                api_type: ApiType::OpenApi,
                 client: "web".to_string(),
                 service: "api".to_string(),
                 path: "/users".to_string(),
                 method: "GET".to_string(),
             }],
             unused_endpoints: vec![EndpointInfo {
+                api_type: ApiType::OpenApi,
                 service: "api".to_string(),
                 path: "/old".to_string(),
                 method: "DELETE".to_string(),
             }],
             missing_endpoints: vec![MissingEndpointInfo {
+                api_type: ApiType::OpenApi,
                 client: "web".to_string(),
                 service: "api".to_string(),
                 path: "/new".to_string(),
@@ -2130,9 +2198,9 @@ paths:
             }],
         };
         let md = render_report_markdown(&report);
-        assert!(md.contains("| web | api | `/users` | `GET` |"));
-        assert!(md.contains("| api | `/old` | `DELETE` |"));
-        assert!(md.contains("| web | api | `/new` | `POST` |"));
+        assert!(md.contains("| web | api | OpenApi | `/users` | `GET` |"));
+        assert!(md.contains("| api | OpenApi | `/old` | `DELETE` |"));
+        assert!(md.contains("| web | api | OpenApi | `/new` | `POST` |"));
     }
 
     #[tokio::test]
@@ -2164,8 +2232,8 @@ paths:
           description: OK
 "#;
         // "feature/xyz" is not protected, so updates should be allowed
-        provide_spec(&repo, "svc", "feature/xyz", yaml1).await.unwrap();
-        let result = provide_spec(&repo, "svc", "feature/xyz", yaml2).await;
+        provide_spec(&repo, "svc", "feature/xyz", ApiType::OpenApi, yaml1).await.unwrap();
+        let result = provide_spec(&repo, "svc", "feature/xyz", ApiType::OpenApi, yaml2).await;
         assert!(result.is_ok());
 
         // Verify the endpoint was actually updated
@@ -2173,6 +2241,7 @@ paths:
             clientname: "client",
             servicename: "svc",
             branch: "feature/xyz",
+            api_type: ApiType::OpenApi,
             path: "/users",
             method: "GET",
             timeout_secs: None,
@@ -2196,13 +2265,14 @@ paths:
           description: OK
 "#;
         // Provide on main only
-        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
 
         // Require on a feature branch that has no endpoints — should fallback to main
         let result = require_endpoint(&repo, None, RequireEndpointParams {
             clientname: "client",
             servicename: "svc",
             branch: "feature/abc",
+            api_type: ApiType::OpenApi,
             path: "/users",
             method: "GET",
             timeout_secs: None,
@@ -2219,6 +2289,7 @@ paths:
             clientname: "client",
             servicename: "svc",
             branch: "main",
+            api_type: ApiType::OpenApi,
             path: "/missing",
             method: "GET",
             timeout_secs: Some(1),
@@ -2244,13 +2315,14 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
 
         // master is protected, so no fallback — endpoint not on master → NotFound
         let result = require_endpoint(&repo, None, RequireEndpointParams {
             clientname: "client",
             servicename: "svc",
             branch: "master",
+            api_type: ApiType::OpenApi,
             path: "/users",
             method: "GET",
             timeout_secs: None,
@@ -2308,8 +2380,8 @@ components:
           type: integer
 "#;
         // "main" is protected by default
-        provide_spec(&repo, "svc", "main", yaml1).await.unwrap();
-        let result = provide_spec(&repo, "svc", "main", yaml2).await;
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml1).await.unwrap();
+        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml2).await;
         assert!(matches!(result, Err(AppError::Conflict(_))));
     }
 
@@ -2349,7 +2421,7 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
         let services = list_services(&repo).await.unwrap();
         assert!(services.contains(&"svc".to_string()));
 
@@ -2378,8 +2450,8 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
-        provide_spec(&repo, "svc", "feature/x", yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
+        provide_spec(&repo, "svc", "feature/x", ApiType::OpenApi, yaml).await.unwrap();
 
         let branches = list_branches(&repo, "svc").await.unwrap();
         assert_eq!(branches.len(), 2);
@@ -2410,11 +2482,12 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
         require_endpoint(&repo, None, RequireEndpointParams {
             clientname: "webclient",
             servicename: "svc",
             branch: "main",
+            api_type: ApiType::OpenApi,
             path: "/users",
             method: "GET",
             timeout_secs: None,
@@ -2701,6 +2774,7 @@ paths:
             clientname: "client",
             servicename: "svc",
             branch: "main",
+            api_type: ApiType::OpenApi,
             endpoints: &[],
             timeout_secs: None,
         }).await;
@@ -2751,7 +2825,7 @@ components:
         id:
           type: integer
 "#;
-        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
 
         let endpoints = vec![
             ("/users".to_string(), "GET".to_string()),
@@ -2761,6 +2835,7 @@ components:
             clientname: "client",
             servicename: "svc",
             branch: "main",
+            api_type: ApiType::OpenApi,
             endpoints: &endpoints,
             timeout_secs: None,
         }).await.unwrap();
@@ -2794,7 +2869,7 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
 
         let endpoints = vec![
             ("/users".to_string(), "GET".to_string()),
@@ -2804,6 +2879,7 @@ paths:
             clientname: "client",
             servicename: "svc",
             branch: "main",
+            api_type: ApiType::OpenApi,
             endpoints: &endpoints,
             timeout_secs: None,
         }).await;
@@ -2891,7 +2967,7 @@ paths:
           description: OK
 "#;
         // Dry-run provide for a new service should not create service/branch/endpoint records
-        provide_spec_dry_run(&repo, "ghost-service", "main", yaml).await.unwrap();
+        provide_spec_dry_run(&repo, "ghost-service", "main", ApiType::OpenApi, yaml).await.unwrap();
         assert!(repo.services.lock().unwrap().is_empty(), "dry-run should not create service");
         assert!(repo.branches.lock().unwrap().is_empty(), "dry-run should not create branch");
         assert!(repo.endpoints.lock().unwrap().is_empty(), "dry-run should not create endpoints");
@@ -2905,6 +2981,7 @@ paths:
             clientname: "ghost-client",
             servicename: "ghost-service",
             branch: "main",
+            api_type: ApiType::OpenApi,
             path: "/foo",
             method: "GET",
             timeout_secs: None,

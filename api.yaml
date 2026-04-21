@@ -3,8 +3,8 @@ info:
   title: Sanshain Client API
   description: |
     API contract for Sanshain clients (build plugins, CLIs).
-    Covers the two core operations: providing OpenAPI specs and requiring endpoint snippets.
-  version: "0.1.0"
+    Covers core operations: providing specifications (OpenAPI, AsyncAPI, gRPC/Proto) and requiring endpoint snippets.
+  version: "0.2.0"
   license:
     name: AGPL-3.0
     url: https://www.gnu.org/licenses/agpl-3.0.html
@@ -50,6 +50,48 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /provide/asyncapi:
+    post:
+      operationId: provideAsyncApi
+      summary: Upload an AsyncAPI specification for a service branch
+      description: |
+        Parses the provided AsyncAPI YAML, splits it into individual channel snippets,
+        and stores them for the given service and branch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProvideAsyncApiPayload"
+      responses:
+        "202":
+          description: Specification accepted and stored.
+        "400":
+          description: Invalid request.
+        "409":
+          description: Conflict on protected branch.
+
+  /provide/grpc:
+    post:
+      operationId: provideGrpc
+      summary: Upload a .proto file for a service branch
+      description: |
+        Parses the provided Proto file, extracts service and method definitions,
+        and stores them as individual endpoints.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProvideProtoPayload"
+      responses:
+        "202":
+          description: Specification accepted and stored.
+        "400":
+          description: Invalid request.
+        "409":
+          description: Conflict on protected branch.
 
   /require:
     get:
@@ -130,6 +172,62 @@ paths:
               schema:
                 type: string
 
+  /require/asyncapi:
+    get:
+      operationId: requireAsyncApi
+      summary: Retrieve an AsyncAPI channel snippet and register a dependency
+      parameters:
+        - $ref: "#/components/parameters/clientname"
+        - $ref: "#/components/parameters/servicename"
+        - $ref: "#/components/parameters/branch"
+        - name: path
+          in: query
+          required: true
+          description: "Channel name."
+          schema:
+            type: string
+        - name: method
+          in: query
+          required: true
+          description: "Operation (PUB or SUB)."
+          schema:
+            type: string
+        - $ref: "#/components/parameters/timeout"
+        - $ref: "#/components/parameters/dry_run"
+      responses:
+        "200":
+          description: The AsyncAPI snippet.
+        "404":
+          description: Not found.
+
+  /require/grpc:
+    get:
+      operationId: requireGrpc
+      summary: Retrieve a gRPC method snippet and register a dependency
+      parameters:
+        - $ref: "#/components/parameters/clientname"
+        - $ref: "#/components/parameters/servicename"
+        - $ref: "#/components/parameters/branch"
+        - name: path
+          in: query
+          required: true
+          description: "Service name."
+          schema:
+            type: string
+        - name: method
+          in: query
+          required: true
+          description: "Method name."
+          schema:
+            type: string
+        - $ref: "#/components/parameters/timeout"
+        - $ref: "#/components/parameters/dry_run"
+      responses:
+        "200":
+          description: The Proto snippet.
+        "404":
+          description: Not found.
+
   /require-bundle:
     post:
       operationId: requireBundle
@@ -177,6 +275,40 @@ paths:
                 type: string
 
 components:
+  parameters:
+    clientname:
+      name: clientname
+      in: query
+      required: true
+      schema:
+        type: string
+    servicename:
+      name: servicename
+      in: query
+      required: true
+      schema:
+        type: string
+    branch:
+      name: branch
+      in: query
+      required: true
+      schema:
+        type: string
+    timeout:
+      name: timeout
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int64
+    dry_run:
+      name: dry_run
+      in: query
+      required: false
+      schema:
+        type: boolean
+        default: false
+
   schemas:
     ProvidePayload:
       type: object
@@ -200,6 +332,40 @@ components:
           description: |
             When true, validates the spec (parsing, conflict detection) without storing anything.
             Useful for CI dry-run checks.
+    ProvideAsyncApiPayload:
+      type: object
+      required:
+        - servicename
+        - branch
+        - asyncapi_yaml
+      properties:
+        servicename:
+          type: string
+        branch:
+          type: string
+        asyncapi_yaml:
+          type: string
+        dry_run:
+          type: boolean
+          default: false
+
+    ProvideProtoPayload:
+      type: object
+      required:
+        - servicename
+        - branch
+        - proto_content
+      properties:
+        servicename:
+          type: string
+        branch:
+          type: string
+        proto_content:
+          type: string
+        dry_run:
+          type: boolean
+          default: false
+
     RequireBundlePayload:
       type: object
       required:
@@ -217,6 +383,10 @@ components:
         branch:
           type: string
           description: Branch name to retrieve the endpoints from.
+        api_type:
+          type: string
+          enum: [openapi, asyncapi, proto]
+          default: openapi
         endpoints:
           type: array
           description: List of endpoints to include in the merged spec.

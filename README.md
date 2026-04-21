@@ -4,7 +4,7 @@
 
 # [Sanshain Service](https://github.com/paxel/sanshain-service)
 
-Sanshain (Japanese for "Sunshine") is a specialized REST service designed to manage, split, and distribute OpenAPI specifications. It acts as a central repository that allows microservices to "provide" their full API definitions and clients to "require" only the specific snippets (endpoints and necessary DTOs) they actually use **at build time**.
+Sanshain (Japanese for "Sunshine") is a specialized service designed to manage, split, and distribute API specifications (OpenAPI, AsyncAPI, and gRPC/Proto). It acts as a central repository that microservices use to "provide" their full API definitions and clients to "require" only the specific snippets (endpoints, channels, or methods) they actually use **at build time**.
 
 ## Use Cases
 
@@ -77,10 +77,10 @@ The service is available at: `http://localhost:3000` (default when running local
 This URL serves the Web Dashboard directly.
 
 ## Core Features
-- **OpenAPI Splitting**: Automatically splits large OpenAPI files into per-endpoint snippets.
-- **Backward Compatibility Checking**: Protected branches accept backward-compatible schema changes and reject breaking changes.
-- **Endpoint Version History**: Every accepted update on a protected branch is versioned with full YAML and unified diffs.
-- **Dependency Tracking**: Records which clients depend on which service endpoints.
+- **Spec Splitting**: Automatically splits OpenAPI, AsyncAPI, and Proto files into per-endpoint/channel/method snippets.
+- **Backward Compatibility Checking**: Protected branches accept backward-compatible schema changes (OpenAPI) and reject breaking changes.
+- **Endpoint Version History**: Every accepted update on a protected branch is versioned with full content and unified diffs.
+- **Dependency Tracking**: Records which clients depend on which service endpoints across different protocols.
 - **Dependency Reports**: Identifies unused endpoints and missing dependencies.
 - **Web Dashboard**: Navigate services, branches, and client dependencies visually, with dark/light mode toggle.
 - **Dry-Run Mode**: Validate specs and dependencies without persisting data — ideal for CI pipelines.
@@ -92,14 +92,34 @@ The client-facing API (`/provide` and `/require`) is formally specified in [`api
 ## API Usage
 
 ### 1. `POST /provide`
-Provide an OpenAPI specification for a service branch.
+Provide an OpenAPI specification for a service branch. For AsyncAPI, use `/provide/asyncapi`. For Proto, use `/provide/grpc`.
 
-**Payload:**
+**Payload (OpenAPI):**
 ```json
 {
   "servicename": "UserService",
   "branch": "main",
   "openapi_yaml": "...",
+  "dry_run": false
+}
+```
+
+**Payload (AsyncAPI):**
+```json
+{
+  "servicename": "EventService",
+  "branch": "main",
+  "asyncapi_yaml": "...",
+  "dry_run": false
+}
+```
+
+**Payload (gRPC):**
+```json
+{
+  "servicename": "GreeterService",
+  "branch": "main",
+  "proto_content": "...",
   "dry_run": false
 }
 ```
@@ -116,7 +136,7 @@ Provide an OpenAPI specification for a service branch.
 On **feature branches**, endpoint schemas can be freely overwritten without compatibility checks.
 
 ### 2. `GET /require`
-Request the OpenAPI snippet for a specific endpoint and record the dependency.
+Request the OpenAPI snippet for a specific endpoint and record the dependency. For AsyncAPI, use `/require/asyncapi`. For Proto, use `/require/grpc`.
 
 **Query Parameters:**
 - `clientname`: Name of the client service.
@@ -320,15 +340,16 @@ After the script completes, open the service overview page to browse the depende
 
 ### Additional Demo Scenarios
 
-Two larger demo scripts are shipped alongside `demo.sh` to showcase how the dependency graph scales, and how the **branch selector** in the service UI can be used to switch between completely different architectures without restarting the instance:
+Two larger demo scripts are shipped alongside `demo.sh` to showcase how the dependency graph scales, and how the service handles multiple protocols:
 
+- **`demo_protocols.sh`** — demonstrates **AsyncAPI (Kafka)** and **gRPC (Proto)** support. It registers a scenario where a REST gateway calls a gRPC user-service, which in turn publishes events to a Kafka event-bus. An analytics service consumes all events. All protocols are tracked and displayed in a unified dependency graph.
 - **`demo2.sh`** — a synthetic large-scale scenario with **30 services** (Frontend → API Middleware → Backend, a complex ETL pipeline with central orchestration and multiple enrichers, an ML system, multiple ingestion sources and exports, and infra wrappers for Postgres / Elastic / Redis / Kafka). Registered on the `main` branch.
 - **`demo3.sh`** — reproduces the publicly documented **[Google Cloud "Online Boutique" (Hipster Shop)](https://github.com/GoogleCloudPlatform/microservices-demo)** microservices demo: `frontend`, `cartservice`, `productcatalogservice`, `currencyservice`, `paymentservice`, `shippingservice`, `emailservice`, `checkoutservice`, `recommendationservice`, `adservice` and `loadgenerator`, with dependencies taken straight from the upstream architecture diagram. Registered on a dedicated `google` branch (override with `DEMO3_BRANCH=<name>`).
 
 ```bash
+./demo_protocols.sh               # AsyncAPI and gRPC/Proto scenario
 ./demo2.sh                        # 30-service synthetic scenario on `main`
 ./demo3.sh                        # Google Online Boutique on `google`
-DEMO3_BRANCH=netflix ./demo3.sh   # or register it under a custom branch name
 ```
 
 In the service overview UI, use the **branch switcher** to flip between `main` (demo/demo2) and `google` (demo3) — the graph re-renders with the topology of the selected branch, so each published scenario can be explored independently.

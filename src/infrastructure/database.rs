@@ -55,12 +55,12 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, ensure_client(name))
     }
 
-    async fn find_endpoint(&self, service_id: i64, branch_name: &str, path: &str, method: &str) -> Result<Option<(i64, String)>, RepositoryError> {
-        delegate!(self, find_endpoint(service_id, branch_name, path, method))
+    async fn find_endpoint(&self, service_id: i64, branch_name: &str, api_type: ApiType, path: &str, method: &str) -> Result<Option<(i64, String)>, RepositoryError> {
+        delegate!(self, find_endpoint(service_id, branch_name, api_type, path, method))
     }
 
-    async fn record_dependency(&self, client_id: i64, endpoint_id: Option<i64>, service_id: i64, branch_name: &str, path: &str, method: &str) -> Result<(), RepositoryError> {
-        delegate!(self, record_dependency(client_id, endpoint_id, service_id, branch_name, path, method))
+    async fn record_dependency(&self, client_id: i64, endpoint_id: Option<i64>, api_type: ApiType, service_id: i64, branch_name: &str, path: &str, method: &str) -> Result<(), RepositoryError> {
+        delegate!(self, record_dependency(client_id, endpoint_id, api_type, service_id, branch_name, path, method))
     }
 
     async fn get_report(&self, branch: &str) -> Result<DependencyReport, RepositoryError> {
@@ -83,20 +83,20 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, list_protected_branches())
     }
 
-    async fn update_endpoint(&self, branch_id: i64, path: &str, method: &str, yaml_content: &str) -> Result<(), RepositoryError> {
-        delegate!(self, update_endpoint(branch_id, path, method, yaml_content))
+    async fn update_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str, yaml_content: &str) -> Result<(), RepositoryError> {
+        delegate!(self, update_endpoint(branch_id, api_type, path, method, yaml_content))
     }
 
-    async fn soft_delete_endpoint(&self, branch_id: i64, path: &str, method: &str) -> Result<(), RepositoryError> {
-        delegate!(self, soft_delete_endpoint(branch_id, path, method))
+    async fn soft_delete_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<(), RepositoryError> {
+        delegate!(self, soft_delete_endpoint(branch_id, api_type, path, method))
     }
 
-    async fn hard_delete_endpoint(&self, branch_id: i64, path: &str, method: &str) -> Result<(), RepositoryError> {
-        delegate!(self, hard_delete_endpoint(branch_id, path, method))
+    async fn hard_delete_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<(), RepositoryError> {
+        delegate!(self, hard_delete_endpoint(branch_id, api_type, path, method))
     }
 
-    async fn is_endpoint_deleted(&self, branch_id: i64, path: &str, method: &str) -> Result<bool, RepositoryError> {
-        delegate!(self, is_endpoint_deleted(branch_id, path, method))
+    async fn is_endpoint_deleted(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<bool, RepositoryError> {
+        delegate!(self, is_endpoint_deleted(branch_id, api_type, path, method))
     }
 
     async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {
@@ -215,8 +215,8 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, delete_stale_dependencies(cutoff_iso))
     }
 
-    async fn get_endpoint_id(&self, branch_id: i64, path: &str, method: &str) -> Result<Option<i64>, RepositoryError> {
-        delegate!(self, get_endpoint_id(branch_id, path, method))
+    async fn get_endpoint_id(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<Option<i64>, RepositoryError> {
+        delegate!(self, get_endpoint_id(branch_id, api_type, path, method))
     }
 
     async fn insert_endpoint_version(&self, endpoint_id: i64, version: i32, yaml_content: &str, diff: Option<&str>, created_at: &str) -> Result<(), RepositoryError> {

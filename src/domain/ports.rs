@@ -67,6 +67,7 @@ pub trait SpecRepository: Send + Sync {
         &self,
         service_id: i64,
         branch_name: &str,
+        api_type: ApiType,
         path: &str,
         method: &str,
     ) -> impl Future<Output = Result<Option<(i64, String)>, RepositoryError>> + Send;
@@ -76,6 +77,7 @@ pub trait SpecRepository: Send + Sync {
         &self,
         client_id: i64,
         endpoint_id: Option<i64>,
+        api_type: ApiType,
         service_id: i64,
         branch_name: &str,
         path: &str,
@@ -98,16 +100,16 @@ pub trait SpecRepository: Send + Sync {
     fn list_protected_branches(&self) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
     /// Update an existing endpoint's YAML content.
-    fn update_endpoint(&self, branch_id: i64, path: &str, method: &str, yaml_content: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn update_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str, yaml_content: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Soft-delete an endpoint (mark as deleted). Used on protected branches to preserve history.
-    fn soft_delete_endpoint(&self, branch_id: i64, path: &str, method: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn soft_delete_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Hard-delete endpoints by branch, path, and method. Used on non-protected branches.
-    fn hard_delete_endpoint(&self, branch_id: i64, path: &str, method: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn hard_delete_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Check if a soft-deleted endpoint exists for the given branch, path, and method.
-    fn is_endpoint_deleted(&self, branch_id: i64, path: &str, method: &str) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+    fn is_endpoint_deleted(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
 
     /// Delete a service and all its branches, endpoints, and related dependencies.
     fn delete_service(&self, name: &str) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
@@ -203,7 +205,7 @@ pub trait SpecRepository: Send + Sync {
     fn delete_stale_dependencies(&self, cutoff_iso: &str) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
 
     /// Get the endpoint ID for a given branch, path, and method.
-    fn get_endpoint_id(&self, branch_id: i64, path: &str, method: &str) -> impl Future<Output = Result<Option<i64>, RepositoryError>> + Send;
+    fn get_endpoint_id(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> impl Future<Output = Result<Option<i64>, RepositoryError>> + Send;
 
     /// Insert a new endpoint version record.
     fn insert_endpoint_version(&self, endpoint_id: i64, version: i32, yaml_content: &str, diff: Option<&str>, created_at: &str) -> impl Future<Output = Result<(), RepositoryError>> + Send;

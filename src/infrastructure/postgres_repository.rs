@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use sqlx::{PgPool, FromRow};
 use crate::domain::models::*;
 use crate::domain::ports::{RepositoryError, SpecRepository};
@@ -159,8 +160,8 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn get_endpoints_for_branch(&self, branch_id: i64) -> Result<Vec<EndpointRecord>, RepositoryError> {
-        let rows: Vec<(i64, String, String, String, String)> = sqlx::query_as(
-            "SELECT id, path, normalized_path, method, yaml_content FROM endpoints WHERE branch_id = $1 AND deleted = FALSE"
+        let rows: Vec<(i64, String, String, String, String, String)> = sqlx::query_as(
+            "SELECT id, api_type, path, normalized_path, method, yaml_content FROM endpoints WHERE branch_id = $1 AND deleted = FALSE"
         )
         .bind(branch_id)
         .fetch_all(&self.pool)
@@ -169,8 +170,9 @@ impl SpecRepository for PostgresSpecRepository {
 
         Ok(rows
             .into_iter()
-            .map(|(id, path, normalized_path, method, yaml_content)| EndpointRecord {
+            .map(|(id, api_type, path, normalized_path, method, yaml_content)| EndpointRecord {
                 id: Some(id),
+                api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                 path,
                 normalized_path,
                 method,
@@ -180,8 +182,9 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn insert_endpoint(&self, branch_id: i64, endpoint: &EndpointRecord) -> Result<(), RepositoryError> {
-        sqlx::query("INSERT INTO endpoints (branch_id, path, normalized_path, method, yaml_content) VALUES ($1, $2, $3, $4, $5)")
+        sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content) VALUES ($1, $2, $3, $4, $5, $6)")
             .bind(branch_id)
+            .bind(endpoint.api_type.as_str())
             .bind(&endpoint.path)
             .bind(&endpoint.normalized_path)
             .bind(&endpoint.method)
@@ -213,6 +216,7 @@ impl SpecRepository for PostgresSpecRepository {
         &self,
         service_id: i64,
         branch_name: &str,
+        api_type: ApiType,
         path: &str,
         method: &str,
     ) -> Result<Option<(i64, String)>, RepositoryError> {
@@ -222,11 +226,12 @@ impl SpecRepository for PostgresSpecRepository {
             SELECT e.id, e.yaml_content
             FROM endpoints e
             JOIN branches b ON e.branch_id = b.id
-            WHERE b.service_id = $1 AND b.name = $2 AND e.normalized_path = $3 AND e.method = $4 AND e.deleted = FALSE
+            WHERE b.service_id = $1 AND b.name = $2 AND e.api_type = $3 AND e.normalized_path = $4 AND e.method = $5 AND e.deleted = FALSE
             "#,
         )
         .bind(service_id)
         .bind(branch_name)
+        .bind(api_type.as_str())
         .bind(normalized_path)
         .bind(method)
         .fetch_optional(&self.pool)
@@ -240,6 +245,7 @@ impl SpecRepository for PostgresSpecRepository {
         &self,
         client_id: i64,
         endpoint_id: Option<i64>,
+        api_type: ApiType,
         service_id: i64,
         branch_name: &str,
         path: &str,
@@ -250,14 +256,15 @@ impl SpecRepository for PostgresSpecRepository {
         sqlx::query(
             r#"
             INSERT INTO dependencies 
-            (client_id, endpoint_id, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ON CONFLICT(client_id, endpoint_id, requested_service_id, requested_branch_name, requested_path, requested_method)
+            (client_id, endpoint_id, api_type, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT(client_id, endpoint_id, requested_service_id, requested_branch_name, api_type, requested_path, requested_method)
             DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
             "#,
         )
         .bind(client_id)
         .bind(endpoint_id)
+        .bind(api_type.as_str())
         .bind(service_id)
         .bind(branch_name)
         .bind(path)
@@ -312,10 +319,11 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    async fn update_endpoint(&self, branch_id: i64, path: &str, method: &str, yaml_content: &str) -> Result<(), RepositoryError> {
-        sqlx::query("UPDATE endpoints SET yaml_content = $1 WHERE branch_id = $2 AND path = $3 AND method = $4")
+    async fn update_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str, yaml_content: &str) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE endpoints SET yaml_content = $1 WHERE branch_id = $2 AND api_type = $3 AND path = $4 AND method = $5")
             .bind(yaml_content)
             .bind(branch_id)
+            .bind(api_type.as_str())
             .bind(path)
             .bind(method)
             .execute(&self.pool)
@@ -324,9 +332,10 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(())
     }
 
-    async fn soft_delete_endpoint(&self, branch_id: i64, path: &str, method: &str) -> Result<(), RepositoryError> {
-        sqlx::query("UPDATE endpoints SET deleted = TRUE WHERE branch_id = $1 AND path = $2 AND method = $3")
+    async fn soft_delete_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE endpoints SET deleted = TRUE WHERE branch_id = $1 AND api_type = $2 AND path = $3 AND method = $4")
             .bind(branch_id)
+            .bind(api_type.as_str())
             .bind(path)
             .bind(method)
             .execute(&self.pool)
@@ -335,9 +344,10 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(())
     }
 
-    async fn hard_delete_endpoint(&self, branch_id: i64, path: &str, method: &str) -> Result<(), RepositoryError> {
-        sqlx::query("DELETE FROM endpoints WHERE branch_id = $1 AND path = $2 AND method = $3")
+    async fn hard_delete_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM endpoints WHERE branch_id = $1 AND api_type = $2 AND path = $3 AND method = $4")
             .bind(branch_id)
+            .bind(api_type.as_str())
             .bind(path)
             .bind(method)
             .execute(&self.pool)
@@ -346,11 +356,12 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(())
     }
 
-    async fn is_endpoint_deleted(&self, branch_id: i64, path: &str, method: &str) -> Result<bool, RepositoryError> {
+    async fn is_endpoint_deleted(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<bool, RepositoryError> {
         let row: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM endpoints WHERE branch_id = $1 AND path = $2 AND method = $3 AND deleted = TRUE"
+            "SELECT COUNT(*) FROM endpoints WHERE branch_id = $1 AND api_type = $2 AND path = $3 AND method = $4 AND deleted = TRUE"
         )
         .bind(branch_id)
+        .bind(api_type.as_str())
         .bind(path)
         .bind(method)
         .fetch_one(&self.pool)
@@ -363,14 +374,14 @@ impl SpecRepository for PostgresSpecRepository {
         let mut conn = self.pool.acquire().await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        let dependency_rows: Vec<(String, String, String, String)> = sqlx::query_as(
+        let dependency_rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
             r#"
-            SELECT c.name, s.name, d.requested_path, d.requested_method
+            SELECT c.name, d.api_type, s.name, d.requested_path, d.requested_method
             FROM dependencies d
             JOIN clients c ON d.client_id = c.id
             JOIN services s ON d.requested_service_id = s.id
             LEFT JOIN branches b ON b.service_id = s.id AND b.name = d.requested_branch_name
-            LEFT JOIN endpoints e ON (e.id = d.endpoint_id OR (e.branch_id = b.id AND e.normalized_path = d.requested_normalized_path AND e.method = d.requested_method))
+            LEFT JOIN endpoints e ON (e.id = d.endpoint_id OR (e.branch_id = b.id AND e.api_type = d.api_type AND e.normalized_path = d.requested_normalized_path AND e.method = d.requested_method))
             WHERE d.requested_branch_name = $1
             AND (e.id IS NULL OR e.deleted = FALSE)
             "#,
@@ -382,7 +393,8 @@ impl SpecRepository for PostgresSpecRepository {
 
         let dependency_graph = dependency_rows
             .into_iter()
-            .map(|(client, service, path, method)| DependencyInfo {
+            .map(|(client, api_type, service, path, method)| DependencyInfo {
+                api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                 client,
                 service,
                 path,
@@ -390,9 +402,9 @@ impl SpecRepository for PostgresSpecRepository {
             })
             .collect();
 
-        let unused_rows: Vec<(String, String, String)> = sqlx::query_as(
+        let unused_rows: Vec<(String, String, String, String)> = sqlx::query_as(
             r#"
-            SELECT s.name, e.path, e.method
+            SELECT s.name, e.api_type, e.path, e.method
             FROM endpoints e
             JOIN branches b ON e.branch_id = b.id
             JOIN services s ON b.service_id = s.id
@@ -410,21 +422,22 @@ impl SpecRepository for PostgresSpecRepository {
 
         let unused_endpoints = unused_rows
             .into_iter()
-            .map(|(service, path, method)| EndpointInfo {
+            .map(|(service, api_type, path, method)| EndpointInfo {
+                api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                 service,
                 path,
                 method,
             })
             .collect();
 
-        let missing_rows: Vec<(String, String, String, String)> = sqlx::query_as(
+        let missing_rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
             r#"
-            SELECT c.name, s.name, d.requested_path, d.requested_method
+            SELECT c.name, d.api_type, s.name, d.requested_path, d.requested_method
             FROM dependencies d
             JOIN clients c ON d.client_id = c.id
             JOIN services s ON d.requested_service_id = s.id
             LEFT JOIN branches b ON b.service_id = s.id AND b.name = d.requested_branch_name
-            LEFT JOIN endpoints e ON (e.id = d.endpoint_id OR (e.branch_id = b.id AND e.normalized_path = d.requested_normalized_path AND e.method = d.requested_method))
+            LEFT JOIN endpoints e ON (e.id = d.endpoint_id OR (e.branch_id = b.id AND e.api_type = d.api_type AND e.normalized_path = d.requested_normalized_path AND e.method = d.requested_method))
             WHERE d.requested_branch_name = $1 
             AND e.id IS NULL
             "#,
@@ -436,7 +449,8 @@ impl SpecRepository for PostgresSpecRepository {
 
         let missing_endpoints = missing_rows
             .into_iter()
-            .map(|(client, service, path, method)| MissingEndpointInfo {
+            .map(|(client, api_type, service, path, method)| MissingEndpointInfo {
+                api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                 client,
                 service,
                 path,
@@ -667,8 +681,8 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn list_client_endpoints(&self, client_name: &str, branch: &str) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
-        let rows: Vec<(String, String, String, String, Option<String>)> = sqlx::query_as(
-            "SELECT s.name, d.requested_branch_name, d.requested_path, d.requested_method, e.yaml_content \
+        let rows: Vec<(String, String, String, String, String, Option<String>)> = sqlx::query_as(
+            "SELECT d.api_type, s.name, d.requested_branch_name, d.requested_path, d.requested_method, e.yaml_content \
              FROM dependencies d \
              JOIN clients c ON d.client_id = c.id \
              JOIN services s ON d.requested_service_id = s.id \
@@ -681,7 +695,8 @@ impl SpecRepository for PostgresSpecRepository {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(rows.into_iter().map(|(service, branch, path, method, yaml_content)| ClientEndpointInfo {
+        Ok(rows.into_iter().map(|(api_type, service, branch, path, method, yaml_content)| ClientEndpointInfo {
+            api_type: ApiType::from_str(&api_type).unwrap_or_default(),
             service, branch, path, method, yaml_content,
         }).collect())
     }
@@ -984,12 +999,13 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(result.rows_affected())
     }
 
-    async fn get_endpoint_id(&self, branch_id: i64, path: &str, method: &str) -> Result<Option<i64>, RepositoryError> {
+    async fn get_endpoint_id(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<Option<i64>, RepositoryError> {
         let normalized_path = crate::openapi::normalize_path(path);
         let row: Option<(i64,)> = sqlx::query_as(
-            "SELECT id FROM endpoints WHERE branch_id = $1 AND normalized_path = $2 AND method = $3 AND deleted = false"
+            "SELECT id FROM endpoints WHERE branch_id = $1 AND api_type = $2 AND normalized_path = $3 AND method = $4 AND deleted = false"
         )
         .bind(branch_id)
+        .bind(api_type.as_str())
         .bind(normalized_path)
         .bind(method)
         .fetch_optional(&self.pool)
@@ -1049,9 +1065,10 @@ impl SpecRepository for PostgresSpecRepository {
 
         for change in changes {
             match change {
-                SpecChange::Insert { path, normalized_path, method, yaml_content } => {
-                    sqlx::query("INSERT INTO endpoints (branch_id, path, normalized_path, method, yaml_content, deleted) VALUES ($1, $2, $3, $4, $5, false)")
+                SpecChange::Insert { api_type, path, normalized_path, method, yaml_content } => {
+                    sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted) VALUES ($1, $2, $3, $4, $5, $6, false)")
                         .bind(branch_id)
+                        .bind(api_type.as_str())
                         .bind(&path)
                         .bind(&normalized_path)
                         .bind(&method)
@@ -1061,8 +1078,9 @@ impl SpecRepository for PostgresSpecRepository {
                         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
                     if is_protected {
-                        let row: (i64,) = sqlx::query_as("SELECT id FROM endpoints WHERE branch_id = $1 AND path = $2 AND method = $3 AND deleted = false")
+                        let row: (i64,) = sqlx::query_as("SELECT id FROM endpoints WHERE branch_id = $1 AND api_type = $2 AND path = $3 AND method = $4 AND deleted = false")
                             .bind(branch_id)
+                            .bind(api_type.as_str())
                             .bind(&path)
                             .bind(&method)
                             .fetch_one(&mut *tx)
@@ -1078,10 +1096,11 @@ impl SpecRepository for PostgresSpecRepository {
                             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
                     }
                 }
-                SpecChange::Update { path, normalized_path, method, yaml_content } => {
+                SpecChange::Update { api_type, path, normalized_path, method, yaml_content } => {
                     if is_protected {
-                        let row: (i64, String) = sqlx::query_as("SELECT id, yaml_content FROM endpoints WHERE branch_id = $1 AND path = $2 AND method = $3 AND deleted = false")
+                        let row: (i64, String) = sqlx::query_as("SELECT id, yaml_content FROM endpoints WHERE branch_id = $1 AND api_type = $2 AND path = $3 AND method = $4 AND deleted = false")
                             .bind(branch_id)
+                            .bind(api_type.as_str())
                             .bind(&path)
                             .bind(&method)
                             .fetch_one(&mut *tx)
@@ -1110,28 +1129,31 @@ impl SpecRepository for PostgresSpecRepository {
                             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
                     }
 
-                    sqlx::query("UPDATE endpoints SET yaml_content = $1, normalized_path = $2, deleted = false WHERE branch_id = $3 AND path = $4 AND method = $5")
+                    sqlx::query("UPDATE endpoints SET yaml_content = $1, normalized_path = $2, deleted = false WHERE branch_id = $3 AND api_type = $4 AND path = $5 AND method = $6")
                         .bind(&yaml_content)
                         .bind(&normalized_path)
                         .bind(branch_id)
+                        .bind(api_type.as_str())
                         .bind(&path)
                         .bind(&method)
                         .execute(&mut *tx)
                         .await
                         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
                 }
-                SpecChange::Delete { path, method, soft_delete } => {
+                SpecChange::Delete { api_type, path, method, soft_delete } => {
                     if soft_delete {
-                        sqlx::query("UPDATE endpoints SET deleted = true WHERE branch_id = $1 AND path = $2 AND method = $3")
+                        sqlx::query("UPDATE endpoints SET deleted = true WHERE branch_id = $1 AND api_type = $2 AND path = $3 AND method = $4")
                             .bind(branch_id)
+                            .bind(api_type.as_str())
                             .bind(&path)
                             .bind(&method)
                             .execute(&mut *tx)
                             .await
                             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
                     } else {
-                        sqlx::query("DELETE FROM endpoints WHERE branch_id = $1 AND path = $2 AND method = $3")
+                        sqlx::query("DELETE FROM endpoints WHERE branch_id = $1 AND api_type = $2 AND path = $3 AND method = $4")
                             .bind(branch_id)
+                            .bind(api_type.as_str())
                             .bind(&path)
                             .bind(&method)
                             .execute(&mut *tx)

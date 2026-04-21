@@ -7,8 +7,8 @@ This document defines the standard `sanshain.yaml` configuration file format use
 A `sanshain.yaml` file lives in the root of a project and declares:
 
 1. **Connection settings** — Sanshain server URL, timeouts, compression.
-2. **Provide** — Which OpenAPI spec this project publishes.
-3. **Requires** — Which endpoints from other services this project depends on.
+2. **Provide** — Which API spec this project publishes (OpenAPI, AsyncAPI, or Proto).
+3. **Requires** — Which endpoints/channels from other services this project depends on.
 
 Client plugins read this file and translate it into the appropriate `/provide`, `/require`, and `/require-bundle` API calls.
 
@@ -57,13 +57,16 @@ requires:
 
 ### `provide` Section
 
-Declares the OpenAPI spec this project publishes. Omit entirely if this project only consumes APIs.
+Declares the spec this project publishes. Omit entirely if this project only consumes APIs.
 
-| Field         | Type   | Required | Default                  | Description                                                                |
-|---------------|--------|----------|--------------------------|----------------------------------------------------------------------------|
-| `serviceName` | string | **yes**  | —                        | Name of the service being provided.                                        |
-| `openApiFile` | string | **yes**  | —                        | Path to the OpenAPI YAML file (relative to project root).                  |
-| `branch`      | string | no       | *auto-detected from VCS* | Branch name. Plugins should auto-detect from Git; override here if needed. |
+| Field           | Type   | Required | Default                  | Description                                                                |
+|-----------------|--------|----------|--------------------------|----------------------------------------------------------------------------|
+| `serviceName`   | string | **yes**  | —                        | Name of the service being provided.                                        |
+| `apiType`       | string | no       | `openapi`                | Type of API: `openapi`, `asyncapi`, or `proto`.                            |
+| `openApiFile`   | string | no       | —                        | Path to the OpenAPI YAML file (use if `apiType` is `openapi`).             |
+| `asyncApiFile`  | string | no       | —                        | Path to the AsyncAPI YAML file (use if `apiType` is `asyncapi`).            |
+| `protoFile`     | string | no       | —                        | Path to the `.proto` file (use if `apiType` is `proto`).                   |
+| `branch`        | string | no       | *auto-detected from VCS* | Branch name. Plugins should auto-detect from Git; override here if needed. |
 
 ### `requires` Section
 
@@ -72,17 +75,18 @@ A list of service dependencies. Each entry results in a single `POST /require-bu
 | Field             | Type    | Required | Default                  | Description                                                     |
 |-------------------|---------|----------|--------------------------|-----------------------------------------------------------------|
 | `serviceName`     | string  | **yes**  | —                        | Name of the service to require endpoints from.                  |
+| `apiType`         | string  | no       | `openapi`                | Type of API: `openapi`, `asyncapi`, or `proto`.                 |
 | `branch`          | string  | no       | *same as provide branch* | Branch to require from. Defaults to the current project branch. |
-| `outputDirectory` | string  | **yes**  | —                        | Directory where the merged OpenAPI YAML will be written.        |
+| `outputDirectory` | string  | **yes**  | —                        | Directory where the merged specification file will be written.  |
 | `timeout`         | integer | no       | *top-level timeout*      | Per-service timeout override for long-polling.                  |
-| `endpoints`       | list    | **yes**  | —                        | List of endpoints to require (see below).                       |
+| `endpoints`       | list    | **yes**  | —                        | List of endpoints/channels to require (see below).              |
 
 ### `endpoints` Entry
 
-| Field    | Type   | Required | Description                                        |
-|----------|--------|----------|----------------------------------------------------|
-| `method` | string | **yes**  | HTTP method (GET, POST, PUT, DELETE, PATCH, etc.). |
-| `path`   | string | **yes**  | API path (e.g., `/api/v1/users/{id}`).             |
+| Field    | Type   | Required | Description                                                            |
+|----------|--------|----------|------------------------------------------------------------------------|
+| `method` | string | **yes**  | HTTP method (GET, POST, etc.) or Operation (PUB, SUB) or gRPC Method. |
+| `path`   | string | **yes**  | API path or AsyncAPI Channel or gRPC Service.                          |
 
 ## How Plugins Use This
 

@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use sqlx::{SqlitePool, FromRow};
 
 use crate::domain::models::*;
@@ -160,8 +161,8 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn get_endpoints_for_branch(&self, branch_id: i64) -> Result<Vec<EndpointRecord>, RepositoryError> {
-        let rows: Vec<(i64, String, String, String, String)> = sqlx::query_as(
-            "SELECT id, path, normalized_path, method, yaml_content FROM endpoints WHERE branch_id = ? AND deleted = FALSE"
+        let rows: Vec<(i64, String, String, String, String, String)> = sqlx::query_as(
+            "SELECT id, api_type, path, normalized_path, method, yaml_content FROM endpoints WHERE branch_id = ? AND deleted = FALSE"
         )
         .bind(branch_id)
         .fetch_all(&self.pool)
@@ -170,8 +171,9 @@ impl SpecRepository for SqliteSpecRepository {
 
         Ok(rows
             .into_iter()
-            .map(|(id, path, normalized_path, method, yaml_content)| EndpointRecord {
+            .map(|(id, api_type, path, normalized_path, method, yaml_content)| EndpointRecord {
                 id: Some(id),
+                api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                 path,
                 normalized_path,
                 method,
@@ -181,8 +183,9 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn insert_endpoint(&self, branch_id: i64, endpoint: &EndpointRecord) -> Result<(), RepositoryError> {
-        sqlx::query("INSERT INTO endpoints (branch_id, path, normalized_path, method, yaml_content) VALUES (?, ?, ?, ?, ?)")
+        sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content) VALUES (?, ?, ?, ?, ?, ?)")
             .bind(branch_id)
+            .bind(endpoint.api_type.as_str())
             .bind(&endpoint.path)
             .bind(&endpoint.normalized_path)
             .bind(&endpoint.method)
@@ -214,6 +217,7 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
         service_id: i64,
         branch_name: &str,
+        api_type: ApiType,
         path: &str,
         method: &str,
     ) -> Result<Option<(i64, String)>, RepositoryError> {
@@ -223,11 +227,12 @@ impl SpecRepository for SqliteSpecRepository {
             SELECT e.id, e.yaml_content
             FROM endpoints e
             JOIN branches b ON e.branch_id = b.id
-            WHERE b.service_id = ? AND b.name = ? AND e.normalized_path = ? AND e.method = ? AND e.deleted = FALSE
+            WHERE b.service_id = ? AND b.name = ? AND e.api_type = ? AND e.normalized_path = ? AND e.method = ? AND e.deleted = FALSE
             "#,
         )
         .bind(service_id)
         .bind(branch_name)
+        .bind(api_type.as_str())
         .bind(normalized_path)
         .bind(method)
         .fetch_optional(&self.pool)
@@ -241,6 +246,7 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
         client_id: i64,
         endpoint_id: Option<i64>,
+        api_type: ApiType,
         service_id: i64,
         branch_name: &str,
         path: &str,
@@ -251,14 +257,15 @@ impl SpecRepository for SqliteSpecRepository {
         sqlx::query(
             r#"
             INSERT INTO dependencies 
-            (client_id, endpoint_id, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(client_id, endpoint_id, requested_service_id, requested_branch_name, requested_path, requested_method)
+            (client_id, endpoint_id, api_type, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(client_id, endpoint_id, requested_service_id, requested_branch_name, api_type, requested_path, requested_method)
             DO UPDATE SET last_seen_at = excluded.last_seen_at
             "#,
         )
         .bind(client_id)
         .bind(endpoint_id)
+        .bind(api_type.as_str())
         .bind(service_id)
         .bind(branch_name)
         .bind(path)
@@ -313,10 +320,11 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    async fn update_endpoint(&self, branch_id: i64, path: &str, method: &str, yaml_content: &str) -> Result<(), RepositoryError> {
-        sqlx::query("UPDATE endpoints SET yaml_content = ? WHERE branch_id = ? AND path = ? AND method = ?")
+    async fn update_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str, yaml_content: &str) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE endpoints SET yaml_content = ? WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ?")
             .bind(yaml_content)
             .bind(branch_id)
+            .bind(api_type.as_str())
             .bind(path)
             .bind(method)
             .execute(&self.pool)
@@ -325,9 +333,10 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(())
     }
 
-    async fn soft_delete_endpoint(&self, branch_id: i64, path: &str, method: &str) -> Result<(), RepositoryError> {
-        sqlx::query("UPDATE endpoints SET deleted = TRUE WHERE branch_id = ? AND path = ? AND method = ?")
+    async fn soft_delete_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE endpoints SET deleted = TRUE WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ?")
             .bind(branch_id)
+            .bind(api_type.as_str())
             .bind(path)
             .bind(method)
             .execute(&self.pool)
@@ -336,9 +345,10 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(())
     }
 
-    async fn hard_delete_endpoint(&self, branch_id: i64, path: &str, method: &str) -> Result<(), RepositoryError> {
-        sqlx::query("DELETE FROM endpoints WHERE branch_id = ? AND path = ? AND method = ?")
+    async fn hard_delete_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM endpoints WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ?")
             .bind(branch_id)
+            .bind(api_type.as_str())
             .bind(path)
             .bind(method)
             .execute(&self.pool)
@@ -347,11 +357,12 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(())
     }
 
-    async fn is_endpoint_deleted(&self, branch_id: i64, path: &str, method: &str) -> Result<bool, RepositoryError> {
+    async fn is_endpoint_deleted(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<bool, RepositoryError> {
         let row: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM endpoints WHERE branch_id = ? AND path = ? AND method = ? AND deleted = TRUE"
+            "SELECT COUNT(*) FROM endpoints WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ? AND deleted = TRUE"
         )
         .bind(branch_id)
+        .bind(api_type.as_str())
         .bind(path)
         .bind(method)
         .fetch_one(&self.pool)
@@ -365,14 +376,14 @@ impl SpecRepository for SqliteSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         // Dependency graph
-        let dependency_rows: Vec<(String, String, String, String)> = sqlx::query_as(
+        let dependency_rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
             r#"
-            SELECT c.name, s.name, d.requested_path, d.requested_method
+            SELECT c.name, d.api_type, s.name, d.requested_path, d.requested_method
             FROM dependencies d
             JOIN clients c ON d.client_id = c.id
             JOIN services s ON d.requested_service_id = s.id
             LEFT JOIN branches b ON b.service_id = s.id AND b.name = d.requested_branch_name
-            LEFT JOIN endpoints e ON (e.id = d.endpoint_id OR (e.branch_id = b.id AND e.normalized_path = d.requested_normalized_path AND e.method = d.requested_method))
+            LEFT JOIN endpoints e ON (e.id = d.endpoint_id OR (e.branch_id = b.id AND e.api_type = d.api_type AND e.normalized_path = d.requested_normalized_path AND e.method = d.requested_method))
             WHERE d.requested_branch_name = ?
             AND (e.id IS NULL OR e.deleted = FALSE)
             "#,
@@ -384,7 +395,8 @@ impl SpecRepository for SqliteSpecRepository {
 
         let dependency_graph = dependency_rows
             .into_iter()
-            .map(|(client, service, path, method)| DependencyInfo {
+            .map(|(client, api_type, service, path, method)| DependencyInfo {
+                api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                 client,
                 service,
                 path,
@@ -393,9 +405,9 @@ impl SpecRepository for SqliteSpecRepository {
             .collect();
 
         // Unused endpoints
-        let unused_rows: Vec<(String, String, String)> = sqlx::query_as(
+        let unused_rows: Vec<(String, String, String, String)> = sqlx::query_as(
             r#"
-            SELECT s.name, e.path, e.method
+            SELECT s.name, e.api_type, e.path, e.method
             FROM endpoints e
             JOIN branches b ON e.branch_id = b.id
             JOIN services s ON b.service_id = s.id
@@ -413,7 +425,8 @@ impl SpecRepository for SqliteSpecRepository {
 
         let unused_endpoints = unused_rows
             .into_iter()
-            .map(|(service, path, method)| EndpointInfo {
+            .map(|(service, api_type, path, method)| EndpointInfo {
+                api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                 service,
                 path,
                 method,
@@ -421,14 +434,14 @@ impl SpecRepository for SqliteSpecRepository {
             .collect();
 
         // Missing endpoints
-        let missing_rows: Vec<(String, String, String, String)> = sqlx::query_as(
+        let missing_rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
             r#"
-            SELECT c.name, s.name, d.requested_path, d.requested_method
+            SELECT c.name, d.api_type, s.name, d.requested_path, d.requested_method
             FROM dependencies d
             JOIN clients c ON d.client_id = c.id
             JOIN services s ON d.requested_service_id = s.id
             LEFT JOIN branches b ON b.service_id = s.id AND b.name = d.requested_branch_name
-            LEFT JOIN endpoints e ON (e.id = d.endpoint_id OR (e.branch_id = b.id AND e.normalized_path = d.requested_normalized_path AND e.method = d.requested_method))
+            LEFT JOIN endpoints e ON (e.id = d.endpoint_id OR (e.branch_id = b.id AND e.api_type = d.api_type AND e.normalized_path = d.requested_normalized_path AND e.method = d.requested_method))
             WHERE d.requested_branch_name = ? 
             AND e.id IS NULL
             "#,
@@ -440,7 +453,8 @@ impl SpecRepository for SqliteSpecRepository {
 
         let missing_endpoints = missing_rows
             .into_iter()
-            .map(|(client, service, path, method)| MissingEndpointInfo {
+            .map(|(client, api_type, service, path, method)| MissingEndpointInfo {
+                api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                 client,
                 service,
                 path,
@@ -681,8 +695,8 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn list_client_endpoints(&self, client_name: &str, branch: &str) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
-        let rows: Vec<(String, String, String, String, Option<String>)> = sqlx::query_as(
-            "SELECT s.name, d.requested_branch_name, d.requested_path, d.requested_method, e.yaml_content \
+        let rows: Vec<(String, String, String, String, String, Option<String>)> = sqlx::query_as(
+            "SELECT d.api_type, s.name, d.requested_branch_name, d.requested_path, d.requested_method, e.yaml_content \
              FROM dependencies d \
              JOIN clients c ON d.client_id = c.id \
              JOIN services s ON d.requested_service_id = s.id \
@@ -695,7 +709,8 @@ impl SpecRepository for SqliteSpecRepository {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(rows.into_iter().map(|(service, branch, path, method, yaml_content)| ClientEndpointInfo {
+        Ok(rows.into_iter().map(|(api_type, service, branch, path, method, yaml_content)| ClientEndpointInfo {
+            api_type: ApiType::from_str(&api_type).unwrap_or_default(),
             service, branch, path, method, yaml_content,
         }).collect())
     }
@@ -1004,12 +1019,13 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(result.rows_affected())
     }
 
-    async fn get_endpoint_id(&self, branch_id: i64, path: &str, method: &str) -> Result<Option<i64>, RepositoryError> {
+    async fn get_endpoint_id(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<Option<i64>, RepositoryError> {
         let normalized_path = crate::openapi::normalize_path(path);
         let row: Option<(i64,)> = sqlx::query_as(
-            "SELECT id FROM endpoints WHERE branch_id = ? AND normalized_path = ? AND method = ? AND deleted = 0"
+            "SELECT id FROM endpoints WHERE branch_id = ? AND api_type = ? AND normalized_path = ? AND method = ? AND deleted = 0"
         )
         .bind(branch_id)
+        .bind(api_type.as_str())
         .bind(normalized_path)
         .bind(method)
         .fetch_optional(&self.pool)
@@ -1069,9 +1085,10 @@ impl SpecRepository for SqliteSpecRepository {
 
         for change in changes {
             match change {
-                SpecChange::Insert { path, normalized_path, method, yaml_content } => {
-                    sqlx::query("INSERT INTO endpoints (branch_id, path, normalized_path, method, yaml_content, deleted) VALUES (?, ?, ?, ?, ?, 0)")
+                SpecChange::Insert { api_type, path, normalized_path, method, yaml_content } => {
+                    sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted) VALUES (?, ?, ?, ?, ?, ?, 0)")
                         .bind(branch_id)
+                        .bind(api_type.as_str())
                         .bind(&path)
                         .bind(&normalized_path)
                         .bind(&method)
@@ -1081,8 +1098,9 @@ impl SpecRepository for SqliteSpecRepository {
                         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
                     if is_protected {
-                        let row: (i64,) = sqlx::query_as("SELECT id FROM endpoints WHERE branch_id = ? AND path = ? AND method = ? AND deleted = 0")
+                        let row: (i64,) = sqlx::query_as("SELECT id FROM endpoints WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ? AND deleted = 0")
                             .bind(branch_id)
+                            .bind(api_type.as_str())
                             .bind(&path)
                             .bind(&method)
                             .fetch_one(&mut *tx)
@@ -1098,10 +1116,11 @@ impl SpecRepository for SqliteSpecRepository {
                             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
                     }
                 }
-                SpecChange::Update { path, normalized_path, method, yaml_content } => {
+                SpecChange::Update { api_type, path, normalized_path, method, yaml_content } => {
                     if is_protected {
-                        let row: (i64, String) = sqlx::query_as("SELECT id, yaml_content FROM endpoints WHERE branch_id = ? AND path = ? AND method = ? AND deleted = 0")
+                        let row: (i64, String) = sqlx::query_as("SELECT id, yaml_content FROM endpoints WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ? AND deleted = 0")
                             .bind(branch_id)
+                            .bind(api_type.as_str())
                             .bind(&path)
                             .bind(&method)
                             .fetch_one(&mut *tx)
@@ -1130,28 +1149,31 @@ impl SpecRepository for SqliteSpecRepository {
                             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
                     }
 
-                    sqlx::query("UPDATE endpoints SET yaml_content = ?, normalized_path = ?, deleted = 0 WHERE branch_id = ? AND path = ? AND method = ?")
+                    sqlx::query("UPDATE endpoints SET yaml_content = ?, normalized_path = ?, deleted = 0 WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ?")
                         .bind(&yaml_content)
                         .bind(&normalized_path)
                         .bind(branch_id)
+                        .bind(api_type.as_str())
                         .bind(&path)
                         .bind(&method)
                         .execute(&mut *tx)
                         .await
                         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
                 }
-                SpecChange::Delete { path, method, soft_delete } => {
+                SpecChange::Delete { api_type, path, method, soft_delete } => {
                     if soft_delete {
-                        sqlx::query("UPDATE endpoints SET deleted = 1 WHERE branch_id = ? AND path = ? AND method = ?")
+                        sqlx::query("UPDATE endpoints SET deleted = 1 WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ?")
                             .bind(branch_id)
+                            .bind(api_type.as_str())
                             .bind(&path)
                             .bind(&method)
                             .execute(&mut *tx)
                             .await
                             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
                     } else {
-                        sqlx::query("DELETE FROM endpoints WHERE branch_id = ? AND path = ? AND method = ?")
+                        sqlx::query("DELETE FROM endpoints WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ?")
                             .bind(branch_id)
+                            .bind(api_type.as_str())
                             .bind(&path)
                             .bind(&method)
                             .execute(&mut *tx)

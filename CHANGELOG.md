@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.10.0] - Unreleased
 
 ### Added
+- **AsyncAPI Support**: introduced support for AsyncAPI specifications (Kafka topics/channels). Users can now provide AsyncAPI YAMLs via `POST /provide/asyncapi` and require channel snippets via `GET /require/asyncapi`. Specifications are split by channel and operation (PUB/SUB).
+- **gRPC/Proto Support**: added support for `.proto` files. Services can provide their Proto definitions via `POST /provide/grpc`, and clients can require individual methods via `GET /require/grpc`.
+- **Protocol Demo Script**: added `demo_protocols.sh` to demonstrate AsyncAPI and gRPC/Proto integration and unified dependency tracking.
+- **Protocol-Aware Dependency Tracking**: the service now tracks and displays the protocol (OpenAPI, AsyncAPI, Proto) for all endpoints and dependencies in the UI and reports.
+- **Enhanced Require-Bundle**: the `/require-bundle` endpoint now supports an optional `api_type` parameter to bundle AsyncAPI or Proto snippets.
 - **Lenient Path Matching**: introduced normalized path matching to handle common differences in OpenAPI path definitions and client requirements. The service now collapses redundant slashes, trims whitespace, and ignores path variable names (e.g., `/api/{id}` matches `/api/{userId}`) by using a universal placeholder during lookup.
 - **Normalized Path Database Indexing**: added a `normalized_path` column to the `endpoints` and `dependencies` tables with a database index to ensure O(log N) lookup performance for lenient matching.
 - **Auto-Approve Users**: added an "Auto-Approve Users" toggle in the admin dashboard (User Management tab). When enabled, self-registered users are automatically approved and can log in immediately without manual admin intervention.
