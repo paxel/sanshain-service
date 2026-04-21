@@ -320,7 +320,7 @@ After the script completes, open the service overview page to browse the depende
 
 ### Additional Demo Scenarios
 
-Two larger demo scripts are shipped alongside `demo.sh` to showcase how the dependency graph and clustering scale, and how the **branch selector** in the service UI can be used to switch between completely different architectures without restarting the instance:
+Two larger demo scripts are shipped alongside `demo.sh` to showcase how the dependency graph scales, and how the **branch selector** in the service UI can be used to switch between completely different architectures without restarting the instance:
 
 - **`demo2.sh`** — a synthetic large-scale scenario with **30 services** (Frontend → API Middleware → Backend, a complex ETL pipeline with central orchestration and multiple enrichers, an ML system, multiple ingestion sources and exports, and infra wrappers for Postgres / Elastic / Redis / Kafka). Registered on the `main` branch.
 - **`demo3.sh`** — reproduces the publicly documented **[Google Cloud "Online Boutique" (Hipster Shop)](https://github.com/GoogleCloudPlatform/microservices-demo)** microservices demo: `frontend`, `cartservice`, `productcatalogservice`, `currencyservice`, `paymentservice`, `shippingservice`, `emailservice`, `checkoutservice`, `recommendationservice`, `adservice` and `loadgenerator`, with dependencies taken straight from the upstream architecture diagram. Registered on a dedicated `google` branch (override with `DEMO3_BRANCH=<name>`).

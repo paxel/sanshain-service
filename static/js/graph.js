@@ -16,15 +16,15 @@ function _graphEscapeHtml(s) {
 }
 
 function _measureNode(name) {
-    const fontSize = 13;
-    const charW = 7.5; // estimated average char width for 13px bold sans
+    const fontSize = 16;
+    const charW = 9; // estimated average char width for 16px bold sans
     const idealCharsPerLine = 16;
     const maxLines = 3;
 
     if (name.length <= idealCharsPerLine) {
         return {
-            width: Math.max(80, Math.ceil(name.length * charW) + 40),
-            height: 40,
+            width: Math.max(100, Math.ceil(name.length * charW) + 40),
+            height: 48,
             lines: [name]
         };
     }
@@ -57,8 +57,8 @@ function _measureNode(name) {
 
     const maxLineLen = Math.max(...lines.map(l => l.length));
     return {
-        width: Math.max(80, Math.ceil(maxLineLen * charW) + 40),
-        height: lines.length * 18 + 22,
+        width: Math.max(100, Math.ceil(maxLineLen * charW) + 40),
+        height: lines.length * 20 + 24,
         lines: lines
     };
 }
@@ -175,14 +175,6 @@ function renderCustomGraph(report, svgElement, direction) {
         else nodeRole.set(node, 2);            // SERVICE ONLY
     }
 
-    const clusterRole = new Map();
-    clusters.forEach(c => {
-        const roles = c.members.map(m => nodeRole.get(m));
-        if (roles.includes(1)) clusterRole.set(c.id, 1);
-        else if (roles.every(r => r === 0)) clusterRole.set(c.id, 0);
-        else clusterRole.set(c.id, 2);
-    });
-
     for (const [from, tos] of adjMap) {
         for (const to of tos) g.setEdge(from, to);
     }
@@ -207,9 +199,9 @@ function renderCustomGraph(report, svgElement, direction) {
     }
 
     const GAP = isLR ? 25 : 30;           // gap between units on a rank (flow axis)
-    const GROUP_GAP = isLR ? 60 : 80;     // larger gap between different roles (flow axis)
+    const GROUP_GAP = isLR ? 100 : 120;   // larger gap between different roles (flow axis)
 
-    // Step 1 — group nodes by rank and re-pack along the flow axis.
+    // Step 1 — group nodes by rank and calculate global lane metrics.
     const unitsByRank = new Map(); // rankR -> [{id, cf, width, role}]
     for (const node of allNodes) {
         const nd = g.node(node);
@@ -219,28 +211,53 @@ function renderCustomGraph(report, svgElement, direction) {
         unitsByRank.get(key).push({ id: node, cf: nd[F], width: w, role: nodeRole.get(node) });
     }
 
+    const maxGroupWidth = [0, 0, 0];
+    let sumOldMid = 0;
     unitsByRank.forEach(units => {
         units.sort((a, b) => {
             if (a.role !== b.role) return a.role - b.role;
             return a.cf - b.cf;
         });
-
-        let totalWidth = 0;
-        for (let i = 0; i < units.length; i++) {
-            totalWidth += units[i].width;
-            if (i < units.length - 1) {
-                totalWidth += (units[i].role !== units[i+1].role) ? GROUP_GAP : GAP;
+        const roleGroups = [[], [], []];
+        units.forEach(u => roleGroups[u.role].push(u));
+        for (let i = 0; i < 3; i++) {
+            if (roleGroups[i].length > 0) {
+                const w = roleGroups[i].reduce((acc, u) => acc + u.width, 0) + (roleGroups[i].length - 1) * GAP;
+                maxGroupWidth[i] = Math.max(maxGroupWidth[i], w);
             }
         }
+        sumOldMid += (units[0].cf + units[units.length - 1].cf) / 2;
+    });
 
-        const oldMid = (units[0].cf + (units.length > 1 ? units[units.length - 1].cf : units[0].cf)) / 2;
-        let cursor = oldMid - totalWidth / 2;
-        for (let i = 0; i < units.length; i++) {
-            const u = units[i];
-            u.newCf = cursor + u.width / 2;
-            if (i < units.length - 1) {
-                cursor += u.width + (u.role !== units[i+1].role ? GROUP_GAP : GAP);
-            }
+    // Determine lane starts based on global max widths
+    let currentX = 0;
+    const laneStart = [0, 0, 0];
+    for (let i = 0; i < 3; i++) {
+        laneStart[i] = currentX;
+        if (maxGroupWidth[i] > 0) {
+            currentX += maxGroupWidth[i];
+            let hasRight = false;
+            for (let j = i + 1; j < 3; j++) if (maxGroupWidth[j] > 0) hasRight = true;
+            if (hasRight) currentX += GROUP_GAP;
+        }
+    }
+
+    const totalLanesWidth = currentX;
+    const globalMid = unitsByRank.size > 0 ? sumOldMid / unitsByRank.size : 0;
+    const globalOffset = globalMid - totalLanesWidth / 2;
+
+    // Step 2 — assign new positions using the global lanes.
+    unitsByRank.forEach(units => {
+        const roleGroups = [[], [], []];
+        units.forEach(u => roleGroups[u.role].push(u));
+        for (let i = 0; i < 3; i++) {
+            // All groups of the same role across all ranks now share the same 
+            // starting offset, ensuring "leftest nodes same level".
+            let cursor = laneStart[i] + globalOffset;
+            roleGroups[i].forEach(u => {
+                u.newCf = cursor + u.width / 2;
+                cursor += u.width + GAP;
+            });
         }
     });
 
@@ -423,7 +440,7 @@ function renderCustomGraph(report, svgElement, direction) {
         }
 
         const m = nodeMetrics.get(node);
-        const lineH = 16;
+        const lineH = 20;
         const totalTextH = m.lines.length * lineH;
         m.lines.forEach((line, i) => {
             const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
@@ -432,7 +449,7 @@ function renderCustomGraph(report, svgElement, direction) {
             text.setAttribute('text-anchor', 'middle');
             text.setAttribute('dominant-baseline', 'central');
             text.setAttribute('fill', textColor);
-            text.setAttribute('font-size', '13');
+            text.setAttribute('font-size', '16');
             text.setAttribute('font-family', 'ui-sans-serif, system-ui, sans-serif');
             text.setAttribute('font-weight', '600');
             text.textContent = line;
