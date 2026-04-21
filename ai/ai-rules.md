@@ -3,10 +3,15 @@
 ## Rust Best Practices
 
 ### Error Handling
-- Use `Result<T, E>` for all fallible operations; avoid `unwrap()` and `expect()` in production code.
+- STRICTLY FORBIDDEN: `unwrap()`. All fallible operations must be handled with `?`, `match`, or `if let`.
+- Avoid `expect()` in production logic. Use `.expect("clear message")` ONLY in:
+    - Startup code (`main.rs`) where failure means the service cannot run (though even here, `match` with `std::process::exit(1)` is preferred).
+    - Tests and `mod tests`.
+    - Static Regex compilation.
 - Define domain-specific error enums; implement `std::fmt::Display` and `std::error::Error`.
 - Use `thiserror` for library-style errors, `anyhow` only in binaries or top-level orchestration.
 - Propagate errors with `?`; convert at layer boundaries (e.g., infra errors → domain errors).
+- Never ignore errors with `let _ = ...` unless there is a strong justification and a comment explaining why.
 
 ### Ownership & Lifetimes
 - Prefer borrowing (`&T`, `&mut T`) over cloning. Clone only when ownership transfer is genuinely needed.

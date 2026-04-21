@@ -34,52 +34,88 @@ pub async fn main() {
         admin_user_debug: admin_user_debug.clone(),
     };
 
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+    use tracing_subscriber::Layer;
+    let stdout_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "sanshain_service=info,tower_http=info".into());
     
+    // We want the capture layer to see DEBUG logs so they can be toggled at runtime,
+    // but we keep stdout at INFO by default to avoid noise.
+    let capture_filter = tracing_subscriber::EnvFilter::new("sanshain_service=debug,tower_http=debug");
+
     let registry = tracing_subscriber::registry()
-        .with(filter)
-        .with(capture_layer);
+        .with(capture_layer.with_filter(capture_filter));
 
     if std::env::var("LOG_FORMAT").unwrap_or_default() == "json" {
-        registry.with(tracing_subscriber::fmt::layer().json()).init();
+        registry.with(tracing_subscriber::fmt::layer().json().with_filter(stdout_filter)).init();
     } else {
-        registry.with(tracing_subscriber::fmt::layer()).init();
+        registry.with(tracing_subscriber::fmt::layer().with_filter(stdout_filter)).init();
     }
 
     let db_connection_str = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite:sanshain.db?mode=rwc".into());
 
     let repo = if db_connection_str.starts_with("postgres://") || db_connection_str.starts_with("postgresql://") {
-        let pool = PgPoolOptions::new()
+        let pool = match PgPoolOptions::new()
             .max_connections(5)
             .connect(&db_connection_str)
             .await
-            .expect("can't connect to PostgreSQL database");
+        {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!("Can't connect to PostgreSQL database: {}", e);
+                eprintln!("ERROR: Can't connect to PostgreSQL database: {}", e);
+                std::process::exit(1);
+            }
+        };
         let pg_repo = PostgresSpecRepository::new(pool);
-        pg_repo.run_migrations().await.expect("can't run PostgreSQL migrations");
+        if let Err(e) = pg_repo.run_migrations().await {
+            tracing::error!("Can't run PostgreSQL migrations: {}", e);
+            eprintln!("ERROR: Can't run PostgreSQL migrations: {}", e);
+            std::process::exit(1);
+        }
         tracing::info!("Using PostgreSQL database backend");
         DatabaseRepo::Postgres(pg_repo)
     } else {
-        let connection_options = SqliteConnectOptions::from_str(&db_connection_str)
-            .expect("invalid database URL")
-            .journal_mode(SqliteJournalMode::Wal)
+        let connection_options = match SqliteConnectOptions::from_str(&db_connection_str) {
+            Ok(opts) => opts,
+            Err(e) => {
+                tracing::error!("Invalid database URL: {}", e);
+                eprintln!("ERROR: Invalid database URL: {}", e);
+                std::process::exit(1);
+            }
+        }
+        .journal_mode(SqliteJournalMode::Wal)
             .busy_timeout(std::time::Duration::from_secs(5))
             .synchronous(SqliteSynchronous::Normal);
 
-        let pool = SqlitePoolOptions::new()
+        let pool = match SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(connection_options)
             .await
-            .expect("can't connect to SQLite database");
+        {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!("Can't connect to SQLite database: {}", e);
+                eprintln!("ERROR: Can't connect to SQLite database: {}", e);
+                std::process::exit(1);
+            }
+        };
         let sqlite_repo = SqliteSpecRepository::new(pool);
-        sqlite_repo.run_migrations().await.expect("can't run SQLite migrations");
+        if let Err(e) = sqlite_repo.run_migrations().await {
+            tracing::error!("Can't run SQLite migrations: {}", e);
+            eprintln!("ERROR: Can't run SQLite migrations: {}", e);
+            std::process::exit(1);
+        }
         tracing::info!("Using SQLite database backend");
         DatabaseRepo::Sqlite(sqlite_repo)
     };
 
     // Ensure initial admin user exists
-    services::ensure_initial_admin(&repo).await.expect("can't create initial admin");
+    if let Err(e) = services::ensure_initial_admin(&repo).await {
+        tracing::error!("Can't create initial admin: {}", e);
+        eprintln!("ERROR: Can't create initial admin: {}", e);
+        std::process::exit(1);
+    }
 
     let instance_id = uuid::Uuid::new_v4().to_string();
     tracing::info!("Instance ID: {}", instance_id);
@@ -140,29 +176,60 @@ pub async fn main() {
     let app = create_app(state).layer(prometheus_layer);
 
     let bind_address = std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0:3000".into());
-    let addr: std::net::SocketAddr = bind_address.parse().expect("invalid bind address");
+    let addr: std::net::SocketAddr = match bind_address.parse() {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::error!("Invalid bind address '{}': {}", bind_address, e);
+            eprintln!("ERROR: Invalid bind address '{}': {}", bind_address, e);
+            std::process::exit(1);
+        }
+    };
     tracing::info!("Listening on {}", addr);
     
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app)
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!("Failed to bind to {}: {}", addr, e);
+            if e.kind() == std::io::ErrorKind::AddrInUse {
+                eprintln!("ERROR: Address {} already in use. Another instance might be running.", addr);
+            } else {
+                eprintln!("ERROR: Failed to bind to {}: {}", addr, e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    if let Err(e) = axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
-        .unwrap();
+    {
+        tracing::error!("Server error: {}", e);
+        eprintln!("ERROR: Server error: {}", e);
+        std::process::exit(1);
+    }
 }
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            tracing::error!("failed to install Ctrl+C handler: {}", e);
+            eprintln!("ERROR: failed to install Ctrl+C handler: {}", e);
+        }
     };
 
     #[cfg(unix)]
     let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install signal handler")
-            .recv()
-            .await;
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(e) => {
+                tracing::error!("failed to install signal handler: {}", e);
+                eprintln!("ERROR: failed to install signal handler: {}", e);
+                // Fallback to pending if we can't install the handler
+                std::future::pending::<()>().await;
+            }
+        }
     };
 
     #[cfg(not(unix))]

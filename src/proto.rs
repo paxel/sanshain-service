@@ -18,7 +18,7 @@ pub fn split_proto(content: &str) -> Result<Vec<ProtoSpec>, String> {
             let start_idx = i;
             if let Some(brace_start_rel) = content[i..].find('{') {
                 let brace_start = i + brace_start_rel;
-                let service_name = content[start_idx..brace_start].trim()
+                let service_name = content[start_idx..brace_start]
                     .split_whitespace().last().unwrap_or("Unknown").to_string();
                 
                 let mut brace_count = 1;

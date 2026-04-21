@@ -70,7 +70,8 @@ impl AuthProvider for LdapAuthProvider {
             return Err(AuthProviderError::InvalidCredentials);
         }
 
-        let entry = SearchEntry::construct(rs.into_iter().next().expect("LDAP search results unexpectedly empty"));
+        let entry = rs.into_iter().next().ok_or_else(|| AuthProviderError::Internal("LDAP search results unexpectedly empty".to_string()))?;
+        let entry = SearchEntry::construct(entry);
         let user_dn = entry.dn;
 
         // Attempt bind as the user to verify password

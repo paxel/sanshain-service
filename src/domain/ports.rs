@@ -40,6 +40,16 @@ impl std::fmt::Display for RepositoryError {
 }
 
 /// Port for all persistence operations required by the application layer.
+pub struct RecordDependencyParams<'a> {
+    pub client_id: i64,
+    pub endpoint_id: Option<i64>,
+    pub api_type: ApiType,
+    pub service_id: i64,
+    pub branch_name: &'a str,
+    pub path: &'a str,
+    pub method: &'a str,
+}
+
 pub trait SpecRepository: Send + Sync {
     /// Ensure a service exists and return its ID.
     fn ensure_service(&self, name: &str) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
@@ -75,13 +85,7 @@ pub trait SpecRepository: Send + Sync {
     /// Record a client dependency on an endpoint.
     fn record_dependency(
         &self,
-        client_id: i64,
-        endpoint_id: Option<i64>,
-        api_type: ApiType,
-        service_id: i64,
-        branch_name: &str,
-        path: &str,
-        method: &str,
+        params: RecordDependencyParams,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Get the full dependency report for a branch.

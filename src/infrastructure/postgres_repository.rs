@@ -1,7 +1,7 @@
 use std::str::FromStr;
 use sqlx::{PgPool, FromRow};
 use crate::domain::models::*;
-use crate::domain::ports::{RepositoryError, SpecRepository};
+use crate::domain::ports::{RecordDependencyParams, RepositoryError, SpecRepository};
 
 #[derive(FromRow)]
 struct ApiTokenRow {
@@ -243,16 +243,10 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn record_dependency(
         &self,
-        client_id: i64,
-        endpoint_id: Option<i64>,
-        api_type: ApiType,
-        service_id: i64,
-        branch_name: &str,
-        path: &str,
-        method: &str,
+        params: RecordDependencyParams<'_>,
     ) -> Result<(), RepositoryError> {
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-        let normalized_path = crate::openapi::normalize_path(path);
+        let normalized_path = crate::openapi::normalize_path(params.path);
         sqlx::query(
             r#"
             INSERT INTO dependencies 
@@ -262,14 +256,14 @@ impl SpecRepository for PostgresSpecRepository {
             DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
             "#,
         )
-        .bind(client_id)
-        .bind(endpoint_id)
-        .bind(api_type.as_str())
-        .bind(service_id)
-        .bind(branch_name)
-        .bind(path)
+        .bind(params.client_id)
+        .bind(params.endpoint_id)
+        .bind(params.api_type.as_str())
+        .bind(params.service_id)
+        .bind(params.branch_name)
+        .bind(params.path)
         .bind(normalized_path)
-        .bind(method)
+        .bind(params.method)
         .bind(&now)
         .execute(&self.pool)
         .await

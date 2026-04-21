@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::domain::models::*;
-use crate::domain::ports::{AuthProvider, AuthProviderError, RepositoryError, SpecRepository};
+use crate::domain::ports::{AuthProvider, AuthProviderError, RecordDependencyParams, RepositoryError, SpecRepository};
 use crate::openapi;
 
 #[derive(Debug)]
@@ -13,6 +13,21 @@ pub enum AppError {
     Forbidden,
     Internal(String),
 }
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AppError::BadRequest(msg) => write!(f, "Bad Request: {}", msg),
+            AppError::Conflict(msg) => write!(f, "Conflict: {}", msg),
+            AppError::NotFound(msg) => write!(f, "Not Found: {}", msg),
+            AppError::Unauthorized => write!(f, "Unauthorized"),
+            AppError::Forbidden => write!(f, "Forbidden"),
+            AppError::Internal(msg) => write!(f, "Internal Error: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for AppError {}
 
 impl From<RepositoryError> for AppError {
     fn from(e: RepositoryError) -> Self {
@@ -406,7 +421,15 @@ async fn require_endpoint_inner(
             tracing::debug!("Found {:?} endpoint {} {} for client '{}'", params.api_type, method_to_use, params.path, params.clientname);
             if !dry_run {
                 let endpoint_id = Some(ep.0);
-                repo.record_dependency(client_id, endpoint_id, params.api_type, service_id, params.branch, params.path, &method_to_use).await?;
+                repo.record_dependency(RecordDependencyParams {
+                    client_id,
+                    endpoint_id,
+                    api_type: params.api_type,
+                    service_id,
+                    branch_name: params.branch,
+                    path: params.path,
+                    method: &method_to_use,
+                }).await?;
             }
             return Ok(ep.1.clone());
         }
@@ -430,7 +453,15 @@ async fn require_endpoint_inner(
                     }
                 } else {
                     if !dry_run {
-                        repo.record_dependency(client_id, None, params.api_type, service_id, params.branch, params.path, &method_to_use).await?;
+                        repo.record_dependency(RecordDependencyParams {
+                            client_id,
+                            endpoint_id: None,
+                            api_type: params.api_type,
+                            service_id,
+                            branch_name: params.branch,
+                            path: params.path,
+                            method: &method_to_use,
+                        }).await?;
                     }
                     return Err(AppError::NotFound(format!(
                         "{:?} endpoint not found: {} {} on service '{}' branch '{}'",
@@ -440,7 +471,15 @@ async fn require_endpoint_inner(
             }
             None => {
                 if !dry_run {
-                    repo.record_dependency(client_id, None, params.api_type, service_id, params.branch, params.path, &method_to_use).await?;
+                    repo.record_dependency(RecordDependencyParams {
+                        client_id,
+                        endpoint_id: None,
+                        api_type: params.api_type,
+                        service_id,
+                        branch_name: params.branch,
+                        path: params.path,
+                        method: &method_to_use,
+                    }).await?;
                 }
                 return Err(AppError::NotFound(format!(
                     "{:?} endpoint not found: {} {} on service '{}' branch '{}'",
@@ -507,7 +546,15 @@ async fn require_bundle_inner(
 
             if let Some(ref ep) = endpoint {
                 if !dry_run {
-                    repo.record_dependency(client_id, Some(ep.0), params.api_type, service_id, params.branch, path, &method_to_use).await?;
+                    repo.record_dependency(RecordDependencyParams {
+                        client_id,
+                        endpoint_id: Some(ep.0),
+                        api_type: params.api_type,
+                        service_id,
+                        branch_name: params.branch,
+                        path,
+                        method: &method_to_use,
+                    }).await?;
                 }
                 yamls.push(ep.1.clone());
             } else {
@@ -548,7 +595,15 @@ async fn require_bundle_inner(
                     // Record dependencies for missing endpoints
                     if !dry_run {
                         for (path, method) in &missing {
-                            repo.record_dependency(client_id, None, params.api_type, service_id, params.branch, path, method).await?;
+                            repo.record_dependency(RecordDependencyParams {
+                                client_id,
+                                endpoint_id: None,
+                                api_type: params.api_type,
+                                service_id,
+                                branch_name: params.branch,
+                                path,
+                                method,
+                            }).await?;
                         }
                     }
                     let missing_list: Vec<String> = missing.iter()
@@ -564,7 +619,15 @@ async fn require_bundle_inner(
                 // Record dependencies for missing endpoints
                 if !dry_run {
                     for (path, method) in &missing {
-                        repo.record_dependency(client_id, None, params.api_type, service_id, params.branch, path, method).await?;
+                        repo.record_dependency(RecordDependencyParams {
+                            client_id,
+                            endpoint_id: None,
+                            api_type: params.api_type,
+                            service_id,
+                            branch_name: params.branch,
+                            path,
+                            method,
+                        }).await?;
                     }
                 }
                 let missing_list: Vec<String> = missing.iter()
@@ -1329,13 +1392,7 @@ mod tests {
 
         async fn record_dependency(
             &self,
-            _client_id: i64,
-            _endpoint_id: Option<i64>,
-            _api_type: ApiType,
-            _service_id: i64,
-            _branch_name: &str,
-            _path: &str,
-            _method: &str,
+            _params: RecordDependencyParams<'_>,
         ) -> Result<(), RepositoryError> {
             Ok(())
         }

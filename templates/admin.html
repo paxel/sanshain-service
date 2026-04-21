@@ -730,13 +730,17 @@
         } catch (_) {}
     }
 
-    let currentLogs = [];
+    let currentLogs = { errors: [], warnings: [], infos: [], debugs: [] };
 
     async function loadLogs() {
         try {
             const res = await apiCall('/admin/observability/logs');
             if (res.ok) {
-                currentLogs = await res.json();
+                const data = await res.json();
+                currentLogs.errors = data.errors || [];
+                currentLogs.warnings = data.warnings || [];
+                currentLogs.infos = data.infos || [];
+                currentLogs.debugs = data.debugs || [];
                 renderLogs();
             }
         } catch (_) {}
@@ -747,20 +751,48 @@
         const filter = document.getElementById('log-filter').value;
         if (!container) return;
 
-        const filtered = currentLogs.filter(l => {
-            if (filter === 'ALL') return true;
-            if (filter === 'INFO') return ['INFO', 'WARN', 'ERROR'].includes(l.level);
-            if (filter === 'WARN') return ['WARN', 'ERROR'].includes(l.level);
-            if (filter === 'ERROR') return l.level === 'ERROR';
-            return true;
-        });
+        // Combine based on filter
+        let errors = [...currentLogs.errors];
+        let warnings = [...currentLogs.warnings];
+        let infos = [...currentLogs.infos];
+        let debugs = [...currentLogs.debugs];
 
-        if (filtered.length === 0) {
+        // Filter logic
+        if (filter === 'INFO') {
+            debugs = [];
+        } else if (filter === 'WARN') {
+            debugs = [];
+            infos = [];
+        } else if (filter === 'ERROR') {
+            debugs = [];
+            infos = [];
+            warnings = [];
+        }
+
+        const allLogs = [];
+        
+        // Important logs on top, but sorted by time within their priority
+        if (errors.length > 0 || warnings.length > 0) {
+            const important = [...errors, ...warnings].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+            allLogs.push(...important);
+            if (infos.length > 0 || debugs.length > 0) {
+                allLogs.push({ isDivider: true, label: 'Standard Activity' });
+            }
+        }
+        
+        const standard = [...infos, ...debugs].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+        allLogs.push(...standard);
+
+        if (allLogs.length === 0) {
             container.innerHTML = '<div class="text-slate-500 italic">No logs captured yet.</div>';
             return;
         }
 
-        container.innerHTML = filtered.map(l => {
+        container.innerHTML = allLogs.map(l => {
+            if (l.isDivider) {
+                return `<div class="border-t border-slate-700 my-2 pt-1 text-[9px] text-slate-500 uppercase tracking-widest text-center">${l.label}</div>`;
+            }
+
             const color = {
                 'ERROR': 'text-red-400',
                 'WARN': 'text-amber-400',
@@ -772,8 +804,10 @@
             return `<div class="mb-1"><span class="text-slate-500">[${l.timestamp.substring(11, 19)}]</span> <span class="${color} font-bold">${l.level.padEnd(5)}</span> <span class="text-indigo-400">${escapeHtml(l.target)}</span>: ${escapeHtml(l.message)}</div>`;
         }).join('');
 
-        // Scroll to bottom
-        container.scrollTop = container.scrollHeight;
+        // Scroll to bottom if we are showing many logs
+        if (filter === 'ALL' || filter === 'INFO') {
+            container.scrollTop = container.scrollHeight;
+        }
     }
 
     // Auto-refresh observability every 5s if dashboard is visible and active tab is observability

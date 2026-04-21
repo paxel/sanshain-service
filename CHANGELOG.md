@@ -7,7 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.10.0] - Unreleased
 
 ### Added
-- **AsyncAPI Support**: introduced support for AsyncAPI specifications (Kafka topics/channels). Users can now provide AsyncAPI YAMLs via `POST /provide/asyncapi` and require channel snippets via `GET /require/asyncapi`. Specifications are split by channel and operation (PUB/SUB).
+- **AI Clippy & Error Handling Rules**: added stricter rules to `ai/ai-rules.md` forbidding `unwrap()` in production code and requiring `cargo clippy` verification for all changes.
+- **Improved Error Type**: implemented `Display` and `Error` traits for `AppError` for better error reporting and idiomatic integration with the standard library.
 - **gRPC/Proto Support**: added support for `.proto` files. Services can provide their Proto definitions via `POST /provide/grpc`, and clients can require individual methods via `GET /require/grpc`.
 - **Protocol Demo Script**: added `demo_protocols.sh` to demonstrate AsyncAPI and gRPC/Proto integration and unified dependency tracking.
 - **Protocol-Aware Dependency Tracking**: the service now tracks and displays the protocol (OpenAPI, AsyncAPI, Proto) for all endpoints and dependencies in the UI and reports.
@@ -26,6 +27,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Socke Dark-Mode Gimmick**: introduced a "Socke" theme gimmick that automatically rebrands the service from "Sanshain" to "Socke" and swaps the sun logo for a "Socke" (sock) image when dark mode is enabled.
 
 ### Fixed
+- **Startup Robustness**: replaced several `expect()` calls in `src/main.rs` with graceful termination, proper logging, and improved signal handling (Ctrl+C and SIGTERM).
+- **Graceful LDAP Error**: replaced a risky `expect()` in the LDAP provider with proper error propagation.
+- **Clippy Compliance**: resolved several clippy warnings including `needless_borrows_for_generic_args`, `trim_split_whitespace`, and `derivable_impls`.
+- **Refactored Too-Many-Arguments**: replaced the 8-argument `record_dependency` method in the `SpecRepository` trait with a parameter object (`RecordDependencyParams`) to comply with clippy's complexity limits.
+- **Startup Panic on Port In Use**: replaced `unwrap()` on `TcpListener::bind` with graceful error handling and a helpful hint when the port is already in use.
 - **Graph Layout Crash**: fixed a "nodeW is not defined" reference error in the dependency graph renderer caused by stale fixed-size layout remnants.
 
 ### Removed

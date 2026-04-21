@@ -1,5 +1,5 @@
 use crate::domain::models::*;
-use crate::domain::ports::{RepositoryError, SpecRepository};
+use crate::domain::ports::{RecordDependencyParams, RepositoryError, SpecRepository};
 use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
 use crate::infrastructure::postgres_repository::PostgresSpecRepository;
 
@@ -59,8 +59,8 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, find_endpoint(service_id, branch_name, api_type, path, method))
     }
 
-    async fn record_dependency(&self, client_id: i64, endpoint_id: Option<i64>, api_type: ApiType, service_id: i64, branch_name: &str, path: &str, method: &str) -> Result<(), RepositoryError> {
-        delegate!(self, record_dependency(client_id, endpoint_id, api_type, service_id, branch_name, path, method))
+    async fn record_dependency(&self, params: RecordDependencyParams<'_>) -> Result<(), RepositoryError> {
+        delegate!(self, record_dependency(params))
     }
 
     async fn get_report(&self, branch: &str) -> Result<DependencyReport, RepositoryError> {

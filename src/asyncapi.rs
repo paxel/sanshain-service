@@ -45,7 +45,7 @@ fn create_spec(root: &Value, channel_name: &str, operation: &str, channel_value:
     
     // Remove other operations from this channel in the snippet
     let other_op = if op_key == "publish" { "subscribe" } else { "publish" };
-    channel_map.remove(&Value::String(other_op.to_string()));
+    channel_map.remove(Value::String(other_op.to_string()));
     
     channels.insert(Value::String(channel_name.to_string()), Value::Mapping(channel_map));
     snippet.insert(Value::String("channels".to_string()), Value::Mapping(channels));

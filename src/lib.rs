@@ -53,10 +53,20 @@ impl<'a> tracing::field::Visit for LogVisitor<'a> {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         if field.name() == "message" {
             *self.message = format!("{:?}", value);
+            // Remove surrounding quotes from Debug representation of strings
+            if self.message.starts_with('"') && self.message.ends_with('"') && self.message.len() >= 2 {
+                *self.message = self.message[1..self.message.len() - 1].to_string();
+            }
         }
     }
 
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        if field.name() == "message" {
+            *self.message = value.to_string();
+        }
+    }
+
+    fn record_error(&mut self, field: &tracing::field::Field, value: &(dyn std::error::Error + 'static)) {
         if field.name() == "message" {
             *self.message = value.to_string();
         }
@@ -78,12 +88,19 @@ where
 {
     fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
         let metadata = event.metadata();
+        let level = metadata.level();
         let target = metadata.target();
-        let level_str = metadata.level().to_string();
 
         // Check if debug flags permit this message
-        if level_str == "DEBUG" {
-            if target.starts_with("sanshain_service::application") {
+        if *level == tracing::Level::DEBUG {
+            let is_business = target.starts_with("sanshain_service::application")
+                || target.starts_with("sanshain_service::domain")
+                || target.starts_with("sanshain_service::infrastructure")
+                || target.starts_with("sanshain_service::openapi")
+                || target.starts_with("sanshain_service::asyncapi")
+                || target.starts_with("sanshain_service::proto");
+
+            if is_business {
                 if !self.business_logic_debug.load(Ordering::Relaxed) {
                     return;
                 }
@@ -98,22 +115,24 @@ where
         event.record(&mut visitor);
 
         if message.is_empty() {
-            // Some events might not have a message field, skip them or use a placeholder
-            return;
+            message = "[no message]".to_string();
         }
 
         let entry = domain::models::LogEntry {
             timestamp: Utc::now().to_rfc3339(),
-            level: level_str.clone(),
+            level: level.to_string(),
             target: target.to_string(),
             message,
         };
 
-        let (buf_to_use, max_size) = match level_str.as_str() {
-            "ERROR" => (&self.error_buffer, 100),
-            "WARN" => (&self.warn_buffer, 100),
-            "INFO" => (&self.info_buffer, 100),
-            _ => (&self.debug_buffer, 100),
+        let (buf_to_use, max_size) = if *level == tracing::Level::ERROR {
+            (&self.error_buffer, 100)
+        } else if *level == tracing::Level::WARN {
+            (&self.warn_buffer, 100)
+        } else if *level == tracing::Level::INFO {
+            (&self.info_buffer, 100)
+        } else {
+            (&self.debug_buffer, 100)
         };
 
         if let Ok(mut buf) = buf_to_use.lock() {
@@ -735,7 +754,7 @@ async fn report_markdown(
     let mut headers = axum::http::HeaderMap::new();
     headers.insert(
         axum::http::header::CONTENT_TYPE,
-        "text/markdown; charset=utf-8".parse().unwrap(),
+        axum::http::HeaderValue::from_static("text/markdown; charset=utf-8"),
     );
     Ok((headers, md))
 }
@@ -751,7 +770,7 @@ async fn report_isolation(
     let mut headers = axum::http::HeaderMap::new();
     headers.insert(
         axum::http::header::CONTENT_TYPE,
-        "text/markdown; charset=utf-8".parse().unwrap(),
+        axum::http::HeaderValue::from_static("text/markdown; charset=utf-8"),
     );
     Ok((headers, md))
 }

@@ -1,0 +1,43 @@
+   Compiling sanshain_service v0.10.0 (/home/axel/develop/Sanshain/SanshainService)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.83s
+     Running `target/debug/sanshain_service`
+2026-04-21T21:30:55.680089Z  INFO sanshain_service::infrastructure::sqlite_repository: Running SQLite migrations...
+2026-04-21T21:30:55.681579Z  INFO sanshain_service: Using SQLite database backend
+2026-04-21T21:30:55.682031Z  INFO sanshain_service: Instance ID: 3e2e4795-e738-4042-9d5e-fc2b2025a3b7
+2026-04-21T21:30:55.887234Z  INFO sanshain_service: Listening on 0.0.0.0:3000
+2026-04-21T21:31:07.641612Z  WARN sanshain_service: Dev mode ENABLED — all API endpoints are now open without authentication.
+2026-04-21T21:31:07.752039Z  WARN sanshain_service::application::services: Rejected update for service 'user-service' branch 'main': breaking changes: Property 'role' was removed from schema 'User'
+2026-04-21T21:31:07.752141Z  WARN sanshain_service: Conflict: Breaking changes detected on protected branch 'main' of service 'user-service': Property 'role' was removed from schema 'User'
+2026-04-21T21:31:07.861717Z  INFO sanshain_service::application::services: Spec update is backward-compatible for protected branch 'main'
+2026-04-21T21:31:07.862458Z  INFO sanshain_service::application::services: Updating OpenApi GET /orders (normalized as /orders) on protected branch 'main' of service 'order-service' (backward-compatible)
+2026-04-21T21:31:07.862506Z  INFO sanshain_service::application::services: Updating OpenApi POST /orders (normalized as /orders) on protected branch 'main' of service 'order-service' (backward-compatible)
+2026-04-21T21:31:07.862529Z  INFO sanshain_service::application::services: Updating OpenApi GET /orders/{id} (normalized as /orders/{}) on protected branch 'main' of service 'order-service' (backward-compatible)
+2026-04-21T21:31:07.948081Z  INFO sanshain_service::application::services: Spec update is backward-compatible for protected branch 'main'
+2026-04-21T21:31:08.054087Z  INFO sanshain_service::application::services: Spec update is backward-compatible for protected branch 'main'
+2026-04-21T21:31:08.054822Z  INFO sanshain_service::application::services: Updating OpenApi POST /payments (normalized as /payments) on protected branch 'main' of service 'payment-service' (backward-compatible)
+2026-04-21T21:31:08.054874Z  INFO sanshain_service::application::services: Updating OpenApi POST /payments/refund (normalized as /payments/refund) on protected branch 'main' of service 'payment-service' (backward-compatible)
+2026-04-21T21:31:08.145209Z  INFO sanshain_service::application::services: Spec update is backward-compatible for protected branch 'main'
+2026-04-21T21:31:08.146010Z  INFO sanshain_service::application::services: Updating OpenApi POST /inventory/reserve (normalized as /inventory/reserve) on protected branch 'main' of service 'inventory-service' (backward-compatible)
+2026-04-21T21:31:08.278999Z  INFO sanshain_service::application::services: Updating OpenApi POST /orders (normalized as /orders) on feature branch 'feature/discounts' of service 'order-service'
+2026-04-21T21:31:08.367569Z  INFO sanshain_service::application::services: Updating OpenApi POST /users (normalized as /users) on feature branch 'feature/add-roles' of service 'user-service'
+2026-04-21T21:31:09.022835Z  INFO sanshain_service::application::services: Spec update is backward-compatible for protected branch 'main'
+2026-04-21T21:31:09.023424Z  INFO sanshain_service::application::services: Updating OpenApi POST /users (normalized as /users) on protected branch 'main' of service 'user-service' (backward-compatible)
+2026-04-21T21:31:09.128748Z  WARN sanshain_service::application::services: Rejected update for service 'user-service' branch 'main': breaking changes: Property 'id' in schema 'User' changed type from 'string' to 'integer'
+2026-04-21T21:31:09.128831Z  WARN sanshain_service: Conflict: Breaking changes detected on protected branch 'main' of service 'user-service': Property 'id' in schema 'User' changed type from 'string' to 'integer'
+2026-04-21T21:31:09.399185Z  INFO sanshain_service::application::services: Falling back to protected branch 'main' for OpenApi GET /users
+2026-04-21T21:31:13.041003Z  WARN sanshain_service::application::services: Rejected update for service 'user-service' branch 'main': breaking changes: Property 'role' was removed from schema 'User'
+2026-04-21T21:31:13.041084Z  WARN sanshain_service: Conflict: Breaking changes detected on protected branch 'main' of service 'user-service': Property 'role' was removed from schema 'User'
+2026-04-21T21:31:13.149813Z  INFO sanshain_service::application::services: Spec update is backward-compatible for protected branch 'main'
+2026-04-21T21:31:13.150644Z  INFO sanshain_service::application::services: Updating OpenApi POST /orders (normalized as /orders) on protected branch 'main' of service 'order-service' (backward-compatible)
+2026-04-21T21:31:13.229314Z  INFO sanshain_service::application::services: Spec update is backward-compatible for protected branch 'main'
+2026-04-21T21:31:13.338009Z  INFO sanshain_service::application::services: Spec update is backward-compatible for protected branch 'main'
+2026-04-21T21:31:13.338830Z  INFO sanshain_service::application::services: Updating OpenApi POST /payments (normalized as /payments) on protected branch 'main' of service 'payment-service' (backward-compatible)
+2026-04-21T21:31:13.429870Z  INFO sanshain_service::application::services: Spec update is backward-compatible for protected branch 'main'
+2026-04-21T21:31:13.562287Z  INFO sanshain_service::application::services: Updating OpenApi GET /orders (normalized as /orders) on feature branch 'feature/discounts' of service 'order-service'
+2026-04-21T21:31:13.562382Z  INFO sanshain_service::application::services: Updating OpenApi POST /orders (normalized as /orders) on feature branch 'feature/discounts' of service 'order-service'
+2026-04-21T21:31:13.562425Z  INFO sanshain_service::application::services: Updating OpenApi GET /orders/{id} (normalized as /orders/{}) on feature branch 'feature/discounts' of service 'order-service'
+2026-04-21T21:31:13.647864Z  INFO sanshain_service::application::services: Updating OpenApi POST /users (normalized as /users) on feature branch 'feature/add-roles' of service 'user-service'
+2026-04-21T21:31:14.291185Z  INFO sanshain_service::application::services: Spec update is backward-compatible for protected branch 'main'
+2026-04-21T21:31:14.388404Z  WARN sanshain_service::application::services: Rejected update for service 'user-service' branch 'main': breaking changes: Property 'id' in schema 'User' changed type from 'string' to 'integer'
+2026-04-21T21:31:14.388514Z  WARN sanshain_service: Conflict: Breaking changes detected on protected branch 'main' of service 'user-service': Property 'id' in schema 'User' changed type from 'string' to 'integer'
+2026-04-21T21:31:14.649951Z  INFO sanshain_service::application::services: Falling back to protected branch 'main' for OpenApi GET /users

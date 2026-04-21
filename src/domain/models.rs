@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ApiType {
+    #[default]
     OpenApi,
     AsyncApi,
     Proto,
@@ -31,11 +32,6 @@ impl std::str::FromStr for ApiType {
     }
 }
 
-impl Default for ApiType {
-    fn default() -> Self {
-        ApiType::OpenApi
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
