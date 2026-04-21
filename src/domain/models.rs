@@ -205,6 +205,14 @@ pub struct LogEntry {
     pub message: String,
 }
 
+#[derive(Serialize, Clone, Debug)]
+pub struct LogResponse {
+    pub errors: Vec<LogEntry>,
+    pub warnings: Vec<LogEntry>,
+    pub infos: Vec<LogEntry>,
+    pub debugs: Vec<LogEntry>,
+}
+
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct SystemStats {
     pub cpu_usage: f32,

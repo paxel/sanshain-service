@@ -20,10 +20,16 @@ pub async fn main() {
     let admin_user_debug = Arc::new(AtomicBool::new(false));
     let requests_total = Arc::new(AtomicU64::new(0));
     let failures_total = Arc::new(AtomicU64::new(0));
-    let log_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(101)));
+    let error_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(101)));
+    let warn_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(101)));
+    let info_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(101)));
+    let debug_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(101)));
 
     let capture_layer = LogCaptureLayer {
-        buffer: log_buffer.clone(),
+        error_buffer: error_buffer.clone(),
+        warn_buffer: warn_buffer.clone(),
+        info_buffer: info_buffer.clone(),
+        debug_buffer: debug_buffer.clone(),
         business_logic_debug: business_logic_debug.clone(),
         admin_user_debug: admin_user_debug.clone(),
     };
@@ -86,7 +92,10 @@ pub async fn main() {
         csrf_tokens: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
         instance_id,
         spec_updated_tx,
-        log_buffer,
+        error_buffer,
+        warn_buffer,
+        info_buffer,
+        debug_buffer,
         business_logic_debug,
         admin_user_debug,
         requests_total,

@@ -69,6 +69,7 @@ async fn provide_spec_inner(
     tracing::debug!("Providing spec for service '{}' branch '{}' (dry_run: {})", servicename, branch, dry_run);
     let endpoints = openapi::split_openapi(openapi_yaml)
         .map_err(AppError::BadRequest)?;
+    tracing::debug!("Successfully split spec into {} endpoints for service '{}'", endpoints.len(), servicename);
 
     let (_sid, bid) = if dry_run {
         match repo.find_service(servicename).await? {
@@ -127,17 +128,21 @@ async fn provide_spec_inner(
                 // Compatibility check already done for the whole spec
                 if is_protected {
                     tracing::info!(
-                        "Updating {} {} (normalized as {}) on protected branch (backward-compatible)",
+                        "Updating {} {} (normalized as {}) on protected branch '{}' of service '{}' (backward-compatible)",
                         endpoint.method,
                         endpoint.path,
-                        endpoint.normalized_path
+                        endpoint.normalized_path,
+                        branch,
+                        servicename
                     );
                 } else {
                     tracing::info!(
-                        "Updating {} {} (normalized as {}) on feature branch",
+                        "Updating {} {} (normalized as {}) on feature branch '{}' of service '{}'",
                         endpoint.method,
                         endpoint.path,
-                        endpoint.normalized_path
+                        endpoint.normalized_path,
+                        branch,
+                        servicename
                     );
                 }
                 changes.push(SpecChange::Update {
@@ -173,22 +178,24 @@ async fn provide_spec_inner(
     for ((_norm_path, method), (path, _)) in existing_map {
         if is_protected {
             tracing::info!(
-                "Soft-deleting {} {} on protected branch",
-                method, path
+                "Soft-deleting {} {} on protected branch '{}' of service '{}'",
+                method, path, branch, servicename
             );
         } else {
             tracing::info!(
-                "Deleting {} {} on feature branch",
-                method, path
+                "Deleting {} {} on feature branch '{}' of service '{}'",
+                method, path, branch, servicename
             );
         }
         changes.push(SpecChange::Delete { path, method, soft_delete: is_protected });
     }
 
     if dry_run {
+        tracing::debug!("Dry-run mode: skipping database persistence for service '{}'", servicename);
         return Ok(());
     }
 
+    tracing::debug!("Applying {} changes to database for service '{}' branch '{}'", changes.len(), servicename, branch);
     repo.apply_spec_changes(bid, changes, is_protected).await?;
 
     Ok(())
@@ -236,9 +243,11 @@ pub async fn list_service_endpoints(
     servicename: &str,
     branch: &str,
 ) -> Result<Vec<EndpointRecord>, AppError> {
+    tracing::debug!("Listing endpoints for service '{}' branch '{}'", servicename, branch);
     let service_id = repo.ensure_service(servicename).await?;
     let branch_id = repo.ensure_branch(service_id, branch).await?;
     let endpoints = repo.get_endpoints_for_branch(branch_id).await?;
+    tracing::debug!("Found {} endpoints for service '{}' branch '{}'", endpoints.len(), servicename, branch);
     Ok(endpoints)
 }
 
@@ -287,6 +296,7 @@ async fn find_endpoint_with_fallback(
     path: &str,
     method_upper: &str,
 ) -> Result<Option<(i64, String)>, RepositoryError> {
+    tracing::debug!("Searching for endpoint {} {} in service '{}' branch '{}'", method_upper, path, servicename, branch);
     let endpoint = repo.find_endpoint(service_id, branch, path, method_upper).await?;
     if endpoint.is_some() || repo.is_branch_protected(branch).await? {
         return Ok(endpoint);
@@ -350,9 +360,11 @@ async fn require_endpoint_inner(
     let poll_interval = std::time::Duration::from_millis(500);
 
     loop {
+        tracing::debug!("Polling for endpoint {} {} (service_id: {})", method_upper, params.path, service_id);
         let endpoint = find_endpoint_with_fallback(repo, service_id, params.servicename, params.branch, params.path, &method_upper).await?;
 
         if let Some(ref ep) = endpoint {
+            tracing::debug!("Found endpoint {} {} for client '{}'", method_upper, params.path, params.clientname);
             if !dry_run {
                 let endpoint_id = Some(ep.0);
                 repo.record_dependency(client_id, endpoint_id, service_id, params.branch, params.path, &method_upper).await?;
@@ -422,7 +434,7 @@ async fn require_bundle_inner(
     params: RequireBundleParams<'_>,
     dry_run: bool,
 ) -> Result<String, AppError> {
-    tracing::debug!("Client '{}' requiring bundle from service '{}' branch '{}' (dry_run: {})", params.clientname, params.servicename, params.branch, dry_run);
+    tracing::debug!("Client '{}' requiring bundle with {} endpoints from service '{}' branch '{}' (dry_run: {})", params.clientname, params.endpoints.len(), params.servicename, params.branch, dry_run);
     if params.endpoints.is_empty() {
         return Err(AppError::BadRequest("No endpoints requested".to_string()));
     }
@@ -448,6 +460,7 @@ async fn require_bundle_inner(
 
         for (path, method) in params.endpoints {
             let method_upper = method.to_uppercase();
+            tracing::debug!("Looking up endpoint {} {} for client '{}'", method_upper, path, params.clientname);
             let endpoint = find_endpoint_with_fallback(repo, service_id, params.servicename, params.branch, path, &method_upper).await?;
 
             if let Some(ref ep) = endpoint {
@@ -462,6 +475,7 @@ async fn require_bundle_inner(
 
         if missing.is_empty() {
             // All endpoints found — merge into single YAML
+            tracing::debug!("Merging {} endpoint YAMLs for bundle request from client '{}'", yamls.len(), params.clientname);
             return openapi::merge_endpoint_yamls(&yamls)
                 .map_err(AppError::Internal);
         }
@@ -522,7 +536,13 @@ pub async fn generate_report(
     repo: &impl SpecRepository,
     branch: &str,
 ) -> Result<DependencyReport, AppError> {
-    Ok(repo.get_report(branch).await?)
+    tracing::debug!("Generating dependency report for branch '{}'", branch);
+    let report = repo.get_report(branch).await?;
+    tracing::debug!("Report generated: {} unused, {} missing, {} graph edges", 
+        report.unused_endpoints.len(), 
+        report.missing_endpoints.len(), 
+        report.dependency_graph.len());
+    Ok(report)
 }
 
 pub async fn list_protected_branches(

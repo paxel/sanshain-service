@@ -31,7 +31,10 @@ pub struct AppState {
     pub csrf_tokens: Arc<RwLock<HashMap<String, DateTime<Utc>>>>,
     pub instance_id: String,
     pub spec_updated_tx: tokio::sync::broadcast::Sender<()>,
-    pub log_buffer: Arc<std::sync::Mutex<VecDeque<domain::models::LogEntry>>>,
+    pub error_buffer: Arc<std::sync::Mutex<VecDeque<domain::models::LogEntry>>>,
+    pub warn_buffer: Arc<std::sync::Mutex<VecDeque<domain::models::LogEntry>>>,
+    pub info_buffer: Arc<std::sync::Mutex<VecDeque<domain::models::LogEntry>>>,
+    pub debug_buffer: Arc<std::sync::Mutex<VecDeque<domain::models::LogEntry>>>,
     pub business_logic_debug: Arc<AtomicBool>,
     pub admin_user_debug: Arc<AtomicBool>,
     pub requests_total: Arc<AtomicU64>,
@@ -59,7 +62,10 @@ impl<'a> tracing::field::Visit for LogVisitor<'a> {
 }
 
 pub struct LogCaptureLayer {
-    pub buffer: Arc<std::sync::Mutex<VecDeque<domain::models::LogEntry>>>,
+    pub error_buffer: Arc<std::sync::Mutex<VecDeque<domain::models::LogEntry>>>,
+    pub warn_buffer: Arc<std::sync::Mutex<VecDeque<domain::models::LogEntry>>>,
+    pub info_buffer: Arc<std::sync::Mutex<VecDeque<domain::models::LogEntry>>>,
+    pub debug_buffer: Arc<std::sync::Mutex<VecDeque<domain::models::LogEntry>>>,
     pub business_logic_debug: Arc<AtomicBool>,
     pub admin_user_debug: Arc<AtomicBool>,
 }
@@ -96,13 +102,20 @@ where
 
         let entry = domain::models::LogEntry {
             timestamp: Utc::now().to_rfc3339(),
-            level: level_str,
+            level: level_str.clone(),
             target: target.to_string(),
             message,
         };
 
-        if let Ok(mut buf) = self.buffer.lock() {
-            if buf.len() >= 100 {
+        let (buf_to_use, max_size) = match level_str.as_str() {
+            "ERROR" => (&self.error_buffer, 100),
+            "WARN" => (&self.warn_buffer, 100),
+            "INFO" => (&self.info_buffer, 100),
+            _ => (&self.debug_buffer, 100),
+        };
+
+        if let Ok(mut buf) = buf_to_use.lock() {
+            if buf.len() >= max_size {
                 buf.pop_front();
             }
             buf.push_back(entry);
@@ -1818,9 +1831,18 @@ async fn request_counter(
     response
 }
 
-async fn admin_get_logs(State(state): State<AppState>) -> Json<Vec<domain::models::LogEntry>> {
-    let logs = state.log_buffer.lock().unwrap();
-    Json(logs.iter().cloned().collect())
+async fn admin_get_logs(State(state): State<AppState>) -> Json<domain::models::LogResponse> {
+    let errors = state.error_buffer.lock().unwrap().iter().cloned().collect();
+    let warnings = state.warn_buffer.lock().unwrap().iter().cloned().collect();
+    let infos = state.info_buffer.lock().unwrap().iter().cloned().collect();
+    let debugs = state.debug_buffer.lock().unwrap().iter().cloned().collect();
+
+    Json(domain::models::LogResponse {
+        errors,
+        warnings,
+        infos,
+        debugs,
+    })
 }
 
 async fn admin_get_stats(State(state): State<AppState>) -> Json<domain::models::SystemStats> {
