@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Authorized User Discovery Access**: non-admin authorized users (any logged-in user) can now access service discovery data and view the dependency graph. Read-only discovery endpoints were moved to a less restrictive authentication layer while preserving admin-only access for destructive operations.
 - **Improved Graph Node Readability**: implemented text wrapping and dynamic node sizing in the custom dependency graph. Long service names are now wrapped into multiple lines or truncated with an ellipsis, and node dimensions adapt to the label length to ensure readability without excessive broadness.
 - **Graph SVG Download**: enabled the download and copy-to-clipboard buttons for the custom dependency graph. Users can now export the interactive graph as a high-quality SVG file or copy the SVG markup directly.
+- **Autobahn Flow Layout**: reorganized nodes within each graph rank to follow a logical "client-to-server" flow. "Client-only" nodes are grouped on the left (or top), "both" roles in the center, and "server-only" nodes on the right (or bottom), with increased spacing between groups to clearly separate architectural roles.
 
 ### Fixed
 - 

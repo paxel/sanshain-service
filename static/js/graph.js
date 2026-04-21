@@ -230,6 +230,23 @@ function renderCustomGraph(report, svgElement, direction) {
         g.setNode(c.id, { label: c.label });
     });
 
+    const nodeRole = new Map();
+    for (const node of allNodes) {
+        const isC = clientNodes.has(node);
+        const isS = serviceNodes.has(node);
+        if (isC && isS) nodeRole.set(node, 1); // BOTH
+        else if (isC) nodeRole.set(node, 0);   // CLIENT ONLY
+        else nodeRole.set(node, 2);            // SERVICE ONLY
+    }
+
+    const clusterRole = new Map();
+    clusters.forEach(c => {
+        const roles = c.members.map(m => nodeRole.get(m));
+        if (roles.includes(1)) clusterRole.set(c.id, 1);
+        else if (roles.every(r => r === 0)) clusterRole.set(c.id, 0);
+        else clusterRole.set(c.id, 2);
+    });
+
     for (const [from, tos] of adjMap) {
         for (const to of tos) g.setEdge(from, to);
     }
@@ -263,6 +280,7 @@ function renderCustomGraph(report, svgElement, direction) {
     // bricks collide. In LR the flow extent is nodeH (40), so gaps can be
     // tighter than TB (flow extent nodeW=160).
     const GAP = isLR ? 25 : 30;           // gap between units on a rank (flow axis)
+    const GROUP_GAP = isLR ? 60 : 80;     // larger gap between different roles (flow axis)
     const BRICK_GAP = isLR ? 12 : 15;     // gap between adjacent bricks (flow axis)
     // Brick stagger along the rank axis. In LR this shifts X, and must
     // leave room next to nodeW-wide neighbours — bump it up.
@@ -321,14 +339,31 @@ function renderCustomGraph(report, svgElement, direction) {
     });
 
     unitsByRank.forEach(units => {
-        units.sort((a, b) => a.cf - b.cf);
-        const totalWidth = units.reduce((s, u) => s + u.width, 0) + GAP * (units.length - 1);
+        units.forEach(u => {
+            u.role = u.type === 'node' ? nodeRole.get(u.id) : clusterRole.get(u.id);
+        });
+        units.sort((a, b) => {
+            if (a.role !== b.role) return a.role - b.role;
+            return a.cf - b.cf;
+        });
+
+        let totalWidth = 0;
+        for (let i = 0; i < units.length; i++) {
+            totalWidth += units[i].width;
+            if (i < units.length - 1) {
+                totalWidth += (units[i].role !== units[i+1].role) ? GROUP_GAP : GAP;
+            }
+        }
+
         const oldMid = (units[0].cf + units[units.length - 1].cf) / 2;
         let cursor = oldMid - totalWidth / 2;
-        units.forEach(u => {
+        for (let i = 0; i < units.length; i++) {
+            const u = units[i];
             u.newCf = cursor + u.width / 2;
-            cursor += u.width + GAP;
-        });
+            if (i < units.length - 1) {
+                cursor += u.width + (u.role !== units[i+1].role ? GROUP_GAP : GAP);
+            }
+        }
     });
 
     // Step 3 — apply computed positions.
