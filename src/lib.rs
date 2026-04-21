@@ -184,6 +184,17 @@ async fn api_auth(
     Ok(next.run(req).await)
 }
 
+/// Middleware: requires a valid session or API token, does NOT allow dev_mode=true bypass.
+async fn authenticated_auth(
+    State(state): State<AppState>,
+    req: axum::http::Request<Body>,
+    next: middleware::Next,
+) -> Result<axum::response::Response, StatusCode> {
+    let token = extract_bearer_token(&req).ok_or(StatusCode::UNAUTHORIZED)?;
+    let _user = resolve_user(&state.repo, &token).await?.ok_or(StatusCode::UNAUTHORIZED)?;
+    Ok(next.run(req).await)
+}
+
 fn extract_bearer_token(req: &axum::http::Request<Body>) -> Option<String> {
     let header = req
         .headers()
@@ -293,8 +304,14 @@ pub fn create_app(state: AppState) -> Router {
         .route("/clients/{name}/branches/{branch}/endpoints", get(admin_list_client_endpoints))
         .route("/services/{name}/branches/{branch}/endpoints", get(admin_list_service_endpoints))
         .route("/endpoint-yaml", get(admin_get_endpoint_yaml))
-        .route("/endpoint-versions", get(admin_get_endpoint_versions))
-        .route_layer(middleware::from_fn_with_state(state.clone(), api_auth));
+        .route("/endpoint-versions", get(admin_get_endpoint_versions));
+
+    let staff_routes = Router::new()
+        .merge(discovery_routes)
+        .route("/observability/logs", get(admin_get_logs))
+        .route("/observability/stats", get(admin_get_stats))
+        .route("/observability/debug-config", get(admin_get_debug_config))
+        .route_layer(middleware::from_fn_with_state(state.clone(), authenticated_auth));
 
     let admin_routes = Router::new()
         .route("/protected-branches", get(list_protected_branches).post(add_protected_branch))
@@ -313,13 +330,11 @@ pub fn create_app(state: AppState) -> Router {
         .route("/settings/dependency-max-age", get(get_dependency_max_age).post(set_dependency_max_age))
         .route("/settings/dependency-cleanup", post(trigger_dependency_cleanup))
         .route("/users", get(admin_list_users))
-        .route("/observability/logs", get(admin_get_logs))
-        .route("/observability/stats", get(admin_get_stats))
-        .route("/observability/debug-config", get(admin_get_debug_config).post(admin_set_debug_config))
+        .route("/observability/debug-config", post(admin_set_debug_config))
         .route("/users/{id}/approve", post(admin_approve_user))
         .route("/users/{id}", axum::routing::delete(admin_delete_user_handler))
         .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth))
-        .merge(discovery_routes);
+        .merge(staff_routes);
 
     let fragment_routes = Router::new()
         .route("/admin/users", get(fragment_users))
@@ -366,6 +381,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/", get(index_page))
         .route("/index.html", get(index_page))
         .route("/health", get(health))
+        .route("/metrics", get(|State(s): State<AppState>| async move { s.prometheus_handle.render() }))
         .route("/version", get(version))
         .route("/csrf-token", get(generate_csrf_token))
         .route("/auth/login", post(auth_login))
@@ -779,6 +795,7 @@ struct LoginPayload {
 struct LoginResponse {
     token: String,
     expires_at: String,
+    is_admin: bool,
 }
 
 #[derive(Serialize)]
@@ -816,9 +833,12 @@ async fn auth_login(
                 .map_err(app_error_to_status)?
         }
     };
+    let user = resolve_user(&state.repo, &session.token).await?.ok_or(StatusCode::UNAUTHORIZED)?;
+
     Ok(Json(LoginResponse {
         token: session.token,
         expires_at: session.expires_at,
+        is_admin: user.is_admin,
     }))
 }
 

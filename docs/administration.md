@@ -6,9 +6,20 @@ This guide covers the admin dashboard at `/admin.html` and the day-to-day tasks 
 
 Open `/admin.html` in your browser and sign in with an admin account. On a fresh installation the only admin account is **root** — see [Getting Started](getting-started.md) for the initial password procedure.
 
-![Admin login screen](images/Screenshot_20260314_075115.png)
+![Admin login screen](images/Screenshot_20260421_230832.png)
 
-After a successful login the dashboard loads with all management sections visible.
+After a successful login the dashboard loads with all management sections organized into tabs: **Observability**, **User Management**, **System Config**, and **Services & Clients**.
+
+![Admin dashboard](images/Screenshot_20260421_230857.png)
+
+## Observability
+
+The **Observability** tab provides real-time insights into the system's health:
+
+- **System Stats**: Live view of CPU usage, memory consumption, and uptime.
+- **Request Counters**: Total requests and 5xx failure counters for business logic.
+- **Log Viewer**: An in-memory ring buffer showing the last 100 log messages with level filtering.
+- **Debug Tracing**: Toggleable flags to enable detailed tracing for business logic or admin activity at runtime.
 
 ## Developer Mode
 
@@ -30,12 +41,21 @@ By default `main` and `master` are protected. You can add or remove patterns:
 
 On non-protected (feature) branches, endpoint definitions can be freely overwritten.
 
-## Local User Registration
+## Local User Management
+
+Sanshain supports local user accounts with the following settings in the **User Management** tab:
+
+### Local User Registration
 
 When **Local User Registration** is enabled, anyone can create an account via the web UI at `/account.html` or by calling `POST /auth/register`.
 
 - **Off (default)** — only the admin can create users.
-- **On** — self-registration is open, but new accounts are created in a **pending** state and must be approved by an admin before the user can log in.
+- **On** — self-registration is open.
+
+### Auto-Approve Users
+
+- **Off (default)** — new accounts are created in a **pending** state and must be approved by an admin before the user can log in.
+- **On** — new accounts are automatically approved and can log in immediately.
 
 This is intended for development and internal use. For production environments, consider using LDAP authentication (see below).
 
@@ -132,8 +152,6 @@ The **Clients** section lists all clients that have registered at least one depe
 
 Click the **Change Password** button in the top navigation bar to open the password dialog.
 
-![Password change dialog](images/Screenshot_20260314_075210.png)
-
 Enter your current password and a new password, then click **Update Password**. The change takes effect immediately; existing sessions remain valid.
 
 ## Database Configuration
@@ -153,4 +171,4 @@ For detailed setup instructions, see [Getting Started — PostgreSQL](getting-st
 
 - **Account** (`/account.html`) — manage your own password and API tokens.
 
-  ![Account page with token management](images/Screenshot_20260314_075724.png)
+  ![Account page with token management](images/Screenshot_20260421_230948.png)

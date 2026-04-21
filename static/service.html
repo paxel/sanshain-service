@@ -233,9 +233,29 @@
 
 <script>
     // Redirect to login if no session token
-    if (!localStorage.getItem('sanshain_token')) {
-        window.location.href = '/account.html';
+    async function checkAuth() {
+        const token = localStorage.getItem('sanshain_token');
+        if (!token) {
+            window.location.href = '/account.html';
+            return;
+        }
+        try {
+            const res = await fetch('/auth/me', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!res.ok) {
+                window.location.href = '/account.html';
+                return;
+            }
+            const user = await res.json();
+            // Auth OK, proceed to load data
+            loadServices();
+        } catch (err) {
+            console.error('Auth check failed:', err);
+            window.location.href = '/account.html';
+        }
     }
+    checkAuth();
 
     async function fetchJSON(url) {
         const headers = {};
@@ -1434,7 +1454,6 @@
         `;
     }
 
-    loadServices();
 </script>
 </body>
 </html>

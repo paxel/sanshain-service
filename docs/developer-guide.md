@@ -57,9 +57,9 @@ src/
 
 ### Purpose
 
-Services **provide** their OpenAPI specs to Sanshain. Consumers **require** specific endpoints. This creates a live dependency graph and enables contract compatibility checks.
+Services **provide** their OpenAPI, AsyncAPI, or Proto specs to Sanshain. Consumers **require** specific endpoints, channels, or methods. This creates a live dependency graph and enables contract compatibility checks across protocols.
 
-### Provide Flow (`POST /provide`)
+### Provide Flow (`POST /provide`, `/provide/asyncapi`, `/provide/grpc`)
 
 ```mermaid
 sequenceDiagram
@@ -69,9 +69,9 @@ sequenceDiagram
     participant Splitter as openapi.rs
     participant Repo as Repository
 
-    Client->>Handler: POST /provide {service, branch, version, yaml, dry_run?}
-    Handler->>Service: provide_spec(...)
-    Service->>Splitter: split_openapi(yaml)
+    Client->>Handler: POST /provide {service, branch, yaml, dry_run?, api_type?}
+    Handler->>Service: provide_spec(..., api_type)
+    Service->>Splitter: split_spec(yaml, api_type)
     Splitter-->>Service: Vec<EndpointSpec>
     Service->>Repo: Check idempotency (same version?)
     alt Version exists on protected branch
@@ -95,15 +95,16 @@ sequenceDiagram
 - **Feature-branch override**: Non-protected branches allow version overwrites (useful for CI iteration).
 - **Dry run**: When `dry_run: true`, all validation runs (parsing, splitting, conflict detection) but nothing is persisted. Returns 202 on success.
 
-### OpenAPI Splitting (`openapi.rs`)
+### Spec Splitting (`openapi.rs`, `asyncapi.rs`, `proto.rs`)
 
-The `split_openapi` function takes a full OpenAPI 3.x YAML spec and produces one `EndpointSpec` per operation:
+The `split_spec` function (dispatched by `api_type`) takes a full specification and produces one `EndpointSpec` per operation:
 
 ```rust
 pub struct EndpointSpec {
-    pub path: String,       // e.g., "/users/{id}"
-    pub method: String,     // e.g., "GET"
-    pub yaml_content: String, // Standalone YAML with this operation + only referenced components
+    pub path: String,         // e.g., "/users/{id}" (OpenAPI), "topic" (AsyncAPI), "Service" (Proto)
+    pub method: String,       // e.g., "GET" (OpenAPI), "PUB" (AsyncAPI), "Method" (Proto)
+    pub api_type: ApiType,    // OpenAPI, AsyncApi, Proto
+    pub yaml_content: String, // Standalone YAML/Proto with this operation + only referenced components
 }
 ```
 

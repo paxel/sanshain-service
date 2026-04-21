@@ -1031,6 +1031,7 @@ async fn test_auth_login_and_session() {
     let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
     let login_resp: Value = serde_json::from_slice(&body).unwrap();
     assert!(login_resp["token"].is_string());
+    assert_eq!(login_resp["is_admin"], true);
     let new_token = login_resp["token"].as_str().unwrap();
 
     // Use new token to access /auth/me
@@ -1083,6 +1084,172 @@ async fn test_auth_login_and_session() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_role_based_access_control() {
+    let (app, admin_token) = setup_app_with_admin().await;
+
+    // Enable local users
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/settings/local-users")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&json!({"enabled": true})).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Create a staff user (non-admin)
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/register")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&json!({
+                    "username": "staff",
+                    "password": "staff-pass"
+                })).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    
+    // Admin lists users to find staff ID
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/users")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let users: Value = serde_json::from_slice(&body).unwrap();
+    let staff_user = users.as_array().unwrap().iter().find(|u| u["username"] == "staff").unwrap();
+    let staff_id = staff_user["id"].as_i64().unwrap();
+
+    // Approve staff user (still non-admin)
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/admin/users/{}/approve", staff_id))
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Login as staff
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/login")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&json!({
+                    "username": "staff",
+                    "password": "staff-pass"
+                })).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let login_resp: Value = serde_json::from_slice(&body).unwrap();
+    let staff_token = login_resp["token"].as_str().unwrap().to_string();
+    assert_eq!(login_resp["is_admin"], false);
+
+    // 1. Staff should be able to see stats
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/observability/stats")
+                .header("Authorization", format!("Bearer {}", staff_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // 2. Staff should be able to see logs
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/observability/logs")
+                .header("Authorization", format!("Bearer {}", staff_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // 3. Staff should be able to see discovery routes (e.g. /admin/services)
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/services")
+                .header("Authorization", format!("Bearer {}", staff_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // 4. Staff should NOT be able to change debug config
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/observability/debug-config")
+                .header("Authorization", format!("Bearer {}", staff_token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&json!({"business_logic_debug": true, "admin_user_debug": true})).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    // 5. Staff should NOT be able to delete a service
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/admin/services/any-service")
+                .header("Authorization", format!("Bearer {}", staff_token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]

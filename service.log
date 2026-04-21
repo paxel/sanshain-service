@@ -1,0 +1,8 @@
+2026-04-21T20:46:43.855237Z  INFO sanshain_service::infrastructure::sqlite_repository: Running SQLite migrations...
+2026-04-21T20:46:43.857043Z  INFO sanshain_service: Using SQLite database backend
+2026-04-21T20:46:43.857423Z  INFO sanshain_service: Instance ID: bab70f2c-743e-4354-8e0c-7abae3eaac25
+2026-04-21T20:46:44.062343Z  INFO sanshain_service: Listening on 0.0.0.0:3000
+
+thread 'main' (80725) panicked at src/main.rs:146:62:
+called `Result::unwrap()` on an `Err` value: Os { code: 98, kind: AddrInUse, message: "Address already in use" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

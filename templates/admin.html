@@ -130,7 +130,7 @@
             </div>
 
             <!-- Debug Toggles -->
-            <div class="border-t border-slate-100 pt-6 mb-8">
+            <div id="debug-tracing-section" class="border-t border-slate-100 pt-6 mb-8">
                 <h3 class="text-sm font-semibold text-slate-800 mb-4 uppercase tracking-tight">Debug Tracing</h3>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div class="flex justify-between items-center bg-slate-50 p-4 rounded-lg border border-slate-100">
@@ -414,11 +414,33 @@
         document.getElementById('admin-dashboard').classList.add('hidden');
     }
 
-    function showDashboard() {
+    function showDashboard(isAdmin) {
         hideLoader();
         document.getElementById('login-screen').classList.add('hidden');
         const dashboard = document.getElementById('admin-dashboard');
         dashboard.classList.remove('hidden');
+
+        // Role-based visibility
+        const adminOnlyTabs = ['users', 'system', 'objects'];
+        adminOnlyTabs.forEach(tab => {
+            const btn = document.getElementById(`tab-${tab}`);
+            if (btn) {
+                if (isAdmin) btn.classList.remove('hidden');
+                else btn.classList.add('hidden');
+            }
+        });
+
+        const debugSection = document.getElementById('debug-tracing-section');
+        if (debugSection) {
+            if (isAdmin) debugSection.classList.remove('hidden');
+            else debugSection.classList.add('hidden');
+        }
+
+        // If not admin and on an admin tab, switch to observability
+        if (!isAdmin && adminOnlyTabs.includes(activeTab)) {
+            switchTab('observability');
+        }
+
         // Ensure htmx picks up the now-visible subtree
         htmx.process(dashboard);
         // The hx-trigger="load" events fired (or failed due to missing auth) while the
@@ -451,7 +473,7 @@
             const data = await res.json();
             sanshainToken = data.token;
             localStorage.setItem('sanshain_token', sanshainToken);
-            showDashboard();
+            showDashboard(data.is_admin);
         } catch (err) {
             errEl.textContent = friendlyError(err);
             errEl.classList.remove('hidden');
@@ -472,7 +494,7 @@
             if (res.ok) {
                 const data = await res.json();
                 document.getElementById('admin-username').textContent = data.username;
-                showDashboard();
+                showDashboard(data.is_admin);
             } else {
                 showLogin();
             }

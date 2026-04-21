@@ -109,21 +109,22 @@ Migrations are applied automatically on startup.
 
 ## First Login
 
-On first start, Sanshain prints the initial root credentials to the console output:
+On first start, Sanshain prints the initial root credentials to the console output (stderr). Look for a message like this:
 
-![Initial root credentials printed to the console](images/Screenshot_20260314_075130.png)
+```
+[INITIAL SETUP] Admin user created. Username: root, Password: <random>
+[INITIAL SETUP] Change this password immediately at http://localhost:3000/admin.html
+```
 
 Copy the password, then open the URL shown in the log message to access the admin dashboard. Log in with username **root** and the generated password.
 
-![Admin dashboard after login](images/Screenshot_20260314_075115.png)
+![Admin login screen](images/Screenshot_20260421_230832.png)
 
 After a successful login, you will see the admin dashboard:
 
 ## Change the Root Password
 
 Immediately change the root password to something memorable — or store the generated one in a password manager.
-
-![Password change dialog](images/Screenshot_20260314_075210.png)
 
 ## Initial Configuration
 

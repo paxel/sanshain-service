@@ -6,14 +6,14 @@ This guide covers the day-to-day workflows for developers using Sanshain Service
 
 ## Concepts
 
-| Term                        | Meaning                                                                                                                  |
-|-----------------------------|--------------------------------------------------------------------------------------------------------------------------|
-| **Provide**                 | Upload a full OpenAPI YAML for a service on a given branch. Sanshain splits it into per-endpoint snippets automatically. |
-| **Require**                 | Request the OpenAPI snippet for a single endpoint and record the caller as a dependent client.                           |
-| **Report**                  | Generate a dependency report showing used, unused, and missing endpoints for a branch.                                   |
-| **Protected branch**        | A branch (e.g. `main`) where only backward-compatible schema changes are allowed. Breaking changes are rejected.          |
-| **Feature branch fallback** | If an endpoint is not found on a feature branch, Sanshain falls back to a protected branch.                              |
-| **Dry run**                 | A validation-only mode (`dry_run: true`) that checks contracts without persisting data. Designed for PR validation in CI. |
+| Term                        | Meaning                                                                                                                                           |
+|-----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Provide**                 | Upload a full OpenAPI YAML, AsyncAPI YAML, or Proto file for a service on a given branch. Sanshain splits it into per-endpoint (or channel/method) snippets automatically. |
+| **Require**                 | Request the snippet for a single endpoint, channel, or method and record the caller as a dependent client.                                        |
+| **Report**                  | Generate a dependency report showing used, unused, and missing requirements for a branch across all protocols.                                    |
+| **Protected branch**        | A branch (e.g. `main`) where only backward-compatible schema changes are allowed. Breaking changes are rejected.                                   |
+| **Feature branch fallback** | If an endpoint is not found on a feature branch, Sanshain falls back to a protected branch or a configured service fallback branch.               |
+| **Dry run**                 | A validation-only mode (`dry_run: true`) that checks contracts without persisting data. Designed for PR validation in CI.                          |
 
 ## Build Tool Integration
 
@@ -37,18 +37,18 @@ When you use a Sanshain plugin, the following happens automatically:
 
 ### Providing a spec
 
-1. The plugin reads your OpenAPI YAML file and uploads it to Sanshain for the current service and branch.
-2. Sanshain parses the YAML and splits it into one snippet per endpoint (path + method).
-3. On a **protected branch**, Sanshain performs a **backward compatibility check**. Backward-compatible changes (adding optional fields, new schemas, new endpoints) are accepted and a new version is recorded. Breaking changes (removing fields, changing types, removing response codes) are rejected with `409 Conflict`.
-4. On a **feature branch**, existing endpoint schemas are freely overwritten without compatibility checks.
+1. The plugin reads your OpenAPI, AsyncAPI, or Proto file and uploads it to Sanshain for the current service and branch.
+2. Sanshain parses the file and splits it into one snippet per endpoint (path + method for OpenAPI), channel (for AsyncAPI), or service method (for Proto).
+3. On a **protected branch**, Sanshain performs a **backward compatibility check** (currently for OpenAPI). Backward-compatible changes are accepted and a new version is recorded. Breaking changes are rejected with `409 Conflict`.
+4. On a **feature branch**, existing definitions are freely overwritten without compatibility checks.
 5. If `dry_run` is set to `true`, all validation runs but nothing is stored — useful for CI checks.
 
 ### Requiring an endpoint
 
-1. The plugin requests the OpenAPI snippet for a specific endpoint and records your service as a dependent client.
-2. Sanshain returns the minimal OpenAPI document containing only the requested endpoint and its referenced schemas.
+1. The plugin requests the snippet for a specific endpoint, channel, or method and records your service as a dependent client.
+2. Sanshain returns the minimal document containing only the requested item and its referenced schemas/messages.
 3. The plugin feeds this snippet into a code generator to produce typed client code in your language.
-4. If the endpoint is not found, the response includes a descriptive error message listing the service, branch, and endpoint details.
+4. If the item is not found, the response includes a descriptive error message listing the service, branch, and protocol details.
 5. If `dry_run` is set to `true`, the lookup runs but no dependency is recorded.
 
 ### Long-polling
@@ -65,17 +65,17 @@ If the endpoint is not found on a feature branch, Sanshain automatically falls b
 
 The landing page shows the service version and links to all sections.
 
-![Landing page](images/Screenshot_20260314_075632.png)
+![Landing page](images/Screenshot_20260421_230705.png)
 
 ### Service Overview (`/service.html`)
 
 Lists all registered services and their branches. Click a service to drill into its branches and endpoints.
 
-![Service list](images/Screenshot_20260314_080000.png)
+![Service list](images/Screenshot_20260421_231009.png)
 
 Each branch view shows the total number of endpoints, how many are used by at least one client, and how many are unused. Click an endpoint to see which clients depend on it.
 
-![Branch detail with endpoint usage](images/Screenshot_20260314_080025.png)
+![Branch detail with endpoint usage](images/Screenshot_20260421_231032.png)
 
 The YAML viewer includes **Copy** and **Download** buttons for easy export of endpoint specifications.
 
@@ -87,13 +87,13 @@ For endpoints on protected branches, the modal shows a **Version History** tab l
 - See the diff from the previous version (color-coded: green for additions, red for deletions).
 - Compare any two arbitrary versions using the version comparison tool.
 
-![Version history and diff viewer](images/Screenshot_20260416_200543.png)
+![Version history and diff viewer](images/Screenshot_20260421_231720.png)
 
 ### Dependency Graph
 
 The **Graph** tab visualises the dependency relationships between services and clients on the selected branch.
 
-![Dependency graph](images/Screenshot_20260416_200931.png)
+![Dependency graph](images/Screenshot_20260421_231733.png)
 
 - **Green** nodes are clients only.
 - **Purple** nodes are services only.
@@ -108,7 +108,7 @@ Use the **Copy** button to copy the generated Mermaid code to the clipboard, or 
 
 When the server is restarted or updated, a yellow banner appears at the top of the page offering a one-click reload. This ensures you always see the latest data without manually clearing the browser cache.
 
-![Stale data detection banner](images/Screenshot_20260416_200709.png)
+![Stale data detection banner](images/Screenshot_20260421_231827.png)
 
 ### Dark / Light Mode
 
@@ -122,7 +122,14 @@ The dependency report for a branch lists:
 - **Unused endpoints** — provided but not required by any client.
 - **Missing requirements** — required by a client but not provided by any service.
 
-See [reports/demo.md](reports/demo.md) for an example report.
+### System Reports
+
+The **Reports** section provides system-wide compliance and isolation reports, organized by branch.
+
+![Isolation Report](images/Screenshot_20260421_231804.png)
+
+- **Service Isolation Report**: Lists all outbound service-to-service communication in a table-per-service format.
+- **Markdown Report**: A full text-based report of dependencies and unused endpoints.
 
 ## Typical Workflow
 
