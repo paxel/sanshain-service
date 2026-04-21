@@ -19,6 +19,49 @@ let sanshainToken = localStorage.getItem('sanshain_token');
         } else {
             html.classList.remove('dark');
         }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => applySockeGimmick(theme));
+        } else {
+            applySockeGimmick(theme);
+        }
+    }
+
+    function applySockeGimmick(theme) {
+        const isDark = theme === 'dark';
+        const fromText = isDark ? /Sanshain/g : /Socke/g;
+        const toText = isDark ? 'Socke' : 'Sanshain';
+        const fromImg = isDark ? 'sonne.png' : 'socke.png';
+        const toImg = isDark ? 'socke.png' : 'sonne.png';
+
+        // 1. Update <title>
+        if (document.title.includes(isDark ? 'Sanshain' : 'Socke')) {
+            document.title = document.title.replace(fromText, toText);
+        }
+
+        // 2. Update all text nodes (best effort, limited to headers/nav/footer)
+        const selectors = 'h1, h2, h3, a, span, footer, button, label';
+        document.querySelectorAll(selectors).forEach(el => {
+            if (el.children.length === 0 && el.textContent.includes(isDark ? 'Sanshain' : 'Socke')) {
+                el.textContent = el.textContent.replace(fromText, toText);
+            } else if (el.childNodes.length > 0) {
+                // Check immediate text nodes
+                for (const node of el.childNodes) {
+                    if (node.nodeType === Node.TEXT_NODE && node.textContent.includes(isDark ? 'Sanshain' : 'Socke')) {
+                        node.textContent = node.textContent.replace(fromText, toText);
+                    }
+                }
+            }
+        });
+
+        // 3. Update images
+        document.querySelectorAll('img').forEach(img => {
+            if (img.src.includes(fromImg)) {
+                img.src = img.src.replace(fromImg, toImg);
+                if (img.alt.includes(isDark ? 'Sanshain' : 'Socke')) {
+                    img.alt = img.alt.replace(fromText, toText);
+                }
+            }
+        });
     }
     const saved = getThemeCookie() || 'light';
     applyTheme(saved);
@@ -67,6 +110,31 @@ let sanshainToken = localStorage.getItem('sanshain_token');
         html.dark [class*="bg-black/"] { background: rgba(0,0,0,0.7) !important; }
         /* Diff pre blocks — ensure text is always light on dark bg */
         .diff-pre { background: #1e293b !important; color: #e2e8f0 !important; }
+
+        /* Cat Loader */
+        #app-loader {
+            position: fixed; inset: 0; background: rgba(15, 23, 42, 0.9);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 9999; transition: opacity 0.3s ease-out;
+        }
+        #app-loader.hidden { opacity: 0; pointer-events: none; }
+        .cat-container { width: 120px; height: 80px; position: relative; }
+        .cat-svg { width: 100%; height: 100%; fill: #94a3b8; animation: breathe 3s ease-in-out infinite; }
+        @keyframes breathe {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .zzz-container { position: absolute; top: 0; right: 10px; font-weight: bold; color: #64748b; font-family: monospace; }
+        .zzz { position: absolute; opacity: 0; animation: floatZ 3s infinite; }
+        .zzz:nth-child(1) { animation-delay: 0s; font-size: 14px; }
+        .zzz:nth-child(2) { animation-delay: 1s; font-size: 18px; }
+        .zzz:nth-child(3) { animation-delay: 2s; font-size: 22px; }
+        @keyframes floatZ {
+            0% { opacity: 0; transform: translate(0, 0); }
+            20% { opacity: 1; }
+            80% { opacity: 0; transform: translate(20px, -40px); }
+            100% { opacity: 0; }
+        }
     `;
     document.head.appendChild(style);
 
@@ -223,6 +291,53 @@ function showReloadBanner() {
 
 // Run staleness check on every page load
 checkStaleness();
+
+// --- Cat Loader ---
+function injectLoader() {
+    if (document.getElementById('app-loader')) return;
+    const loader = document.createElement('div');
+    loader.id = 'app-loader';
+    loader.innerHTML = `
+        <div class="cat-container">
+            <svg class="cat-svg" viewBox="0 0 100 60">
+                <!-- Curled cat body -->
+                <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
+                <!-- Tail -->
+                <path d="M80,50 C95,50 95,30 85,30" fill="none" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" />
+                <!-- Ears -->
+                <path d="M25,25 L20,10 L35,22 Z" />
+                <path d="M45,22 L60,10 L55,25 Z" />
+                <!-- Closed eyes -->
+                <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+                <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+                <!-- Nose -->
+                <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
+            </svg>
+            <div class="zzz-container">
+                <span class="zzz">z</span>
+                <span class="zzz">z</span>
+                <span class="zzz">z</span>
+            </div>
+        </div>
+        <div class="mt-4 text-slate-400 text-sm font-medium tracking-wide">Loading...</div>
+    `;
+    document.body.appendChild(loader);
+}
+
+window.showLoader = function() {
+    injectLoader();
+    const l = document.getElementById('app-loader');
+    l.classList.remove('hidden');
+    l.style.opacity = '1';
+};
+
+window.hideLoader = function() {
+    const l = document.getElementById('app-loader');
+    if (l) {
+        l.classList.add('hidden');
+        l.style.opacity = '0';
+    }
+};
 
 // --- Password visibility toggle ---
 function togglePasswordVisibility(inputId, btn) {

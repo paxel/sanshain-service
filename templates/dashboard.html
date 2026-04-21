@@ -3,7 +3,7 @@
 {% block title %}My Dashboard{% endblock %}
 
 {% block body %}
-    <nav class="bg-indigo-700 text-white p-4 shadow-lg flex items-center justify-between">
+    <nav class="bg-indigo-700 text-white p-4 shadow-lg hidden items-center justify-between" id="dashboard-nav">
         <div class="flex items-center gap-4">
             <a href="/" class="text-xl font-bold">Sanshain</a>
             <a href="/dashboard" class="hover:underline">My Tokens</a>
@@ -17,7 +17,7 @@
         </div>
     </nav>
 
-    <main class="flex-1 max-w-4xl mx-auto p-6">
+    <main class="flex-1 max-w-4xl mx-auto p-6 hidden" id="dashboard-main">
         <h1 class="text-2xl font-bold mb-6">Welcome, {{ username }}</h1>
 
         <!-- Create Token -->
@@ -101,31 +101,40 @@
         }
 
         async function loadTokens() {
-            const res = await fetch('/auth/tokens', {
-                headers: { 'Authorization': 'Bearer ' + sanshainToken }
-            });
-            if (res.status === 401) {
-                localStorage.removeItem('sanshain_token');
-                window.location.href = '/index.html';
-                return;
+            try {
+                const res = await fetch('/auth/tokens', {
+                    headers: { 'Authorization': 'Bearer ' + sanshainToken }
+                });
+                if (res.status === 401) {
+                    localStorage.removeItem('sanshain_token');
+                    window.location.href = '/index.html';
+                    return;
+                }
+                const tokens = await res.json();
+                const tbody = document.getElementById('tokenTableBody');
+                if (tokens.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-slate-400 text-center">No tokens yet. Create one above.</td></tr>';
+                } else {
+                    tbody.innerHTML = tokens.map(t => `
+                        <tr class="border-b border-slate-100">
+                            <td class="py-2 pr-4 font-medium">${escapeHtml(t.name)}</td>
+                            <td class="py-2 pr-4 text-slate-500">${escapeHtml(t.created_at)}</td>
+                            <td class="py-2 pr-4 text-slate-500">${escapeHtml(t.expires_at)}</td>
+                            <td class="py-2 pr-4 text-slate-500">${t.last_used_at ? escapeHtml(t.last_used_at) : '<span class="italic">Never</span>'}</td>
+                            <td class="py-2">
+                                <button onclick="revokeToken('${escapeHtml(t.id)}')" class="text-red-600 hover:text-red-800 text-sm font-medium">🗑 Revoke</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+                // Reveal dashboard after tokens loaded
+                hideLoader();
+                document.getElementById('dashboard-nav').classList.remove('hidden');
+                document.getElementById('dashboard-nav').classList.add('flex');
+                document.getElementById('dashboard-main').classList.remove('hidden');
+            } catch (_) {
+                hideLoader();
             }
-            const tokens = await res.json();
-            const tbody = document.getElementById('tokenTableBody');
-            if (tokens.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-slate-400 text-center">No tokens yet. Create one above.</td></tr>';
-                return;
-            }
-            tbody.innerHTML = tokens.map(t => `
-                <tr class="border-b border-slate-100">
-                    <td class="py-2 pr-4 font-medium">${escapeHtml(t.name)}</td>
-                    <td class="py-2 pr-4 text-slate-500">${escapeHtml(t.created_at)}</td>
-                    <td class="py-2 pr-4 text-slate-500">${escapeHtml(t.expires_at)}</td>
-                    <td class="py-2 pr-4 text-slate-500">${t.last_used_at ? escapeHtml(t.last_used_at) : '<span class=&quot;italic&quot;>Never</span>'}</td>
-                    <td class="py-2">
-                        <button onclick="revokeToken('${escapeHtml(t.id)}')" class="text-red-600 hover:text-red-800 text-sm font-medium">🗑 Revoke</button>
-                    </td>
-                </tr>
-            `).join('');
         }
 
         document.getElementById('createTokenForm').addEventListener('submit', async (e) => {

@@ -261,11 +261,10 @@ function renderCustomGraph(report, svgElement, direction) {
     // maps so edges can be interpolated precisely.
 
     // Axis abstraction: F = along-flow (within a rank), R = rank axis.
-    // TB: F=x, R=y, along-flow node extent = nodeW.
-    // LR: F=y, R=x, along-flow node extent = nodeH.
+    // TB: F=x, R=y, along-flow node extent = node width.
+    // LR: F=y, R=x, along-flow node extent = node height.
     const F = isLR ? 'y' : 'x';
     const R = isLR ? 'x' : 'y';
-    const nodeFlowExtent = isLR ? nodeH : nodeW;
 
     const nodeFOffsets = new Map();  // delta along flow axis
     const nodeROffsets = new Map();  // delta along rank axis (for brick stagger)
@@ -277,13 +276,13 @@ function renderCustomGraph(report, svgElement, direction) {
     // Step 1 — compute intra-cluster compacted geometry (members become a
     // 2-row brick pattern centered at the cluster's original flow-center).
     // Flow-axis spacings must exceed the node's flow-axis extent, otherwise
-    // bricks collide. In LR the flow extent is nodeH (40), so gaps can be
-    // tighter than TB (flow extent nodeW=160).
+    // bricks collide. In LR the flow extent is node height (40), so gaps can be
+    // tighter than TB (flow extent node width ≈ 160).
     const GAP = isLR ? 25 : 30;           // gap between units on a rank (flow axis)
     const GROUP_GAP = isLR ? 60 : 80;     // larger gap between different roles (flow axis)
     const BRICK_GAP = isLR ? 12 : 15;     // gap between adjacent bricks (flow axis)
     // Brick stagger along the rank axis. In LR this shifts X, and must
-    // leave room next to nodeW-wide neighbours — bump it up.
+    // leave room next to node neighbours — bump it up.
     // In TB the rank axis is Y and nodes can be up to ~76px tall (3 lines),
     // so we need >76 to avoid vertical overlap between staggered brick rows;
     // use 100 for comfortable clearance.

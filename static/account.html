@@ -12,6 +12,30 @@
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen">
+    <div id="app-loader">
+        <div class="cat-container">
+            <svg class="cat-svg" viewBox="0 0 100 60">
+                <!-- Curled cat body -->
+                <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
+                <!-- Tail -->
+                <path d="M80,50 C95,50 95,30 85,30" fill="none" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" />
+                <!-- Ears -->
+                <path d="M25,25 L20,10 L35,22 Z" />
+                <path d="M45,22 L60,10 L55,25 Z" />
+                <!-- Closed eyes -->
+                <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+                <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+                <!-- Nose -->
+                <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
+            </svg>
+            <div class="zzz-container">
+                <span class="zzz">z</span>
+                <span class="zzz">z</span>
+                <span class="zzz">z</span>
+            </div>
+        </div>
+        <div class="mt-4 text-slate-400 text-sm font-medium tracking-wide">Loading...</div>
+    </div>
 
     <!-- Nav (shown when logged in) -->
     <nav id="nav-bar" class="hidden bg-indigo-700 text-white p-4 shadow-lg">
@@ -31,7 +55,7 @@
     </nav>
 
     <!-- Auth Screen (Login / Register) -->
-    <div id="auth-screen" class="min-h-screen flex items-center justify-center">
+    <div id="auth-screen" class="min-h-screen flex items-center justify-center hidden">
         <div class="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm border border-slate-200">
             <img src="/images/sonne.png" alt="Sanshain" class="mx-auto mb-3 h-16 w-auto">
             <h1 class="text-2xl font-bold text-center mb-6 text-indigo-700">Sanshain</h1>
@@ -223,12 +247,14 @@
 
         // --- Screen switching ---
         function showAuth() {
+            hideLoader();
             document.getElementById('auth-screen').classList.remove('hidden');
             document.getElementById('account-dashboard').classList.add('hidden');
             document.getElementById('nav-bar').classList.add('hidden');
         }
 
         function showAccount() {
+            hideLoader();
             document.getElementById('auth-screen').classList.add('hidden');
             document.getElementById('account-dashboard').classList.remove('hidden');
             document.getElementById('nav-bar').classList.remove('hidden');

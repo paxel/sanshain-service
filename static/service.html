@@ -24,6 +24,30 @@
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen">
+    <div id="app-loader">
+        <div class="cat-container">
+            <svg class="cat-svg" viewBox="0 0 100 60">
+                <!-- Curled cat body -->
+                <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
+                <!-- Tail -->
+                <path d="M80,50 C95,50 95,30 85,30" fill="none" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" />
+                <!-- Ears -->
+                <path d="M25,25 L20,10 L35,22 Z" />
+                <path d="M45,22 L60,10 L55,25 Z" />
+                <!-- Closed eyes -->
+                <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+                <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+                <!-- Nose -->
+                <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
+            </svg>
+            <div class="zzz-container">
+                <span class="zzz">z</span>
+                <span class="zzz">z</span>
+                <span class="zzz">z</span>
+            </div>
+        </div>
+        <div class="mt-4 text-slate-400 text-sm font-medium tracking-wide">Loading...</div>
+    </div>
 <nav class="bg-indigo-700 text-white p-4 shadow-lg">
     <div class="container mx-auto flex justify-between items-center">
         <div class="flex items-center space-x-4">
@@ -37,6 +61,7 @@
             <a href="/service.html" class="hover:text-indigo-200">Services</a>
             <a href="#graph" onclick="showGraph()" class="hover:text-indigo-200">Graph</a>
             <a href="#clients" onclick="showClients()" class="hover:text-indigo-200">Clients</a>
+            <a href="#reports" onclick="showReports()" class="hover:text-indigo-200">Reports</a>
         </div>
     </div>
 </nav>
@@ -156,6 +181,27 @@
             <div class="text-center py-10 text-slate-500">Select a branch to see detailed reports.</div>
         </div>
     </div>
+
+    <div id="report-section" class="hidden">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-semibold flex items-center">
+                <span class="bg-blue-100 text-blue-700 p-2 rounded-lg mr-3">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 2v-6m-8-2h8a2 2 0 012 2v9a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2h8z"></path>
+                    </svg>
+                </span>
+                System Reports
+            </h2>
+            <select id="report-branch-select" onchange="loadReports()" class="rounded-lg border border-slate-300 text-sm text-slate-700 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">Loading branches...</option>
+            </select>
+        </div>
+
+        <div id="reports-grid" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Report cards will be loaded here -->
+            <div class="text-center py-10 text-slate-500 col-span-2">Select a branch to view available reports.</div>
+        </div>
+    </div>
 </main>
 
 <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
@@ -173,13 +219,6 @@
             <!-- Detailed branch/report info -->
         </div>
         <div class="p-4 border-t border-slate-100 flex justify-end gap-3 bg-white rounded-b-2xl">
-            <a id="isolation-report-btn" href="#" target="_blank"
-               class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors flex items-center">
-                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 2v-6m-8-2h8a2 2 0 012 2v9a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z"></path>
-                </svg>
-                Isolation Report
-            </a>
             <a id="md-report-btn" href="#" target="_blank"
                class="bg-slate-800 text-white px-4 py-2 rounded-lg hover:bg-slate-700 transition-colors flex items-center">
                 <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -212,9 +251,11 @@
     const YAML_PAGE_SIZE = 80; // lines per page for YAML viewer
 
     async function loadServices() {
+        showLoader();
         document.getElementById('service-section').classList.remove('hidden');
         document.getElementById('client-section').classList.add('hidden');
         document.getElementById('graph-section').classList.add('hidden');
+        document.getElementById('report-section').classList.add('hidden');
         const list = document.getElementById('services-list');
         const breadcrumb = document.getElementById('service-breadcrumb');
         breadcrumb.classList.add('hidden');
@@ -235,7 +276,9 @@
                 }
             }
             renderServiceList(allServices);
+            hideLoader();
         } catch (err) {
+            hideLoader();
             list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${err.message}</div>`;
         }
     }
@@ -406,8 +449,7 @@
                     <span class="font-semibold text-slate-800">${uniqueEndpoints.length}</span> endpoints total &middot;
                     <span class="text-green-600 font-medium">${usedCount} used</span> &middot;
                     <span class="text-amber-600 font-medium">${unusedCount} unused</span>
-                </div>
-                <a href="/report/markdown?branch=${encodeURIComponent(branchName)}" target="_blank" class="text-xs bg-slate-800 text-white px-3 py-1.5 rounded-lg hover:bg-slate-700">Download Report</a>`;
+                </div>`;
             list.appendChild(summary);
 
             for (const ep of uniqueEndpoints) {
@@ -444,8 +486,6 @@
     async function showServiceEndpointYaml(serviceName, branchName, ep) {
         document.getElementById('modal').classList.remove('hidden');
         document.getElementById('modal-title').innerText = `${ep.method} ${ep.path} — ${serviceName} (${branchName})`;
-        document.getElementById('isolation-report-btn').href = `/report/isolation?branch=${encodeURIComponent(branchName)}`;
-        document.getElementById('isolation-report-btn').style.display = '';
         document.getElementById('md-report-btn').href = `/report/markdown?branch=${encodeURIComponent(branchName)}`;
         document.getElementById('md-report-btn').style.display = '';
         const content = document.getElementById('modal-content');
@@ -787,8 +827,10 @@
     let allClients = [];
 
     async function showClients() {
+        showLoader();
         document.getElementById('service-section').classList.add('hidden');
         document.getElementById('graph-section').classList.add('hidden');
+        document.getElementById('report-section').classList.add('hidden');
         document.getElementById('client-section').classList.remove('hidden');
 
         const list = document.getElementById('clients-list');
@@ -799,7 +841,9 @@
             allClients = clients || [];
             document.getElementById('client-search').value = '';
             renderClientList(allClients);
+            hideLoader();
         } catch (err) {
+            hideLoader();
             list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${err.message}</div>`;
         }
     }
@@ -843,6 +887,7 @@
     }
 
     async function showClientBranches(clientName) {
+        showLoader();
         const list = document.getElementById('clients-list');
         list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading branches...</div>';
 
@@ -864,6 +909,7 @@
                 empty.className = 'text-center py-10 text-slate-400 italic';
                 empty.textContent = 'No branches found for this client.';
                 list.appendChild(empty);
+                hideLoader();
                 return;
             }
 
@@ -887,12 +933,15 @@
                     </div>`;
                 list.appendChild(card);
             }
+            hideLoader();
         } catch (err) {
+            hideLoader();
             list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${err.message}</div>`;
         }
     }
 
     async function showClientEndpoints(clientName, branch) {
+        showLoader();
         const list = document.getElementById('clients-list');
         list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading endpoints...</div>';
 
@@ -916,6 +965,7 @@
                 empty.className = 'text-center py-10 text-slate-400 italic';
                 empty.textContent = 'No endpoints found for this branch.';
                 list.appendChild(empty);
+                hideLoader();
                 return;
             }
 
@@ -943,7 +993,9 @@
                     </div>`;
                 list.appendChild(card);
             }
+            hideLoader();
         } catch (err) {
+            hideLoader();
             list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${err.message}</div>`;
         }
     }
@@ -951,8 +1003,6 @@
     function showClientYaml(clientName, branch, ep) {
         document.getElementById('modal').classList.remove('hidden');
         document.getElementById('modal-title').innerText = `${ep.method} ${ep.path} — ${ep.service} (${branch})`;
-        document.getElementById('isolation-report-btn').href = '#';
-        document.getElementById('isolation-report-btn').style.display = 'none';
         document.getElementById('md-report-btn').href = '#';
         document.getElementById('md-report-btn').style.display = 'none';
         const content = document.getElementById('modal-content');
@@ -1019,6 +1069,7 @@
     async function showGraph() {
         document.getElementById('service-section').classList.add('hidden');
         document.getElementById('client-section').classList.add('hidden');
+        document.getElementById('report-section').classList.add('hidden');
         document.getElementById('graph-section').classList.remove('hidden');
 
         // Populate branch selector from all known service branches
@@ -1049,6 +1100,7 @@
     document.getElementById('graph-branch-select').addEventListener('change', () => loadGraph());
 
     async function loadGraph() {
+        showLoader();
         const customSvg = document.getElementById('custom-graph');
         const graphDiv = document.getElementById('mermaid-graph');
         const branch = document.getElementById('graph-branch-select').value;
@@ -1082,13 +1134,17 @@
             if (currentGraphMode === 'custom') {
                 customSvg.classList.remove('hidden');
                 graphDiv.classList.add('hidden');
+                // Give browser a frame to show loader before heavy layout math
+                await new Promise(r => setTimeout(r, 10));
                 renderCustomGraph(report, customSvg, currentGraphDirection);
             } else {
                 customSvg.classList.add('hidden');
                 graphDiv.classList.remove('hidden');
                 await renderGraph(report, currentGraphMode === 'detailed');
             }
+            hideLoader();
         } catch (err) {
+            hideLoader();
             customSvg.classList.add('hidden');
             graphDiv.classList.remove('hidden');
             graphDiv.innerHTML = `<div class="text-red-500 p-4">Error generating graph: ${err.message}</div>`;
@@ -1294,8 +1350,80 @@
 
     function closeModal() {
         document.getElementById('modal').classList.add('hidden');
-        document.getElementById('isolation-report-btn').style.display = '';
         document.getElementById('md-report-btn').style.display = '';
+    }
+
+    async function showReports() {
+        showLoader();
+        document.getElementById('service-section').classList.add('hidden');
+        document.getElementById('client-section').classList.add('hidden');
+        document.getElementById('graph-section').classList.add('hidden');
+        document.getElementById('report-section').classList.remove('hidden');
+
+        // Populate branch selector from all known service branches
+        const branchSelect = document.getElementById('report-branch-select');
+        const allBranchNames = new Set();
+        for (const branches of Object.values(allServiceBranches)) {
+            for (const b of branches) allBranchNames.add(typeof b === 'string' ? b : b.name);
+        }
+
+        if (allBranchNames.size === 0) {
+            branchSelect.innerHTML = '<option value="">No branches found</option>';
+        } else {
+            const prev = branchSelect.value;
+            branchSelect.innerHTML = '';
+            for (const name of [...allBranchNames].sort()) {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name;
+                branchSelect.appendChild(opt);
+            }
+            if (allBranchNames.has(prev)) branchSelect.value = prev;
+            else if (allBranchNames.has('main')) branchSelect.value = 'main';
+        }
+
+        await loadReports();
+        hideLoader();
+    }
+
+    async function loadReports() {
+        const branch = document.getElementById('report-branch-select').value;
+        const grid = document.getElementById('reports-grid');
+
+        if (!branch) {
+            grid.innerHTML = '<div class="text-center py-10 text-slate-500 col-span-2 italic">No branch selected.</div>';
+            return;
+        }
+
+        grid.innerHTML = `
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                <div class="bg-indigo-100 text-indigo-700 w-12 h-12 rounded-xl flex items-center justify-center mb-4">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 2v-6m-8-2h8a2 2 0 012 2v9a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2h8z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-bold text-slate-800 mb-2">Service Isolation Report</h3>
+                <p class="text-sm text-slate-600 mb-6">Detailed overview of service-to-service communication, identifying which services "talk" to each other.</p>
+                <a href="/report/isolation?branch=${encodeURIComponent(branch)}" target="_blank"
+                   class="inline-flex items-center justify-center w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors">
+                    View Isolation Report
+                </a>
+            </div>
+
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                <div class="bg-slate-100 text-slate-700 w-12 h-12 rounded-xl flex items-center justify-center mb-4">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-bold text-slate-800 mb-2">Full Dependency Report</h3>
+                <p class="text-sm text-slate-600 mb-6">Complete inventory of all provided and required endpoints across all services in this branch.</p>
+                <a href="/report/markdown?branch=${encodeURIComponent(branch)}" target="_blank"
+                   class="inline-flex items-center justify-center w-full bg-slate-800 text-white py-2.5 rounded-lg font-medium hover:bg-slate-700 transition-colors">
+                    View Markdown Report
+                </a>
+            </div>
+        `;
     }
 
     loadServices();

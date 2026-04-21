@@ -8,7 +8,7 @@
 
 {% block body %}
 <!-- Login Screen -->
-<div id="login-screen" class="min-h-screen flex items-center justify-center">
+<div id="login-screen" class="min-h-screen flex items-center justify-center hidden">
     <div class="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm border border-slate-200">
         <h1 class="text-2xl font-bold text-center mb-6 text-indigo-700">Sanshain Admin</h1>
         <div id="login-error" class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"></div>
@@ -409,11 +409,13 @@
     function onSessionExpired() { showLogin(); }
 
     function showLogin() {
+        hideLoader();
         document.getElementById('login-screen').classList.remove('hidden');
         document.getElementById('admin-dashboard').classList.add('hidden');
     }
 
     function showDashboard() {
+        hideLoader();
         document.getElementById('login-screen').classList.add('hidden');
         const dashboard = document.getElementById('admin-dashboard');
         dashboard.classList.remove('hidden');

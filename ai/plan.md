@@ -21,6 +21,8 @@ The following major milestones have been delivered and are fully functional:
 - **Service Isolation Report**: implemented a table-per-service markdown report listing outbound communication links for compliance and architecture overview.
 - **Lenient Path Matching**: implemented path normalization and lenient variable matching to handle variations in OpenAPI specs and client requests; added database indexing for normalized paths to maintain performance.
 - **Version 0.10.0**: bumped version to 0.10.0 and initialized the new development cycle following the 0.9.0 release.
+- **UI Stability & Cat Loader**: implemented a full-screen "Snoozing Cat" loading overlay and improved UI stability by hiding main content until authentication state is resolved, eliminating visual flickering during navigation.
+- **Socke Dark-Mode Gimmick**: added a playful rebranding gimmick that swaps "Sanshain" for "Socke" and the sun logo for a "Socke" (sock) image when dark mode is enabled.
 
 ## Open
 
