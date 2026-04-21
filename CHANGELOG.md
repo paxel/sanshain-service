@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Improved Graph Node Readability**: implemented text wrapping and dynamic node sizing in the custom dependency graph. Long service names are now wrapped into multiple lines or truncated with an ellipsis, and node dimensions adapt to the label length to ensure readability without excessive broadness.
 - **Graph SVG Download**: enabled the download and copy-to-clipboard buttons for the custom dependency graph. Users can now export the interactive graph as a high-quality SVG file or copy the SVG markup directly.
 - **Autobahn Flow Layout**: reorganized nodes within each graph rank to follow a logical "client-to-server" flow. "Client-only" nodes are grouped on the left (or top), "both" roles in the center, and "server-only" nodes on the right (or bottom), with increased spacing between groups to clearly separate architectural roles.
+- **Service Isolation Report**: added a new markdown report that lists all outbound service-to-service communication in a table-per-service format. The report identifies which target services each service "talks" to, including placeholder columns for port and protocol as required by compliance auditors. Available via `GET /report/isolation` and through the "Isolation Report" button in the service detail view.
 
 ### Fixed
 - 

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::domain::models::*;
 use crate::domain::ports::{AuthProvider, AuthProviderError, RepositoryError, SpecRepository};
@@ -1073,6 +1073,39 @@ pub fn render_report_markdown(report: &DependencyReport) -> String {
         md.push_str("| --- | --- | --- | --- |\n");
         for ep in &report.missing_endpoints {
             md.push_str(&format!("| {} | {} | `{}` | `{}` |\n", ep.client, ep.service, ep.path, ep.method));
+        }
+        md.push('\n');
+    }
+
+    md
+}
+
+pub fn render_isolation_report(report: &DependencyReport) -> String {
+    let mut md = format!("# Service Isolation Report: Branch `{}`\n\n", report.branch);
+
+    md.push_str("## Overview\n");
+    md.push_str("> This report lists all outbound service-to-service communication.\n\n");
+
+    // Group by client
+    let mut isolation: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for dep in &report.dependency_graph {
+        isolation.entry(dep.client.clone()).or_default().insert(dep.service.clone());
+    }
+    for dep in &report.missing_endpoints {
+        isolation.entry(dep.client.clone()).or_default().insert(dep.service.clone());
+    }
+
+    if isolation.is_empty() {
+        md.push_str("No active dependencies recorded for this branch.\n");
+        return md;
+    }
+
+    for (client, services) in isolation {
+        md.push_str(&format!("### Service: `{}`\n\n", client));
+        md.push_str("| Target Service | Port | Protocol |\n");
+        md.push_str("| --- | --- | --- |\n");
+        for svc in services {
+            md.push_str(&format!("| {} | N/A | N/A |\n", svc));
         }
         md.push('\n');
     }

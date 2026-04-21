@@ -339,6 +339,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/require-bundle", post(require_bundle))
         .route("/report", get(report))
         .route("/report/markdown", get(report_markdown))
+        .route("/report/isolation", get(report_isolation))
         .route("/endpoint-versions", get(endpoint_versions))
         .route_layer(middleware::from_fn_with_state(state.clone(), api_auth));
 
@@ -614,6 +615,22 @@ async fn report_markdown(
         .await
         .map_err(app_error_to_status)?;
     let md = services::render_report_markdown(&report);
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        "text/markdown; charset=utf-8".parse().unwrap(),
+    );
+    Ok((headers, md))
+}
+
+async fn report_isolation(
+    State(state): State<AppState>,
+    Query(params): Query<ReportParams>,
+) -> Result<(axum::http::HeaderMap, String), StatusCode> {
+    let report = services::generate_report(&state.repo, &params.branch)
+        .await
+        .map_err(app_error_to_status)?;
+    let md = services::render_isolation_report(&report);
     let mut headers = axum::http::HeaderMap::new();
     headers.insert(
         axum::http::header::CONTENT_TYPE,

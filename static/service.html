@@ -172,14 +172,21 @@
         <div id="modal-content" class="p-6 overflow-y-auto flex-grow bg-slate-50">
             <!-- Detailed branch/report info -->
         </div>
-        <div class="p-4 border-t border-slate-100 flex justify-end bg-white rounded-b-2xl">
+        <div class="p-4 border-t border-slate-100 flex justify-end gap-3 bg-white rounded-b-2xl">
+            <a id="isolation-report-btn" href="#" target="_blank"
+               class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors flex items-center">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 2v-6m-8-2h8a2 2 0 012 2v9a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z"></path>
+                </svg>
+                Isolation Report
+            </a>
             <a id="md-report-btn" href="#" target="_blank"
                class="bg-slate-800 text-white px-4 py-2 rounded-lg hover:bg-slate-700 transition-colors flex items-center">
                 <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                 </svg>
-                Download Markdown Report
+                Markdown Report
             </a>
         </div>
     </div>
@@ -437,6 +444,8 @@
     async function showServiceEndpointYaml(serviceName, branchName, ep) {
         document.getElementById('modal').classList.remove('hidden');
         document.getElementById('modal-title').innerText = `${ep.method} ${ep.path} — ${serviceName} (${branchName})`;
+        document.getElementById('isolation-report-btn').href = `/report/isolation?branch=${encodeURIComponent(branchName)}`;
+        document.getElementById('isolation-report-btn').style.display = '';
         document.getElementById('md-report-btn').href = `/report/markdown?branch=${encodeURIComponent(branchName)}`;
         document.getElementById('md-report-btn').style.display = '';
         const content = document.getElementById('modal-content');
@@ -942,6 +951,8 @@
     function showClientYaml(clientName, branch, ep) {
         document.getElementById('modal').classList.remove('hidden');
         document.getElementById('modal-title').innerText = `${ep.method} ${ep.path} — ${ep.service} (${branch})`;
+        document.getElementById('isolation-report-btn').href = '#';
+        document.getElementById('isolation-report-btn').style.display = 'none';
         document.getElementById('md-report-btn').href = '#';
         document.getElementById('md-report-btn').style.display = 'none';
         const content = document.getElementById('modal-content');
@@ -1283,6 +1294,7 @@
 
     function closeModal() {
         document.getElementById('modal').classList.add('hidden');
+        document.getElementById('isolation-report-btn').style.display = '';
         document.getElementById('md-report-btn').style.display = '';
     }
 
