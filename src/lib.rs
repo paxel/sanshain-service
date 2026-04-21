@@ -270,22 +270,26 @@ async fn csrf_protection(
 }
 
 pub fn create_app(state: AppState) -> Router {
-    let admin_routes = Router::new()
-        .route("/protected-branches", get(list_protected_branches).post(add_protected_branch))
-        .route("/protected-branches/{pattern}", axum::routing::delete(delete_protected_branch))
+    let discovery_routes = Router::new()
         .route("/services", get(admin_list_services))
-        .route("/services/{name}", axum::routing::delete(admin_delete_service))
         .route("/services/{name}/branches", get(admin_list_branches))
-        .route("/services/{name}/branches/{branch}", axum::routing::delete(admin_delete_branch))
         .route("/clients", get(admin_list_clients))
-        .route("/clients/{name}", axum::routing::delete(admin_delete_client))
         .route("/clients/{name}/branches", get(admin_list_client_branches))
         .route("/clients/{name}/branches/{branch}/endpoints", get(admin_list_client_endpoints))
         .route("/services/{name}/branches/{branch}/endpoints", get(admin_list_service_endpoints))
         .route("/endpoint-yaml", get(admin_get_endpoint_yaml))
         .route("/endpoint-versions", get(admin_get_endpoint_versions))
+        .route_layer(middleware::from_fn_with_state(state.clone(), api_auth));
+
+    let admin_routes = Router::new()
+        .route("/protected-branches", get(list_protected_branches).post(add_protected_branch))
+        .route("/protected-branches/{pattern}", axum::routing::delete(delete_protected_branch))
+        .route("/services/{name}", axum::routing::delete(admin_delete_service))
+        .route("/services/{name}/branches/{branch}", axum::routing::delete(admin_delete_branch))
+        .route("/clients/{name}", axum::routing::delete(admin_delete_client))
         .route("/settings/dev-mode", get(get_dev_mode).post(set_dev_mode))
         .route("/settings/local-users", get(get_local_users).post(set_local_users))
+        .route("/settings/auto-approve-users", get(get_auto_approve_users).post(set_auto_approve_users))
         .route("/settings/database", get(get_database_info))
         .route("/auth-config", get(get_auth_config).put(set_auth_config))
         .route("/auth-config/test", post(test_auth_config))
@@ -299,7 +303,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/observability/debug-config", get(admin_get_debug_config).post(admin_set_debug_config))
         .route("/users/{id}/approve", post(admin_approve_user))
         .route("/users/{id}", axum::routing::delete(admin_delete_user_handler))
-        .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth));
+        .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth))
+        .merge(discovery_routes);
 
     let fragment_routes = Router::new()
         .route("/admin/users", get(fragment_users))
@@ -316,6 +321,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/dev-mode/toggle", post(fragment_dev_mode_toggle))
         .route("/admin/local-users", get(fragment_local_users))
         .route("/admin/local-users/toggle", post(fragment_local_users_toggle))
+        .route("/admin/auto-approve-users", get(fragment_auto_approve_users))
+        .route("/admin/auto-approve-users/toggle", post(fragment_auto_approve_users_toggle))
         .route("/admin/database-info", get(fragment_database_info))
         .route("/admin/protected-branches", get(fragment_protected_branches).post(fragment_add_protected_branch))
         .route("/admin/protected-branches/{pattern}", axum::routing::delete(fragment_delete_protected_branch))
@@ -1022,6 +1029,35 @@ async fn set_local_users(
     Ok(StatusCode::OK)
 }
 
+#[derive(Serialize)]
+struct AutoApproveUsersResponse {
+    auto_approve_users: bool,
+}
+
+#[derive(Deserialize)]
+struct AutoApproveUsersPayload {
+    enabled: bool,
+}
+
+async fn get_auto_approve_users(
+    State(state): State<AppState>,
+) -> Result<Json<AutoApproveUsersResponse>, StatusCode> {
+    let enabled = services::get_auto_approve_users(&state.repo)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(Json(AutoApproveUsersResponse { auto_approve_users: enabled }))
+}
+
+async fn set_auto_approve_users(
+    State(state): State<AppState>,
+    Json(payload): Json<AutoApproveUsersPayload>,
+) -> Result<StatusCode, StatusCode> {
+    services::set_auto_approve_users(&state.repo, payload.enabled)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(StatusCode::OK)
+}
+
 // --- Auth Config endpoints ---
 
 #[derive(Serialize, Deserialize)]
@@ -1562,6 +1598,29 @@ async fn fragment_local_users_toggle(
     let current = services::get_local_users_enabled(&state.repo).await.map_err(app_error_to_status)?;
     services::set_local_users_enabled(&state.repo, !current).await.map_err(app_error_to_status)?;
     let tmpl = FragmentLocalUsers { enabled: !current };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+#[derive(Template)]
+#[template(path = "fragments/admin/auto_approve_users.html")]
+struct FragmentAutoApproveUsers {
+    enabled: bool,
+}
+
+async fn fragment_auto_approve_users(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let enabled = services::get_auto_approve_users(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentAutoApproveUsers { enabled };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+async fn fragment_auto_approve_users_toggle(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let current = services::get_auto_approve_users(&state.repo).await.map_err(app_error_to_status)?;
+    services::set_auto_approve_users(&state.repo, !current).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentAutoApproveUsers { enabled: !current };
     Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
 }
 

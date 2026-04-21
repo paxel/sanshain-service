@@ -211,6 +211,21 @@
                     </div>
                 </div>
             </section>
+            
+            <!-- Auto-Approve Users Toggle -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-800">Auto-Approve Users</h2>
+                        <p class="text-sm text-slate-500 mt-1">When enabled, new self-registered users are automatically approved and can log in immediately.</p>
+                    </div>
+                    <div id="auto-approve-users-container"
+                         hx-get="/fragments/admin/auto-approve-users"
+                         hx-trigger="load"
+                         hx-swap="innerHTML">
+                    </div>
+                </div>
+            </section>
 
             <!-- Authentication Mode -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">

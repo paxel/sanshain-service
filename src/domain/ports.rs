@@ -29,6 +29,16 @@ pub enum RepositoryError {
     Internal(String),
 }
 
+impl std::fmt::Display for RepositoryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RepositoryError::NotFound => write!(f, "Not Found"),
+            RepositoryError::Conflict => write!(f, "Conflict"),
+            RepositoryError::Internal(msg) => write!(f, "Internal Error: {}", msg),
+        }
+    }
+}
+
 /// Port for all persistence operations required by the application layer.
 pub trait SpecRepository: Send + Sync {
     /// Ensure a service exists and return its ID.

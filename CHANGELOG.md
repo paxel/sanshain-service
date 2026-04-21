@@ -4,9 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.0] - Unreleased
+
+### Added
+- **Lenient Path Matching**: introduced normalized path matching to handle common differences in OpenAPI path definitions and client requirements. The service now collapses redundant slashes, trims whitespace, and ignores path variable names (e.g., `/api/{id}` matches `/api/{userId}`) by using a universal placeholder during lookup.
+- **Normalized Path Database Indexing**: added a `normalized_path` column to the `endpoints` and `dependencies` tables with a database index to ensure O(log N) lookup performance for lenient matching.
+- **Auto-Approve Users**: added an "Auto-Approve Users" toggle in the admin dashboard (User Management tab). When enabled, self-registered users are automatically approved and can log in immediately without manual admin intervention.
+- **Authorized User Discovery Access**: non-admin authorized users (any logged-in user) can now access service discovery data and view the dependency graph. Read-only discovery endpoints were moved to a less restrictive authentication layer while preserving admin-only access for destructive operations.
+- **Improved Graph Node Readability**: implemented text wrapping and dynamic node sizing in the custom dependency graph. Long service names are now wrapped into multiple lines or truncated with an ellipsis, and node dimensions adapt to the label length to ensure readability without excessive broadness.
+- **Graph SVG Download**: enabled the download and copy-to-clipboard buttons for the custom dependency graph. Users can now export the interactive graph as a high-quality SVG file or copy the SVG markup directly.
+
+### Fixed
+- 
+
 ## [0.9.0] - 2026-04-20
 
 ### Added
+- **Demo 3 Scenario — Google Cloud Online Boutique**: added `demo3.sh`, a CLI-registration script that provisions the 11-service "Online Boutique" (a.k.a. Hipster Shop) e-commerce microservices architecture published by Google at [GoogleCloudPlatform/microservices-demo](https://github.com/GoogleCloudPlatform/microservices-demo). All services are registered on a dedicated `google` branch (overridable via `DEMO3_BRANCH`), so the scenario can be viewed side-by-side with `demo.sh`/`demo2.sh` (`main` branch) by switching the branch selector in the service UI — the dependency graph reloads automatically with the selected branch's topology. The public source is cited in the script header.
 - **Brand Logo (Sonne)**: integrated the `sonne.png` brand image across the UI and documentation. The image was moved from `templates/` (where it was not being served) to `static/images/sonne.png` so it is exposed via the `ServeDir` at `/images/sonne.png`. The logo now appears in the shared layout footer, the landing page nav + hero, the admin / account / service page navs, the admin and account login screens, and at the top of `README.md`.
 - **Dependency Graph Clustering**: implemented structural clustering for the custom dependency graph. Services sharing the same set of clients are now automatically grouped into dashed "Cluster" boxes to reduce visual noise in large-scale scenarios like `demo2.sh`.
 - **Intelligent Cluster Naming**: added an algorithm that identifies global "noise" words (common prefixes/suffixes) across all services and filters them out to generate concise, meaningful labels for clusters (e.g., "ETL" or "ML"). Labels are omitted if no distinctive common words are found.

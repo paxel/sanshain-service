@@ -6,8 +6,29 @@ use std::collections::{HashMap, HashSet};
 
 pub struct EndpointSpec {
     pub path: String,
+    pub normalized_path: String,
     pub method: String,
     pub yaml_content: String,
+}
+
+pub fn normalize_path(path: &str) -> String {
+    let path = path.trim();
+
+    // Collapse multiple slashes
+    let re_slashes = Regex::new(r"/+").expect("failed to compile slash regex");
+    let mut path = re_slashes.replace_all(path, "/").to_string();
+
+    // Replace variable placeholders with {}
+    // Placeholders are usually {name} or {name:pattern}
+    let re_vars = Regex::new(r"\{[^}]+\}").expect("failed to compile var regex");
+    path = re_vars.replace_all(&path, "{}").to_string();
+
+    // Trim trailing slash if it's not the only character
+    if path.len() > 1 && path.ends_with('/') {
+        path.pop();
+    }
+
+    path
 }
 
 pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
@@ -59,6 +80,7 @@ pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
 
             endpoints.push(EndpointSpec {
                 path: path.clone(),
+                normalized_path: normalize_path(path),
                 method: method.to_uppercase(),
                 yaml_content: endpoint_yaml,
             });
@@ -456,6 +478,23 @@ fn get_methods(path_item: &PathItem) -> Vec<(String, &openapiv3::Operation)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_normalize_path() {
+        assert_eq!(normalize_path("/api/users"), "/api/users");
+        assert_eq!(normalize_path("/api/users/"), "/api/users");
+        assert_eq!(normalize_path(" /api/users "), "/api/users");
+        assert_eq!(normalize_path("/api//users"), "/api/users");
+        assert_eq!(normalize_path("///api///users///"), "/api/users");
+        assert_eq!(normalize_path("/"), "/");
+        assert_eq!(normalize_path("//"), "/");
+        assert_eq!(normalize_path("/api/{id}"), "/api/{}");
+        assert_eq!(normalize_path("/api/{userId}"), "/api/{}");
+        assert_eq!(normalize_path("/api/{id}/details"), "/api/{}/details");
+        assert_eq!(normalize_path("/api/{id}/{action}"), "/api/{}/{}");
+        assert_eq!(normalize_path("/api/{id:pattern}"), "/api/{}");
+        assert_eq!(normalize_path("/api/{uId}/"), "/api/{}");
+    }
 
     #[test]
     fn test_split_single_endpoint() {

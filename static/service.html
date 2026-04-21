@@ -983,13 +983,13 @@
             }
         });
         // Direction toggle only matters for the custom graph renderer;
-        // Copy/Download export the mermaid code so they only make sense in mermaid/detailed modes.
+        // Copy/Download export SVG for custom mode and Mermaid code for other modes.
         const dirBtn = document.getElementById('graph-direction-toggle');
         const copyBtn = document.getElementById('graph-copy');
         const dlBtn = document.getElementById('graph-download');
         if (dirBtn) dirBtn.classList.toggle('hidden', mode !== 'custom');
-        if (copyBtn) copyBtn.classList.toggle('hidden', mode === 'custom');
-        if (dlBtn) dlBtn.classList.toggle('hidden', mode === 'custom');
+        if (copyBtn) copyBtn.classList.remove('hidden');
+        if (dlBtn) dlBtn.classList.remove('hidden');
         if (lastGraphReport) {
             const customSvg = document.getElementById('custom-graph');
             const mermaidDiv = document.getElementById('mermaid-graph');

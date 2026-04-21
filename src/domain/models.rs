@@ -115,6 +115,7 @@ pub struct Session {
 pub struct EndpointRecord {
     pub id: Option<i64>,
     pub path: String,
+    pub normalized_path: String,
     pub method: String,
     pub yaml_content: String,
 }
@@ -179,11 +180,13 @@ pub struct EndpointVersion {
 pub enum SpecChange {
     Insert {
         path: String,
+        normalized_path: String,
         method: String,
         yaml_content: String,
     },
     Update {
         path: String,
+        normalized_path: String,
         method: String,
         yaml_content: String,
     },

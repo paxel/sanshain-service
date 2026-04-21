@@ -15,6 +15,54 @@ function _graphEscapeHtml(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function _measureNode(name) {
+    const fontSize = 13;
+    const charW = 7.5; // estimated average char width for 13px bold sans
+    const idealCharsPerLine = 16;
+    const maxLines = 3;
+
+    if (name.length <= idealCharsPerLine) {
+        return {
+            width: Math.max(80, Math.ceil(name.length * charW) + 40),
+            height: 40,
+            lines: [name]
+        };
+    }
+
+    // Wrap long names
+    const lines = [];
+    let remaining = name;
+    while (remaining.length > 0 && lines.length < maxLines) {
+        if (remaining.length <= idealCharsPerLine) {
+            lines.push(remaining);
+            remaining = "";
+        } else {
+            // Try to find a good break point (e.g. at capitals or symbols)
+            let breakIdx = idealCharsPerLine;
+            // Scan backwards from ideal for a capital or underscore/dash
+            for (let j = idealCharsPerLine; j > idealCharsPerLine / 2; j--) {
+                const char = remaining[j];
+                if (/[A-Z0-9_\-\.]/.test(char)) {
+                    breakIdx = j;
+                    break;
+                }
+            }
+            lines.push(remaining.slice(0, breakIdx));
+            remaining = remaining.slice(breakIdx);
+        }
+    }
+    if (remaining.length > 0) {
+        lines[lines.length - 1] = lines[lines.length - 1].slice(0, -1) + "…";
+    }
+
+    const maxLineLen = Math.max(...lines.map(l => l.length));
+    return {
+        width: Math.max(80, Math.ceil(maxLineLen * charW) + 40),
+        height: lines.length * 18 + 22,
+        lines: lines
+    };
+}
+
 function _identifyNoiseWords(allNodes) {
     const splitWords = (s) => s.split(/(?=[A-Z])|[^a-zA-Z0-9]/).filter(w => w.length > 1).map(w => w.toLowerCase());
     const wordCounts = {};
@@ -171,9 +219,11 @@ function renderCustomGraph(report, svgElement, direction) {
     });
     g.setDefaultEdgeLabel(() => ({}));
 
-    const nodeW = 160, nodeH = 40;
+    const nodeMetrics = new Map();
     for (const node of allNodes) {
-        g.setNode(node, { label: node, width: nodeW, height: nodeH });
+        const m = _measureNode(node);
+        nodeMetrics.set(node, m);
+        g.setNode(node, { label: node, width: m.width, height: m.height });
         if (clusterMap.has(node)) g.setParent(node, clusterMap.get(node));
     }
     clusters.forEach(c => {
@@ -216,14 +266,10 @@ function renderCustomGraph(report, svgElement, direction) {
     const BRICK_GAP = isLR ? 12 : 15;     // gap between adjacent bricks (flow axis)
     // Brick stagger along the rank axis. In LR this shifts X, and must
     // leave room next to nodeW-wide neighbours — bump it up.
-    // In TB the rank axis is Y and nodes are 40px tall, so we need >40 to
-    // avoid vertical overlap between staggered brick rows; use 70 for a
-    // comfortable 30px clearance.
-    // In LR the rank axis is X and nodes are nodeW=160 wide, so the second
-    // brick row must be shifted by more than nodeW to clear the first row
-    // horizontally. 200 gives a comfortable 40px X-clearance between
-    // staggered members. TB keeps 70 (nodeH=40 + 30px gap).
-    const BRICK_DR = isLR ? 200 : 70;
+    // In TB the rank axis is Y and nodes can be up to ~76px tall (3 lines),
+    // so we need >76 to avoid vertical overlap between staggered brick rows;
+    // use 100 for comfortable clearance.
+    const BRICK_DR = isLR ? 200 : 100;
     const clusterGeom = new Map(); // cid -> {origCenterF, rankR, width, members}
 
     clusters.forEach(c => {
@@ -237,13 +283,17 @@ function renderCustomGraph(report, svgElement, direction) {
         // no rank-axis (X) stagger. This gives a cleaner, readable column
         // per cluster. In TB we keep the 2-row brick pattern to reduce
         // horizontal footprint.
+        const maxFlowExtent = Math.max(...c.members.map(m => {
+            const mnd = g.node(m);
+            return isLR ? mnd.height : mnd.width;
+        }));
         const stepF = isLR
-            ? nodeFlowExtent + BRICK_GAP       // full node + gap, no overlap
-            : nodeFlowExtent / 2 + BRICK_GAP;  // half-step for brick overlap
+            ? maxFlowExtent + BRICK_GAP       // full node + gap, no overlap
+            : maxFlowExtent / 2 + BRICK_GAP;  // half-step for brick overlap
         const n = sortedMembers.length;
         const totalSpan = (n - 1) * stepF;
         const startF = -totalSpan / 2;
-        const width = totalSpan + nodeFlowExtent;
+        const width = totalSpan + maxFlowExtent;
 
         const members = sortedMembers.map((m, i) => ({
             id: m,
@@ -339,8 +389,6 @@ function renderCustomGraph(report, svgElement, direction) {
 
     // Recompute edge endpoints from final node positions. Anchor on the
     // rank-axis border of each node (top/bottom for TB, left/right for LR).
-    // Rank-axis node extent: nodeH in TB, nodeW in LR.
-    const nodeRankExtent = isLR ? nodeW : nodeH;
     g.edges().forEach(e => {
         const edgeData = g.edge(e);
         const nv = g.node(e.v);
@@ -348,8 +396,12 @@ function renderCustomGraph(report, svgElement, direction) {
         const vIsBefore = nv[R] <= nw[R];
         const p0 = { x: nv.x, y: nv.y };
         const p1 = { x: nw.x, y: nw.y };
-        p0[R] += vIsBefore ? nodeRankExtent / 2 : -nodeRankExtent / 2;
-        p1[R] += vIsBefore ? -nodeRankExtent / 2 : nodeRankExtent / 2;
+        
+        const vExtent = isLR ? nv.width : nv.height;
+        const wExtent = isLR ? nw.width : nw.height;
+        
+        p0[R] += vIsBefore ? vExtent / 2 : -vExtent / 2;
+        p1[R] += vIsBefore ? -wExtent / 2 : wExtent / 2;
         edgeData.points = [p0, p1];
     });
 
@@ -514,10 +566,10 @@ function renderCustomGraph(report, svgElement, direction) {
         group.style.cursor = 'pointer';
 
         const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        rect.setAttribute('x', nd.x - nodeW / 2);
-        rect.setAttribute('y', nd.y - nodeH / 2);
-        rect.setAttribute('width', nodeW);
-        rect.setAttribute('height', nodeH);
+        rect.setAttribute('x', nd.x - nd.width / 2);
+        rect.setAttribute('y', nd.y - nd.height / 2);
+        rect.setAttribute('width', nd.width);
+        rect.setAttribute('height', nd.height);
         rect.setAttribute('rx', '8');
         rect.setAttribute('ry', '8');
         rect.setAttribute('fill', fill);
@@ -528,10 +580,10 @@ function renderCustomGraph(report, svgElement, direction) {
         // Double border for "both" nodes
         if (isClient && isService) {
             const inner = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            inner.setAttribute('x', nd.x - nodeW / 2 + 4);
-            inner.setAttribute('y', nd.y - nodeH / 2 + 4);
-            inner.setAttribute('width', nodeW - 8);
-            inner.setAttribute('height', nodeH - 8);
+            inner.setAttribute('x', nd.x - nd.width / 2 + 4);
+            inner.setAttribute('y', nd.y - nd.height / 2 + 4);
+            inner.setAttribute('width', nd.width - 8);
+            inner.setAttribute('height', nd.height - 8);
             inner.setAttribute('rx', '5');
             inner.setAttribute('ry', '5');
             inner.setAttribute('fill', 'none');
@@ -541,24 +593,28 @@ function renderCustomGraph(report, svgElement, direction) {
             group.appendChild(inner);
         }
 
-        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('x', nd.x);
-        text.setAttribute('y', nd.y);
-        text.setAttribute('text-anchor', 'middle');
-        text.setAttribute('dominant-baseline', 'central');
-        text.setAttribute('fill', textColor);
-        text.setAttribute('font-size', '13');
-        text.setAttribute('font-family', 'ui-sans-serif, system-ui, sans-serif');
-        text.setAttribute('font-weight', '600');
-        // Truncate long names
-        const displayName = node.length > 18 ? node.slice(0, 16) + '…' : node;
-        text.textContent = displayName;
-        if (node.length > 18) {
+        const m = nodeMetrics.get(node);
+        const lineH = 16;
+        const totalTextH = m.lines.length * lineH;
+        m.lines.forEach((line, i) => {
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.setAttribute('x', nd.x);
+            text.setAttribute('y', nd.y - totalTextH / 2 + (i * lineH) + lineH / 2);
+            text.setAttribute('text-anchor', 'middle');
+            text.setAttribute('dominant-baseline', 'central');
+            text.setAttribute('fill', textColor);
+            text.setAttribute('font-size', '13');
+            text.setAttribute('font-family', 'ui-sans-serif, system-ui, sans-serif');
+            text.setAttribute('font-weight', '600');
+            text.textContent = line;
+            group.appendChild(text);
+        });
+
+        if (node.length > 25) { // Show full name on hover if it was wrapped/truncated
             const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
             title.textContent = node;
             group.appendChild(title);
         }
-        group.appendChild(text);
 
         mainG.appendChild(group);
         nodeElements.set(node, group);

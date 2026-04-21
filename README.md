@@ -318,6 +318,21 @@ SANSHAIN_URL=https://sanshain.example.com SANSHAIN_TOKEN=san_xxxx ./demo.sh
 
 After the script completes, open the service overview page to browse the dependency graph and drill into individual services and clients.
 
+### Additional Demo Scenarios
+
+Two larger demo scripts are shipped alongside `demo.sh` to showcase how the dependency graph and clustering scale, and how the **branch selector** in the service UI can be used to switch between completely different architectures without restarting the instance:
+
+- **`demo2.sh`** — a synthetic large-scale scenario with **30 services** (Frontend → API Middleware → Backend, a complex ETL pipeline with central orchestration and multiple enrichers, an ML system, multiple ingestion sources and exports, and infra wrappers for Postgres / Elastic / Redis / Kafka). Registered on the `main` branch.
+- **`demo3.sh`** — reproduces the publicly documented **[Google Cloud "Online Boutique" (Hipster Shop)](https://github.com/GoogleCloudPlatform/microservices-demo)** microservices demo: `frontend`, `cartservice`, `productcatalogservice`, `currencyservice`, `paymentservice`, `shippingservice`, `emailservice`, `checkoutservice`, `recommendationservice`, `adservice` and `loadgenerator`, with dependencies taken straight from the upstream architecture diagram. Registered on a dedicated `google` branch (override with `DEMO3_BRANCH=<name>`).
+
+```bash
+./demo2.sh                        # 30-service synthetic scenario on `main`
+./demo3.sh                        # Google Online Boutique on `google`
+DEMO3_BRANCH=netflix ./demo3.sh   # or register it under a custom branch name
+```
+
+In the service overview UI, use the **branch switcher** to flip between `main` (demo/demo2) and `google` (demo3) — the graph re-renders with the topology of the selected branch, so each published scenario can be explored independently.
+
 ## Development
 
 ### Prerequisites

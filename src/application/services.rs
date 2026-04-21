@@ -113,33 +113,36 @@ async fn provide_spec_inner(
     }
 
     let existing = repo.get_endpoints_for_branch(bid).await?;
-    let mut existing_map: HashMap<(String, String), String> = existing
+    let mut existing_map: HashMap<(String, String), (String, String)> = existing
         .into_iter()
-        .map(|e| ((e.path, e.method), e.yaml_content))
+        .map(|e| ((e.normalized_path, e.method), (e.path, e.yaml_content)))
         .collect();
 
     let mut changes = Vec::new();
 
     for endpoint in endpoints {
-        let key = (endpoint.path.clone(), endpoint.method.clone());
-        if let Some(existing_yaml) = existing_map.remove(&key) {
-            if existing_yaml != endpoint.yaml_content {
+        let key = (endpoint.normalized_path.clone(), endpoint.method.clone());
+        if let Some((old_path, existing_yaml)) = existing_map.remove(&key) {
+            if existing_yaml != endpoint.yaml_content || old_path != endpoint.path {
                 // Compatibility check already done for the whole spec
                 if is_protected {
                     tracing::info!(
-                        "Updating {} {} on protected branch (backward-compatible)",
+                        "Updating {} {} (normalized as {}) on protected branch (backward-compatible)",
                         endpoint.method,
-                        endpoint.path
+                        endpoint.path,
+                        endpoint.normalized_path
                     );
                 } else {
                     tracing::info!(
-                        "Updating {} {} on feature branch",
+                        "Updating {} {} (normalized as {}) on feature branch",
                         endpoint.method,
-                        endpoint.path
+                        endpoint.path,
+                        endpoint.normalized_path
                     );
                 }
                 changes.push(SpecChange::Update {
                     path: endpoint.path,
+                    normalized_path: endpoint.normalized_path,
                     method: endpoint.method,
                     yaml_content: endpoint.yaml_content,
                 });
@@ -159,6 +162,7 @@ async fn provide_spec_inner(
             }
             changes.push(SpecChange::Insert {
                 path: endpoint.path,
+                normalized_path: endpoint.normalized_path,
                 method: endpoint.method,
                 yaml_content: endpoint.yaml_content,
             });
@@ -166,7 +170,7 @@ async fn provide_spec_inner(
     }
 
     // Remove endpoints that are no longer in the spec
-    for ((path, method), _) in existing_map {
+    for ((_norm_path, method), (path, _)) in existing_map {
         if is_protected {
             tracing::info!(
                 "Soft-deleting {} {} on protected branch",
@@ -764,7 +768,8 @@ pub async fn register_user(
     }
 
     let password_hash = hash_password(password)?;
-    repo.create_user(username, &password_hash, false, false).await?;
+    let auto_approve = repo.get_setting("auto_approve_users").await?.as_deref() == Some("true");
+    repo.create_user(username, &password_hash, false, auto_approve).await?;
     Ok(())
 }
 
@@ -795,6 +800,16 @@ pub async fn get_local_users_enabled(repo: &impl SpecRepository) -> Result<bool,
 
 pub async fn set_local_users_enabled(repo: &impl SpecRepository, enabled: bool) -> Result<(), AppError> {
     repo.set_setting("local_users_enabled", if enabled { "true" } else { "false" }).await?;
+    Ok(())
+}
+
+pub async fn get_auto_approve_users(repo: &impl SpecRepository) -> Result<bool, AppError> {
+    let val = repo.get_setting("auto_approve_users").await?;
+    Ok(val.as_deref() == Some("true"))
+}
+
+pub async fn set_auto_approve_users(repo: &impl SpecRepository, enabled: bool) -> Result<(), AppError> {
+    repo.set_setting("auto_approve_users", if enabled { "true" } else { "false" }).await?;
     Ok(())
 }
 
@@ -1184,11 +1199,12 @@ mod tests {
             let branches = self.branches.lock().unwrap();
             let key = (service_id, branch_name.to_string());
             if let Some(&branch_id) = branches.get(&key) {
+                let normalized_path = crate::openapi::normalize_path(path);
                 let endpoints = self.endpoints.lock().unwrap();
                 let deleted = self.deleted_endpoints.lock().unwrap();
                 if let Some(eps) = endpoints.get(&branch_id) {
                     for ep in eps {
-                        if ep.path == path && ep.method == method
+                        if ep.normalized_path == normalized_path && ep.method == method
                             && !deleted.contains(&(branch_id, ep.path.clone(), ep.method.clone()))
                         {
                             return Ok(Some((ep.id.unwrap(), ep.yaml_content.clone())));
@@ -1512,11 +1528,12 @@ mod tests {
         }
 
         async fn get_endpoint_id(&self, branch_id: i64, path: &str, method: &str) -> Result<Option<i64>, RepositoryError> {
+            let normalized_path = crate::openapi::normalize_path(path);
             let endpoints = self.endpoints.lock().unwrap();
             let deleted = self.deleted_endpoints.lock().unwrap();
             if let Some(eps) = endpoints.get(&branch_id) {
                 for ep in eps {
-                    if ep.path == path && ep.method == method
+                    if ep.normalized_path == normalized_path && ep.method == method
                         && !deleted.contains(&(branch_id, ep.path.clone(), ep.method.clone()))
                     {
                         return Ok(ep.id);
@@ -1554,10 +1571,11 @@ mod tests {
             let now = current_utc_iso();
             for change in changes {
                 match change {
-                    SpecChange::Insert { path, method, yaml_content } => {
+                    SpecChange::Insert { path, normalized_path, method, yaml_content } => {
                         let endpoint_record = EndpointRecord {
                             id: None,
                             path: path.clone(),
+                            normalized_path,
                             method: method.clone(),
                             yaml_content: yaml_content.clone(),
                         };
@@ -1568,7 +1586,7 @@ mod tests {
                             }
                         }
                     }
-                    SpecChange::Update { path, method, yaml_content } => {
+                    SpecChange::Update { path, normalized_path, method, yaml_content } => {
                         if is_protected {
                             if let Some(endpoint_id) = self.get_endpoint_id(branch_id, &path, &method).await? {
                                 let old_yaml = self.endpoints.lock().unwrap().get(&branch_id)
@@ -1578,6 +1596,16 @@ mod tests {
                                 let current_version = self.get_latest_endpoint_version(endpoint_id).await?;
                                 let diff = old_yaml.as_ref().map(|old| crate::openapi::generate_diff(old, &yaml_content));
                                 self.insert_endpoint_version(endpoint_id, current_version + 1, &yaml_content, diff.as_deref(), &now).await?;
+                            }
+                        }
+                        // Update in mock
+                        {
+                            let mut endpoints = self.endpoints.lock().unwrap();
+                            if let Some(eps) = endpoints.get_mut(&branch_id) {
+                                if let Some(ep) = eps.iter_mut().find(|e| e.path == path && e.method == method) {
+                                    ep.yaml_content = yaml_content.clone();
+                                    ep.normalized_path = normalized_path;
+                                }
                             }
                         }
                         self.update_endpoint(branch_id, &path, &method, &yaml_content).await?;
@@ -1593,6 +1621,50 @@ mod tests {
             }
             Ok(())
         }
+    }
+
+    #[tokio::test]
+    async fn test_lenient_path_matching() {
+        let repo = MockRepo::new();
+        
+        // 1. Provide an endpoint with one variable name
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /api/{id}:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        provide_spec(&repo, "svc", "main", yaml).await.unwrap();
+        
+        // 2. Require the endpoint with a different variable name
+        let params = RequireEndpointParams {
+            clientname: "client",
+            servicename: "svc",
+            branch: "main",
+            path: "/api/{userId}",
+            method: "GET",
+            timeout_secs: None,
+        };
+        let result = require_endpoint(&repo, None, params).await;
+        assert!(result.is_ok(), "Should find endpoint leniently: {:?}", result.err());
+        
+        // 3. Require with redundant slashes and trailing slash
+        let params = RequireEndpointParams {
+            clientname: "client",
+            servicename: "svc",
+            branch: "main",
+            path: "//api//{uId}/",
+            method: "GET",
+            timeout_secs: None,
+        };
+        let result = require_endpoint(&repo, None, params).await;
+        assert!(result.is_ok(), "Should find endpoint with redundant slashes: {:?}", result.err());
     }
 
     #[tokio::test]
