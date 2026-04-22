@@ -5,6 +5,10 @@ use serde_json;
 use serde_yaml;
 use similar::TextDiff;
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
+
+static RE_SLASHES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"/+").expect("failed to compile slash regex"));
+static RE_VARS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\{[^}]+\}").expect("failed to compile var regex"));
 
 pub struct EndpointSpec {
     pub path: String,
@@ -17,13 +21,11 @@ pub fn normalize_path(path: &str) -> String {
     let path = path.trim();
 
     // Collapse multiple slashes
-    let re_slashes = Regex::new(r"/+").expect("failed to compile slash regex");
-    let mut path = re_slashes.replace_all(path, "/").to_string();
+    let mut path = RE_SLASHES.replace_all(path, "/").to_string();
 
     // Replace variable placeholders with {}
     // Placeholders are usually {name} or {name:pattern}
-    let re_vars = Regex::new(r"\{[^}]+\}").expect("failed to compile var regex");
-    path = re_vars.replace_all(&path, "{}").to_string();
+    path = RE_VARS.replace_all(&path, "{}").to_string();
 
     // Trim trailing slash if it's not the only character
     if path.len() > 1 && path.ends_with('/') {

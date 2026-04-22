@@ -35,6 +35,7 @@ The following major milestones have been delivered and are fully functional:
 - **Unified Log View**: removed separation between important and standard logs in the observability dashboard; all logs are now sorted chronologically (oldest on top).
 - **Graph Edge Visualization**: implemented asynchronous arrow start and end points (66% outbound, 33% inbound) to reduce overlap and improve readability.
 - **Docker Release Build Fix**: fixed the release Docker build by ensuring database migrations (kept in `src/infrastructure/migrations/` per DDD architecture) are copied into the Docker build context during CI.
+- **Performance Benchmarks & Optimization**: expanded Criterion benchmarks to cover `split_asyncapi`, `split_proto`, `normalize_path`, `generate_diff`, and `check_backward_compatibility`. Replaced per-call regex compilation with `LazyLock` statics in `normalize_path` and `split_proto`, yielding ~50% improvement in `split_openapi` throughput.
 
 ## Open
 

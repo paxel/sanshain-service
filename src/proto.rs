@@ -1,4 +1,10 @@
 use regex::Regex;
+use std::sync::LazyLock;
+
+static RE_RPC: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^\s*rpc\s+(\w+)\s*\(([^)]+)\)\s*returns\s*\(([^)]+)\)\s*(?:\{[^}]*\}|;)")
+        .expect("failed to compile rpc regex")
+});
 
 pub struct ProtoSpec {
     pub service: String,
@@ -58,8 +64,7 @@ pub fn split_proto(content: &str) -> Result<Vec<ProtoSpec>, String> {
         common_base.push('\n');
     }
 
-    let re_rpc = Regex::new(r"(?m)^\s*rpc\s+(\w+)\s*\(([^)]+)\)\s*returns\s*\(([^)]+)\)\s*(?:\{[^}]*\}|;)")
-        .map_err(|e| e.to_string())?;
+    let re_rpc = &*RE_RPC;
 
     for (service_name, body) in services {
         for rpc_cap in re_rpc.captures_iter(&body) {

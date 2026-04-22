@@ -23,6 +23,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **N+1 Frontend Optimization**: refactored the admin dashboard to fetch services and their branches in a single bulk call, eliminating the N+1 request bottleneck for large service counts.
 - **High-Performance Database Indexing**: added critical indices for branch, endpoint, and dependency lookups to ensure sub-millisecond query times.
 - **Criterion.rs Benchmarking**: integrated `Criterion.rs` for reliable micro-benchmarking of hot paths and documented results in `README.md`.
+- **Expanded Benchmarks**: added benchmarks for `split_asyncapi`, `split_proto`, `normalize_path`, `generate_diff`, and `check_backward_compatibility` to the Criterion suite for comprehensive performance tracking.
+- **Static Regex Compilation**: replaced per-call `Regex::new()` in `normalize_path` (2 regexes) and `split_proto` (1 regex) with `LazyLock` statics, yielding a ~50% improvement in `split_openapi` throughput.
 - **Configurable Instance ID**: added support for the `INSTANCE_ID` environment variable to allow overriding the randomly generated unique ID for a service instance.
 - **Custom Prometheus Endpoint**: introduced the `PROMETHEUS_ENDPOINT` environment variable, allowing administrators to customize the metrics scraping path (defaults to `/metrics`).
 - **Configurable Static Assets Directory**: added the `STATIC_DIR` environment variable to allow serving web assets from a custom directory.
