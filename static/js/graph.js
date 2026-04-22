@@ -9,6 +9,110 @@
  * - Zoom and pan
  */
 
+window.graphRedrawMode = 'all'; // 'all' or 'circular'
+window.graphFilterService = ''; // focus filter
+
+// ── Redraw Coordinator ───────────────────────────────────────────────
+
+function redrawGraph() {
+    if (typeof lastGraphReport === 'undefined' || !lastGraphReport) return;
+    
+    const mode = typeof currentGraphMode !== 'undefined' ? currentGraphMode : 'custom';
+    const direction = typeof currentGraphDirection !== 'undefined' ? currentGraphDirection : 'TB';
+
+    const filteredReport = getFilteredReport(lastGraphReport);
+    
+    const customSvg = document.getElementById('custom-graph');
+    const mermaidDiv = document.getElementById('mermaid-graph');
+    
+    if (mode === 'custom' && customSvg) {
+        renderCustomGraph(filteredReport, customSvg, direction);
+    } else if (mermaidDiv) {
+        // renderGraph is defined in service.html and it uses lastGraphReport globally.
+        // We should change it to accept a report parameter if possible, 
+        // but for now we can temporarily swap lastGraphReport or just accept it's only for custom graph.
+        // User asked to "redraw the graph", implying it should work for all modes.
+        
+        // Actually, Mermaid renderGraph takes a second parameter for detailed mode.
+        // Let's modify service.html's renderGraph to accept report as first arg.
+        if (typeof renderGraph === 'function') {
+            renderGraph(filteredReport, mode === 'detailed');
+        }
+    }
+}
+window.redrawGraph = redrawGraph;
+
+function getFilteredReport(report) {
+    if (!report) return null;
+    let deps = [...(report.dependency_graph || [])];
+    
+    // 1. Circular dependencies filter
+    if (window.graphRedrawMode === 'circular') {
+        const adjMap = new Map();
+        deps.forEach(d => {
+            if (!adjMap.has(d.client)) adjMap.set(d.client, []);
+            if (!adjMap.get(d.client).includes(d.service)) adjMap.get(d.client).push(d.service);
+        });
+        const cycleEdges = graphDetectCycles(adjMap);
+        const cycleNodes = new Set();
+        cycleEdges.forEach(e => {
+            const [from, to] = e.split('-->');
+            cycleNodes.add(from);
+            cycleNodes.add(to);
+        });
+        // Only keep edges where BOTH nodes are in a cycle
+        deps = deps.filter(d => cycleNodes.has(d.client) && cycleNodes.has(d.service));
+    }
+    
+    // 2. Focus filter
+    if (window.graphFilterService) {
+        const target = window.graphFilterService.toLowerCase();
+        const focusNodes = new Set();
+        
+        // Find all matching nodes (in case of partial match or multiple services)
+        const exactMatch = deps.find(d => d.client.toLowerCase() === target || d.service.toLowerCase() === target);
+        if (exactMatch) {
+            const realName = exactMatch.client.toLowerCase() === target ? exactMatch.client : exactMatch.service;
+            focusNodes.add(realName);
+            deps.forEach(d => {
+                if (d.client === realName) focusNodes.add(d.service);
+                if (d.service === realName) focusNodes.add(d.client);
+            });
+        } else {
+            // If no exact match, maybe partial match for nodes?
+            // For now let's stick to exact match for Focus as it's cleaner.
+        }
+        
+        if (focusNodes.size > 0) {
+            deps = deps.filter(d => focusNodes.has(d.client) && focusNodes.has(d.service));
+        }
+    }
+    
+    return { ...report, dependency_graph: deps };
+}
+window.getFilteredReport = getFilteredReport;
+
+function setGraphRedrawMode(mode) {
+    window.graphRedrawMode = mode;
+    ['all', 'circular'].forEach(m => {
+        const btn = document.getElementById(`graph-redraw-${m}`);
+        if (btn) {
+            btn.className = m === mode
+                ? 'px-3 py-1.5 bg-indigo-600 text-white font-medium'
+                : 'px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium';
+        }
+    });
+    redrawGraph();
+}
+window.setGraphRedrawMode = setGraphRedrawMode;
+
+function applyGraphFocus() {
+    const input = document.getElementById('graph-service-filter');
+    window.graphFilterService = input ? input.value.trim() : '';
+    redrawGraph();
+}
+window.applyGraphFocus = applyGraphFocus;
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function _graphEscapeHtml(s) {

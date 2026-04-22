@@ -112,45 +112,90 @@
                 <select id="graph-branch-select" class="rounded-lg border border-slate-300 text-sm text-slate-700 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <option value="">Loading branches...</option>
                 </select>
-                <div class="inline-flex rounded-lg border border-slate-300 text-sm overflow-hidden">
+                <div class="inline-flex rounded-lg border border-slate-300 text-sm overflow-hidden bg-white">
                     <button id="graph-mode-custom" class="px-3 py-1.5 bg-indigo-600 text-white" onclick="switchGraphMode('custom')">Graph</button>
                     <button id="graph-mode-mermaid" class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50" onclick="switchGraphMode('mermaid')">Mermaid</button>
                     <button id="graph-mode-detailed" class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50" onclick="switchGraphMode('detailed')">Detailed</button>
                 </div>
+            </div>
+        </div>
+
+        <div id="graph-toolbar-row" class="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200">
+            <div class="flex items-center gap-2">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Show</span>
+                <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
+                    <button id="graph-redraw-all" class="px-3 py-1.5 bg-indigo-600 text-white font-medium" onclick="setGraphRedrawMode('all')">All</button>
+                    <button id="graph-redraw-circular" class="px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium" onclick="setGraphRedrawMode('circular')">Circular</button>
+                </div>
+            </div>
+
+            <div class="h-6 w-px bg-slate-300 mx-1"></div>
+
+            <div class="flex items-center gap-2 flex-grow max-w-md">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Focus</span>
+                <div class="relative flex-grow">
+                    <input type="text" id="graph-service-filter" list="graph-services-list" placeholder="Service name..."
+                           class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+                    <datalist id="graph-services-list"></datalist>
+                </div>
+                <button onclick="applyGraphFocus()" class="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-200 hover:border-slate-400 transition-all shadow-sm">
+                    Apply Focus
+                </button>
+            </div>
+
+            <div class="flex items-center gap-2 ml-auto">
                 <button id="graph-direction-toggle"
-                        class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+                        class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
                         onclick="toggleGraphDirection()"
                         title="Pivot graph direction (vertical ↔ horizontal)">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m-4 6H4m0 0l4 4m-4-4l4-4"/></svg>
                     <span id="graph-direction-label">Vertical</span>
                 </button>
-                <button id="graph-copy" class="hidden inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors" title="Copy Mermaid code to clipboard">
+                <button id="graph-copy" class="hidden inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm" title="Copy code to clipboard">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg>
                     Copy
                 </button>
-                <button id="graph-download" class="hidden inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors" title="Download Mermaid file">
+                <button id="graph-download" class="hidden inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm" title="Download file">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
                     Download
                 </button>
             </div>
         </div>
+
         <div id="graph-cycle-warning" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center">
             <svg class="w-5 h-5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
             </svg>
             <span id="graph-cycle-text">Circular dependencies detected (shown in red).</span>
         </div>
-        <div id="graph-container"
-             class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
-            <svg id="custom-graph" class="w-full" style="min-height:400px"></svg>
-            <div id="mermaid-graph" class="mermaid hidden"></div>
-        </div>
-        <div class="mt-4 flex flex-wrap gap-4 text-xs text-slate-500">
-            <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#ccfbf1;border:2px solid #14b8a6"></span> Client only</div>
-            <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#e0e7ff;border:2px solid #6366f1"></span> Service only</div>
-            <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#fef3c7;border:2px solid #f59e0b"></span> Client &amp; Service</div>
-            <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#f1f5f9;border:2px dashed #94a3b8"></span> Cluster</div>
-            <div class="flex items-center gap-1.5"><span class="w-6 h-0.5 rounded" style="background:#ef4444"></span> Circular dependency</div>
+        <div class="flex gap-6 items-start">
+            <div id="graph-container"
+                 class="flex-grow bg-white p-6 rounded-xl border border-slate-200 shadow-sm overflow-x-auto min-h-[500px]">
+                <svg id="custom-graph" class="w-full" style="min-height:450px"></svg>
+                <div id="mermaid-graph" class="mermaid hidden"></div>
+            </div>
+
+            <div id="graph-legend" class="w-48 flex-shrink-0 space-y-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm h-fit sticky top-6">
+                <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 border-b border-slate-100 pb-2">Legend</h4>
+                <div class="space-y-3 text-[11px] font-medium text-slate-600">
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#ccfbf1;border:2px solid #14b8a6"></span>
+                        <span>Client only</span>
+                    </div>
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#e0e7ff;border:2px solid #6366f1"></span>
+                        <span>Service only</span>
+                    </div>
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#fef3c7;border:2px solid #f59e0b"></span>
+                        <span>Client &amp; Service</span>
+                    </div>
+                    <div class="flex items-center gap-2.5 pt-2 border-t border-slate-50">
+                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#ef4444"></span>
+                        <span>Circular dep.</span>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1055,9 +1100,8 @@
         currentGraphDirection = currentGraphDirection === 'TB' ? 'LR' : 'TB';
         const label = document.getElementById('graph-direction-label');
         if (label) label.textContent = currentGraphDirection === 'TB' ? 'Vertical' : 'Horizontal';
-        const customSvg = document.getElementById('custom-graph');
-        if (currentGraphMode === 'custom' && lastGraphReport && customSvg) {
-            renderCustomGraph(lastGraphReport, customSvg, currentGraphDirection);
+        if (currentGraphMode === 'custom') {
+            redrawGraph();
         }
     }
 
@@ -1071,25 +1115,29 @@
                     : 'px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50';
             }
         });
-        // Direction toggle only matters for the custom graph renderer;
+        // Direction toggle and other controls only matter for the custom graph renderer;
         // Copy/Download export SVG for custom mode and Mermaid code for other modes.
         const dirBtn = document.getElementById('graph-direction-toggle');
         const copyBtn = document.getElementById('graph-copy');
         const dlBtn = document.getElementById('graph-download');
+        const toolbarRow = document.getElementById('graph-toolbar-row');
+        
         if (dirBtn) dirBtn.classList.toggle('hidden', mode !== 'custom');
         if (copyBtn) copyBtn.classList.remove('hidden');
         if (dlBtn) dlBtn.classList.remove('hidden');
+        if (toolbarRow) toolbarRow.classList.remove('hidden');
+        
         if (lastGraphReport) {
             const customSvg = document.getElementById('custom-graph');
             const mermaidDiv = document.getElementById('mermaid-graph');
             if (mode === 'custom') {
                 customSvg.classList.remove('hidden');
                 mermaidDiv.classList.add('hidden');
-                renderCustomGraph(lastGraphReport, customSvg, currentGraphDirection);
+                redrawGraph();
             } else {
                 customSvg.classList.add('hidden');
                 mermaidDiv.classList.remove('hidden');
-                renderGraph(lastGraphReport, mode === 'detailed');
+                redrawGraph();
             }
         }
     }
@@ -1152,6 +1200,23 @@
         try {
             const report = await fetchJSON(`/report?branch=${encodeURIComponent(branch)}`);
             lastGraphReport = report;
+            
+            // Populate autocomplete datalist
+            const datalist = document.getElementById('graph-services-list');
+            if (datalist) {
+                const services = new Set();
+                report.dependency_graph.forEach(d => {
+                    services.add(d.client);
+                    services.add(d.service);
+                });
+                datalist.innerHTML = '';
+                [...services].sort().forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s;
+                    datalist.appendChild(opt);
+                });
+            }
+
             if (report.dependency_graph.length === 0) {
                 customSvg.classList.add('hidden');
                 graphDiv.classList.remove('hidden');
@@ -1159,17 +1224,10 @@
                 document.getElementById('graph-cycle-warning').classList.add('hidden');
                 return;
             }
-            if (currentGraphMode === 'custom') {
-                customSvg.classList.remove('hidden');
-                graphDiv.classList.add('hidden');
-                // Give browser a frame to show loader before heavy layout math
-                await new Promise(r => setTimeout(r, 10));
-                renderCustomGraph(report, customSvg, currentGraphDirection);
-            } else {
-                customSvg.classList.add('hidden');
-                graphDiv.classList.remove('hidden');
-                await renderGraph(report, currentGraphMode === 'detailed');
-            }
+            
+            // Redraw with current filters
+            await new Promise(r => setTimeout(r, 10));
+            redrawGraph();
             hideLoader();
         } catch (err) {
             hideLoader();

@@ -24,6 +24,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Service Isolation Report**: added a new markdown report that lists all outbound service-to-service communication in a table-per-service format. The report identifies which target services each service "talks" to, including placeholder columns for port and protocol as required by compliance auditors. Available via `GET /report/isolation` and through the new Reports section.
 - **Snoozing Cat Loader**: added a playful, cat-themed loading animation that appears during long-running tasks like graph generation or service list fetching.
 - **Improved UI Stability**: eliminated "login flicker" by hiding main content by default and using a full-screen loading overlay until authentication state is confirmed.
+- **Advanced Dependency Graph UI**: improved the dependency graph interface by moving the legend to a sticky side panel and introducing a new toolbar row for advanced filtering.
+- **Graph Redraw & Filtering**: added "Show All" and "Circular Dependencies" redraw options.
+- **Graph Focus Mode**: added a service-specific focus mode with autocomplete support that filters the graph to show only a selected service and its direct neighbors.
+- **Optimized Graph Toolbar**: consolidated graph controls (orientation toggle, copy, download) into a unified toolbar for better ergonomics.
 - **Socke Dark-Mode Gimmick**: introduced a "Socke" theme gimmick that automatically rebrands the service from "Sanshain" to "Socke" and swaps the sun logo for a "Socke" (sock) image when dark mode is enabled.
 
 ### Fixed
