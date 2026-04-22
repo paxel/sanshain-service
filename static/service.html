@@ -121,40 +121,27 @@
         </div>
 
         <div id="graph-toolbar-row" class="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200">
-            <div class="flex items-center gap-2">
-                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Show</span>
+            <div class="flex items-center gap-2 flex-grow">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Focus</span>
+                <div id="focus-tags-container" class="flex flex-wrap items-center gap-1.5"></div>
+                <div class="relative flex-shrink-0" style="min-width:140px">
+                    <input type="text" id="graph-service-filter" list="graph-services-list" placeholder="Add service..."
+                           onkeydown="if(event.key==='Enter'){event.preventDefault();applyGraphFocus()}"
+                           class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+                    <datalist id="graph-services-list"></datalist>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2 ml-auto">
                 <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
                     <button id="graph-redraw-all" class="px-3 py-1.5 bg-indigo-600 text-white font-medium" onclick="setGraphRedrawMode('all')">All</button>
                     <button id="graph-redraw-circular" class="px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium" onclick="setGraphRedrawMode('circular')">Circular</button>
                 </div>
-            </div>
-
-            <div class="h-6 w-px bg-slate-300 mx-1"></div>
-
-            <div class="flex items-center gap-2">
-                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Protocol</span>
                 <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
                     <button id="filter-openapi" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('openapi')">OpenAPI</button>
                     <button id="filter-asyncapi" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('asyncapi')">AsyncAPI</button>
                     <button id="filter-proto" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('proto')">Proto</button>
                 </div>
-            </div>
-
-            <div class="h-6 w-px bg-slate-300 mx-1"></div>
-
-            <div class="flex items-center gap-2 flex-grow max-w-md">
-                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Focus</span>
-                <div class="relative flex-grow">
-                    <input type="text" id="graph-service-filter" list="graph-services-list" placeholder="Service name..."
-                           class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
-                    <datalist id="graph-services-list"></datalist>
-                </div>
-                <button onclick="applyGraphFocus()" class="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-200 hover:border-slate-400 transition-all shadow-sm">
-                    Apply Focus
-                </button>
-            </div>
-
-            <div class="flex items-center gap-2 ml-auto">
                 <button id="graph-direction-toggle"
                         class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
                         onclick="toggleGraphDirection()"
@@ -181,8 +168,8 @@
         </div>
         <div class="flex gap-6 items-start">
             <div id="graph-container"
-                 class="flex-grow bg-white p-6 rounded-xl border border-slate-200 shadow-sm overflow-x-auto min-h-[500px]">
-                <svg id="custom-graph" class="w-full" style="min-height:450px"></svg>
+                 class="flex-grow bg-white p-6 rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <svg id="custom-graph" class="w-full"></svg>
                 <div id="mermaid-graph" class="mermaid hidden"></div>
             </div>
 

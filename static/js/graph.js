@@ -10,7 +10,7 @@
  */
 
 window.graphRedrawMode = 'all'; // 'all' or 'circular'
-window.graphFilterService = ''; // focus filter
+window.graphFocusTags = []; // focus filter (multi-service tag cloud)
 window.graphProtocolFilters = {
     openapi: true,
     asyncapi: true,
@@ -69,22 +69,21 @@ function getFilteredReport(report) {
         deps = deps.filter(d => cycleNodes.has(d.client) && cycleNodes.has(d.service));
     }
     
-    // 2. Focus filter
-    if (window.graphFilterService) {
-        const target = window.graphFilterService.toLowerCase();
+    // 2. Focus filter (multi-service tag cloud)
+    if (window.graphFocusTags && window.graphFocusTags.length > 0) {
         const focusNodes = new Set();
-        
-        // Find all matching nodes (in case of partial match or multiple services)
-        const exactMatch = deps.find(d => d.client.toLowerCase() === target || d.service.toLowerCase() === target);
-        if (exactMatch) {
-            const realName = exactMatch.client.toLowerCase() === target ? exactMatch.client : exactMatch.service;
-            focusNodes.add(realName);
-            deps.forEach(d => {
-                if (d.client === realName) focusNodes.add(d.service);
-                if (d.service === realName) focusNodes.add(d.client);
-            });
+        for (const tag of window.graphFocusTags) {
+            const target = tag.toLowerCase();
+            const exactMatch = deps.find(d => d.client.toLowerCase() === target || d.service.toLowerCase() === target);
+            if (exactMatch) {
+                const realName = exactMatch.client.toLowerCase() === target ? exactMatch.client : exactMatch.service;
+                focusNodes.add(realName);
+                deps.forEach(d => {
+                    if (d.client === realName) focusNodes.add(d.service);
+                    if (d.service === realName) focusNodes.add(d.client);
+                });
+            }
         }
-        
         if (focusNodes.size > 0) {
             deps = deps.filter(d => focusNodes.has(d.client) && focusNodes.has(d.service));
         }
@@ -117,10 +116,43 @@ function setGraphRedrawMode(mode) {
 }
 window.setGraphRedrawMode = setGraphRedrawMode;
 
+function addFocusTag(name) {
+    if (!name || !name.trim()) return;
+    const trimmed = name.trim();
+    if (window.graphFocusTags.includes(trimmed)) return;
+    window.graphFocusTags.push(trimmed);
+    renderFocusTags();
+    redrawGraph();
+}
+window.addFocusTag = addFocusTag;
+
+function removeFocusTag(name) {
+    window.graphFocusTags = window.graphFocusTags.filter(t => t !== name);
+    renderFocusTags();
+    redrawGraph();
+}
+window.removeFocusTag = removeFocusTag;
+
+function renderFocusTags() {
+    const container = document.getElementById('focus-tags-container');
+    if (!container) return;
+    container.innerHTML = '';
+    window.graphFocusTags.forEach(tag => {
+        const pill = document.createElement('span');
+        pill.className = 'inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs font-medium';
+        pill.innerHTML = `${_graphEscapeHtml(tag)}<button onclick="removeFocusTag('${tag.replace(/'/g, "\\'")}')"
+            class="hover:text-indigo-900 cursor-pointer text-indigo-400 font-bold leading-none">&times;</button>`;
+        container.appendChild(pill);
+    });
+}
+window.renderFocusTags = renderFocusTags;
+
 function applyGraphFocus() {
     const input = document.getElementById('graph-service-filter');
-    window.graphFilterService = input ? input.value.trim() : '';
-    redrawGraph();
+    if (!input) return;
+    const val = input.value.trim();
+    input.value = '';
+    if (val) addFocusTag(val);
 }
 window.applyGraphFocus = applyGraphFocus;
 
@@ -434,8 +466,12 @@ function renderCustomGraph(report, svgElement, direction) {
     const svgW = graphInfo.width + 40;
     const svgH = graphInfo.height + 40;
 
-    svgElement.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
-    svgElement.style.minHeight = Math.min(svgH + 40, 800) + 'px';
+    // Viewport-sized canvas: fill available window height
+    const availableH = window.innerHeight - svgElement.getBoundingClientRect().top - 40;
+    svgElement.style.height = Math.max(availableH, 300) + 'px';
+    const vw = svgElement.clientWidth;
+    const vh = svgElement.clientHeight;
+    svgElement.setAttribute('viewBox', `0 0 ${vw} ${vh}`);
 
     // Defs for arrowheads
     const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
@@ -688,8 +724,13 @@ function renderCustomGraph(report, svgElement, direction) {
     svgElement.addEventListener('click', clearHighlight);
 
     // ── Zoom & Pan ───────────────────────────────────────────────────
-    let scale = 1, panX = 0, panY = 0;
+    // Fit-to-view initial scale and centering
+    let scale = Math.min(vw / svgW, vh / svgH) * 0.9;
+    let panX = (vw - svgW * scale) / 2;
+    let panY = (vh - svgH * scale) / 2;
     let isPanning = false, startX = 0, startY = 0;
+
+    updateTransform();
 
     function updateTransform() {
         mainG.setAttribute('transform', `translate(${panX},${panY}) scale(${scale})`);
@@ -746,3 +787,10 @@ function renderCustomGraph(report, svgElement, direction) {
 function getCustomGraphSVG(svgElement) {
     return svgElement.outerHTML;
 }
+
+// ── Debounced resize handler ────────────────────────────────────────
+let _graphResizeTimer = null;
+window.addEventListener('resize', () => {
+    clearTimeout(_graphResizeTimer);
+    _graphResizeTimer = setTimeout(() => redrawGraph(), 200);
+});
