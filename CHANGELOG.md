@@ -13,6 +13,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     - Detailed `DEBUG` logs now report why specific endpoints are considered unchanged during a `provide` operation.
     - Successful `provide` operations now log a concise `INFO` summary of the changes applied (inserts, updates, deletes).
     - Database adapter operations (`apply_spec_changes`) now log the number of changes and individual operations at the `DEBUG` level for both SQLite and PostgreSQL backends.
+- **Unified Log View**: removed separation between important and standard logs in the observability dashboard. All logs are now displayed in a single unified stream, sorted chronologically from oldest (top) to newest (bottom).
+- **Japanese Branding**: added Japanese characters for "Sanshain" (サンシャイン) and "Soka" (そうか) to the root banner, with automatic switching between the two versions based on the active theme.
+- **Dark Mode Rebranding**: renamed the dark mode "Socke" gimmick to "SOKA" (Japanese for "I see").
 - **Technical Performance Tuning**: exposed several internal parameters via environment variables for production tuning, including database pool sizes (`MAX_POSTGRES_CONNECTIONS`, `MAX_SQLITE_CONNECTIONS`), SQLite busy timeouts, background cleanup intervals, and in-memory buffer sizes.
 - **Performance Optimization**: optimized OpenAPI specification processing with an 87% performance gain. `split_openapi` is now ~8x faster by using direct object model traversal instead of redundant YAML serializations.
 - **Bulk Repository Operations**: introduced `find_endpoints_bulk` and `record_dependencies_bulk` to minimize database roundtrips during client requirement bundling.
@@ -61,7 +64,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Graph Redraw & Filtering**: added "Show All" and "Circular Dependencies" redraw options.
 - **Graph Focus Mode**: added a service-specific focus mode with autocomplete support that filters the graph to show only a selected service and its direct neighbors.
 - **Optimized Graph Toolbar**: consolidated graph controls (orientation toggle, copy, download) into a unified toolbar for better ergonomics.
-- **Socke Dark-Mode Gimmick**: introduced a "Socke" theme gimmick that automatically rebrands the service from "Sanshain" to "Socke" and swaps the sun logo for a "Socke" (sock) image when dark mode is enabled.
+- **SOKA Dark-Mode Gimmick**: introduced a "SOKA" theme gimmick that automatically rebrands the service from "Sanshain" to "SOKA" and swaps the sun logo for a "SOKA" image when dark mode is enabled.
 
 ### Fixed
 - **Startup Robustness**: replaced several `expect()` calls in `src/main.rs` with graceful termination, proper logging, and improved signal handling (Ctrl+C and SIGTERM).

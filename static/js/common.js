@@ -28,26 +28,35 @@ let sanshainToken = localStorage.getItem('sanshain_token');
 
     function applySockeGimmick(theme) {
         const isDark = theme === 'dark';
-        const fromText = isDark ? /Sanshain/g : /Socke/g;
-        const toText = isDark ? 'Socke' : 'Sanshain';
+        const fromText = isDark ? /Sanshain/g : /SOKA/g;
+        const toText = isDark ? 'SOKA' : 'Sanshain';
+        const fromJa = isDark ? /サンシャイン/g : /そうか/g;
+        const toJa = isDark ? 'そうか' : 'サンシャイン';
         const fromImg = isDark ? 'sonne.png' : 'socke.png';
         const toImg = isDark ? 'socke.png' : 'sonne.png';
 
+        const updateText = (txt) => {
+            return txt.replace(fromText, toText).replace(fromJa, toJa);
+        };
+
         // 1. Update <title>
-        if (document.title.includes(isDark ? 'Sanshain' : 'Socke')) {
-            document.title = document.title.replace(fromText, toText);
+        if (document.title.includes(isDark ? 'Sanshain' : 'SOKA') || document.title.includes(isDark ? 'サンシャイン' : 'そうか')) {
+            document.title = updateText(document.title);
         }
 
         // 2. Update all text nodes (best effort, limited to headers/nav/footer)
         const selectors = 'h1, h2, h3, a, span, footer, button, label';
         document.querySelectorAll(selectors).forEach(el => {
-            if (el.children.length === 0 && el.textContent.includes(isDark ? 'Sanshain' : 'Socke')) {
-                el.textContent = el.textContent.replace(fromText, toText);
-            } else if (el.childNodes.length > 0) {
-                // Check immediate text nodes
-                for (const node of el.childNodes) {
-                    if (node.nodeType === Node.TEXT_NODE && node.textContent.includes(isDark ? 'Sanshain' : 'Socke')) {
-                        node.textContent = node.textContent.replace(fromText, toText);
+            const hasMatch = el.textContent.includes(isDark ? 'Sanshain' : 'SOKA') || el.textContent.includes(isDark ? 'サンシャイン' : 'そうか');
+            if (hasMatch) {
+                if (el.children.length === 0) {
+                    el.textContent = updateText(el.textContent);
+                } else if (el.childNodes.length > 0) {
+                    // Check immediate text nodes
+                    for (const node of el.childNodes) {
+                        if (node.nodeType === Node.TEXT_NODE) {
+                            node.textContent = updateText(node.textContent);
+                        }
                     }
                 }
             }
@@ -57,8 +66,8 @@ let sanshainToken = localStorage.getItem('sanshain_token');
         document.querySelectorAll('img').forEach(img => {
             if (img.src.includes(fromImg)) {
                 img.src = img.src.replace(fromImg, toImg);
-                if (img.alt.includes(isDark ? 'Sanshain' : 'Socke')) {
-                    img.alt = img.alt.replace(fromText, toText);
+                if (img.alt.includes(isDark ? 'Sanshain' : 'SOKA') || img.alt.includes(isDark ? 'サンシャイン' : 'そうか')) {
+                    img.alt = updateText(img.alt);
                 }
             }
         });

@@ -41,7 +41,7 @@
     <div id="login-screen" class="min-h-screen flex items-center justify-center hidden">
         <div class="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm border border-slate-200">
             <img src="/images/sonne.png" alt="Sanshain" class="mx-auto mb-3 h-16 w-auto">
-            <h1 class="text-2xl font-bold text-center mb-6 text-indigo-700">Sanshain Admin</h1>
+            <h1 class="text-2xl font-bold text-center mb-6 text-indigo-700">Sanshain Admin (サンシャイン)</h1>
             <div id="login-error" class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"></div>
             <form id="login-form" class="space-y-4">
                 <div>
@@ -68,7 +68,7 @@
                 <div class="flex items-center space-x-4">
                     <a href="/" class="flex items-center space-x-3">
                         <img src="/images/sonne.png" alt="Sanshain" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
-                        <h1 class="text-2xl font-bold tracking-tight">Sanshain Admin</h1>
+                        <h1 class="text-2xl font-bold tracking-tight">Sanshain Admin (サンシャイン)</h1>
                     </a>
                     <a href="/" class="text-indigo-200 hover:text-white text-sm">← Back to Dashboard</a>
                     <span class="text-indigo-400">|</span>
@@ -588,21 +588,7 @@
                 warnings = [];
             }
 
-            const allLogs = [];
-            
-            // Important logs on top, but sorted by time within their priority
-            // User: "even the older errors and warnings are displayed all on top ... while the lower part naturaly rotates with infos"
-            
-            if (errors.length > 0 || warnings.length > 0) {
-                const important = [...errors, ...warnings].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-                allLogs.push(...important);
-                if (infos.length > 0 || debugs.length > 0) {
-                    allLogs.push({ isDivider: true, label: 'Standard Activity' });
-                }
-            }
-            
-            const standard = [...infos, ...debugs].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-            allLogs.push(...standard);
+            const allLogs = [...errors, ...warnings, ...infos, ...debugs].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
             if (allLogs.length === 0) {
                 container.innerHTML = '<div class="text-slate-500 italic">No logs captured yet.</div>';
@@ -610,10 +596,6 @@
             }
 
             container.innerHTML = allLogs.map(l => {
-                if (l.isDivider) {
-                    return `<div class="border-t border-slate-700 my-2 pt-1 text-[9px] text-slate-500 uppercase tracking-widest text-center">${l.label}</div>`;
-                }
-
                 const color = {
                     'ERROR': 'text-red-400',
                     'WARN': 'text-amber-400',
