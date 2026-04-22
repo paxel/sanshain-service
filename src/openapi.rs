@@ -1,5 +1,7 @@
 use openapiv3::{Components, OpenAPI, PathItem, ReferenceOr, SchemaKind, Type as OaType};
 use regex::Regex;
+use serde::Serialize;
+use serde_json;
 use serde_yaml;
 use similar::TextDiff;
 use std::collections::{HashMap, HashSet};
@@ -99,31 +101,31 @@ fn build_component_graph(components: &Option<Components>) -> HashMap<String, Has
     };
 
     for (name, item) in &c.schemas {
-        graph.insert(format!("schemas/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+        graph.insert(format!("schemas/{}", name), collect_refs(item));
     }
     for (name, item) in &c.responses {
-        graph.insert(format!("responses/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+        graph.insert(format!("responses/{}", name), collect_refs(item));
     }
     for (name, item) in &c.parameters {
-        graph.insert(format!("parameters/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+        graph.insert(format!("parameters/{}", name), collect_refs(item));
     }
     for (name, item) in &c.examples {
-        graph.insert(format!("examples/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+        graph.insert(format!("examples/{}", name), collect_refs(item));
     }
     for (name, item) in &c.request_bodies {
-        graph.insert(format!("requestBodies/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+        graph.insert(format!("requestBodies/{}", name), collect_refs(item));
     }
     for (name, item) in &c.headers {
-        graph.insert(format!("headers/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+        graph.insert(format!("headers/{}", name), collect_refs(item));
     }
     for (name, item) in &c.security_schemes {
-        graph.insert(format!("securitySchemes/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+        graph.insert(format!("securitySchemes/{}", name), collect_refs(item));
     }
     for (name, item) in &c.links {
-        graph.insert(format!("links/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+        graph.insert(format!("links/{}", name), collect_refs(item));
     }
     for (name, item) in &c.callbacks {
-        graph.insert(format!("callbacks/{}", name), collect_refs_from_yaml(&serde_yaml::to_string(item).unwrap_or_default()));
+        graph.insert(format!("callbacks/{}", name), collect_refs(item));
     }
 
     graph
@@ -139,8 +141,7 @@ fn extract_used_components_optimized(
         None => return None,
     };
 
-    let paths_yaml = serde_yaml::to_string(&partial_spec.paths).unwrap_or_default();
-    let mut to_visit: Vec<String> = collect_refs_from_yaml(&paths_yaml).into_iter().collect();
+    let mut to_visit: Vec<String> = collect_refs(&partial_spec.paths).into_iter().collect();
     let mut visited: HashSet<String> = HashSet::new();
 
     while let Some(ref_key) = to_visit.pop() {
@@ -187,7 +188,38 @@ fn extract_used_components_optimized(
     }
 }
 
-/// Extract all `$ref` strings from a YAML representation.
+/// Extract all `$ref` strings from a serializable object without YAML round-tripping.
+fn collect_refs(value: &impl Serialize) -> HashSet<String> {
+    let mut refs = HashSet::new();
+    if let Ok(json_value) = serde_json::to_value(value) {
+        collect_refs_recursive(&json_value, &mut refs);
+    }
+    refs
+}
+
+fn collect_refs_recursive(value: &serde_json::Value, refs: &mut HashSet<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::String(r)) = map.get("$ref") {
+                if let Some(stripped) = r.strip_prefix("#/components/") {
+                    refs.insert(stripped.to_string());
+                }
+            }
+            for v in map.values() {
+                collect_refs_recursive(v, refs);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                collect_refs_recursive(v, refs);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Extract all `$ref` strings from a YAML representation (deprecated, use collect_refs).
+#[allow(dead_code)]
 fn collect_refs_from_yaml(yaml: &str) -> HashSet<String> {
     let re = Regex::new(r#"\$ref:\s*'?\"?#/components/(\w+)/(\w+)'?\"?"#).expect("failed to compile reference regex");
     let mut refs = HashSet::new();
