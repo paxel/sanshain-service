@@ -51,6 +51,9 @@ pub struct RecordDependencyParams<'a> {
     pub method: &'a str,
 }
 
+pub type EndpointDetails = (i64, String);
+pub type EndpointMap = HashMap<(String, String), EndpointDetails>;
+
 pub trait SpecRepository: Send + Sync {
     /// Ensure a service exists and return its ID.
     fn ensure_service(&self, name: &str) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
@@ -91,7 +94,7 @@ pub trait SpecRepository: Send + Sync {
         branch_name: &str,
         api_type: ApiType,
         endpoints: &[(String, String)],
-    ) -> impl Future<Output = Result<HashMap<(String, String), (i64, String)>, RepositoryError>> + Send;
+    ) -> impl Future<Output = Result<EndpointMap, RepositoryError>> + Send;
 
     /// Record a client dependency on an endpoint.
     fn record_dependency(

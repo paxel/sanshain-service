@@ -131,6 +131,17 @@
 
             <div class="h-6 w-px bg-slate-300 mx-1"></div>
 
+            <div class="flex items-center gap-2">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Protocol</span>
+                <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
+                    <button id="filter-openapi" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('openapi')">OpenAPI</button>
+                    <button id="filter-asyncapi" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('asyncapi')">AsyncAPI</button>
+                    <button id="filter-proto" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('proto')">Proto</button>
+                </div>
+            </div>
+
+            <div class="h-6 w-px bg-slate-300 mx-1"></div>
+
             <div class="flex items-center gap-2 flex-grow max-w-md">
                 <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Focus</span>
                 <div class="relative flex-grow">

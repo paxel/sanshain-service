@@ -200,10 +200,11 @@ fn collect_refs(value: &impl Serialize) -> HashSet<String> {
 fn collect_refs_recursive(value: &serde_json::Value, refs: &mut HashSet<String>) {
     match value {
         serde_json::Value::Object(map) => {
-            if let Some(serde_json::Value::String(r)) = map.get("$ref") {
-                if let Some(stripped) = r.strip_prefix("#/components/") {
-                    refs.insert(stripped.to_string());
-                }
+            if let Some(stripped) = map.get("$ref")
+                .and_then(|v| v.as_str())
+                .and_then(|r| r.strip_prefix("#/components/"))
+            {
+                refs.insert(stripped.to_string());
             }
             for v in map.values() {
                 collect_refs_recursive(v, refs);

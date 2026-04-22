@@ -441,6 +441,8 @@ struct ProvidePayload {
     openapi_yaml: String,
     #[serde(default)]
     dry_run: bool,
+    #[serde(default)]
+    api_type: ApiType,
 }
 
 #[derive(Deserialize)]
@@ -450,6 +452,8 @@ struct ProvideAsyncApiPayload {
     asyncapi_yaml: String,
     #[serde(default)]
     dry_run: bool,
+    #[serde(default)]
+    api_type: ApiType,
 }
 
 #[derive(Deserialize)]
@@ -459,6 +463,8 @@ struct ProvideProtoPayload {
     proto_content: String,
     #[serde(default)]
     dry_run: bool,
+    #[serde(default)]
+    api_type: ApiType,
 }
 
 #[derive(Deserialize)]
@@ -471,6 +477,8 @@ struct RequireParams {
     timeout: Option<u64>,
     #[serde(default)]
     dry_run: Option<bool>,
+    #[serde(default)]
+    api_type: ApiType,
 }
 
 #[derive(Deserialize)]
@@ -611,9 +619,9 @@ async fn provide(
     Json(payload): Json<ProvidePayload>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let result = if payload.dry_run {
-        services::provide_spec_dry_run(&state.repo, &payload.servicename, &payload.branch, ApiType::OpenApi, &payload.openapi_yaml).await
+        services::provide_spec_dry_run(&state.repo, &payload.servicename, &payload.branch, payload.api_type, &payload.openapi_yaml).await
     } else {
-        services::provide_spec(&state.repo, &payload.servicename, &payload.branch, ApiType::OpenApi, &payload.openapi_yaml).await
+        services::provide_spec(&state.repo, &payload.servicename, &payload.branch, payload.api_type, &payload.openapi_yaml).await
     };
 
     if result.is_ok() && !payload.dry_run {
@@ -667,7 +675,8 @@ async fn require(
     State(state): State<AppState>,
     Query(params): Query<RequireParams>,
 ) -> Result<String, (StatusCode, String)> {
-    require_internal(state, params, ApiType::OpenApi).await
+    let api_type = params.api_type;
+    require_internal(state, params, api_type).await
 }
 
 async fn require_asyncapi(

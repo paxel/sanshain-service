@@ -10,7 +10,7 @@ tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["std", "clock"], default-features = false }
-sqlx = { version = "0.8", default-features = false, features = [ "runtime-tokio", "tls-rustls", "sqlite", "postgres", "macros", "migrate", "json" ] }
+sqlx = { version = "0.8", default-features = false, features = [ "runtime-tokio", "tls-rustls", "sqlite", "postgres", "migrate", "json" ] }
 openapiv3 = "2.2"
 serde_yaml = "0.9"
 tower-http = { version = "0.6", features = ["cors", "fs", "set-header", "trace", "compression-gzip", "decompression-gzip"] }

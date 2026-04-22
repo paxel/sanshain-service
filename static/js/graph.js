@@ -11,6 +11,11 @@
 
 window.graphRedrawMode = 'all'; // 'all' or 'circular'
 window.graphFilterService = ''; // focus filter
+window.graphProtocolFilters = {
+    openapi: true,
+    asyncapi: true,
+    proto: true
+};
 
 // ── Redraw Coordinator ───────────────────────────────────────────────
 
@@ -78,15 +83,21 @@ function getFilteredReport(report) {
                 if (d.client === realName) focusNodes.add(d.service);
                 if (d.service === realName) focusNodes.add(d.client);
             });
-        } else {
-            // If no exact match, maybe partial match for nodes?
-            // For now let's stick to exact match for Focus as it's cleaner.
         }
         
         if (focusNodes.size > 0) {
             deps = deps.filter(d => focusNodes.has(d.client) && focusNodes.has(d.service));
         }
     }
+
+    // 3. Protocol filter
+    deps = deps.filter(d => {
+        const type = (d.api_type || '').toLowerCase();
+        if (type === 'openapi' && !window.graphProtocolFilters.openapi) return false;
+        if (type === 'asyncapi' && !window.graphProtocolFilters.asyncapi) return false;
+        if (type === 'proto' && !window.graphProtocolFilters.proto) return false;
+        return true;
+    });
     
     return { ...report, dependency_graph: deps };
 }
@@ -112,6 +123,21 @@ function applyGraphFocus() {
     redrawGraph();
 }
 window.applyGraphFocus = applyGraphFocus;
+
+function toggleProtocolFilter(protocol) {
+    window.graphProtocolFilters[protocol] = !window.graphProtocolFilters[protocol];
+    
+    const btn = document.getElementById(`filter-${protocol}`);
+    if (btn) {
+        if (window.graphProtocolFilters[protocol]) {
+            btn.className = 'px-2.5 py-1.5 bg-indigo-600 text-white font-medium';
+        } else {
+            btn.className = 'px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium';
+        }
+    }
+    redrawGraph();
+}
+window.toggleProtocolFilter = toggleProtocolFilter;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 

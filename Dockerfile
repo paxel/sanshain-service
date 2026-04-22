@@ -19,6 +19,7 @@ RUN apk add --no-cache sqlite-libs tini
 
 COPY --from=builder /app/target/release/sanshain_service /usr/local/bin/sanshain
 COPY static/ /app/static/
+COPY src/infrastructure/migrations/ /app/src/infrastructure/migrations/
 
 WORKDIR /app
 

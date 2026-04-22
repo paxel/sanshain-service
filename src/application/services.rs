@@ -89,9 +89,15 @@ async fn provide_spec_inner(
     tracing::debug!("Providing {:?} for service '{}' branch '{}' (dry_run: {})", api_type, servicename, branch, dry_run);
     
     let endpoints = match api_type {
-        ApiType::OpenApi => openapi::split_openapi(content).map_err(AppError::BadRequest)?,
+        ApiType::OpenApi => openapi::split_openapi(content).map_err(|e| {
+            tracing::warn!("Failed to split OpenAPI for service '{}' branch '{}': {}. Input content: \n{}", servicename, branch, e, content);
+            AppError::BadRequest(e)
+        })?,
         ApiType::AsyncApi => crate::asyncapi::split_asyncapi(content)
-            .map_err(AppError::BadRequest)?
+            .map_err(|e| {
+                tracing::warn!("Failed to split AsyncAPI for service '{}' branch '{}': {}. Input content: \n{}", servicename, branch, e, content);
+                AppError::BadRequest(e)
+            })?
             .into_iter()
             .map(|s| openapi::EndpointSpec {
                 normalized_path: s.channel.clone(),
@@ -101,7 +107,10 @@ async fn provide_spec_inner(
             })
             .collect(),
         ApiType::Proto => crate::proto::split_proto(content)
-            .map_err(AppError::BadRequest)?
+            .map_err(|e| {
+                tracing::warn!("Failed to split Proto for service '{}' branch '{}': {}. Input content: \n{}", servicename, branch, e, content);
+                AppError::BadRequest(e)
+            })?
             .into_iter()
             .map(|s| openapi::EndpointSpec {
                 normalized_path: s.service.clone(),
@@ -170,6 +179,9 @@ async fn provide_spec_inner(
 
     let mut changes = Vec::new();
 
+    let mut inserts = 0;
+    let mut updates = 0;
+
     for endpoint in endpoints {
         let key = (api_type, endpoint.normalized_path.clone(), endpoint.method.clone());
         if let Some((old_path, existing_yaml)) = existing_map.remove(&key) {
@@ -203,6 +215,12 @@ async fn provide_spec_inner(
                     method: endpoint.method,
                     yaml_content: endpoint.yaml_content,
                 });
+                updates += 1;
+            } else {
+                tracing::debug!(
+                    "No changes detected for {:?} {} {} (normalized as {})",
+                    api_type, endpoint.method, endpoint.path, endpoint.normalized_path
+                );
             }
         } else {
             // Check if this endpoint was previously soft-deleted on a protected branch
@@ -225,9 +243,11 @@ async fn provide_spec_inner(
                 method: endpoint.method,
                 yaml_content: endpoint.yaml_content,
             });
+            inserts += 1;
         }
     }
 
+    let mut deletes = 0;
     // Remove endpoints that are no longer in the spec
     for ((old_api_type, _norm_path, method), (path, _)) in existing_map {
         if old_api_type != api_type {
@@ -245,7 +265,13 @@ async fn provide_spec_inner(
             );
         }
         changes.push(SpecChange::Delete { api_type, path, method, soft_delete: is_protected });
+        deletes += 1;
     }
+
+    tracing::info!(
+        "Spec processing complete for service '{}' branch '{}': {} inserts, {} updates, {} deletes",
+        servicename, branch, inserts, updates, deletes
+    );
 
     if dry_run {
         tracing::debug!("Dry-run mode: skipping database persistence for service '{}'", servicename);
@@ -513,7 +539,7 @@ async fn find_endpoints_bulk_with_fallback(
     branch: &str,
     api_type: ApiType,
     endpoints: &[(String, String)],
-) -> Result<HashMap<(String, String), (i64, String)>, RepositoryError> {
+) -> Result<crate::domain::ports::EndpointMap, RepositoryError> {
     let mut results = repo.find_endpoints_bulk(service_id, branch, api_type, endpoints).await?;
     
     let mut missing: Vec<(String, String)> = endpoints.iter()
@@ -526,13 +552,11 @@ async fn find_endpoints_bulk_with_fallback(
     }
 
     // 1. Try service-specific fallback branch
-    if let Ok(Some(sfb)) = repo.get_fallback_branch(servicename).await {
-        if sfb != branch {
-            let fallback_results = repo.find_endpoints_bulk(service_id, &sfb, api_type, &missing).await?;
-            for (key, val) in fallback_results {
-                results.insert(key.clone(), val);
-                missing.retain(|m| m.0 != key.0 || m.1 != key.1);
-            }
+    if let Some(sfb) = repo.get_fallback_branch(servicename).await.ok().flatten().filter(|b| b != branch) {
+        let fallback_results = repo.find_endpoints_bulk(service_id, &sfb, api_type, &missing).await?;
+        for (key, val) in fallback_results {
+            results.insert(key.clone(), val);
+            missing.retain(|m| m.0 != key.0 || m.1 != key.1);
         }
     }
 

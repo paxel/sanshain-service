@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.11.0] - Unreleased
 
 ### Added
+- **Enhanced Graph Filtering**: added quick filter toggle buttons (OpenAPI, AsyncAPI, Proto) to the dependency graph toolbar. Users can now selectively hide or show service dependencies based on their protocol.
+- **Improved Observability & Logging**: added detailed logging for specification processing.
+    - Providing invalid YAML now logs the full erroneous input content at the `WARN` level to facilitate debugging of client-side issues.
+    - Detailed `DEBUG` logs now report why specific endpoints are considered unchanged during a `provide` operation.
+    - Successful `provide` operations now log a concise `INFO` summary of the changes applied (inserts, updates, deletes).
+    - Database adapter operations (`apply_spec_changes`) now log the number of changes and individual operations at the `DEBUG` level for both SQLite and PostgreSQL backends.
 - **Technical Performance Tuning**: exposed several internal parameters via environment variables for production tuning, including database pool sizes (`MAX_POSTGRES_CONNECTIONS`, `MAX_SQLITE_CONNECTIONS`), SQLite busy timeouts, background cleanup intervals, and in-memory buffer sizes.
 - **Performance Optimization**: optimized OpenAPI specification processing with an 87% performance gain. `split_openapi` is now ~8x faster by using direct object model traversal instead of redundant YAML serializations.
 - **Bulk Repository Operations**: introduced `find_endpoints_bulk` and `record_dependencies_bulk` to minimize database roundtrips during client requirement bundling.
@@ -24,6 +30,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Extended Configuration Example**: updated the main `sanshain.yaml` example in `docs/sanshain-yaml.md` to demonstrate a multi-protocol configuration supporting OpenAPI, AsyncAPI, and gRPC/Proto simultaneously.
 - **Unified Client Configuration**: updated `docs/sanshain-yaml.md` with detailed support and examples for AsyncAPI and gRPC/Proto in the `sanshain.yaml` format.
 - **Protocol-Specific Examples**: added comprehensive examples for providing and requiring AsyncAPI channels and gRPC methods, including instructions on how to call the endpoints.
+
+### Fixed
+- **Resolved CVE-2023-0071 (rsa/Marvin Attack)**: completely eliminated the `rsa` vulnerability by removing the `sqlx-mysql` dependency. Switched to manual `FromRow` implementation and runtime migrations to allow dropping the `sqlx/macros` feature.
+- **Resolved CVE-2026-0104 (rustls-webpki)**: updated `rustls-webpki` to `0.103.13` to fix a reachable panic in certificate revocation list parsing.
+- **Improved Code Quality**: ensured 100% `cargo clippy` compliance and zero unsafe code (outside of standard CSP headers).
+- **Reduced Binary Size & Dependencies**: dropped the heavy `sqlx-macros` and `sqlx-mysql` dependencies, leading to faster compile times and a smaller security surface area.
 
 ## [0.10.0] - 2026-04-22
 

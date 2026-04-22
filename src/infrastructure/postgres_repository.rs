@@ -1,10 +1,9 @@
 use std::str::FromStr;
 use std::collections::HashMap;
-use sqlx::{PgPool, FromRow};
+use sqlx::{PgPool, Row};
 use crate::domain::models::*;
 use crate::domain::ports::{RecordDependencyParams, RepositoryError, SpecRepository};
 
-#[derive(FromRow)]
 struct ApiTokenRow {
     id: String,
     user_id: i64,
@@ -13,6 +12,20 @@ struct ApiTokenRow {
     created_at: String,
     expires_at: String,
     last_used_at: Option<String>,
+}
+
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ApiTokenRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: row.try_get("id")?,
+            user_id: row.try_get("user_id")?,
+            name: row.try_get("name")?,
+            token_hash: row.try_get("token_hash")?,
+            created_at: row.try_get("created_at")?,
+            expires_at: row.try_get("expires_at")?,
+            last_used_at: row.try_get("last_used_at")?,
+        })
+    }
 }
 
 impl From<ApiTokenRow> for ApiToken {
@@ -42,9 +55,8 @@ impl PostgresSpecRepository {
 
     pub async fn run_migrations(&self) -> Result<(), sqlx::migrate::MigrateError> {
         tracing::info!("Running PostgreSQL migrations...");
-        sqlx::migrate!("src/infrastructure/migrations/postgres")
-            .run(&self.pool)
-            .await?;
+        let migrator = sqlx::migrate::Migrator::new(std::path::Path::new("src/infrastructure/migrations/postgres")).await?;
+        migrator.run(&self.pool).await?;
 
         // Backfill normalized_path
         self.backfill_normalized_paths().await.map_err(|e| {
@@ -1156,12 +1168,14 @@ impl SpecRepository for PostgresSpecRepository {
         changes: Vec<SpecChange>,
         is_protected: bool,
     ) -> Result<(), RepositoryError> {
+        tracing::debug!("Applying {} spec changes to branch {}", changes.len(), branch_id);
         let mut tx = self.pool.begin().await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
         for change in changes {
             match change {
                 SpecChange::Insert { api_type, path, normalized_path, method, yaml_content } => {
+                    tracing::debug!("Inserting {:?} endpoint: {} {}", api_type, method, path);
                     sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted) VALUES ($1, $2, $3, $4, $5, $6, false)")
                         .bind(branch_id)
                         .bind(api_type.as_str())
@@ -1193,6 +1207,7 @@ impl SpecRepository for PostgresSpecRepository {
                     }
                 }
                 SpecChange::Update { api_type, path, normalized_path, method, yaml_content } => {
+                    tracing::debug!("Updating {:?} endpoint: {} {}", api_type, method, path);
                     if is_protected {
                         let row: (i64, String) = sqlx::query_as("SELECT id, yaml_content FROM endpoints WHERE branch_id = $1 AND api_type = $2 AND path = $3 AND method = $4 AND deleted = false")
                             .bind(branch_id)
@@ -1237,6 +1252,7 @@ impl SpecRepository for PostgresSpecRepository {
                         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
                 }
                 SpecChange::Delete { api_type, path, method, soft_delete } => {
+                    tracing::debug!("Deleting {:?} endpoint: {} {} (soft: {})", api_type, method, path, soft_delete);
                     if soft_delete {
                         sqlx::query("UPDATE endpoints SET deleted = true WHERE branch_id = $1 AND api_type = $2 AND path = $3 AND method = $4")
                             .bind(branch_id)
