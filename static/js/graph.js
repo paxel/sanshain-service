@@ -414,11 +414,19 @@ function renderCustomGraph(report, svgElement, direction) {
         const p0 = { x: nv.x, y: nv.y };
         const p1 = { x: nw.x, y: nw.y };
         
-        const vExtent = isLR ? nv.width : nv.height;
-        const wExtent = isLR ? nw.width : nw.height;
-        
-        p0[R] += vIsBefore ? vExtent / 2 : -vExtent / 2;
-        p1[R] += vIsBefore ? -wExtent / 2 : wExtent / 2;
+        const vRExtent = isLR ? nv.width : nv.height;
+        const wRExtent = isLR ? nw.width : nw.height;
+        const vFExtent = isLR ? nv.height : nv.width;
+        const wFExtent = isLR ? nw.height : nw.width;
+
+        // Anchor on the rank-axis border of each node
+        p0[R] += vIsBefore ? vRExtent / 2 : -vRExtent / 2;
+        p1[R] += vIsBefore ? -wRExtent / 2 : wRExtent / 2;
+
+        // Offset along flow axis (F) to reduce overlap (66% start -> 33% end)
+        p0[F] += (0.66 - 0.5) * vFExtent;
+        p1[F] += (0.33 - 0.5) * wFExtent;
+
         edgeData.points = [p0, p1];
     });
 

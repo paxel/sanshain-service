@@ -1397,7 +1397,7 @@ async fn test_user_registration_and_approval() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/admin/users/{}/approve", new_user_id))
+                .uri(format!("/admin/users/{}/approve", new_user_id))
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::empty())
@@ -1448,7 +1448,7 @@ async fn test_user_registration_and_approval() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(&format!("/admin/users/{}", new_user_id))
+                .uri(format!("/admin/users/{}", new_user_id))
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::empty())
@@ -1555,7 +1555,7 @@ async fn test_api_token_crud_and_bearer_auth() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(&format!("/auth/tokens/{}", token_id))
+                .uri(format!("/auth/tokens/{}", token_id))
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::empty())

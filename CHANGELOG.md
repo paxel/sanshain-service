@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     - Detailed `DEBUG` logs now report why specific endpoints are considered unchanged during a `provide` operation.
     - Successful `provide` operations now log a concise `INFO` summary of the changes applied (inserts, updates, deletes).
     - Database adapter operations (`apply_spec_changes`) now log the number of changes and individual operations at the `DEBUG` level for both SQLite and PostgreSQL backends.
+- **Graph Edge Visualization**: implemented asynchronous arrow start and end points (66% outbound, 33% inbound) to reduce overlap and improve readability of complex dependency structures.
 - **Unified Log View**: removed separation between important and standard logs in the observability dashboard. All logs are now displayed in a single unified stream, sorted chronologically from oldest (top) to newest (bottom).
 - **Japanese Branding**: added Japanese characters for "Sanshain" (サンシャイン) and "Soka" (そうか) to the root banner, with automatic switching between the two versions based on the active theme.
 - **Dark Mode Rebranding**: renamed the dark mode "Socke" gimmick to "SOKA" (Japanese for "I see").

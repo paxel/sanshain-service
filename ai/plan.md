@@ -33,6 +33,7 @@ The following major milestones have been delivered and are fully functional:
 - **SOKA Dark-Mode Gimmick**: added a playful rebranding gimmick that swaps "Sanshain" for "SOKA" (Japanese for "I see") and the sun logo for a "SOKA" image when dark mode is enabled.
 - **Japanese Branding**: added Japanese characters for "Sanshain" (サンシャイン) and "Soka" (そうか) to the root banner, with automatic switching between the two versions based on the active theme.
 - **Unified Log View**: removed separation between important and standard logs in the observability dashboard; all logs are now sorted chronologically (oldest on top).
+- **Graph Edge Visualization**: implemented asynchronous arrow start and end points (66% outbound, 33% inbound) to reduce overlap and improve readability.
 
 ## Open
 

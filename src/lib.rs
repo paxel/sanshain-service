@@ -452,8 +452,6 @@ struct ProvideAsyncApiPayload {
     asyncapi_yaml: String,
     #[serde(default)]
     dry_run: bool,
-    #[serde(default)]
-    api_type: ApiType,
 }
 
 #[derive(Deserialize)]
@@ -463,8 +461,6 @@ struct ProvideProtoPayload {
     proto_content: String,
     #[serde(default)]
     dry_run: bool,
-    #[serde(default)]
-    api_type: ApiType,
 }
 
 #[derive(Deserialize)]

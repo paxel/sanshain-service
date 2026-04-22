@@ -380,17 +380,15 @@ async fn find_endpoint_with_fallback(
     }
 
     // 1. Try service-specific fallback branch
-    if let Ok(Some(sfb)) = repo.get_fallback_branch(servicename).await {
-        // Only try if it's different from the requested branch (redundant due to is_branch_protected check above, but safer)
-        if sfb != branch
-            && let Some(ep) = repo.find_endpoint(service_id, &sfb, api_type, path, method_to_use).await?
-        {
-            tracing::info!(
-                "Falling back to service-specific branch '{}' for {:?} {} {}",
-                sfb, api_type, method_to_use, path
-            );
-            return Ok(Some(ep));
-        }
+    if let Ok(Some(sfb)) = repo.get_fallback_branch(servicename).await
+        && sfb != branch
+        && let Some(ep) = repo.find_endpoint(service_id, &sfb, api_type, path, method_to_use).await?
+    {
+        tracing::info!(
+            "Falling back to service-specific branch '{}' for {:?} {} {}",
+            sfb, api_type, method_to_use, path
+        );
+        return Ok(Some(ep));
     }
 
     // 2. Try global protected branches
@@ -1920,32 +1918,32 @@ mod tests {
                             yaml_content: yaml_content.clone(),
                         };
                         self.insert_endpoint(branch_id, &endpoint_record).await?;
-                        if is_protected {
-                            if let Some(endpoint_id) = self.get_endpoint_id(branch_id, api_type, &path, &method).await? {
-                                self.insert_endpoint_version(endpoint_id, 1, &yaml_content, None, &now).await?;
-                            }
+                        if is_protected
+                            && let Some(endpoint_id) = self.get_endpoint_id(branch_id, api_type, &path, &method).await?
+                        {
+                            self.insert_endpoint_version(endpoint_id, 1, &yaml_content, None, &now).await?;
                         }
                     }
                     SpecChange::Update { api_type, path, normalized_path, method, yaml_content } => {
-                        if is_protected {
-                            if let Some(endpoint_id) = self.get_endpoint_id(branch_id, api_type, &path, &method).await? {
-                                let old_yaml = self.endpoints.lock().unwrap().get(&branch_id)
-                                    .and_then(|ev| ev.iter().find(|e| e.api_type == api_type && e.path == path && e.method == method))
-                                    .map(|e| e.yaml_content.clone());
-                                
-                                let current_version = self.get_latest_endpoint_version(endpoint_id).await?;
-                                let diff = old_yaml.as_ref().map(|old| crate::openapi::generate_diff(old, &yaml_content));
-                                self.insert_endpoint_version(endpoint_id, current_version + 1, &yaml_content, diff.as_deref(), &now).await?;
-                            }
+                        if is_protected
+                            && let Some(endpoint_id) = self.get_endpoint_id(branch_id, api_type, &path, &method).await?
+                        {
+                            let old_yaml = self.endpoints.lock().unwrap().get(&branch_id)
+                                .and_then(|ev| ev.iter().find(|e| e.api_type == api_type && e.path == path && e.method == method))
+                                .map(|e| e.yaml_content.clone());
+                            
+                            let current_version = self.get_latest_endpoint_version(endpoint_id).await?;
+                            let diff = old_yaml.as_ref().map(|old| crate::openapi::generate_diff(old, &yaml_content));
+                            self.insert_endpoint_version(endpoint_id, current_version + 1, &yaml_content, diff.as_deref(), &now).await?;
                         }
                         // Update in mock
                         {
                             let mut endpoints = self.endpoints.lock().unwrap();
-                            if let Some(eps) = endpoints.get_mut(&branch_id) {
-                                if let Some(ep) = eps.iter_mut().find(|e| e.api_type == api_type && e.path == path && e.method == method) {
-                                    ep.yaml_content = yaml_content.clone();
-                                    ep.normalized_path = normalized_path;
-                                }
+                            if let Some(eps) = endpoints.get_mut(&branch_id)
+                                && let Some(ep) = eps.iter_mut().find(|e| e.api_type == api_type && e.path == path && e.method == method)
+                            {
+                                ep.yaml_content = yaml_content.clone();
+                                ep.normalized_path = normalized_path;
                             }
                         }
                         self.update_endpoint(branch_id, api_type, &path, &method, &yaml_content).await?;
