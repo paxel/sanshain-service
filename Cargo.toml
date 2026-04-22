@@ -30,6 +30,7 @@ similar = "3"
 axum-prometheus = "0.10"
 metrics-exporter-prometheus = "0.18"
 sysinfo = "0.38"
+moka = { version = "0.12", features = ["future"] }
 
 [dev-dependencies]
 flate2 = "1"

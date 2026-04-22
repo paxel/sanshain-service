@@ -22,13 +22,14 @@ pub mod application;
 pub mod infrastructure;
 
 use application::services::{self, AppError};
-use infrastructure::database::DatabaseRepo;
+use domain::ports::SpecRepository;
+use infrastructure::cached_repository::CachedSpecRepository;
 use infrastructure::ldap_provider::LdapAuthProvider;
 use domain::models::{AuthMode, LdapConfig, ApiType, ServiceSummary};
 
 #[derive(Clone)]
 pub struct AppState {
-    pub repo: DatabaseRepo,
+    pub repo: CachedSpecRepository,
     pub db_url: String,
     pub csrf_tokens: Arc<RwLock<HashMap<String, DateTime<Utc>>>>,
     pub instance_id: String,
@@ -149,7 +150,7 @@ use tower_http::services::ServeDir;
 use axum::http::header::HeaderValue;
 
 /// Resolve a user from either a session token or a san_ API token.
-async fn resolve_user(repo: &DatabaseRepo, token: &str) -> Result<Option<domain::models::User>, StatusCode> {
+async fn resolve_user(repo: &impl domain::ports::SpecRepository, token: &str) -> Result<Option<domain::models::User>, StatusCode> {
     if token.starts_with("san_") {
         // API token
         let user = services::validate_api_token(repo, token)
@@ -376,6 +377,9 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/protected-branches", get(fragment_protected_branches).post(fragment_add_protected_branch))
         .route("/admin/protected-branches/{pattern}", axum::routing::delete(fragment_delete_protected_branch))
         .route("/admin/auth-config", get(fragment_auth_config))
+        .route("/admin/cache-config", get(fragment_cache_config).post(fragment_set_cache_config))
+        .route("/admin/cache-clear", post(fragment_cache_clear))
+        .route("/admin/cache-stats", get(admin_cache_stats))
         .route("/admin/branch-max-age", get(fragment_branch_max_age).post(fragment_set_branch_max_age))
         .route("/admin/branch-cleanup", post(fragment_branch_cleanup))
         .route("/admin/dependency-max-age", get(fragment_dependency_max_age).post(fragment_set_dependency_max_age))
@@ -1945,6 +1949,68 @@ async fn fragment_dependency_cleanup(
 ) -> Result<axum::response::Html<String>, StatusCode> {
     let deleted = services::cleanup_stale_dependencies(&state.repo).await.map_err(app_error_to_status)?;
     Ok(axum::response::Html(format!("Deleted {} stale dependencies", deleted)))
+}
+
+#[derive(Template)]
+#[template(path = "fragments/admin/cache_config.html")]
+struct FragmentCacheConfig {
+    memory_mb: u64,
+    enabled: bool,
+    hit_rate: String,
+    entry_count: u64,
+    memory_used_mb: String,
+    hit_count: u64,
+    miss_count: u64,
+}
+
+fn build_cache_config_fragment(stats: domain::models::CacheStats) -> FragmentCacheConfig {
+    FragmentCacheConfig {
+        memory_mb: stats.memory_limit_mb,
+        enabled: stats.enabled,
+        hit_rate: format!("{:.1}", stats.hit_rate_percent),
+        entry_count: stats.entry_count,
+        memory_used_mb: format!("{:.2}", stats.estimated_memory_used_bytes as f64 / 1024.0 / 1024.0),
+        hit_count: stats.hit_count,
+        miss_count: stats.miss_count,
+    }
+}
+
+async fn fragment_cache_config(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let stats = state.repo.cache_stats();
+    let tmpl = build_cache_config_fragment(stats);
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+#[derive(Deserialize)]
+struct FragmentCacheMemoryMb {
+    memory_mb: u64,
+}
+
+async fn fragment_set_cache_config(
+    State(state): State<AppState>,
+    axum::extract::Form(payload): axum::extract::Form<FragmentCacheMemoryMb>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    state.repo.rebuild_caches(payload.memory_mb);
+    state.repo.set_setting("cache_memory_mb", &payload.memory_mb.to_string()).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let stats = state.repo.cache_stats();
+    let tmpl = build_cache_config_fragment(stats);
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+async fn fragment_cache_clear(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let limit = state.repo.cache_stats().memory_limit_mb;
+    state.repo.rebuild_caches(limit);
+    Ok(axum::response::Html("Cache cleared".to_string()))
+}
+
+async fn admin_cache_stats(
+    State(state): State<AppState>,
+) -> Json<domain::models::CacheStats> {
+    Json(state.repo.cache_stats())
 }
 
 async fn request_counter(

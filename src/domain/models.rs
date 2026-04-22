@@ -272,3 +272,14 @@ pub struct DebugConfig {
     pub business_logic_debug: bool,
     pub admin_user_debug: bool,
 }
+
+#[derive(Serialize, Clone, Debug)]
+pub struct CacheStats {
+    pub enabled: bool,
+    pub memory_limit_mb: u64,
+    pub estimated_memory_used_bytes: u64,
+    pub entry_count: u64,
+    pub hit_count: u64,
+    pub miss_count: u64,
+    pub hit_rate_percent: f64,
+}

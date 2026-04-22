@@ -281,6 +281,19 @@
                 </div>
             </section>
 
+            <!-- Cache Configuration -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold text-slate-800">In-Memory Cache</h2>
+                    <p class="text-sm text-slate-500 mt-1">Memory-bounded cache for spec data. Set to 0 MB to disable. Set <code class="bg-slate-100 px-1 rounded">CACHE_MEMORY_MB</code> env var for initial value.</p>
+                </div>
+                <div id="cache-config-container"
+                     hx-get="/fragments/admin/cache-config"
+                     hx-trigger="load"
+                     hx-swap="innerHTML">
+                </div>
+            </section>
+
             <!-- Protected Branches -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="flex justify-between items-center mb-4">

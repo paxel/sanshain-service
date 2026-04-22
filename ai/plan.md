@@ -36,6 +36,7 @@ The following major milestones have been delivered and are fully functional:
 - **Graph Edge Visualization**: implemented asynchronous arrow start and end points (66% outbound, 33% inbound) to reduce overlap and improve readability.
 - **Docker Release Build Fix**: fixed the release Docker build by ensuring database migrations (kept in `src/infrastructure/migrations/` per DDD architecture) are copied into the Docker build context during CI.
 - **Performance Benchmarks & Optimization**: expanded Criterion benchmarks to cover `split_asyncapi`, `split_proto`, `normalize_path`, `generate_diff`, and `check_backward_compatibility`. Replaced per-call regex compilation with `LazyLock` statics in `normalize_path` and `split_proto`, yielding ~50% improvement in `split_openapi` throughput.
+- **In-Memory Spec Cache**: added `CachedSpecRepository` using `moka` crate with memory-bounded TinyLFU/LRU eviction. Caches all hot read paths (service/branch IDs, endpoints, reports, protected branches, fallback branches, service/client lists) with write-through invalidation. Configurable via `CACHE_MEMORY_MB` env var (default 256 MB) and admin UI. Includes 10 unit tests and JSON stats endpoint.
 
 ## Open
 

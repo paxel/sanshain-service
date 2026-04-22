@@ -44,6 +44,7 @@ The project follows **DDD Hexagonal (Onion) Architecture**:
 | **Infrastructure (`src/infrastructure/`)** | |
 | `src/infrastructure/mod.rs` | Module declarations for infrastructure layer. |
 | `src/infrastructure/database.rs` | Database connection setup and migration runner (SQLite/PostgreSQL). |
+| `src/infrastructure/cached_repository.rs` | In-memory cache decorator (`CachedSpecRepository`) using `moka` with write-through invalidation. |
 | `src/infrastructure/sqlite_repository.rs` | `SpecRepository` implementation for SQLite. |
 | `src/infrastructure/postgres_repository.rs` | `SpecRepository` implementation for PostgreSQL. |
 | `src/infrastructure/local_auth_provider.rs` | `AuthProvider` implementation for local username/password auth. |

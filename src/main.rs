@@ -13,6 +13,7 @@ use sanshain_service::application::services;
 use sanshain_service::infrastructure::database::DatabaseRepo;
 use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
 use sanshain_service::infrastructure::postgres_repository::PostgresSpecRepository;
+use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
 
 #[tokio::main]
 pub async fn main() {
@@ -131,6 +132,18 @@ pub async fn main() {
         tracing::info!("Using SQLite database backend");
         DatabaseRepo::Sqlite(sqlite_repo)
     };
+
+    // Wrap with in-memory cache layer
+    let cache_memory_mb = std::env::var("CACHE_MEMORY_MB")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(256);
+    let repo = CachedSpecRepository::new(repo, cache_memory_mb);
+    if cache_memory_mb > 0 {
+        tracing::info!("In-memory cache enabled with {} MB limit", cache_memory_mb);
+    } else {
+        tracing::info!("In-memory cache disabled (CACHE_MEMORY_MB=0)");
+    }
 
     // Ensure initial admin user exists
     if let Err(e) = services::ensure_initial_admin(&repo).await {

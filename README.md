@@ -399,6 +399,7 @@ In the service overview UI, use the **branch switcher** to flip between `main` (
 | `INITIAL_ADMIN_PASSWORD` | *random* | Pre-defined password for the initial admin account. |
 | `INITIAL_ADMIN_TOKEN` | *random* | Pre-defined session token for the initial admin account. |
 | `INSTANCE_ID` | *random UUID* | Unique ID for this service instance. |
+| `CACHE_MEMORY_MB` | `256` | In-memory cache size in MB. Set to `0` to disable caching entirely. Configurable at runtime via admin UI. |
 | `LOG_FORMAT` | `text` | Log output format (`text` or `json`). |
 | `RUST_LOG` | `sanshain_service=info,tower_http=info` | Log level filter (e.g., `sanshain_service=debug,tower_http=debug` for verbose output). |
 
