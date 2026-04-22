@@ -48,6 +48,7 @@ The project follows **DDD Hexagonal (Onion) Architecture**:
 | `src/infrastructure/postgres_repository.rs` | `SpecRepository` implementation for PostgreSQL. |
 | `src/infrastructure/local_auth_provider.rs` | `AuthProvider` implementation for local username/password auth. |
 | `src/infrastructure/ldap_provider.rs` | `AuthProvider` implementation for LDAP. |
+| `src/infrastructure/migrations/` | SQL migrations for both SQLite and PostgreSQL. |
 
 ### Migrations (`src/infrastructure/migrations/`)
 

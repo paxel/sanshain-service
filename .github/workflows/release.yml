@@ -129,6 +129,7 @@ jobs:
           cp binaries/sanshain-linux-x86_64/sanshain_service docker-context/sanshain-amd64
           cp binaries/sanshain-linux-aarch64/sanshain_service docker-context/sanshain-arm64
           cp -r static docker-context/static
+          cp -r src/infrastructure/migrations docker-context/migrations
 
       - name: Build and push multi-platform Docker image
         uses: docker/build-push-action@v6

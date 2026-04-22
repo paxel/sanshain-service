@@ -9,7 +9,7 @@ RUN apk add --no-cache sqlite-libs tini
 COPY sanshain-${TARGETARCH} /usr/local/bin/sanshain
 RUN chmod +x /usr/local/bin/sanshain
 COPY static/ /app/static/
-COPY src/infrastructure/migrations/ /app/src/infrastructure/migrations/
+COPY migrations/ /app/src/infrastructure/migrations/
 
 WORKDIR /app
 

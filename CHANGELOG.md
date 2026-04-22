@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.11.0] - Unreleased
+## [0.11.1] - Unreleased
 
 ### Added
 - **Enhanced Graph Filtering**: added quick filter toggle buttons (OpenAPI, AsyncAPI, Proto) to the dependency graph toolbar. Users can now selectively hide or show service dependencies based on their protocol.
@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Protocol-Specific Examples**: added comprehensive examples for providing and requiring AsyncAPI channels and gRPC methods, including instructions on how to call the endpoints.
 
 ### Fixed
+- **Docker Release Build**: fixed the release Docker build by ensuring database migrations are included in the Docker build context. The release workflow now copies migrations alongside static assets, and `Dockerfile.release.template` references the correct context-relative path.
 - **Resolved CVE-2023-0071 (rsa/Marvin Attack)**: completely eliminated the `rsa` vulnerability by removing the `sqlx-mysql` dependency. Switched to manual `FromRow` implementation and runtime migrations to allow dropping the `sqlx/macros` feature.
 - **Resolved CVE-2026-0104 (rustls-webpki)**: updated `rustls-webpki` to `0.103.13` to fix a reachable panic in certificate revocation list parsing.
 - **Improved Code Quality**: ensured 100% `cargo clippy` compliance and zero unsafe code (outside of standard CSP headers).

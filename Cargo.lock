@@ -2314,7 +2314,7 @@ dependencies = [
 
 [[package]]
 name = "sanshain_service"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "argon2",
  "askama",

@@ -58,7 +58,7 @@
 
 ### Database
 - All schema changes go through migration files — never modify the database manually.
-- Each adapter owns its migrations under `src/infrastructure/migrations/<db>/`.
+- SQL migrations are located in the `src/infrastructure/migrations/<db>/` directory.
 - Use parameterized queries exclusively; never interpolate user input into SQL.
 - Keep transactions short; avoid holding locks across async boundaries.
 
