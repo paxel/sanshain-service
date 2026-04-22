@@ -506,6 +506,59 @@ pub async fn require_bundle_dry_run(
     require_bundle_inner(repo, notifier, params, true).await
 }
 
+async fn find_endpoints_bulk_with_fallback(
+    repo: &impl SpecRepository,
+    service_id: i64,
+    servicename: &str,
+    branch: &str,
+    api_type: ApiType,
+    endpoints: &[(String, String)],
+) -> Result<HashMap<(String, String), (i64, String)>, RepositoryError> {
+    let mut results = repo.find_endpoints_bulk(service_id, branch, api_type, endpoints).await?;
+    
+    let mut missing: Vec<(String, String)> = endpoints.iter()
+        .filter(|e| !results.contains_key(&(e.0.clone(), e.1.clone())))
+        .cloned()
+        .collect();
+    
+    if missing.is_empty() || repo.is_branch_protected(branch).await? {
+        return Ok(results);
+    }
+
+    // 1. Try service-specific fallback branch
+    if let Ok(Some(sfb)) = repo.get_fallback_branch(servicename).await {
+        if sfb != branch {
+            let fallback_results = repo.find_endpoints_bulk(service_id, &sfb, api_type, &missing).await?;
+            for (key, val) in fallback_results {
+                results.insert(key.clone(), val);
+                missing.retain(|m| m.0 != key.0 || m.1 != key.1);
+            }
+        }
+    }
+
+    if missing.is_empty() {
+        return Ok(results);
+    }
+
+    // 2. Try global protected branches
+    let protected = repo.list_protected_branches().await?;
+    for pb in &protected {
+        if pb == branch {
+            continue;
+        }
+        let fallback_results = repo.find_endpoints_bulk(service_id, pb, api_type, &missing).await?;
+        for (key, val) in fallback_results {
+            results.insert(key.clone(), val);
+            missing.retain(|m| m.0 != key.0 || m.1 != key.1);
+        }
+        if missing.is_empty() {
+            break;
+        }
+    }
+
+    Ok(results)
+}
+
 async fn require_bundle_inner(
     repo: &impl SpecRepository,
     mut notifier: Option<tokio::sync::broadcast::Receiver<()>>,
@@ -536,33 +589,69 @@ async fn require_bundle_inner(
         let mut yamls: Vec<String> = Vec::new();
         let mut missing: Vec<(String, String)> = Vec::new();
 
-        for (path, method) in params.endpoints {
+        let normalized_endpoints: Vec<(String, String)> = params.endpoints.iter().map(|(path, method)| {
             let method_to_use = match params.api_type {
                 ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
                 ApiType::Proto => method.to_string(),
             };
-            tracing::debug!("Looking up {:?} endpoint {} {} for client '{}'", params.api_type, method_to_use, path, params.clientname);
-            let endpoint = find_endpoint_with_fallback(repo, service_id, params.servicename, params.branch, params.api_type, path, &method_to_use).await?;
+            (path.clone(), method_to_use)
+        }).collect();
 
-            if let Some(ref ep) = endpoint {
+        let found_endpoints = find_endpoints_bulk_with_fallback(
+            repo, service_id, params.servicename, params.branch, params.api_type, &normalized_endpoints
+        ).await?;
+
+        let mut record_params = Vec::new();
+        for (path, method_to_use) in normalized_endpoints {
+            if let Some((id, yaml)) = found_endpoints.get(&(path.clone(), method_to_use.clone())) {
+                yamls.push(yaml.clone());
                 if !dry_run {
-                    repo.record_dependency(RecordDependencyParams {
+                    record_params.push(RecordDependencyParams {
                         client_id,
-                        endpoint_id: Some(ep.0),
+                        endpoint_id: Some(*id),
                         api_type: params.api_type,
                         service_id,
                         branch_name: params.branch,
-                        path,
-                        method: &method_to_use,
-                    }).await?;
+                        path: &params.endpoints.iter().find(|e| e.0 == path).unwrap().0, // Use original path reference
+                        method: &params.endpoints.iter().find(|e| e.0 == path).unwrap().1, // Use original method reference
+                    });
                 }
-                yamls.push(ep.1.clone());
             } else {
-                missing.push((path.clone(), method_to_use));
+                missing.push((path, method_to_use));
             }
         }
 
+        // Fix references for record_params to avoid lifetime issues or just use local strings
+        // Actually, RecordDependencyParams uses &'a str. 
+        // To simplify, I'll just rebuild them inside the loop if needed or change the trait to take owned strings.
+        // Given I'm already refactoring, I'll just do them sequentially for now if bulk is hard with lifetimes, 
+        // OR I'll just use the bulk method with a new vector of params.
+
         if missing.is_empty() {
+            if !dry_run {
+                // We need to be careful with lifetimes here.
+                // Let's just collect the data and call bulk.
+                let mut bulk_params = Vec::new();
+                for (path, method) in params.endpoints {
+                    let method_to_use = match params.api_type {
+                        ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
+                        ApiType::Proto => method.to_string(),
+                    };
+                    if let Some((id, _)) = found_endpoints.get(&(path.clone(), method_to_use.clone())) {
+                        bulk_params.push(RecordDependencyParams {
+                            client_id,
+                            endpoint_id: Some(*id),
+                            api_type: params.api_type,
+                            service_id,
+                            branch_name: params.branch,
+                            path,
+                            method,
+                        });
+                    }
+                }
+                repo.record_dependencies_bulk(bulk_params).await?;
+            }
+
             // All endpoints found — merge into single YAML/content
             tracing::debug!("Merging {} {:?} snippets for bundle request from client '{}'", yamls.len(), params.api_type, params.clientname);
             return match params.api_type {
@@ -594,8 +683,9 @@ async fn require_bundle_inner(
                 } else {
                     // Record dependencies for missing endpoints
                     if !dry_run {
+                        let mut bulk_params = Vec::new();
                         for (path, method) in &missing {
-                            repo.record_dependency(RecordDependencyParams {
+                            bulk_params.push(RecordDependencyParams {
                                 client_id,
                                 endpoint_id: None,
                                 api_type: params.api_type,
@@ -603,8 +693,9 @@ async fn require_bundle_inner(
                                 branch_name: params.branch,
                                 path,
                                 method,
-                            }).await?;
+                            });
                         }
+                        repo.record_dependencies_bulk(bulk_params).await?;
                     }
                     let missing_list: Vec<String> = missing.iter()
                         .map(|(p, m)| format!("{} {}", m, p))
@@ -618,8 +709,9 @@ async fn require_bundle_inner(
             _ => {
                 // Record dependencies for missing endpoints
                 if !dry_run {
+                    let mut bulk_params = Vec::new();
                     for (path, method) in &missing {
-                        repo.record_dependency(RecordDependencyParams {
+                        bulk_params.push(RecordDependencyParams {
                             client_id,
                             endpoint_id: None,
                             api_type: params.api_type,
@@ -627,8 +719,9 @@ async fn require_bundle_inner(
                             branch_name: params.branch,
                             path,
                             method,
-                        }).await?;
+                        });
                     }
+                    repo.record_dependencies_bulk(bulk_params).await?;
                 }
                 let missing_list: Vec<String> = missing.iter()
                     .map(|(p, m)| format!("{} {}", m, p))
@@ -1363,6 +1456,20 @@ mod tests {
             Ok(id)
         }
 
+        async fn record_dependency(
+            &self,
+            _params: RecordDependencyParams<'_>,
+        ) -> Result<(), RepositoryError> {
+            Ok(())
+        }
+
+        async fn record_dependencies_bulk(
+            &self,
+            _params: Vec<RecordDependencyParams<'_>>,
+        ) -> Result<(), RepositoryError> {
+            Ok(())
+        }
+
         async fn find_endpoint(
             &self,
             service_id: i64,
@@ -1390,11 +1497,20 @@ mod tests {
             Ok(None)
         }
 
-        async fn record_dependency(
+        async fn find_endpoints_bulk(
             &self,
-            _params: RecordDependencyParams<'_>,
-        ) -> Result<(), RepositoryError> {
-            Ok(())
+            service_id: i64,
+            branch_name: &str,
+            api_type: ApiType,
+            endpoints: &[(String, String)],
+        ) -> Result<HashMap<(String, String), (i64, String)>, RepositoryError> {
+            let mut result = HashMap::new();
+            for (path, method) in endpoints {
+                if let Some(ep) = self.find_endpoint(service_id, branch_name, api_type, path, method).await? {
+                    result.insert((path.clone(), method.clone()), ep);
+                }
+            }
+            Ok(result)
         }
 
         async fn get_report(&self, branch: &str) -> Result<DependencyReport, RepositoryError> {
@@ -1513,10 +1629,20 @@ mod tests {
             let services = self.services.lock().unwrap();
             let fallbacks = self.fallback_branches.lock().unwrap();
             let mut result = Vec::new();
-            for name in services.keys() {
+            for (name, &service_id) in services.iter() {
+                let branches = {
+                    let b_lock = self.branches.lock().unwrap();
+                    let mut b_names: Vec<String> = b_lock.iter()
+                        .filter(|((sid, _), _)| *sid == service_id)
+                        .map(|((_, bname), _)| bname.clone())
+                        .collect();
+                    b_names.sort();
+                    b_names
+                };
                 result.push(ServiceSummary {
                     name: name.clone(),
                     fallback_branch: fallbacks.get(name).cloned(),
+                    branches,
                 });
             }
             result.sort_by(|a, b| a.name.cmp(&b.name));

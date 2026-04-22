@@ -844,8 +844,8 @@ paths:
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
-    let svcs: Vec<String> = serde_json::from_slice(&body).unwrap();
-    assert!(svcs.contains(&"svc1".to_string()));
+    let svcs: Vec<Value> = serde_json::from_slice(&body).unwrap();
+    assert!(svcs.iter().any(|s| s["name"] == "svc1"));
 
     // List branches
     let response = app.clone()
@@ -940,8 +940,8 @@ paths:
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
-    let svcs: Vec<String> = serde_json::from_slice(&body).unwrap();
-    assert!(!svcs.contains(&"svc1".to_string()));
+    let svcs: Vec<Value> = serde_json::from_slice(&body).unwrap();
+    assert!(!svcs.iter().any(|s| s["name"] == "svc1"));
 }
 
 #[tokio::test]

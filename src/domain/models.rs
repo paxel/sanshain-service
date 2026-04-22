@@ -203,6 +203,7 @@ pub struct ClientEndpointInfo {
 pub struct ServiceSummary {
     pub name: String,
     pub fallback_branch: Option<String>,
+    pub branches: Vec<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]

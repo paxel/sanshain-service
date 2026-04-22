@@ -1,4 +1,5 @@
 use std::str::FromStr;
+use std::collections::HashMap;
 use sqlx::{SqlitePool, FromRow};
 
 use crate::domain::models::*;
@@ -242,6 +243,57 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(row)
     }
 
+    async fn find_endpoints_bulk(
+        &self,
+        service_id: i64,
+        branch_name: &str,
+        api_type: ApiType,
+        endpoints: &[(String, String)],
+    ) -> Result<HashMap<(String, String), (i64, String)>, RepositoryError> {
+        let mut result = HashMap::new();
+        if endpoints.is_empty() {
+            return Ok(result);
+        }
+
+        let mut query_builder = sqlx::QueryBuilder::new(
+            r#"
+            SELECT e.id, e.path, e.method, e.yaml_content
+            FROM endpoints e
+            JOIN branches b ON e.branch_id = b.id
+            WHERE b.service_id = "#
+        );
+        query_builder.push_bind(service_id);
+        query_builder.push(" AND b.name = ");
+        query_builder.push_bind(branch_name);
+        query_builder.push(" AND e.api_type = ");
+        query_builder.push_bind(api_type.as_str());
+        query_builder.push(" AND e.deleted = FALSE AND (");
+
+        for (i, (path, method)) in endpoints.iter().enumerate() {
+            if i > 0 {
+                query_builder.push(" OR ");
+            }
+            query_builder.push("(e.normalized_path = ");
+            query_builder.push_bind(crate::openapi::normalize_path(path));
+            query_builder.push(" AND e.method = ");
+            query_builder.push_bind(method);
+            query_builder.push(")");
+        }
+        query_builder.push(")");
+
+        let rows: Vec<(i64, String, String, String)> = query_builder
+            .build_query_as()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        for (id, path, method, yaml) in rows {
+            result.insert((path, method), (id, yaml));
+        }
+
+        Ok(result)
+    }
+
     async fn record_dependency(
         &self,
         params: RecordDependencyParams<'_>,
@@ -269,6 +321,40 @@ impl SpecRepository for SqliteSpecRepository {
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(())
+    }
+
+    async fn record_dependencies_bulk(
+        &self,
+        params: Vec<RecordDependencyParams<'_>>,
+    ) -> Result<(), RepositoryError> {
+        if params.is_empty() {
+            return Ok(());
+        }
+
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+
+        let mut query_builder = sqlx::QueryBuilder::new(
+            "INSERT INTO dependencies (client_id, endpoint_id, api_type, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at) "
+        );
+
+        query_builder.push_values(params, |mut b, p| {
+            let normalized_path = crate::openapi::normalize_path(p.path);
+            b.push_bind(p.client_id)
+                .push_bind(p.endpoint_id)
+                .push_bind(p.api_type.as_str())
+                .push_bind(p.service_id)
+                .push_bind(p.branch_name)
+                .push_bind(p.path)
+                .push_bind(normalized_path)
+                .push_bind(p.method)
+                .push_bind(&now);
+        });
+
+        query_builder.push(" ON CONFLICT(client_id, endpoint_id, requested_service_id, requested_branch_name, api_type, requested_path, requested_method) DO UPDATE SET last_seen_at = excluded.last_seen_at");
+
+        query_builder.build().execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         Ok(())
     }
@@ -624,13 +710,25 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn list_services_detailed(&self) -> Result<Vec<ServiceSummary>, RepositoryError> {
-        let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-            "SELECT DISTINCT s.name, s.fallback_branch FROM services s INNER JOIN branches b ON b.service_id = s.id ORDER BY s.name"
+        let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
+            r#"
+            SELECT s.name, s.fallback_branch, GROUP_CONCAT(b.name) as branches
+            FROM services s
+            JOIN branches b ON b.service_id = s.id
+            GROUP BY s.id
+            ORDER BY s.name
+            "#
         )
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(rows.into_iter().map(|(name, fallback_branch)| ServiceSummary { name, fallback_branch }).collect())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|(name, fallback_branch, branches_str)| {
+            let branches = branches_str
+                .map(|s| s.split(',').map(|b| b.to_string()).collect())
+                .unwrap_or_default();
+            ServiceSummary { name, fallback_branch, branches }
+        }).collect())
     }
 
     async fn set_fallback_branch(&self, service_name: &str, branch: Option<&str>) -> Result<(), RepositoryError> {

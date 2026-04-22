@@ -218,17 +218,6 @@ fn collect_refs_recursive(value: &serde_json::Value, refs: &mut HashSet<String>)
     }
 }
 
-/// Extract all `$ref` strings from a YAML representation (deprecated, use collect_refs).
-#[allow(dead_code)]
-fn collect_refs_from_yaml(yaml: &str) -> HashSet<String> {
-    let re = Regex::new(r#"\$ref:\s*'?\"?#/components/(\w+)/(\w+)'?\"?"#).expect("failed to compile reference regex");
-    let mut refs = HashSet::new();
-    for cap in re.captures_iter(yaml) {
-        // Store as "category/name", e.g. "schemas/User"
-        refs.insert(format!("{}/{}", &cap[1], &cap[2]));
-    }
-    refs
-}
 
 
 /// Merge multiple per-endpoint YAML snippets (from the same service) into a single OpenAPI spec
@@ -249,24 +238,23 @@ pub fn merge_endpoint_yamls(yamls: &[String]) -> Result<String, String> {
 
         // Merge paths
         for (path, path_item_ref) in spec.paths.paths {
-            merged.paths.paths
-                .entry(path.clone())
-                .and_modify(|existing| {
-                    // Merge operations into existing path item
-                    if let (ReferenceOr::Item(existing_item), ReferenceOr::Item(new_item)) =
-                        (existing, &path_item_ref)
-                    {
-                        if new_item.get.is_some() { existing_item.get = new_item.get.clone(); }
-                        if new_item.post.is_some() { existing_item.post = new_item.post.clone(); }
-                        if new_item.put.is_some() { existing_item.put = new_item.put.clone(); }
-                        if new_item.delete.is_some() { existing_item.delete = new_item.delete.clone(); }
-                        if new_item.options.is_some() { existing_item.options = new_item.options.clone(); }
-                        if new_item.head.is_some() { existing_item.head = new_item.head.clone(); }
-                        if new_item.patch.is_some() { existing_item.patch = new_item.patch.clone(); }
-                        if new_item.trace.is_some() { existing_item.trace = new_item.trace.clone(); }
-                    }
-                })
-                .or_insert(path_item_ref);
+            if let Some(existing_ref) = merged.paths.paths.get_mut(&path) {
+                // Merge operations into existing path item
+                if let (ReferenceOr::Item(existing_item), ReferenceOr::Item(new_item)) =
+                    (existing_ref, path_item_ref)
+                {
+                    if new_item.get.is_some() { existing_item.get = new_item.get; }
+                    if new_item.post.is_some() { existing_item.post = new_item.post; }
+                    if new_item.put.is_some() { existing_item.put = new_item.put; }
+                    if new_item.delete.is_some() { existing_item.delete = new_item.delete; }
+                    if new_item.options.is_some() { existing_item.options = new_item.options; }
+                    if new_item.head.is_some() { existing_item.head = new_item.head; }
+                    if new_item.patch.is_some() { existing_item.patch = new_item.patch; }
+                    if new_item.trace.is_some() { existing_item.trace = new_item.trace; }
+                }
+            } else {
+                merged.paths.paths.insert(path, path_item_ref);
+            }
         }
 
         // Merge components (union — same name = same schema within one service)

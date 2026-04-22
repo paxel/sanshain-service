@@ -332,13 +332,8 @@
             const services = await fetchJSON('/admin/services');
             allServices = services || [];
             allServiceBranches = {};
-            // Pre-fetch branches for each service
-            for (const name of allServices) {
-                try {
-                    allServiceBranches[name] = await fetchJSON(`/admin/services/${encodeURIComponent(name)}/branches`);
-                } catch (_) {
-                    allServiceBranches[name] = [];
-                }
+            for (const svc of allServices) {
+                allServiceBranches[svc.name] = svc.branches || [];
             }
             renderServiceList(allServices);
             hideLoader();
@@ -369,8 +364,9 @@
         }
 
         list.innerHTML = '';
-        for (const name of services) {
-            const branches = allServiceBranches[name] || [];
+        for (const svc of services) {
+            const name = svc.name;
+            const branches = svc.branches || [];
             const card = document.createElement('div');
             card.className = 'bg-white p-5 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
             card.onclick = () => showServiceBranches(name);
@@ -404,7 +400,7 @@
             renderServiceList(allServices);
             return;
         }
-        renderServiceList(allServices.filter(name => name.toLowerCase().includes(q)));
+        renderServiceList(allServices.filter(svc => svc.name.toLowerCase().includes(q)));
     });
 
     async function showServiceBranches(serviceName) {

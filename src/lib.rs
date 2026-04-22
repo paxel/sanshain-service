@@ -24,7 +24,7 @@ pub mod infrastructure;
 use application::services::{self, AppError};
 use infrastructure::database::DatabaseRepo;
 use infrastructure::ldap_provider::LdapAuthProvider;
-use domain::models::{AuthMode, LdapConfig, ApiType};
+use domain::models::{AuthMode, LdapConfig, ApiType, ServiceSummary};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -959,8 +959,8 @@ async fn delete_protected_branch(
 
 async fn admin_list_services(
     State(state): State<AppState>,
-) -> Result<Json<Vec<String>>, StatusCode> {
-    services::list_services(&state.repo)
+) -> Result<Json<Vec<ServiceSummary>>, StatusCode> {
+    services::list_services_detailed(&state.repo)
         .await
         .map(Json)
         .map_err(app_error_to_status)

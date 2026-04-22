@@ -56,7 +56,7 @@ pub async fn main() {
 
     let repo = if db_connection_str.starts_with("postgres://") || db_connection_str.starts_with("postgresql://") {
         let pool = match PgPoolOptions::new()
-            .max_connections(5)
+            .max_connections(20)
             .connect(&db_connection_str)
             .await
         {

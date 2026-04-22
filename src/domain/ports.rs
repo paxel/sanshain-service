@@ -1,5 +1,6 @@
 use crate::domain::models::*;
 use std::future::Future;
+use std::collections::HashMap;
 
 /// Error type for authentication provider operations.
 #[derive(Debug)]
@@ -82,10 +83,26 @@ pub trait SpecRepository: Send + Sync {
         method: &str,
     ) -> impl Future<Output = Result<Option<(i64, String)>, RepositoryError>> + Send;
 
+    /// Find multiple endpoints by service, branch, path, and method. 
+    /// Returns a map of (path, method) to (endpoint_id, yaml_content).
+    fn find_endpoints_bulk(
+        &self,
+        service_id: i64,
+        branch_name: &str,
+        api_type: ApiType,
+        endpoints: &[(String, String)],
+    ) -> impl Future<Output = Result<HashMap<(String, String), (i64, String)>, RepositoryError>> + Send;
+
     /// Record a client dependency on an endpoint.
     fn record_dependency(
         &self,
         params: RecordDependencyParams,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Record multiple client dependencies at once.
+    fn record_dependencies_bulk(
+        &self,
+        params: Vec<RecordDependencyParams>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Get the full dependency report for a branch.

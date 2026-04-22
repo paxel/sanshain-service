@@ -1,5 +1,6 @@
 use crate::domain::models::*;
 use crate::domain::ports::{RecordDependencyParams, RepositoryError, SpecRepository};
+use std::collections::HashMap;
 use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
 use crate::infrastructure::postgres_repository::PostgresSpecRepository;
 
@@ -59,8 +60,16 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, find_endpoint(service_id, branch_name, api_type, path, method))
     }
 
+    async fn find_endpoints_bulk(&self, service_id: i64, branch_name: &str, api_type: ApiType, endpoints: &[(String, String)]) -> Result<HashMap<(String, String), (i64, String)>, RepositoryError> {
+        delegate!(self, find_endpoints_bulk(service_id, branch_name, api_type, endpoints))
+    }
+
     async fn record_dependency(&self, params: RecordDependencyParams<'_>) -> Result<(), RepositoryError> {
         delegate!(self, record_dependency(params))
+    }
+
+    async fn record_dependencies_bulk(&self, params: Vec<RecordDependencyParams<'_>>) -> Result<(), RepositoryError> {
+        delegate!(self, record_dependencies_bulk(params))
     }
 
     async fn get_report(&self, branch: &str) -> Result<DependencyReport, RepositoryError> {
