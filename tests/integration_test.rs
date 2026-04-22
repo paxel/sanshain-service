@@ -2555,3 +2555,99 @@ paths:
         "dry-client should not appear after dry_run require"
     );
 }
+
+#[tokio::test]
+async fn test_multiple_provides() {
+    let (app, admin_token) = setup_app_with_admin().await;
+
+    // 1. Provide OpenAPI
+    let openapi_payload = json!({
+        "servicename": "multi-svc",
+        "branch": "main",
+        "openapi_yaml": "openapi: 3.0.0\ninfo:\n  title: Test\n  version: 1.0.0\npaths:\n  /hello:\n    get:\n      responses:\n        '200':\n          description: OK"
+    });
+
+    let res = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::from(serde_json::to_vec(&openapi_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+
+    // 2. Provide Proto
+    let proto_payload = json!({
+        "servicename": "multi-svc",
+        "branch": "main",
+        "proto_content": "syntax = \"proto3\";\npackage test;\nservice TestService {\n  rpc Hello (HelloRequest) returns (HelloResponse);\n}\nmessage HelloRequest {}\nmessage HelloResponse {}"
+    });
+
+    let res = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide/grpc")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::from(serde_json::to_vec(&proto_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+
+    // 2.5 Provide AsyncAPI
+    let asyncapi_payload = json!({
+        "servicename": "multi-svc",
+        "branch": "main",
+        "asyncapi_yaml": "asyncapi: 2.0.0\ninfo:\n  title: Test\n  version: 1.0.0\nchannels:\n  events:\n    publish:\n      message:\n        payload:\n          type: object"
+    });
+
+    let res = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide/asyncapi")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::from(serde_json::to_vec(&asyncapi_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+
+    // 3. Verify all 3 exist via admin list endpoints
+    let res = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/services/multi-svc/branches/main/endpoints")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    
+    let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
+    let endpoints: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let endpoints_list = endpoints.as_array().expect("Response should be an array");
+    
+    // OpenAPI has 1 endpoint, Proto has 1 endpoint, AsyncAPI has 1 endpoint. Total 3.
+    assert_eq!(endpoints_list.len(), 3, "Should have 3 endpoints, got: {:?}", endpoints_list);
+    
+    let types: Vec<String> = endpoints_list.iter()
+        .map(|e| e["api_type"].as_str().unwrap().to_string())
+        .collect();
+    assert!(types.contains(&"openapi".to_string()));
+    assert!(types.contains(&"proto".to_string()));
+    assert!(types.contains(&"asyncapi".to_string()));
+}

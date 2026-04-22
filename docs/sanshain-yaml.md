@@ -7,41 +7,52 @@ This document defines the standard `sanshain.yaml` configuration file format use
 A `sanshain.yaml` file lives in the root of a project and declares:
 
 1. **Connection settings** — Sanshain server URL, timeouts, compression.
-2. **Provide** — Which API spec this project publishes (OpenAPI, AsyncAPI, or Proto).
+2. **Provide(s)** — Which API spec(s) this project publishes (OpenAPI, AsyncAPI, and/or Proto).
 3. **Requires** — Which endpoints/channels from other services this project depends on.
 
-Client plugins read this file and translate it into the appropriate `/provide`, `/require`, and `/require-bundle` API calls.
+Client plugins read this file and translate it into the appropriate `/provide`, `/provide/asyncapi`, `/provide/grpc`, `/require`, and `/require-bundle` API calls.
 
 ## Full Example
 
+This example shows a "Gateway Service" that provides an OpenAPI spec and consumes APIs using three different protocols: OpenAPI (REST), AsyncAPI (Messaging), and Proto (gRPC).
+
 ```yaml
 sanshainUrl: https://sanshain.example.com
+serviceName: gateway-service
 timeout: 120
 compression: true
-clientName: order-service
 
-provide:
-  serviceName: order-service
-  openApiFile: src/main/resources/openapi.yaml
+# Provides both OpenAPI and gRPC specifications
+provides:
+  - file: src/main/resources/openapi.yaml
+  - file: src/main/resources/gateway.proto
+    apiType: proto
 
 requires:
+  # Requires a REST endpoint from user-service
   - serviceName: user-service
+    apiType: openapi
     branch: main
     outputDirectory: target/generated-sources/sanshain/user-service
-    timeout: 60
     endpoints:
-      - method: GET
-        path: /api/v1/users
       - method: GET
         path: /api/v1/users/{id}
-      - method: POST
-        path: /api/v1/users
+
+  # Requires a Messaging channel from notification-service
+  - serviceName: notification-service
+    apiType: asyncapi
+    outputDirectory: target/generated-sources/sanshain/notification-service
+    endpoints:
+      - method: PUB
+        path: notifications.email
+
+  # Requires a gRPC method from inventory-service
   - serviceName: inventory-service
-    branch: main
+    apiType: proto
     outputDirectory: target/generated-sources/sanshain/inventory-service
     endpoints:
-      - method: POST
-        path: /api/v1/orders
+      - method: GetProduct
+        path: inventory.v1.InventoryService
 ```
 
 ## Field Reference
@@ -51,22 +62,30 @@ requires:
 | Field         | Type    | Required | Default | Description                                                                 |
 |---------------|---------|----------|---------|-----------------------------------------------------------------------------|
 | `sanshainUrl` | string  | **yes**  | —       | Base URL of the Sanshain Service instance.                                  |
-| `clientName`  | string  | **yes**  | —       | Name identifying this project as a client in dependency tracking.           |
+| `serviceName` | string  | **yes**  | —       | Name identifying this project (both for providing and requiring APIs).      |
 | `timeout`     | integer | no       | `30`    | Default timeout in seconds for require/require-bundle calls (long-polling). |
 | `compression` | boolean | no       | `false` | Whether to request gzip-compressed responses.                               |
 
-### `provide` Section
+### `provide` / `provides` Section
 
-Declares the spec this project publishes. Omit entirely if this project only consumes APIs.
+Declares the specification(s) this project publishes. Omit entirely if this project only consumes APIs.
+
+Plugins should support both a single `provide` object and a `provides` list for services that provide multiple types of endpoints (e.g., REST and gRPC).
 
 | Field           | Type   | Required | Default                  | Description                                                                |
 |-----------------|--------|----------|--------------------------|----------------------------------------------------------------------------|
-| `serviceName`   | string | **yes**  | —                        | Name of the service being provided.                                        |
+| `file`          | string | **yes**  | —                        | Path to the specification file.                                            |
 | `apiType`       | string | no       | `openapi`                | Type of API: `openapi`, `asyncapi`, or `proto`.                            |
-| `openApiFile`   | string | no       | —                        | Path to the OpenAPI YAML file (use if `apiType` is `openapi`).             |
-| `asyncApiFile`  | string | no       | —                        | Path to the AsyncAPI YAML file (use if `apiType` is `asyncapi`).            |
-| `protoFile`     | string | no       | —                        | Path to the `.proto` file (use if `apiType` is `proto`).                   |
 | `branch`        | string | no       | *auto-detected from VCS* | Branch name. Plugins should auto-detect from Git; override here if needed. |
+
+**Example (Multiple Protocols):**
+```yaml
+serviceName: order-service
+provides:
+  - file: specs/openapi.yaml
+  - file: specs/order.proto
+    apiType: proto
+```
 
 ### `requires` Section
 
@@ -83,18 +102,86 @@ A list of service dependencies. Each entry results in a single `POST /require-bu
 
 ### `endpoints` Entry
 
-| Field    | Type   | Required | Description                                                            |
-|----------|--------|----------|------------------------------------------------------------------------|
-| `method` | string | **yes**  | HTTP method (GET, POST, etc.) or Operation (PUB, SUB) or gRPC Method. |
-| `path`   | string | **yes**  | API path or AsyncAPI Channel or gRPC Service.                          |
+| Field    | Type   | Required | Description                                                               |
+|----------|--------|----------|---------------------------------------------------------------------------|
+| `method` | string | **yes**  | HTTP method (`GET`, `POST`), Operation (`PUB`, `SUB`), or gRPC Method.    |
+| `path`   | string | **yes**  | API path, AsyncAPI Channel, or gRPC Service (full package + service name). |
+
+## Protocol Examples
+
+### OpenAPI (REST)
+
+Standard REST API integration.
+
+```yaml
+serviceName: user-service
+provide:
+  file: specs/openapi.yaml
+
+requires:
+  - serviceName: auth-service
+    apiType: openapi
+    endpoints:
+      - method: POST
+        path: /v1/login
+```
+
+**Calling the endpoint:**
+Clients typically use generated code (e.g., via `openapi-generator`) to call the REST endpoint using standard HTTP libraries.
+
+### AsyncAPI (Message-Driven)
+
+For services communicating via message brokers (Kafka, RabbitMQ, etc.).
+
+```yaml
+serviceName: payment-service
+provide:
+  apiType: asyncapi
+  file: specs/asyncapi.yaml
+
+requires:
+  - serviceName: order-service
+    apiType: asyncapi
+    endpoints:
+      - method: SUB
+        path: orders.created
+```
+
+**Calling the endpoint:**
+"Calling" an AsyncAPI endpoint usually means subscribing to (`SUB`) or publishing to (`PUB`) a channel. In this example, `payment-service` requires the `orders.created` channel to listen for new orders. The client plugin will download a snippet containing only the relevant channel and its associated message/schema definitions.
+
+### gRPC / Proto
+
+For high-performance RPC communication.
+
+```yaml
+serviceName: inventory-service
+provide:
+  apiType: proto
+  file: src/main/proto/inventory.proto
+
+requires:
+  - serviceName: warehouse-service
+    apiType: proto
+    endpoints:
+      - method: GetStock
+        path: warehouse.v1.WarehouseService
+```
+
+**Calling the endpoint:**
+The client plugin will download a `.proto` file containing the `WarehouseService` definition and only the `GetStock` method (including all transitively referenced messages). You can then use `protoc` or your language's gRPC toolkit to generate a client stub and call `GetStock` as a local-looking function.
 
 ## How Plugins Use This
 
 ### Provide Phase
 
-1. Read `provide.openApiFile`.
-2. Detect branch from VCS (or use some override).
-3. Call `POST /provide` with `{ servicename, branch, openapi_yaml }`.
+1. For each entry in `provides` (or for the single `provide` object):
+   a. Read the specification file content.
+   b. Detect branch from VCS (or use override).
+   c. Call the appropriate endpoint based on `apiType`:
+      - `openapi`: `POST /provide`
+      - `asyncapi`: `POST /provide/asyncapi`
+      - `proto`: `POST /provide/grpc`
 
 ### Require Phase
 
@@ -103,9 +190,9 @@ For each entry in `requires`:
 1. If the entry has **multiple endpoints**: call `POST /require-bundle` with:
    ```json
    {
-     "clientname": "<clientName>",
-     "servicename": "<serviceName>",
-     "branch": "<branch>",
+     "clientname": "<root.serviceName>",
+     "servicename": "<requires[i].serviceName>",
+     "branch": "<requires[i].branch>",
      "endpoints": [
        { "path": "/api/v1/users", "method": "GET" },
        { "path": "/api/v1/users/{id}", "method": "GET" }

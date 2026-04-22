@@ -4,7 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.10.0] - Unreleased
+## [0.11.0] - Unreleased
+
+### Added
+- **Simplified `sanshain.yaml` Format**: relocated `serviceName` to the root of the configuration file and replaced protocol-specific file fields (`openApiFile`, `protoFile`, etc.) with a single, generic `file` parameter. `apiType` now defaults to `openapi` if omitted.
+- **Multiple Provides Support**: updated `docs/sanshain-yaml.md` to support a `provides` list in `sanshain.yaml`, allowing a single service to publish multiple API specifications simultaneously.
+- **Extended Configuration Example**: updated the main `sanshain.yaml` example in `docs/sanshain-yaml.md` to demonstrate a multi-protocol configuration supporting OpenAPI, AsyncAPI, and gRPC/Proto simultaneously.
+- **Unified Client Configuration**: updated `docs/sanshain-yaml.md` with detailed support and examples for AsyncAPI and gRPC/Proto in the `sanshain.yaml` format.
+- **Protocol-Specific Examples**: added comprehensive examples for providing and requiring AsyncAPI channels and gRPC methods, including instructions on how to call the endpoints.
+
+## [0.10.0] - 2026-04-22
 
 ### Added
 - **AI Clippy & Error Handling Rules**: added stricter rules to `ai/ai-rules.md` forbidding `unwrap()` in production code and requiring `cargo clippy` verification for all changes.
