@@ -16,14 +16,19 @@ use sanshain_service::infrastructure::postgres_repository::PostgresSpecRepositor
 
 #[tokio::main]
 pub async fn main() {
+    let log_buffer_size = std::env::var("LOG_BUFFER_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(100);
+
     let business_logic_debug = Arc::new(AtomicBool::new(false));
     let admin_user_debug = Arc::new(AtomicBool::new(false));
     let requests_total = Arc::new(AtomicU64::new(0));
     let failures_total = Arc::new(AtomicU64::new(0));
-    let error_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(101)));
-    let warn_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(101)));
-    let info_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(101)));
-    let debug_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(101)));
+    let error_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(log_buffer_size + 1)));
+    let warn_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(log_buffer_size + 1)));
+    let info_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(log_buffer_size + 1)));
+    let debug_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(log_buffer_size + 1)));
 
     let capture_layer = LogCaptureLayer {
         error_buffer: error_buffer.clone(),
@@ -40,7 +45,9 @@ pub async fn main() {
     
     // We want the capture layer to see DEBUG logs so they can be toggled at runtime,
     // but we keep stdout at INFO by default to avoid noise.
-    let capture_filter = tracing_subscriber::EnvFilter::new("sanshain_service=debug,tower_http=debug");
+    let capture_log_filter = std::env::var("CAPTURE_LOG_FILTER")
+        .unwrap_or_else(|_| "sanshain_service=debug,tower_http=debug".into());
+    let capture_filter = tracing_subscriber::EnvFilter::new(capture_log_filter);
 
     let registry = tracing_subscriber::registry()
         .with(capture_layer.with_filter(capture_filter));
@@ -55,8 +62,13 @@ pub async fn main() {
         .unwrap_or_else(|_| "sqlite:sanshain.db?mode=rwc".into());
 
     let repo = if db_connection_str.starts_with("postgres://") || db_connection_str.starts_with("postgresql://") {
+        let max_connections = std::env::var("MAX_POSTGRES_CONNECTIONS")
+            .ok()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(20);
+
         let pool = match PgPoolOptions::new()
-            .max_connections(20)
+            .max_connections(max_connections)
             .connect(&db_connection_str)
             .await
         {
@@ -76,6 +88,11 @@ pub async fn main() {
         tracing::info!("Using PostgreSQL database backend");
         DatabaseRepo::Postgres(pg_repo)
     } else {
+        let sqlite_busy_timeout_ms = std::env::var("SQLITE_BUSY_TIMEOUT_MS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(5000);
+
         let connection_options = match SqliteConnectOptions::from_str(&db_connection_str) {
             Ok(opts) => opts,
             Err(e) => {
@@ -85,11 +102,16 @@ pub async fn main() {
             }
         }
         .journal_mode(SqliteJournalMode::Wal)
-            .busy_timeout(std::time::Duration::from_secs(5))
+            .busy_timeout(std::time::Duration::from_millis(sqlite_busy_timeout_ms))
             .synchronous(SqliteSynchronous::Normal);
 
+        let max_connections = std::env::var("MAX_SQLITE_CONNECTIONS")
+            .ok()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(1);
+
         let pool = match SqlitePoolOptions::new()
-            .max_connections(1)
+            .max_connections(max_connections)
             .connect_with(connection_options)
             .await
         {
@@ -117,11 +139,18 @@ pub async fn main() {
         std::process::exit(1);
     }
 
-    let instance_id = uuid::Uuid::new_v4().to_string();
+    let instance_id = std::env::var("INSTANCE_ID")
+        .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
     tracing::info!("Instance ID: {}", instance_id);
 
     let (prometheus_layer, prometheus_handle) = PrometheusMetricLayer::pair();
-    let (spec_updated_tx, _) = tokio::sync::broadcast::channel(100);
+    
+    let spec_updated_channel_size = std::env::var("SPEC_UPDATED_CHANNEL_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(100);
+
+    let (spec_updated_tx, _) = tokio::sync::broadcast::channel(spec_updated_channel_size);
     let state = AppState {
         repo,
         db_url: db_connection_str,
@@ -140,11 +169,22 @@ pub async fn main() {
         prometheus_handle,
     };
 
-    // Spawn background branch cleanup task (runs every hour)
+    // Spawn background branch cleanup task
     let cleanup_repo = state.repo.clone();
     let cleanup_csrf = state.csrf_tokens.clone();
+    
+    let cleanup_interval_secs = std::env::var("CLEANUP_INTERVAL_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(3600);
+
+    let csrf_max_age_hours = std::env::var("CSRF_MAX_AGE_HOURS")
+        .ok()
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(24);
+
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(cleanup_interval_secs));
         loop {
             interval.tick().await;
             match services::cleanup_stale_branches(&cleanup_repo).await {
@@ -158,11 +198,11 @@ pub async fn main() {
                 Err(e) => tracing::warn!("Dependency cleanup failed: {:?}", e),
             }
 
-            // Prune expired CSRF tokens (older than 24 hours)
+            // Prune expired CSRF tokens
             {
                 let mut tokens = cleanup_csrf.write().await;
                 let now = Utc::now();
-                let max_age = chrono::Duration::hours(24);
+                let max_age = chrono::Duration::hours(csrf_max_age_hours);
                 let before_count = tokens.len();
                 tokens.retain(|_, created_at| now - *created_at < max_age);
                 let after_count = tokens.len();

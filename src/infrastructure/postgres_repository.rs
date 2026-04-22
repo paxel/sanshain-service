@@ -893,9 +893,12 @@ impl SpecRepository for PostgresSpecRepository {
         let mut token_bytes = [0u8; 32];
         rand::rng().fill(&mut token_bytes);
         let token = hex::encode(token_bytes);
+        self.create_session_with_token(user_id, &token, expires_at).await
+    }
 
+    async fn create_session_with_token(&self, user_id: i64, token: &str, expires_at: &str) -> Result<Session, RepositoryError> {
         sqlx::query("INSERT INTO sessions (token, user_id, expires_at) VALUES ($1, $2, $3::timestamp)")
-            .bind(&token)
+            .bind(token)
             .bind(user_id)
             .bind(expires_at)
             .execute(&self.pool)
@@ -903,7 +906,7 @@ impl SpecRepository for PostgresSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         Ok(Session {
-            token,
+            token: token.to_string(),
             user_id,
             expires_at: expires_at.to_string(),
         })

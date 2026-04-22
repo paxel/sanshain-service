@@ -191,6 +191,9 @@ pub trait SpecRepository: Send + Sync {
     /// Create a session for a user, returning the session with a generated token.
     fn create_session(&self, user_id: i64, expires_at: &str) -> impl Future<Output = Result<Session, RepositoryError>> + Send;
 
+    /// Create a session for a user with a specific token.
+    fn create_session_with_token(&self, user_id: i64, token: &str, expires_at: &str) -> impl Future<Output = Result<Session, RepositoryError>> + Send;
+
     /// Validate a session token, returning the user and session if valid and not expired.
     fn validate_session(&self, token: &str) -> impl Future<Output = Result<Option<(User, Session)>, RepositoryError>> + Send;
 

@@ -184,6 +184,10 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, create_session(user_id, expires_at))
     }
 
+    async fn create_session_with_token(&self, user_id: i64, token: &str, expires_at: &str) -> Result<Session, RepositoryError> {
+        delegate!(self, create_session_with_token(user_id, token, expires_at))
+    }
+
     async fn validate_session(&self, token: &str) -> Result<Option<(User, Session)>, RepositoryError> {
         delegate!(self, validate_session(token))
     }

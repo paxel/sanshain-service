@@ -7,6 +7,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.11.0] - Unreleased
 
 ### Added
+- **Technical Performance Tuning**: exposed several internal parameters via environment variables for production tuning, including database pool sizes (`MAX_POSTGRES_CONNECTIONS`, `MAX_SQLITE_CONNECTIONS`), SQLite busy timeouts, background cleanup intervals, and in-memory buffer sizes.
+- **Performance Optimization**: optimized OpenAPI specification processing with an 87% performance gain. `split_openapi` is now ~8x faster by using direct object model traversal instead of redundant YAML serializations.
+- **Bulk Repository Operations**: introduced `find_endpoints_bulk` and `record_dependencies_bulk` to minimize database roundtrips during client requirement bundling.
+- **N+1 Frontend Optimization**: refactored the admin dashboard to fetch services and their branches in a single bulk call, eliminating the N+1 request bottleneck for large service counts.
+- **High-Performance Database Indexing**: added critical indices for branch, endpoint, and dependency lookups to ensure sub-millisecond query times.
+- **Criterion.rs Benchmarking**: integrated `Criterion.rs` for reliable micro-benchmarking of hot paths and documented results in `README.md`.
+- **Configurable Instance ID**: added support for the `INSTANCE_ID` environment variable to allow overriding the randomly generated unique ID for a service instance.
+- **Custom Prometheus Endpoint**: introduced the `PROMETHEUS_ENDPOINT` environment variable, allowing administrators to customize the metrics scraping path (defaults to `/metrics`).
+- **Configurable Static Assets Directory**: added the `STATIC_DIR` environment variable to allow serving web assets from a custom directory.
+- **Enhanced Initial Admin Setup**: the initial root user can now be pre-configured via `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_PASSWORD`, and `INITIAL_ADMIN_TOKEN` environment variables. The startup message now also dynamically includes the correct `BIND_ADDRESS`.
+- **Configurable Session Duration**: added `LOGIN_SESSION_DURATION_HOURS` to allow customizing how long user sessions remain valid (defaults to 24 hours).
+- **Flexible Log Capture Filtering**: introduced `CAPTURE_LOG_FILTER` to allow tuning the level and scope of logs captured in the in-memory observability buffer independently from the main stdout logs.
 - **Simplified `sanshain.yaml` Format**: relocated `serviceName` to the root of the configuration file and replaced protocol-specific file fields (`openApiFile`, `protoFile`, etc.) with a single, generic `file` parameter. `apiType` now defaults to `openapi` if omitted.
 - **Multiple Provides Support**: updated `docs/sanshain-yaml.md` to support a `provides` list in `sanshain.yaml`, allowing a single service to publish multiple API specifications simultaneously.
 - **Extended Configuration Example**: updated the main `sanshain.yaml` example in `docs/sanshain-yaml.md` to demonstrate a multi-protocol configuration supporting OpenAPI, AsyncAPI, and gRPC/Proto simultaneously.

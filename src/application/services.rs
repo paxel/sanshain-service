@@ -889,21 +889,30 @@ pub fn generate_random_password() -> String {
 pub async fn ensure_initial_admin(repo: &impl SpecRepository) -> Result<(), AppError> {
     let count = repo.user_count().await?;
     if count == 0 {
-        let password = generate_random_password();
+        let username = std::env::var("INITIAL_ADMIN_USERNAME").unwrap_or_else(|_| "root".into());
+        let password = std::env::var("INITIAL_ADMIN_PASSWORD").unwrap_or_else(|_| generate_random_password());
+        let token = std::env::var("INITIAL_ADMIN_TOKEN").ok();
+
         let password_hash = hash_password(&password)?;
-        let user = repo.create_user("root", &password_hash, true, true).await?;
+        let user = repo.create_user(&username, &password_hash, true, true).await?;
 
         let expires_at = "2099-12-31T23:59:59";
-        let session = repo.create_session(user.id, expires_at).await?;
+        let session = if let Some(t) = token {
+            repo.create_session_with_token(user.id, &t, expires_at).await?
+        } else {
+            repo.create_session(user.id, expires_at).await?
+        };
+
+        let bind_address = std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "localhost:3000".into());
 
         eprintln!("════════════════════════════════════════════════════");
-        eprintln!("  INITIAL ROOT USER CREATED");
-        eprintln!("  Username: root");
+        eprintln!("  INITIAL ADMIN USER CREATED");
+        eprintln!("  Username: {}", username);
         eprintln!("  Password: {}", password);
         eprintln!("  Token:    {}", session.token);
         eprintln!("════════════════════════════════════════════════════");
         eprintln!("  Change the password immediately at:");
-        eprintln!("  http://localhost:3000/admin.html");
+        eprintln!("  http://{}/admin.html", bind_address);
         eprintln!("════════════════════════════════════════════════════");
     }
     Ok(())
@@ -925,8 +934,12 @@ pub async fn login(
         return Err(AppError::Forbidden);
     }
 
-    // Session expires in 24 hours
-    let expires = chrono_expires_24h();
+    // Session duration from env or 24 hours
+    let duration_hours = std::env::var("LOGIN_SESSION_DURATION_HOURS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(24);
+    let expires = future_utc_iso(duration_hours * 3600);
     let session = repo.create_session(user.id, &expires).await?;
     Ok(session)
 }
@@ -1117,7 +1130,12 @@ pub async fn login_with_provider(
         }
     };
 
-    let expires = chrono_expires_24h();
+    // Session duration from env or 24 hours
+    let duration_hours = std::env::var("LOGIN_SESSION_DURATION_HOURS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(24);
+    let expires = future_utc_iso(duration_hours * 3600);
     let session = repo.create_session(user.id, &expires).await?;
     Ok(session)
 }
@@ -1250,9 +1268,6 @@ fn future_utc_iso(offset_secs: u64) -> String {
     (now + duration).format("%Y-%m-%dT%H:%M:%S").to_string()
 }
 
-fn chrono_expires_24h() -> String {
-    future_utc_iso(86400)
-}
 
 pub fn render_report_markdown(report: &DependencyReport) -> String {
     let mut md = format!("# Sanshain Dependency Report: Branch `{}`\n\n", report.branch);
@@ -1747,7 +1762,11 @@ mod tests {
 
         async fn create_session(&self, user_id: i64, expires_at: &str) -> Result<Session, RepositoryError> {
             let token = format!("mock-token-{}", self.next_id());
-            let session = Session { token: token.clone(), user_id, expires_at: expires_at.to_string() };
+            self.create_session_with_token(user_id, &token, expires_at).await
+        }
+
+        async fn create_session_with_token(&self, user_id: i64, token: &str, expires_at: &str) -> Result<Session, RepositoryError> {
+            let session = Session { token: token.to_string(), user_id, expires_at: expires_at.to_string() };
             self.sessions.lock().unwrap().push(session.clone());
             Ok(session)
         }

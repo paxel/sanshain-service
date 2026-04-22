@@ -400,7 +400,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/", get(index_page))
         .route("/index.html", get(index_page))
         .route("/health", get(health))
-        .route("/metrics", get(|State(s): State<AppState>| async move { s.prometheus_handle.render() }))
+        .route(&std::env::var("PROMETHEUS_ENDPOINT").unwrap_or_else(|_| "/metrics".into()), get(|State(s): State<AppState>| async move { s.prometheus_handle.render() }))
         .route("/version", get(version))
         .route("/csrf-token", get(generate_csrf_token))
         .route("/auth/login", post(auth_login))
@@ -423,7 +423,7 @@ pub fn create_app(state: AppState) -> Router {
                     axum::http::header::CACHE_CONTROL,
                     HeaderValue::from_static("no-cache, must-revalidate"),
                 ))
-                .service(ServeDir::new("static"))
+                .service(ServeDir::new(std::env::var("STATIC_DIR").unwrap_or_else(|_| "static".into())))
         )
         .layer(middleware::from_fn_with_state(state.clone(), request_counter))
         .layer(middleware::from_fn_with_state(state.clone(), csrf_protection))
