@@ -267,4 +267,12 @@ impl SpecRepository for DatabaseRepo {
     async fn apply_spec_changes(&self, branch_id: i64, changes: Vec<SpecChange>, is_protected: bool) -> Result<(), RepositoryError> {
         delegate!(self, apply_spec_changes(branch_id, changes, is_protected))
     }
+
+    async fn add_service_tags(&self, service_id: i64, tags: &[String]) -> Result<(), RepositoryError> {
+        delegate!(self, add_service_tags(service_id, tags))
+    }
+
+    async fn get_all_service_tags(&self) -> Result<HashMap<String, Vec<String>>, RepositoryError> {
+        delegate!(self, get_all_service_tags())
+    }
 }

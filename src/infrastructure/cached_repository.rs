@@ -829,6 +829,14 @@ impl SpecRepository for CachedSpecRepository {
         }
         Ok(())
     }
+
+    async fn add_service_tags(&self, service_id: i64, tags: &[String]) -> Result<(), RepositoryError> {
+        self.inner.add_service_tags(service_id, tags).await
+    }
+
+    async fn get_all_service_tags(&self) -> Result<std::collections::HashMap<String, Vec<String>>, RepositoryError> {
+        self.inner.get_all_service_tags().await
+    }
 }
 
 #[cfg(test)]

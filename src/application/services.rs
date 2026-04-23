@@ -65,7 +65,7 @@ pub async fn provide_spec(
     api_type: ApiType,
     content: &str,
 ) -> Result<(), AppError> {
-    provide_spec_inner(repo, servicename, branch, api_type, content, false).await
+    provide_spec_inner(repo, servicename, branch, api_type, content, false, &[]).await
 }
 
 pub async fn provide_spec_dry_run(
@@ -75,7 +75,18 @@ pub async fn provide_spec_dry_run(
     api_type: ApiType,
     content: &str,
 ) -> Result<(), AppError> {
-    provide_spec_inner(repo, servicename, branch, api_type, content, true).await
+    provide_spec_inner(repo, servicename, branch, api_type, content, true, &[]).await
+}
+
+pub async fn provide_spec_with_tags(
+    repo: &impl SpecRepository,
+    servicename: &str,
+    branch: &str,
+    api_type: ApiType,
+    content: &str,
+    tags: &[String],
+) -> Result<(), AppError> {
+    provide_spec_inner(repo, servicename, branch, api_type, content, false, tags).await
 }
 
 async fn provide_spec_inner(
@@ -85,6 +96,7 @@ async fn provide_spec_inner(
     api_type: ApiType,
     content: &str,
     dry_run: bool,
+    extra_tags: &[String],
 ) -> Result<(), AppError> {
     tracing::debug!("Providing {:?} for service '{}' branch '{}' (dry_run: {})", api_type, servicename, branch, dry_run);
     
@@ -140,6 +152,23 @@ async fn provide_spec_inner(
     } else {
         let sid = repo.ensure_service(servicename).await?;
         let bid = repo.ensure_branch(sid, branch).await?;
+
+        // Auto-tag based on API type
+        let auto_tag = match api_type {
+            ApiType::AsyncApi => Some("messaging".to_string()),
+            ApiType::Proto => Some("grpc".to_string()),
+            ApiType::OpenApi => None,
+        };
+        let mut all_tags: Vec<String> = extra_tags.to_vec();
+        if let Some(tag) = auto_tag {
+            if !all_tags.contains(&tag) {
+                all_tags.push(tag);
+            }
+        }
+        if !all_tags.is_empty() {
+            repo.add_service_tags(sid, &all_tags).await?;
+        }
+
         (sid, bid)
     };
     let is_protected = repo.is_branch_protected(branch).await?;
@@ -762,11 +791,13 @@ pub async fn generate_report(
     branch: &str,
 ) -> Result<DependencyReport, AppError> {
     tracing::debug!("Generating dependency report for branch '{}'", branch);
-    let report = repo.get_report(branch).await?;
-    tracing::debug!("Report generated: {} unused, {} missing, {} graph edges", 
+    let mut report = repo.get_report(branch).await?;
+    report.service_tags = repo.get_all_service_tags().await?;
+    tracing::debug!("Report generated: {} unused, {} missing, {} graph edges, {} tagged services", 
         report.unused_endpoints.len(), 
         report.missing_endpoints.len(), 
-        report.dependency_graph.len());
+        report.dependency_graph.len(),
+        report.service_tags.len());
     Ok(report)
 }
 
@@ -1397,8 +1428,16 @@ pub fn render_isolation_report(report: &DependencyReport) -> String {
     }
 
     for (client, services) in isolation {
-        md.push_str(&format!("### Service: `{}`\n\n", client));
-        md.push_str("| Target Service | Port | Protocol |\n");
+        let client_tags = report.service_tags.get(&client)
+            .map(|t| t.join(", "))
+            .unwrap_or_default();
+        let client_label = if client_tags.is_empty() {
+            format!("`{}`", client)
+        } else {
+            format!("`{}` ({})", client, client_tags)
+        };
+        md.push_str(&format!("### Service: {}\n\n", client_label));
+        md.push_str("| Target Service | Tags | Protocol |\n");
         md.push_str("| --- | --- | --- |\n");
         for svc in services {
             // Find protocol if possible
@@ -1411,8 +1450,12 @@ pub fn render_isolation_report(report: &DependencyReport) -> String {
                         .map(|d| format!("{:?}", d.api_type))
                 })
                 .unwrap_or_else(|| "N/A".to_string());
-                
-            md.push_str(&format!("| {} | N/A | {} |\n", svc, protocol));
+
+            let svc_tags = report.service_tags.get(&svc)
+                .map(|t| t.join(", "))
+                .unwrap_or_else(|| "—".to_string());
+
+            md.push_str(&format!("| {} | {} | {} |\n", svc, svc_tags, protocol));
         }
         md.push('\n');
     }
@@ -1441,6 +1484,7 @@ mod tests {
         settings: Mutex<HashMap<String, String>>,
         api_tokens: Mutex<Vec<ApiToken>>,
         endpoint_versions: Mutex<Vec<EndpointVersion>>,
+        service_tags: Mutex<HashMap<i64, Vec<String>>>,
     }
 
     impl MockRepo {
@@ -1461,6 +1505,7 @@ mod tests {
                 settings: Mutex::new(settings),
                 api_tokens: Mutex::new(Vec::new()),
                 endpoint_versions: Mutex::new(Vec::new()),
+                service_tags: Mutex::new(HashMap::new()),
             }
         }
 
@@ -1592,6 +1637,7 @@ mod tests {
                 dependency_graph: vec![],
                 unused_endpoints: vec![],
                 missing_endpoints: vec![],
+                service_tags: HashMap::new(),
             })
         }
 
@@ -2034,6 +2080,30 @@ mod tests {
             }
             Ok(())
         }
+
+        async fn add_service_tags(&self, service_id: i64, tags: &[String]) -> Result<(), RepositoryError> {
+            let mut st = self.service_tags.lock().unwrap();
+            let entry = st.entry(service_id).or_default();
+            for tag in tags {
+                if !entry.contains(tag) {
+                    entry.push(tag.clone());
+                }
+            }
+            Ok(())
+        }
+
+        async fn get_all_service_tags(&self) -> Result<HashMap<String, Vec<String>>, RepositoryError> {
+            let st = self.service_tags.lock().unwrap();
+            let services = self.services.lock().unwrap();
+            let name_map: HashMap<i64, String> = services.iter().map(|(k, v)| (*v, k.clone())).collect();
+            let mut result = HashMap::new();
+            for (sid, tags) in st.iter() {
+                if let Some(name) = name_map.get(sid) {
+                    result.insert(name.clone(), tags.clone());
+                }
+            }
+            Ok(result)
+        }
     }
 
     #[tokio::test]
@@ -2464,6 +2534,7 @@ paths:
             dependency_graph: vec![],
             unused_endpoints: vec![],
             missing_endpoints: vec![],
+            service_tags: HashMap::new(),
         };
         let md = render_report_markdown(&report);
         assert!(md.contains("# Sanshain Dependency Report: Branch `main`"));
@@ -2495,6 +2566,7 @@ paths:
                 path: "/new".to_string(),
                 method: "POST".to_string(),
             }],
+            service_tags: HashMap::new(),
         };
         let md = render_report_markdown(&report);
         assert!(md.contains("| web | api | OpenApi | `/users` | `GET` |"));

@@ -609,6 +609,7 @@ impl SpecRepository for PostgresSpecRepository {
             unused_endpoints,
             missing_endpoints,
             dependency_graph,
+            service_tags: HashMap::new(),
         })
     }
 
@@ -1407,5 +1408,32 @@ impl SpecRepository for PostgresSpecRepository {
 
         tx.commit().await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(())
+    }
+
+    async fn add_service_tags(&self, service_id: i64, tags: &[String]) -> Result<(), RepositoryError> {
+        for tag in tags {
+            sqlx::query("INSERT INTO service_tags (service_id, tag) VALUES ($1, $2) ON CONFLICT (service_id, tag) DO NOTHING")
+                .bind(service_id)
+                .bind(tag)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    async fn get_all_service_tags(&self) -> Result<HashMap<String, Vec<String>>, RepositoryError> {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT s.name, st.tag FROM service_tags st JOIN services s ON s.id = st.service_id ORDER BY s.name, st.tag"
+        )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        let mut result: HashMap<String, Vec<String>> = HashMap::new();
+        for (name, tag) in rows {
+            result.entry(name).or_default().push(tag);
+        }
+        Ok(result)
     }
 }

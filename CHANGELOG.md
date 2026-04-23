@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.0] - 2026-04-23
+
+### Changed
+- **Circular Dependency Color**: changed circular dependency edge color in the dependency graph from red to purple (`#a855f7`) to clearly distinguish it from the orange missing dependency color.
+- **Bidirectional PUB/SUB Edges**: connections between two services that have both PUB and SUB operations are now rendered as dotted lines with no arrows on either side, visually distinguishing bidirectional messaging from directional dependencies.
+- **Virtual MESSAGING Node**: when any AsyncAPI dependency exists in the graph, a virtual "MESSAGING" node (with `messaging` tag, rendered as a pink diamond) is automatically added. All services involved in AsyncAPI connections are linked to it with dotted lines, providing a clear visual hub for message-driven communication.
+
+### Added
+- **Service Tags**: services can now be tagged with categories (e.g., `messaging`, `grpc`, `database`, `infrastructure`) for visual distinction in the dependency graph and isolation report. Tags are auto-detected from API type (`asyncapi` → `messaging`, `proto` → `grpc`) and can also be set manually via an optional `tags` field in provide requests.
+- **Tag-Based Graph Styling**: the dependency graph now renders tagged services with distinct shapes and colors: diamonds (pink) for messaging, cylinders (blue) for database, octagons (purple) for gRPC, and green rectangles for infrastructure. A new "Service Tags" section in the graph legend documents all shapes.
+- **Tags in Isolation Report**: the Service Isolation Report now includes a "Tags" column showing each target service's tags, and annotates client services with their tags in the section header.
+
 ## [0.12.0] - 2026-04-23
 
 ### Added
@@ -24,10 +36,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Missing Nuke Buttons in Admin Dashboard**: the nuke buttons (Nuke Users, Nuke Services, Nuke Clients, Danger Zone / Nuke Database) were present in the static HTML file but missing from the Askama template actually served at `/admin.html`. Added all nuke buttons, the Danger Zone section, the nuke confirmation modal, and the nuke JS functions to `templates/admin.html`.
 - **Protected Branch Nuke Warning**: branch delete buttons in the admin dashboard now distinguish between protected and feature branches. Protected branches are highlighted with a red background, shield icon, and a prominent "☠️ Nuke" button with an extra warning confirmation. Feature branches retain the simple "Delete" button.
 - **Branches Not Visible in Admin Dashboard**: service branches in the Services & Clients tab were hidden behind a small toggle arrow and not loaded by default. Branches are now easily expandable with a single click on the toggle arrow.
+- **Infinite Loading Screen on Graph Page**: fixed an issue where the dependency graph page could get stuck on the loading screen if the graph data fetch failed or returned empty results. The loader is now properly dismissed in all code paths.
 
 ### Added
 - **Nuke Branch Across All Services**: added a new section in the admin dashboard (Services & Clients tab) that allows deleting a specific branch from every service at once. Enter a branch name and confirm to remove it globally, eliminating the need to delete branches one service at a time. Backed by a new `POST /admin/nuke/branches/{branch}` endpoint.
+- **Nuke Branch Autocomplete**: the branch name input for the "Nuke Branch Across All Services" action now features autocomplete, suggesting existing branch names fetched from the server for faster and error-free selection.
 - **Client Branches in Admin Dashboard**: clients in the admin dashboard now have expandable branch lists, matching the service branch UI. Click the toggle arrow on any client to view its branches.
+- **PUB/SUB Bidirectional Legend Entry**: added a "PUB/SUB bidir." entry to the graph legend with a dashed line style to document the new bidirectional messaging edge rendering.
 
 ## [0.11.1] - 2026-04-22
 

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -161,6 +162,8 @@ pub struct DependencyReport {
     pub unused_endpoints: Vec<EndpointInfo>,
     pub missing_endpoints: Vec<MissingEndpointInfo>,
     pub dependency_graph: Vec<DependencyInfo>,
+    #[serde(default)]
+    pub service_tags: HashMap<String, Vec<String>>,
 }
 
 #[derive(Serialize, Clone, Debug)]

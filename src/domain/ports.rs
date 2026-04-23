@@ -265,4 +265,12 @@ pub trait SpecRepository: Send + Sync {
         changes: Vec<SpecChange>,
         is_protected: bool,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    // --- Service Tags ---
+
+    /// Set tags for a service (replaces existing tags). Tags are additive with existing ones.
+    fn add_service_tags(&self, service_id: i64, tags: &[String]) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Get all service tags as a map of service_name -> Vec<tag>.
+    fn get_all_service_tags(&self) -> impl Future<Output = Result<HashMap<String, Vec<String>>, RepositoryError>> + Send;
 }

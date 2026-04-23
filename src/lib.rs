@@ -454,6 +454,8 @@ struct ProvidePayload {
     dry_run: bool,
     #[serde(default)]
     api_type: ApiType,
+    #[serde(default)]
+    tags: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -463,6 +465,8 @@ struct ProvideAsyncApiPayload {
     asyncapi_yaml: String,
     #[serde(default)]
     dry_run: bool,
+    #[serde(default)]
+    tags: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -472,6 +476,8 @@ struct ProvideProtoPayload {
     proto_content: String,
     #[serde(default)]
     dry_run: bool,
+    #[serde(default)]
+    tags: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -627,8 +633,10 @@ async fn provide(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let result = if payload.dry_run {
         services::provide_spec_dry_run(&state.repo, &payload.servicename, &payload.branch, payload.api_type, &payload.openapi_yaml).await
-    } else {
+    } else if payload.tags.is_empty() {
         services::provide_spec(&state.repo, &payload.servicename, &payload.branch, payload.api_type, &payload.openapi_yaml).await
+    } else {
+        services::provide_spec_with_tags(&state.repo, &payload.servicename, &payload.branch, payload.api_type, &payload.openapi_yaml, &payload.tags).await
     };
 
     if result.is_ok() && !payload.dry_run {
@@ -646,8 +654,10 @@ async fn provide_asyncapi(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let result = if payload.dry_run {
         services::provide_spec_dry_run(&state.repo, &payload.servicename, &payload.branch, ApiType::AsyncApi, &payload.asyncapi_yaml).await
-    } else {
+    } else if payload.tags.is_empty() {
         services::provide_spec(&state.repo, &payload.servicename, &payload.branch, ApiType::AsyncApi, &payload.asyncapi_yaml).await
+    } else {
+        services::provide_spec_with_tags(&state.repo, &payload.servicename, &payload.branch, ApiType::AsyncApi, &payload.asyncapi_yaml, &payload.tags).await
     };
 
     if result.is_ok() && !payload.dry_run {
@@ -665,8 +675,10 @@ async fn provide_proto(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let result = if payload.dry_run {
         services::provide_spec_dry_run(&state.repo, &payload.servicename, &payload.branch, ApiType::Proto, &payload.proto_content).await
-    } else {
+    } else if payload.tags.is_empty() {
         services::provide_spec(&state.repo, &payload.servicename, &payload.branch, ApiType::Proto, &payload.proto_content).await
+    } else {
+        services::provide_spec_with_tags(&state.repo, &payload.servicename, &payload.branch, ApiType::Proto, &payload.proto_content, &payload.tags).await
     };
 
     if result.is_ok() && !payload.dry_run {

@@ -29,6 +29,7 @@ The following major milestones have been delivered and are fully functional:
 - **Unified Client Configuration**: updated `docs/sanshain-yaml.md` with detailed support and examples for AsyncAPI and gRPC/Proto in the `sanshain.yaml` format.
 - **AsyncAPI v2→v3 Upgrade Guide**: added version compatibility documentation to `docs/sanshain-yaml.md` covering operation mapping differences, channel address vs key restriction, and a migration checklist.
 - **Spec-to-YAML Matching Guide**: added a "How Matching Works" section to `docs/sanshain-yaml.md` with detailed examples showing how OpenAPI, AsyncAPI, and Proto spec entries map to `sanshain.yaml` `path`/`method` fields, plus a quick-reference table.
+- **Service Tags**: added service tagging system with auto-detection from API type (`asyncapi` → `messaging`, `proto` → `grpc`) and optional manual tags via provide requests. Tags are stored in a dedicated `service_tags` table and included in the dependency report. The dependency graph renders tagged services with distinct shapes (diamond/cylinder/octagon) and colors. The isolation report shows tags per service.
  - **Version 0.11.1**: bumped version to 0.11.1.
 - **Version 0.10.0**: bumped version to 0.10.0 and initialized the new development cycle following the 0.9.0 release.
 - **UI Stability & Cat Loader**: implemented a full-screen "Snoozing Cat" loading overlay and improved UI stability by hiding main content until authentication state is resolved, eliminating visual flickering during navigation.
