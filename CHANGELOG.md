@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - **Duplicate NULL Endpoint Dependencies**: fixed a SQLite bug where the `ON CONFLICT` clause on the `dependencies` table never fired for rows with `endpoint_id IS NULL` (SQLite treats NULLs as distinct for UNIQUE constraints). Added a partial unique index and split the upsert logic to handle NULL and non-NULL endpoint_id separately, preventing duplicate dependency rows.
+- **Dark Mode Graph Toolbar Visibility**: fixed the graph filter toolbar row and its buttons being invisible/unreadable in dark mode. Added dark-mode CSS overrides for the toolbar background (`bg-slate-100/50`), hover states, focus tag pills, and label text colors.
 
 ## [0.11.1] - Unreleased
 
