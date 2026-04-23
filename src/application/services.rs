@@ -831,6 +831,20 @@ pub async fn delete_branch(
     Ok(repo.delete_branch(service_name, branch_name).await?)
 }
 
+pub async fn delete_branch_all_services(
+    repo: &impl SpecRepository,
+    branch_name: &str,
+) -> Result<u64, AppError> {
+    let services = repo.list_services().await?;
+    let mut deleted = 0u64;
+    for svc in services {
+        if repo.delete_branch(&svc, branch_name).await? {
+            deleted += 1;
+        }
+    }
+    Ok(deleted)
+}
+
 pub async fn delete_client(
     repo: &impl SpecRepository,
     name: &str,
@@ -2733,6 +2747,41 @@ paths:
 
         let removed = delete_branch(&repo, "svc", "feature/x").await.unwrap();
         assert!(!removed);
+    }
+
+    #[tokio::test]
+    async fn test_delete_branch_all_services() {
+        let repo = MockRepo::new();
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        provide_spec(&repo, "svc-a", "main", ApiType::OpenApi, yaml).await.unwrap();
+        provide_spec(&repo, "svc-a", "feature/x", ApiType::OpenApi, yaml).await.unwrap();
+        provide_spec(&repo, "svc-b", "main", ApiType::OpenApi, yaml).await.unwrap();
+        provide_spec(&repo, "svc-b", "feature/x", ApiType::OpenApi, yaml).await.unwrap();
+        provide_spec(&repo, "svc-c", "main", ApiType::OpenApi, yaml).await.unwrap();
+
+        let deleted = delete_branch_all_services(&repo, "feature/x").await.unwrap();
+        assert_eq!(deleted, 2);
+
+        // svc-a and svc-b should only have main left
+        let branches_a = list_branches(&repo, "svc-a").await.unwrap();
+        assert_eq!(branches_a, vec!["main".to_string()]);
+        let branches_b = list_branches(&repo, "svc-b").await.unwrap();
+        assert_eq!(branches_b, vec!["main".to_string()]);
+
+        // Deleting again should affect 0 services
+        let deleted = delete_branch_all_services(&repo, "feature/x").await.unwrap();
+        assert_eq!(deleted, 0);
     }
 
     #[tokio::test]

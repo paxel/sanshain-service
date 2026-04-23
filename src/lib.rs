@@ -357,6 +357,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/nuke/clients", post(admin_nuke_clients))
         .route("/nuke/users", post(admin_nuke_users))
         .route("/nuke/database", post(admin_nuke_database))
+        .route("/nuke/branches/{branch}", post(admin_nuke_branch))
         .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth))
         .merge(staff_routes);
 
@@ -1495,6 +1496,21 @@ async fn admin_nuke_users(
     Ok(Json(NukeResponse { deleted }))
 }
 
+async fn admin_nuke_branch(
+    State(state): State<AppState>,
+    axum::extract::Path(branch): axum::extract::Path<String>,
+    Json(payload): Json<NukeConfirmPayload>,
+) -> Result<Json<NukeResponse>, StatusCode> {
+    let expected = format!("DELETE BRANCH {}", branch);
+    if payload.confirmation != expected {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let deleted = services::delete_branch_all_services(&state.repo, &branch)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(Json(NukeResponse { deleted }))
+}
+
 async fn admin_nuke_database(
     State(state): State<AppState>,
     req: axum::http::Request<Body>,
@@ -1741,6 +1757,7 @@ async fn fragment_delete_service(
 struct FragmentBranches {
     service_name: String,
     branches: Vec<String>,
+    protected_patterns: Vec<String>,
 }
 
 async fn fragment_branches(
@@ -1748,7 +1765,8 @@ async fn fragment_branches(
     axum::extract::Path(name): axum::extract::Path<String>,
 ) -> Result<axum::response::Html<String>, StatusCode> {
     let branches = services::list_branches(&state.repo, &name).await.map_err(app_error_to_status)?;
-    let tmpl = FragmentBranches { service_name: name, branches };
+    let protected_patterns = services::list_protected_branches(&state.repo).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentBranches { service_name: name, branches, protected_patterns };
     Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
 }
 
