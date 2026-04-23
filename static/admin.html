@@ -319,7 +319,11 @@
                         <h2 class="text-lg font-semibold text-slate-800">Users</h2>
                         <p class="text-sm text-slate-500 mt-1">Manage registered users. Unapproved users cannot log in.</p>
                     </div>
-                    <button onclick="loadUsers()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                    <div class="flex items-center space-x-3">
+                        <button onclick="loadUsers()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                        <button onclick="nukeConfirm('☠️ Delete ALL non-admin users?', 'DELETE ALL USERS', () => nukeUsers())"
+                            class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium">💀 Nuke Users</button>
+                    </div>
                 </div>
                 <div id="users-list" class="space-y-2"></div>
             </section>
@@ -327,19 +331,55 @@
             <!-- Services -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-lg font-semibold text-slate-800">Services</h2>
-                    <button onclick="loadServices()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-800">Services</h2>
+                        <p class="text-sm text-slate-500 mt-1">Registered API services. Expand to see branches.</p>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <button onclick="loadServices()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                        <button onclick="nukeConfirm('☠️ Delete ALL services and their data?', 'DELETE ALL SERVICES', () => nukeServices())"
+                            class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium">💀 Nuke Services</button>
+                    </div>
                 </div>
-                <div id="services-list" class="space-y-2"></div>
+                <div class="mb-3">
+                    <input type="text" id="services-filter" oninput="filterServices()" placeholder="🔍 Filter services..."
+                        class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div id="services-count" class="text-xs text-slate-400 mb-2"></div>
+                <div id="services-list" class="space-y-2 max-h-[500px] overflow-y-auto"></div>
             </section>
 
             <!-- Clients -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-lg font-semibold text-slate-800">Clients</h2>
-                    <button onclick="loadClients()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-800">Clients</h2>
+                        <p class="text-sm text-slate-500 mt-1">Registered API consumers.</p>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <button onclick="loadClients()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                        <button onclick="nukeConfirm('☠️ Delete ALL clients and their dependencies?', 'DELETE ALL CLIENTS', () => nukeClients())"
+                            class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium">💀 Nuke Clients</button>
+                    </div>
                 </div>
-                <div id="clients-list" class="space-y-2"></div>
+                <div class="mb-3">
+                    <input type="text" id="clients-filter" oninput="filterClients()" placeholder="🔍 Filter clients..."
+                        class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div id="clients-count" class="text-xs text-slate-400 mb-2"></div>
+                <div id="clients-list" class="space-y-2 max-h-[500px] overflow-y-auto"></div>
+            </section>
+
+            <!-- Database Nuke -->
+            <section class="bg-white rounded-xl border border-red-300 shadow-sm p-6">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h2 class="text-lg font-semibold text-red-700">☠️ Danger Zone</h2>
+                        <p class="text-sm text-red-500 mt-1">Irreversible actions. This will wipe the entire database except your admin account and settings.</p>
+                    </div>
+                    <button onclick="nukeConfirm('💀☠️💀 NUKE THE ENTIRE DATABASE? This deletes ALL services, clients, users, branches, endpoints, and protected branches. Only your admin account will survive.', 'NUKE DATABASE', () => nukeDatabase())"
+                        class="bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-lg text-sm transition-colors font-bold border-2 border-red-900">💀☠️ NUKE DATABASE ☠️💀</button>
+                </div>
             </section>
         </main>
     </div>
@@ -377,6 +417,24 @@
             <div class="flex space-x-3">
                 <button id="confirm-yes" class="flex-1 bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors font-medium">Delete</button>
                 <button onclick="closeConfirmModal()" class="flex-1 bg-slate-100 text-slate-700 py-2 rounded-lg hover:bg-slate-200 transition-colors font-medium">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Nuke Confirmation Modal -->
+    <div id="nuke-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border-2 border-red-400">
+            <h3 class="text-lg font-bold text-red-700 mb-2">☠️ Confirm Destructive Action</h3>
+            <p id="nuke-message" class="text-sm text-slate-600 mb-4"></p>
+            <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                <p class="text-xs text-red-700 mb-2">Type <strong id="nuke-expected-text" class="font-mono"></strong> to confirm:</p>
+                <input type="text" id="nuke-input" autocomplete="off"
+                    class="w-full px-3 py-2 rounded-lg border border-red-300 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 font-mono">
+            </div>
+            <div id="nuke-error" class="hidden bg-red-50 text-red-600 p-2 rounded-lg mb-3 text-xs"></div>
+            <div class="flex space-x-3">
+                <button id="nuke-yes" class="flex-1 bg-red-700 text-white py-2 rounded-lg hover:bg-red-800 transition-colors font-bold disabled:opacity-50 disabled:cursor-not-allowed" disabled>💀 Confirm</button>
+                <button onclick="closeNukeModal()" class="flex-1 bg-slate-100 text-slate-700 py-2 rounded-lg hover:bg-slate-200 transition-colors font-medium">Cancel</button>
             </div>
         </div>
     </div>
@@ -821,35 +879,51 @@
         }
 
         // --- Services ---
+        let allServices = [];
+
         async function loadServices() {
             const list = document.getElementById('services-list');
             try {
                 const res = await apiCall('/admin/services');
                 if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
-                const services = await res.json();
-                if (services.length === 0) {
-                    list.innerHTML = '<p class="text-sm text-slate-400 italic">No services registered.</p>';
-                    return;
-                }
-                list.innerHTML = '';
-                for (const svc of services) {
-                    const div = document.createElement('div');
-                    div.className = 'bg-slate-50 rounded-lg p-4 fade-in';
-                    div.innerHTML = `
-                        <div class="flex justify-between items-center">
-                            <div class="flex items-center space-x-3">
-                                <button onclick="toggleBranches(this, '${escapeAttr(svc)}')" class="text-slate-400 hover:text-slate-600 text-sm">▶</button>
-                                <span class="font-medium text-slate-800">${escapeHtml(svc)}</span>
-                            </div>
-                            <button onclick="confirmDelete('Delete service <strong>${escapeHtml(svc)}</strong> and all its data?', () => deleteService('${escapeAttr(svc)}'))"
-                                class="text-red-500 hover:text-red-700 text-sm">Delete</button>
-                        </div>
-                        <div class="branches-container hidden mt-3 ml-8 space-y-1"></div>
-                    `;
-                    list.appendChild(div);
-                }
+                allServices = await res.json();
+                renderServices(allServices);
             } catch (_) {
                 list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
+            }
+        }
+
+        function filterServices() {
+            const q = document.getElementById('services-filter').value.toLowerCase().trim();
+            const filtered = q ? allServices.filter(s => (s.name || s).toLowerCase().includes(q)) : allServices;
+            renderServices(filtered);
+        }
+
+        function renderServices(services) {
+            const list = document.getElementById('services-list');
+            const countEl = document.getElementById('services-count');
+            countEl.textContent = `${services.length} of ${allServices.length} services`;
+            if (services.length === 0) {
+                list.innerHTML = '<p class="text-sm text-slate-400 italic">No services found.</p>';
+                return;
+            }
+            list.innerHTML = '';
+            for (const svcObj of services) {
+                const svc = svcObj.name || svcObj;
+                const div = document.createElement('div');
+                div.className = 'bg-slate-50 rounded-lg p-4 fade-in';
+                div.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center space-x-3">
+                            <button onclick="toggleBranches(this, '${escapeAttr(svc)}')" class="text-slate-400 hover:text-slate-600 text-sm">▶</button>
+                            <span class="font-medium text-slate-800">${escapeHtml(svc)}</span>
+                        </div>
+                        <button onclick="confirmDelete('Delete service <strong>${escapeHtml(svc)}</strong> and all its data?', () => deleteService('${escapeAttr(svc)}'))"
+                            class="text-red-500 hover:text-red-700 text-sm">Delete</button>
+                    </div>
+                    <div class="branches-container hidden mt-3 ml-8 space-y-1"></div>
+                `;
+                list.appendChild(div);
             }
         }
 
@@ -898,26 +972,41 @@
         }
 
         // --- Clients ---
+        let allClients = [];
+
         async function loadClients() {
             const list = document.getElementById('clients-list');
             try {
                 const res = await apiCall('/admin/clients');
                 if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
-                const clients = await res.json();
-                if (clients.length === 0) {
-                    list.innerHTML = '<p class="text-sm text-slate-400 italic">No clients registered.</p>';
-                    return;
-                }
-                list.innerHTML = clients.map(c => `
-                    <div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
-                        <span class="font-medium text-slate-800">${escapeHtml(c)}</span>
-                        <button onclick="confirmDelete('Delete client <strong>${escapeHtml(c)}</strong> and all its dependencies?', () => deleteClient('${escapeAttr(c)}'))"
-                            class="text-red-500 hover:text-red-700 text-sm">Delete</button>
-                    </div>
-                `).join('');
+                allClients = await res.json();
+                renderClients(allClients);
             } catch (_) {
                 list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
             }
+        }
+
+        function filterClients() {
+            const q = document.getElementById('clients-filter').value.toLowerCase().trim();
+            const filtered = q ? allClients.filter(c => c.toLowerCase().includes(q)) : allClients;
+            renderClients(filtered);
+        }
+
+        function renderClients(clients) {
+            const list = document.getElementById('clients-list');
+            const countEl = document.getElementById('clients-count');
+            countEl.textContent = `${clients.length} of ${allClients.length} clients`;
+            if (clients.length === 0) {
+                list.innerHTML = '<p class="text-sm text-slate-400 italic">No clients found.</p>';
+                return;
+            }
+            list.innerHTML = clients.map(c => `
+                <div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
+                    <span class="font-medium text-slate-800">${escapeHtml(c)}</span>
+                    <button onclick="confirmDelete('Delete client <strong>${escapeHtml(c)}</strong> and all its dependencies?', () => deleteClient('${escapeAttr(c)}'))"
+                        class="text-red-500 hover:text-red-700 text-sm">Delete</button>
+                </div>
+            `).join('');
         }
 
         async function deleteClient(name) {
@@ -1052,6 +1141,70 @@
                 errEl.classList.remove('hidden');
             }
         });
+
+        // --- Nuke Modal ---
+        let nukeCallback = null;
+        let nukeExpectedText = '';
+
+        function nukeConfirm(message, expectedText, callback) {
+            document.getElementById('nuke-message').innerHTML = message;
+            document.getElementById('nuke-expected-text').textContent = expectedText;
+            document.getElementById('nuke-input').value = '';
+            document.getElementById('nuke-error').classList.add('hidden');
+            document.getElementById('nuke-yes').disabled = true;
+            nukeExpectedText = expectedText;
+            nukeCallback = callback;
+            document.getElementById('nuke-modal').classList.remove('hidden');
+            document.getElementById('nuke-input').focus();
+        }
+
+        document.getElementById('nuke-input').addEventListener('input', function() {
+            document.getElementById('nuke-yes').disabled = this.value !== nukeExpectedText;
+        });
+
+        document.getElementById('nuke-yes').addEventListener('click', async function() {
+            const input = document.getElementById('nuke-input').value;
+            if (input !== nukeExpectedText) return;
+            if (nukeCallback) {
+                try {
+                    await nukeCallback();
+                    closeNukeModal();
+                } catch (e) {
+                    const errEl = document.getElementById('nuke-error');
+                    errEl.textContent = 'Operation failed: ' + e.message;
+                    errEl.classList.remove('hidden');
+                }
+            }
+        });
+
+        function closeNukeModal() {
+            document.getElementById('nuke-modal').classList.add('hidden');
+            nukeCallback = null;
+        }
+
+        async function nukeServices() {
+            const res = await apiCall('/admin/nuke/services', { method: 'POST', body: { confirmation: 'DELETE ALL SERVICES' } });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            loadServices();
+        }
+
+        async function nukeClients() {
+            const res = await apiCall('/admin/nuke/clients', { method: 'POST', body: { confirmation: 'DELETE ALL CLIENTS' } });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            loadClients();
+        }
+
+        async function nukeUsers() {
+            const res = await apiCall('/admin/nuke/users', { method: 'POST', body: { confirmation: 'DELETE ALL USERS' } });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            loadUsers();
+        }
+
+        async function nukeDatabase() {
+            const res = await apiCall('/admin/nuke/database', { method: 'POST', body: { confirmation: 'NUKE DATABASE' } });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            loadAll();
+        }
 
         // --- Init ---
         fetchCsrfToken().then(() => checkSession());

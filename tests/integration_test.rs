@@ -2797,3 +2797,124 @@ async fn test_no_duplicate_null_endpoint_dependencies() {
         "Should have exactly 1 missing endpoint entry, not duplicates. Got: {:?}", dedup_missing
     );
 }
+
+#[tokio::test]
+async fn test_nuke_endpoints() {
+    let (app, admin_token) = setup_app_with_admin().await;
+
+    // Provide a service
+    let yaml = "openapi: '3.0.0'\ninfo:\n  title: Svc\n  version: '1.0'\npaths:\n  /items:\n    get:\n      operationId: getItems\n      responses:\n        '200':\n          description: OK\n";
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&json!({
+                    "servicename": "nuke-svc",
+                    "branch": "main",
+                    "openapi_yaml": yaml
+                })).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+
+    // Require to create a client
+    let _response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/require?clientname=nuke-client&servicename=nuke-svc&branch=main&path=/items&method=GET&timeout=0")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Nuke services with wrong confirmation should fail
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/nuke/services")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&json!({"confirmation": "wrong"})).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    // Nuke services with correct confirmation
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/nuke/services")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&json!({"confirmation": "DELETE ALL SERVICES"})).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let result: Value = serde_json::from_slice(&body).unwrap();
+    assert!(result["deleted"].as_u64().unwrap() >= 1);
+
+    // Verify services list is empty
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/services")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let services: Vec<Value> = serde_json::from_slice(&body).unwrap();
+    assert!(services.is_empty(), "Services should be empty after nuke");
+
+    // Nuke clients
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/nuke/clients")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&json!({"confirmation": "DELETE ALL CLIENTS"})).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify clients list is empty
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/clients")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let clients: Vec<String> = serde_json::from_slice(&body).unwrap();
+    assert!(clients.is_empty(), "Clients should be empty after nuke");
+}

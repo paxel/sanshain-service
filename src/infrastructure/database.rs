@@ -108,6 +108,22 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, is_endpoint_deleted(branch_id, api_type, path, method))
     }
 
+    async fn delete_all_services(&self) -> Result<u64, RepositoryError> {
+        delegate!(self, delete_all_services())
+    }
+
+    async fn delete_all_clients(&self) -> Result<u64, RepositoryError> {
+        delegate!(self, delete_all_clients())
+    }
+
+    async fn delete_all_non_admin_users(&self) -> Result<u64, RepositoryError> {
+        delegate!(self, delete_all_non_admin_users())
+    }
+
+    async fn nuke_database(&self, keep_user_id: Option<i64>) -> Result<(), RepositoryError> {
+        delegate!(self, nuke_database(keep_user_id))
+    }
+
     async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {
         delegate!(self, delete_service(name))
     }

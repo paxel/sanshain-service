@@ -135,6 +135,18 @@ pub trait SpecRepository: Send + Sync {
     /// Check if a soft-deleted endpoint exists for the given branch, path, and method.
     fn is_endpoint_deleted(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
 
+    /// Delete all services and their branches, endpoints, and related dependencies.
+    fn delete_all_services(&self) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
+
+    /// Delete all clients and their dependencies.
+    fn delete_all_clients(&self) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
+
+    /// Delete all non-admin users and their sessions.
+    fn delete_all_non_admin_users(&self) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
+
+    /// Nuke the entire database: delete all data from all tables (except settings and the calling admin user).
+    fn nuke_database(&self, keep_user_id: Option<i64>) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
     /// Delete a service and all its branches, endpoints, and related dependencies.
     fn delete_service(&self, name: &str) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
 

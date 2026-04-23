@@ -620,6 +620,75 @@ impl SpecRepository for SqliteSpecRepository {
         })
     }
 
+    async fn delete_all_services(&self) -> Result<u64, RepositoryError> {
+        let r1 = sqlx::query("DELETE FROM endpoint_versions WHERE endpoint_id IN (SELECT id FROM endpoints)")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM dependencies")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM endpoints")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM branches")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let result = sqlx::query("DELETE FROM services")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let _ = r1;
+        Ok(result.rows_affected())
+    }
+
+    async fn delete_all_clients(&self) -> Result<u64, RepositoryError> {
+        sqlx::query("DELETE FROM dependencies")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let result = sqlx::query("DELETE FROM clients")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected())
+    }
+
+    async fn delete_all_non_admin_users(&self) -> Result<u64, RepositoryError> {
+        // Delete sessions for non-admin users
+        sqlx::query("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE is_admin = 0)")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // Delete API tokens for non-admin users
+        sqlx::query("DELETE FROM api_tokens WHERE user_id IN (SELECT id FROM users WHERE is_admin = 0)")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let result = sqlx::query("DELETE FROM users WHERE is_admin = 0")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected())
+    }
+
+    async fn nuke_database(&self, keep_user_id: Option<i64>) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM endpoint_versions")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM dependencies")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM endpoints")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM branches")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM services")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM clients")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM protected_branches")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // Delete all sessions except the current admin's
+        if let Some(uid) = keep_user_id {
+            sqlx::query("DELETE FROM sessions WHERE user_id != ?")
+                .bind(uid).execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            sqlx::query("DELETE FROM api_tokens WHERE user_id != ?")
+                .bind(uid).execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            sqlx::query("DELETE FROM users WHERE id != ?")
+                .bind(uid).execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        } else {
+            sqlx::query("DELETE FROM sessions")
+                .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            sqlx::query("DELETE FROM api_tokens")
+                .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            sqlx::query("DELETE FROM users")
+                .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        Ok(())
+    }
+
     async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {
         let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM services WHERE name = ?")
             .bind(name)

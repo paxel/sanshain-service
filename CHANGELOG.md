@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.12.0] - Unreleased
 
 ### Added
+- **Admin Nuke Buttons**: added bulk-delete ("nuke") actions for services, clients, non-admin users, and the entire database in the admin dashboard. Each action requires typing an exact confirmation phrase (e.g., `DELETE ALL SERVICES`) in a modal dialog to prevent accidental data loss. Skull/danger emoji emphasize the destructive nature of these operations.
+- **Admin Search/Filter for Services & Clients**: added real-time search/filter input fields to the services and clients lists in the admin dashboard, with item counts and scrollable containers for large lists.
+- **Danger Zone Section**: added a dedicated "Danger Zone" section at the bottom of the admin dashboard for the full database nuke operation, styled with red borders and warning text.
+- **Nuke API Endpoints**: added `POST /admin/nuke/services`, `/admin/nuke/clients`, `/admin/nuke/users`, and `/admin/nuke/database` endpoints, all requiring exact confirmation text in the request body.
 - **Missing Endpoint Graph Visualization**: dependency edges targeting unresolved/missing endpoints are now rendered as orange dashed lines with orange arrowheads in the custom dependency graph. Services where ALL inbound edges are missing are displayed as orange hexagonal nodes, providing immediate visual feedback on unresolved dependencies.
 - **Graph Legend Updates**: added legend entries for missing dependency edges (orange dashed) and missing service nodes (orange hexagon).
 - **Integration Tests for Missing Endpoints**: added tests verifying that clients with only missing endpoint dependencies appear in the client list, and that duplicate NULL endpoint_id dependency rows are properly deduplicated.

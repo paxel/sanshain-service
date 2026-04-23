@@ -280,6 +280,21 @@ impl CachedSpecRepository {
     fn record_miss(&self) {
         self.misses.fetch_add(1, Ordering::Relaxed);
     }
+
+    async fn invalidate_all_caches(&self) {
+        self.service_id_cache.invalidate_all();
+        self.branch_id_cache.invalidate_all();
+        self.branch_endpoints_cache.invalidate_all();
+        self.endpoint_cache.invalidate_all();
+        self.report_cache.invalidate_all();
+        self.services_list_cache.invalidate_all();
+        self.services_cache.invalidate_all();
+        self.branches_list_cache.invalidate_all();
+        self.clients_list_cache.invalidate_all();
+        self.protected_branches_cache.invalidate_all();
+        self.fallback_branch_cache.invalidate_all();
+        self.branch_protected_cache.invalidate_all();
+    }
 }
 
 impl SpecRepository for CachedSpecRepository {
@@ -531,6 +546,36 @@ impl SpecRepository for CachedSpecRepository {
 
     async fn is_endpoint_deleted(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<bool, RepositoryError> {
         self.inner.is_endpoint_deleted(branch_id, api_type, path, method).await
+    }
+
+    async fn delete_all_services(&self) -> Result<u64, RepositoryError> {
+        let result = self.inner.delete_all_services().await?;
+        if !self.is_disabled() {
+            self.invalidate_all_caches().await;
+        }
+        Ok(result)
+    }
+
+    async fn delete_all_clients(&self) -> Result<u64, RepositoryError> {
+        let result = self.inner.delete_all_clients().await?;
+        if !self.is_disabled() {
+            self.clients_list_cache.invalidate_all();
+            self.report_cache.invalidate_all();
+        }
+        Ok(result)
+    }
+
+    async fn delete_all_non_admin_users(&self) -> Result<u64, RepositoryError> {
+        let result = self.inner.delete_all_non_admin_users().await?;
+        Ok(result)
+    }
+
+    async fn nuke_database(&self, keep_user_id: Option<i64>) -> Result<(), RepositoryError> {
+        self.inner.nuke_database(keep_user_id).await?;
+        if !self.is_disabled() {
+            self.invalidate_all_caches().await;
+        }
+        Ok(())
     }
 
     async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {

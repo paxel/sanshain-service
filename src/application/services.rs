@@ -791,6 +791,31 @@ pub async fn remove_protected_branch(
     Ok(repo.remove_protected_branch(pattern).await?)
 }
 
+pub async fn delete_all_services(
+    repo: &impl SpecRepository,
+) -> Result<u64, AppError> {
+    Ok(repo.delete_all_services().await?)
+}
+
+pub async fn delete_all_clients(
+    repo: &impl SpecRepository,
+) -> Result<u64, AppError> {
+    Ok(repo.delete_all_clients().await?)
+}
+
+pub async fn delete_all_non_admin_users(
+    repo: &impl SpecRepository,
+) -> Result<u64, AppError> {
+    Ok(repo.delete_all_non_admin_users().await?)
+}
+
+pub async fn nuke_database(
+    repo: &impl SpecRepository,
+    keep_user_id: Option<i64>,
+) -> Result<(), AppError> {
+    Ok(repo.nuke_database(keep_user_id).await?)
+}
+
 pub async fn delete_service(
     repo: &impl SpecRepository,
     name: &str,
@@ -1604,6 +1629,34 @@ mod tests {
         async fn is_endpoint_deleted(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<bool, RepositoryError> {
             let deleted = self.deleted_endpoints.lock().unwrap();
             Ok(deleted.contains(&(branch_id, api_type, path.to_string(), method.to_string())))
+        }
+
+        async fn delete_all_services(&self) -> Result<u64, RepositoryError> {
+            let mut services = self.services.lock().unwrap();
+            let count = services.len() as u64;
+            services.clear();
+            self.branches.lock().unwrap().clear();
+            self.endpoints.lock().unwrap().clear();
+            Ok(count)
+        }
+
+        async fn delete_all_clients(&self) -> Result<u64, RepositoryError> {
+            let mut clients = self.clients.lock().unwrap();
+            let count = clients.len() as u64;
+            clients.clear();
+            Ok(count)
+        }
+
+        async fn delete_all_non_admin_users(&self) -> Result<u64, RepositoryError> {
+            Ok(0)
+        }
+
+        async fn nuke_database(&self, _keep_user_id: Option<i64>) -> Result<(), RepositoryError> {
+            self.services.lock().unwrap().clear();
+            self.branches.lock().unwrap().clear();
+            self.endpoints.lock().unwrap().clear();
+            self.clients.lock().unwrap().clear();
+            Ok(())
         }
 
         async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {

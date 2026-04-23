@@ -353,6 +353,10 @@ pub fn create_app(state: AppState) -> Router {
         .route("/observability/debug-config", post(admin_set_debug_config))
         .route("/users/{id}/approve", post(admin_approve_user))
         .route("/users/{id}", axum::routing::delete(admin_delete_user_handler))
+        .route("/nuke/services", post(admin_nuke_services))
+        .route("/nuke/clients", post(admin_nuke_clients))
+        .route("/nuke/users", post(admin_nuke_users))
+        .route("/nuke/database", post(admin_nuke_database))
         .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth))
         .merge(staff_routes);
 
@@ -1438,6 +1442,82 @@ async fn admin_delete_user_handler(
     } else {
         Err(StatusCode::NOT_FOUND)
     }
+}
+
+// --- Nuke (bulk delete) endpoints ---
+
+#[derive(Deserialize)]
+struct NukeConfirmPayload {
+    confirmation: String,
+}
+
+#[derive(Serialize)]
+struct NukeResponse {
+    deleted: u64,
+}
+
+async fn admin_nuke_services(
+    State(state): State<AppState>,
+    Json(payload): Json<NukeConfirmPayload>,
+) -> Result<Json<NukeResponse>, StatusCode> {
+    if payload.confirmation != "DELETE ALL SERVICES" {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let deleted = services::delete_all_services(&state.repo)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(Json(NukeResponse { deleted }))
+}
+
+async fn admin_nuke_clients(
+    State(state): State<AppState>,
+    Json(payload): Json<NukeConfirmPayload>,
+) -> Result<Json<NukeResponse>, StatusCode> {
+    if payload.confirmation != "DELETE ALL CLIENTS" {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let deleted = services::delete_all_clients(&state.repo)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(Json(NukeResponse { deleted }))
+}
+
+async fn admin_nuke_users(
+    State(state): State<AppState>,
+    Json(payload): Json<NukeConfirmPayload>,
+) -> Result<Json<NukeResponse>, StatusCode> {
+    if payload.confirmation != "DELETE ALL USERS" {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let deleted = services::delete_all_non_admin_users(&state.repo)
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(Json(NukeResponse { deleted }))
+}
+
+async fn admin_nuke_database(
+    State(state): State<AppState>,
+    req: axum::http::Request<Body>,
+) -> Result<StatusCode, StatusCode> {
+    let token = extract_bearer_token(&req).ok_or(StatusCode::UNAUTHORIZED)?;
+    let (user, _session) = services::validate_session(&state.repo, &token)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    let body_bytes = axum::body::to_bytes(req.into_body(), 1024 * 64)
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let payload: NukeConfirmPayload = serde_json::from_slice(&body_bytes)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    if payload.confirmation != "NUKE DATABASE" {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    services::nuke_database(&state.repo, Some(user.id))
+        .await
+        .map_err(app_error_to_status)?;
+    Ok(StatusCode::OK)
 }
 
 // --- API Token Management ---
