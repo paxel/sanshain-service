@@ -22,10 +22,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Report Navigation**: reports now open in the same tab instead of a new tab, so the "Back to Dashboard" link in the report viewer works as expected.
 - **Missing Nuke Buttons in Admin Dashboard**: the nuke buttons (Nuke Users, Nuke Services, Nuke Clients, Danger Zone / Nuke Database) were present in the static HTML file but missing from the Askama template actually served at `/admin.html`. Added all nuke buttons, the Danger Zone section, the nuke confirmation modal, and the nuke JS functions to `templates/admin.html`.
 - **Protected Branch Nuke Warning**: branch delete buttons in the admin dashboard now distinguish between protected and feature branches. Protected branches are highlighted with a red background, shield icon, and a prominent "☠️ Nuke" button with an extra warning confirmation. Feature branches retain the simple "Delete" button.
-- **Branches Not Visible in Admin Dashboard**: service branches in the Services & Clients tab were hidden behind a small toggle arrow and not loaded by default. Branches now auto-expand and auto-load when the services list is displayed.
+- **Branches Not Visible in Admin Dashboard**: service branches in the Services & Clients tab were hidden behind a small toggle arrow and not loaded by default. Branches are now easily expandable with a single click on the toggle arrow.
 
 ### Added
 - **Nuke Branch Across All Services**: added a new section in the admin dashboard (Services & Clients tab) that allows deleting a specific branch from every service at once. Enter a branch name and confirm to remove it globally, eliminating the need to delete branches one service at a time. Backed by a new `POST /admin/nuke/branches/{branch}` endpoint.
+- **Client Branches in Admin Dashboard**: clients in the admin dashboard now have expandable branch lists, matching the service branch UI. Click the toggle arrow on any client to view its branches.
 
 ## [0.11.1] - 2026-04-22
 

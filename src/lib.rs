@@ -372,6 +372,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/services/{name}/branches/{branch}", axum::routing::delete(fragment_delete_branch))
         .route("/admin/clients", get(fragment_clients))
         .route("/admin/clients/{name}", axum::routing::delete(fragment_delete_client))
+        .route("/admin/clients/{name}/branches", get(fragment_client_branches))
         .route("/admin/dev-mode", get(fragment_dev_mode))
         .route("/admin/dev-mode/toggle", post(fragment_dev_mode_toggle))
         .route("/admin/local-users", get(fragment_local_users))
@@ -1814,6 +1815,22 @@ async fn fragment_clients(
 ) -> Result<axum::response::Html<String>, StatusCode> {
     let clients = services::list_clients(&state.repo).await.map_err(app_error_to_status)?;
     let tmpl = FragmentClients { clients };
+    Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+}
+
+#[derive(Template)]
+#[template(path = "fragments/admin/client_branches.html")]
+struct FragmentClientBranches {
+    client_name: String,
+    branches: Vec<String>,
+}
+
+async fn fragment_client_branches(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let branches = services::list_client_branches(&state.repo, &name).await.map_err(app_error_to_status)?;
+    let tmpl = FragmentClientBranches { client_name: name, branches };
     Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
 }
 
