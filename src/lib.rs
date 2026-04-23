@@ -323,6 +323,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/clients/{name}/branches", get(admin_list_client_branches))
         .route("/clients/{name}/branches/{branch}/endpoints", get(admin_list_client_endpoints))
         .route("/services/{name}/branches/{branch}/endpoints", get(admin_list_service_endpoints))
+        .route("/branches", get(admin_list_all_branches))
         .route("/endpoint-yaml", get(admin_get_endpoint_yaml))
         .route("/endpoint-versions", get(admin_get_endpoint_versions));
 
@@ -1000,6 +1001,15 @@ async fn admin_list_branches(
     axum::extract::Path(name): axum::extract::Path<String>,
 ) -> Result<Json<Vec<String>>, StatusCode> {
     services::list_branches(&state.repo, &name)
+        .await
+        .map(Json)
+        .map_err(app_error_to_status)
+}
+
+async fn admin_list_all_branches(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<String>>, StatusCode> {
+    services::list_all_branches(&state.repo)
         .await
         .map(Json)
         .map_err(app_error_to_status)

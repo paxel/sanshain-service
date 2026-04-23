@@ -156,6 +156,10 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, list_branches(service_name))
     }
 
+    async fn list_all_branches(&self) -> Result<Vec<String>, RepositoryError> {
+        delegate!(self, list_all_branches())
+    }
+
     async fn list_clients(&self) -> Result<Vec<String>, RepositoryError> {
         delegate!(self, list_clients())
     }

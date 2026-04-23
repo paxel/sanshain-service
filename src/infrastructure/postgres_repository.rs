@@ -879,6 +879,16 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
+    async fn list_all_branches(&self) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT b.name FROM branches b ORDER BY b.name"
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
     async fn list_clients(&self) -> Result<Vec<String>, RepositoryError> {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT DISTINCT c.name FROM clients c INNER JOIN dependencies d ON d.client_id = c.id ORDER BY c.name"

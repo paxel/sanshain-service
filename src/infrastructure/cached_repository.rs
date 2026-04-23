@@ -686,6 +686,10 @@ impl SpecRepository for CachedSpecRepository {
         Ok(result)
     }
 
+    async fn list_all_branches(&self) -> Result<Vec<String>, RepositoryError> {
+        self.inner.list_all_branches().await
+    }
+
     async fn list_clients(&self) -> Result<Vec<String>, RepositoryError> {
         let sentinel = "_all_".to_string();
         if !self.is_disabled()

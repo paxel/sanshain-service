@@ -377,8 +377,10 @@
                     <p class="text-sm text-slate-500 mt-1">Delete a specific branch from <strong>every</strong> service at once. Useful for cleaning up old feature branches.</p>
                 </div>
                 <div class="flex items-center space-x-3">
-                    <input type="text" id="nuke-branch-name" placeholder="e.g. feature/old-experiment"
-                        class="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500">
+                    <input type="text" id="nuke-branch-name" list="nuke-branch-suggestions" placeholder="e.g. feature/old-experiment"
+                        class="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        autocomplete="off">
+                    <datalist id="nuke-branch-suggestions"></datalist>
                     <button onclick="nukeBranchGlobal()"
                         class="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg text-sm transition-colors font-medium whitespace-nowrap">🔥 Nuke Branch</button>
                 </div>
@@ -952,6 +954,21 @@
         htmx.trigger('#users-list', 'load');
         alert(`Deleted ${data.deleted} user(s).`);
     }
+
+    async function loadBranchSuggestions() {
+        try {
+            const res = await apiCall('/admin/branches');
+            if (res.ok) {
+                const branches = await res.json();
+                const datalist = document.getElementById('nuke-branch-suggestions');
+                datalist.innerHTML = branches.map(b => `<option value="${escapeHtml(b)}">`).join('');
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    document.getElementById('nuke-branch-name').addEventListener('focus', function() {
+        loadBranchSuggestions();
+    });
 
     async function nukeBranchGlobal() {
         const branchName = document.getElementById('nuke-branch-name').value.trim();

@@ -171,6 +171,9 @@ pub trait SpecRepository: Send + Sync {
     /// List all branches for a service.
     fn list_branches(&self, service_name: &str) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
+    /// List all distinct branch names across all services.
+    fn list_all_branches(&self) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
     /// List all clients.
     fn list_clients(&self) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 

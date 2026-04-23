@@ -887,6 +887,12 @@ pub async fn list_branches(
     Ok(repo.list_branches(service_name).await?)
 }
 
+pub async fn list_all_branches(
+    repo: &impl SpecRepository,
+) -> Result<Vec<String>, AppError> {
+    Ok(repo.list_all_branches().await?)
+}
+
 pub async fn list_clients(
     repo: &impl SpecRepository,
 ) -> Result<Vec<String>, AppError> {
@@ -1779,6 +1785,17 @@ mod tests {
             } else {
                 Ok(vec![])
             }
+        }
+
+        async fn list_all_branches(&self) -> Result<Vec<String>, RepositoryError> {
+            let branches = self.branches.lock().unwrap();
+            let mut names: Vec<String> = branches.keys()
+                .map(|(_, name)| name.clone())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            names.sort();
+            Ok(names)
         }
 
         async fn list_clients(&self) -> Result<Vec<String>, RepositoryError> {
