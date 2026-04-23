@@ -652,6 +652,10 @@ function renderCustomGraph(report, svgElement, direction) {
         path.setAttribute('class', 'graph-edge');
         path.dataset.from = e.v;
         path.dataset.to = e.w;
+        if (isCycle) path.dataset.edgeType = 'circular';
+        else if (isMissing) path.dataset.edgeType = 'missing';
+        else if (isBidirectionalPubSub) path.dataset.edgeType = 'pubsub-bidir';
+        else path.dataset.edgeType = 'normal';
         if (isCycle || isMissing || isBidirectionalPubSub) path.setAttribute('stroke-dasharray', '6 3');
         mainG.appendChild(path);
 
@@ -700,6 +704,15 @@ function renderCustomGraph(report, svgElement, direction) {
         group.setAttribute('class', 'graph-node');
         group.dataset.node = node;
         if (nodeTags.length > 0) group.dataset.tags = nodeTags.join(',');
+        // Set role for legend highlighting
+        if (isMissingService) group.dataset.role = 'missing';
+        else if (hasTag('messaging')) group.dataset.role = 'tag-messaging';
+        else if (hasTag('database')) group.dataset.role = 'tag-database';
+        else if (hasTag('grpc')) group.dataset.role = 'tag-grpc';
+        else if (hasTag('infrastructure')) group.dataset.role = 'tag-infrastructure';
+        else if (isClient && isService) group.dataset.role = 'both';
+        else if (isService) group.dataset.role = 'service';
+        else group.dataset.role = 'client';
         group.style.cursor = 'pointer';
 
         const cx = nd.x, cy = nd.y, hw = nd.width / 2, hh = nd.height / 2;
@@ -917,6 +930,11 @@ function renderCustomGraph(report, svgElement, direction) {
     });
 
     svgElement.addEventListener('click', clearHighlight);
+
+    // ── Legend hover-to-highlight ────────────────────────────────────
+    // Expose nodeElements/edgeElements so the legend hover code can access them
+    window._graphNodeElements = nodeElements;
+    window._graphEdgeElements = edgeElements;
 
     // ── Zoom & Pan ───────────────────────────────────────────────────
     // Fit-to-view initial scale and centering

@@ -43,6 +43,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Nuke Branch Autocomplete**: the branch name input for the "Nuke Branch Across All Services" action now features autocomplete, suggesting existing branch names fetched from the server for faster and error-free selection.
 - **Client Branches in Admin Dashboard**: clients in the admin dashboard now have expandable branch lists, matching the service branch UI. Click the toggle arrow on any client to view its branches.
 - **PUB/SUB Bidirectional Legend Entry**: added a "PUB/SUB bidir." entry to the graph legend with a dashed line style to document the new bidirectional messaging edge rendering.
+- **Legend Hover-to-Highlight**: hovering over any legend entry in the dependency graph now highlights matching nodes or edges and dims everything else, making it easy to visually isolate specific node roles (client, service, tags) or edge types (circular, missing, PUB/SUB).
 
 ## [0.11.1] - 2026-04-22
 

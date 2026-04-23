@@ -176,50 +176,50 @@
             <div id="graph-legend" class="w-48 flex-shrink-0 space-y-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm h-fit sticky top-6">
                 <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 border-b border-slate-100 pb-2">Legend</h4>
                 <div class="space-y-3 text-[11px] font-medium text-slate-600">
-                    <div class="flex items-center gap-2.5">
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:client">
                         <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#ccfbf1;border:2px solid #14b8a6"></span>
                         <span>Client only</span>
                     </div>
-                    <div class="flex items-center gap-2.5">
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:service">
                         <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#e0e7ff;border:2px solid #6366f1"></span>
                         <span>Service only</span>
                     </div>
-                    <div class="flex items-center gap-2.5">
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:both">
                         <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#fef3c7;border:2px solid #f59e0b"></span>
                         <span>Client &amp; Service</span>
                     </div>
-                    <div class="flex items-center gap-2.5 pt-2 border-t border-slate-50">
+                    <div class="flex items-center gap-2.5 pt-2 border-t border-slate-50 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:circular">
                         <span class="w-6 h-0.5 rounded shadow-sm" style="background:#a855f7"></span>
                         <span>Circular dep.</span>
                     </div>
-                    <div class="flex items-center gap-2.5">
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:missing">
                         <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f97316;border-top:2px dashed #f97316"></span>
                         <span>Missing dep.</span>
                     </div>
-                    <div class="flex items-center gap-2.5">
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:pubsub-bidir">
                         <span class="w-6" style="border-top:2px dashed #94a3b8"></span>
                         <span>PUB/SUB bidir.</span>
                     </div>
-                    <div class="flex items-center gap-2.5">
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:missing">
                         <svg class="w-4 h-4" viewBox="0 0 16 16"><polygon points="0,8 4,2 12,2 16,8 12,14 4,14" fill="#fff7ed" stroke="#f97316" stroke-width="1.5" stroke-dasharray="2 1"/></svg>
                         <span>Missing svc.</span>
                     </div>
                     <div class="pt-2 border-t border-slate-100">
                         <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">Service Tags</p>
                         <div class="space-y-2">
-                            <div class="flex items-center gap-2.5">
+                            <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:tag-messaging">
                                 <svg class="w-4 h-4" viewBox="0 0 16 16"><polygon points="8,1 15,8 8,15 1,8" fill="#fce7f3" stroke="#ec4899" stroke-width="1.5"/></svg>
                                 <span>Messaging</span>
                             </div>
-                            <div class="flex items-center gap-2.5">
+                            <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:tag-database">
                                 <svg class="w-4 h-4" viewBox="0 0 16 16"><ellipse cx="8" cy="4" rx="7" ry="3" fill="#e0f2fe" stroke="#0284c7" stroke-width="1"/><path d="M1,4 v8 a7,3 0 0,0 14,0 v-8" fill="#e0f2fe" stroke="#0284c7" stroke-width="1"/></svg>
                                 <span>Database</span>
                             </div>
-                            <div class="flex items-center gap-2.5">
+                            <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:tag-grpc">
                                 <svg class="w-4 h-4" viewBox="0 0 16 16"><polygon points="5,0 11,0 16,5 16,11 11,16 5,16 0,11 0,5" fill="#f3e8ff" stroke="#9333ea" stroke-width="1.5"/></svg>
                                 <span>gRPC</span>
                             </div>
-                            <div class="flex items-center gap-2.5">
+                            <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:tag-infrastructure">
                                 <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#f0fdf4;border:2px solid #16a34a"></span>
                                 <span>Infrastructure</span>
                             </div>
@@ -1540,6 +1540,73 @@
             </div>
         `;
     }
+
+    // ── Legend hover-to-highlight ────────────────────────────────────
+    (function initLegendHighlight() {
+        const legend = document.getElementById('graph-legend');
+        if (!legend) return;
+
+        function applyLegendHighlight(filter) {
+            const nodes = window._graphNodeElements;
+            const edges = window._graphEdgeElements;
+            if (!nodes || !edges) return;
+
+            const [type, value] = filter.split(':');
+
+            if (type === 'node-role') {
+                // Highlight matching nodes, dim the rest
+                const matchedNodes = new Set();
+                nodes.forEach((el, name) => {
+                    const match = el.dataset.role === value;
+                    el.style.opacity = match ? '1' : '0.12';
+                    el.style.transition = 'opacity 0.2s';
+                    if (match) matchedNodes.add(name);
+                });
+                // Highlight edges connected to matched nodes
+                edges.forEach((els, key) => {
+                    const [from, to] = key.split('-->');
+                    const connected = matchedNodes.has(from) || matchedNodes.has(to);
+                    els.path.style.opacity = connected ? '1' : '0.08';
+                    els.path.style.transition = 'opacity 0.2s';
+                });
+            } else if (type === 'edge-type') {
+                // Highlight matching edges, dim the rest
+                const connectedNodes = new Set();
+                edges.forEach((els, key) => {
+                    const match = els.path.dataset.edgeType === value;
+                    els.path.style.opacity = match ? '1' : '0.08';
+                    els.path.style.transition = 'opacity 0.2s';
+                    if (match) {
+                        const [from, to] = key.split('-->');
+                        connectedNodes.add(from);
+                        connectedNodes.add(to);
+                    }
+                });
+                nodes.forEach((el, name) => {
+                    el.style.opacity = connectedNodes.has(name) ? '1' : '0.12';
+                    el.style.transition = 'opacity 0.2s';
+                });
+            }
+        }
+
+        function clearLegendHighlight() {
+            const nodes = window._graphNodeElements;
+            const edges = window._graphEdgeElements;
+            if (!nodes || !edges) return;
+            nodes.forEach(el => { el.style.opacity = '1'; el.style.transition = 'opacity 0.2s'; });
+            edges.forEach(els => { els.path.style.opacity = '1'; els.path.style.transition = 'opacity 0.2s'; });
+        }
+
+        legend.querySelectorAll('.legend-item[data-legend-highlight]').forEach(item => {
+            item.addEventListener('mouseenter', () => {
+                const filter = item.dataset.legendHighlight;
+                if (filter) applyLegendHighlight(filter);
+            });
+            item.addEventListener('mouseleave', () => {
+                clearLegendHighlight();
+            });
+        });
+    })();
 
 </script>
 </body>
