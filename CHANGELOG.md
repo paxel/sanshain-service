@@ -42,7 +42,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Configurable Instance ID**: added support for the `INSTANCE_ID` environment variable to allow overriding the randomly generated unique ID for a service instance.
 - **Custom Prometheus Endpoint**: introduced the `PROMETHEUS_ENDPOINT` environment variable, allowing administrators to customize the metrics scraping path (defaults to `/metrics`).
 - **Configurable Static Assets Directory**: added the `STATIC_DIR` environment variable to allow serving web assets from a custom directory.
-- **Enhanced Initial Admin Setup**: the initial root user can now be pre-configured via `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_PASSWORD`, and `INITIAL_ADMIN_TOKEN` environment variables. The startup message now also dynamically includes the correct `BIND_ADDRESS`.
+- **Enhanced Initial Admin Setup**: the initial root user can now be pre-configured via `INITIAL_ADMIN_USERNAME` and `INITIAL_ADMIN_PASSWORD` environment variables. The startup message now also dynamically includes the correct `BIND_ADDRESS`.
 - **Configurable Session Duration**: added `LOGIN_SESSION_DURATION_HOURS` to allow customizing how long user sessions remain valid (defaults to 24 hours).
 - **Flexible Log Capture Filtering**: introduced `CAPTURE_LOG_FILTER` to allow tuning the level and scope of logs captured in the in-memory observability buffer independently from the main stdout logs.
 - **Simplified `sanshain.yaml` Format**: relocated `serviceName` to the root of the configuration file and replaced protocol-specific file fields (`openApiFile`, `protoFile`, etc.) with a single, generic `file` parameter. `apiType` now defaults to `openapi` if omitted.
@@ -50,6 +50,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Extended Configuration Example**: updated the main `sanshain.yaml` example in `docs/sanshain-yaml.md` to demonstrate a multi-protocol configuration supporting OpenAPI, AsyncAPI, and gRPC/Proto simultaneously.
 - **Unified Client Configuration**: updated `docs/sanshain-yaml.md` with detailed support and examples for AsyncAPI and gRPC/Proto in the `sanshain.yaml` format.
 - **Protocol-Specific Examples**: added comprehensive examples for providing and requiring AsyncAPI channels and gRPC methods, including instructions on how to call the endpoints.
+
+### Security
+- **Removed pre-created admin session token**: the initial admin setup no longer creates a long-lived session token (previously valid until 2099) or prints it to stderr. This eliminates the risk of tokens leaking through log aggregation systems (Loki, etc.). Admins must now log in via `POST /login` with the printed credentials to obtain a session token. The `INITIAL_ADMIN_TOKEN` environment variable is no longer supported.
 
 ### Fixed
 - **Docker Release Build**: fixed the release Docker build by ensuring database migrations are included in the Docker build context. The release workflow now copies migrations alongside static assets, and `Dockerfile.release.template` references the correct context-relative path.

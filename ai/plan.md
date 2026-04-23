@@ -39,6 +39,8 @@ The following major milestones have been delivered and are fully functional:
 - **In-Memory Spec Cache**: added `CachedSpecRepository` using `moka` crate with memory-bounded TinyLFU/LRU eviction. Caches all hot read paths (service/branch IDs, endpoints, reports, protected branches, fallback branches, service/client lists) with write-through invalidation. Configurable via `CACHE_MEMORY_MB` env var (default 256 MB) and admin UI. Includes 10 unit tests and JSON stats endpoint.
 - **Graph Focus Tag Cloud**: replaced single-service focus with multi-service tag cloud. Viewport-sized canvas with fit-to-view scaling. Toolbar reorganized with all toggles on the right.
 
+- **Security: Removed pre-created admin token**: removed the long-lived session token from `ensure_initial_admin`. Admins must now log in via `/login` to obtain a session token. `INITIAL_ADMIN_TOKEN` env var removed.
+
 ## Open
 
 ### Deployment

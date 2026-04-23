@@ -913,17 +913,9 @@ pub async fn ensure_initial_admin(repo: &impl SpecRepository) -> Result<(), AppE
     if count == 0 {
         let username = std::env::var("INITIAL_ADMIN_USERNAME").unwrap_or_else(|_| "root".into());
         let password = std::env::var("INITIAL_ADMIN_PASSWORD").unwrap_or_else(|_| generate_random_password());
-        let token = std::env::var("INITIAL_ADMIN_TOKEN").ok();
 
         let password_hash = hash_password(&password)?;
-        let user = repo.create_user(&username, &password_hash, true, true).await?;
-
-        let expires_at = "2099-12-31T23:59:59";
-        let session = if let Some(t) = token {
-            repo.create_session_with_token(user.id, &t, expires_at).await?
-        } else {
-            repo.create_session(user.id, expires_at).await?
-        };
+        let _user = repo.create_user(&username, &password_hash, true, true).await?;
 
         let bind_address = std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "localhost:3000".into());
 
@@ -931,9 +923,8 @@ pub async fn ensure_initial_admin(repo: &impl SpecRepository) -> Result<(), AppE
         eprintln!("  INITIAL ADMIN USER CREATED");
         eprintln!("  Username: {}", username);
         eprintln!("  Password: {}", password);
-        eprintln!("  Token:    {}", session.token);
         eprintln!("════════════════════════════════════════════════════");
-        eprintln!("  Change the password immediately at:");
+        eprintln!("  Log in and change the password immediately at:");
         eprintln!("  http://{}/admin.html", bind_address);
         eprintln!("════════════════════════════════════════════════════");
     }
@@ -3195,6 +3186,32 @@ paths:
         assert!(repo.services.lock().unwrap().is_empty(), "dry-run should not create service");
         assert!(repo.branches.lock().unwrap().is_empty(), "dry-run should not create branch");
         assert!(repo.endpoints.lock().unwrap().is_empty(), "dry-run should not create endpoints");
+    }
+
+    // --- ensure_initial_admin tests ---
+
+    #[tokio::test]
+    async fn test_ensure_initial_admin_creates_user_no_session() {
+        let repo = MockRepo::new();
+        ensure_initial_admin(&repo).await.unwrap();
+
+        let users = repo.users.lock().unwrap();
+        assert_eq!(users.len(), 1, "should create exactly one user");
+        assert!(users[0].is_admin, "user should be admin");
+        assert!(users[0].approved, "user should be approved");
+
+        let sessions = repo.sessions.lock().unwrap();
+        assert!(sessions.is_empty(), "no session should be created");
+    }
+
+    #[tokio::test]
+    async fn test_ensure_initial_admin_idempotent() {
+        let repo = MockRepo::new();
+        ensure_initial_admin(&repo).await.unwrap();
+        ensure_initial_admin(&repo).await.unwrap();
+
+        let users = repo.users.lock().unwrap();
+        assert_eq!(users.len(), 1, "should still have exactly one user");
     }
 
     #[tokio::test]
