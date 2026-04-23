@@ -346,6 +346,7 @@ function renderCustomGraph(report, svgElement, direction) {
 
     // Inject virtual MESSAGING node if any asyncapi dependency exists
     const MESSAGING_NODE = 'MESSAGING';
+    const messagingRegisterEdges = new Set();
     const asyncClients = new Set();
     deps.forEach(d => {
         if ((d.api_type || '').toLowerCase() === 'asyncapi') {
@@ -365,9 +366,9 @@ function renderCustomGraph(report, svgElement, direction) {
             if (!adjMap.get(svc).includes(MESSAGING_NODE)) adjMap.get(svc).push(MESSAGING_NODE);
             const key = `${svc}-->${MESSAGING_NODE}`;
             if (!edgeLabels.has(key)) edgeLabels.set(key, new Set());
-            edgeLabels.get(key).add('AsyncAPI');
-            // Mark these edges as bidirectional pub/sub (dotted, no arrows)
-            pubsubBidirectional.add(key);
+            edgeLabels.get(key).add('register');
+            // Mark these edges as messaging-register (grey dashed, no arrows)
+            messagingRegisterEdges.add(key);
             clientNodes.add(svc);
         }
     }
@@ -635,11 +636,14 @@ function renderCustomGraph(report, svgElement, direction) {
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', d);
         const isBidirectionalPubSub = pubsubBidirectional.has(key);
+        const isMessagingRegister = messagingRegisterEdges.has(key);
         let edgeColor, edgeWidth, markerEnd;
         if (isCycle) {
             edgeColor = '#a855f7'; edgeWidth = '3'; markerEnd = 'url(#arrow-red)';
         } else if (isMissing) {
             edgeColor = '#f97316'; edgeWidth = '2'; markerEnd = 'url(#arrow-orange)';
+        } else if (isMessagingRegister) {
+            edgeColor = '#9ca3af'; edgeWidth = '1.5'; markerEnd = '';
         } else if (isBidirectionalPubSub) {
             edgeColor = '#94a3b8'; edgeWidth = '2'; markerEnd = '';
         } else {
@@ -654,9 +658,10 @@ function renderCustomGraph(report, svgElement, direction) {
         path.dataset.to = e.w;
         if (isCycle) path.dataset.edgeType = 'circular';
         else if (isMissing) path.dataset.edgeType = 'missing';
+        else if (isMessagingRegister) path.dataset.edgeType = 'messaging-register';
         else if (isBidirectionalPubSub) path.dataset.edgeType = 'pubsub-bidir';
         else path.dataset.edgeType = 'normal';
-        if (isCycle || isMissing || isBidirectionalPubSub) path.setAttribute('stroke-dasharray', '6 3');
+        if (isCycle || isMissing || isBidirectionalPubSub || isMessagingRegister) path.setAttribute('stroke-dasharray', '6 3');
         mainG.appendChild(path);
 
         edgeElements.set(key, { path, hitArea });
