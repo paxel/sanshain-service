@@ -269,7 +269,23 @@ function renderCustomGraph(report, svgElement, direction) {
     while (svgElement.firstChild) svgElement.removeChild(svgElement.firstChild);
 
     const deps = report.dependency_graph;
-    if (!deps || deps.length === 0) return;
+    if (!deps || deps.length === 0) {
+        const warningDiv = document.getElementById('graph-cycle-warning');
+        if (warningDiv) warningDiv.classList.add('hidden');
+        svgElement.setAttribute('viewBox', '0 0 400 120');
+        svgElement.style.height = '120px';
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', '200');
+        text.setAttribute('y', '60');
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('dominant-baseline', 'central');
+        text.setAttribute('fill', '#94a3b8');
+        text.setAttribute('font-size', '16');
+        text.setAttribute('font-style', 'italic');
+        text.textContent = 'No dependencies match the current filters';
+        svgElement.appendChild(text);
+        return;
+    }
 
     // Layout direction: 'TB' (default, top→bottom) or 'LR' (left→right).
     // In LR mode the rank axis becomes X, so we swap the roles of x/y

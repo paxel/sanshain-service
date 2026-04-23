@@ -1178,6 +1178,7 @@
             customSvg.classList.add('hidden');
             graphDiv.classList.remove('hidden');
             graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">No branch selected.</div>';
+            hideLoader();
             return;
         }
         // Show loading in the active container
@@ -1216,6 +1217,7 @@
                 graphDiv.classList.remove('hidden');
                 graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">No dependencies found to visualize.</div>';
                 document.getElementById('graph-cycle-warning').classList.add('hidden');
+                hideLoader();
                 return;
             }
             
