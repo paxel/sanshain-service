@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.12.0] - 2026-04-23
 
 ### Added
+- **AsyncAPI 3.x Support**: the service now supports both AsyncAPI 2.x and 3.x specifications. AsyncAPI 3.x documents (which use top-level `operations` with `action: send/receive` instead of `publish`/`subscribe` on channels) are now correctly parsed and split into per-operation snippets.
 - **Markdown Report Viewer**: added a dedicated `report-viewer.html` page that renders markdown reports as beautifully formatted HTML using `marked.js`. Reports now open in a styled viewer with a header, copy-to-clipboard, and download buttons instead of displaying raw markdown in the browser. Both the Service Isolation Report and Full Dependency Report use the new viewer. Report button colors are now consistent (indigo-600).
 - **Admin Nuke Buttons**: added bulk-delete ("nuke") actions for services, clients, non-admin users, and the entire database in the admin dashboard. Each action requires typing an exact confirmation phrase (e.g., `DELETE ALL SERVICES`) in a modal dialog to prevent accidental data loss. Skull/danger emoji emphasize the destructive nature of these operations.
 - **Admin Search/Filter for Services & Clients**: added real-time search/filter input fields to the services and clients lists in the admin dashboard, with item counts and scrollable containers for large lists.
@@ -64,6 +65,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Extended Configuration Example**: updated the main `sanshain.yaml` example in `docs/sanshain-yaml.md` to demonstrate a multi-protocol configuration supporting OpenAPI, AsyncAPI, and gRPC/Proto simultaneously.
 - **Unified Client Configuration**: updated `docs/sanshain-yaml.md` with detailed support and examples for AsyncAPI and gRPC/Proto in the `sanshain.yaml` format.
 - **Protocol-Specific Examples**: added comprehensive examples for providing and requiring AsyncAPI channels and gRPC methods, including instructions on how to call the endpoints.
+- **AsyncAPI v2→v3 Upgrade Guide**: added a version compatibility section to `docs/sanshain-yaml.md` documenting the key differences between AsyncAPI 2.x and 3.x (operation mapping, channel identifier resolution), the restriction around channel `address` vs key name in v3, and a step-by-step migration checklist.
+- **Spec-to-YAML Matching Guide**: added a comprehensive "How Matching Works" section to `docs/sanshain-yaml.md` with detailed side-by-side examples showing exactly how OpenAPI paths, AsyncAPI channels, and Proto services/methods from spec files map to `sanshain.yaml` `path` and `method` fields, including a quick-reference table.
 
 ### Security
 - **Removed pre-created admin session token**: the initial admin setup no longer creates a long-lived session token (previously valid until 2099) or prints it to stderr. This eliminates the risk of tokens leaking through log aggregation systems (Loki, etc.). Admins must now log in via `POST /login` with the printed credentials to obtain a session token. The `INITIAL_ADMIN_TOKEN` environment variable is no longer supported.

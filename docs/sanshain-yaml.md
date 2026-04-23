@@ -150,6 +150,48 @@ requires:
 **Calling the endpoint:**
 "Calling" an AsyncAPI endpoint usually means subscribing to (`SUB`) or publishing to (`PUB`) a channel. In this example, `payment-service` requires the `orders.created` channel to listen for new orders. The client plugin will download a snippet containing only the relevant channel and its associated message/schema definitions.
 
+### AsyncAPI Version Compatibility (v2 → v3)
+
+Sanshain supports **both AsyncAPI 2.x and 3.x** specifications. The version is auto-detected from the `asyncapi:` field in your YAML. Both versions produce the same internal representation and are fully interoperable — a service providing with v2 can be required by a client expecting v3 semantics and vice versa.
+
+However, there is an important difference in how **channel identifiers** are resolved:
+
+| | AsyncAPI 2.x | AsyncAPI 3.x |
+|---|---|---|
+| **Operations** | `channels.*.publish` / `channels.*.subscribe` | `operations.*.action: send` / `operations.*.action: receive` |
+| **Internal mapping** | `publish` → `PUB`, `subscribe` → `SUB` | `send` → `PUB`, `receive` → `SUB` |
+| **Channel identifier** | The channel key (e.g., `user-created`) | The channel `address` field (e.g., `user/signedup`) |
+
+**Key restriction when upgrading from v2 to v3:**
+
+In AsyncAPI 2.x, the channel **key name** (e.g., `orders.created`) is used as the identifier stored in Sanshain. In AsyncAPI 3.x, the channel **`address`** field is used instead, and the key name (e.g., `OrderCreated`) is only a local label.
+
+This means that when writing your `sanshain.yaml` requires for a service that provides an AsyncAPI 3.x spec, you must use the **address** (the actual topic/path name), not the channel key:
+
+```yaml
+# AsyncAPI 3.x spec defines:
+#   channels:
+#     OrderCreated:          ← this is just a local key
+#       address: orders.created  ← this is what Sanshain stores
+
+requires:
+  - serviceName: order-service
+    apiType: asyncapi
+    endpoints:
+      - method: SUB
+        path: orders.created    # ✅ use the address, not the channel key
+      # path: OrderCreated      # ❌ wrong — this is the key, not the address
+```
+
+If a v3 channel has no `address` field, Sanshain falls back to the channel key name.
+
+**Migration checklist (v2 → v3):**
+
+1. Update your AsyncAPI spec to v3 format (move operations out of channels, use `send`/`receive` actions).
+2. Ensure each channel has an explicit `address` field matching the topic/path name your consumers expect.
+3. Update all `sanshain.yaml` `requires` entries to use the channel **address** in the `path` field.
+4. Re-provide the updated spec via `POST /provide/asyncapi` — Sanshain will parse it as v3 automatically.
+
 ### gRPC / Proto
 
 For high-performance RPC communication.
@@ -170,6 +212,220 @@ requires:
 
 **Calling the endpoint:**
 The client plugin will download a `.proto` file containing the `WarehouseService` definition and only the `GetStock` method (including all transitively referenced messages). You can then use `protoc` or your language's gRPC toolkit to generate a client stub and call `GetStock` as a local-looking function.
+
+## How Matching Works Between `sanshain.yaml` and Spec Files
+
+When a service **provides** a spec file, Sanshain splits it into individual endpoints and stores each one indexed by a **path** (or channel/service) and a **method** (or operation/RPC name). When a client **requires** endpoints, Sanshain looks up the stored entries using the `path` and `method` from the `sanshain.yaml`. Understanding this matching is critical — if the values don't align, the require call will return a 404.
+
+The table below summarizes what Sanshain extracts from each spec type and what you must write in `sanshain.yaml` to match:
+
+| Protocol | Spec provides → Sanshain stores | `sanshain.yaml` `path` | `sanshain.yaml` `method` |
+|---|---|---|---|
+| OpenAPI | Each `paths.*` entry + HTTP verb | The OpenAPI path (e.g., `/api/v1/users/{id}`) | The HTTP verb in uppercase (`GET`, `POST`, `PUT`, `DELETE`, `PATCH`) |
+| AsyncAPI 2.x | Each `channels.*` key + `publish`/`subscribe` | The channel key (e.g., `orders.created`) | `PUB` or `SUB` |
+| AsyncAPI 3.x | Each `operations.*` entry → resolved channel `address` + `send`/`receive` | The channel **address** (e.g., `orders.created`) | `PUB` or `SUB` |
+| Proto | Each `service` + `rpc` method | The fully qualified service name (e.g., `inventory.v1.InventoryService`) | The exact RPC method name (e.g., `GetProduct`) — **case-sensitive** |
+
+### OpenAPI Matching — Detailed Example
+
+Given this OpenAPI spec provided by `user-service`:
+
+```yaml
+openapi: 3.0.3
+info:
+  title: User Service
+  version: 1.0.0
+paths:
+  /api/v1/users:
+    get:
+      summary: List users
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: Created
+  /api/v1/users/{id}:
+    get:
+      summary: Get user by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+components:
+  schemas:
+    CreateUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+```
+
+Sanshain splits this into **3 endpoints**:
+
+| Stored `path` | Stored `method` |
+|---|---|
+| `/api/v1/users` | `GET` |
+| `/api/v1/users` | `POST` |
+| `/api/v1/users/{id}` | `GET` |
+
+To require the "get user by ID" and "create user" endpoints, write:
+
+```yaml
+requires:
+  - serviceName: user-service
+    apiType: openapi
+    outputDirectory: generated/user-service
+    endpoints:
+      - method: GET
+        path: /api/v1/users/{id}    # ✅ matches the OpenAPI path exactly
+      - method: POST
+        path: /api/v1/users          # ✅ matches the OpenAPI path exactly
+```
+
+> **Lenient path matching:** Sanshain normalizes path variable names, so `/api/v1/users/{id}` and `/api/v1/users/{userId}` will both match. Redundant slashes and trailing whitespace are also ignored.
+
+The client plugin calls `POST /require-bundle` and receives a **single merged OpenAPI YAML** containing only the two requested operations and their shared schemas (e.g., `CreateUserRequest`), ready for code generation.
+
+### AsyncAPI Matching — Detailed Example
+
+Given this AsyncAPI 2.x spec provided by `order-service`:
+
+```yaml
+asyncapi: 2.6.0
+info:
+  title: Order Events
+  version: 1.0.0
+channels:
+  orders.created:
+    publish:
+      message:
+        payload:
+          type: object
+          properties:
+            orderId:
+              type: string
+            amount:
+              type: number
+  orders.cancelled:
+    subscribe:
+      message:
+        payload:
+          type: object
+          properties:
+            orderId:
+              type: string
+            reason:
+              type: string
+```
+
+Sanshain splits this into **2 endpoints**:
+
+| Stored `path` (channel) | Stored `method` |
+|---|---|
+| `orders.created` | `PUB` |
+| `orders.cancelled` | `SUB` |
+
+To subscribe to new order events, write:
+
+```yaml
+requires:
+  - serviceName: order-service
+    apiType: asyncapi
+    outputDirectory: generated/order-service
+    endpoints:
+      - method: PUB
+        path: orders.created        # ✅ matches the channel key
+```
+
+> **Important:** `PUB` and `SUB` map to the **provider's** perspective. If the provider declares `publish` on a channel, the client requires it with `method: PUB`. See the [AsyncAPI v2→v3 section](#asyncapi-version-compatibility-v2--v3) for how this changes with v3.
+
+The client receives an AsyncAPI YAML snippet containing only the `orders.created` channel and its message/schema definitions.
+
+### Proto / gRPC Matching — Detailed Example
+
+Given this `.proto` file provided by `inventory-service`:
+
+```protobuf
+syntax = "proto3";
+package inventory.v1;
+
+service InventoryService {
+  rpc GetProduct (GetProductRequest) returns (Product);
+  rpc ListProducts (ListProductsRequest) returns (ListProductsResponse);
+  rpc UpdateStock (UpdateStockRequest) returns (UpdateStockResponse);
+}
+
+message GetProductRequest {
+  string product_id = 1;
+}
+
+message Product {
+  string product_id = 1;
+  string name = 2;
+  int32 stock = 3;
+}
+
+message ListProductsRequest {}
+message ListProductsResponse {
+  repeated Product products = 1;
+}
+
+message UpdateStockRequest {
+  string product_id = 1;
+  int32 delta = 2;
+}
+
+message UpdateStockResponse {
+  int32 new_stock = 1;
+}
+```
+
+Sanshain splits this into **3 endpoints**:
+
+| Stored `path` (service) | Stored `method` (RPC) |
+|---|---|
+| `inventory.v1.InventoryService` | `GetProduct` |
+| `inventory.v1.InventoryService` | `ListProducts` |
+| `inventory.v1.InventoryService` | `UpdateStock` |
+
+To require `GetProduct` and `ListProducts`, write:
+
+```yaml
+requires:
+  - serviceName: inventory-service
+    apiType: proto
+    outputDirectory: generated/inventory-service
+    endpoints:
+      - method: GetProduct
+        path: inventory.v1.InventoryService       # ✅ full package + service
+      - method: ListProducts
+        path: inventory.v1.InventoryService       # ✅ same service, different method
+```
+
+> **Case-sensitive:** Unlike OpenAPI and AsyncAPI, gRPC method names are **case-sensitive**. `GetProduct` ≠ `getProduct`.
+
+The client receives a `.proto` file containing only the `InventoryService` definition with the two requested methods and all transitively referenced messages (`GetProductRequest`, `Product`, `ListProductsRequest`, `ListProductsResponse`).
+
+### Quick Reference: What Goes Where
+
+| I want to… | `apiType` | `method` value | `path` value |
+|---|---|---|---|
+| Call a REST endpoint | `openapi` | `GET`, `POST`, `PUT`, `DELETE`, `PATCH` | The OpenAPI path (e.g., `/api/v1/orders`) |
+| Subscribe to a message channel | `asyncapi` | `PUB` or `SUB` | The channel name/address (e.g., `orders.created`) |
+| Call a gRPC method | `proto` | The RPC method name (e.g., `GetProduct`) | The fully qualified service (e.g., `inventory.v1.InventoryService`) |
 
 ## How Plugins Use This
 

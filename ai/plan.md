@@ -27,6 +27,8 @@ The following major milestones have been delivered and are fully functional:
 - **Multiple Provides Support**: updated `docs/sanshain-yaml.md` to support a `provides` list in `sanshain.yaml`, allowing a single service to publish multiple API specifications simultaneously.
 - **Extended Configuration Example**: updated the main `sanshain.yaml` example in `docs/sanshain-yaml.md` to demonstrate a multi-protocol configuration supporting OpenAPI, AsyncAPI, and gRPC/Proto simultaneously.
 - **Unified Client Configuration**: updated `docs/sanshain-yaml.md` with detailed support and examples for AsyncAPI and gRPC/Proto in the `sanshain.yaml` format.
+- **AsyncAPI v2→v3 Upgrade Guide**: added version compatibility documentation to `docs/sanshain-yaml.md` covering operation mapping differences, channel address vs key restriction, and a migration checklist.
+- **Spec-to-YAML Matching Guide**: added a "How Matching Works" section to `docs/sanshain-yaml.md` with detailed examples showing how OpenAPI, AsyncAPI, and Proto spec entries map to `sanshain.yaml` `path`/`method` fields, plus a quick-reference table.
  - **Version 0.11.1**: bumped version to 0.11.1.
 - **Version 0.10.0**: bumped version to 0.10.0 and initialized the new development cycle following the 0.9.0 release.
 - **UI Stability & Cat Loader**: implemented a full-screen "Snoozing Cat" loading overlay and improved UI stability by hiding main content until authentication state is resolved, eliminating visual flickering during navigation.
