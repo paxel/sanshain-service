@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.12.0] - Unreleased
+## [0.12.0] - 2026-04-23
 
 ### Added
 - **Markdown Report Viewer**: added a dedicated `report-viewer.html` page that renders markdown reports as beautifully formatted HTML using `marked.js`. Reports now open in a styled viewer with a header, copy-to-clipboard, and download buttons instead of displaying raw markdown in the browser. Both the Service Isolation Report and Full Dependency Report use the new viewer. Report button colors are now consistent (indigo-600).
@@ -19,8 +19,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - **Duplicate NULL Endpoint Dependencies**: fixed a SQLite bug where the `ON CONFLICT` clause on the `dependencies` table never fired for rows with `endpoint_id IS NULL` (SQLite treats NULLs as distinct for UNIQUE constraints). Added a partial unique index and split the upsert logic to handle NULL and non-NULL endpoint_id separately, preventing duplicate dependency rows.
 - **Dark Mode Graph Toolbar Visibility**: fixed the graph filter toolbar row and its buttons being invisible/unreadable in dark mode. Added dark-mode CSS overrides for the toolbar background (`bg-slate-100/50`), hover states, focus tag pills, and label text colors.
+- **Report Navigation**: reports now open in the same tab instead of a new tab, so the "Back to Dashboard" link in the report viewer works as expected.
 
-## [0.11.1] - Unreleased
+## [0.11.1] - 2026-04-22
 
 ### Added
 - **Enhanced Graph Filtering**: added quick filter toggle buttons (OpenAPI, AsyncAPI, Proto) to the dependency graph toolbar. Users can now selectively hide or show service dependencies based on their protocol.
