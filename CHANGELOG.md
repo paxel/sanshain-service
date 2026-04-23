@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Duplicate NULL Endpoint Dependencies**: fixed a SQLite bug where the `ON CONFLICT` clause on the `dependencies` table never fired for rows with `endpoint_id IS NULL` (SQLite treats NULLs as distinct for UNIQUE constraints). Added a partial unique index and split the upsert logic to handle NULL and non-NULL endpoint_id separately, preventing duplicate dependency rows.
 - **Dark Mode Graph Toolbar Visibility**: fixed the graph filter toolbar row and its buttons being invisible/unreadable in dark mode. Added dark-mode CSS overrides for the toolbar background (`bg-slate-100/50`), hover states, focus tag pills, and label text colors.
 - **Report Navigation**: reports now open in the same tab instead of a new tab, so the "Back to Dashboard" link in the report viewer works as expected.
+- **Missing Nuke Buttons in Admin Dashboard**: the nuke buttons (Nuke Users, Nuke Services, Nuke Clients, Danger Zone / Nuke Database) were present in the static HTML file but missing from the Askama template actually served at `/admin.html`. Added all nuke buttons, the Danger Zone section, the nuke confirmation modal, and the nuke JS functions to `templates/admin.html`.
 
 ## [0.11.1] - 2026-04-22
 

@@ -247,10 +247,14 @@
                         <h2 class="text-lg font-semibold text-slate-800">Users</h2>
                         <p class="text-sm text-slate-500 mt-1">Manage registered users. Unapproved users cannot log in.</p>
                     </div>
-                    <button hx-get="/fragments/admin/users"
-                            hx-target="#users-list"
-                            hx-swap="innerHTML"
-                            class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                    <div class="flex items-center space-x-3">
+                        <button hx-get="/fragments/admin/users"
+                                hx-target="#users-list"
+                                hx-swap="innerHTML"
+                                class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                        <button onclick="nukeConfirm('☠️ Delete ALL non-admin users?', 'DELETE ALL USERS', () => nukeUsers())"
+                            class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium">💀 Nuke Users</button>
+                    </div>
                 </div>
                 <div id="users-list" class="space-y-2"
                      hx-get="/fragments/admin/users"
@@ -350,10 +354,14 @@
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-lg font-semibold text-slate-800">Services</h2>
-                    <button hx-get="/fragments/admin/services"
-                            hx-target="#services-list"
-                            hx-swap="innerHTML"
-                            class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                    <div class="flex items-center space-x-3">
+                        <button hx-get="/fragments/admin/services"
+                                hx-target="#services-list"
+                                hx-swap="innerHTML"
+                                class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                        <button onclick="nukeConfirm('☠️ Delete ALL services and their data?', 'DELETE ALL SERVICES', () => nukeServices())"
+                            class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium">💀 Nuke Services</button>
+                    </div>
                 </div>
                 <div id="services-list" class="space-y-2"
                      hx-get="/fragments/admin/services"
@@ -366,10 +374,14 @@
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-lg font-semibold text-slate-800">Clients</h2>
-                    <button hx-get="/fragments/admin/clients"
-                            hx-target="#clients-list"
-                            hx-swap="innerHTML"
-                            class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                    <div class="flex items-center space-x-3">
+                        <button hx-get="/fragments/admin/clients"
+                                hx-target="#clients-list"
+                                hx-swap="innerHTML"
+                                class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                        <button onclick="nukeConfirm('☠️ Delete ALL clients and their dependencies?', 'DELETE ALL CLIENTS', () => nukeClients())"
+                            class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium">💀 Nuke Clients</button>
+                    </div>
                 </div>
                 <div id="clients-list" class="space-y-2"
                      hx-get="/fragments/admin/clients"
@@ -377,8 +389,37 @@
                      hx-swap="innerHTML">
                 </div>
             </section>
+            <!-- Database Nuke -->
+            <section class="bg-white rounded-xl border border-red-300 shadow-sm p-6">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h2 class="text-lg font-semibold text-red-700">☠️ Danger Zone</h2>
+                        <p class="text-sm text-red-500 mt-1">Irreversible actions. This will wipe the entire database except your admin account and settings.</p>
+                    </div>
+                    <button onclick="nukeConfirm('💀☠️💀 NUKE THE ENTIRE DATABASE? This deletes ALL services, clients, users, branches, endpoints, and protected branches. Only your admin account will survive.', 'NUKE DATABASE', () => nukeDatabase())"
+                        class="bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-lg text-sm transition-colors font-bold border-2 border-red-900">💀☠️ NUKE DATABASE ☠️💀</button>
+                </div>
+            </section>
         </div>
     </main>
+</div>
+
+<!-- Nuke Confirmation Modal -->
+<div id="nuke-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+        <h3 class="text-lg font-bold text-red-700 mb-2">⚠️ Confirm Destructive Action</h3>
+        <p id="nuke-message" class="text-sm text-slate-600 mb-4"></p>
+        <div class="mb-4">
+            <p class="text-xs text-red-700 mb-2">Type <strong id="nuke-expected-text" class="font-mono"></strong> to confirm:</p>
+            <input type="text" id="nuke-input" autocomplete="off"
+                class="w-full px-3 py-2 rounded-lg border border-red-300 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 font-mono">
+        </div>
+        <div id="nuke-error" class="hidden bg-red-50 text-red-600 p-2 rounded-lg mb-3 text-xs"></div>
+        <div class="flex space-x-3">
+            <button id="nuke-yes" class="flex-1 bg-red-700 text-white py-2 rounded-lg hover:bg-red-800 transition-colors font-bold disabled:opacity-50 disabled:cursor-not-allowed" disabled>💀 Confirm</button>
+            <button onclick="closeNukeModal()" class="flex-1 bg-slate-100 text-slate-700 py-2 rounded-lg hover:bg-slate-200 transition-colors font-medium">Cancel</button>
+        </div>
+    </div>
 </div>
 
 <!-- Change Password Modal -->
@@ -832,6 +873,79 @@
             }
         }
     }, 5000);
+
+    // --- Nuke Modal ---
+    let nukeCallback = null;
+    let nukeExpectedText = '';
+
+    function nukeConfirm(message, expectedText, callback) {
+        document.getElementById('nuke-message').innerHTML = message;
+        document.getElementById('nuke-expected-text').textContent = expectedText;
+        document.getElementById('nuke-input').value = '';
+        document.getElementById('nuke-error').classList.add('hidden');
+        document.getElementById('nuke-yes').disabled = true;
+        nukeExpectedText = expectedText;
+        nukeCallback = callback;
+        document.getElementById('nuke-modal').classList.remove('hidden');
+        document.getElementById('nuke-input').focus();
+    }
+
+    document.getElementById('nuke-input').addEventListener('input', function() {
+        document.getElementById('nuke-yes').disabled = this.value !== nukeExpectedText;
+    });
+
+    document.getElementById('nuke-yes').addEventListener('click', async function() {
+        const input = document.getElementById('nuke-input').value;
+        if (input !== nukeExpectedText) return;
+        if (nukeCallback) {
+            try {
+                await nukeCallback();
+                closeNukeModal();
+            } catch (err) {
+                const errEl = document.getElementById('nuke-error');
+                errEl.textContent = err.message || 'Operation failed';
+                errEl.classList.remove('hidden');
+            }
+        }
+    });
+
+    function closeNukeModal() {
+        document.getElementById('nuke-modal').classList.add('hidden');
+        nukeCallback = null;
+    }
+
+    async function nukeServices() {
+        const res = await apiCall('/admin/nuke/services', { method: 'POST', body: { confirmation: 'DELETE ALL SERVICES' } });
+        if (!res.ok) throw new Error('Failed to nuke services');
+        const data = await res.json();
+        htmx.trigger('#services-list', 'load');
+        alert(`Deleted ${data.deleted} service(s).`);
+    }
+
+    async function nukeClients() {
+        const res = await apiCall('/admin/nuke/clients', { method: 'POST', body: { confirmation: 'DELETE ALL CLIENTS' } });
+        if (!res.ok) throw new Error('Failed to nuke clients');
+        const data = await res.json();
+        htmx.trigger('#clients-list', 'load');
+        alert(`Deleted ${data.deleted} client(s).`);
+    }
+
+    async function nukeUsers() {
+        const res = await apiCall('/admin/nuke/users', { method: 'POST', body: { confirmation: 'DELETE ALL USERS' } });
+        if (!res.ok) throw new Error('Failed to nuke users');
+        const data = await res.json();
+        htmx.trigger('#users-list', 'load');
+        alert(`Deleted ${data.deleted} user(s).`);
+    }
+
+    async function nukeDatabase() {
+        const res = await apiCall('/admin/nuke/database', { method: 'POST', body: { confirmation: 'NUKE DATABASE' } });
+        if (!res.ok) throw new Error('Failed to nuke database');
+        htmx.trigger('#services-list', 'load');
+        htmx.trigger('#clients-list', 'load');
+        htmx.trigger('#users-list', 'load');
+        alert('Database nuked. Only your admin account survived.');
+    }
 
     // --- Init ---
     fetchCsrfToken().then(() => {
