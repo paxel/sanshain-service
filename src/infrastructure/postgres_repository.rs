@@ -311,27 +311,52 @@ impl SpecRepository for PostgresSpecRepository {
     ) -> Result<(), RepositoryError> {
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         let normalized_path = crate::openapi::normalize_path(params.path);
-        sqlx::query(
-            r#"
-            INSERT INTO dependencies 
-            (client_id, endpoint_id, api_type, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT(client_id, endpoint_id, requested_service_id, requested_branch_name, api_type, requested_path, requested_method)
-            DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
-            "#,
-        )
-        .bind(params.client_id)
-        .bind(params.endpoint_id)
-        .bind(params.api_type.as_str())
-        .bind(params.service_id)
-        .bind(params.branch_name)
-        .bind(params.path)
-        .bind(normalized_path)
-        .bind(params.method)
-        .bind(&now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        if params.endpoint_id.is_some() {
+            sqlx::query(
+                r#"
+                INSERT INTO dependencies 
+                (client_id, endpoint_id, api_type, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                ON CONFLICT(client_id, endpoint_id, requested_service_id, requested_branch_name, api_type, requested_path, requested_method)
+                DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
+                "#,
+            )
+            .bind(params.client_id)
+            .bind(params.endpoint_id)
+            .bind(params.api_type.as_str())
+            .bind(params.service_id)
+            .bind(params.branch_name)
+            .bind(params.path)
+            .bind(&normalized_path)
+            .bind(params.method)
+            .bind(&now)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        } else {
+            sqlx::query(
+                r#"
+                INSERT INTO dependencies 
+                (client_id, endpoint_id, api_type, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at)
+                VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8)
+                ON CONFLICT(client_id, requested_service_id, requested_branch_name, api_type, requested_path, requested_method)
+                WHERE endpoint_id IS NULL
+                DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
+                "#,
+            )
+            .bind(params.client_id)
+            .bind(params.api_type.as_str())
+            .bind(params.service_id)
+            .bind(params.branch_name)
+            .bind(params.path)
+            .bind(&normalized_path)
+            .bind(params.method)
+            .bind(&now)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
 
         Ok(())
     }
@@ -346,26 +371,55 @@ impl SpecRepository for PostgresSpecRepository {
 
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-        let mut query_builder = sqlx::QueryBuilder::new(
-            "INSERT INTO dependencies (client_id, endpoint_id, api_type, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at) "
-        );
+        let (resolved, missing): (Vec<_>, Vec<_>) = params.into_iter().partition(|p| p.endpoint_id.is_some());
 
-        query_builder.push_values(params, |mut b, p| {
+        if !resolved.is_empty() {
+            let mut query_builder = sqlx::QueryBuilder::new(
+                "INSERT INTO dependencies (client_id, endpoint_id, api_type, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at) "
+            );
+
+            query_builder.push_values(resolved, |mut b, p| {
+                let normalized_path = crate::openapi::normalize_path(p.path);
+                b.push_bind(p.client_id)
+                    .push_bind(p.endpoint_id)
+                    .push_bind(p.api_type.as_str())
+                    .push_bind(p.service_id)
+                    .push_bind(p.branch_name)
+                    .push_bind(p.path)
+                    .push_bind(normalized_path)
+                    .push_bind(p.method)
+                    .push_bind(&now);
+            });
+
+            query_builder.push(" ON CONFLICT(client_id, endpoint_id, requested_service_id, requested_branch_name, api_type, requested_path, requested_method) DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at");
+
+            query_builder.build().execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+
+        for p in missing {
             let normalized_path = crate::openapi::normalize_path(p.path);
-            b.push_bind(p.client_id)
-                .push_bind(p.endpoint_id)
-                .push_bind(p.api_type.as_str())
-                .push_bind(p.service_id)
-                .push_bind(p.branch_name)
-                .push_bind(p.path)
-                .push_bind(normalized_path)
-                .push_bind(p.method)
-                .push_bind(&now);
-        });
-
-        query_builder.push(" ON CONFLICT(client_id, endpoint_id, requested_service_id, requested_branch_name, api_type, requested_path, requested_method) DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at");
-
-        query_builder.build().execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            sqlx::query(
+                r#"
+                INSERT INTO dependencies 
+                (client_id, endpoint_id, api_type, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at)
+                VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8)
+                ON CONFLICT(client_id, requested_service_id, requested_branch_name, api_type, requested_path, requested_method)
+                WHERE endpoint_id IS NULL
+                DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
+                "#,
+            )
+            .bind(p.client_id)
+            .bind(p.api_type.as_str())
+            .bind(p.service_id)
+            .bind(p.branch_name)
+            .bind(p.path)
+            .bind(normalized_path)
+            .bind(p.method)
+            .bind(&now)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
 
         Ok(())
     }

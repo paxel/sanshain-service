@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.0] - Unreleased
+
+### Added
+- **Missing Endpoint Graph Visualization**: dependency edges targeting unresolved/missing endpoints are now rendered as orange dashed lines with orange arrowheads in the custom dependency graph. Services where ALL inbound edges are missing are displayed as orange hexagonal nodes, providing immediate visual feedback on unresolved dependencies.
+- **Graph Legend Updates**: added legend entries for missing dependency edges (orange dashed) and missing service nodes (orange hexagon).
+- **Integration Tests for Missing Endpoints**: added tests verifying that clients with only missing endpoint dependencies appear in the client list, and that duplicate NULL endpoint_id dependency rows are properly deduplicated.
+
+### Fixed
+- **Duplicate NULL Endpoint Dependencies**: fixed a SQLite bug where the `ON CONFLICT` clause on the `dependencies` table never fired for rows with `endpoint_id IS NULL` (SQLite treats NULLs as distinct for UNIQUE constraints). Added a partial unique index and split the upsert logic to handle NULL and non-NULL endpoint_id separately, preventing duplicate dependency rows.
+
 ## [0.11.1] - Unreleased
 
 ### Added

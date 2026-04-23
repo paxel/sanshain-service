@@ -294,6 +294,14 @@ function renderCustomGraph(report, svgElement, direction) {
     const dir = direction === 'LR' ? 'LR' : 'TB';
     const isLR = dir === 'LR';
 
+    // Build missing edge keys from report.missing_endpoints
+    const missingEdgeKeys = new Set();
+    if (report.missing_endpoints) {
+        report.missing_endpoints.forEach(me => {
+            missingEdgeKeys.add(`${me.client}-->${me.service}`);
+        });
+    }
+
     // Build graph data
     const allNodes = new Set();
     const adjMap = new Map();
@@ -313,6 +321,15 @@ function renderCustomGraph(report, svgElement, direction) {
     const clientNodes = new Set(deps.map(d => d.client));
     const serviceNodes = new Set(deps.map(d => d.service));
     const cycleEdges = graphDetectCycles(adjMap);
+
+    // Identify missing services: services where ALL inbound edges are missing
+    const missingServices = new Set();
+    for (const svc of serviceNodes) {
+        const inboundKeys = deps.filter(d => d.service === svc).map(d => `${d.client}-->${d.service}`);
+        if (inboundKeys.length > 0 && inboundKeys.every(k => missingEdgeKeys.has(k))) {
+            missingServices.add(svc);
+        }
+    }
 
     // Show/hide cycle warning
     const warningDiv = document.getElementById('graph-cycle-warning');
@@ -491,9 +508,9 @@ function renderCustomGraph(report, svgElement, direction) {
 
     // Defs for arrowheads
     const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-    ['#94a3b8', '#ef4444'].forEach((color, i) => {
+    [['arrow', '#94a3b8'], ['arrow-red', '#ef4444'], ['arrow-orange', '#f97316'], ['arrow-green', '#22c55e']].forEach(([id, color]) => {
         const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
-        marker.setAttribute('id', i === 0 ? 'arrow' : 'arrow-red');
+        marker.setAttribute('id', id);
         marker.setAttribute('viewBox', '0 0 10 10');
         marker.setAttribute('refX', '10');
         marker.setAttribute('refY', '5');
@@ -564,16 +581,25 @@ function renderCustomGraph(report, svgElement, direction) {
         mainG.appendChild(hitArea);
 
         // Visible edge
+        const isMissing = missingEdgeKeys.has(key);
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', d);
-        path.setAttribute('stroke', isCycle ? '#ef4444' : '#94a3b8');
-        path.setAttribute('stroke-width', isCycle ? '3' : '2');
+        let edgeColor, edgeWidth, markerEnd;
+        if (isCycle) {
+            edgeColor = '#ef4444'; edgeWidth = '3'; markerEnd = 'url(#arrow-red)';
+        } else if (isMissing) {
+            edgeColor = '#f97316'; edgeWidth = '2'; markerEnd = 'url(#arrow-orange)';
+        } else {
+            edgeColor = '#94a3b8'; edgeWidth = '2'; markerEnd = 'url(#arrow)';
+        }
+        path.setAttribute('stroke', edgeColor);
+        path.setAttribute('stroke-width', edgeWidth);
         path.setAttribute('fill', 'none');
-        path.setAttribute('marker-end', isCycle ? 'url(#arrow-red)' : 'url(#arrow)');
+        path.setAttribute('marker-end', markerEnd);
         path.setAttribute('class', 'graph-edge');
         path.dataset.from = e.v;
         path.dataset.to = e.w;
-        if (isCycle) path.setAttribute('stroke-dasharray', '6 3');
+        if (isCycle || isMissing) path.setAttribute('stroke-dasharray', '6 3');
         mainG.appendChild(path);
 
         edgeElements.set(key, { path, hitArea });
@@ -587,8 +613,11 @@ function renderCustomGraph(report, svgElement, direction) {
         const isClient = clientNodes.has(node);
         const isService = serviceNodes.has(node);
 
+        const isMissingService = missingServices.has(node);
         let fill, stroke, textColor;
-        if (isClient && isService) {
+        if (isMissingService) {
+            fill = '#fff7ed'; stroke = '#f97316'; textColor = '#9a3412';
+        } else if (isClient && isService) {
             fill = '#fef3c7'; stroke = '#f59e0b'; textColor = '#92400e';
         } else if (isService) {
             fill = '#e0e7ff'; stroke = '#6366f1'; textColor = '#3730a3';
@@ -601,17 +630,37 @@ function renderCustomGraph(report, svgElement, direction) {
         group.dataset.node = node;
         group.style.cursor = 'pointer';
 
-        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        rect.setAttribute('x', nd.x - nd.width / 2);
-        rect.setAttribute('y', nd.y - nd.height / 2);
-        rect.setAttribute('width', nd.width);
-        rect.setAttribute('height', nd.height);
-        rect.setAttribute('rx', '8');
-        rect.setAttribute('ry', '8');
-        rect.setAttribute('fill', fill);
-        rect.setAttribute('stroke', stroke);
-        rect.setAttribute('stroke-width', '2');
-        group.appendChild(rect);
+        if (isMissingService) {
+            // Hexagonal shape for missing services
+            const cx = nd.x, cy = nd.y, w = nd.width / 2, h = nd.height / 2;
+            const hex = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+            const pts = [
+                [cx - w, cy],
+                [cx - w * 0.7, cy - h],
+                [cx + w * 0.7, cy - h],
+                [cx + w, cy],
+                [cx + w * 0.7, cy + h],
+                [cx - w * 0.7, cy + h]
+            ].map(p => p.join(',')).join(' ');
+            hex.setAttribute('points', pts);
+            hex.setAttribute('fill', fill);
+            hex.setAttribute('stroke', stroke);
+            hex.setAttribute('stroke-width', '2');
+            hex.setAttribute('stroke-dasharray', '6 3');
+            group.appendChild(hex);
+        } else {
+            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect.setAttribute('x', nd.x - nd.width / 2);
+            rect.setAttribute('y', nd.y - nd.height / 2);
+            rect.setAttribute('width', nd.width);
+            rect.setAttribute('height', nd.height);
+            rect.setAttribute('rx', '8');
+            rect.setAttribute('ry', '8');
+            rect.setAttribute('fill', fill);
+            rect.setAttribute('stroke', stroke);
+            rect.setAttribute('stroke-width', '2');
+            group.appendChild(rect);
+        }
 
         // Double border for "both" nodes
         if (isClient && isService) {

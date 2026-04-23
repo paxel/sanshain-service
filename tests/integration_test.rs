@@ -2652,3 +2652,148 @@ async fn test_multiple_provides() {
     assert!(types.contains(&"proto".to_string()));
     assert!(types.contains(&"asyncapi".to_string()));
 }
+
+#[tokio::test]
+async fn test_client_with_missing_endpoint_appears_in_list() {
+    let (app, admin_token) = setup_app_with_admin().await;
+
+    // Provide a spec with only /users
+    let yaml = "openapi: '3.0.0'\ninfo:\n  title: Svc\n  version: '1.0'\npaths:\n  /users:\n    get:\n      operationId: getUsers\n      responses:\n        '200':\n          description: OK\n";
+    let provide_payload = json!({
+        "servicename": "missing-ep-svc",
+        "branch": "main",
+        "openapi_yaml": yaml
+    });
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&provide_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+
+    // Client requires a NON-EXISTENT endpoint from that service
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/require?clientname=missing-client&servicename=missing-ep-svc&branch=main&path=/nonexistent&method=GET&timeout=0")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    // Should get 404 since endpoint doesn't exist
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    // Client should still appear in the clients list
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/clients")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let clients: Vec<String> = serde_json::from_slice(&body).unwrap();
+    assert!(
+        clients.contains(&"missing-client".to_string()),
+        "Client with missing endpoint should appear in clients list, got: {:?}", clients
+    );
+
+    // The report should show this in missing_endpoints
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/report?branch=main")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let report: Value = serde_json::from_slice(&body).unwrap();
+    let missing = report["missing_endpoints"].as_array().unwrap();
+    assert!(
+        !missing.is_empty(),
+        "Report should contain missing endpoints for the unresolved require"
+    );
+    assert_eq!(missing[0]["client"].as_str().unwrap(), "missing-client");
+}
+
+#[tokio::test]
+async fn test_no_duplicate_null_endpoint_dependencies() {
+    let (app, admin_token) = setup_app_with_admin().await;
+
+    // Provide a spec
+    let yaml = "openapi: '3.0.0'\ninfo:\n  title: Svc\n  version: '1.0'\npaths:\n  /users:\n    get:\n      operationId: getUsers\n      responses:\n        '200':\n          description: OK\n";
+    let provide_payload = json!({
+        "servicename": "dedup-svc",
+        "branch": "main",
+        "openapi_yaml": yaml
+    });
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&provide_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+
+    // Require a missing endpoint TWICE
+    for _ in 0..2 {
+        let _response: Response = app.clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/require?clientname=dedup-client&servicename=dedup-svc&branch=main&path=/missing&method=GET&timeout=0")
+                    .header("Authorization", format!("Bearer {}", admin_token))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+    }
+
+    // Check report: should have exactly ONE missing endpoint entry, not two
+    let response: Response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/report?branch=main")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let report: Value = serde_json::from_slice(&body).unwrap();
+    let missing = report["missing_endpoints"].as_array().unwrap();
+    let dedup_missing: Vec<&Value> = missing.iter()
+        .filter(|m| m["client"].as_str() == Some("dedup-client") && m["service"].as_str() == Some("dedup-svc"))
+        .collect();
+    assert_eq!(
+        dedup_missing.len(), 1,
+        "Should have exactly 1 missing endpoint entry, not duplicates. Got: {:?}", dedup_missing
+    );
+}
