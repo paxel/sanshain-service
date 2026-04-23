@@ -40,6 +40,7 @@ The following major milestones have been delivered and are fully functional:
 - **Graph Focus Tag Cloud**: replaced single-service focus with multi-service tag cloud. Viewport-sized canvas with fit-to-view scaling. Toolbar reorganized with all toggles on the right.
 
 - **Security: Removed pre-created admin token**: removed the long-lived session token from `ensure_initial_admin`. Admins must now log in via `/login` to obtain a session token. `INITIAL_ADMIN_TOKEN` env var removed.
+- **Markdown Report Viewer**: added `report-viewer.html` that renders markdown reports as styled HTML using `marked.js`, with copy-to-clipboard and download buttons. All report links now route through the viewer. Unified report button colors to indigo-600.
 
 ## Open
 

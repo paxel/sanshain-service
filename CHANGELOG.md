@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.12.0] - Unreleased
 
 ### Added
+- **Markdown Report Viewer**: added a dedicated `report-viewer.html` page that renders markdown reports as beautifully formatted HTML using `marked.js`. Reports now open in a styled viewer with a header, copy-to-clipboard, and download buttons instead of displaying raw markdown in the browser. Both the Service Isolation Report and Full Dependency Report use the new viewer. Report button colors are now consistent (indigo-600).
 - **Admin Nuke Buttons**: added bulk-delete ("nuke") actions for services, clients, non-admin users, and the entire database in the admin dashboard. Each action requires typing an exact confirmation phrase (e.g., `DELETE ALL SERVICES`) in a modal dialog to prevent accidental data loss. Skull/danger emoji emphasize the destructive nature of these operations.
 - **Admin Search/Filter for Services & Clients**: added real-time search/filter input fields to the services and clients lists in the admin dashboard, with item counts and scrollable containers for large lists.
 - **Danger Zone Section**: added a dedicated "Danger Zone" section at the bottom of the admin dashboard for the full database nuke operation, styled with red borders and warning text.
