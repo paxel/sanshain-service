@@ -112,6 +112,35 @@ impl SqliteSpecRepository {
 }
 
 impl SpecRepository for SqliteSpecRepository {
+    async fn get_spec_version(&self, service_id: i64, branch_id: i64) -> Result<Option<(i32, String)>, RepositoryError> {
+        sqlx::query_as::<sqlx::Sqlite, (i32, String)>("SELECT version, content_hash FROM service_spec_versions WHERE service_id = ? AND branch_id = ?")
+            .bind(service_id)
+            .bind(branch_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))
+    }
+
+    async fn increment_spec_version(&self, service_id: i64, branch_id: i64, content_hash: &str) -> Result<i32, RepositoryError> {
+        let row = sqlx::query("
+            INSERT INTO service_spec_versions (service_id, branch_id, version, content_hash, updated_at)
+            VALUES (?, ?, 1, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(service_id, branch_id) DO UPDATE SET
+                version = version + 1,
+                content_hash = excluded.content_hash,
+                updated_at = excluded.updated_at
+            RETURNING version
+        ")
+        .bind(service_id)
+        .bind(branch_id)
+        .bind(content_hash)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        row.try_get::<i32, _>(0).map_err(|e| RepositoryError::Internal(e.to_string()))
+    }
+
     async fn find_service(&self, name: &str) -> Result<Option<i64>, RepositoryError> {
         let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM services WHERE name = ?")
             .bind(name)
@@ -1462,5 +1491,68 @@ impl SpecRepository for SqliteSpecRepository {
             result.entry(name).or_default().push(tag);
         }
         Ok(result)
+    }
+
+    async fn get_shared_contract(
+        &self,
+        branch_name: &str,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<Option<SharedContract>, RepositoryError> {
+        let row = sqlx::query(
+            "SELECT branch_name, api_type, path, method, source_yaml, current_yaml, owner_service_id FROM shared_contracts WHERE branch_name = ? AND api_type = ? AND path = ? AND method = ?"
+        )
+        .bind(branch_name)
+        .bind(api_type.as_str())
+        .bind(path)
+        .bind(method)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        match row {
+            Some(r) => {
+                use sqlx::Row;
+                Ok(Some(SharedContract {
+                    branch_name: r.get(0),
+                    api_type: ApiType::from_str(r.get::<&str, _>(1)).unwrap_or_default(),
+                    path: r.get(2),
+                    method: r.get(3),
+                    source_yaml: r.get(4),
+                    current_yaml: r.get(5),
+                    owner_service_id: r.get(6),
+                }))
+            },
+            None => Ok(None),
+        }
+    }
+
+    async fn upsert_shared_contract(
+        &self,
+        contract: SharedContract,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            r#"
+            INSERT INTO shared_contracts (branch_name, api_type, path, method, source_yaml, current_yaml, owner_service_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(branch_name, api_type, path, method) DO UPDATE SET
+                source_yaml = excluded.source_yaml,
+                current_yaml = excluded.current_yaml,
+                owner_service_id = excluded.owner_service_id
+            "#
+        )
+        .bind(&contract.branch_name)
+        .bind(contract.api_type.as_str())
+        .bind(&contract.path)
+        .bind(&contract.method)
+        .bind(&contract.source_yaml)
+        .bind(&contract.current_yaml)
+        .bind(contract.owner_service_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(())
     }
 }

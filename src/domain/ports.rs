@@ -55,6 +55,13 @@ pub type EndpointDetails = (i64, String);
 pub type EndpointMap = HashMap<(String, String), EndpointDetails>;
 
 pub trait SpecRepository: Send + Sync {
+    /// Get the current spec version and content hash for a service/branch.
+    fn get_spec_version(&self, service_id: i64, branch_id: i64) -> impl Future<Output = Result<Option<(i32, String)>, RepositoryError>> + Send;
+
+    /// Update or increment the spec version and content hash for a service/branch.
+    /// Returns the new version.
+    fn increment_spec_version(&self, service_id: i64, branch_id: i64, content_hash: &str) -> impl Future<Output = Result<i32, RepositoryError>> + Send;
+
     /// Ensure a service exists and return its ID.
     fn ensure_service(&self, name: &str) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
 
@@ -273,4 +280,21 @@ pub trait SpecRepository: Send + Sync {
 
     /// Get all service tags as a map of service_name -> Vec<tag>.
     fn get_all_service_tags(&self) -> impl Future<Output = Result<HashMap<String, Vec<String>>, RepositoryError>> + Send;
+
+    // --- Shared Contracts (Problem 2) ---
+
+    /// Get a shared contract for a branch and endpoint.
+    fn get_shared_contract(
+        &self,
+        branch_name: &str,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> impl Future<Output = Result<Option<SharedContract>, RepositoryError>> + Send;
+
+    /// Upsert a shared contract.
+    fn upsert_shared_contract(
+        &self,
+        contract: SharedContract,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }

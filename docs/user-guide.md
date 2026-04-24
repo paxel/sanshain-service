@@ -39,9 +39,11 @@ When you use a Sanshain plugin, the following happens automatically:
 
 1. The plugin reads your OpenAPI, AsyncAPI, or Proto file and uploads it to Sanshain for the current service and branch.
 2. Sanshain parses the file and splits it into one snippet per endpoint (path + method for OpenAPI), channel (for AsyncAPI), or service method (for Proto).
-3. On a **protected branch**, Sanshain performs a **backward compatibility check** (currently for OpenAPI). Backward-compatible changes are accepted and a new version is recorded. Breaking changes are rejected with `409 Conflict`.
-4. On a **feature branch**, existing definitions are freely overwritten without compatibility checks.
-5. If `dry_run` is set to `true`, all validation runs but nothing is stored — useful for CI checks.
+3. On a **protected branch**, Sanshain performs a **backward compatibility check** (currently for OpenAPI). Backward-compatible changes are accepted and a new service-level version is recorded. Breaking changes are rejected with `409 Conflict`.
+4. On a **feature branch**, existing definitions can be updated, but **multi-publisher conflict detection** ensures that shared endpoints remain compatible with the original source or current owner on that branch.
+5. **Optimistic Concurrency**: If a `base_version` is provided, Sanshain ensures the update is applied only if it matches the current server version, preventing accidental overwrites in concurrent development.
+6. **Content-Based Skipping**: If the uploaded specification's SHA-256 hash matches the current version, the server skips the update and returns the existing version, reducing unnecessary version bumps.
+7. If `dry_run` is set to `true`, all validation runs but nothing is stored — useful for CI checks.
 
 ### Requiring an endpoint
 

@@ -38,44 +38,45 @@ fn mb_to_bytes(mb: u64) -> u64 {
     mb * 1024 * 1024
 }
 
+struct RepoCaches {
+    endpoint_cache: Cache<EndpointKey, Arc<(i64, String)>>,
+    branch_endpoints_cache: Cache<i64, Arc<Vec<EndpointRecord>>>,
+    report_cache: Cache<String, Arc<DependencyReport>>,
+    services_cache: Cache<String, Arc<Vec<ServiceSummary>>>,
+    service_id_cache: Cache<String, i64>,
+    branch_id_cache: Cache<(i64, String), i64>,
+    protected_branches_cache: Cache<String, Arc<Vec<String>>>,
+    fallback_branch_cache: Cache<String, Option<String>>,
+    branch_protected_cache: Cache<String, bool>,
+    services_list_cache: Cache<String, Arc<Vec<String>>>,
+    branches_list_cache: Cache<String, Arc<Vec<String>>>,
+    clients_list_cache: Cache<String, Arc<Vec<String>>>,
+}
+
 impl CachedSpecRepository {
     pub fn new(inner: DatabaseRepo, memory_limit_mb: u64) -> Self {
         let caches = Self::build_caches(memory_limit_mb);
         Self {
             inner: Box::new(inner),
-            endpoint_cache: caches.0,
-            branch_endpoints_cache: caches.1,
-            report_cache: caches.2,
-            services_cache: caches.3,
-            service_id_cache: caches.4,
-            branch_id_cache: caches.5,
-            protected_branches_cache: caches.6,
-            fallback_branch_cache: caches.7,
-            branch_protected_cache: caches.8,
-            services_list_cache: caches.9,
-            branches_list_cache: caches.10,
-            clients_list_cache: caches.11,
+            endpoint_cache: caches.endpoint_cache,
+            branch_endpoints_cache: caches.branch_endpoints_cache,
+            report_cache: caches.report_cache,
+            services_cache: caches.services_cache,
+            service_id_cache: caches.service_id_cache,
+            branch_id_cache: caches.branch_id_cache,
+            protected_branches_cache: caches.protected_branches_cache,
+            fallback_branch_cache: caches.fallback_branch_cache,
+            branch_protected_cache: caches.branch_protected_cache,
+            services_list_cache: caches.services_list_cache,
+            branches_list_cache: caches.branches_list_cache,
+            clients_list_cache: caches.clients_list_cache,
             hits: Arc::new(AtomicU64::new(0)),
             misses: Arc::new(AtomicU64::new(0)),
             memory_limit_mb: Arc::new(AtomicU64::new(memory_limit_mb)),
         }
     }
 
-    #[allow(clippy::type_complexity)]
-    fn build_caches(memory_limit_mb: u64) -> (
-        Cache<EndpointKey, Arc<(i64, String)>>,
-        Cache<i64, Arc<Vec<EndpointRecord>>>,
-        Cache<String, Arc<DependencyReport>>,
-        Cache<String, Arc<Vec<ServiceSummary>>>,
-        Cache<String, i64>,
-        Cache<(i64, String), i64>,
-        Cache<String, Arc<Vec<String>>>,
-        Cache<String, Option<String>>,
-        Cache<String, bool>,
-        Cache<String, Arc<Vec<String>>>,
-        Cache<String, Arc<Vec<String>>>,
-        Cache<String, Arc<Vec<String>>>,
-    ) {
+    fn build_caches(memory_limit_mb: u64) -> RepoCaches {
         let total = mb_to_bytes(memory_limit_mb);
         let endpoint_budget = total * 60 / 100;
         let report_budget = total * 20 / 100;
@@ -182,7 +183,7 @@ impl CachedSpecRepository {
             })
             .build();
 
-        (
+        RepoCaches {
             endpoint_cache,
             branch_endpoints_cache,
             report_cache,
@@ -195,7 +196,7 @@ impl CachedSpecRepository {
             services_list_cache,
             branches_list_cache,
             clients_list_cache,
-        )
+        }
     }
 
     pub fn cache_stats(&self) -> CacheStats {
@@ -299,6 +300,14 @@ impl CachedSpecRepository {
 
 impl SpecRepository for CachedSpecRepository {
     // --- Cached reads with write-through invalidation ---
+
+    async fn get_spec_version(&self, service_id: i64, branch_id: i64) -> Result<Option<(i32, String)>, RepositoryError> {
+        self.inner.get_spec_version(service_id, branch_id).await
+    }
+
+    async fn increment_spec_version(&self, service_id: i64, branch_id: i64, content_hash: &str) -> Result<i32, RepositoryError> {
+        self.inner.increment_spec_version(service_id, branch_id, content_hash).await
+    }
 
     async fn ensure_service(&self, name: &str) -> Result<i64, RepositoryError> {
         let id = self.inner.ensure_service(name).await?;
@@ -836,6 +845,14 @@ impl SpecRepository for CachedSpecRepository {
 
     async fn get_all_service_tags(&self) -> Result<std::collections::HashMap<String, Vec<String>>, RepositoryError> {
         self.inner.get_all_service_tags().await
+    }
+
+    async fn get_shared_contract(&self, branch_name: &str, api_type: ApiType, path: &str, method: &str) -> Result<Option<SharedContract>, RepositoryError> {
+        self.inner.get_shared_contract(branch_name, api_type, path, method).await
+    }
+
+    async fn upsert_shared_contract(&self, contract: SharedContract) -> Result<(), RepositoryError> {
+        self.inner.upsert_shared_contract(contract).await
     }
 }
 

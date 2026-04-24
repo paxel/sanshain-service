@@ -31,6 +31,14 @@ macro_rules! delegate {
 }
 
 impl SpecRepository for DatabaseRepo {
+    async fn get_spec_version(&self, service_id: i64, branch_id: i64) -> Result<Option<(i32, String)>, RepositoryError> {
+        delegate!(self, get_spec_version(service_id, branch_id))
+    }
+
+    async fn increment_spec_version(&self, service_id: i64, branch_id: i64, content_hash: &str) -> Result<i32, RepositoryError> {
+        delegate!(self, increment_spec_version(service_id, branch_id, content_hash))
+    }
+
     async fn ensure_service(&self, name: &str) -> Result<i64, RepositoryError> {
         delegate!(self, ensure_service(name))
     }
@@ -274,5 +282,13 @@ impl SpecRepository for DatabaseRepo {
 
     async fn get_all_service_tags(&self) -> Result<HashMap<String, Vec<String>>, RepositoryError> {
         delegate!(self, get_all_service_tags())
+    }
+
+    async fn get_shared_contract(&self, branch_name: &str, api_type: ApiType, path: &str, method: &str) -> Result<Option<SharedContract>, RepositoryError> {
+        delegate!(self, get_shared_contract(branch_name, api_type, path, method))
+    }
+
+    async fn upsert_shared_contract(&self, contract: SharedContract) -> Result<(), RepositoryError> {
+        delegate!(self, upsert_shared_contract(contract))
     }
 }

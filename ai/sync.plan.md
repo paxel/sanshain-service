@@ -30,22 +30,8 @@ For AsyncAPI, the publisher is the "server" and subscribers are "clients".
 The `/provide/asyncapi` endpoint should therefore **only store PUB operations** and silently
 discard (or warn about) SUB operations in the provided spec.
 
-### Options
-
-| Option                                | Description                                                                                                                                            | Pros                                                                                    | Cons                                                                                       |
-|---------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|
-| **A: Filter in `split_asyncapi`**     | Only emit `AsyncApiSpec` entries where `operation == "PUB"`. Skip SUB entirely.                                                                        | Simple, single change point. Benchmarks/tests stay fast.                                | Callers can't distinguish "no channels" from "only SUB channels". Harder to give feedback. |
-| **B: Filter in `provide_spec_inner`** | `split_asyncapi` still emits both. `provide_spec_inner` filters to PUB-only for `ApiType::AsyncApi` before storing. Logs a warning for discarded SUBs. | Better observability — logs show what was ignored. Splitting logic stays spec-faithful. | Two places to reason about the semantics (splitter + service).                             |
-| **C: Return structured result**       | `split_asyncapi` returns a struct with `publish: Vec<…>` and `subscribe: Vec<…>`. `provide_spec_inner` uses only `publish`, but can report stats.      | Most flexible; future uses can access both.                                             | More refactoring; changes the splitter's public API.                                       |
-
-**Recommendation:** Option B — minimal change, good logging.
-
-### Documentation Impact
-
-- `docs/sanshain-yaml.md` must clarify that `provides` with `apiType: asyncapi` only registers
-  PUB channels. SUB channels must be declared as `requires` entries.
-- The "How Matching Works" section needs a callout box explaining the publisher-defines-contract model.
-- `api.yaml` description for `/provide/asyncapi` must state PUB-only semantics.
+### implementation status
+Implemented in v0.13.0 using PUB-only filtering in the application layer.
 
 ---
 
@@ -63,17 +49,18 @@ different schemas for the same topic, subscribers don't know which one is author
 if someone requires `PUB orders.created` from `order-service`, they get order-service's schema,
 even if payment-service defines it differently.
 
-### Options
+### expected solution
+* when a provide to a none protected branch is made, we assume the first provide is the unmodified version from the source branch, master or a release or tag or whatever and the og version
+* we store this as the "source" for the branch
+* whenever a branch pushes the same as source we accept it
+* when producer ALPHA pushes a modified version it MUST be backward compatible with the source otherwise rejected
+  * this version is stored as current for the branch together with the owner: ALPHA
+* when producer BETA pushes a different modified version it MUST be backward compatible with the current version if the owner is other than BETA or it is rejected
+* when producer ALPHA pushes a modified version that is different from current but compatibel with source and the owner is ALPHA it replaces current version.
+* when prodcuer ALPHA pushes a unmodified version that is equal to source, the current is removed if the owner is ALPHA.
 
-| Option                                                          | Description                                                                                                                                                       | Pros                                                           | Cons                                                                                       |
-|-----------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------|--------------------------------------------------------------------------------------------|
-| **A: Detect & warn in reports**                                 | The dependency report flags channels published by >1 service as "conflicting publishers". No enforcement at provide time.                                         | Non-breaking. Gives visibility. Teams can resolve organically. | Doesn't prevent the problem.                                                               |
-| **B: Detect & reject at provide time**                          | When a service provides PUB for a channel that another service already publishes on the same branch, reject with 409. First publisher owns the channel.           | Strong enforcement. Clear ownership.                           | Too rigid — some architectures legitimately have multiple publishers per topic.            |
-| **C: Ownership registry**                                       | Add a channel ownership concept. First publisher auto-owns; can be transferred via admin. Other publishers are rejected unless ownership is shared.               | Flexible. Explicit.                                            | Significant new feature; adds complexity.                                                  |
-| **D: Allow multiple publishers, validate schema compatibility** | Allow multiple publishers but check that their message schemas are structurally compatible (like backward compatibility for REST). Reject if schemas conflict.    | Handles legitimate multi-publisher scenarios.                  | Complex to implement. Schema compatibility for AsyncAPI messages is a non-trivial problem. |
-| **E: Allow with advisory warnings**                             | Allow multiple publishers. Return a warning header or response field when a topic is already published by another service. Client plugin can surface the warning. | Low friction. Developers are informed but not blocked.         | Easy to ignore.                                                                            |
-
-**Recommendation:** Option A (reports) as a first step, Option E (advisory warnings) as a quick follow-up.
+### implementation status
+Implemented in v0.13.0 using `shared_contracts` table and backward-compatibility tracking on non-protected branches.
 
 ---
 
@@ -92,26 +79,8 @@ an older version of the spec.
 
 The `apply_spec_changes` call is transactional, but there's no version check to detect the conflict.
 
-### Options
-
-| Option                                          | Description                                                                                                                                                                                                                                        | Pros                                                    | Cons                                                                              |
-|-------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------|-----------------------------------------------------------------------------------|
-| **A: Optimistic concurrency with spec version** | Add a monotonic `spec_version` counter per `(service, branch)`. Provide accepts an optional `base_version`. If supplied and doesn't match current version, reject with 409 ("outdated"). If omitted, accept unconditionally (backward compatible). | Standard pattern. Backward compatible. Clear semantics. | Requires schema migration. Clients must track version.                            |
-| **B: Content-hash based**                       | Compute SHA-256 of the stored spec state. Client sends `base_hash` with provide. Server rejects if hash doesn't match.                                                                                                                             | No counter to manage. Hash is self-describing.          | Hash computation adds overhead. Harder to reason about "version N".               |
-| **C: Both version + hash**                      | Return both a version number and a content hash. Client can use either for conflict detection.                                                                                                                                                     | Most flexible. Version for ordering, hash for caching.  | More complexity in API contract.                                                  |
-| **D: Branch-level lock**                        | Add a short-lived advisory lock per `(service, branch)`. `provide` acquires it; if already held, reject with 423 Locked.                                                                                                                           | Simple conceptually. Prevents concurrent writes.        | Doesn't solve the "working from stale data" problem. Lock timeout/cleanup needed. |
-
-**Recommendation:** Option A — it's the standard approach and backward compatible.
-
-### Client Flow with Option A
-
-```
-1. Client calls POST /provide with base_version=9
-2. Server checks: current version for (service, branch) is 9? 
-   → Yes: accept, bump to version 10, return {version: 10}
-   → No (current is 10): reject 409 "Outdated: your base version 9, current is 10. Pull latest changes."
-3. Client without base_version (legacy): always accepted, version bumped.
-```
+### implementation status
+Implemented in v0.13.0 using monotonic `spec_version` and optional `base_version` in provide requests.
 
 ---
 
@@ -128,29 +97,8 @@ return `StatusCode::ACCEPTED` (202) with **no response body**. The client has no
 The endpoint version history exists (`endpoint_versions` table, `GET /endpoint/versions` API)
 but is per-endpoint and read-only — designed for the UI diff viewer, not for client plugins.
 
-### Options
-
-| Option                                              | Description                                                                                                                      | Pros                                                                                                    | Cons                                                     |
-|-----------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|----------------------------------------------------------|
-| **A: JSON response body**                           | Change provide response from bare 202 to `202 + JSON body` with `{version, content_hash, changes: {inserts, updates, deletes}}`. | Rich info. Clients can cache version + hash. Backward compatible (clients that ignore body still work). | Slightly larger response.                                |
-| **B: Response headers only**                        | Add `X-Spec-Version` and `ETag` headers. Body stays empty.                                                                       | Minimal API change. HTTP-idiomatic.                                                                     | Harder for simple clients (curl) to parse. Easy to miss. |
-| **C: JSON body for non-dry-run, 204 for no-change** | Return `202 + JSON` when spec changed, `204 No Content` when nothing changed, `200 + JSON` for dry-run results.                  | Semantic HTTP status codes. Clients can skip processing on 204.                                         | More status codes to handle.                             |
-
-**Recommendation:** Option A — simple, backward compatible, gives clients everything they need.
-
-### Proposed Response Schema (Option A)
-
-```json
-{
-  "version": 10,
-  "content_hash": "sha256:abc123...",
-  "changes": {
-    "inserts": 2,
-    "updates": 1,
-    "deletes": 0
-  }
-}
-```
+### implementation status
+Implemented in v0.13.0. All provide endpoints now return `202 Accepted` with a JSON body containing `version`, `content_hash`, and a `changes` summary.
 
 ---
 
@@ -161,31 +109,8 @@ but is per-endpoint and read-only — designed for the UI diff viewer, not for c
 Client plugins must always push the full spec content, even if nothing has changed since the
 last successful provide. There is no way to short-circuit.
 
-### Options
-
-| Option                                              | Description                                                                                                                                                                                                                                          | Pros                                                          | Cons                                                                                       |
-|-----------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|--------------------------------------------------------------------------------------------|
-| **A: Client-side file hash + server version cache** | After a successful provide, client stores `{file_hash, version}` locally (e.g., `.sanshain-cache`). On next build: compute file hash → if unchanged AND stored version matches, skip provide. If file changed, provide with `base_version`.          | Fast local check. Reduces unnecessary network calls.          | Requires client plugin changes. Cache file must be gitignored.                             |
-| **B: Conditional provide (If-None-Match)**          | Client sends `If-None-Match: <content_hash>` header. Server computes hash of current stored spec. If match → `304 Not Modified`. If no match → process normally.                                                                                     | HTTP-standard pattern. No client-side state needed.           | Server must compute hash on every request (can cache). Full spec still sent over the wire. |
-| **C: HEAD endpoint for version check**              | Add `HEAD /provide` that returns current version + hash in headers without accepting a body. Client checks first, then decides whether to POST.                                                                                                      | Two-step but clean. No wasted bandwidth.                      | Extra round-trip.                                                                          |
-| **D: Combine A + server response**                  | Server returns `{version, content_hash}` on provide (Problem 4 solution). Client caches this. On next run, client hashes the local file: if hash matches cached `content_hash`, skip entirely. If different, provide with `base_version` from cache. | Best UX. Minimal network traffic. Handles concurrent changes. | Requires both server and client changes.                                                   |
-
-**Recommendation:** Option D — it naturally falls out of solving Problem 4 and Problem 3.
-
-### Client Plugin Flow (Option D)
-
-```
-1. Compute SHA-256 of local spec file → local_hash
-2. Read .sanshain-cache → {last_hash, last_version}
-3. If local_hash == last_hash:
-     → Skip provide (file unchanged, server already has it)
-4. Else:
-     → POST /provide with base_version=last_version, content
-     → On 202: update cache with {local_hash, response.version}
-     → On 409 "outdated": warn developer to pull branch changes,
-       then re-provide (or fail build)
-     → On 409 "incompatible": fail build with breaking-change details
-```
+### implementation status
+Implemented in v0.13.0. The server now returns the spec's `content_hash` in the provide response. If a subsequent provide is made with the same content, the server detects the identical hash and skips the database update and version increment, returning the current version.
 
 ---
 

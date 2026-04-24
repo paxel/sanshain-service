@@ -101,6 +101,42 @@ If some endpoints are missing, the response returns `404` with:
 Missing endpoints on service 'UserService' branch 'main': DELETE /users/{id}
 ```
 
+## Optimistic Concurrency & Caching
+
+Sanshain provides features to optimize CI pipelines and prevent accidental overwrites when multiple developers or automated processes update the same service branch.
+
+### 1. Content-Based Skipping (Caching)
+
+The server returns a `content_hash` (SHA-256) for every successful `/provide` request. If you send a specification that is identical to the current one on the server, Sanshain will:
+1. Detect the identical hash.
+2. Skip the database update and version increment.
+3. Return the current version and hash with `202 Accepted`.
+
+This allows CI pipelines to unconditionally "provide" the spec without worrying about unnecessary database load or version inflation.
+
+### 2. Optimistic Concurrency Control
+
+Each service branch has a monotonic version number. When you receive a response from `/provide`, it includes the new `version`.
+
+To prevent overwriting concurrent changes, you can send a `base_version` in your next request. The server will only accept the update if its current version matches your `base_version`.
+
+```bash
+# Get current state (or after previous provide)
+# VERSION=5
+
+# Attempt update with base_version
+curl -X POST http://localhost:3000/provide \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"servicename\": \"UserService\",
+    \"branch\": \"main\",
+    \"openapi_yaml\": \"...\",
+    \"base_version\": $VERSION
+  }"
+```
+
+If another process updated the branch in the meantime (e.g. version is now 6), the server returns `409 Conflict`. Your pipeline should then fetch the latest version, merge changes, and retry.
+
 ## Typical CI Pipeline
 
 ### Provider Pipeline (service that publishes an API)

@@ -12,6 +12,7 @@ use tokio::sync::RwLock;
 use chrono::Utc;
 use tower::ServiceExt; // for `oneshot`
 use sanshain_service::{create_app, AppState};
+use sanshain_service::domain::models::ProvideResponse;
 use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
 use sanshain_service::infrastructure::database::DatabaseRepo;
 use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
@@ -2917,4 +2918,158 @@ async fn test_nuke_endpoints() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let clients: Vec<String> = serde_json::from_slice(&body).unwrap();
     assert!(clients.is_empty(), "Clients should be empty after nuke");
+}
+
+#[tokio::test]
+async fn test_problem_2_multi_publisher_conflict_integration() {
+    let app = setup_app_dev_mode().await;
+
+    let yaml_v1 = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /orders:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+    let yaml_v2_compatible = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /orders:
+    get:
+      responses:
+        '200':
+          description: OK
+        '404':
+          description: Not Found
+"#;
+    let yaml_v2_breaking = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /orders:
+    get:
+      responses:
+        '404':
+          description: Not Found
+"#;
+
+    // 1. ALPHA provides v1 on feature branch.
+    let payload_alpha_v1 = json!({ "servicename": "alpha-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v1 });
+    let response = app.clone().oneshot(
+        Request::builder().method("POST").uri("/provide")
+            .header("Content-Type", "application/json")
+            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+            .body(Body::from(serde_json::to_vec(&payload_alpha_v1).unwrap())).unwrap()
+    ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // 2. BETA provides v1 on same branch. Should be OK (same as source).
+    let payload_beta_v1 = json!({ "servicename": "beta-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v1 });
+    let response = app.clone().oneshot(
+        Request::builder().method("POST").uri("/provide")
+            .header("Content-Type", "application/json")
+            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+            .body(Body::from(serde_json::to_vec(&payload_beta_v1).unwrap())).unwrap()
+    ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // 3. ALPHA provides compatible modification. OK. ALPHA becomes owner.
+    let payload_alpha_v2 = json!({ "servicename": "alpha-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v2_compatible });
+    let response = app.clone().oneshot(
+        Request::builder().method("POST").uri("/provide")
+            .header("Content-Type", "application/json")
+            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+            .body(Body::from(serde_json::to_vec(&payload_alpha_v2).unwrap())).unwrap()
+    ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // 4. BETA provides breaking change. Should fail (conflict with current ALPHA owner).
+    let payload_beta_v2_breaking = json!({ "servicename": "beta-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v2_breaking });
+    let response = app.clone().oneshot(
+        Request::builder().method("POST").uri("/provide")
+            .header("Content-Type", "application/json")
+            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+            .body(Body::from(serde_json::to_vec(&payload_beta_v2_breaking).unwrap())).unwrap()
+    ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body_str = String::from_utf8_lossy(&body);
+    assert!(body_str.contains("current owner's version"));
+
+    // 5. ALPHA provides v1 again. OK. Reverts to source, owner becomes None.
+    let response = app.clone().oneshot(
+        Request::builder().method("POST").uri("/provide")
+            .header("Content-Type", "application/json")
+            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+            .body(Body::from(serde_json::to_vec(&payload_alpha_v1).unwrap())).unwrap()
+    ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // 6. BETA provides breaking change. Should fail (conflict with source).
+    let response = app.clone().oneshot(
+        Request::builder().method("POST").uri("/provide")
+            .header("Content-Type", "application/json")
+            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+            .body(Body::from(serde_json::to_vec(&payload_beta_v2_breaking).unwrap())).unwrap()
+    ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body_str = String::from_utf8_lossy(&body);
+    assert!(body_str.contains("source version"));
+}
+
+#[tokio::test]
+async fn test_problem_3_optimistic_concurrency_integration() {
+    let app = setup_app_dev_mode().await;
+    let yaml1 = "openapi: 3.0.0\ninfo:\n  title: T1\n  version: 1.0.0\npaths: {}";
+    let yaml2 = "openapi: 3.0.0\ninfo:\n  title: T2\n  version: 1.0.0\npaths: {}";
+
+    // 1. First provide
+    let payload1 = json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml1 });
+    let response = app.clone().oneshot(
+        Request::builder().method("POST").uri("/provide")
+            .header("Content-Type", "application/json")
+            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+            .body(Body::from(serde_json::to_vec(&payload1).unwrap())).unwrap()
+    ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let res1: ProvideResponse = serde_json::from_slice(&body).unwrap();
+    assert_eq!(res1.version, 1);
+
+    // 2. Second provide with correct base_version
+    let payload2 = json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml2, "base_version": 1 });
+    let response = app.clone().oneshot(
+        Request::builder().method("POST").uri("/provide")
+            .header("Content-Type", "application/json")
+            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+            .body(Body::from(serde_json::to_vec(&payload2).unwrap())).unwrap()
+    ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let res2: ProvideResponse = serde_json::from_slice(&body).unwrap();
+    assert_eq!(res2.version, 2);
+
+    // 3. Third provide with OUTDATED base_version
+    let payload3 = json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml1, "base_version": 1 });
+    let response = app.clone().oneshot(
+        Request::builder().method("POST").uri("/provide")
+            .header("Content-Type", "application/json")
+            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+            .body(Body::from(serde_json::to_vec(&payload3).unwrap())).unwrap()
+    ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body_str = String::from_utf8_lossy(&body);
+    assert!(body_str.contains("Outdated spec version"));
 }

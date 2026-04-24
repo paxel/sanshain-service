@@ -25,7 +25,7 @@
 
 ### Code Style
 - Follow `rustfmt` defaults. Run `cargo fmt` before committing.
-- Run `cargo clippy` and address all warnings.
+- Run `cargo clippy` and address all warnings. STRICTLY FORBIDDEN: disabling Clippy warnings or compiler lints using `#[allow(...)]` annotations. Always refactor the code to satisfy the linter.
 - Prefer `impl Trait` in function signatures over explicit generics when the type is used once.
 - Use `#[must_use]` on functions whose return values should not be silently ignored.
 
@@ -75,7 +75,7 @@
 - Use structured logging fields, not string interpolation.
 
 ### AI Workflow Rules
-- For every task that involves code changes, you MUST run `cargo clippy -- -D warnings` and ensure it passes before submitting.
+- For every task that involves code changes, you MUST run `cargo clippy -- -D warnings` and ensure it passes before submitting. You MUST NOT use `#[allow(...)]` to hide warnings or bypass this check.
 - Always verify that all existing and new tests pass using `cargo test`.
 - Use the `update_status` tool to keep the user informed about progress.
 - The current project version is defined by `Cargo.toml` for all documentation purposes.

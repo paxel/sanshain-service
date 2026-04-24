@@ -25,7 +25,7 @@ use application::services::{self, AppError};
 use domain::ports::SpecRepository;
 use infrastructure::cached_repository::CachedSpecRepository;
 use infrastructure::ldap_provider::LdapAuthProvider;
-use domain::models::{AuthMode, LdapConfig, ApiType, ServiceSummary};
+use domain::models::{AuthMode, LdapConfig, ApiType, ServiceSummary, ProvideResponse};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -456,6 +456,8 @@ struct ProvidePayload {
     api_type: ApiType,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    base_version: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -467,6 +469,8 @@ struct ProvideAsyncApiPayload {
     dry_run: bool,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    base_version: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -478,6 +482,8 @@ struct ProvideProtoPayload {
     dry_run: bool,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    base_version: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -630,13 +636,13 @@ fn app_error_to_status_with_body(e: AppError) -> (StatusCode, String) {
 async fn provide(
     State(state): State<AppState>,
     Json(payload): Json<ProvidePayload>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<(StatusCode, Json<ProvideResponse>), (StatusCode, String)> {
     let result = if payload.dry_run {
         services::provide_spec_dry_run(&state.repo, &payload.servicename, &payload.branch, payload.api_type, &payload.openapi_yaml).await
     } else if payload.tags.is_empty() {
-        services::provide_spec(&state.repo, &payload.servicename, &payload.branch, payload.api_type, &payload.openapi_yaml).await
+        services::provide_spec(&state.repo, &payload.servicename, &payload.branch, payload.api_type, &payload.openapi_yaml, payload.base_version).await
     } else {
-        services::provide_spec_with_tags(&state.repo, &payload.servicename, &payload.branch, payload.api_type, &payload.openapi_yaml, &payload.tags).await
+        services::provide_spec_with_tags(&state.repo, &payload.servicename, &payload.branch, payload.api_type, &payload.openapi_yaml, &payload.tags, payload.base_version).await
     };
 
     if result.is_ok() && !payload.dry_run {
@@ -644,20 +650,20 @@ async fn provide(
     }
 
     result
-        .map(|_| StatusCode::ACCEPTED)
+        .map(|res| (StatusCode::ACCEPTED, Json(res)))
         .map_err(app_error_to_status_with_body)
 }
 
 async fn provide_asyncapi(
     State(state): State<AppState>,
     Json(payload): Json<ProvideAsyncApiPayload>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<(StatusCode, Json<ProvideResponse>), (StatusCode, String)> {
     let result = if payload.dry_run {
         services::provide_spec_dry_run(&state.repo, &payload.servicename, &payload.branch, ApiType::AsyncApi, &payload.asyncapi_yaml).await
     } else if payload.tags.is_empty() {
-        services::provide_spec(&state.repo, &payload.servicename, &payload.branch, ApiType::AsyncApi, &payload.asyncapi_yaml).await
+        services::provide_spec(&state.repo, &payload.servicename, &payload.branch, ApiType::AsyncApi, &payload.asyncapi_yaml, payload.base_version).await
     } else {
-        services::provide_spec_with_tags(&state.repo, &payload.servicename, &payload.branch, ApiType::AsyncApi, &payload.asyncapi_yaml, &payload.tags).await
+        services::provide_spec_with_tags(&state.repo, &payload.servicename, &payload.branch, ApiType::AsyncApi, &payload.asyncapi_yaml, &payload.tags, payload.base_version).await
     };
 
     if result.is_ok() && !payload.dry_run {
@@ -665,20 +671,20 @@ async fn provide_asyncapi(
     }
 
     result
-        .map(|_| StatusCode::ACCEPTED)
+        .map(|res| (StatusCode::ACCEPTED, Json(res)))
         .map_err(app_error_to_status_with_body)
 }
 
 async fn provide_proto(
     State(state): State<AppState>,
     Json(payload): Json<ProvideProtoPayload>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<(StatusCode, Json<ProvideResponse>), (StatusCode, String)> {
     let result = if payload.dry_run {
         services::provide_spec_dry_run(&state.repo, &payload.servicename, &payload.branch, ApiType::Proto, &payload.proto_content).await
     } else if payload.tags.is_empty() {
-        services::provide_spec(&state.repo, &payload.servicename, &payload.branch, ApiType::Proto, &payload.proto_content).await
+        services::provide_spec(&state.repo, &payload.servicename, &payload.branch, ApiType::Proto, &payload.proto_content, payload.base_version).await
     } else {
-        services::provide_spec_with_tags(&state.repo, &payload.servicename, &payload.branch, ApiType::Proto, &payload.proto_content, &payload.tags).await
+        services::provide_spec_with_tags(&state.repo, &payload.servicename, &payload.branch, ApiType::Proto, &payload.proto_content, &payload.tags, payload.base_version).await
     };
 
     if result.is_ok() && !payload.dry_run {
@@ -686,7 +692,7 @@ async fn provide_proto(
     }
 
     result
-        .map(|_| StatusCode::ACCEPTED)
+        .map(|res| (StatusCode::ACCEPTED, Json(res)))
         .map_err(app_error_to_status_with_body)
 }
 
@@ -1843,7 +1849,6 @@ async fn fragment_clients(
 #[derive(Template)]
 #[template(path = "fragments/admin/client_branches.html")]
 struct FragmentClientBranches {
-    client_name: String,
     branches: Vec<String>,
 }
 
@@ -1852,7 +1857,7 @@ async fn fragment_client_branches(
     axum::extract::Path(name): axum::extract::Path<String>,
 ) -> Result<axum::response::Html<String>, StatusCode> {
     let branches = services::list_client_branches(&state.repo, &name).await.map_err(app_error_to_status)?;
-    let tmpl = FragmentClientBranches { client_name: name, branches };
+    let tmpl = FragmentClientBranches { branches };
     Ok(axum::response::Html(tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
 }
 

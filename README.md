@@ -118,7 +118,8 @@ Provide an OpenAPI specification for a service branch. For AsyncAPI, use `/provi
   "servicename": "UserService",
   "branch": "main",
   "openapi_yaml": "...",
-  "dry_run": false
+  "dry_run": false,
+  "base_version": 5
 }
 ```
 
@@ -128,7 +129,8 @@ Provide an OpenAPI specification for a service branch. For AsyncAPI, use `/provi
   "servicename": "EventService",
   "branch": "main",
   "asyncapi_yaml": "...",
-  "dry_run": false
+  "dry_run": false,
+  "base_version": 2
 }
 ```
 
@@ -138,7 +140,8 @@ Provide an OpenAPI specification for a service branch. For AsyncAPI, use `/provi
   "servicename": "GreeterService",
   "branch": "main",
   "proto_content": "...",
-  "dry_run": false
+  "dry_run": false,
+  "base_version": 1
 }
 ```
 
@@ -148,10 +151,33 @@ Provide an OpenAPI specification for a service branch. For AsyncAPI, use `/provi
 | `branch` | Yes | Branch name for the specification. |
 | `openapi_yaml` | Yes | The full OpenAPI specification as a YAML string. |
 | `dry_run` | No | When `true`, validates the spec (parsing, conflict detection) without storing anything. Defaults to `false`. |
+| `base_version` | No | Optional base version for optimistic concurrency control. |
 
-**Protected Branch Behavior:** On protected branches (e.g., `main`, `master`), Sanshain performs a **backward compatibility check** when an endpoint's schema changes. Backward-compatible changes — such as adding optional fields, new schemas, or new endpoints — are accepted. Breaking changes — such as removing fields, changing types, or removing response codes — are rejected with `409 Conflict` and a descriptive error message. Each accepted update records a new version in the endpoint's version history (see `GET /endpoint-versions` below).
+**Response (202 Accepted):**
+```json
+{
+  "version": 6,
+  "content_hash": "6a3501...",
+  "changes": {
+    "inserts": 2,
+    "updates": 1,
+    "deletes": 0
+  }
+}
+```
 
-On **feature branches**, endpoint schemas can be freely overwritten without compatibility checks.
+**Optimistic Concurrency & Caching:**
+- **Content-Based Skipping**: Sanshain calculates a SHA-256 hash of every specification. If you provide a spec that is identical to the current one, the server skips processing and returns the current version without a version bump.
+- **Version Tracking**: Each service branch has a monotonic version number. Clients should store the `version` and `content_hash` returned by the server.
+- **Conflict Detection**: Use `base_version` to prevent overwriting concurrent changes from other developers or CI jobs. If the provided `base_version` does not match the current version on the server, the request is rejected with `409 Conflict`.
+
+**Protected Branch Behavior:** On protected branches (e.g., `main`, `master`), Sanshain performs a **backward compatibility check** when an endpoint's schema changes. Backward-compatible changes — such as adding optional fields, new schemas, or new endpoints — are accepted. Breaking changes — such as removing fields, changing types, or removing response codes — are rejected with `409 Conflict`.
+
+**Feature Branch Behavior:** On feature branches, endpoint schemas can be freely overwritten, but **multi-publisher conflict detection** is enforced:
+- The first `provide` on a branch establishes the "source" version.
+- Subsequent modifications must be backward-compatible with the source.
+- If a service modifies an endpoint, it becomes the "owner"; other services must then be compatible with the owner's version.
+- If the owner reverts to the source version, ownership is cleared.
 
 ### 2. `GET /require`
 Request the OpenAPI snippet for a specific endpoint and record the dependency. For AsyncAPI, use `/require/asyncapi`. For Proto, use `/require/grpc`.

@@ -23,6 +23,10 @@ paths:
         and stores them for the given service and branch.
 
         **Idempotency**: Re-uploading identical YAML for the same service/branch succeeds without modification.
+        The server detects identical content via SHA-256 hash and skips updates/version bumps.
+
+        **Optimistic Concurrency**: Clients can provide a `base_version`. If the current version on the
+        branch differs from `base_version`, the request is rejected with 409 Conflict.
 
         **Immutability on protected branches**: If an endpoint already exists on a protected branch
         with different content, the request is rejected with 409 Conflict.
@@ -36,6 +40,10 @@ paths:
       responses:
         "202":
           description: Specification accepted and stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProvideResponse"
         "400":
           description: Invalid request (e.g. malformed YAML or missing fields).
           content:
@@ -67,6 +75,10 @@ paths:
       responses:
         "202":
           description: Specification accepted and stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProvideResponse"
         "400":
           description: Invalid request.
         "409":
@@ -88,6 +100,10 @@ paths:
       responses:
         "202":
           description: Specification accepted and stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProvideResponse"
         "400":
           description: Invalid request.
         "409":
@@ -332,6 +348,20 @@ components:
           description: |
             When true, validates the spec (parsing, conflict detection) without storing anything.
             Useful for CI dry-run checks.
+        api_type:
+          type: string
+          enum: [openapi, asyncapi, proto]
+          default: openapi
+        tags:
+          type: array
+          items:
+            type: string
+          description: Optional list of tags to associate with this version.
+        base_version:
+          type: integer
+          description: |
+            Optional base version for optimistic concurrency control.
+            If provided, the server will reject the update if the current version doesn't match.
     ProvideAsyncApiPayload:
       type: object
       required:
@@ -348,7 +378,12 @@ components:
         dry_run:
           type: boolean
           default: false
-
+        tags:
+          type: array
+          items:
+            type: string
+        base_version:
+          type: integer
     ProvideProtoPayload:
       type: object
       required:
@@ -365,6 +400,35 @@ components:
         dry_run:
           type: boolean
           default: false
+        tags:
+          type: array
+          items:
+            type: string
+        base_version:
+          type: integer
+    ProvideResponse:
+      type: object
+      properties:
+        version:
+          type: integer
+          description: The new monotonic version of the service specification on this branch.
+        content_hash:
+          type: string
+          description: SHA-256 hash of the specification content.
+        changes:
+          $ref: "#/components/schemas/ProvideChanges"
+    ProvideChanges:
+      type: object
+      properties:
+        inserts:
+          type: integer
+          description: Number of new endpoints added.
+        updates:
+          type: integer
+          description: Number of existing endpoints updated.
+        deletes:
+          type: integer
+          description: Number of endpoints removed.
 
     RequireBundlePayload:
       type: object

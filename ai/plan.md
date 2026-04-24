@@ -66,7 +66,7 @@ The following major milestones have been delivered and are fully functional:
 ### AsyncAPI Semantics & Sync Concurrency
 Design exploration document: [`ai/sync.plan`](sync.plan.md)
 - [x] Problem 1: `/provide/asyncapi` should only store PUB operations (SUB belongs in `requires`).
-- [ ] Problem 2: Multiple publishers for the same topic — detect and warn about conflicts.
-- [ ] Problem 3: Concurrent developers on same service/branch overwrite each other (no optimistic concurrency).
-- [ ] Problem 4: Provide returns no version — clients can't detect state or cache.
-- [ ] Problem 5: No client-side caching/skip mechanism for unchanged specs.
+- [x] Problem 2: Multiple publishers for the same topic — detect and warn about conflicts.
+- [x] Problem 3: Concurrent developers on same service/branch overwrite each other (optimistic concurrency with `base_version`).
+- [x] Problem 4: Provide returns JSON body with version and content hash.
+- [x] Problem 5: Skip specification processing if content hash matches current version.

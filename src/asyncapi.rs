@@ -99,12 +99,12 @@ fn create_spec_v3(
     }
 
     // Include only the referenced channel
-    if let Some(chs) = channels {
-        if let Some(ch_value) = chs.get(Value::String(channel_key.to_string())) {
-            let mut ch_map = Mapping::new();
-            ch_map.insert(Value::String(channel_key.to_string()), ch_value.clone());
-            snippet.insert(Value::String("channels".to_string()), Value::Mapping(ch_map));
-        }
+    if let Some(chs) = channels
+        && let Some(ch_value) = chs.get(Value::String(channel_key.to_string()))
+    {
+        let mut ch_map = Mapping::new();
+        ch_map.insert(Value::String(channel_key.to_string()), ch_value.clone());
+        snippet.insert(Value::String("channels".to_string()), Value::Mapping(ch_map));
     }
 
     // Include only this operation

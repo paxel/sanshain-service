@@ -13,9 +13,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Virtual MESSAGING Node**: when any AsyncAPI dependency exists in the graph, a virtual "MESSAGING" node (with `messaging` tag, rendered as a pink diamond) is automatically added. All services involved in AsyncAPI connections are linked to it with grey dashed "register" lines (no arrows), visually distinct from PUB/SUB bidirectional edges, providing a clear visual hub for message-driven communication.
 
 ### Added
+- **Multi-Publisher Conflict Detection (Problem 2)**: implemented a shared contract mechanism for non-protected branches. When multiple services provide the same endpoint (e.g., shared AsyncAPI channels), the first provide establishes a "source" version. Subsequent modifications by any service must be backward-compatible with the source. If a service (owner) maintains a modification, other services' changes must be backward-compatible with the owner's version. This ensures that concurrent development on the same branch doesn't lead to breaking contract conflicts.
+- **Optimistic Concurrency Control (Problem 3)**: implemented version-based concurrency control for the `provide` endpoints. Each service/branch now tracks a monotonic `spec_version`. Provide requests can include an optional `base_version`; if the server's current version has advanced beyond the base, the request is rejected with a `409 Conflict` to prevent overwriting concurrent changes.
+- **Provide Response Body (Problem 4)**: the `provide`, `/provide/asyncapi`, and `/provide/proto` endpoints now return a `202 Accepted` response with a JSON body containing the new `version`, a SHA-256 `content_hash` of the specification, and a summary of changes (inserts, updates, deletes).
+- **Client-Side Caching Support (Problem 5)**: the server now skips specification processing and version increments if the provided content's hash matches the stored version's hash. This enables client-side plugins to implement efficient skip-if-unchanged logic.
 - **Service Tags**: services can now be tagged with categories (e.g., `messaging`, `grpc`, `database`, `infrastructure`) for visual distinction in the dependency graph and isolation report. Tags are auto-detected from API type (`asyncapi` → `messaging`, `proto` → `grpc`) and can also be set manually via an optional `tags` field in provide requests.
 - **Tag-Based Graph Styling**: the dependency graph now renders tagged services with distinct shapes and colors: diamonds (pink) for messaging, cylinders (blue) for database, octagons (purple) for gRPC, and green rectangles for infrastructure. A new "Service Tags" section in the graph legend documents all shapes.
 - **Tags in Isolation Report**: the Service Isolation Report now includes a "Tags" column showing each target service's tags, and annotates client services with their tags in the section header.
+
+### Documentation
+- **API Specification Update**: updated `api.yaml` with the new `base_version` request field and the `ProvideResponse` structure for all provide endpoints.
+- **CI Integration Guide**: added a detailed section on **Optimistic Concurrency & Caching** to `docs/ci-integration.md`, explaining how to use `base_version` and `content_hash` to optimize pipelines and prevent overwrites.
+- **README Update**: updated the core `README.md` with new payload examples, response structures, and explanations for content-based skipping and multi-publisher conflict detection.
 
 ## [0.12.0] - 2026-04-23
 

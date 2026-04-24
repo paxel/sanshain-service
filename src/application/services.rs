@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use sha2::{Sha256, Digest};
 
 use crate::domain::models::*;
 use crate::domain::ports::{AuthProvider, AuthProviderError, RecordDependencyParams, RepositoryError, SpecRepository};
@@ -64,8 +65,17 @@ pub async fn provide_spec(
     branch: &str,
     api_type: ApiType,
     content: &str,
-) -> Result<(), AppError> {
-    provide_spec_inner(repo, servicename, branch, api_type, content, false, &[]).await
+    base_version: Option<i32>,
+) -> Result<ProvideResponse, AppError> {
+    provide_spec_inner(repo, ProvideInternalParams {
+        servicename,
+        branch,
+        api_type,
+        content,
+        dry_run: false,
+        extra_tags: &[],
+        base_version,
+    }).await
 }
 
 pub async fn provide_spec_dry_run(
@@ -74,8 +84,16 @@ pub async fn provide_spec_dry_run(
     branch: &str,
     api_type: ApiType,
     content: &str,
-) -> Result<(), AppError> {
-    provide_spec_inner(repo, servicename, branch, api_type, content, true, &[]).await
+) -> Result<ProvideResponse, AppError> {
+    provide_spec_inner(repo, ProvideInternalParams {
+        servicename,
+        branch,
+        api_type,
+        content,
+        dry_run: true,
+        extra_tags: &[],
+        base_version: None,
+    }).await
 }
 
 pub async fn provide_spec_with_tags(
@@ -85,20 +103,50 @@ pub async fn provide_spec_with_tags(
     api_type: ApiType,
     content: &str,
     tags: &[String],
-) -> Result<(), AppError> {
-    provide_spec_inner(repo, servicename, branch, api_type, content, false, tags).await
+    base_version: Option<i32>,
+) -> Result<ProvideResponse, AppError> {
+    provide_spec_inner(repo, ProvideInternalParams {
+        servicename,
+        branch,
+        api_type,
+        content,
+        dry_run: false,
+        extra_tags: tags,
+        base_version,
+    }).await
+}
+
+struct ProvideInternalParams<'a> {
+    servicename: &'a str,
+    branch: &'a str,
+    api_type: ApiType,
+    content: &'a str,
+    dry_run: bool,
+    extra_tags: &'a [String],
+    base_version: Option<i32>,
 }
 
 async fn provide_spec_inner(
     repo: &impl SpecRepository,
-    servicename: &str,
-    branch: &str,
-    api_type: ApiType,
-    content: &str,
-    dry_run: bool,
-    extra_tags: &[String],
-) -> Result<(), AppError> {
-    tracing::debug!("Providing {:?} for service '{}' branch '{}' (dry_run: {})", api_type, servicename, branch, dry_run);
+    params: ProvideInternalParams<'_>,
+) -> Result<ProvideResponse, AppError> {
+    let ProvideInternalParams {
+        servicename,
+        branch,
+        api_type,
+        content,
+        dry_run,
+        extra_tags,
+        base_version,
+    } = params;
+
+    tracing::debug!("Providing {:?} for service '{}' branch '{}' (dry_run: {}, base_version: {:?})", api_type, servicename, branch, dry_run, base_version);
+    
+    let content_hash = {
+        let mut hasher = Sha256::new();
+        hasher.update(content.as_bytes());
+        format!("sha256:{}", hex::encode(hasher.finalize()))
+    };
     
     let endpoints = match api_type {
         ApiType::OpenApi => openapi::split_openapi(content).map_err(|e| {
@@ -149,19 +197,13 @@ async fn provide_spec_inner(
     
     tracing::debug!("Successfully split {:?} into {} endpoints for service '{}'", api_type, endpoints.len(), servicename);
 
-    let (_sid, bid) = if dry_run {
+    let (sid, bid) = if dry_run {
         match repo.find_service(servicename).await? {
             Some(sid) => match repo.find_branch(sid, branch).await? {
                 Some(bid) => (sid, bid),
-                None => {
-                    // Branch doesn't exist, nothing to check against
-                    return Ok(());
-                }
+                None => (sid, 0),
             },
-            None => {
-                // Service doesn't exist, nothing to check against
-                return Ok(());
-            }
+            None => (0, 0),
         }
     } else {
         let sid = repo.ensure_service(servicename).await?;
@@ -174,10 +216,10 @@ async fn provide_spec_inner(
             ApiType::OpenApi => None,
         };
         let mut all_tags: Vec<String> = extra_tags.to_vec();
-        if let Some(tag) = auto_tag {
-            if !all_tags.contains(&tag) {
-                all_tags.push(tag);
-            }
+        if let Some(tag) = auto_tag
+            && !all_tags.contains(&tag)
+        {
+            all_tags.push(tag);
         }
         if !all_tags.is_empty() {
             repo.add_service_tags(sid, &all_tags).await?;
@@ -185,6 +227,26 @@ async fn provide_spec_inner(
 
         (sid, bid)
     };
+
+    // Problem 3 & 4: Optimistic concurrency and versioning
+    let (current_version, last_hash) = if sid != 0 && bid != 0 {
+        match repo.get_spec_version(sid, bid).await? {
+            Some((v, h)) => (v, h),
+            None => (0, String::new()),
+        }
+    } else {
+        (0, String::new())
+    };
+
+    if let Some(base_v) = base_version
+        && base_v != current_version
+    {
+        return Err(AppError::Conflict(format!(
+            "Outdated spec version: your base version is {}, but current version is {}. Pull latest changes.",
+            base_v, current_version
+        )));
+    }
+
     let is_protected = repo.is_branch_protected(branch).await?;
 
     if is_protected && api_type == ApiType::OpenApi {
@@ -226,6 +288,62 @@ async fn provide_spec_inner(
     let mut updates = 0;
 
     for endpoint in endpoints {
+        // Problem 2: Shared contract logic for non-protected branches
+        if !is_protected && !dry_run {
+            let shared = repo.get_shared_contract(branch, api_type, &endpoint.normalized_path, &endpoint.method).await?;
+            match shared {
+                None => {
+                    // First provide of this endpoint on this branch: assume it is the unmodified source version
+                    repo.upsert_shared_contract(SharedContract {
+                        branch_name: branch.to_string(),
+                        api_type,
+                        path: endpoint.normalized_path.clone(),
+                        method: endpoint.method.clone(),
+                        source_yaml: endpoint.yaml_content.clone(),
+                        current_yaml: endpoint.yaml_content.clone(),
+                        owner_service_id: None,
+                    }).await?;
+                }
+                Some(mut entry) => {
+                    if endpoint.yaml_content == entry.source_yaml {
+                        if entry.owner_service_id == Some(sid) {
+                            // "when producer ALPHA pushes a unmodified version that is equal to source, the current is removed if the owner is ALPHA"
+                            entry.current_yaml = entry.source_yaml.clone();
+                            entry.owner_service_id = None;
+                            repo.upsert_shared_contract(entry).await?;
+                        }
+                    } else if endpoint.yaml_content != entry.current_yaml {
+                        let is_owner = entry.owner_service_id == Some(sid);
+                        let check_against = if is_owner || entry.owner_service_id.is_none() {
+                            // "when producer ALPHA pushes a modified version it MUST be backward compatible with the source otherwise rejected"
+                            // "when producer ALPHA pushes a modified version that is different from current but compatibel with source and the owner is ALPHA it replaces current version"
+                            &entry.source_yaml
+                        } else {
+                            // "when producer BETA pushes a different modified version it MUST be backward compatible with the current version if the owner is other than BETA or it is rejected"
+                            &entry.current_yaml
+                        };
+
+                        if let Err(reason) = check_compatibility(api_type, check_against, &endpoint.yaml_content) {
+                            tracing::warn!(
+                                "Rejected shared endpoint modification for service '{}' branch '{}': breaking change for {} {}: {}",
+                                servicename, branch, endpoint.method, endpoint.path, reason
+                            );
+                            let owner_desc = if is_owner || entry.owner_service_id.is_none() { "source" } else { "current owner's" };
+                            return Err(AppError::Conflict(format!(
+                                "Breaking change for shared endpoint {} {} on branch '{}' (compared to {} version): {}",
+                                endpoint.method, endpoint.path, branch, owner_desc, reason
+                            )));
+                        }
+
+                        // Update current and owner
+                        entry.current_yaml = endpoint.yaml_content.clone();
+                        entry.owner_service_id = Some(sid);
+                        repo.upsert_shared_contract(entry).await?;
+                    }
+                }
+            }
+        }
+
         let key = (api_type, endpoint.normalized_path.clone(), endpoint.method.clone());
         if let Some((old_path, existing_yaml)) = existing_map.remove(&key) {
             if existing_yaml != endpoint.yaml_content || old_path != endpoint.path {
@@ -307,6 +425,15 @@ async fn provide_spec_inner(
                 api_type, method, path, branch, servicename
             );
         }
+        if !is_protected && !dry_run
+            && let Some(mut entry) = repo.get_shared_contract(branch, old_api_type, &_norm_path, &method).await?
+            && entry.owner_service_id == Some(sid)
+        {
+            // Revert shared contract if owner deletes it
+            entry.current_yaml = entry.source_yaml.clone();
+            entry.owner_service_id = None;
+            repo.upsert_shared_contract(entry).await?;
+        }
         changes.push(SpecChange::Delete { api_type, path, method, soft_delete: is_protected });
         deletes += 1;
     }
@@ -318,13 +445,32 @@ async fn provide_spec_inner(
 
     if dry_run {
         tracing::debug!("Dry-run mode: skipping database persistence for service '{}'", servicename);
-        return Ok(());
+        return Ok(ProvideResponse {
+            version: current_version,
+            content_hash,
+            changes: ProvideChanges { inserts, updates, deletes },
+        });
+    }
+
+    if inserts == 0 && updates == 0 && deletes == 0 && content_hash == last_hash {
+        tracing::debug!("No changes and identical hash for service '{}' branch '{}', skipping version bump", servicename, branch);
+        return Ok(ProvideResponse {
+            version: current_version,
+            content_hash,
+            changes: ProvideChanges { inserts, updates, deletes },
+        });
     }
 
     tracing::debug!("Applying {} changes to database for service '{}' branch '{}'", changes.len(), servicename, branch);
     repo.apply_spec_changes(bid, changes, is_protected).await?;
 
-    Ok(())
+    let new_version = repo.increment_spec_version(sid, bid, &content_hash).await?;
+
+    Ok(ProvideResponse {
+        version: new_version,
+        content_hash,
+        changes: ProvideChanges { inserts, updates, deletes },
+    })
 }
 
 /// Read-only: fetch the YAML content for a specific endpoint (no side effects).
@@ -1365,6 +1511,23 @@ fn current_utc_iso() -> String {
     chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string()
 }
 
+fn check_compatibility(api_type: ApiType, old_yaml: &str, new_yaml: &str) -> Result<(), String> {
+    match api_type {
+        ApiType::OpenApi => openapi::check_backward_compatibility(old_yaml, new_yaml),
+        ApiType::AsyncApi | ApiType::Proto => {
+            // TODO: Implement deep compatibility check for AsyncAPI and Proto.
+            // For now, we are lenient to avoid blocking development, but in the future
+            // this should perform structural analysis similar to OpenAPI.
+            if old_yaml == new_yaml {
+                Ok(())
+            } else {
+                tracing::debug!("Leniently accepting potential breaking change for {:?} as deep compatibility check is not yet implemented", api_type);
+                Ok(())
+            }
+        }
+    }
+}
+
 fn future_utc_iso(offset_secs: u64) -> String {
     let now = chrono::Utc::now();
     let duration = chrono::Duration::seconds(offset_secs as i64);
@@ -1499,6 +1662,8 @@ mod tests {
         api_tokens: Mutex<Vec<ApiToken>>,
         endpoint_versions: Mutex<Vec<EndpointVersion>>,
         service_tags: Mutex<HashMap<i64, Vec<String>>>,
+        shared_contracts: Mutex<HashMap<(String, ApiType, String, String), SharedContract>>,
+        spec_versions: Mutex<HashMap<(i64, i64), (i32, String)>>,
     }
 
     impl MockRepo {
@@ -1520,6 +1685,8 @@ mod tests {
                 api_tokens: Mutex::new(Vec::new()),
                 endpoint_versions: Mutex::new(Vec::new()),
                 service_tags: Mutex::new(HashMap::new()),
+                shared_contracts: Mutex::new(HashMap::new()),
+                spec_versions: Mutex::new(HashMap::new()),
             }
         }
 
@@ -1532,6 +1699,20 @@ mod tests {
     }
 
     impl SpecRepository for MockRepo {
+        async fn get_spec_version(&self, service_id: i64, branch_id: i64) -> Result<Option<(i32, String)>, RepositoryError> {
+            let versions = self.spec_versions.lock().unwrap();
+            Ok(versions.get(&(service_id, branch_id)).cloned())
+        }
+
+        async fn increment_spec_version(&self, service_id: i64, branch_id: i64, content_hash: &str) -> Result<i32, RepositoryError> {
+            let mut versions = self.spec_versions.lock().unwrap();
+            let (version, _) = versions.entry((service_id, branch_id)).or_insert((0, String::new()));
+            *version += 1;
+            let current_version = *version;
+            versions.insert((service_id, branch_id), (current_version, content_hash.to_string()));
+            Ok(current_version)
+        }
+
         async fn ensure_service(&self, name: &str) -> Result<i64, RepositoryError> {
             let mut services = self.services.lock().unwrap();
             if let Some(&id) = services.get(name) {
@@ -2118,6 +2299,29 @@ mod tests {
             }
             Ok(result)
         }
+
+        async fn get_shared_contract(
+            &self,
+            branch_name: &str,
+            api_type: ApiType,
+            path: &str,
+            method: &str,
+        ) -> Result<Option<SharedContract>, RepositoryError> {
+            let sc = self.shared_contracts.lock().unwrap();
+            Ok(sc.get(&(branch_name.to_string(), api_type, path.to_string(), method.to_string())).cloned())
+        }
+
+        async fn upsert_shared_contract(
+            &self,
+            contract: SharedContract,
+        ) -> Result<(), RepositoryError> {
+            let mut sc = self.shared_contracts.lock().unwrap();
+            sc.insert(
+                (contract.branch_name.clone(), contract.api_type, contract.path.clone(), contract.method.clone()),
+                contract,
+            );
+            Ok(())
+        }
     }
 
     #[tokio::test]
@@ -2137,7 +2341,7 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml, None).await.unwrap();
         
         // 2. Require the endpoint with a different variable name
         let params = RequireEndpointParams {
@@ -2181,7 +2385,7 @@ paths:
         '200':
           description: OK
 "#;
-        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await;
+        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml, None).await;
         assert!(result.is_ok());
     }
 
@@ -2200,9 +2404,138 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
-        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await;
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml, None).await.unwrap();
+        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml, None).await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_problem_2_multi_publisher_conflict() {
+        let repo = MockRepo::new();
+        let yaml_v1 = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /orders:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        let yaml_v2_compatible = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /orders:
+    get:
+      responses:
+        '200':
+          description: OK
+        '404':
+          description: Not Found
+"#;
+        let yaml_v2_breaking = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /orders:
+    get:
+      responses:
+        '404':
+          description: Not Found
+"#; // removed 200
+
+        // 1. ALPHA provides v1 on feature branch. It becomes source.
+        provide_spec(&repo, "alpha-svc", "feat-1", ApiType::OpenApi, yaml_v1, None).await.unwrap();
+
+        // 2. BETA provides v1 on feature branch. OK (same as source).
+        provide_spec(&repo, "beta-svc", "feat-1", ApiType::OpenApi, yaml_v1, None).await.unwrap();
+
+        // 3. ALPHA provides v2_compatible. OK. ALPHA becomes owner.
+        provide_spec(&repo, "alpha-svc", "feat-1", ApiType::OpenApi, yaml_v2_compatible, None).await.unwrap();
+
+        // 4. BETA provides v2_breaking. Should fail (not compatible with current ALPHA's v2_compatible).
+        let result = provide_spec(&repo, "beta-svc", "feat-1", ApiType::OpenApi, yaml_v2_breaking, None).await;
+        assert!(result.is_err(), "BETA should be rejected if not compatible with ALPHA's modification");
+        if let Err(AppError::Conflict(msg)) = result {
+            assert!(msg.contains("current owner's version"));
+        } else {
+            panic!("Expected Conflict error, got {:?}", result);
+        }
+
+        // 5. ALPHA provides v1 again. OK. Reverts to source, owner becomes None.
+        provide_spec(&repo, "alpha-svc", "feat-1", ApiType::OpenApi, yaml_v1, None).await.unwrap();
+
+        // 6. BETA provides v2_breaking. Should fail (not compatible with source v1).
+        let result = provide_spec(&repo, "beta-svc", "feat-1", ApiType::OpenApi, yaml_v2_breaking, None).await;
+        assert!(result.is_err(), "BETA should be rejected if not compatible with source version");
+        if let Err(AppError::Conflict(msg)) = result {
+            assert!(msg.contains("source version"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_problem_2_deletion_reverts_owner() {
+        let repo = MockRepo::new();
+        let yaml_v1 = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /orders:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        let yaml_v2 = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /orders:
+    get:
+      responses:
+        '200':
+          description: OK
+        '404':
+          description: Not Found
+"#;
+
+        // 1. ALPHA provides v1.
+        provide_spec(&repo, "alpha-svc", "feat-1", ApiType::OpenApi, yaml_v1, None).await.unwrap();
+
+        // 2. ALPHA provides v2. ALPHA is owner.
+        provide_spec(&repo, "alpha-svc", "feat-1", ApiType::OpenApi, yaml_v2, None).await.unwrap();
+        
+        let sc = repo.get_shared_contract("feat-1", ApiType::OpenApi, "/orders", "GET").await.unwrap().unwrap();
+        // Compare with trim because of how YAML serialization/deserialization might affect whitespace
+        assert!(sc.current_yaml.contains("'404'"));
+        assert!(sc.owner_service_id.is_some());
+
+        // 3. ALPHA provides a spec WITHOUT /orders (deletion).
+        let yaml_empty = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths: {}
+"#;
+        provide_spec(&repo, "alpha-svc", "feat-1", ApiType::OpenApi, yaml_empty, None).await.unwrap();
+
+        // 4. Shared contract should be reverted to v1 (source) and owner None.
+        let sc = repo.get_shared_contract("feat-1", ApiType::OpenApi, "/orders", "GET").await.unwrap().unwrap();
+        assert!(sc.current_yaml.contains("'200'"));
+        assert!(!sc.current_yaml.contains("'404'"));
+        assert!(sc.owner_service_id.is_none());
     }
 
     #[tokio::test]
@@ -2233,9 +2566,9 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml1).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml1, None).await.unwrap();
         // Adding a description is backward-compatible, should succeed
-        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml2).await;
+        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml2, None).await;
         assert!(result.is_ok());
     }
 
@@ -2288,9 +2621,9 @@ components:
         name:
           type: integer
 "#;
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml1).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml1, None).await.unwrap();
         // Changing property type is a breaking change
-        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml2).await;
+        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml2, None).await;
         assert!(matches!(result, Err(AppError::Conflict(_))));
     }
 
@@ -2345,9 +2678,9 @@ components:
         email:
           type: string
 "#;
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml1).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml1, None).await.unwrap();
         // Adding a new optional field is backward-compatible
-        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml2).await;
+        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml2, None).await;
         assert!(result.is_ok());
 
         // Check that versions were recorded (v1 = baseline, v2 = update with diff)
@@ -2392,13 +2725,13 @@ paths:
           description: OK
 "#;
         // Provide two endpoints on protected branch
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml_two_endpoints).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml_two_endpoints, None).await.unwrap();
         let service_id = repo.ensure_service("svc").await.unwrap();
         let branch_id = repo.ensure_branch(service_id, "main").await.unwrap();
         assert_eq!(repo.get_endpoints_for_branch(branch_id).await.unwrap().len(), 2);
 
         // Provide only one endpoint — /orders should be soft-deleted
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml_one_endpoint).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml_one_endpoint, None).await.unwrap();
         let eps = repo.get_endpoints_for_branch(branch_id).await.unwrap();
         assert_eq!(eps.len(), 1);
         assert_eq!(eps[0].path, "/users");
@@ -2437,10 +2770,10 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml_two).await.unwrap();
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml_one).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml_two, None).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml_one, None).await.unwrap();
         // Re-introducing /orders should be rejected as contract violation
-        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml_two).await;
+        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml_two, None).await;
         assert!(matches!(result, Err(AppError::Conflict(_))));
     }
 
@@ -2476,8 +2809,8 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "feature-x", ApiType::OpenApi, yaml_two).await.unwrap();
-        provide_spec(&repo, "svc", "feature-x", ApiType::OpenApi, yaml_one).await.unwrap();
+        provide_spec(&repo, "svc", "feature-x", ApiType::OpenApi, yaml_two, None).await.unwrap();
+        provide_spec(&repo, "svc", "feature-x", ApiType::OpenApi, yaml_one, None).await.unwrap();
         let service_id = repo.ensure_service("svc").await.unwrap();
         let branch_id = repo.ensure_branch(service_id, "feature-x").await.unwrap();
         let eps = repo.get_endpoints_for_branch(branch_id).await.unwrap();
@@ -2486,14 +2819,14 @@ paths:
         // Not soft-deleted, actually removed
         assert!(!repo.is_endpoint_deleted(branch_id, ApiType::OpenApi, "/orders", "GET").await.unwrap());
         // Re-introduction is allowed on feature branches
-        let result = provide_spec(&repo, "svc", "feature-x", ApiType::OpenApi, yaml_two).await;
+        let result = provide_spec(&repo, "svc", "feature-x", ApiType::OpenApi, yaml_two, None).await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_provide_spec_invalid_yaml() {
         let repo = MockRepo::new();
-        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, "not valid [[[").await;
+        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, "not valid [[[", None).await;
         assert!(matches!(result, Err(AppError::BadRequest(_))));
     }
 
@@ -2527,7 +2860,7 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml, None).await.unwrap();
         let result = require_endpoint(&repo, None, RequireEndpointParams {
             clientname: "client",
             servicename: "svc",
@@ -2617,8 +2950,8 @@ paths:
           description: OK
 "#;
         // "feature/xyz" is not protected, so updates should be allowed
-        provide_spec(&repo, "svc", "feature/xyz", ApiType::OpenApi, yaml1).await.unwrap();
-        let result = provide_spec(&repo, "svc", "feature/xyz", ApiType::OpenApi, yaml2).await;
+        provide_spec(&repo, "svc", "feature/xyz", ApiType::OpenApi, yaml1, None).await.unwrap();
+        let result = provide_spec(&repo, "svc", "feature/xyz", ApiType::OpenApi, yaml2, None).await;
         assert!(result.is_ok());
 
         // Verify the endpoint was actually updated
@@ -2650,7 +2983,7 @@ paths:
           description: OK
 "#;
         // Provide on main only
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml, None).await.unwrap();
 
         // Require on a feature branch that has no endpoints — should fallback to main
         let result = require_endpoint(&repo, None, RequireEndpointParams {
@@ -2700,7 +3033,7 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml, None).await.unwrap();
 
         // master is protected, so no fallback — endpoint not on master → NotFound
         let result = require_endpoint(&repo, None, RequireEndpointParams {
@@ -2765,8 +3098,8 @@ components:
           type: integer
 "#;
         // "main" is protected by default
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml1).await.unwrap();
-        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml2).await;
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml1, None).await.unwrap();
+        let result = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml2, None).await;
         assert!(matches!(result, Err(AppError::Conflict(_))));
     }
 
@@ -2806,7 +3139,7 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml, None).await.unwrap();
         let services = list_services(&repo).await.unwrap();
         assert!(services.contains(&"svc".to_string()));
 
@@ -2835,8 +3168,8 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
-        provide_spec(&repo, "svc", "feature/x", ApiType::OpenApi, yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml, None).await.unwrap();
+        provide_spec(&repo, "svc", "feature/x", ApiType::OpenApi, yaml, None).await.unwrap();
 
         let branches = list_branches(&repo, "svc").await.unwrap();
         assert_eq!(branches.len(), 2);
@@ -2867,11 +3200,11 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc-a", "main", ApiType::OpenApi, yaml).await.unwrap();
-        provide_spec(&repo, "svc-a", "feature/x", ApiType::OpenApi, yaml).await.unwrap();
-        provide_spec(&repo, "svc-b", "main", ApiType::OpenApi, yaml).await.unwrap();
-        provide_spec(&repo, "svc-b", "feature/x", ApiType::OpenApi, yaml).await.unwrap();
-        provide_spec(&repo, "svc-c", "main", ApiType::OpenApi, yaml).await.unwrap();
+        provide_spec(&repo, "svc-a", "main", ApiType::OpenApi, yaml, None).await.unwrap();
+        provide_spec(&repo, "svc-a", "feature/x", ApiType::OpenApi, yaml, None).await.unwrap();
+        provide_spec(&repo, "svc-b", "main", ApiType::OpenApi, yaml, None).await.unwrap();
+        provide_spec(&repo, "svc-b", "feature/x", ApiType::OpenApi, yaml, None).await.unwrap();
+        provide_spec(&repo, "svc-c", "main", ApiType::OpenApi, yaml, None).await.unwrap();
 
         let deleted = delete_branch_all_services(&repo, "feature/x").await.unwrap();
         assert_eq!(deleted, 2);
@@ -2902,7 +3235,7 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml, None).await.unwrap();
         require_endpoint(&repo, None, RequireEndpointParams {
             clientname: "webclient",
             servicename: "svc",
@@ -3245,7 +3578,7 @@ components:
         id:
           type: integer
 "#;
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml, None).await.unwrap();
 
         let endpoints = vec![
             ("/users".to_string(), "GET".to_string()),
@@ -3289,7 +3622,7 @@ paths:
         '200':
           description: OK
 "#;
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml).await.unwrap();
+        provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml, None).await.unwrap();
 
         let endpoints = vec![
             ("/users".to_string(), "GET".to_string()),
@@ -3458,7 +3791,7 @@ channels:
         payload:
           type: object
 "#;
-        provide_spec(&repo, "event-svc", "main", ApiType::AsyncApi, yaml).await.unwrap();
+        provide_spec(&repo, "event-svc", "main", ApiType::AsyncApi, yaml, None).await.unwrap();
 
         let endpoints = repo.endpoints.lock().unwrap();
         let all_eps: Vec<&EndpointRecord> = endpoints.values().flat_map(|v| v.iter()).collect();
@@ -3484,10 +3817,59 @@ channels:
         payload:
           type: object
 "#;
-        provide_spec(&repo, "consumer-svc", "main", ApiType::AsyncApi, yaml).await.unwrap();
+        provide_spec(&repo, "consumer-svc", "main", ApiType::AsyncApi, yaml, None).await.unwrap();
 
         let endpoints = repo.endpoints.lock().unwrap();
         let all_eps: Vec<&EndpointRecord> = endpoints.values().flat_map(|v| v.iter()).collect();
         assert_eq!(all_eps.len(), 0, "SUB-only spec should store no endpoints");
+    }
+
+    #[tokio::test]
+    async fn test_problem_3_optimistic_concurrency() {
+        let repo = MockRepo::new();
+        let yaml1 = "openapi: 3.0.0\ninfo:\n  title: T1\n  version: 1.0.0\npaths: {}";
+        let yaml2 = "openapi: 3.0.0\ninfo:\n  title: T2\n  version: 1.0.0\npaths: {}";
+
+        // 1. First provide
+        let res1 = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml1, None).await.unwrap();
+        assert_eq!(res1.version, 1);
+
+        // 2. Second provide with correct base_version
+        let res2 = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml2, Some(1)).await.unwrap();
+        assert_eq!(res2.version, 2);
+
+        // 3. Third provide with OUTDATED base_version (using version 1 when current is 2)
+        let res3 = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml1, Some(1)).await;
+        assert!(res3.is_err());
+        match res3.err().unwrap() {
+            AppError::Conflict(msg) => assert!(msg.contains("Outdated spec version")),
+            _ => panic!("Expected Conflict error"),
+        }
+
+        // 4. Provide WITHOUT base_version should always work (backward compatibility)
+        let res4 = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml1, None).await.unwrap();
+        assert_eq!(res4.version, 3);
+    }
+
+    #[tokio::test]
+    async fn test_problem_4_5_content_hashing_and_skip() {
+        let repo = MockRepo::new();
+        let yaml = "openapi: 3.0.0\ninfo:\n  title: T1\n  version: 1.0.0\npaths: {}";
+
+        // 1. First provide
+        let res1 = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml, None).await.unwrap();
+        let h1 = res1.content_hash;
+        assert!(h1.starts_with("sha256:"));
+
+        // 2. Provide same content again
+        let res2 = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml, None).await.unwrap();
+        assert_eq!(res2.version, 1); // Should NOT increment
+        assert_eq!(res2.content_hash, h1);
+
+        // 3. Provide different content
+        let yaml2 = "openapi: 3.0.0\ninfo:\n  title: T2\n  version: 1.0.0\npaths: {}";
+        let res3 = provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml2, None).await.unwrap();
+        assert_eq!(res3.version, 2); // Should increment
+        assert_ne!(res3.content_hash, h1);
     }
 }

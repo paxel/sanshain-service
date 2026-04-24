@@ -65,6 +65,20 @@ impl std::str::FromStr for AuthMode {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProvideResponse {
+    pub version: i32,
+    pub content_hash: String,
+    pub changes: ProvideChanges,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ProvideChanges {
+    pub inserts: usize,
+    pub updates: usize,
+    pub deletes: usize,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LdapConfig {
     pub server_url: String,
@@ -154,6 +168,17 @@ pub struct EndpointRecord {
     pub normalized_path: String,
     pub method: String,
     pub yaml_content: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SharedContract {
+    pub branch_name: String,
+    pub api_type: ApiType,
+    pub path: String,
+    pub method: String,
+    pub source_yaml: String,
+    pub current_yaml: String,
+    pub owner_service_id: Option<i64>,
 }
 
 #[derive(Serialize, Clone, Debug)]
