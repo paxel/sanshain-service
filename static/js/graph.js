@@ -344,8 +344,8 @@ function renderCustomGraph(report, svgElement, direction) {
         }
     }
 
-    // Inject virtual MESSAGING node if any asyncapi dependency exists
-    const MESSAGING_NODE = 'MESSAGING';
+    // Inject virtual KAFKA node if any asyncapi dependency exists
+    const KAFKA_NODE = 'KAFKA';
     const messagingRegisterEdges = new Set();
     const asyncClients = new Set();
     deps.forEach(d => {
@@ -355,16 +355,16 @@ function renderCustomGraph(report, svgElement, direction) {
         }
     });
     if (asyncClients.size > 0) {
-        allNodes.add(MESSAGING_NODE);
-        serviceNodes.add(MESSAGING_NODE);
+        allNodes.add(KAFKA_NODE);
+        serviceNodes.add(KAFKA_NODE);
         // Ensure service_tags includes messaging tag for the virtual node
         if (!report.service_tags) report.service_tags = {};
-        report.service_tags[MESSAGING_NODE] = ['messaging'];
-        // Link all async-involved services to MESSAGING
+        report.service_tags[KAFKA_NODE] = ['messaging'];
+        // Link all async-involved services to KAFKA
         for (const svc of asyncClients) {
             if (!adjMap.has(svc)) adjMap.set(svc, []);
-            if (!adjMap.get(svc).includes(MESSAGING_NODE)) adjMap.get(svc).push(MESSAGING_NODE);
-            const key = `${svc}-->${MESSAGING_NODE}`;
+            if (!adjMap.get(svc).includes(KAFKA_NODE)) adjMap.get(svc).push(KAFKA_NODE);
+            const key = `${svc}-->${KAFKA_NODE}`;
             if (!edgeLabels.has(key)) edgeLabels.set(key, new Set());
             edgeLabels.get(key).add('register');
             // Mark these edges as messaging-register (grey dashed, no arrows)
@@ -643,7 +643,7 @@ function renderCustomGraph(report, svgElement, direction) {
         } else if (isMissing) {
             edgeColor = '#f97316'; edgeWidth = '2'; markerEnd = 'url(#arrow-orange)';
         } else if (isMessagingRegister) {
-            edgeColor = '#9ca3af'; edgeWidth = '1.5'; markerEnd = '';
+            edgeColor = '#3b82f6'; edgeWidth = '1.5'; markerEnd = '';
         } else if (isBidirectionalPubSub) {
             edgeColor = '#94a3b8'; edgeWidth = '2'; markerEnd = '';
         } else {
@@ -679,24 +679,11 @@ function renderCustomGraph(report, svgElement, direction) {
         const nodeTags = (report.service_tags && report.service_tags[node]) || [];
         const hasTag = (t) => nodeTags.includes(t);
 
-        // Determine node shape: 'hexagon' (missing), 'diamond' (messaging), 'cylinder' (database), 'octagon' (grpc), 'rect' (default)
-        let nodeShape = 'rect';
+        // Determine node colors
         let fill, stroke, textColor;
 
         if (isMissingService) {
             fill = '#fff7ed'; stroke = '#f97316'; textColor = '#9a3412';
-            nodeShape = 'hexagon';
-        } else if (hasTag('messaging')) {
-            fill = '#fce7f3'; stroke = '#ec4899'; textColor = '#9d174d';
-            nodeShape = 'diamond';
-        } else if (hasTag('database')) {
-            fill = '#e0f2fe'; stroke = '#0284c7'; textColor = '#075985';
-            nodeShape = 'cylinder';
-        } else if (hasTag('grpc')) {
-            fill = '#f3e8ff'; stroke = '#9333ea'; textColor = '#6b21a8';
-            nodeShape = 'octagon';
-        } else if (hasTag('infrastructure')) {
-            fill = '#f0fdf4'; stroke = '#16a34a'; textColor = '#166534';
         } else if (isClient && isService) {
             fill = '#fef3c7'; stroke = '#f59e0b'; textColor = '#92400e';
         } else if (isService) {
@@ -712,9 +699,7 @@ function renderCustomGraph(report, svgElement, direction) {
         // Set role for legend highlighting
         if (isMissingService) group.dataset.role = 'missing';
         else if (hasTag('messaging')) group.dataset.role = 'tag-messaging';
-        else if (hasTag('database')) group.dataset.role = 'tag-database';
         else if (hasTag('grpc')) group.dataset.role = 'tag-grpc';
-        else if (hasTag('infrastructure')) group.dataset.role = 'tag-infrastructure';
         else if (isClient && isService) group.dataset.role = 'both';
         else if (isService) group.dataset.role = 'service';
         else group.dataset.role = 'client';
@@ -722,93 +707,59 @@ function renderCustomGraph(report, svgElement, direction) {
 
         const cx = nd.x, cy = nd.y, hw = nd.width / 2, hh = nd.height / 2;
 
-        if (nodeShape === 'hexagon') {
-            // Hexagonal shape for missing services
-            const hex = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-            const pts = [
-                [cx - hw, cy],
-                [cx - hw * 0.7, cy - hh],
-                [cx + hw * 0.7, cy - hh],
-                [cx + hw, cy],
-                [cx + hw * 0.7, cy + hh],
-                [cx - hw * 0.7, cy + hh]
-            ].map(p => p.join(',')).join(' ');
-            hex.setAttribute('points', pts);
-            hex.setAttribute('fill', fill);
-            hex.setAttribute('stroke', stroke);
-            hex.setAttribute('stroke-width', '2');
-            hex.setAttribute('stroke-dasharray', '6 3');
-            group.appendChild(hex);
-        } else if (nodeShape === 'diamond') {
-            // Diamond shape for messaging services
-            const diamond = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-            const pad = 10;
-            const pts = [
-                [cx, cy - hh - pad],
-                [cx + hw + pad, cy],
-                [cx, cy + hh + pad],
-                [cx - hw - pad, cy]
-            ].map(p => p.join(',')).join(' ');
-            diamond.setAttribute('points', pts);
-            diamond.setAttribute('fill', fill);
-            diamond.setAttribute('stroke', stroke);
-            diamond.setAttribute('stroke-width', '2');
-            group.appendChild(diamond);
-        } else if (nodeShape === 'cylinder') {
-            // Cylinder shape for database services
-            const ry = 8;
-            const bodyPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            const d = `M${cx - hw},${cy - hh + ry} ` +
-                      `A${hw},${ry} 0 0,1 ${cx + hw},${cy - hh + ry} ` +
-                      `V${cy + hh - ry} ` +
-                      `A${hw},${ry} 0 0,1 ${cx - hw},${cy + hh - ry} Z`;
-            bodyPath.setAttribute('d', d);
-            bodyPath.setAttribute('fill', fill);
-            bodyPath.setAttribute('stroke', stroke);
-            bodyPath.setAttribute('stroke-width', '2');
-            group.appendChild(bodyPath);
-            // Top ellipse
-            const topEllipse = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
-            topEllipse.setAttribute('cx', cx);
-            topEllipse.setAttribute('cy', cy - hh + ry);
-            topEllipse.setAttribute('rx', hw);
-            topEllipse.setAttribute('ry', ry);
-            topEllipse.setAttribute('fill', fill);
-            topEllipse.setAttribute('stroke', stroke);
-            topEllipse.setAttribute('stroke-width', '2');
-            group.appendChild(topEllipse);
-        } else if (nodeShape === 'octagon') {
-            // Octagon shape for gRPC services
-            const oct = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-            const inset = Math.min(hw, hh) * 0.35;
-            const pts = [
-                [cx - hw + inset, cy - hh],
-                [cx + hw - inset, cy - hh],
-                [cx + hw, cy - hh + inset],
-                [cx + hw, cy + hh - inset],
-                [cx + hw - inset, cy + hh],
-                [cx - hw + inset, cy + hh],
-                [cx - hw, cy + hh - inset],
-                [cx - hw, cy - hh + inset]
-            ].map(p => p.join(',')).join(' ');
-            oct.setAttribute('points', pts);
-            oct.setAttribute('fill', fill);
-            oct.setAttribute('stroke', stroke);
-            oct.setAttribute('stroke-width', '2');
-            group.appendChild(oct);
-        } else {
-            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            rect.setAttribute('x', cx - hw);
-            rect.setAttribute('y', cy - hh);
-            rect.setAttribute('width', nd.width);
-            rect.setAttribute('height', nd.height);
-            rect.setAttribute('rx', '8');
-            rect.setAttribute('ry', '8');
-            rect.setAttribute('fill', fill);
-            rect.setAttribute('stroke', stroke);
-            rect.setAttribute('stroke-width', '2');
-            group.appendChild(rect);
+        // Draw standard rectangle
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', cx - hw);
+        rect.setAttribute('y', cy - hh);
+        rect.setAttribute('width', nd.width);
+        rect.setAttribute('height', nd.height);
+        rect.setAttribute('rx', '8');
+        rect.setAttribute('ry', '8');
+        rect.setAttribute('fill', fill);
+        rect.setAttribute('stroke', stroke);
+        rect.setAttribute('stroke-width', '2');
+        if (isMissingService) rect.setAttribute('stroke-dasharray', '6 3');
+        group.appendChild(rect);
+
+        // Add Symbols (Top-Left: ! for missing, Top-Right: ✉️ for AsyncAPI, 🔌 for gRPC)
+        if (isMissingService) {
+            const sym = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            sym.setAttribute('x', cx - hw + 8);
+            sym.setAttribute('y', cy - hh + 13);
+            sym.setAttribute('font-size', '12');
+            sym.setAttribute('font-weight', 'bold');
+            sym.setAttribute('fill', textColor);
+            sym.setAttribute('text-anchor', 'middle');
+            sym.textContent = '!';
+            group.appendChild(sym);
         }
+
+        const trSymbols = [];
+        if (hasTag('messaging')) trSymbols.push({ type: 'text', text: '🛢️' });
+        if (hasTag('grpc')) trSymbols.push({ type: 'text', text: '⛓️' });
+
+        trSymbols.forEach((s, i) => {
+            const x = cx + hw - 12 - (i * 14);
+            const y = cy - hh + 13;
+            if (s.type === 'text') {
+                const sym = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                sym.setAttribute('x', x);
+                sym.setAttribute('y', y);
+                sym.setAttribute('font-size', '10');
+                sym.setAttribute('text-anchor', 'middle');
+                sym.textContent = s.text;
+                group.appendChild(sym);
+            } else if (s.type === 'svg') {
+                const svgG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                // Offset to center the 24x24 icon scaled by 0.45 (~11x11)
+                svgG.setAttribute('transform', `translate(${x - 5.5}, ${y - 9.5}) scale(${s.scale})`);
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                path.setAttribute('d', s.d);
+                path.setAttribute('fill', textColor);
+                svgG.appendChild(path);
+                group.appendChild(svgG);
+            }
+        });
 
         // Double border for "both" nodes
         if (isClient && isService) {
