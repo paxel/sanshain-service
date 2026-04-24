@@ -46,7 +46,7 @@
                 <span class="zzz">z</span>
             </div>
         </div>
-        <div class="mt-4 text-slate-400 text-sm font-medium tracking-wide">Loading...</div>
+        <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
     </div>
 <nav class="bg-indigo-700 text-white p-4 shadow-lg">
     <div class="container mx-auto flex justify-between items-center">
@@ -81,7 +81,7 @@
             <div class="relative w-64">
                 <input type="text" id="service-search" placeholder="Search services..."
                        class="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <div class="absolute left-3 top-2.5 text-slate-400">
+                <div class="absolute left-3 top-2.5 text-slate-500">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
@@ -122,7 +122,7 @@
 
         <div id="graph-toolbar-row" class="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200">
             <div class="flex items-center gap-2 flex-grow">
-                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Focus</span>
+                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Focus</span>
                 <div id="focus-tags-container" class="flex flex-wrap items-center gap-1.5"></div>
                 <div class="relative flex-shrink-0" style="min-width:140px">
                     <input type="text" id="graph-service-filter" list="graph-services-list" placeholder="Add service..."
@@ -174,7 +174,7 @@
             </div>
 
             <div id="graph-legend" class="w-48 flex-shrink-0 space-y-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm h-fit sticky top-6">
-                <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 border-b border-slate-100 pb-2">Legend</h4>
+                <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 border-b border-slate-100 pb-2">Legend</h4>
                 <div class="space-y-3 text-[11px] font-medium text-slate-600">
                     <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:client">
                         <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#ccfbf1;border:2px solid #14b8a6"></span>
@@ -209,7 +209,7 @@
                         <span>Missing svc.</span>
                     </div>
                     <div class="pt-2 border-t border-slate-100">
-                        <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">Service Tags</p>
+                        <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">Service Tags</p>
                         <div class="space-y-2">
                             <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:tag-messaging">
                                 <svg class="w-4 h-4" viewBox="0 0 16 16"><polygon points="8,1 15,8 8,15 1,8" fill="#fce7f3" stroke="#ec4899" stroke-width="1.5"/></svg>
@@ -248,7 +248,7 @@
             <div class="relative w-64">
                 <input type="text" id="client-search" placeholder="Search for clients..."
                        class="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-teal-500">
-                <div class="absolute left-3 top-2.5 text-slate-400">
+                <div class="absolute left-3 top-2.5 text-slate-500">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
@@ -288,7 +288,7 @@
     <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
         <div class="p-6 border-b border-slate-100 flex justify-between items-center">
             <h3 id="modal-title" class="text-2xl font-bold text-slate-800">Branch Details</h3>
-            <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 transition-colors">
+            <button onclick="closeModal()" class="text-slate-500 hover:text-slate-600 transition-colors">
                 <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M6 18L18 6M6 6l12 12"></path>
@@ -387,7 +387,7 @@
         if (!services || services.length === 0) {
             list.innerHTML = `
                 <div class="bg-white p-10 rounded-2xl border-2 border-dashed border-slate-200 text-center">
-                    <div class="text-slate-400 mb-4">
+                    <div class="text-slate-500 mb-4">
                         <svg class="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
                         </svg>
@@ -421,7 +421,7 @@
                             </div>
                         </div>
                     </div>
-                    <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                     </svg>
                 </div>`;
@@ -451,7 +451,7 @@
         list.innerHTML = '';
 
         if (branches.length === 0) {
-            list.innerHTML = '<div class="text-center py-10 text-slate-400 italic">No branches found for this service.</div>';
+            list.innerHTML = '<div class="text-center py-10 text-slate-500 italic">No branches found for this service.</div>';
             return;
         }
 
@@ -469,7 +469,7 @@
                         </span>
                         <h3 class="font-semibold text-slate-800">${branch}</h3>
                     </div>
-                    <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                     </svg>
                 </div>`;
@@ -531,7 +531,7 @@
             list.innerHTML = '';
 
             if (uniqueEndpoints.length === 0) {
-                list.innerHTML = '<div class="text-center py-10 text-slate-400 italic">No endpoints found for this service on this branch.</div>';
+                list.innerHTML = '<div class="text-center py-10 text-slate-500 italic">No endpoints found for this service on this branch.</div>';
                 return;
             }
 
@@ -570,7 +570,7 @@
                             ${isUnused
                                 ? '<span class="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full mr-2">unused</span>'
                                 : `<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2 relative client-badge-wrapper" data-clients="${clients.map(c => c).join(',')}" onclick="event.stopPropagation(); toggleClientPopover(this)">${clients.length} client${clients.length !== 1 ? 's' : ''} ▾</span>`}
-                            <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                             </svg>
                         </div>
@@ -695,7 +695,7 @@
         return diffLines.map(d => {
             if (d.type === 'add') return `<span class="text-green-400">+ ${esc(d.line)}</span>`;
             if (d.type === 'del') return `<span class="text-red-400">- ${esc(d.line)}</span>`;
-            return `<span class="text-slate-400">  ${esc(d.line)}</span>`;
+            return `<span class="text-slate-500">  ${esc(d.line)}</span>`;
         }).join('\n');
     }
 
@@ -709,7 +709,7 @@
                 <select id="diff-from" class="text-sm border border-slate-300 rounded-lg px-2 py-1">
                     ${versions.map(v => `<option value="${v.version}"${v.version === versions[0].version ? ' selected' : ''}>v${v.version} (${v.created_at})</option>`).join('')}
                 </select>
-                <span class="text-slate-400">→</span>
+                <span class="text-slate-500">→</span>
                 <select id="diff-to" class="text-sm border border-slate-300 rounded-lg px-2 py-1">
                     ${versions.map(v => `<option value="${v.version}"${v.version === versions[versions.length-1].version ? ' selected' : ''}>v${v.version} (${v.created_at})</option>`).join('')}
                 </select>
@@ -725,7 +725,7 @@
                 <div class="flex items-center justify-between">
                     <div>
                         <span class="text-sm font-semibold text-slate-700">Version ${v.version}</span>
-                        <span class="text-xs text-slate-400 ml-2">${v.created_at}</span>
+                        <span class="text-xs text-slate-500 ml-2">${v.created_at}</span>
                     </div>
                     <div class="flex gap-2">
                         <button class="ver-yaml-btn text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200" data-version="${v.version}">View YAML</button>
@@ -820,15 +820,15 @@
             if (totalPages > 1) {
                 paginationHtml = `
                     <div class="flex items-center justify-between mt-4">
-                        <button id="yaml-prev" class="px-3 py-1.5 rounded-lg text-sm font-medium ${currentPage <= 1 ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}" ${currentPage <= 1 ? 'disabled' : ''}>← Previous</button>
+                        <button id="yaml-prev" class="px-3 py-1.5 rounded-lg text-sm font-medium ${currentPage <= 1 ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}" ${currentPage <= 1 ? 'disabled' : ''}>← Previous</button>
                         <span class="text-sm text-slate-500">Page ${currentPage} of ${totalPages} &middot; Lines ${start + 1}–${end} of ${lines.length}</span>
-                        <button id="yaml-next" class="px-3 py-1.5 rounded-lg text-sm font-medium ${currentPage >= totalPages ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}" ${currentPage >= totalPages ? 'disabled' : ''}>Next →</button>
+                        <button id="yaml-next" class="px-3 py-1.5 rounded-lg text-sm font-medium ${currentPage >= totalPages ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}" ${currentPage >= totalPages ? 'disabled' : ''}>Next →</button>
                     </div>`;
             }
 
             container.innerHTML = `
                 <div class="flex items-center justify-between mb-2">
-                    <span class="text-xs text-slate-400">${lines.length} lines total</span>
+                    <span class="text-xs text-slate-500">${lines.length} lines total</span>
                     <div class="flex gap-2">
                         <button id="yaml-copy" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors" title="Copy to clipboard">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg>
@@ -954,7 +954,7 @@
         if (!clients || clients.length === 0) {
             list.innerHTML = `
                 <div class="bg-white p-10 rounded-2xl border-2 border-dashed border-slate-200 text-center">
-                    <div class="text-slate-400 mb-4">
+                    <div class="text-slate-500 mb-4">
                         <svg class="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
                         </svg>
@@ -979,7 +979,7 @@
                         </span>
                         <h3 class="font-bold text-lg text-slate-800">${name}</h3>
                     </div>
-                    <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                     </svg>
                 </div>`;
@@ -1007,7 +1007,7 @@
 
             if (!branches || branches.length === 0) {
                 const empty = document.createElement('div');
-                empty.className = 'text-center py-10 text-slate-400 italic';
+                empty.className = 'text-center py-10 text-slate-500 italic';
                 empty.textContent = 'No branches found for this client.';
                 list.appendChild(empty);
                 hideLoader();
@@ -1028,7 +1028,7 @@
                             </span>
                             <h3 class="font-semibold text-slate-800">${branch}</h3>
                         </div>
-                        <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                         </svg>
                     </div>`;
@@ -1063,7 +1063,7 @@
 
             if (!endpoints || endpoints.length === 0) {
                 const empty = document.createElement('div');
-                empty.className = 'text-center py-10 text-slate-400 italic';
+                empty.className = 'text-center py-10 text-slate-500 italic';
                 empty.textContent = 'No endpoints found for this branch.';
                 list.appendChild(empty);
                 hideLoader();
@@ -1086,13 +1086,13 @@
                                 ${ep.method}
                             </span>
                             <span class="font-mono text-sm text-slate-700">${ep.path}</span>
-                            <span class="ml-3 text-xs text-slate-400">${ep.service}</span>
+                            <span class="ml-3 text-xs text-slate-500">${ep.service}</span>
                         </div>
                         <div class="flex items-center">
                             ${ep.yaml_content
                                 ? `<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2 cursor-pointer hover:bg-green-100" onclick="event.stopPropagation(); navigateToServiceEndpoint('${ep.service}', '${ep.branch}', '${ep.path}', '${ep.method}')">resolved → ${ep.service}</span>`
                                 : '<span class="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full mr-2">pending</span>'}
-                            ${ep.yaml_content ? '<svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>' : ''}
+                            ${ep.yaml_content ? '<svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>' : ''}
                         </div>
                     </div>`;
                 list.appendChild(card);

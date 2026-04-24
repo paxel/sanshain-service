@@ -123,16 +123,16 @@ let sanshainToken = localStorage.getItem('sanshain_token');
         html.dark #graph-toolbar-row { background: rgba(51,65,85,0.5) !important; }
         html.dark .bg-indigo-100 { background: #312e81 !important; }
         html.dark .text-indigo-400 { color: #818cf8 !important; }
-        html.dark .text-slate-400 { color: #94a3b8 !important; }
         html.dark .hover\:bg-slate-50:hover { background: #334155 !important; }
         html.dark .bg-red-50 { background: #450a0a !important; }
 
         /* Cat Loader */
         #app-loader {
-            position: fixed; inset: 0; background: rgba(15, 23, 42, 0.9);
+            position: fixed; inset: 0; background: rgba(248, 250, 252, 0.9);
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             z-index: 9999; transition: opacity 0.3s ease-out;
         }
+        html.dark #app-loader { background: rgba(15, 23, 42, 0.9); }
         #app-loader.hidden { opacity: 0; pointer-events: none; }
         .cat-container { width: 120px; height: 80px; position: relative; }
         .cat-svg { width: 100%; height: 100%; fill: #94a3b8; animation: breathe 3s ease-in-out infinite; }
@@ -141,6 +141,9 @@ let sanshainToken = localStorage.getItem('sanshain_token');
             50% { transform: scale(1.05); }
         }
         .zzz-container { position: absolute; top: 0; right: 10px; font-weight: bold; color: #64748b; font-family: monospace; }
+        html.dark .zzz-container { color: #94a3b8 !important; }
+        html.dark .cat-svg path[stroke="#1e293b"] { stroke: #e2e8f0 !important; }
+        html.dark .cat-svg circle[fill="#1e293b"] { fill: #e2e8f0 !important; }
         .zzz { position: absolute; opacity: 0; animation: floatZ 3s infinite; }
         .zzz:nth-child(1) { animation-delay: 0s; font-size: 14px; }
         .zzz:nth-child(2) { animation-delay: 1s; font-size: 18px; }
@@ -335,7 +338,7 @@ function injectLoader() {
                 <span class="zzz">z</span>
             </div>
         </div>
-        <div class="mt-4 text-slate-400 text-sm font-medium tracking-wide">Loading...</div>
+        <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
     `;
     document.body.appendChild(loader);
 }

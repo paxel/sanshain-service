@@ -34,7 +34,7 @@
                 <span class="zzz">z</span>
             </div>
         </div>
-        <div class="mt-4 text-slate-400 text-sm font-medium tracking-wide">Loading...</div>
+        <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
     </div>
 
     <!-- Login Screen -->
@@ -135,7 +135,7 @@
                 <!-- Stats Grid -->
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                     <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Resources</span>
+                        <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Resources</span>
                         <div class="mt-2 flex items-end justify-between">
                             <div>
                                 <div class="text-2xl font-bold text-slate-800" id="stat-cpu">0%</div>
@@ -148,7 +148,7 @@
                         </div>
                     </div>
                     <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Throughput</span>
+                        <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Throughput</span>
                         <div class="mt-2 flex items-end justify-between">
                             <div>
                                 <div class="text-2xl font-bold text-slate-800" id="stat-requests">0</div>
@@ -161,7 +161,7 @@
                         </div>
                     </div>
                     <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Availability</span>
+                        <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Availability</span>
                         <div class="mt-2">
                             <div class="text-2xl font-bold text-slate-800" id="stat-uptime">0s</div>
                             <div class="text-xs text-slate-500">Uptime</div>
@@ -345,7 +345,7 @@
                     <input type="text" id="services-filter" oninput="filterServices()" placeholder="🔍 Filter services..."
                         class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 </div>
-                <div id="services-count" class="text-xs text-slate-400 mb-2"></div>
+                <div id="services-count" class="text-xs text-slate-500 mb-2"></div>
                 <div id="services-list" class="space-y-2 max-h-[500px] overflow-y-auto"></div>
             </section>
 
@@ -366,7 +366,7 @@
                     <input type="text" id="clients-filter" oninput="filterClients()" placeholder="🔍 Filter clients..."
                         class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 </div>
-                <div id="clients-count" class="text-xs text-slate-400 mb-2"></div>
+                <div id="clients-count" class="text-xs text-slate-500 mb-2"></div>
                 <div id="clients-list" class="space-y-2 max-h-[500px] overflow-y-auto"></div>
             </section>
 
@@ -752,7 +752,7 @@
                 if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
                 const branches = await res.json();
                 if (branches.length === 0) {
-                    list.innerHTML = '<p class="text-sm text-slate-400 italic">No protected branches configured.</p>';
+                    list.innerHTML = '<p class="text-sm text-slate-500 italic">No protected branches configured.</p>';
                     return;
                 }
                 list.innerHTML = branches.map(b => `
@@ -841,7 +841,7 @@
                 if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
                 const users = await res.json();
                 if (users.length === 0) {
-                    list.innerHTML = '<p class="text-sm text-slate-400 italic">No users registered.</p>';
+                    list.innerHTML = '<p class="text-sm text-slate-500 italic">No users registered.</p>';
                     return;
                 }
                 list.innerHTML = users.map(u => `
@@ -904,7 +904,7 @@
             const countEl = document.getElementById('services-count');
             countEl.textContent = `${services.length} of ${allServices.length} services`;
             if (services.length === 0) {
-                list.innerHTML = '<p class="text-sm text-slate-400 italic">No services found.</p>';
+                list.innerHTML = '<p class="text-sm text-slate-500 italic">No services found.</p>';
                 return;
             }
             list.innerHTML = '';
@@ -915,7 +915,7 @@
                 div.innerHTML = `
                     <div class="flex justify-between items-center">
                         <div class="flex items-center space-x-3">
-                            <button onclick="toggleBranches(this, '${escapeAttr(svc)}')" class="text-slate-400 hover:text-slate-600 text-sm">▶</button>
+                            <button onclick="toggleBranches(this, '${escapeAttr(svc)}')" class="text-slate-500 hover:text-slate-600 text-sm">▶</button>
                             <span class="font-medium text-slate-800">${escapeHtml(svc)}</span>
                         </div>
                         <button onclick="confirmDelete('Delete service <strong>${escapeHtml(svc)}</strong> and all its data?', () => deleteService('${escapeAttr(svc)}'))"
@@ -936,13 +936,13 @@
             }
             btn.textContent = '▼';
             container.classList.remove('hidden');
-            container.innerHTML = '<p class="text-xs text-slate-400">Loading...</p>';
+            container.innerHTML = '<p class="text-xs text-slate-500">Loading...</p>';
             try {
                 const res = await apiCall(`/admin/services/${encodeURIComponent(serviceName)}/branches`);
                 if (!res.ok) { container.innerHTML = '<p class="text-xs text-red-500">Failed</p>'; return; }
                 const branches = await res.json();
                 if (branches.length === 0) {
-                    container.innerHTML = '<p class="text-xs text-slate-400 italic">No branches</p>';
+                    container.innerHTML = '<p class="text-xs text-slate-500 italic">No branches</p>';
                     return;
                 }
                 container.innerHTML = branches.map(b => `
@@ -997,7 +997,7 @@
             const countEl = document.getElementById('clients-count');
             countEl.textContent = `${clients.length} of ${allClients.length} clients`;
             if (clients.length === 0) {
-                list.innerHTML = '<p class="text-sm text-slate-400 italic">No clients found.</p>';
+                list.innerHTML = '<p class="text-sm text-slate-500 italic">No clients found.</p>';
                 return;
             }
             list.innerHTML = clients.map(c => `
