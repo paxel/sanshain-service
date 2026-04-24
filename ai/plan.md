@@ -62,3 +62,11 @@ The following major milestones have been delivered and are fully functional:
 ### Web Frontend (Advanced)
 - [ ] SSE for `/require` long-polling and live updates.
 - [ ] WebSocket support (if bidirectional real-time needed).
+
+### AsyncAPI Semantics & Sync Concurrency
+Design exploration document: [`ai/sync.plan`](sync.plan.md)
+- [x] Problem 1: `/provide/asyncapi` should only store PUB operations (SUB belongs in `requires`).
+- [ ] Problem 2: Multiple publishers for the same topic — detect and warn about conflicts.
+- [ ] Problem 3: Concurrent developers on same service/branch overwrite each other (no optimistic concurrency).
+- [ ] Problem 4: Provide returns no version — clients can't detect state or cache.
+- [ ] Problem 5: No client-side caching/skip mechanism for unchanged specs.

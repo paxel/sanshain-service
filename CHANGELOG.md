@@ -4,9 +4,10 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.13.0] - 2026-04-23
+## [0.13.0] - Unreleased
 
 ### Changed
+- **AsyncAPI PUB-Only Provide**: the `/provide/asyncapi` endpoint now only stores PUB (publish/send) operations. SUB (subscribe/receive) operations are silently filtered out with a warning log. Subscribers should declare their dependencies in `sanshain.yaml` `requires` instead.
 - **Circular Dependency Color**: changed circular dependency edge color in the dependency graph from red to purple (`#a855f7`) to clearly distinguish it from the orange missing dependency color.
 - **Bidirectional PUB/SUB Edges**: connections between two services that have both PUB and SUB operations are now rendered as dotted lines with no arrows on either side, visually distinguishing bidirectional messaging from directional dependencies.
 - **Virtual MESSAGING Node**: when any AsyncAPI dependency exists in the graph, a virtual "MESSAGING" node (with `messaging` tag, rendered as a pink diamond) is automatically added. All services involved in AsyncAPI connections are linked to it with grey dashed "register" lines (no arrows), visually distinct from PUB/SUB bidirectional edges, providing a clear visual hub for message-driven communication.

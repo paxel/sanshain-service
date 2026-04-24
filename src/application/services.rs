@@ -105,19 +105,33 @@ async fn provide_spec_inner(
             tracing::warn!("Failed to split OpenAPI for service '{}' branch '{}': {}. Input content: \n{}", servicename, branch, e, content);
             AppError::BadRequest(e)
         })?,
-        ApiType::AsyncApi => crate::asyncapi::split_asyncapi(content)
-            .map_err(|e| {
-                tracing::warn!("Failed to split AsyncAPI for service '{}' branch '{}': {}. Input content: \n{}", servicename, branch, e, content);
-                AppError::BadRequest(e)
-            })?
-            .into_iter()
-            .map(|s| openapi::EndpointSpec {
-                normalized_path: s.channel.clone(),
-                path: s.channel,
-                method: s.operation,
-                yaml_content: s.yaml_content,
-            })
-            .collect(),
+        ApiType::AsyncApi => {
+            let all_specs = crate::asyncapi::split_asyncapi(content)
+                .map_err(|e| {
+                    tracing::warn!("Failed to split AsyncAPI for service '{}' branch '{}': {}. Input content: \n{}", servicename, branch, e, content);
+                    AppError::BadRequest(e)
+                })?;
+            let sub_count = all_specs.iter().filter(|s| s.operation == "SUB").count();
+            if sub_count > 0 {
+                let sub_channels: Vec<&str> = all_specs.iter()
+                    .filter(|s| s.operation == "SUB")
+                    .map(|s| s.channel.as_str())
+                    .collect();
+                tracing::warn!(
+                    "Skipping {} SUB operation(s) for service '{}' branch '{}': subscribe channels {:?} are not stored via /provide. Declare them as 'requires' in sanshain.yaml instead.",
+                    sub_count, servicename, branch, sub_channels
+                );
+            }
+            all_specs.into_iter()
+                .filter(|s| s.operation == "PUB")
+                .map(|s| openapi::EndpointSpec {
+                    normalized_path: s.channel.clone(),
+                    path: s.channel,
+                    method: s.operation,
+                    yaml_content: s.yaml_content,
+                })
+                .collect()
+        },
         ApiType::Proto => crate::proto::split_proto(content)
             .map_err(|e| {
                 tracing::warn!("Failed to split Proto for service '{}' branch '{}': {}. Input content: \n{}", servicename, branch, e, content);
@@ -3421,5 +3435,59 @@ paths:
         assert!(result.is_err(), "should return error for non-existent service");
         assert!(repo.services.lock().unwrap().is_empty(), "dry-run should not create service");
         assert!(repo.clients.lock().unwrap().is_empty(), "dry-run should not create client");
+    }
+
+    #[tokio::test]
+    async fn test_provide_asyncapi_filters_sub_operations() {
+        let repo = MockRepo::new();
+        // AsyncAPI v2 spec with both publish and subscribe on different channels
+        let yaml = r#"
+asyncapi: 2.0.0
+info:
+  title: Test
+  version: 1.0.0
+channels:
+  orders.created:
+    publish:
+      message:
+        payload:
+          type: object
+  orders.updated:
+    subscribe:
+      message:
+        payload:
+          type: object
+"#;
+        provide_spec(&repo, "event-svc", "main", ApiType::AsyncApi, yaml).await.unwrap();
+
+        let endpoints = repo.endpoints.lock().unwrap();
+        let all_eps: Vec<&EndpointRecord> = endpoints.values().flat_map(|v| v.iter()).collect();
+        // Only the PUB channel should be stored
+        assert_eq!(all_eps.len(), 1, "should store only PUB operations, got: {:?}", all_eps);
+        assert_eq!(all_eps[0].method, "PUB");
+        assert_eq!(all_eps[0].path, "orders.created");
+    }
+
+    #[tokio::test]
+    async fn test_provide_asyncapi_sub_only_stores_nothing() {
+        let repo = MockRepo::new();
+        // AsyncAPI v2 spec with only subscribe
+        let yaml = r#"
+asyncapi: 2.0.0
+info:
+  title: Test
+  version: 1.0.0
+channels:
+  orders.updated:
+    subscribe:
+      message:
+        payload:
+          type: object
+"#;
+        provide_spec(&repo, "consumer-svc", "main", ApiType::AsyncApi, yaml).await.unwrap();
+
+        let endpoints = repo.endpoints.lock().unwrap();
+        let all_eps: Vec<&EndpointRecord> = endpoints.values().flat_map(|v| v.iter()).collect();
+        assert_eq!(all_eps.len(), 0, "SUB-only spec should store no endpoints");
     }
 }
