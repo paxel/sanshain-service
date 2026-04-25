@@ -119,7 +119,7 @@ async function sanshainLogout(options = {}) {
         }
 
         // 2. Update all text nodes (best effort, limited to headers/nav/footer)
-        const selectors = 'h1, h2, h3, a, span, footer, button, label';
+        const selectors = 'h1, h2, h3, a, span, div, footer, button, label, p, td, th, li';
         document.querySelectorAll(selectors).forEach(el => {
             const hasMatch = el.textContent.includes(isDark ? 'Sanshain' : 'SOKA') || el.textContent.includes(isDark ? 'サンシャイン' : 'そうか');
             if (hasMatch) {
@@ -153,7 +153,7 @@ async function sanshainLogout(options = {}) {
     const style = document.createElement('style');
     style.textContent = `
         html.dark body { background: #0f172a !important; color: #e2e8f0 !important; }
-        html.dark nav { background: #312e81 !important; }
+        html.dark nav { background: transparent !important; }
         html.dark .bg-white { background: #1e293b !important; }
         html.dark .bg-slate-50 { background: #1e293b !important; }
         html.dark .bg-slate-100 { background: #334155 !important; }
