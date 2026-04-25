@@ -68,9 +68,22 @@ The following major milestones have been delivered and are fully functional:
 Design exploration document: [`ai/sync.plan`](sync.plan.md)
 - [x] Problem 1: `/provide/asyncapi` should only store PUB operations (SUB belongs in `requires`).
 - [x] Problem 2: Multiple publishers for the same topic — detect and warn about conflicts.
+  - [ ] Display the "current" with diff to "source"
 - [x] Problem 3: Concurrent developers on same service/branch overwrite each other (optimistic concurrency with `base_version`).
 - [x] Problem 4: Provide returns JSON body with version and content hash.
 - [x] Problem 5: Skip specification processing if content hash matches current version.
 - [x] Require-Side Caching: implemented ETag and If-None-Match support for all require endpoints to reduce network traffic and build times.
 - [ ] Problem 6: Bundle Hash Stability (ensure stable ETag regardless of request order).
 - [ ] Problem 7: Semantic Versioning for Specs.
+
+### Going big
+- [ ] Have a top-layer system switch. so that the service can be used completely separated from different systems of the customer.
+- [ ] User roles and user groups for allowing users/groups to contribute to dedicated systems only
+- [ ] Different maintenance roles to allow some users to do project administration / user administration etc.
+- [ ] manual editing: 
+  - [ ] mark endpoints to be used by external services
+  - [ ] add external services
+  - [ ] define yamls of external services
+- [ ] eye candy: 
+  - [ ] select icons for services
+  - [ ] group services to clusters
