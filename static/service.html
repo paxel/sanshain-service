@@ -23,7 +23,7 @@
         }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900 min-h-screen">
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
     <div id="app-loader">
         <div class="cat-container">
             <svg class="cat-svg" viewBox="0 0 100 60">
@@ -48,25 +48,32 @@
         </div>
         <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
     </div>
-<nav class="bg-indigo-700 text-white p-4 shadow-lg">
-    <div class="container mx-auto flex justify-between items-center">
-        <div class="flex items-center space-x-4">
+<header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
+    <div class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div class="flex items-center justify-between gap-4 md:justify-start">
             <a href="/" class="flex items-center space-x-3">
-                <img src="/images/sonne.png" alt="Sanshain" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
-                <h1 class="text-2xl font-bold tracking-tight">Sanshain Service (サンシャイン)</h1>
+                <img src="/images/sonne.png" alt="Sanshain Logo" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
+                <div class="text-2xl font-bold tracking-tight">Sanshain <span class="text-indigo-200">(サンシャイン)</span></div>
             </a>
-            <a href="/" class="text-indigo-200 hover:text-white text-sm">← Back to Dashboard</a>
+            <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
-        <div class="space-x-4">
-            <a href="/service.html" class="hover:text-indigo-200">Services</a>
-            <a href="#graph" onclick="showGraph()" class="hover:text-indigo-200">Graph</a>
-            <a href="#clients" onclick="showClients()" class="hover:text-indigo-200">Clients</a>
-            <a href="#reports" onclick="showReports()" class="hover:text-indigo-200">Reports</a>
+        <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
+            <a href="/service.html" class="hover:text-indigo-100 transition-colors">Services</a>
+            <a href="/service.html#clients" class="hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/service.html#graph" class="hover:text-indigo-100 transition-colors">Graph</a>
+            <a href="/service.html#reports" class="hover:text-indigo-100 transition-colors">Reports</a>
+            <a href="/admin.html" class="hover:text-indigo-100 transition-colors">Admin</a>
+        </nav>
+        <div class="flex items-center justify-end gap-4 text-sm">
+            <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+            <span id="banner-username" class="hidden text-indigo-200"></span>
+            <button id="banner-logout" type="button" onclick="sanshainLogout()" class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500">Logout</button>
+            <a id="banner-signin" href="/account.html" class="hidden text-indigo-100 transition-colors hover:text-white">Sign In</a>
         </div>
     </div>
-</nav>
+</header>
 
-<main class="container mx-auto p-6">
+<main class="container mx-auto flex-1 p-6">
     <div id="service-section">
         <div class="flex justify-between items-center mb-6">
             <h2 class="text-xl font-semibold flex items-center">
@@ -304,6 +311,37 @@
 </div>
 
 <script>
+    const DISCOVERY_VIEWS = new Set(['services', 'clients', 'graph', 'reports']);
+
+    function getDiscoveryViewFromHash() {
+        const hash = window.location.hash.replace(/^#/, '').toLowerCase();
+        return DISCOVERY_VIEWS.has(hash) ? hash : 'services';
+    }
+
+    function updateDiscoveryHash(view) {
+        const nextHash = view === 'services' ? '' : `#${view}`;
+        if (window.location.hash !== nextHash) {
+            history.replaceState(null, '', `${window.location.pathname}${window.location.search}${nextHash}`);
+        }
+    }
+
+    async function showDiscoveryView(view, options = {}) {
+        const normalizedView = DISCOVERY_VIEWS.has(view) ? view : 'services';
+        if (normalizedView === 'clients') {
+            await showClients();
+        } else if (normalizedView === 'graph') {
+            await showGraph();
+        } else if (normalizedView === 'reports') {
+            await showReports();
+        } else {
+            await loadServices();
+        }
+
+        if (!options.skipHashUpdate) {
+            updateDiscoveryHash(normalizedView);
+        }
+    }
+
     // Redirect to login if no session token
     async function checkAuth() {
         const token = localStorage.getItem('sanshain_token');
@@ -320,8 +358,9 @@
                 return;
             }
             const user = await res.json();
+            renderBanner(user);
             // Auth OK, proceed to load data
-            loadServices();
+            await showDiscoveryView(getDiscoveryViewFromHash(), { skipHashUpdate: true });
         } catch (err) {
             console.error('Auth check failed:', err);
             window.location.href = '/account.html';
@@ -343,6 +382,7 @@
     const YAML_PAGE_SIZE = 80; // lines per page for YAML viewer
 
     async function loadServices() {
+        updateDiscoveryHash('services');
         showLoader();
         document.getElementById('service-section').classList.remove('hidden');
         document.getElementById('client-section').classList.add('hidden');
@@ -890,6 +930,7 @@
     function navigateToClient(clientName) {
         document.querySelectorAll('.client-popover').forEach(p => p.remove());
         // Switch to clients tab and show that client's branches
+        updateDiscoveryHash('clients');
         document.getElementById('service-section').classList.add('hidden');
         document.getElementById('client-section').classList.remove('hidden');
         document.getElementById('graph-section').classList.add('hidden');
@@ -899,6 +940,7 @@
 
     function navigateToServiceEndpoint(serviceName, branch, path, method) {
         // Switch to services tab and show that service's branch endpoints
+        updateDiscoveryHash('services');
         document.getElementById('client-section').classList.add('hidden');
         document.getElementById('service-section').classList.remove('hidden');
         document.getElementById('graph-section').classList.add('hidden');
@@ -920,6 +962,7 @@
     let allClients = [];
 
     async function showClients() {
+        updateDiscoveryHash('clients');
         showLoader();
         document.getElementById('service-section').classList.add('hidden');
         document.getElementById('graph-section').classList.add('hidden');
@@ -1166,6 +1209,7 @@
     }
 
     async function showGraph() {
+        updateDiscoveryHash('graph');
         document.getElementById('service-section').classList.add('hidden');
         document.getElementById('client-section').classList.add('hidden');
         document.getElementById('report-section').classList.add('hidden');
@@ -1465,6 +1509,7 @@
     }
 
     async function showReports() {
+        updateDiscoveryHash('reports');
         showLoader();
         document.getElementById('service-section').classList.add('hidden');
         document.getElementById('client-section').classList.add('hidden');
@@ -1604,6 +1649,19 @@
         });
     })();
 
-</script>
+    window.addEventListener('hashchange', () => {
+        if (!localStorage.getItem('sanshain_token')) return;
+        showDiscoveryView(getDiscoveryViewFromHash(), { skipHashUpdate: true });
+    });
+
+    </script>
+    <footer class="text-center text-sm text-slate-500 py-6 mt-auto">
+        <img src="/images/sonne.png" alt="Sanshain" class="mx-auto mb-2 h-8 w-auto opacity-70">
+        <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
+        <div class="mt-2 flex items-center justify-center gap-4">
+            <a href="https://github.com/paxel/sanshain-service" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800">GitHub</a>
+            <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
+        </div>
+    </footer>
 </body>
 </html>

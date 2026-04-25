@@ -11,7 +11,7 @@
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900 min-h-screen">
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
     <div id="app-loader">
         <div class="cat-container">
             <svg class="cat-svg" viewBox="0 0 100 60">
@@ -37,25 +37,33 @@
         <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
     </div>
 
-    <!-- Nav (shown when logged in) -->
-    <nav id="nav-bar" class="hidden bg-indigo-700 text-white p-4 shadow-lg">
-        <div class="container mx-auto flex justify-between items-center">
-            <div class="flex items-center space-x-4">
+    <header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
+        <div class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div class="flex items-center justify-between gap-4 md:justify-start">
                 <a href="/" class="flex items-center space-x-3">
-                    <img src="/images/sonne.png" alt="Sanshain" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
-                    <h1 class="text-2xl font-bold tracking-tight">Sanshain Account</h1>
+                    <img src="/images/sonne.png" alt="Sanshain Logo" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
+                    <div class="text-2xl font-bold tracking-tight">Sanshain <span class="text-indigo-200">(サンシャイン)</span></div>
                 </a>
-                <a href="/" class="text-indigo-200 hover:text-white text-sm">← Back to Dashboard</a>
+                <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
             </div>
-            <div class="flex items-center space-x-4">
-                <span id="nav-username" class="text-indigo-200 text-sm"></span>
-                <button onclick="doLogout()" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded-lg text-sm transition-colors">Logout</button>
+            <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
+                <a href="/service.html" class="hover:text-indigo-100 transition-colors">Services</a>
+                <a href="/service.html#clients" class="hover:text-indigo-100 transition-colors">Clients</a>
+                <a href="/service.html#graph" class="hover:text-indigo-100 transition-colors">Graph</a>
+                <a href="/service.html#reports" class="hover:text-indigo-100 transition-colors">Reports</a>
+                <a href="/admin.html" class="hover:text-indigo-100 transition-colors">Admin</a>
+            </nav>
+            <div class="flex items-center justify-end gap-4 text-sm">
+                <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+                <span id="banner-username" class="hidden text-indigo-200"></span>
+                <button id="banner-logout" type="button" onclick="sanshainLogout()" class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500">Logout</button>
+                <a id="banner-signin" href="/account.html" class="hidden text-indigo-100 transition-colors hover:text-white">Sign In</a>
             </div>
         </div>
-    </nav>
+    </header>
 
     <!-- Auth Screen (Login / Register) -->
-    <div id="auth-screen" class="min-h-screen flex items-center justify-center hidden">
+    <div id="auth-screen" class="flex-1 min-h-[calc(100vh-5rem)] flex items-center justify-center hidden">
         <div class="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm border border-slate-200">
             <img src="/images/sonne.png" alt="Sanshain" class="mx-auto mb-3 h-16 w-auto">
             <h1 class="text-2xl font-bold text-center mb-6 text-indigo-700">Sanshain</h1>
@@ -284,7 +292,7 @@
                 const data = await res.json();
                 sanshainToken = data.token;
                 localStorage.setItem('sanshain_token', sanshainToken);
-                await loadMe();
+                await renderBanner();
                 showAccount();
             } catch (err) {
                 errEl.textContent = friendlyError(err);
@@ -340,21 +348,8 @@
 
         // --- Logout ---
         async function doLogout() {
-            try { await apiCall('/auth/logout', { method: 'POST' }); } catch (_) {}
-            sanshainToken = null;
-            localStorage.removeItem('sanshain_token');
+            await sanshainLogout({ redirectTo: null });
             showAuth();
-        }
-
-        // --- Load current user ---
-        async function loadMe() {
-            try {
-                const res = await apiCall('/auth/me');
-                if (res.ok) {
-                    const data = await res.json();
-                    document.getElementById('nav-username').textContent = data.username;
-                }
-            } catch (_) {}
         }
 
         // --- Change Password ---
@@ -464,7 +459,8 @@
             try {
                 const res = await apiCall('/auth/me');
                 if (res.ok) {
-                    await loadMe();
+                    const data = await res.json();
+                    renderBanner(data);
                     showAccount();
                 } else {
                     showAuth();
@@ -474,5 +470,13 @@
 
         fetchCsrfToken().then(() => checkSession());
     </script>
+    <footer class="text-center text-sm text-slate-500 py-6 mt-auto">
+        <img src="/images/sonne.png" alt="Sanshain" class="mx-auto mb-2 h-8 w-auto opacity-70">
+        <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
+        <div class="mt-2 flex items-center justify-center gap-4">
+            <a href="https://github.com/paxel/sanshain-service" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800">GitHub</a>
+            <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
+        </div>
+    </footer>
 </body>
 </html>

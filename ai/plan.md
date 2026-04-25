@@ -48,6 +48,10 @@ The following major milestones have been delivered and are fully functional:
 
 ## Open
 
+- [x] Remove the unused `DashboardTemplate.is_admin` field warning after the unified banner cleanup.
+- [x] Restore direct banner navigation to the discovery subviews (services, clients, graph, reports) after the banner unification accidentally hid those entry points.
+- [x] Update the changelog to describe the user-visible banner/navigation/license fixes instead of internal clippy-only cleanup.
+
 ### Deployment
 - [ ] Kubernetes manifests (Deployment, Service, Ingress, ConfigMap, Secret).
 - [ ] Helm chart.

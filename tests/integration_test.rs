@@ -129,6 +129,57 @@ async fn test_health_endpoint() {
 }
 
 #[tokio::test]
+async fn test_root_page_banner_links_to_all_discovery_views() {
+    let (app, _) = setup_app().await;
+
+    let response: Response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1_000_000)
+        .await
+        .unwrap();
+    let html = String::from_utf8(body.to_vec()).unwrap();
+
+    assert!(html.contains("href=\"/service.html\" class=\"hover:text-indigo-100 transition-colors\">Services</a>"));
+    assert!(html.contains("href=\"/service.html#clients\" class=\"hover:text-indigo-100 transition-colors\">Clients</a>"));
+    assert!(html.contains("href=\"/service.html#graph\" class=\"hover:text-indigo-100 transition-colors\">Graph</a>"));
+    assert!(html.contains("href=\"/service.html#reports\" class=\"hover:text-indigo-100 transition-colors\">Reports</a>"));
+    assert!(html.contains("href=\"/admin.html\" class=\"hover:text-indigo-100 transition-colors\">Admin</a>"));
+}
+
+#[tokio::test]
+async fn test_license_file_is_served_from_root_path() {
+    let (app, _) = setup_app().await;
+
+    let response: Response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/LICENSE")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1_000_000)
+        .await
+        .unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    assert!(text.contains("Apache License"));
+}
+
+#[tokio::test]
 async fn test_full_flow() {
     let app = setup_app_dev_mode().await;
 

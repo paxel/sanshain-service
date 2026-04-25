@@ -38,6 +38,35 @@
         </div>
         <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
     </div>
+    <header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
+        <div class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div class="flex items-center justify-between gap-4 md:justify-start">
+                <a href="/" class="flex items-center space-x-3">
+                    <img src="/images/sonne.png" alt="Sanshain Logo" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
+                    <div>
+                        <div class="text-2xl font-bold tracking-tight">Sanshain <span class="text-indigo-200">(サンシャイン)</span></div>
+                    </div>
+                </a>
+                <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
+            </div>
+
+            <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
+                <a href="/service.html" class="hover:text-indigo-100 transition-colors">Services</a>
+                <a href="/service.html#clients" class="hover:text-indigo-100 transition-colors">Clients</a>
+                <a href="/service.html#graph" class="hover:text-indigo-100 transition-colors">Graph</a>
+                <a href="/service.html#reports" class="hover:text-indigo-100 transition-colors">Reports</a>
+                <a href="/admin.html" class="hover:text-indigo-100 transition-colors">Admin</a>
+            </nav>
+
+            <div class="flex items-center justify-end gap-4 text-sm">
+                <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+                <span id="banner-username" class="hidden text-indigo-200"></span>
+                <button id="banner-logout" type="button" onclick="sanshainLogout()" class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500">Logout</button>
+                <a id="banner-signin" href="/account.html" class="hidden text-indigo-100 transition-colors hover:text-white">Sign In</a>
+            </div>
+        </div>
+    </header>
+
     {% block body %}{% endblock %}
 
     <!-- Confirm Modal (shared) -->
@@ -54,7 +83,11 @@
 
     <footer class="text-center text-sm text-slate-500 py-6 mt-auto">
         <img src="/images/sonne.png" alt="Sanshain" class="mx-auto mb-2 h-8 w-auto opacity-70">
-        Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service
+        <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
+        <div class="mt-2 flex items-center justify-center gap-4">
+            <a href="https://github.com/paxel/sanshain-service" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800">GitHub</a>
+            <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
+        </div>
     </footer>
 
     {% block scripts %}{% endblock %}

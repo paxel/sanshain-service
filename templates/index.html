@@ -3,18 +3,6 @@
 {% block title %}OpenAPI Distribution Service{% endblock %}
 
 {% block body %}
-    <nav class="bg-indigo-700 text-white p-4 shadow-lg">
-        <div class="container mx-auto flex justify-between items-center">
-            <a href="/" class="flex items-center space-x-3">
-                <img src="/images/sonne.png" alt="Sanshain Logo" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
-                <h1 class="text-2xl font-bold tracking-tight">Sanshain (サンシャイン)</h1>
-            </a>
-            <div class="flex items-center space-x-4">
-                <span id="version-badge" class="text-indigo-200 text-sm"></span>
-            </div>
-        </div>
-    </nav>
-
     <main class="flex-1 container mx-auto px-4 py-12 fade-in">
         <div class="max-w-3xl mx-auto text-center mb-12">
             <img src="/images/sonne.png" alt="Sanshain" class="mx-auto mb-6 h-32 w-auto drop-shadow-md">
@@ -78,6 +66,6 @@
 {% block scripts %}
     <script>
         hideLoader();
-        loadVersionBadge('version-badge');
+        renderBanner();
     </script>
 {% endblock %}

@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.13.0] - Unreleased
 
 ### Changed
+- **Unified Navigation Banner & Footer**: harmonized the shared header across the info, admin, dashboard, account, and discovery views. The Sanshain logo now consistently links to `/`, the banner includes quick links to Discovery and Admin, and the right side consistently shows sign-in or username/logout state. Footers now include direct links to the GitHub repository and the project license.
+- **Discovery Navigation Restoration**: expanded the shared banner links to include direct entry points for Services, Clients, Graph, and Reports, and taught `service.html` to honor `#clients`, `#graph`, and `#reports` deep links so those views are reachable again from every page.
+- **Project License**: switched the project licensing metadata and `LICENSE` file content to Apache License 2.0.
 - **AsyncAPI PUB-Only Provide**: the `/provide/asyncapi` endpoint now only stores PUB (publish/send) operations. SUB (subscribe/receive) operations are silently filtered out with a warning log. Subscribers should declare their dependencies in `sanshain.yaml` `requires` instead.
 - **Circular Dependency Color**: changed circular dependency edge color in the dependency graph from red to purple (`#a855f7`) to clearly distinguish it from the orange missing dependency color.
 - **Bidirectional PUB/SUB Edges**: connections between two services that have both PUB and SUB operations are now rendered as dotted lines with no arrows on either side, visually distinguishing bidirectional messaging from directional dependencies.
@@ -29,6 +32,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **CI Integration Guide**: added a detailed section on **Optimistic Concurrency & Caching** to `docs/ci-integration.md`, explaining how to use `base_version` and `content_hash` to optimize pipelines and prevent overwrites.
 - **README Update**: updated the core `README.md` with new payload examples, response structures, and explanations for content-based skipping and multi-publisher conflict detection.
 - **Client Configuration Guide**: updated `docs/sanshain-yaml.md` with the new `baseVersion` field for optimistic concurrency, documented the provide response JSON format, and added a section on how to implement require-side caching in client plugins.
+
+### Fixed
+- **Consistent Banner Navigation**: fixed the shared banner rollout so all main views now expose the same useful navigation targets, including direct access to Services, Clients, Graph, and Reports instead of forcing users back through the info page.
+- **License Link Availability**: fixed the previously dead `/LICENSE` link in the shared footer so the project license opens correctly from the UI.
 
 ## [0.12.0] - 2026-04-23
 

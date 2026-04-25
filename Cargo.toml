@@ -2,7 +2,7 @@
 name = "sanshain_service"
 version = "0.13.0"
 edition = "2024"
-license = "AGPL-3.0"
+license = "Apache-2.0"
 
 [dependencies]
 axum = "0.8"

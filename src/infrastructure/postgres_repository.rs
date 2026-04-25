@@ -645,6 +645,8 @@ impl SpecRepository for PostgresSpecRepository {
     async fn delete_all_services(&self) -> Result<u64, RepositoryError> {
         sqlx::query("DELETE FROM endpoint_versions WHERE endpoint_id IN (SELECT id FROM endpoints)")
             .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM service_spec_versions")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM dependencies")
             .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM endpoints")
@@ -676,6 +678,8 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn nuke_database(&self, keep_user_id: Option<i64>) -> Result<(), RepositoryError> {
         sqlx::query("DELETE FROM endpoint_versions")
+            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM service_spec_versions")
             .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM dependencies")
             .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -726,6 +730,12 @@ impl SpecRepository for PostgresSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         for (branch_id,) in &branch_rows {
+            sqlx::query("DELETE FROM service_spec_versions WHERE branch_id = $1")
+                .bind(branch_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
             sqlx::query(
                 "DELETE FROM dependencies WHERE endpoint_id IN (SELECT id FROM endpoints WHERE branch_id = $1)"
             )
@@ -742,6 +752,12 @@ impl SpecRepository for PostgresSpecRepository {
         }
 
         sqlx::query("DELETE FROM dependencies WHERE requested_service_id = $1")
+            .bind(service_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        sqlx::query("DELETE FROM service_spec_versions WHERE service_id = $1")
             .bind(service_id)
             .execute(&self.pool)
             .await

@@ -413,6 +413,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/health", get(health))
         .route(&std::env::var("PROMETHEUS_ENDPOINT").unwrap_or_else(|_| "/metrics".into()), get(|State(s): State<AppState>| async move { s.prometheus_handle.render() }))
         .route("/version", get(version))
+        .route("/LICENSE", get(license_text))
         .route("/csrf-token", get(generate_csrf_token))
         .route("/auth/login", post(auth_login))
         .route("/auth/logout", post(auth_logout))
@@ -526,6 +527,13 @@ struct ReportParams {
 
 async fn health() -> StatusCode {
     StatusCode::OK
+}
+
+async fn license_text() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, HeaderValue::from_static("text/plain; charset=utf-8"))],
+        include_str!("../LICENSE"),
+    )
 }
 
 #[derive(Serialize)]
@@ -643,10 +651,10 @@ fn calculate_hash(content: &str) -> String {
 fn handle_caching(headers: HeaderMap, content: String, hash: String) -> impl IntoResponse {
     let etag = format!("\"{}\"", hash);
 
-    if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH) {
-        if if_none_match == etag.as_str() {
-            return (StatusCode::NOT_MODIFIED, HeaderMap::new(), String::new()).into_response();
-        }
+    if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH)
+        && if_none_match == etag.as_str()
+    {
+        return (StatusCode::NOT_MODIFIED, HeaderMap::new(), String::new()).into_response();
     }
 
     let mut headers = HeaderMap::new();
@@ -1703,7 +1711,6 @@ async fn index_page() -> Result<axum::response::Response, StatusCode> {
 #[template(path = "dashboard.html")]
 struct DashboardTemplate {
     username: String,
-    is_admin: bool,
 }
 
 async fn dashboard_page(
@@ -1716,7 +1723,6 @@ async fn dashboard_page(
             let user = resolve_user(&state.repo, &t).await?.ok_or(StatusCode::UNAUTHORIZED)?;
             let tmpl = DashboardTemplate {
                 username: user.username,
-                is_admin: user.is_admin,
             };
             let html = tmpl.render().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             Ok(axum::response::Html(html).into_response())

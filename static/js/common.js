@@ -2,6 +2,80 @@
 // Used by admin, account, service, and dashboard pages.
 let sanshainToken = localStorage.getItem('sanshain_token');
 
+function setBannerVersion(version) {
+    const text = version ? `v${version}` : '';
+    const mobile = document.getElementById('version-badge');
+    const desktop = document.getElementById('version-badge-desktop');
+    if (mobile) mobile.textContent = text;
+    if (desktop) desktop.textContent = text;
+}
+
+function updateBannerAuth(user) {
+    const usernameEl = document.getElementById('banner-username');
+    const logoutEl = document.getElementById('banner-logout');
+    const signinEl = document.getElementById('banner-signin');
+    if (!usernameEl || !logoutEl || !signinEl) return;
+
+    if (user && user.username) {
+        usernameEl.textContent = user.username;
+        usernameEl.classList.remove('hidden');
+        logoutEl.classList.remove('hidden');
+        signinEl.classList.add('hidden');
+    } else {
+        usernameEl.textContent = '';
+        usernameEl.classList.add('hidden');
+        logoutEl.classList.add('hidden');
+        signinEl.classList.remove('hidden');
+    }
+}
+
+async function renderBanner(user = null) {
+    try {
+        if (user && user.username) {
+            updateBannerAuth(user);
+            return user;
+        }
+
+        if (!sanshainToken) {
+            updateBannerAuth(null);
+            return null;
+        }
+
+        const res = await apiCall('/auth/me');
+        if (!res.ok) {
+            updateBannerAuth(null);
+            return null;
+        }
+
+        const data = await res.json();
+        updateBannerAuth(data);
+        return data;
+    } catch (_) {
+        updateBannerAuth(null);
+        return null;
+    }
+}
+
+async function sanshainLogout(options = {}) {
+    const redirectTo = Object.prototype.hasOwnProperty.call(options, 'redirectTo') ? options.redirectTo : '/index.html';
+    try {
+        if (!csrfToken) {
+            await fetchCsrfToken();
+        }
+        await apiCall('/auth/logout', { method: 'POST' });
+    } catch (_) {
+        // Best effort logout; still clear local session state.
+    }
+
+    sanshainToken = null;
+    localStorage.removeItem('sanshain_token');
+    updateBannerAuth(null);
+
+    if (redirectTo) {
+        window.location.href = redirectTo;
+    }
+}
+
 // --- Dark / Light theme ---
 (function() {
     // Read preference from cookie, default to 'light'
@@ -170,7 +244,7 @@ let sanshainToken = localStorage.getItem('sanshain_token');
     };
     // After DOM ready, inject toggle button into nav
     document.addEventListener('DOMContentLoaded', () => {
-        const nav = document.querySelector('nav .container');
+        const nav = document.querySelector('#site-banner > .container') || document.querySelector('nav .container');
         if (!nav) return;
         const btn = document.createElement('button');
         btn.className = 'theme-toggle-btn ml-3 px-2 py-1 rounded-lg text-lg hover:bg-indigo-600 transition-colors';
@@ -178,7 +252,7 @@ let sanshainToken = localStorage.getItem('sanshain_token');
         btn.innerHTML = `<span class="theme-toggle-icon">${(getThemeCookie() || 'light') === 'dark' ? '☀️' : '🌙'}</span>`;
         btn.onclick = window.sanshainToggleTheme;
         // Find the right-side flex container in nav
-        const rightSide = nav.querySelector('.flex.items-center.space-x-4:last-child') || nav.querySelector('.flex.items-center:last-child') || nav.lastElementChild;
+        const rightSide = document.querySelector('#site-banner .justify-end') || nav.querySelector('.flex.items-center.space-x-4:last-child') || nav.querySelector('.flex.items-center:last-child') || nav.lastElementChild;
         if (rightSide && rightSide !== nav.firstElementChild) {
             rightSide.prepend(btn);
         } else {
@@ -267,6 +341,7 @@ function loadVersionBadge(elementId) {
         .then(data => {
             const el = document.getElementById(elementId);
             if (el) el.textContent = `v${data.version}`;
+            setBannerVersion(data.version);
         })
         .catch(() => {});
 }
@@ -310,6 +385,7 @@ function showReloadBanner() {
 
 // Run staleness check on every page load
 checkStaleness();
+loadVersionBadge('version-badge');
 
 // --- Cat Loader ---
 function injectLoader() {
