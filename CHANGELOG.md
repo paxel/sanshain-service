@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Optimistic Concurrency Control (Problem 3)**: implemented version-based concurrency control for the `provide` endpoints. Each service/branch now tracks a monotonic `spec_version`. Provide requests can include an optional `base_version`; if the server's current version has advanced beyond the base, the request is rejected with a `409 Conflict` to prevent overwriting concurrent changes.
 - **Provide Response Body (Problem 4)**: the `provide`, `/provide/asyncapi`, and `/provide/proto` endpoints now return a `202 Accepted` response with a JSON body containing the new `version`, a SHA-256 `content_hash` of the specification, and a summary of changes (inserts, updates, deletes).
 - **Client-Side Caching Support (Problem 5)**: the server now skips specification processing and version increments if the provided content's hash matches the stored version's hash. This enables client-side plugins to implement efficient skip-if-unchanged logic.
+- **Require-Side Caching**: implemented standard HTTP caching via `ETag` and `If-None-Match` headers for all require endpoints (`/require`, `/require-bundle`). This allows client plugins to skip re-downloading and re-processing specifications if they haven't changed since the last build.
 - **Simplified Dependency Graph Nodes**: replaced complex node shapes (hexagon, diamond, cylinder, octagon) with standard rectangles for all services. Added clear symbols (emojis and SVG icons) to distinguish specialized services: `🛢️` (oil drum) for Kafka (AsyncAPI/messaging), `⛓️` (chains) for gRPC/Proto, and `!` in the top-left for missing services.
 - **Improved Kafka Visualization**: renamed the virtual "MESSAGING" node to "KAFKA", renamed "Messaging" tag to "Kafka", and replaced the scaled Kafka logo with a more recognizable `🛢️` emoji.
 - **Enhanced Register Lines**: changed the "messaging-register" dashed lines from grey to blue for better visibility and distinction.
@@ -27,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **API Specification Update**: updated `api.yaml` with the new `base_version` request field and the `ProvideResponse` structure for all provide endpoints.
 - **CI Integration Guide**: added a detailed section on **Optimistic Concurrency & Caching** to `docs/ci-integration.md`, explaining how to use `base_version` and `content_hash` to optimize pipelines and prevent overwrites.
 - **README Update**: updated the core `README.md` with new payload examples, response structures, and explanations for content-based skipping and multi-publisher conflict detection.
+- **Client Configuration Guide**: updated `docs/sanshain-yaml.md` with the new `baseVersion` field for optimistic concurrency, documented the provide response JSON format, and added a section on how to implement require-side caching in client plugins.
 
 ## [0.12.0] - 2026-04-23
 

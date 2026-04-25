@@ -72,11 +72,12 @@ Declares the specification(s) this project publishes. Omit entirely if this proj
 
 Plugins should support both a single `provide` object and a `provides` list for services that provide multiple types of endpoints (e.g., REST and gRPC).
 
-| Field           | Type   | Required | Default                  | Description                                                                |
-|-----------------|--------|----------|--------------------------|----------------------------------------------------------------------------|
-| `file`          | string | **yes**  | —                        | Path to the specification file.                                            |
-| `apiType`       | string | no       | `openapi`                | Type of API: `openapi`, `asyncapi`, or `proto`.                            |
-| `branch`        | string | no       | *auto-detected from VCS* | Branch name. Plugins should auto-detect from Git; override here if needed. |
+| Field           | Type    | Required | Default                  | Description                                                                |
+|-----------------|---------|----------|--------------------------|----------------------------------------------------------------------------|
+| `file`          | string  | **yes**  | —                        | Path to the specification file.                                            |
+| `apiType`       | string  | no       | `openapi`                | Type of API: `openapi`, `asyncapi`, or `proto`.                            |
+| `branch`        | string  | no       | *auto-detected from VCS* | Branch name. Plugins should auto-detect from Git; override here if needed. |
+| `baseVersion`   | integer | no       | —                        | Used for optimistic concurrency to prevent overwriting concurrent changes. |
 
 **Example (Multiple Protocols):**
 ```yaml
@@ -439,6 +440,22 @@ The client receives a `.proto` file containing only the `InventoryService` defin
       - `asyncapi`: `POST /provide/asyncapi`
       - `proto`: `POST /provide/grpc`
 
+2. **Handle the Response**: All provide endpoints return `202 Accepted` with a JSON body containing information about the operation:
+   ```json
+   {
+     "version": 42,
+     "content_hash": "sha256:a1b2c3...",
+     "changes": {
+       "added": ["GET /new-endpoint"],
+       "updated": ["POST /existing"],
+       "deleted": []
+     }
+   }
+   ```
+   Plugins should store the returned `version`. In subsequent provide calls, they should include this version as `baseVersion`. If the server's current version has moved ahead (e.g., another developer pushed), the server will return `409 Conflict`, prompting the developer to pull/sync before pushing their spec changes.
+
+   **Idempotency**: If the `content_hash` of the provided spec matches the current version on the server, Sanshain will skip processing and return the current version info without incrementing it.
+
 ### Require Phase
 
 For each entry in `requires`:
@@ -463,6 +480,20 @@ For each entry in `requires`:
 3. Write the response YAML to `outputDirectory`.
 
 4. Optionally, run code generation (e.g., OpenAPI Generator) on the output.
+
+## Require-Side Caching
+
+To reduce build times and network traffic, Sanshain supports standard HTTP caching via `ETag` and `If-None-Match` headers on all require endpoints (`/require`, `/require-bundle`, etc.).
+
+1. **First call**: Client makes a require request.
+2. **Server response**: Returns the specification with an `ETag` header (e.g., `ETag: "sha256:..."`).
+3. **Caching**: Client plugin saves the specification file AND the ETag value (e.g., in a `.sanshain-cache` metadata file).
+4. **Subsequent calls**: Client sends the stored ETag in the `If-None-Match` header.
+5. **Server check**:
+    - If the specification has NOT changed, the server returns `304 Not Modified` with an empty body. The plugin uses the cached file.
+    - If the specification HAS changed, the server returns `200 OK` with the new content and a new `ETag`. The plugin updates its cache and generates code.
+
+This mechanism is highly recommended for CI/CD pipelines to avoid redundant code generation when upstream dependencies are stable.
 
 ### Why Bundle Matters
 

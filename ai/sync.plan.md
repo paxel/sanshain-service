@@ -122,7 +122,8 @@ The same version/hash mechanism can benefit the **require** side:
 - On next build, client sends `If-None-Match` → gets `304` if spec hasn't changed → uses cached file.
 - Reduces build times when upstream specs are stable.
 
-This is a natural extension but should be a separate task.
+### implementation status
+Implemented in v0.13.0. The server returns an `ETag` (SHA-256 hash of the generated content) on all require endpoints. If the client sends an `If-None-Match` header matching the current hash, the server returns `304 Not Modified`.
 
 ---
 
@@ -136,5 +137,21 @@ This is a natural extension but should be a separate task.
 | 4. No version in response   | A (JSON response body)             | Medium         | None          |
 | 5. Client-side caching      | D (hash + version cache)           | Medium         | Problem 3 + 4 |
 
-Suggested implementation order: **1 → 4 → 3 → 2 → 5**
+Suggested implementation order: **1 → 4 → 3 → 2 → 5 → 6**
 (Problem 1 is independent; Problem 4 enables 3; Problem 3 enables 5; Problem 2 is incremental.)
+
+---
+
+## Open Issues
+
+### Problem 6: Bundle Hash Stability
+
+**Context:** The `ETag` for a bundle is currently a hash of the merged YAML content. The merging process is sensitive to the **order** of endpoints in the request. If a client reorders endpoints in `sanshain.yaml`, the generated YAML (and its hash) may change even if the set of endpoints is identical.
+
+**Goal:** Ensure stable bundle hashes regardless of request order.
+
+### Problem 7: Semantic Versioning for Specs
+
+**Context:** Currently, Sanshain uses monotonic integers for spec versions.
+
+**Goal:** Explore support for semantic versioning (SemVer) provided by the user, or automatic detection of MAJOR/MINOR/PATCH changes based on backward-compatibility analysis.

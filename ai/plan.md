@@ -71,3 +71,6 @@ Design exploration document: [`ai/sync.plan`](sync.plan.md)
 - [x] Problem 3: Concurrent developers on same service/branch overwrite each other (optimistic concurrency with `base_version`).
 - [x] Problem 4: Provide returns JSON body with version and content hash.
 - [x] Problem 5: Skip specification processing if content hash matches current version.
+- [x] Require-Side Caching: implemented ETag and If-None-Match support for all require endpoints to reduce network traffic and build times.
+- [ ] Problem 6: Bundle Hash Stability (ensure stable ETag regardless of request order).
+- [ ] Problem 7: Semantic Versioning for Specs.

@@ -123,6 +123,12 @@ paths:
         **Feature branch fallback**: If the endpoint is not found on the requested branch,
         the server falls back to the `master` branch automatically.
       parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          description: SHA-256 hash (in double quotes) of the currently cached specification. Returns 304 Not Modified if it matches the server version.
+          schema:
+            type: string
         - name: clientname
           in: query
           required: true
@@ -175,10 +181,17 @@ paths:
       responses:
         "200":
           description: The OpenAPI YAML snippet for the requested endpoint.
+          headers:
+            ETag:
+              description: SHA-256 hash of the returned content.
+              schema:
+                type: string
           content:
             text/plain:
               schema:
                 type: string
+        "304":
+          description: Not Modified. The specification hasn't changed since the version provided in `If-None-Match`.
         "404":
           description: |
             Endpoint not found (after timeout, if specified).
@@ -193,6 +206,12 @@ paths:
       operationId: requireAsyncApi
       summary: Retrieve an AsyncAPI channel snippet and register a dependency
       parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          description: SHA-256 hash (in double quotes) of the currently cached specification.
+          schema:
+            type: string
         - $ref: "#/components/parameters/clientname"
         - $ref: "#/components/parameters/servicename"
         - $ref: "#/components/parameters/branch"
@@ -213,6 +232,13 @@ paths:
       responses:
         "200":
           description: The AsyncAPI snippet.
+          headers:
+            ETag:
+              description: SHA-256 hash of the returned content.
+              schema:
+                type: string
+        "304":
+          description: Not Modified.
         "404":
           description: Not found.
 
@@ -221,6 +247,12 @@ paths:
       operationId: requireGrpc
       summary: Retrieve a gRPC method snippet and register a dependency
       parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          description: SHA-256 hash (in double quotes) of the currently cached specification.
+          schema:
+            type: string
         - $ref: "#/components/parameters/clientname"
         - $ref: "#/components/parameters/servicename"
         - $ref: "#/components/parameters/branch"
@@ -241,6 +273,13 @@ paths:
       responses:
         "200":
           description: The Proto snippet.
+          headers:
+            ETag:
+              description: SHA-256 hash of the returned content.
+              schema:
+                type: string
+        "304":
+          description: Not Modified.
         "404":
           description: Not found.
 
@@ -262,6 +301,15 @@ paths:
 
         **Feature branch fallback**: If the spec is not found on the requested branch,
         the server falls back to the `master` branch automatically.
+
+        **Caching**: Supports `If-None-Match` and `ETag` headers.
+      parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          description: SHA-256 hash (in double quotes) of the currently cached specification.
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -271,10 +319,17 @@ paths:
       responses:
         "200":
           description: A single merged OpenAPI YAML containing all requested endpoints with deduplicated schemas.
+          headers:
+            ETag:
+              description: SHA-256 hash of the returned content.
+              schema:
+                type: string
           content:
             text/plain:
               schema:
                 type: string
+        "304":
+          description: Not Modified.
         "400":
           description: Invalid request (e.g. empty endpoints list or missing fields).
           content:

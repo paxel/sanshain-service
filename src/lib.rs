@@ -1,8 +1,9 @@
 use axum::{
     body::Body,
     extract::{Query, State},
-    http::StatusCode,
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     middleware,
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
@@ -147,7 +148,6 @@ where
 
 
 use tower_http::services::ServeDir;
-use axum::http::header::HeaderValue;
 
 /// Resolve a user from either a session token or a san_ API token.
 async fn resolve_user(repo: &impl domain::ports::SpecRepository, token: &str) -> Result<Option<domain::models::User>, StatusCode> {
@@ -633,6 +633,27 @@ fn app_error_to_status_with_body(e: AppError) -> (StatusCode, String) {
     (app_error_to_status(e), body)
 }
 
+fn calculate_hash(content: &str) -> String {
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    format!("sha256:{}", hex::encode(hasher.finalize()))
+}
+
+fn handle_caching(headers: HeaderMap, content: String, hash: String) -> impl IntoResponse {
+    let etag = format!("\"{}\"", hash);
+
+    if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH) {
+        if if_none_match == etag.as_str() {
+            return (StatusCode::NOT_MODIFIED, HeaderMap::new(), String::new()).into_response();
+        }
+    }
+
+    let mut headers = HeaderMap::new();
+    headers.insert(header::ETAG, HeaderValue::from_str(&etag).unwrap());
+    (StatusCode::OK, headers, content).into_response()
+}
+
 async fn provide(
     State(state): State<AppState>,
     Json(payload): Json<ProvidePayload>,
@@ -698,31 +719,37 @@ async fn provide_proto(
 
 async fn require(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<RequireParams>,
-) -> Result<String, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, String)> {
     let api_type = params.api_type;
-    require_internal(state, params, api_type).await
+    let (yaml, hash) = require_internal(state, params, api_type).await?;
+    Ok(handle_caching(headers, yaml, hash))
 }
 
 async fn require_asyncapi(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<RequireParams>,
-) -> Result<String, (StatusCode, String)> {
-    require_internal(state, params, ApiType::AsyncApi).await
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let (yaml, hash) = require_internal(state, params, ApiType::AsyncApi).await?;
+    Ok(handle_caching(headers, yaml, hash))
 }
 
 async fn require_proto(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<RequireParams>,
-) -> Result<String, (StatusCode, String)> {
-    require_internal(state, params, ApiType::Proto).await
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let (yaml, hash) = require_internal(state, params, ApiType::Proto).await?;
+    Ok(handle_caching(headers, yaml, hash))
 }
 
 async fn require_internal(
     state: AppState,
     params: RequireParams,
     api_type: ApiType,
-) -> Result<String, (StatusCode, String)> {
+) -> Result<(String, String), (StatusCode, String)> {
     let dry_run = params.dry_run.unwrap_or(false);
     let notifier = Some(state.spec_updated_tx.subscribe());
     let req_params = services::RequireEndpointParams {
@@ -739,13 +766,16 @@ async fn require_internal(
     } else {
         services::require_endpoint(&state.repo, notifier, req_params).await
     };
-    result.map_err(app_error_to_status_with_body)
+    let yaml = result.map_err(app_error_to_status_with_body)?;
+    let hash = calculate_hash(&yaml);
+    Ok((yaml, hash))
 }
 
 async fn require_bundle(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<RequireBundlePayload>,
-) -> Result<String, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, String)> {
     let endpoints: Vec<(String, String)> = payload.endpoints
         .into_iter()
         .map(|e| (e.path, e.method))
@@ -764,7 +794,9 @@ async fn require_bundle(
     } else {
         services::require_bundle(&state.repo, notifier, req_params).await
     };
-    result.map_err(app_error_to_status_with_body)
+    let yaml = result.map_err(app_error_to_status_with_body)?;
+    let hash = calculate_hash(&yaml);
+    Ok(handle_caching(headers, yaml, hash))
 }
 
 async fn report(
@@ -1696,7 +1728,6 @@ async fn dashboard_page(
     }
 }
 
-use axum::response::IntoResponse;
 use askama::Template;
 
 // --- Static page redirects (serve .html files at clean URLs) ---
