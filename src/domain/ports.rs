@@ -1,12 +1,16 @@
 use crate::domain::models::*;
 use std::future::Future;
 use std::collections::HashMap;
+use thiserror::Error;
 
 /// Error type for authentication provider operations.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum AuthProviderError {
+    #[error("Invalid credentials")]
     InvalidCredentials,
+    #[error("Connection failed: {0}")]
     ConnectionFailed(String),
+    #[error("Internal error: {0}")]
     Internal(String),
 }
 
@@ -23,21 +27,14 @@ pub trait AuthProvider: Send + Sync {
     fn test_connection(&self) -> impl Future<Output = Result<(), AuthProviderError>> + Send;
 }
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum RepositoryError {
+    #[error("Not Found")]
     NotFound,
+    #[error("Conflict")]
     Conflict,
+    #[error("Internal Error: {0}")]
     Internal(String),
-}
-
-impl std::fmt::Display for RepositoryError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RepositoryError::NotFound => write!(f, "Not Found"),
-            RepositoryError::Conflict => write!(f, "Conflict"),
-            RepositoryError::Internal(msg) => write!(f, "Internal Error: {}", msg),
-        }
-    }
 }
 
 /// Port for all persistence operations required by the application layer.

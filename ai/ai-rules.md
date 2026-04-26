@@ -5,23 +5,29 @@
 ### Error Handling
 - STRICTLY FORBIDDEN: `unwrap()`. All fallible operations must be handled with `?`, `match`, or `if let`.
 - Avoid `expect()` in production logic. Use `.expect("clear message")` ONLY in:
-    - Startup code (`main.rs`) where failure means the service cannot run (though even here, `match` with `std::process::exit(1)` is preferred).
+    - Startup code (`main.rs`) where failure means the service cannot run.
     - Tests and `mod tests`.
     - Static Regex compilation.
-- Define domain-specific error enums; implement `std::fmt::Display` and `std::error::Error`.
-- Use `thiserror` for library-style errors, `anyhow` only in binaries or top-level orchestration.
-- Propagate errors with `?`; convert at layer boundaries (e.g., infra errors → domain errors).
-- Never ignore errors with `let _ = ...` unless there is a strong justification and a comment explaining why.
+- Use `thiserror` for all domain and application errors. Avoid manual `fmt::Display` implementations for errors.
+- Propagate errors with `?`; convert at layer boundaries (e.g., repository errors → application errors).
+- Implement `IntoResponse` for `AppError` in the presentation layer to centralize status code mapping and logging.
+
+### Library Usage
+- Library-first: Before writing custom logic, check if a library call can achieve the same result (e.g., `argon2` for passwords, `chrono` for time, `uuid` for IDs).
+- Avoid duplication: If similar logic exists in multiple places, refactor it into a shared function or service.
+- Keep dependencies updated: Regularly check for major version updates in `Cargo.toml`.
 
 ### Ownership & Lifetimes
 - Prefer borrowing (`&T`, `&mut T`) over cloning. Clone only when ownership transfer is genuinely needed.
 - Use `Arc<T>` for shared ownership across async tasks; avoid `Rc` in async code.
 - Keep lifetime annotations minimal — let the compiler infer where possible.
 
-### Async & Concurrency
-- Use `tokio` as the async runtime (already the project standard).
-- Avoid blocking calls inside `async fn`; use `tokio::task::spawn_blocking` when necessary.
-- Prefer `tokio::sync::Mutex` over `std::sync::Mutex` when the lock is held across `.await` points.
+### Anti-Patterns to Avoid
+- **Primitive Obsession**: Use proper enums and structs for domain concepts instead of raw strings or integers (e.g., `ApiType` instead of `String`).
+- **Framework Leakage**: Keep the Domain and Application layers free of Axum, SQLx, or other framework dependencies. Use ports (traits) for abstraction.
+- **Manual Handlers**: Avoid large, monolithic handlers. Delegate business logic to application services.
+- **Mocking Overlap**: Use a consistent Mock Repository for testing that implements all port traits, rather than creating ad-hoc mocks in every test file.
+- **Mixed Routing**: Be consistent with nesting and prefixing. Explicit routes are often better than deep nesting for clarity.
 
 ### Code Style
 - Follow `rustfmt` defaults. Run `cargo fmt` before committing.

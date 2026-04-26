@@ -2364,7 +2364,7 @@ dependencies = [
 
 [[package]]
 name = "sanshain_service"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "argon2",
  "askama",
@@ -2388,6 +2388,7 @@ dependencies = [
  "similar",
  "sqlx",
  "sysinfo",
+ "thiserror",
  "tokio",
  "tower",
  "tower-http",

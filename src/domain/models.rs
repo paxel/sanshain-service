@@ -1,5 +1,32 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum AppError {
+    #[error("Bad Request: {0}")]
+    BadRequest(String),
+    #[error("Conflict: {0}")]
+    Conflict(String),
+    #[error("Not Found: {0}")]
+    NotFound(String),
+    #[error("Unauthorized")]
+    Unauthorized,
+    #[error("Forbidden")]
+    Forbidden,
+    #[error("Internal Error: {0}")]
+    Internal(String),
+}
+
+impl From<crate::domain::ports::RepositoryError> for AppError {
+    fn from(e: crate::domain::ports::RepositoryError) -> Self {
+        match e {
+            crate::domain::ports::RepositoryError::NotFound => AppError::NotFound("Not found".to_string()),
+            crate::domain::ports::RepositoryError::Conflict => AppError::Conflict("Conflict".to_string()),
+            crate::domain::ports::RepositoryError::Internal(msg) => AppError::Internal(msg),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -127,13 +154,13 @@ impl LdapConfig {
 }
 
 /// Represents an authenticated user from any auth provider.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AuthenticatedUser {
     pub username: String,
     pub is_admin: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ApiToken {
     pub id: String,
     pub user_id: i64,
@@ -144,7 +171,7 @@ pub struct ApiToken {
     pub last_used_at: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct User {
     pub id: i64,
     pub username: String,
@@ -153,14 +180,14 @@ pub struct User {
     pub approved: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Session {
     pub token: String,
     pub user_id: i64,
     pub expires_at: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EndpointRecord {
     pub id: Option<i64>,
     pub api_type: ApiType,
