@@ -12,6 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Modern Rust 2024 Features**: migrated to Rust 2024 edition, utilizing `let_chains` and other modern language features for cleaner code.
 
 ### Changed
+- **Landing Page Redesign**: Replaced central link cards on the home page with a visual "How it Works" graphic explaining the Provide -> Manage -> Require lifecycle.
+- **Protocol Support Visibility**: Added a new section highlighting support for OpenAPI, AsyncAPI, and Protobuf with icons.
+- **Improved Navigation**: Updated the top banner to link the logged-in username directly to the account management page.
 - **Code Quality & Maintenance**: eliminated AI-generated anti-patterns, duplicate logic, and primitive obsession. Manual library-call re-implementations were replaced with standard library or crate calls.
 - **Unified Logic Consolidation**: consolidated shared logic between JSON and HTMX handlers in the Application layer, improving maintainability and reducing code duplication.
 - **Security Hardening**: improved authentication middleware and ensured sensitive fields (like LDAP passwords) are properly redacted in responses.

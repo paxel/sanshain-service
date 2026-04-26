@@ -55,7 +55,7 @@
             </nav>
             <div class="flex items-center justify-end gap-4 text-sm">
                 <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
-                <span id="banner-username" class="hidden text-indigo-200"></span>
+                <a id="banner-username" href="/account.html" class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"></a>
                 <button id="banner-logout" type="button" onclick="sanshainLogout()" class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500">Logout</button>
                 <a id="banner-signin" href="/account.html" class="hidden text-indigo-100 transition-colors hover:text-white">Sign In</a>
             </div>
@@ -258,14 +258,12 @@
             hideLoader();
             document.getElementById('auth-screen').classList.remove('hidden');
             document.getElementById('account-dashboard').classList.add('hidden');
-            document.getElementById('nav-bar').classList.add('hidden');
         }
 
         function showAccount() {
             hideLoader();
             document.getElementById('auth-screen').classList.add('hidden');
             document.getElementById('account-dashboard').classList.remove('hidden');
-            document.getElementById('nav-bar').classList.remove('hidden');
             loadTokens();
         }
 
