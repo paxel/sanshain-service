@@ -4,7 +4,7 @@
 
 The following major milestones have been delivered and are fully functional:
 
-- **Landing Page Redesign (v0.13.1)**: Replaced old link cards with a beautiful three-step visual graphic (Provide -> Manage -> Require) and added a "Unified Contract Management" section highlighting support for OpenAPI, AsyncAPI, and Protobuf. Updated top banner to link the username to the account page.
+- **Landing Page Redesign (v0.13.1)**: Replaced old link cards with a beautiful three-step visual graphic (Provide -> Manage -> Require) and added a "Unified Contract Management" section highlighting support for OpenAPI, AsyncAPI, and Protobuf. Updated top banner to link the username to the account page. Fixed a bug where navigating directly to Reports or Graph views via URL hash would result in empty branch selectors; all discovery views are now fully autonomous. Registered missing admin API routes causing 404s in service discovery.
 
 - **Core API**: `POST /provide` (with idempotency, immutability on protected branches, feature-branch override), `GET /require` (with long-polling, feature-branch fallback, dependency tracking), `GET /report` + `/report/markdown`.
 - **Architecture**: DDD Hexagonal/Onion (Domain → Application → Infrastructure → Presentation). SQLite & PostgreSQL adapters with auto-migrations. Refactored into a clear lib-bin split for better testability and library reuse.

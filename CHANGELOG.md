@@ -21,6 +21,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Dependency Refresh**: updated core dependencies to their latest versions, including `axum` 0.8, `rand` 0.10, and `argon2` 0.5.
 
 ### Fixed
+- **Admin API Routes**: Fixed a bug where several admin endpoints (client branches, endpoint YAML/versions) were missing from the router, causing 404 errors in the service discovery UI.
+- **Service Discovery Page Robustness**: Fixed a bug where navigating directly to Reports or Graph views via URL hash would result in empty branch selectors. All discovery views (Services, Clients, Reports, Graph) are now fully autonomous and ensure their required data is loaded independently.
 - **Integration Test Alignment**: resolved all 35/35 integration test failures by aligning the new architecture with legacy API contracts and behavior.
 
 ---

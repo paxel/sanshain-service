@@ -381,6 +381,15 @@
     let allServiceBranches = {}; // cache: serviceName -> branches[]
     const YAML_PAGE_SIZE = 80; // lines per page for YAML viewer
 
+    async function loadAllServiceBranches() {
+        const services = await fetchJSON('/admin/services');
+        allServices = services || [];
+        allServiceBranches = {};
+        for (const svc of allServices) {
+            allServiceBranches[svc.name] = svc.branches || [];
+        }
+    }
+
     async function loadServices() {
         updateDiscoveryHash('services');
         showLoader();
@@ -396,12 +405,7 @@
         list.innerHTML = '<div class="text-center py-10">Loading services...</div>';
 
         try {
-            const services = await fetchJSON('/admin/services');
-            allServices = services || [];
-            allServiceBranches = {};
-            for (const svc of allServices) {
-                allServiceBranches[svc.name] = svc.branches || [];
-            }
+            await loadAllServiceBranches();
             renderServiceList(allServices);
             hideLoader();
         } catch (err) {
@@ -1215,29 +1219,40 @@
         document.getElementById('report-section').classList.add('hidden');
         document.getElementById('graph-section').classList.remove('hidden');
 
-        // Populate branch selector from all known service branches
-        const branchSelect = document.getElementById('graph-branch-select');
-        const allBranchNames = new Set();
-        for (const branches of Object.values(allServiceBranches)) {
-            for (const b of branches) allBranchNames.add(typeof b === 'string' ? b : b.name);
-        }
-        if (allBranchNames.size === 0) {
-            branchSelect.innerHTML = '<option value="">No branches found</option>';
-        } else {
-            const prev = branchSelect.value;
-            branchSelect.innerHTML = '';
-            for (const name of [...allBranchNames].sort()) {
-                const opt = document.createElement('option');
-                opt.value = name;
-                opt.textContent = name;
-                branchSelect.appendChild(opt);
+        try {
+            // Populate branch selector from all known service branches
+            await loadAllServiceBranches();
+            const branchSelect = document.getElementById('graph-branch-select');
+            const allBranchNames = new Set();
+            for (const branches of Object.values(allServiceBranches)) {
+                for (const b of branches) allBranchNames.add(typeof b === 'string' ? b : b.name);
             }
-            // Prefer previous selection, then 'main', then first
-            if (allBranchNames.has(prev)) branchSelect.value = prev;
-            else if (allBranchNames.has('main')) branchSelect.value = 'main';
-        }
+            if (allBranchNames.size === 0) {
+                branchSelect.innerHTML = '<option value="">No branches found</option>';
+            } else {
+                const prev = branchSelect.value;
+                branchSelect.innerHTML = '';
+                for (const name of [...allBranchNames].sort()) {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name;
+                    branchSelect.appendChild(opt);
+                }
+                // Prefer previous selection, then 'main', then first
+                if (allBranchNames.has(prev)) branchSelect.value = prev;
+                else if (allBranchNames.has('main')) branchSelect.value = 'main';
+            }
 
-        await loadGraph();
+            await loadGraph();
+        } catch (err) {
+            console.error('Failed to show graph:', err);
+            hideLoader();
+            const graphDiv = document.getElementById('mermaid-graph');
+            if (graphDiv) {
+                graphDiv.classList.remove('hidden');
+                graphDiv.innerHTML = `<div class="text-red-500 p-4">Error: ${err.message}</div>`;
+            }
+        }
     }
 
     document.getElementById('graph-branch-select').addEventListener('change', () => loadGraph());
@@ -1516,30 +1531,40 @@
         document.getElementById('graph-section').classList.add('hidden');
         document.getElementById('report-section').classList.remove('hidden');
 
-        // Populate branch selector from all known service branches
-        const branchSelect = document.getElementById('report-branch-select');
-        const allBranchNames = new Set();
-        for (const branches of Object.values(allServiceBranches)) {
-            for (const b of branches) allBranchNames.add(typeof b === 'string' ? b : b.name);
-        }
-
-        if (allBranchNames.size === 0) {
-            branchSelect.innerHTML = '<option value="">No branches found</option>';
-        } else {
-            const prev = branchSelect.value;
-            branchSelect.innerHTML = '';
-            for (const name of [...allBranchNames].sort()) {
-                const opt = document.createElement('option');
-                opt.value = name;
-                opt.textContent = name;
-                branchSelect.appendChild(opt);
+        try {
+            // Populate branch selector from all known service branches
+            await loadAllServiceBranches();
+            const branchSelect = document.getElementById('report-branch-select');
+            const allBranchNames = new Set();
+            for (const branches of Object.values(allServiceBranches)) {
+                for (const b of branches) allBranchNames.add(typeof b === 'string' ? b : b.name);
             }
-            if (allBranchNames.has(prev)) branchSelect.value = prev;
-            else if (allBranchNames.has('main')) branchSelect.value = 'main';
-        }
 
-        await loadReports();
-        hideLoader();
+            if (allBranchNames.size === 0) {
+                branchSelect.innerHTML = '<option value="">No branches found</option>';
+            } else {
+                const prev = branchSelect.value;
+                branchSelect.innerHTML = '';
+                for (const name of [...allBranchNames].sort()) {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name;
+                    branchSelect.appendChild(opt);
+                }
+                if (allBranchNames.has(prev)) branchSelect.value = prev;
+                else if (allBranchNames.has('main')) branchSelect.value = 'main';
+            }
+
+            await loadReports();
+            hideLoader();
+        } catch (err) {
+            console.error('Failed to show reports:', err);
+            hideLoader();
+            const grid = document.getElementById('reports-grid');
+            if (grid) {
+                grid.innerHTML = `<div class="text-red-500 text-center py-10 col-span-2">Error: ${err.message}</div>`;
+            }
+        }
     }
 
     async function loadReports() {

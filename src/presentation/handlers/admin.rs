@@ -65,7 +65,7 @@ pub async fn admin_list_all_branches(
 
 #[derive(Deserialize)]
 pub struct AdminEndpointYamlQuery {
-    pub service: String,
+    pub servicename: String,
     pub branch: String,
     pub api_type: ApiType,
     pub path: String,
@@ -76,7 +76,7 @@ pub async fn admin_get_endpoint_yaml(
     State(state): State<AppState>,
     Query(query): Query<AdminEndpointYamlQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::get_endpoint_yaml(&state.repo, &query.service, &query.branch, query.api_type, &query.path, &query.method).await?;
+    let res = services::get_endpoint_yaml(&state.repo, &query.servicename, &query.branch, query.api_type, &query.path, &query.method).await?;
     Ok(res)
 }
 
@@ -84,7 +84,7 @@ pub async fn admin_get_endpoint_versions(
     State(state): State<AppState>,
     Query(query): Query<AdminEndpointYamlQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::get_endpoint_version_history(&state.repo, &query.service, &query.branch, query.api_type, &query.path, &query.method).await?;
+    let res = services::get_endpoint_version_history(&state.repo, &query.servicename, &query.branch, query.api_type, &query.path, &query.method).await?;
     Ok(Json(res))
 }
 
