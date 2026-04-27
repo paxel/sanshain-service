@@ -31,6 +31,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Observability Metrics Link**: Restored the Prometheus endpoint at `/metrics`, fixing the broken raw metrics link from the observability page and adding regression coverage so the route cannot silently disappear again.
 - **Admin Navigation and User Settings**: Restored the missing Observability link on the landing/info banner, fixed consistent active-page highlighting across the top navigation, re-enabled admin password changes by restoring the `/auth/change-password` route, and exposed the auto-acknowledge/auto-approve new users toggle in the admin UI.
 - **Root Password Change Session Flow**: Fixed password changes to rotate the authenticated session and return a fresh token so `root` stays signed in after updating the password and can immediately continue using the admin/account pages without getting stuck on an invalidated session.
+- **Password Change Logout Bug**: Fixed the password change forms on both the account and admin pages so that entering an incorrect current password shows a clear "Current password is incorrect" error instead of silently logging the user out and preventing re-login.
+- **Logout Redirect**: Fixed logout redirecting to the non-existent `/index.html` instead of `/`, which caused a 404 after signing out.
 
 ---
 

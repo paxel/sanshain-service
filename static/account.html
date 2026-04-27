@@ -352,6 +352,9 @@
         }
 
         // --- Change Password ---
+        // Uses fetch directly instead of apiCall so that a 401 (wrong current
+        // password) is shown as a field error rather than triggering the global
+        // "session expired" logout flow.
         document.getElementById('pw-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const errEl = document.getElementById('pw-error');
@@ -359,12 +362,17 @@
             errEl.classList.add('hidden');
             successEl.classList.add('hidden');
             try {
-                const res = await apiCall('/auth/change-password', {
+                if (!csrfToken) await fetchCsrfToken();
+                const headers = { 'Content-Type': 'application/json' };
+                if (sanshainToken) headers['Authorization'] = `Bearer ${sanshainToken}`;
+                if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+                const res = await fetch('/auth/change-password', {
                     method: 'POST',
-                    body: {
+                    headers,
+                    body: JSON.stringify({
                         old_password: document.getElementById('pw-current').value,
                         new_password: document.getElementById('pw-new').value,
-                    },
+                    }),
                 });
                 if (res.ok) {
                     const data = await res.json();
@@ -375,12 +383,15 @@
                     successEl.textContent = 'Password updated successfully.';
                     successEl.classList.remove('hidden');
                     document.getElementById('pw-form').reset();
+                } else if (res.status === 401) {
+                    errEl.textContent = 'Current password is incorrect.';
+                    errEl.classList.remove('hidden');
                 } else {
-                    errEl.textContent = res.status === 401 ? 'Current password is incorrect.' : `Error: ${res.status}`;
+                    errEl.textContent = `Error: ${res.status}`;
                     errEl.classList.remove('hidden');
                 }
             } catch (err) {
-                errEl.textContent = err.message;
+                errEl.textContent = friendlyError(err);
                 errEl.classList.remove('hidden');
             }
         });

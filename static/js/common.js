@@ -78,7 +78,7 @@ async function renderBanner(user = null) {
 async function sanshainLogout(options = {}) {
   const redirectTo = Object.prototype.hasOwnProperty.call(options, "redirectTo")
     ? options.redirectTo
-    : "/index.html";
+    : "/";
   try {
     if (!csrfToken) {
       await fetchCsrfToken();
