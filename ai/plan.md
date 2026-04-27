@@ -58,6 +58,7 @@ The following major milestones have been delivered and are fully functional:
 - [x] Restore direct banner navigation to the discovery subviews (services, clients, graph, reports) after the banner unification accidentally hid those entry points.
 - [x] Update the changelog to describe the user-visible banner/navigation/license fixes and the major DDD refactoring for v0.13.1.
 - [x] Restore the broken observability raw metrics link by exposing the Prometheus endpoint at `/metrics` again and cover it with an integration regression test.
+- [x] Fix the landing/info banner and shared nav highlighting, restore admin password changes, and expose the auto-acknowledge new users admin setting in the UI with regression coverage.
 
 ### Deployment
 - [ ] Kubernetes manifests (Deployment, Service, Ingress, ConfigMap, Secret).

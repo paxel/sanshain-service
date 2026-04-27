@@ -113,6 +113,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/auth/logout", post(auth::auth_logout))
         .route("/auth/register", post(auth::auth_register))
         .route("/auth/me", get(auth::auth_me).layer(from_fn_with_state(state.clone(), authenticated_auth)))
+        .route("/auth/change-password", post(auth::auth_change_password).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/auth/tokens", get(auth::list_tokens).post(auth::create_token).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/auth/tokens/{id}", delete(auth::revoke_token).layer(from_fn_with_state(state.clone(), authenticated_auth)))
 

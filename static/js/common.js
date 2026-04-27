@@ -29,8 +29,27 @@ function updateBannerAuth(user) {
   }
 }
 
+function highlightCurrentBannerLink() {
+  const nav = document.querySelector("#site-banner nav");
+  if (!nav) return;
+
+  const currentPath = window.location.pathname === "/" ? "/" : window.location.pathname.replace(/\/+$/, "");
+  nav.querySelectorAll("a[href]").forEach((link) => {
+    const href = link.getAttribute("href");
+    if (!href || !href.startsWith("/")) return;
+
+    const normalizedHref = href === "/" ? "/" : href.replace(/\/+$/, "");
+    const isActive = normalizedHref === currentPath;
+    link.classList.toggle("font-bold", isActive);
+    link.classList.toggle("underline", isActive);
+    link.classList.toggle("underline-offset-4", isActive);
+    link.classList.toggle("hover:text-indigo-100", !isActive);
+  });
+}
+
 async function renderBanner(user = null) {
   try {
+    highlightCurrentBannerLink();
     if (user && user.username) {
       updateBannerAuth(user);
       return user;

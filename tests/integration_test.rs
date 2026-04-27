@@ -183,6 +183,7 @@ async fn test_root_page_banner_links_to_all_discovery_views() {
     assert!(html.contains("href=\"/clients.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Clients</a>"));
     assert!(html.contains("href=\"/graph.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Graph</a>"));
     assert!(html.contains("href=\"/reports.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Reports</a>"));
+    assert!(html.contains("href=\"/observability.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Observability</a>"));
     assert!(html.contains("href=\"/admin.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Admin</a>"));
 }
 
@@ -1254,6 +1255,231 @@ async fn test_auth_login_and_session() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_auth_change_password_route_updates_credentials() {
+    let (app, token) = setup_app_with_admin().await;
+
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/change-password")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "old_password": "admin-pass",
+                        "new_password": "new-admin-pass"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let old_login: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/login")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "username": "admin",
+                        "password": "admin-pass"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(old_login.status(), StatusCode::UNAUTHORIZED);
+
+    let new_login: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/login")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "username": "admin",
+                        "password": "new-admin-pass"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(new_login.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_auto_approve_setting_controls_new_user_approval() {
+    let (app, admin_token) = setup_app_with_admin().await;
+
+    let enable_local_users: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/settings/local-users")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({ "enabled": true })).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(enable_local_users.status(), StatusCode::OK);
+
+    let get_default_auto_approve: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/settings/auto-approve")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get_default_auto_approve.status(), StatusCode::OK);
+    let default_body = axum::body::to_bytes(get_default_auto_approve.into_body(), 10000)
+        .await
+        .unwrap();
+    let default_json: Value = serde_json::from_slice(&default_body).unwrap();
+    assert_eq!(default_json, false);
+
+    let register_pending: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/register")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "username": "pending-user",
+                        "password": "pass123"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(register_pending.status(), StatusCode::CREATED);
+
+    let users_before_toggle: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/users")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(users_before_toggle.status(), StatusCode::OK);
+    let users_before_body = axum::body::to_bytes(users_before_toggle.into_body(), 10000)
+        .await
+        .unwrap();
+    let users_before: Value = serde_json::from_slice(&users_before_body).unwrap();
+    assert_eq!(
+        users_before
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|user| user["username"] == "pending-user")
+            .unwrap()["approved"],
+        false
+    );
+
+    let enable_auto_approve: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/settings/auto-approve")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({ "enabled": true })).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(enable_auto_approve.status(), StatusCode::OK);
+
+    let register_approved: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/register")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "username": "approved-user",
+                        "password": "pass123"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(register_approved.status(), StatusCode::CREATED);
+
+    let users_after_toggle: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/users")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(users_after_toggle.status(), StatusCode::OK);
+    let users_after_body = axum::body::to_bytes(users_after_toggle.into_body(), 10000)
+        .await
+        .unwrap();
+    let users_after: Value = serde_json::from_slice(&users_after_body).unwrap();
+    assert_eq!(
+        users_after
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|user| user["username"] == "approved-user")
+            .unwrap()["approved"],
+        true
+    );
 }
 
 #[tokio::test]
