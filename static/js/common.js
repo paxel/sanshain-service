@@ -40,7 +40,8 @@ function highlightCurrentBannerLink() {
   const nav = document.querySelector("#site-banner nav");
   if (!nav) return;
 
-  const currentPath = window.location.pathname === "/" ? "/" : window.location.pathname.replace(/\/+$/, "");
+  const currentPath =
+    window.location.pathname === "/" ? "/" : window.location.pathname.replace(/\/+$/, "");
   nav.querySelectorAll("a[href]").forEach((link) => {
     const href = link.getAttribute("href");
     if (!href || !href.startsWith("/")) return;
