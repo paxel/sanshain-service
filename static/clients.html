@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sanshain - Clients</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/js/common.js"></script>
+    <script src="/js/discovery.js"></script>
+    <style>
+        .endpoint-card {
+            transition: all 0.2s;
+        }
+        .endpoint-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+    <div id="app-loader">
+        <div class="cat-container">
+            <svg class="cat-svg" viewBox="0 0 100 60">
+                <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
+                <path d="M80,50 C95,50 95,30 85,30" fill="none" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" />
+                <path d="M25,25 L20,10 L35,22 Z" />
+                <path d="M45,22 L60,10 L55,25 Z" />
+                <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+                <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+                <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
+            </svg>
+            <div class="zzz-container">
+                <span class="zzz">z</span>
+                <span class="zzz">z</span>
+                <span class="zzz">z</span>
+            </div>
+        </div>
+        <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
+    </div>
+<header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
+    <div class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div class="flex items-center justify-between gap-4 md:justify-start">
+            <a href="/" class="flex items-center space-x-3">
+                <img src="/images/sonne.png" alt="Sanshain Logo" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
+                <div class="text-2xl font-bold tracking-tight">Sanshain <span class="text-indigo-200">(サンシャイン)</span></div>
+            </a>
+            <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
+        </div>
+        <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
+            <a href="/services.html" class="text-white hover:text-indigo-100 transition-colors">Services</a>
+            <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
+            <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
+            <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
+        </nav>
+        <div class="flex items-center justify-end gap-4 text-sm">
+            <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+            <a id="banner-username" href="/account.html" class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"></a>
+            <button id="banner-logout" type="button" onclick="sanshainLogout()" class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500">Logout</button>
+            <a id="banner-signin" href="/account.html" class="hidden text-indigo-100 transition-colors hover:text-white">Sign In</a>
+        </div>
+    </div>
+</header>
+
+<main class="container mx-auto flex-1 p-6">
+    <div id="client-section">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-semibold flex items-center">
+                    <span class="bg-teal-100 text-teal-700 p-2 rounded-lg mr-3">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                        </svg>
+                    </span>
+                Client Dependencies
+            </h2>
+            <div class="relative w-64">
+                <input type="text" id="client-search" placeholder="Search for clients..."
+                       class="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                <div class="absolute left-3 top-2.5 text-slate-500">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                </div>
+            </div>
+        </div>
+        <div id="clients-list" class="space-y-4">
+            <div class="text-center py-10 text-slate-500">Loading clients...</div>
+        </div>
+    </div>
+</main>
+
+<div id="modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+        <div class="p-6 border-b border-slate-100 flex justify-between items-center">
+            <h3 id="modal-title" class="text-2xl font-bold text-slate-800">YAML Details</h3>
+            <button onclick="closeModal()" class="text-slate-500 hover:text-slate-600 transition-colors">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+        <div id="modal-content" class="p-6 overflow-y-auto flex-grow bg-slate-50">
+        </div>
+        <div class="p-4 border-t border-slate-100 flex justify-end gap-3 bg-white rounded-b-2xl">
+            <a id="md-report-btn" href="#" style="display:none"
+               class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors flex items-center">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+                Markdown Report
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+    let allClients = [];
+
+    async function showClients() {
+        showLoader();
+        const list = document.getElementById('clients-list');
+        list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading clients...</div>';
+
+        try {
+            const clients = await fetchJSON('/admin/clients');
+            allClients = clients || [];
+            document.getElementById('client-search').value = '';
+            renderClientList(allClients);
+            hideLoader();
+        } catch (err) {
+            hideLoader();
+            list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${err.message}</div>`;
+        }
+    }
+
+    function renderClientList(clients) {
+        const list = document.getElementById('clients-list');
+        if (!clients || clients.length === 0) {
+            list.innerHTML = `
+                <div class="bg-white p-10 rounded-2xl border-2 border-dashed border-slate-200 text-center">
+                    <div class="text-slate-500 mb-4">
+                        <svg class="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-medium text-slate-900">No clients found</h3>
+                    <p class="text-slate-500 mt-1">Clients will appear here once they request endpoints via GET /require.</p>
+                </div>`;
+            return;
+        }
+        list.innerHTML = '';
+        for (const name of clients) {
+            const card = document.createElement('div');
+            card.className = 'bg-white p-5 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
+            card.onclick = () => showClientBranches(name);
+            card.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <span class="bg-teal-100 text-teal-700 p-2 rounded-lg mr-3">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                            </svg>
+                        </span>
+                        <h3 class="font-bold text-lg text-slate-800">${name}</h3>
+                    </div>
+                    <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                    </svg>
+                </div>`;
+            list.appendChild(card);
+        }
+    }
+
+    async function showClientBranches(clientName) {
+        showLoader();
+        const list = document.getElementById('clients-list');
+        list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading branches...</div>';
+
+        try {
+            const branches = await fetchJSON(`/admin/clients/${encodeURIComponent(clientName)}/branches`);
+            list.innerHTML = '';
+
+            const breadcrumb = document.createElement('div');
+            breadcrumb.className = 'flex items-center text-sm text-slate-500 mb-4';
+            breadcrumb.innerHTML = `
+                <button onclick="showClients()" class="hover:text-teal-600 font-medium">Clients</button>
+                <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                <span class="text-slate-800 font-semibold">${clientName}</span>`;
+            list.appendChild(breadcrumb);
+
+            if (!branches || branches.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'text-center py-10 text-slate-500 italic';
+                empty.textContent = 'No branches found for this client.';
+                list.appendChild(empty);
+                hideLoader();
+                return;
+            }
+
+            for (const branch of branches) {
+                const card = document.createElement('div');
+                card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
+                card.onclick = () => showClientEndpoints(clientName, branch);
+                card.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <span class="bg-indigo-100 text-indigo-700 p-2 rounded-lg mr-3">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                </svg>
+                            </span>
+                            <h3 class="font-semibold text-slate-800">${branch}</h3>
+                        </div>
+                        <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </div>`;
+                list.appendChild(card);
+            }
+            hideLoader();
+        } catch (err) {
+            hideLoader();
+            list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${err.message}</div>`;
+        }
+    }
+
+    async function showClientEndpoints(clientName, branch) {
+        showLoader();
+        const list = document.getElementById('clients-list');
+        list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading endpoints...</div>';
+
+        try {
+            const endpoints = await fetchJSON(`/admin/clients/${encodeURIComponent(clientName)}/branches/${encodeURIComponent(branch)}/endpoints`);
+            list.innerHTML = '';
+
+            const breadcrumb = document.createElement('div');
+            breadcrumb.className = 'flex items-center text-sm text-slate-500 mb-4';
+            breadcrumb.innerHTML = `
+                <button onclick="showClients()" class="hover:text-teal-600 font-medium">Clients</button>
+                <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                <button onclick="showClientBranches('${clientName}')" class="hover:text-teal-600 font-medium">${clientName}</button>
+                <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                <span class="text-slate-800 font-semibold">${branch}</span>`;
+            list.appendChild(breadcrumb);
+
+            if (!endpoints || endpoints.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'text-center py-10 text-slate-500 italic';
+                empty.textContent = 'No endpoints found for this branch.';
+                list.appendChild(empty);
+                hideLoader();
+                return;
+            }
+
+            for (const ep of endpoints) {
+                const card = document.createElement('div');
+                card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card' + (ep.yaml_content ? ' cursor-pointer' : '');
+                if (ep.yaml_content) {
+                    card.onclick = () => showClientYaml(clientName, branch, ep);
+                }
+                card.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <span class="px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider mr-2 bg-slate-100 text-slate-500 border border-slate-200">
+                                ${ep.api_type || 'REST'}
+                            </span>
+                            <span class="px-2 py-1 rounded text-[10px] font-bold uppercase mr-3 ${getMethodColor(ep.method)}">
+                                ${ep.method}
+                            </span>
+                            <span class="font-mono text-sm text-slate-700">${ep.path}</span>
+                            <span class="ml-3 text-xs text-slate-500">${ep.service}</span>
+                        </div>
+                        <div class="flex items-center">
+                            ${ep.yaml_content
+                                ? `<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2 cursor-pointer hover:bg-green-100" onclick="event.stopPropagation(); navigateToServiceEndpoint('${ep.service}', '${ep.branch}', '${ep.path}', '${ep.method}')">resolved → ${ep.service}</span>`
+                                : '<span class="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full mr-2">pending</span>'}
+                            ${ep.yaml_content ? '<svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>' : ''}
+                        </div>
+                    </div>`;
+                list.appendChild(card);
+            }
+            hideLoader();
+        } catch (err) {
+            hideLoader();
+            list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${err.message}</div>`;
+        }
+    }
+
+    function showClientYaml(clientName, branch, ep) {
+        document.getElementById('modal').classList.remove('hidden');
+        document.getElementById('modal-title').innerText = `${ep.method} ${ep.path} — ${ep.service} (${branch})`;
+        document.getElementById('md-report-btn').style.display = 'none';
+        const content = document.getElementById('modal-content');
+        renderPaginatedYaml(content, ep.yaml_content, `${ep.service}_${ep.method}_${ep.path.replace(/\//g, '_')}.yaml`);
+    }
+
+    function navigateToServiceEndpoint(serviceName, branch, path, method) {
+        window.location.href = `/services.html?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branch)}`;
+    }
+
+    document.getElementById('client-search').addEventListener('input', function() {
+        const q = this.value.toLowerCase();
+        if (!q) {
+            renderClientList(allClients);
+            return;
+        }
+        renderClientList(allClients.filter(name => name.toLowerCase().includes(q)));
+    });
+
+    // Handle deep-link: ?name=...
+    (function handleDeepLink() {
+        const params = new URLSearchParams(window.location.search);
+        const clientName = params.get('name');
+        if (clientName) {
+            checkDiscoveryAuth(async () => {
+                await showClients();
+                showClientBranches(clientName);
+            });
+        } else {
+            checkDiscoveryAuth(() => showClients());
+        }
+    })();
+</script>
+    <footer class="text-center text-sm text-slate-500 py-6 mt-auto">
+        <img src="/images/sonne.png" alt="Sanshain" class="mx-auto mb-2 h-8 w-auto opacity-70">
+        <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
+        <div class="mt-2 flex items-center justify-center gap-4">
+            <a href="https://github.com/paxel/sanshain-service" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800">GitHub</a>
+            <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sanshain - Dependency Graph</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/js/common.js"></script>
+    <script src="/js/discovery.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@dagrejs/dagre@1.1.4/dist/dagre.min.js"></script>
+    <script src="/js/graph.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        mermaid.initialize({startOnLoad: false, theme: 'base', themeVariables: {fontSize: '14px', fontFamily: 'ui-sans-serif, system-ui, sans-serif'}});
+    </script>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+    <div id="app-loader">
+        <div class="cat-container">
+            <svg class="cat-svg" viewBox="0 0 100 60">
+                <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
+                <path d="M80,50 C95,50 95,30 85,30" fill="none" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" />
+                <path d="M25,25 L20,10 L35,22 Z" />
+                <path d="M45,22 L60,10 L55,25 Z" />
+                <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+                <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+                <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
+            </svg>
+            <div class="zzz-container">
+                <span class="zzz">z</span>
+                <span class="zzz">z</span>
+                <span class="zzz">z</span>
+            </div>
+        </div>
+        <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
+    </div>
+<header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
+    <div class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div class="flex items-center justify-between gap-4 md:justify-start">
+            <a href="/" class="flex items-center space-x-3">
+                <img src="/images/sonne.png" alt="Sanshain Logo" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
+                <div class="text-2xl font-bold tracking-tight">Sanshain <span class="text-indigo-200">(サンシャイン)</span></div>
+            </a>
+            <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
+        </div>
+        <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
+            <a href="/services.html" class="text-white hover:text-indigo-100 transition-colors">Services</a>
+            <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
+            <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
+            <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
+        </nav>
+        <div class="flex items-center justify-end gap-4 text-sm">
+            <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+            <a id="banner-username" href="/account.html" class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"></a>
+            <button id="banner-logout" type="button" onclick="sanshainLogout()" class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500">Logout</button>
+            <a id="banner-signin" href="/account.html" class="hidden text-indigo-100 transition-colors hover:text-white">Sign In</a>
+        </div>
+    </div>
+</header>
+
+<main class="container mx-auto flex-1 p-6">
+    <div id="graph-section">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-semibold flex items-center">
+                <span class="bg-purple-100 text-purple-700 p-2 rounded-lg mr-3">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
+                    </svg>
+                </span>
+                Dependency Graph
+            </h2>
+            <div class="flex items-center space-x-3">
+                <select id="graph-branch-select" class="rounded-lg border border-slate-300 text-sm text-slate-700 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="">Loading branches...</option>
+                </select>
+                <div class="inline-flex rounded-lg border border-slate-300 text-sm overflow-hidden bg-white">
+                    <button id="graph-mode-custom" class="px-3 py-1.5 bg-indigo-600 text-white" onclick="switchGraphMode('custom')">Graph</button>
+                    <button id="graph-mode-mermaid" class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50" onclick="switchGraphMode('mermaid')">Mermaid</button>
+                    <button id="graph-mode-detailed" class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50" onclick="switchGraphMode('detailed')">Detailed</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="graph-toolbar-row" class="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200">
+            <div class="flex items-center gap-2 flex-grow">
+                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Focus</span>
+                <div id="focus-tags-container" class="flex flex-wrap items-center gap-1.5"></div>
+                <div class="relative flex-shrink-0" style="min-width:140px">
+                    <input type="text" id="graph-service-filter" list="graph-services-list" placeholder="Add service..."
+                           onkeydown="if(event.key==='Enter'){event.preventDefault();applyGraphFocus()}"
+                           class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+                    <datalist id="graph-services-list"></datalist>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2 ml-auto">
+                <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
+                    <button id="graph-redraw-all" class="px-3 py-1.5 bg-indigo-600 text-white font-medium" onclick="setGraphRedrawMode('all')">All</button>
+                    <button id="graph-redraw-circular" class="px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium" onclick="setGraphRedrawMode('circular')">Circular</button>
+                </div>
+                <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
+                    <button id="filter-openapi" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('openapi')">OpenAPI</button>
+                    <button id="filter-asyncapi" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('asyncapi')">AsyncAPI</button>
+                    <button id="filter-proto" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('proto')">Proto</button>
+                </div>
+                <button id="graph-direction-toggle"
+                        class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+                        onclick="toggleGraphDirection()"
+                        title="Pivot graph direction (vertical ↔ horizontal)">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m-4 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                    <span id="graph-direction-label">Vertical</span>
+                </button>
+                <button id="graph-copy" class="hidden inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm" title="Copy code to clipboard">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg>
+                    Copy
+                </button>
+                <button id="graph-download" class="hidden inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm" title="Download file">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+                    Download
+                </button>
+            </div>
+        </div>
+
+        <div id="graph-cycle-warning" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center">
+            <svg class="w-5 h-5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+            </svg>
+            <span id="graph-cycle-text">Circular dependencies detected (shown in red).</span>
+        </div>
+        <div class="flex gap-6 items-start">
+            <div id="graph-container"
+                 class="flex-grow bg-white p-6 rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <svg id="custom-graph" class="w-full"></svg>
+                <div id="mermaid-graph" class="mermaid hidden"></div>
+            </div>
+
+            <div id="graph-legend" class="w-48 flex-shrink-0 space-y-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm h-fit sticky top-6">
+                <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 border-b border-slate-100 pb-2">Legend</h4>
+                <div class="space-y-3 text-[11px] font-medium text-slate-600">
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:client">
+                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#ccfbf1;border:2px solid #14b8a6"></span>
+                        <span>Client only</span>
+                    </div>
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:service">
+                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#e0e7ff;border:2px solid #6366f1"></span>
+                        <span>Service only</span>
+                    </div>
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:both">
+                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#fef3c7;border:2px solid #f59e0b"></span>
+                        <span>Client &amp; Service</span>
+                    </div>
+                    <div class="flex items-center gap-2.5 pt-2 border-t border-slate-50 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:circular">
+                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#a855f7"></span>
+                        <span>Circular dep.</span>
+                    </div>
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:missing">
+                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f97316;border-top:2px dashed #f97316"></span>
+                        <span>Missing dep.</span>
+                    </div>
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:pubsub-bidir">
+                        <span class="w-6" style="border-top:2px dashed #94a3b8"></span>
+                        <span>PUB/SUB bidir.</span>
+                    </div>
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:messaging-register">
+                        <span class="w-6" style="border-top:2px dashed #3b82f6"></span>
+                        <span>Msg. register</span>
+                    </div>
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:missing">
+                        <span class="w-4 text-center font-bold text-orange-600">!</span>
+                        <span>Missing svc.</span>
+                    </div>
+                    <div class="pt-2 border-t border-slate-100">
+                        <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">Service Tags</p>
+                        <div class="space-y-2">
+                            <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:tag-messaging">
+                                <span class="w-4 text-center text-[10px]">🛢️</span>
+                                <span>Kafka</span>
+                            </div>
+                            <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:tag-grpc">
+                                <span class="w-4 text-center text-[10px]">⛓️</span>
+                                <span>gRPC</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script>
+    let lastGraphReport = null;
+    let lastMermaidCode = '';
+    let currentGraphMode = 'custom';
+    let currentGraphDirection = 'TB';
+
+    function toggleGraphDirection() {
+        currentGraphDirection = currentGraphDirection === 'TB' ? 'LR' : 'TB';
+        const label = document.getElementById('graph-direction-label');
+        if (label) label.textContent = currentGraphDirection === 'TB' ? 'Vertical' : 'Horizontal';
+        if (currentGraphMode === 'custom') {
+            redrawGraph();
+        }
+    }
+
+    function switchGraphMode(mode) {
+        currentGraphMode = mode;
+        ['custom','mermaid','detailed'].forEach(m => {
+            const btn = document.getElementById(`graph-mode-${m}`);
+            if (btn) {
+                btn.className = m === mode
+                    ? 'px-3 py-1.5 bg-indigo-600 text-white'
+                    : 'px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50';
+            }
+        });
+        const dirBtn = document.getElementById('graph-direction-toggle');
+        const copyBtn = document.getElementById('graph-copy');
+        const dlBtn = document.getElementById('graph-download');
+        const toolbarRow = document.getElementById('graph-toolbar-row');
+
+        if (dirBtn) dirBtn.classList.toggle('hidden', mode !== 'custom');
+        if (copyBtn) copyBtn.classList.remove('hidden');
+        if (dlBtn) dlBtn.classList.remove('hidden');
+        if (toolbarRow) toolbarRow.classList.remove('hidden');
+
+        if (lastGraphReport) {
+            const customSvg = document.getElementById('custom-graph');
+            const mermaidDiv = document.getElementById('mermaid-graph');
+            if (mode === 'custom') {
+                customSvg.classList.remove('hidden');
+                mermaidDiv.classList.add('hidden');
+                redrawGraph();
+            } else {
+                customSvg.classList.add('hidden');
+                mermaidDiv.classList.remove('hidden');
+                redrawGraph();
+            }
+        }
+    }
+
+    async function showGraph() {
+        try {
+            await loadAllServiceBranches();
+            const branchSelect = document.getElementById('graph-branch-select');
+            const allBranchNames = new Set();
+            for (const branches of Object.values(allServiceBranches)) {
+                for (const b of branches) allBranchNames.add(typeof b === 'string' ? b : b.name);
+            }
+            if (allBranchNames.size === 0) {
+                branchSelect.innerHTML = '<option value="">No branches found</option>';
+            } else {
+                const prev = branchSelect.value;
+                branchSelect.innerHTML = '';
+                for (const name of [...allBranchNames].sort()) {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name;
+                    branchSelect.appendChild(opt);
+                }
+                if (allBranchNames.has(prev)) branchSelect.value = prev;
+                else if (allBranchNames.has('main')) branchSelect.value = 'main';
+            }
+
+            await loadGraph();
+        } catch (err) {
+            console.error('Failed to show graph:', err);
+            hideLoader();
+            const graphDiv = document.getElementById('mermaid-graph');
+            if (graphDiv) {
+                graphDiv.classList.remove('hidden');
+                graphDiv.innerHTML = `<div class="text-red-500 p-4">Error: ${err.message}</div>`;
+            }
+        }
+    }
+
+    document.getElementById('graph-branch-select').addEventListener('change', () => loadGraph());
+
+    async function loadGraph() {
+        showLoader();
+        const customSvg = document.getElementById('custom-graph');
+        const graphDiv = document.getElementById('mermaid-graph');
+        const branch = document.getElementById('graph-branch-select').value;
+        if (!branch) {
+            customSvg.classList.add('hidden');
+            graphDiv.classList.remove('hidden');
+            graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">No branch selected.</div>';
+            hideLoader();
+            return;
+        }
+        if (currentGraphMode === 'custom') {
+            while (customSvg.firstChild) customSvg.removeChild(customSvg.firstChild);
+            customSvg.classList.remove('hidden');
+            graphDiv.classList.add('hidden');
+        } else {
+            customSvg.classList.add('hidden');
+            graphDiv.classList.remove('hidden');
+            graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">Generating dependency graph...</div>';
+        }
+
+        try {
+            const report = await fetchJSON(`/report?branch=${encodeURIComponent(branch)}`);
+            lastGraphReport = report;
+
+            const datalist = document.getElementById('graph-services-list');
+            if (datalist) {
+                const services = new Set();
+                report.dependency_graph.forEach(d => {
+                    services.add(d.client);
+                    services.add(d.service);
+                });
+                datalist.innerHTML = '';
+                [...services].sort().forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s;
+                    datalist.appendChild(opt);
+                });
+            }
+
+            if (report.dependency_graph.length === 0) {
+                customSvg.classList.add('hidden');
+                graphDiv.classList.remove('hidden');
+                graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">No dependencies found to visualize.</div>';
+                document.getElementById('graph-cycle-warning').classList.add('hidden');
+                hideLoader();
+                return;
+            }
+
+            await new Promise(r => setTimeout(r, 10));
+            redrawGraph();
+            hideLoader();
+        } catch (err) {
+            hideLoader();
+            customSvg.classList.add('hidden');
+            graphDiv.classList.remove('hidden');
+            graphDiv.innerHTML = `<div class="text-red-500 p-4">Error generating graph: ${err.message}</div>`;
+        }
+    }
+
+    function detectCycles(adjMap) {
+        const WHITE = 0, GRAY = 1, BLACK = 2;
+        const color = {};
+        const parent = {};
+        const cycleEdges = new Set();
+
+        for (const node of adjMap.keys()) color[node] = WHITE;
+
+        function dfs(u) {
+            color[u] = GRAY;
+            for (const v of (adjMap.get(u) || [])) {
+                if (color[v] === undefined) color[v] = WHITE;
+                if (color[v] === GRAY) {
+                    cycleEdges.add(`${u}-->${v}`);
+                    let cur = u;
+                    while (cur && cur !== v) {
+                        const p = parent[cur];
+                        if (p !== undefined) cycleEdges.add(`${p}-->${cur}`);
+                        cur = p;
+                    }
+                } else if (color[v] === WHITE) {
+                    parent[v] = u;
+                    dfs(v);
+                }
+            }
+            color[u] = BLACK;
+        }
+
+        for (const node of adjMap.keys()) {
+            if (color[node] === WHITE) dfs(node);
+        }
+        return cycleEdges;
+    }
+
+    function sanitizeId(name) {
+        return name.replace(/[^a-zA-Z0-9_]/g, '_');
+    }
+
+    async function renderGraph(report, detailed) {
+        const graphDiv = document.getElementById('mermaid-graph');
+        const warningDiv = document.getElementById('graph-cycle-warning');
+
+        const allNodes = new Set();
+        const adjMap = new Map();
+        const edgeLabels = new Map();
+
+        report.dependency_graph.forEach(d => {
+            const from = d.client;
+            const to = d.service;
+            allNodes.add(from);
+            allNodes.add(to);
+            if (!adjMap.has(from)) adjMap.set(from, []);
+            if (!adjMap.get(from).includes(to)) adjMap.get(from).push(to);
+            const key = `${from}-->${to}`;
+            if (!edgeLabels.has(key)) edgeLabels.set(key, new Set());
+            edgeLabels.get(key).add(`[${d.api_type || 'REST'}] ${d.method} ${d.path}`);
+        });
+
+        const cycleEdges = detectCycles(adjMap);
+        const hasCycles = cycleEdges.size > 0;
+
+        if (hasCycles) {
+            warningDiv.classList.remove('hidden');
+        } else {
+            warningDiv.classList.add('hidden');
+        }
+
+        const clientNodes = new Set(report.dependency_graph.map(d => d.client));
+        const serviceNodes = new Set(report.dependency_graph.map(d => d.service));
+
+        let mmd = 'graph TD\n';
+
+        mmd += '  classDef serviceOnly fill:#e0e7ff,stroke:#6366f1,stroke-width:2px,color:#3730a3\n';
+        mmd += '  classDef clientOnly fill:#ccfbf1,stroke:#14b8a6,stroke-width:2px,color:#115e59\n';
+        mmd += '  classDef both fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n';
+        mmd += '  classDef cycleEdge stroke:#ef4444,stroke-width:3px\n';
+        mmd += '  linkStyle default stroke:#94a3b8,stroke-width:2px\n';
+
+        for (const node of allNodes) {
+            const id = sanitizeId(node);
+            const isClient = clientNodes.has(node);
+            const isService = serviceNodes.has(node);
+            if (isClient && isService) {
+                mmd += `  ${id}["${node}"]\n`;
+            } else if (isService) {
+                mmd += `  ${id}["${node}"]\n`;
+            } else {
+                mmd += `  ${id}("${node}")\n`;
+            }
+        }
+
+        for (const node of allNodes) {
+            const id = sanitizeId(node);
+            const isClient = clientNodes.has(node);
+            const isService = serviceNodes.has(node);
+            if (isClient && isService) {
+                mmd += `  class ${id} both\n`;
+            } else if (isService) {
+                mmd += `  class ${id} serviceOnly\n`;
+            } else {
+                mmd += `  class ${id} clientOnly\n`;
+            }
+        }
+
+        let edgeIndex = 0;
+        const cycleEdgeIndices = [];
+        const uniqueEdges = new Set();
+        report.dependency_graph.forEach(d => {
+            const key = `${d.client}-->${d.service}`;
+            if (uniqueEdges.has(key)) return;
+            uniqueEdges.add(key);
+
+            const fromId = sanitizeId(d.client);
+            const toId = sanitizeId(d.service);
+            const labels = edgeLabels.get(key);
+            const isCycle = cycleEdges.has(key);
+
+            if (detailed && labels && labels.size > 0) {
+                const labelText = [...labels].slice(0, 5).join('\\n') + (labels.size > 5 ? `\\n+${labels.size - 5} more` : '');
+                mmd += `  ${fromId} -->|"${labelText}"| ${toId}\n`;
+            } else {
+                mmd += `  ${fromId} --> ${toId}\n`;
+            }
+
+            if (isCycle) cycleEdgeIndices.push(edgeIndex);
+            edgeIndex++;
+        });
+
+        for (const idx of cycleEdgeIndices) {
+            mmd += `  linkStyle ${idx} stroke:#ef4444,stroke-width:3px\n`;
+        }
+
+        lastMermaidCode = mmd;
+
+        graphDiv.removeAttribute('data-processed');
+        graphDiv.innerHTML = mmd;
+        await mermaid.run({ nodes: [graphDiv] });
+    }
+
+    document.getElementById('graph-copy').onclick = () => {
+        let content;
+        if (currentGraphMode === 'custom') {
+            const svg = document.getElementById('custom-graph');
+            if (!svg.firstChild) return;
+            content = getCustomGraphSVG(svg);
+        } else {
+            if (!lastMermaidCode) return;
+            content = lastMermaidCode;
+        }
+        const btn = document.getElementById('graph-copy');
+        navigator.clipboard.writeText(content).then(() => {
+            btn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copied!`;
+            setTimeout(() => {
+                btn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg> Copy`;
+            }, 2000);
+        });
+    };
+
+    document.getElementById('graph-download').onclick = () => {
+        const branch = document.getElementById('graph-branch-select').value || 'graph';
+        let content, filename, mime;
+        if (currentGraphMode === 'custom') {
+            const svg = document.getElementById('custom-graph');
+            if (!svg.firstChild) return;
+            content = getCustomGraphSVG(svg);
+            filename = `dependency_graph_${branch}.svg`;
+            mime = 'image/svg+xml';
+        } else {
+            if (!lastMermaidCode) return;
+            content = lastMermaidCode;
+            filename = `dependency_graph_${branch}.mmd`;
+            mime = 'text/plain';
+        }
+        const blob = new Blob([content], { type: mime });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
+    // Legend hover-to-highlight
+    (function initLegendHighlight() {
+        const legend = document.getElementById('graph-legend');
+        if (!legend) return;
+
+        function applyLegendHighlight(filter) {
+            const nodes = window._graphNodeElements;
+            const edges = window._graphEdgeElements;
+            if (!nodes || !edges) return;
+
+            const [type, value] = filter.split(':');
+
+            if (type === 'node-role') {
+                const matchedNodes = new Set();
+                nodes.forEach((el, name) => {
+                    const match = el.dataset.role === value;
+                    el.style.opacity = match ? '1' : '0.12';
+                    el.style.transition = 'opacity 0.2s';
+                    if (match) matchedNodes.add(name);
+                });
+                edges.forEach((els, key) => {
+                    const [from, to] = key.split('-->');
+                    const connected = matchedNodes.has(from) || matchedNodes.has(to);
+                    els.path.style.opacity = connected ? '1' : '0.08';
+                    els.path.style.transition = 'opacity 0.2s';
+                });
+            } else if (type === 'edge-type') {
+                const connectedNodes = new Set();
+                edges.forEach((els, key) => {
+                    const match = els.path.dataset.edgeType === value;
+                    els.path.style.opacity = match ? '1' : '0.08';
+                    els.path.style.transition = 'opacity 0.2s';
+                    if (match) {
+                        const [from, to] = key.split('-->');
+                        connectedNodes.add(from);
+                        connectedNodes.add(to);
+                    }
+                });
+                nodes.forEach((el, name) => {
+                    el.style.opacity = connectedNodes.has(name) ? '1' : '0.12';
+                    el.style.transition = 'opacity 0.2s';
+                });
+            }
+        }
+
+        function clearLegendHighlight() {
+            const nodes = window._graphNodeElements;
+            const edges = window._graphEdgeElements;
+            if (!nodes || !edges) return;
+            nodes.forEach(el => { el.style.opacity = '1'; el.style.transition = 'opacity 0.2s'; });
+            edges.forEach(els => { els.path.style.opacity = '1'; els.path.style.transition = 'opacity 0.2s'; });
+        }
+
+        legend.querySelectorAll('.legend-item[data-legend-highlight]').forEach(item => {
+            item.addEventListener('mouseenter', () => {
+                const filter = item.dataset.legendHighlight;
+                if (filter) applyLegendHighlight(filter);
+            });
+            item.addEventListener('mouseleave', () => {
+                clearLegendHighlight();
+            });
+        });
+    })();
+
+    checkDiscoveryAuth(() => showGraph());
+</script>
+    <footer class="text-center text-sm text-slate-500 py-6 mt-auto">
+        <img src="/images/sonne.png" alt="Sanshain" class="mx-auto mb-2 h-8 w-auto opacity-70">
+        <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
+        <div class="mt-2 flex items-center justify-center gap-4">
+            <a href="https://github.com/paxel/sanshain-service" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800">GitHub</a>
+            <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
+        </div>
+    </footer>
+</body>
+</html>

@@ -149,10 +149,10 @@ async fn test_root_page_banner_links_to_all_discovery_views() {
         .unwrap();
     let html = String::from_utf8(body.to_vec()).unwrap();
 
-    assert!(html.contains("href=\"/service.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Services</a>"));
-    assert!(html.contains("href=\"/service.html#clients\" class=\"text-white hover:text-indigo-100 transition-colors\">Clients</a>"));
-    assert!(html.contains("href=\"/service.html#graph\" class=\"text-white hover:text-indigo-100 transition-colors\">Graph</a>"));
-    assert!(html.contains("href=\"/service.html#reports\" class=\"text-white hover:text-indigo-100 transition-colors\">Reports</a>"));
+    assert!(html.contains("href=\"/services.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Services</a>"));
+    assert!(html.contains("href=\"/clients.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Clients</a>"));
+    assert!(html.contains("href=\"/graph.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Graph</a>"));
+    assert!(html.contains("href=\"/reports.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Reports</a>"));
     assert!(html.contains("href=\"/admin.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Admin</a>"));
 }
 
