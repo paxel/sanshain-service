@@ -1,29 +1,31 @@
-pub mod openapi;
-pub mod asyncapi;
-pub mod proto;
-pub mod domain;
 pub mod application;
+pub mod asyncapi;
+pub mod domain;
 pub mod infrastructure;
+pub mod openapi;
 pub mod presentation;
+pub mod proto;
 
 use axum::{
-    extract::State,
-    routing::{get, post, delete},
     Router,
+    extract::State,
     middleware::from_fn_with_state,
+    routing::{delete, get, post},
 };
+use chrono::{DateTime, Utc};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64};
-use std::collections::{HashMap, VecDeque};
 use tokio::sync::RwLock;
-use chrono::{DateTime, Utc};
 use tower_http::services::ServeDir;
 
-use infrastructure::cached_repository::CachedSpecRepository;
 use domain::models::LogEntry;
+use infrastructure::cached_repository::CachedSpecRepository;
 
-pub use presentation::handlers::{api, admin, auth, fragments, pages};
-pub use presentation::middleware::{authenticated_auth, admin_auth, api_auth, LogCaptureLayer, validate_csrf};
+pub use presentation::handlers::{admin, api, auth, fragments, pages};
+pub use presentation::middleware::{
+    LogCaptureLayer, admin_auth, api_auth, authenticated_auth, validate_csrf,
+};
 
 #[derive(Clone)]
 pub struct AppState {

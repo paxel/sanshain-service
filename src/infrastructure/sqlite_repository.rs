@@ -1,6 +1,6 @@
-use std::str::FromStr;
+use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
-use sqlx::{SqlitePool, Row};
+use std::str::FromStr;
 
 use crate::domain::models::*;
 use crate::domain::ports::{RecordDependencyParams, RepositoryError, SpecRepository};
@@ -43,7 +43,6 @@ impl From<ApiTokenRow> for ApiToken {
     }
 }
 
-
 #[derive(Clone)]
 pub struct SqliteSpecRepository {
     pub pool: SqlitePool,
@@ -56,13 +55,18 @@ impl SqliteSpecRepository {
 
     pub async fn run_migrations(&self) -> Result<(), sqlx::migrate::MigrateError> {
         tracing::info!("Running SQLite migrations...");
-        let migrator = sqlx::migrate::Migrator::new(std::path::Path::new("src/infrastructure/migrations/sqlite")).await?;
+        let migrator = sqlx::migrate::Migrator::new(std::path::Path::new(
+            "src/infrastructure/migrations/sqlite",
+        ))
+        .await?;
         migrator.run(&self.pool).await?;
 
         // Backfill normalized_path
         self.backfill_normalized_paths().await.map_err(|e| {
             tracing::error!("Failed to backfill normalized paths: {}", e);
-            sqlx::migrate::MigrateError::Execute(sqlx::Error::Configuration(format!("Backfill failed: {}", e).into()))
+            sqlx::migrate::MigrateError::Execute(sqlx::Error::Configuration(
+                format!("Backfill failed: {}", e).into(),
+            ))
         })?;
 
         Ok(())
@@ -70,10 +74,12 @@ impl SqliteSpecRepository {
 
     async fn backfill_normalized_paths(&self) -> Result<(), RepositoryError> {
         // Endpoints backfill
-        let rows: Vec<(i64, String)> = sqlx::query_as("SELECT id, path FROM endpoints WHERE normalized_path = '' OR normalized_path IS NULL")
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let rows: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT id, path FROM endpoints WHERE normalized_path = '' OR normalized_path IS NULL",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         if !rows.is_empty() {
             tracing::info!("Backfilling {} endpoint normalized paths...", rows.len());
@@ -112,7 +118,11 @@ impl SqliteSpecRepository {
 }
 
 impl SpecRepository for SqliteSpecRepository {
-    async fn get_spec_version(&self, service_id: i64, branch_id: i64) -> Result<Option<(i32, String)>, RepositoryError> {
+    async fn get_spec_version(
+        &self,
+        service_id: i64,
+        branch_id: i64,
+    ) -> Result<Option<(i32, String)>, RepositoryError> {
         sqlx::query_as::<sqlx::Sqlite, (i32, String)>("SELECT version, content_hash FROM service_spec_versions WHERE service_id = ? AND branch_id = ?")
             .bind(service_id)
             .bind(branch_id)
@@ -121,7 +131,12 @@ impl SpecRepository for SqliteSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))
     }
 
-    async fn increment_spec_version(&self, service_id: i64, branch_id: i64, content_hash: &str) -> Result<i32, RepositoryError> {
+    async fn increment_spec_version(
+        &self,
+        service_id: i64,
+        branch_id: i64,
+        content_hash: &str,
+    ) -> Result<i32, RepositoryError> {
         let row = sqlx::query("
             INSERT INTO service_spec_versions (service_id, branch_id, version, content_hash, updated_at)
             VALUES (?, ?, 1, ?, CURRENT_TIMESTAMP)
@@ -138,7 +153,8 @@ impl SpecRepository for SqliteSpecRepository {
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        row.try_get::<i32, _>(0).map_err(|e| RepositoryError::Internal(e.to_string()))
+        row.try_get::<i32, _>(0)
+            .map_err(|e| RepositoryError::Internal(e.to_string()))
     }
 
     async fn find_service(&self, name: &str) -> Result<Option<i64>, RepositoryError> {
@@ -149,13 +165,18 @@ impl SpecRepository for SqliteSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(row.map(|r| r.0))
     }
-    async fn find_branch(&self, service_id: i64, branch_name: &str) -> Result<Option<i64>, RepositoryError> {
-        let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM branches WHERE service_id = ? AND name = ?")
-            .bind(service_id)
-            .bind(branch_name)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+    async fn find_branch(
+        &self,
+        service_id: i64,
+        branch_name: &str,
+    ) -> Result<Option<i64>, RepositoryError> {
+        let row: Option<(i64,)> =
+            sqlx::query_as("SELECT id FROM branches WHERE service_id = ? AND name = ?")
+                .bind(service_id)
+                .bind(branch_name)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(row.map(|r| r.0))
     }
     async fn ensure_service(&self, name: &str) -> Result<i64, RepositoryError> {
@@ -174,15 +195,21 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(row.0)
     }
 
-    async fn ensure_branch(&self, service_id: i64, branch_name: &str) -> Result<i64, RepositoryError> {
+    async fn ensure_branch(
+        &self,
+        service_id: i64,
+        branch_name: &str,
+    ) -> Result<i64, RepositoryError> {
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-        sqlx::query("INSERT OR IGNORE INTO branches (service_id, name, updated_at) VALUES (?, ?, ?)")
-            .bind(service_id)
-            .bind(branch_name)
-            .bind(&now)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "INSERT OR IGNORE INTO branches (service_id, name, updated_at) VALUES (?, ?, ?)",
+        )
+        .bind(service_id)
+        .bind(branch_name)
+        .bind(&now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         sqlx::query("UPDATE branches SET updated_at = ? WHERE service_id = ? AND name = ?")
             .bind(&now)
@@ -192,17 +219,21 @@ impl SpecRepository for SqliteSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        let row: (i64,) = sqlx::query_as("SELECT id FROM branches WHERE service_id = ? AND name = ?")
-            .bind(service_id)
-            .bind(branch_name)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let row: (i64,) =
+            sqlx::query_as("SELECT id FROM branches WHERE service_id = ? AND name = ?")
+                .bind(service_id)
+                .bind(branch_name)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         Ok(row.0)
     }
 
-    async fn get_endpoints_for_branch(&self, branch_id: i64) -> Result<Vec<EndpointRecord>, RepositoryError> {
+    async fn get_endpoints_for_branch(
+        &self,
+        branch_id: i64,
+    ) -> Result<Vec<EndpointRecord>, RepositoryError> {
         let rows: Vec<(i64, String, String, String, String, String)> = sqlx::query_as(
             "SELECT id, api_type, path, normalized_path, method, yaml_content FROM endpoints WHERE branch_id = ? AND deleted = FALSE"
         )
@@ -213,18 +244,24 @@ impl SpecRepository for SqliteSpecRepository {
 
         Ok(rows
             .into_iter()
-            .map(|(id, api_type, path, normalized_path, method, yaml_content)| EndpointRecord {
-                id: Some(id),
-                api_type: ApiType::from_str(&api_type).unwrap_or_default(),
-                path,
-                normalized_path,
-                method,
-                yaml_content,
-            })
+            .map(
+                |(id, api_type, path, normalized_path, method, yaml_content)| EndpointRecord {
+                    id: Some(id),
+                    api_type: ApiType::from_str(&api_type).unwrap_or_default(),
+                    path,
+                    normalized_path,
+                    method,
+                    yaml_content,
+                },
+            )
             .collect())
     }
 
-    async fn insert_endpoint(&self, branch_id: i64, endpoint: &EndpointRecord) -> Result<(), RepositoryError> {
+    async fn insert_endpoint(
+        &self,
+        branch_id: i64,
+        endpoint: &EndpointRecord,
+    ) -> Result<(), RepositoryError> {
         sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content) VALUES (?, ?, ?, ?, ?, ?)")
             .bind(branch_id)
             .bind(endpoint.api_type.as_str())
@@ -301,7 +338,7 @@ impl SpecRepository for SqliteSpecRepository {
             SELECT e.id, e.path, e.method, e.yaml_content
             FROM endpoints e
             JOIN branches b ON e.branch_id = b.id
-            WHERE b.service_id = "#
+            WHERE b.service_id = "#,
         );
         query_builder.push_bind(service_id);
         query_builder.push(" AND b.name = ");
@@ -404,11 +441,12 @@ impl SpecRepository for SqliteSpecRepository {
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
         // Split into resolved (has endpoint_id) and missing (NULL endpoint_id)
-        let (resolved, missing): (Vec<_>, Vec<_>) = params.into_iter().partition(|p| p.endpoint_id.is_some());
+        let (resolved, missing): (Vec<_>, Vec<_>) =
+            params.into_iter().partition(|p| p.endpoint_id.is_some());
 
         if !resolved.is_empty() {
             let mut query_builder = sqlx::QueryBuilder::new(
-                "INSERT INTO dependencies (client_id, endpoint_id, api_type, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at) "
+                "INSERT INTO dependencies (client_id, endpoint_id, api_type, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at) ",
             );
 
             query_builder.push_values(resolved, |mut b, p| {
@@ -426,7 +464,11 @@ impl SpecRepository for SqliteSpecRepository {
 
             query_builder.push(" ON CONFLICT(client_id, endpoint_id, requested_service_id, requested_branch_name, api_type, requested_path, requested_method) DO UPDATE SET last_seen_at = excluded.last_seen_at");
 
-            query_builder.build().execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            query_builder
+                .build()
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         }
 
         // For missing endpoint deps, use the partial unique index
@@ -459,13 +501,12 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn is_branch_protected(&self, branch_name: &str) -> Result<bool, RepositoryError> {
-        let row: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM protected_branches WHERE pattern = ?"
-        )
-        .bind(branch_name)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let row: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM protected_branches WHERE pattern = ?")
+                .bind(branch_name)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         Ok(row.0 > 0)
     }
@@ -489,17 +530,23 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn list_protected_branches(&self) -> Result<Vec<String>, RepositoryError> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT pattern FROM protected_branches ORDER BY pattern"
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT pattern FROM protected_branches ORDER BY pattern")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    async fn update_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str, yaml_content: &str) -> Result<(), RepositoryError> {
+    async fn update_endpoint(
+        &self,
+        branch_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+        yaml_content: &str,
+    ) -> Result<(), RepositoryError> {
         sqlx::query("UPDATE endpoints SET yaml_content = ? WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ?")
             .bind(yaml_content)
             .bind(branch_id)
@@ -512,7 +559,13 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(())
     }
 
-    async fn soft_delete_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<(), RepositoryError> {
+    async fn soft_delete_endpoint(
+        &self,
+        branch_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<(), RepositoryError> {
         sqlx::query("UPDATE endpoints SET deleted = TRUE WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ?")
             .bind(branch_id)
             .bind(api_type.as_str())
@@ -524,7 +577,13 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(())
     }
 
-    async fn hard_delete_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<(), RepositoryError> {
+    async fn hard_delete_endpoint(
+        &self,
+        branch_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<(), RepositoryError> {
         sqlx::query("DELETE FROM endpoints WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ?")
             .bind(branch_id)
             .bind(api_type.as_str())
@@ -536,7 +595,13 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(())
     }
 
-    async fn is_endpoint_deleted(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<bool, RepositoryError> {
+    async fn is_endpoint_deleted(
+        &self,
+        branch_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<bool, RepositoryError> {
         let row: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM endpoints WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ? AND deleted = TRUE"
         )
@@ -551,7 +616,10 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn get_report(&self, branch: &str) -> Result<DependencyReport, RepositoryError> {
-        let mut conn = self.pool.acquire().await
+        let mut conn = self
+            .pool
+            .acquire()
+            .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         // Dependency graph
@@ -632,13 +700,15 @@ impl SpecRepository for SqliteSpecRepository {
 
         let missing_endpoints = missing_rows
             .into_iter()
-            .map(|(client, api_type, service, path, method)| MissingEndpointInfo {
-                api_type: ApiType::from_str(&api_type).unwrap_or_default(),
-                client,
-                service,
-                path,
-                method,
-            })
+            .map(
+                |(client, api_type, service, path, method)| MissingEndpointInfo {
+                    api_type: ApiType::from_str(&api_type).unwrap_or_default(),
+                    client,
+                    service,
+                    path,
+                    method,
+                },
+            )
             .collect();
 
         Ok(DependencyReport {
@@ -651,74 +721,133 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn delete_all_services(&self) -> Result<u64, RepositoryError> {
-        let r1 = sqlx::query("DELETE FROM endpoint_versions WHERE endpoint_id IN (SELECT id FROM endpoints)")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let r1 = sqlx::query(
+            "DELETE FROM endpoint_versions WHERE endpoint_id IN (SELECT id FROM endpoints)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM service_spec_versions")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM dependencies")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM endpoints")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM branches")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let result = sqlx::query("DELETE FROM services")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let _ = r1;
         Ok(result.rows_affected())
     }
 
     async fn delete_all_clients(&self) -> Result<u64, RepositoryError> {
         sqlx::query("DELETE FROM dependencies")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let result = sqlx::query("DELETE FROM clients")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(result.rows_affected())
     }
 
     async fn delete_all_non_admin_users(&self) -> Result<u64, RepositoryError> {
         // Delete sessions for non-admin users
-        sqlx::query("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE is_admin = 0)")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE is_admin = 0)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         // Delete API tokens for non-admin users
-        sqlx::query("DELETE FROM api_tokens WHERE user_id IN (SELECT id FROM users WHERE is_admin = 0)")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "DELETE FROM api_tokens WHERE user_id IN (SELECT id FROM users WHERE is_admin = 0)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let result = sqlx::query("DELETE FROM users WHERE is_admin = 0")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(result.rows_affected())
     }
 
     async fn nuke_database(&self, keep_user_id: Option<i64>) -> Result<(), RepositoryError> {
         sqlx::query("DELETE FROM endpoint_versions")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM service_spec_versions")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM dependencies")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM endpoints")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM branches")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM services")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM clients")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM protected_branches")
-            .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         // Delete all sessions except the current admin's
         if let Some(uid) = keep_user_id {
             sqlx::query("DELETE FROM sessions WHERE user_id != ?")
-                .bind(uid).execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                .bind(uid)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             sqlx::query("DELETE FROM api_tokens WHERE user_id != ?")
-                .bind(uid).execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                .bind(uid)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             sqlx::query("DELETE FROM users WHERE id != ?")
-                .bind(uid).execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                .bind(uid)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         } else {
             sqlx::query("DELETE FROM sessions")
-                .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             sqlx::query("DELETE FROM api_tokens")
-                .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             sqlx::query("DELETE FROM users")
-                .execute(&self.pool).await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         }
         Ok(())
     }
@@ -736,11 +865,12 @@ impl SpecRepository for SqliteSpecRepository {
         };
 
         // Get all branch IDs for this service
-        let branch_rows: Vec<(i64,)> = sqlx::query_as("SELECT id FROM branches WHERE service_id = ?")
-            .bind(service_id)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let branch_rows: Vec<(i64,)> =
+            sqlx::query_as("SELECT id FROM branches WHERE service_id = ?")
+                .bind(service_id)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         for (branch_id,) in &branch_rows {
             sqlx::query("DELETE FROM service_spec_versions WHERE branch_id = ?")
@@ -796,7 +926,11 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(true)
     }
 
-    async fn delete_branch(&self, service_name: &str, branch_name: &str) -> Result<bool, RepositoryError> {
+    async fn delete_branch(
+        &self,
+        service_name: &str,
+        branch_name: &str,
+    ) -> Result<bool, RepositoryError> {
         let row: Option<(i64,)> = sqlx::query_as(
             "SELECT b.id FROM branches b JOIN services s ON b.service_id = s.id WHERE s.name = ? AND b.name = ?"
         )
@@ -822,7 +956,7 @@ impl SpecRepository for SqliteSpecRepository {
 
         // Delete dependencies referencing this branch by name (including NULL endpoint_id)
         let service_row: Option<(i64,)> = sqlx::query_as(
-            "SELECT s.id FROM services s JOIN branches b ON b.service_id = s.id WHERE b.id = ?"
+            "SELECT s.id FROM services s JOIN branches b ON b.service_id = s.id WHERE b.id = ?",
         )
         .bind(branch_id)
         .fetch_optional(&self.pool)
@@ -902,21 +1036,32 @@ impl SpecRepository for SqliteSpecRepository {
             JOIN branches b ON b.service_id = s.id
             GROUP BY s.id
             ORDER BY s.name
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        Ok(rows.into_iter().map(|(name, fallback_branch, branches_str)| {
-            let branches = branches_str
-                .map(|s| s.split(',').map(|b| b.to_string()).collect())
-                .unwrap_or_default();
-            ServiceSummary { name, fallback_branch, branches }
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|(name, fallback_branch, branches_str)| {
+                let branches = branches_str
+                    .map(|s| s.split(',').map(|b| b.to_string()).collect())
+                    .unwrap_or_default();
+                ServiceSummary {
+                    name,
+                    fallback_branch,
+                    branches,
+                }
+            })
+            .collect())
     }
 
-    async fn set_fallback_branch(&self, service_name: &str, branch: Option<&str>) -> Result<(), RepositoryError> {
+    async fn set_fallback_branch(
+        &self,
+        service_name: &str,
+        branch: Option<&str>,
+    ) -> Result<(), RepositoryError> {
         sqlx::query("UPDATE services SET fallback_branch = ? WHERE name = ?")
             .bind(branch)
             .bind(service_name)
@@ -926,12 +1071,16 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(())
     }
 
-    async fn get_fallback_branch(&self, service_name: &str) -> Result<Option<String>, RepositoryError> {
-        let row: Option<(Option<String>,)> = sqlx::query_as("SELECT fallback_branch FROM services WHERE name = ?")
-            .bind(service_name)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+    async fn get_fallback_branch(
+        &self,
+        service_name: &str,
+    ) -> Result<Option<String>, RepositoryError> {
+        let row: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT fallback_branch FROM services WHERE name = ?")
+                .bind(service_name)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(row.and_then(|r| r.0))
     }
 
@@ -947,12 +1096,11 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn list_all_branches(&self) -> Result<Vec<String>, RepositoryError> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT DISTINCT b.name FROM branches b ORDER BY b.name"
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT DISTINCT b.name FROM branches b ORDER BY b.name")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
@@ -966,13 +1114,16 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    async fn list_client_branches(&self, client_name: &str) -> Result<Vec<String>, RepositoryError> {
+    async fn list_client_branches(
+        &self,
+        client_name: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT DISTINCT d.requested_branch_name \
              FROM dependencies d \
              JOIN clients c ON d.client_id = c.id \
              WHERE c.name = ? \
-             ORDER BY d.requested_branch_name"
+             ORDER BY d.requested_branch_name",
         )
         .bind(client_name)
         .fetch_all(&self.pool)
@@ -981,7 +1132,11 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    async fn list_client_endpoints(&self, client_name: &str, branch: &str) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
+    async fn list_client_endpoints(
+        &self,
+        client_name: &str,
+        branch: &str,
+    ) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
         let rows: Vec<(String, String, String, String, String, Option<String>)> = sqlx::query_as(
             "SELECT d.api_type, s.name, d.requested_branch_name, d.requested_path, d.requested_method, e.yaml_content \
              FROM dependencies d \
@@ -996,10 +1151,19 @@ impl SpecRepository for SqliteSpecRepository {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(rows.into_iter().map(|(api_type, service, branch, path, method, yaml_content)| ClientEndpointInfo {
-            api_type: ApiType::from_str(&api_type).unwrap_or_default(),
-            service, branch, path, method, yaml_content,
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(
+                |(api_type, service, branch, path, method, yaml_content)| ClientEndpointInfo {
+                    api_type: ApiType::from_str(&api_type).unwrap_or_default(),
+                    service,
+                    branch,
+                    path,
+                    method,
+                    yaml_content,
+                },
+            )
+            .collect())
     }
 
     async fn user_count(&self) -> Result<i64, RepositoryError> {
@@ -1012,34 +1176,44 @@ impl SpecRepository for SqliteSpecRepository {
 
     async fn find_user(&self, username: &str) -> Result<Option<User>, RepositoryError> {
         let row: Option<(i64, String, String, bool, bool)> = sqlx::query_as(
-            "SELECT id, username, password_hash, is_admin, approved FROM users WHERE username = ?"
+            "SELECT id, username, password_hash, is_admin, approved FROM users WHERE username = ?",
         )
         .bind(username)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        Ok(row.map(|(id, username, password_hash, is_admin, approved)| User {
-            id,
-            username,
-            password_hash,
-            is_admin,
-            approved,
-        }))
+        Ok(
+            row.map(|(id, username, password_hash, is_admin, approved)| User {
+                id,
+                username,
+                password_hash,
+                is_admin,
+                approved,
+            }),
+        )
     }
 
-    async fn create_user(&self, username: &str, password_hash: &str, is_admin: bool, approved: bool) -> Result<User, RepositoryError> {
-        sqlx::query("INSERT INTO users (username, password_hash, is_admin, approved) VALUES (?, ?, ?, ?)")
-            .bind(username)
-            .bind(password_hash)
-            .bind(is_admin)
-            .bind(approved)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+    async fn create_user(
+        &self,
+        username: &str,
+        password_hash: &str,
+        is_admin: bool,
+        approved: bool,
+    ) -> Result<User, RepositoryError> {
+        sqlx::query(
+            "INSERT INTO users (username, password_hash, is_admin, approved) VALUES (?, ?, ?, ?)",
+        )
+        .bind(username)
+        .bind(password_hash)
+        .bind(is_admin)
+        .bind(approved)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         let row: (i64, String, String, bool, bool) = sqlx::query_as(
-            "SELECT id, username, password_hash, is_admin, approved FROM users WHERE username = ?"
+            "SELECT id, username, password_hash, is_admin, approved FROM users WHERE username = ?",
         )
         .bind(username)
         .fetch_one(&self.pool)
@@ -1057,23 +1231,31 @@ impl SpecRepository for SqliteSpecRepository {
 
     async fn list_users(&self) -> Result<Vec<User>, RepositoryError> {
         let rows: Vec<(i64, String, String, bool, bool)> = sqlx::query_as(
-            "SELECT id, username, password_hash, is_admin, approved FROM users ORDER BY username"
+            "SELECT id, username, password_hash, is_admin, approved FROM users ORDER BY username",
         )
         .fetch_all(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        Ok(rows.into_iter().map(|(id, username, password_hash, is_admin, approved)| User {
-            id, username, password_hash, is_admin, approved,
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|(id, username, password_hash, is_admin, approved)| User {
+                id,
+                username,
+                password_hash,
+                is_admin,
+                approved,
+            })
+            .collect())
     }
 
     async fn approve_user(&self, user_id: i64) -> Result<bool, RepositoryError> {
-        let result = sqlx::query("UPDATE users SET approved = TRUE WHERE id = ? AND approved = FALSE")
-            .bind(user_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let result =
+            sqlx::query("UPDATE users SET approved = TRUE WHERE id = ? AND approved = FALSE")
+                .bind(user_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -1096,15 +1278,25 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(())
     }
 
-    async fn create_session(&self, user_id: i64, expires_at: &str) -> Result<Session, RepositoryError> {
+    async fn create_session(
+        &self,
+        user_id: i64,
+        expires_at: &str,
+    ) -> Result<Session, RepositoryError> {
         use rand::RngExt;
         let mut token_bytes = [0u8; 32];
         rand::rng().fill(&mut token_bytes);
         let token = hex::encode(token_bytes);
-        self.create_session_with_token(user_id, &token, expires_at).await
+        self.create_session_with_token(user_id, &token, expires_at)
+            .await
     }
 
-    async fn create_session_with_token(&self, user_id: i64, token: &str, expires_at: &str) -> Result<Session, RepositoryError> {
+    async fn create_session_with_token(
+        &self,
+        user_id: i64,
+        token: &str,
+        expires_at: &str,
+    ) -> Result<Session, RepositoryError> {
         sqlx::query("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)")
             .bind(token)
             .bind(user_id)
@@ -1120,7 +1312,10 @@ impl SpecRepository for SqliteSpecRepository {
         })
     }
 
-    async fn validate_session(&self, token: &str) -> Result<Option<(User, Session)>, RepositoryError> {
+    async fn validate_session(
+        &self,
+        token: &str,
+    ) -> Result<Option<(User, Session)>, RepositoryError> {
         let row: Option<(i64, i64, String, String, String, bool, bool)> = sqlx::query_as(
             r#"
             SELECT s.user_id, u.id, u.username, u.password_hash, s.expires_at, u.is_admin, u.approved
@@ -1134,11 +1329,23 @@ impl SpecRepository for SqliteSpecRepository {
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        Ok(row.map(|(_, user_id, username, password_hash, expires_at, is_admin, approved)| {
-            let user = User { id: user_id, username, password_hash, is_admin, approved };
-            let session = Session { token: token.to_string(), user_id, expires_at };
-            (user, session)
-        }))
+        Ok(row.map(
+            |(_, user_id, username, password_hash, expires_at, is_admin, approved)| {
+                let user = User {
+                    id: user_id,
+                    username,
+                    password_hash,
+                    is_admin,
+                    approved,
+                };
+                let session = Session {
+                    token: token.to_string(),
+                    user_id,
+                    expires_at,
+                };
+                (user, session)
+            },
+        ))
     }
 
     async fn delete_session(&self, token: &str) -> Result<(), RepositoryError> {
@@ -1171,7 +1378,15 @@ impl SpecRepository for SqliteSpecRepository {
 
     // --- API Tokens ---
 
-    async fn create_api_token(&self, id: &str, user_id: i64, name: &str, token_hash: &str, created_at: &str, expires_at: &str) -> Result<(), RepositoryError> {
+    async fn create_api_token(
+        &self,
+        id: &str,
+        user_id: i64,
+        name: &str,
+        token_hash: &str,
+        created_at: &str,
+        expires_at: &str,
+    ) -> Result<(), RepositoryError> {
         sqlx::query("INSERT INTO api_tokens (id, user_id, name, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
             .bind(id)
             .bind(user_id)
@@ -1204,7 +1419,11 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows.into_iter().map(ApiToken::from).collect())
     }
 
-    async fn delete_api_token(&self, token_id: &str, user_id: i64) -> Result<bool, RepositoryError> {
+    async fn delete_api_token(
+        &self,
+        token_id: &str,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
         let result = sqlx::query("DELETE FROM api_tokens WHERE id = ? AND user_id = ?")
             .bind(token_id)
             .bind(user_id)
@@ -1249,13 +1468,13 @@ impl SpecRepository for SqliteSpecRepository {
                     SELECT name FROM branches WHERE id = ?
                 ) AND requested_service_id = (
                     SELECT service_id FROM branches WHERE id = ?
-                )"#
+                )"#,
             )
-                .bind(branch_id)
-                .bind(branch_id)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            .bind(branch_id)
+            .bind(branch_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             // Delete endpoints
             sqlx::query("DELETE FROM endpoints WHERE branch_id = ?")
                 .bind(branch_id)
@@ -1280,7 +1499,7 @@ impl SpecRepository for SqliteSpecRepository {
             FROM api_tokens t
             JOIN users u ON t.user_id = u.id
             WHERE t.token_hash = ? AND t.expires_at > datetime('now')
-            "#
+            "#,
         )
         .bind(token_hash)
         .fetch_optional(&self.pool)
@@ -1289,15 +1508,23 @@ impl SpecRepository for SqliteSpecRepository {
 
         if row.is_some() {
             // Update last_used_at
-            let _ = sqlx::query("UPDATE api_tokens SET last_used_at = datetime('now') WHERE token_hash = ?")
-                .bind(token_hash)
-                .execute(&self.pool)
-                .await;
+            let _ = sqlx::query(
+                "UPDATE api_tokens SET last_used_at = datetime('now') WHERE token_hash = ?",
+            )
+            .bind(token_hash)
+            .execute(&self.pool)
+            .await;
         }
 
-        Ok(row.map(|(id, username, password_hash, is_admin, approved)| User {
-            id, username, password_hash, is_admin, approved,
-        }))
+        Ok(
+            row.map(|(id, username, password_hash, is_admin, approved)| User {
+                id,
+                username,
+                password_hash,
+                is_admin,
+                approved,
+            }),
+        )
     }
 
     async fn delete_stale_dependencies(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
@@ -1309,7 +1536,13 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(result.rows_affected())
     }
 
-    async fn get_endpoint_id(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<Option<i64>, RepositoryError> {
+    async fn get_endpoint_id(
+        &self,
+        branch_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<Option<i64>, RepositoryError> {
         let normalized_path = crate::openapi::normalize_path(path);
         let row: Option<(i64,)> = sqlx::query_as(
             "SELECT id FROM endpoints WHERE branch_id = ? AND api_type = ? AND normalized_path = ? AND method = ? AND deleted = 0"
@@ -1324,7 +1557,14 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(row.map(|(id,)| id))
     }
 
-    async fn insert_endpoint_version(&self, endpoint_id: i64, version: i32, yaml_content: &str, diff: Option<&str>, created_at: &str) -> Result<(), RepositoryError> {
+    async fn insert_endpoint_version(
+        &self,
+        endpoint_id: i64,
+        version: i32,
+        yaml_content: &str,
+        diff: Option<&str>,
+        created_at: &str,
+    ) -> Result<(), RepositoryError> {
         sqlx::query(
             "INSERT INTO endpoint_versions (endpoint_id, version, yaml_content, diff_from_previous, created_at) VALUES (?, ?, ?, ?, ?)"
         )
@@ -1340,17 +1580,19 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn get_latest_endpoint_version(&self, endpoint_id: i64) -> Result<i32, RepositoryError> {
-        let row: Option<(i32,)> = sqlx::query_as(
-            "SELECT MAX(version) FROM endpoint_versions WHERE endpoint_id = ?"
-        )
-        .bind(endpoint_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let row: Option<(i32,)> =
+            sqlx::query_as("SELECT MAX(version) FROM endpoint_versions WHERE endpoint_id = ?")
+                .bind(endpoint_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(row.map(|(v,)| v).unwrap_or(0))
     }
 
-    async fn get_endpoint_versions(&self, endpoint_id: i64) -> Result<Vec<EndpointVersion>, RepositoryError> {
+    async fn get_endpoint_versions(
+        &self,
+        endpoint_id: i64,
+    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
         let rows: Vec<(i64, i64, i32, String, Option<String>, String)> = sqlx::query_as(
             "SELECT id, endpoint_id, version, yaml_content, diff_from_previous, created_at FROM endpoint_versions WHERE endpoint_id = ? ORDER BY version ASC"
         )
@@ -1359,9 +1601,21 @@ impl SpecRepository for SqliteSpecRepository {
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        Ok(rows.into_iter().map(|(id, endpoint_id, version, yaml_content, diff_from_previous, created_at)| EndpointVersion {
-            id, endpoint_id, version, yaml_content, diff_from_previous, created_at,
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, endpoint_id, version, yaml_content, diff_from_previous, created_at)| {
+                    EndpointVersion {
+                        id,
+                        endpoint_id,
+                        version,
+                        yaml_content,
+                        diff_from_previous,
+                        created_at,
+                    }
+                },
+            )
+            .collect())
     }
 
     async fn apply_spec_changes(
@@ -1370,13 +1624,27 @@ impl SpecRepository for SqliteSpecRepository {
         changes: Vec<SpecChange>,
         is_protected: bool,
     ) -> Result<(), RepositoryError> {
-        tracing::debug!("Applying {} spec changes to branch {}", changes.len(), branch_id);
-        let mut tx = self.pool.begin().await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        tracing::debug!(
+            "Applying {} spec changes to branch {}",
+            changes.len(),
+            branch_id
+        );
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
         for change in changes {
             match change {
-                SpecChange::Insert { api_type, path, normalized_path, method, yaml_content } => {
+                SpecChange::Insert {
+                    api_type,
+                    path,
+                    normalized_path,
+                    method,
+                    yaml_content,
+                } => {
                     tracing::debug!("Inserting {:?} endpoint: {} {}", api_type, method, path);
                     sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted) VALUES (?, ?, ?, ?, ?, ?, 0)")
                         .bind(branch_id)
@@ -1398,7 +1666,7 @@ impl SpecRepository for SqliteSpecRepository {
                             .fetch_one(&mut *tx)
                             .await
                             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-                        
+
                         sqlx::query("INSERT INTO endpoint_versions (endpoint_id, version, yaml_content, diff_from_previous, created_at) VALUES (?, 1, ?, NULL, ?)")
                             .bind(row.0)
                             .bind(&yaml_content)
@@ -1408,7 +1676,13 @@ impl SpecRepository for SqliteSpecRepository {
                             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
                     }
                 }
-                SpecChange::Update { api_type, path, normalized_path, method, yaml_content } => {
+                SpecChange::Update {
+                    api_type,
+                    path,
+                    normalized_path,
+                    method,
+                    yaml_content,
+                } => {
                     tracing::debug!("Updating {:?} endpoint: {} {}", api_type, method, path);
                     if is_protected {
                         let row: (i64, String) = sqlx::query_as("SELECT id, yaml_content FROM endpoints WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ? AND deleted = 0")
@@ -1419,18 +1693,18 @@ impl SpecRepository for SqliteSpecRepository {
                             .fetch_one(&mut *tx)
                             .await
                             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-                        
+
                         let endpoint_id = row.0;
                         let old_yaml = row.1;
-                        
+
                         let version_row: (i32,) = sqlx::query_as("SELECT COALESCE(MAX(version), 0) FROM endpoint_versions WHERE endpoint_id = ?")
                             .bind(endpoint_id)
                             .fetch_one(&mut *tx)
                             .await
                             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-                        
+
                         let diff = crate::openapi::generate_diff(&old_yaml, &yaml_content);
-                        
+
                         sqlx::query("INSERT INTO endpoint_versions (endpoint_id, version, yaml_content, diff_from_previous, created_at) VALUES (?, ?, ?, ?, ?)")
                             .bind(endpoint_id)
                             .bind(version_row.0 + 1)
@@ -1453,8 +1727,19 @@ impl SpecRepository for SqliteSpecRepository {
                         .await
                         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
                 }
-                SpecChange::Delete { api_type, path, method, soft_delete } => {
-                    tracing::debug!("Deleting {:?} endpoint: {} {} (soft: {})", api_type, method, path, soft_delete);
+                SpecChange::Delete {
+                    api_type,
+                    path,
+                    method,
+                    soft_delete,
+                } => {
+                    tracing::debug!(
+                        "Deleting {:?} endpoint: {} {} (soft: {})",
+                        api_type,
+                        method,
+                        path,
+                        soft_delete
+                    );
                     if soft_delete {
                         sqlx::query("UPDATE endpoints SET deleted = 1 WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ?")
                             .bind(branch_id)
@@ -1478,11 +1763,17 @@ impl SpecRepository for SqliteSpecRepository {
             }
         }
 
-        tx.commit().await.map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(())
     }
 
-    async fn add_service_tags(&self, service_id: i64, tags: &[String]) -> Result<(), RepositoryError> {
+    async fn add_service_tags(
+        &self,
+        service_id: i64,
+        tags: &[String],
+    ) -> Result<(), RepositoryError> {
         for tag in tags {
             sqlx::query("INSERT OR IGNORE INTO service_tags (service_id, tag) VALUES (?, ?)")
                 .bind(service_id)
@@ -1539,7 +1830,7 @@ impl SpecRepository for SqliteSpecRepository {
                     current_yaml: r.get(5),
                     owner_service_id: r.get(6),
                 }))
-            },
+            }
             None => Ok(None),
         }
     }

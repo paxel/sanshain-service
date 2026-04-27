@@ -18,7 +18,10 @@ impl<R: SpecRepository + 'static> AuthProvider for LocalAuthProvider<R> {
         username: &str,
         password: &str,
     ) -> Result<AuthenticatedUser, AuthProviderError> {
-        let user = self.repo.find_user(username).await
+        let user = self
+            .repo
+            .find_user(username)
+            .await
             .map_err(|e| AuthProviderError::Internal(format!("{:?}", e)))?
             .ok_or(AuthProviderError::InvalidCredentials)?;
 
@@ -42,7 +45,10 @@ impl<R: SpecRepository + 'static> AuthProvider for LocalAuthProvider<R> {
 
     async fn test_connection(&self) -> Result<(), AuthProviderError> {
         // Local auth is always available if the DB works.
-        let _ = self.repo.user_count().await
+        let _ = self
+            .repo
+            .user_count()
+            .await
             .map_err(|e| AuthProviderError::ConnectionFailed(format!("{:?}", e)))?;
         Ok(())
     }

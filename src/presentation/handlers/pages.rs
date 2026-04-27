@@ -1,13 +1,20 @@
-use axum::response::{IntoResponse, Html};
 use askama::Template;
+use axum::response::{Html, IntoResponse, Response};
+
+use crate::domain::models::AppError;
 
 #[derive(Template)]
 #[template(path = "index.html")]
 struct IndexTemplate {}
 
-pub async fn index_page() -> impl IntoResponse {
+pub async fn index_page() -> Result<Response, AppError> {
     let template = IndexTemplate {};
-    Html(template.render().unwrap())
+    Ok(Html(
+        template
+            .render()
+            .map_err(|e| AppError::Internal(e.to_string()))?,
+    )
+    .into_response())
 }
 
 #[derive(Template)]
@@ -16,11 +23,18 @@ struct DashboardTemplate {
     pub username: String,
 }
 
-pub async fn dashboard_page(axum::Extension(user): axum::Extension<crate::domain::models::User>) -> impl IntoResponse {
+pub async fn dashboard_page(
+    axum::Extension(user): axum::Extension<crate::domain::models::User>,
+) -> Result<Response, AppError> {
     let template = DashboardTemplate {
         username: user.username,
     };
-    Html(template.render().unwrap())
+    Ok(Html(
+        template
+            .render()
+            .map_err(|e| AppError::Internal(e.to_string()))?,
+    )
+    .into_response())
 }
 
 pub async fn health() -> &'static str {
@@ -31,9 +45,14 @@ pub async fn health() -> &'static str {
 #[template(path = "admin.html")]
 struct AdminTemplate {}
 
-pub async fn admin_page() -> impl IntoResponse {
+pub async fn admin_page() -> Result<Response, AppError> {
     let template = AdminTemplate {};
-    Html(template.render().unwrap())
+    Ok(Html(
+        template
+            .render()
+            .map_err(|e| AppError::Internal(e.to_string()))?,
+    )
+    .into_response())
 }
 
 pub async fn license_text() -> &'static str {

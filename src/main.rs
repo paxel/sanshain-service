@@ -1,19 +1,19 @@
 use axum_prometheus::PrometheusMetricLayer;
-use sqlx::sqlite::{SqlitePoolOptions, SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
+use chrono::Utc;
 use sqlx::postgres::PgPoolOptions;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use std::collections::{HashMap, VecDeque};
 use std::str::FromStr;
-use chrono::Utc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use sanshain_service::{create_app, AppState, LogCaptureLayer};
 use sanshain_service::application::services;
-use sanshain_service::infrastructure::database::DatabaseRepo;
-use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
-use sanshain_service::infrastructure::postgres_repository::PostgresSpecRepository;
 use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
+use sanshain_service::infrastructure::database::DatabaseRepo;
+use sanshain_service::infrastructure::postgres_repository::PostgresSpecRepository;
+use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
+use sanshain_service::{AppState, LogCaptureLayer, create_app};
 
 #[tokio::main]
 pub async fn main() {
@@ -26,10 +26,18 @@ pub async fn main() {
     let admin_user_debug = Arc::new(AtomicBool::new(false));
     let requests_total = Arc::new(AtomicU64::new(0));
     let failures_total = Arc::new(AtomicU64::new(0));
-    let error_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(log_buffer_size + 1)));
-    let warn_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(log_buffer_size + 1)));
-    let info_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(log_buffer_size + 1)));
-    let debug_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(log_buffer_size + 1)));
+    let error_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(
+        log_buffer_size + 1,
+    )));
+    let warn_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(
+        log_buffer_size + 1,
+    )));
+    let info_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(
+        log_buffer_size + 1,
+    )));
+    let debug_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(
+        log_buffer_size + 1,
+    )));
 
     let capture_layer = LogCaptureLayer {
         error_buffer: error_buffer.clone(),
@@ -43,26 +51,35 @@ pub async fn main() {
     use tracing_subscriber::Layer;
     let stdout_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "sanshain_service=info,tower_http=info".into());
-    
+
     // We want the capture layer to see DEBUG logs so they can be toggled at runtime,
     // but we keep stdout at INFO by default to avoid noise.
     let capture_log_filter = std::env::var("CAPTURE_LOG_FILTER")
         .unwrap_or_else(|_| "sanshain_service=debug,tower_http=debug".into());
     let capture_filter = tracing_subscriber::EnvFilter::new(capture_log_filter);
 
-    let registry = tracing_subscriber::registry()
-        .with(capture_layer.with_filter(capture_filter));
+    let registry = tracing_subscriber::registry().with(capture_layer.with_filter(capture_filter));
 
     if std::env::var("LOG_FORMAT").unwrap_or_default() == "json" {
-        registry.with(tracing_subscriber::fmt::layer().json().with_filter(stdout_filter)).init();
+        registry
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_filter(stdout_filter),
+            )
+            .init();
     } else {
-        registry.with(tracing_subscriber::fmt::layer().with_filter(stdout_filter)).init();
+        registry
+            .with(tracing_subscriber::fmt::layer().with_filter(stdout_filter))
+            .init();
     }
 
-    let db_connection_str = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:sanshain.db?mode=rwc".into());
+    let db_connection_str =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:sanshain.db?mode=rwc".into());
 
-    let repo = if db_connection_str.starts_with("postgres://") || db_connection_str.starts_with("postgresql://") {
+    let repo = if db_connection_str.starts_with("postgres://")
+        || db_connection_str.starts_with("postgresql://")
+    {
         let max_connections = std::env::var("MAX_POSTGRES_CONNECTIONS")
             .ok()
             .and_then(|s| s.parse::<u32>().ok())
@@ -103,8 +120,8 @@ pub async fn main() {
             }
         }
         .journal_mode(SqliteJournalMode::Wal)
-            .busy_timeout(std::time::Duration::from_millis(sqlite_busy_timeout_ms))
-            .synchronous(SqliteSynchronous::Normal);
+        .busy_timeout(std::time::Duration::from_millis(sqlite_busy_timeout_ms))
+        .synchronous(SqliteSynchronous::Normal);
 
         let max_connections = std::env::var("MAX_SQLITE_CONNECTIONS")
             .ok()
@@ -152,12 +169,12 @@ pub async fn main() {
         std::process::exit(1);
     }
 
-    let instance_id = std::env::var("INSTANCE_ID")
-        .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
+    let instance_id =
+        std::env::var("INSTANCE_ID").unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
     tracing::info!("Instance ID: {}", instance_id);
 
     let (prometheus_layer, prometheus_handle) = PrometheusMetricLayer::pair();
-    
+
     let spec_updated_channel_size = std::env::var("SPEC_UPDATED_CHANNEL_SIZE")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
@@ -185,7 +202,7 @@ pub async fn main() {
     // Spawn background branch cleanup task
     let cleanup_repo = state.repo.clone();
     let cleanup_csrf = state.csrf_tokens.clone();
-    
+
     let cleanup_interval_secs = std::env::var("CLEANUP_INTERVAL_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
@@ -197,16 +214,17 @@ pub async fn main() {
         .unwrap_or(24);
 
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(cleanup_interval_secs));
+        let mut interval =
+            tokio::time::interval(std::time::Duration::from_secs(cleanup_interval_secs));
         loop {
             interval.tick().await;
             match services::cleanup_stale_branches(&cleanup_repo).await {
-                Ok(0) => {},
+                Ok(0) => {}
                 Ok(n) => tracing::info!("Branch cleanup: deleted {} stale branches", n),
                 Err(e) => tracing::warn!("Branch cleanup failed: {:?}", e),
             }
             match services::cleanup_stale_dependencies(&cleanup_repo).await {
-                Ok(0) => {},
+                Ok(0) => {}
                 Ok(n) => tracing::info!("Dependency cleanup: pruned {} stale dependencies", n),
                 Err(e) => tracing::warn!("Dependency cleanup failed: {:?}", e),
             }
@@ -220,7 +238,10 @@ pub async fn main() {
                 tokens.retain(|_, created_at| now - *created_at < max_age);
                 let after_count = tokens.len();
                 if before_count > after_count {
-                    tracing::info!("CSRF cleanup: pruned {} expired tokens", before_count - after_count);
+                    tracing::info!(
+                        "CSRF cleanup: pruned {} expired tokens",
+                        before_count - after_count
+                    );
                 }
             }
         }
@@ -238,13 +259,16 @@ pub async fn main() {
         }
     };
     tracing::info!("Listening on {}", addr);
-    
+
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(l) => l,
         Err(e) => {
             tracing::error!("Failed to bind to {}: {}", addr, e);
             if e.kind() == std::io::ErrorKind::AddrInUse {
-                eprintln!("ERROR: Address {} already in use. Another instance might be running.", addr);
+                eprintln!(
+                    "ERROR: Address {} already in use. Another instance might be running.",
+                    addr
+                );
             } else {
                 eprintln!("ERROR: Failed to bind to {}: {}", addr, e);
             }

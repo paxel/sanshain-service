@@ -1,0 +1,32 @@
+name: Quality
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+jobs:
+  rust-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Formatting
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+      - name: Tests
+        run: cargo test
+      - name: Security Audit
+        run: cargo install cargo-audit && cargo audit
+      - name: Coverage
+        run: cargo install cargo-tarpaulin && cargo tarpaulin --out Xml --skip-clean
+  js-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - run: npm ci
+      - run: npx eslint static/js/
+      - run: npx prettier --check static/js/

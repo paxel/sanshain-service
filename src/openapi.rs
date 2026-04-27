@@ -7,8 +7,10 @@ use similar::TextDiff;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
-static RE_SLASHES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"/+").expect("failed to compile slash regex"));
-static RE_VARS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\{[^}]+\}").expect("failed to compile var regex"));
+static RE_SLASHES: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"/+").expect("failed to compile slash regex"));
+static RE_VARS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\{[^}]+\}").expect("failed to compile var regex"));
 
 pub struct EndpointSpec {
     pub path: String,
@@ -70,9 +72,12 @@ pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
                 "trace" => new_path_item.trace = Some(operation.clone()),
                 _ => continue,
             }
-            
-            single_endpoint_openapi.paths.paths.insert(path.clone(), ReferenceOr::Item(new_path_item));
-            
+
+            single_endpoint_openapi
+                .paths
+                .paths
+                .insert(path.clone(), ReferenceOr::Item(new_path_item));
+
             single_endpoint_openapi.components = extract_used_components_optimized(
                 &single_endpoint_openapi,
                 &openapi.components,
@@ -162,27 +167,73 @@ fn extract_used_components_optimized(
     let mut filtered = Components::default();
     for key in &visited {
         let parts: Vec<&str> = key.splitn(2, '/').collect();
-        if parts.len() != 2 { continue; }
+        if parts.len() != 2 {
+            continue;
+        }
         let category = parts[0];
         let name = parts[1];
 
         match category {
-            "schemas" => if let Some(s) = all_components.schemas.get(name) { filtered.schemas.insert(name.to_string(), s.clone()); },
-            "responses" => if let Some(r) = all_components.responses.get(name) { filtered.responses.insert(name.to_string(), r.clone()); },
-            "parameters" => if let Some(p) = all_components.parameters.get(name) { filtered.parameters.insert(name.to_string(), p.clone()); },
-            "examples" => if let Some(e) = all_components.examples.get(name) { filtered.examples.insert(name.to_string(), e.clone()); },
-            "requestBodies" => if let Some(rb) = all_components.request_bodies.get(name) { filtered.request_bodies.insert(name.to_string(), rb.clone()); },
-            "headers" => if let Some(h) = all_components.headers.get(name) { filtered.headers.insert(name.to_string(), h.clone()); },
-            "securitySchemes" => if let Some(ss) = all_components.security_schemes.get(name) { filtered.security_schemes.insert(name.to_string(), ss.clone()); },
-            "links" => if let Some(l) = all_components.links.get(name) { filtered.links.insert(name.to_string(), l.clone()); },
-            "callbacks" => if let Some(c) = all_components.callbacks.get(name) { filtered.callbacks.insert(name.to_string(), c.clone()); },
+            "schemas" => {
+                if let Some(s) = all_components.schemas.get(name) {
+                    filtered.schemas.insert(name.to_string(), s.clone());
+                }
+            }
+            "responses" => {
+                if let Some(r) = all_components.responses.get(name) {
+                    filtered.responses.insert(name.to_string(), r.clone());
+                }
+            }
+            "parameters" => {
+                if let Some(p) = all_components.parameters.get(name) {
+                    filtered.parameters.insert(name.to_string(), p.clone());
+                }
+            }
+            "examples" => {
+                if let Some(e) = all_components.examples.get(name) {
+                    filtered.examples.insert(name.to_string(), e.clone());
+                }
+            }
+            "requestBodies" => {
+                if let Some(rb) = all_components.request_bodies.get(name) {
+                    filtered.request_bodies.insert(name.to_string(), rb.clone());
+                }
+            }
+            "headers" => {
+                if let Some(h) = all_components.headers.get(name) {
+                    filtered.headers.insert(name.to_string(), h.clone());
+                }
+            }
+            "securitySchemes" => {
+                if let Some(ss) = all_components.security_schemes.get(name) {
+                    filtered
+                        .security_schemes
+                        .insert(name.to_string(), ss.clone());
+                }
+            }
+            "links" => {
+                if let Some(l) = all_components.links.get(name) {
+                    filtered.links.insert(name.to_string(), l.clone());
+                }
+            }
+            "callbacks" => {
+                if let Some(c) = all_components.callbacks.get(name) {
+                    filtered.callbacks.insert(name.to_string(), c.clone());
+                }
+            }
             _ => {}
         }
     }
 
-    if filtered.schemas.is_empty() && filtered.responses.is_empty() && filtered.parameters.is_empty() 
-        && filtered.examples.is_empty() && filtered.request_bodies.is_empty() && filtered.headers.is_empty() 
-        && filtered.security_schemes.is_empty() && filtered.links.is_empty() && filtered.callbacks.is_empty() 
+    if filtered.schemas.is_empty()
+        && filtered.responses.is_empty()
+        && filtered.parameters.is_empty()
+        && filtered.examples.is_empty()
+        && filtered.request_bodies.is_empty()
+        && filtered.headers.is_empty()
+        && filtered.security_schemes.is_empty()
+        && filtered.links.is_empty()
+        && filtered.callbacks.is_empty()
     {
         None
     } else {
@@ -202,7 +253,8 @@ fn collect_refs(value: &impl Serialize) -> HashSet<String> {
 fn collect_refs_recursive(value: &serde_json::Value, refs: &mut HashSet<String>) {
     match value {
         serde_json::Value::Object(map) => {
-            if let Some(stripped) = map.get("$ref")
+            if let Some(stripped) = map
+                .get("$ref")
                 .and_then(|v| v.as_str())
                 .and_then(|r| r.strip_prefix("#/components/"))
             {
@@ -220,8 +272,6 @@ fn collect_refs_recursive(value: &serde_json::Value, refs: &mut HashSet<String>)
         _ => {}
     }
 }
-
-
 
 /// Merge multiple per-endpoint YAML snippets (from the same service) into a single OpenAPI spec
 /// with deduplicated schemas/components.
@@ -246,14 +296,30 @@ pub fn merge_endpoint_yamls(yamls: &[String]) -> Result<String, String> {
                 if let (ReferenceOr::Item(existing_item), ReferenceOr::Item(new_item)) =
                     (existing_ref, path_item_ref)
                 {
-                    if new_item.get.is_some() { existing_item.get = new_item.get; }
-                    if new_item.post.is_some() { existing_item.post = new_item.post; }
-                    if new_item.put.is_some() { existing_item.put = new_item.put; }
-                    if new_item.delete.is_some() { existing_item.delete = new_item.delete; }
-                    if new_item.options.is_some() { existing_item.options = new_item.options; }
-                    if new_item.head.is_some() { existing_item.head = new_item.head; }
-                    if new_item.patch.is_some() { existing_item.patch = new_item.patch; }
-                    if new_item.trace.is_some() { existing_item.trace = new_item.trace; }
+                    if new_item.get.is_some() {
+                        existing_item.get = new_item.get;
+                    }
+                    if new_item.post.is_some() {
+                        existing_item.post = new_item.post;
+                    }
+                    if new_item.put.is_some() {
+                        existing_item.put = new_item.put;
+                    }
+                    if new_item.delete.is_some() {
+                        existing_item.delete = new_item.delete;
+                    }
+                    if new_item.options.is_some() {
+                        existing_item.options = new_item.options;
+                    }
+                    if new_item.head.is_some() {
+                        existing_item.head = new_item.head;
+                    }
+                    if new_item.patch.is_some() {
+                        existing_item.patch = new_item.patch;
+                    }
+                    if new_item.trace.is_some() {
+                        existing_item.trace = new_item.trace;
+                    }
                 }
             } else {
                 merged.paths.paths.insert(path, path_item_ref);
@@ -284,8 +350,7 @@ pub fn merge_endpoint_yamls(yamls: &[String]) -> Result<String, String> {
         }
     }
 
-    serde_yaml::to_string(&merged)
-        .map_err(|e| format!("Failed to serialize merged YAML: {}", e))
+    serde_yaml::to_string(&merged).map_err(|e| format!("Failed to serialize merged YAML: {}", e))
 }
 
 /// Generate a unified diff between two YAML strings.
@@ -309,10 +374,10 @@ pub fn generate_diff(old: &str, new: &str) -> String {
 /// Returns Ok(()) if compatible, Err(description) if breaking.
 pub fn check_backward_compatibility(old_yaml: &str, new_yaml: &str) -> Result<(), String> {
     tracing::debug!("Checking backward compatibility...");
-    let old: OpenAPI = serde_yaml::from_str(old_yaml)
-        .map_err(|e| format!("Failed to parse old YAML: {}", e))?;
-    let new: OpenAPI = serde_yaml::from_str(new_yaml)
-        .map_err(|e| format!("Failed to parse new YAML: {}", e))?;
+    let old: OpenAPI =
+        serde_yaml::from_str(old_yaml).map_err(|e| format!("Failed to parse old YAML: {}", e))?;
+    let new: OpenAPI =
+        serde_yaml::from_str(new_yaml).map_err(|e| format!("Failed to parse new YAML: {}", e))?;
 
     check_openapi_compatible(&old, &new)
 }
@@ -355,7 +420,11 @@ fn collect_schema_map(spec: &OpenAPI) -> HashMap<String, &openapiv3::Schema> {
 }
 
 /// Check that a schema change is backward-compatible.
-fn check_schema_compatible(name: &str, old: &openapiv3::Schema, new: &openapiv3::Schema) -> Result<(), String> {
+fn check_schema_compatible(
+    name: &str,
+    old: &openapiv3::Schema,
+    new: &openapiv3::Schema,
+) -> Result<(), String> {
     let old_props = extract_object_properties(old);
     let new_props = extract_object_properties(new);
 
@@ -430,9 +499,7 @@ fn extract_object_properties(schema: &openapiv3::Schema) -> Option<HashMap<&str,
 /// Extract required field names from a schema.
 fn extract_required_fields(schema: &openapiv3::Schema) -> HashSet<String> {
     match &schema.schema_kind {
-        SchemaKind::Type(OaType::Object(obj)) => {
-            obj.required.iter().cloned().collect()
-        }
+        SchemaKind::Type(OaType::Object(obj)) => obj.required.iter().cloned().collect(),
         _ => HashSet::new(),
     }
 }
@@ -457,7 +524,11 @@ fn check_operations_compatible(path: &str, old: &PathItem, new: &PathItem) -> Re
 
     for (method, old_op) in &old_methods {
         if !new_method_names.contains(method) {
-            return Err(format!("Method '{}' was removed from path '{}'", method.to_uppercase(), path));
+            return Err(format!(
+                "Method '{}' was removed from path '{}'",
+                method.to_uppercase(),
+                path
+            ));
         }
         // Check response codes not removed
         let new_methods = get_methods(new);
@@ -467,7 +538,9 @@ fn check_operations_compatible(path: &str, old: &PathItem, new: &PathItem) -> Re
                     if !new_op.responses.responses.contains_key(status) {
                         return Err(format!(
                             "Response status '{}' was removed from {} {}",
-                            format_status(status), method.to_uppercase(), path
+                            format_status(status),
+                            method.to_uppercase(),
+                            path
                         ));
                     }
                 }
@@ -487,14 +560,30 @@ fn format_status(status: &openapiv3::StatusCode) -> String {
 
 fn get_methods(path_item: &PathItem) -> Vec<(String, &openapiv3::Operation)> {
     let mut methods = Vec::new();
-    if let Some(op) = &path_item.get { methods.push(("get".to_string(), op)); }
-    if let Some(op) = &path_item.post { methods.push(("post".to_string(), op)); }
-    if let Some(op) = &path_item.put { methods.push(("put".to_string(), op)); }
-    if let Some(op) = &path_item.delete { methods.push(("delete".to_string(), op)); }
-    if let Some(op) = &path_item.options { methods.push(("options".to_string(), op)); }
-    if let Some(op) = &path_item.head { methods.push(("head".to_string(), op)); }
-    if let Some(op) = &path_item.patch { methods.push(("patch".to_string(), op)); }
-    if let Some(op) = &path_item.trace { methods.push(("trace".to_string(), op)); }
+    if let Some(op) = &path_item.get {
+        methods.push(("get".to_string(), op));
+    }
+    if let Some(op) = &path_item.post {
+        methods.push(("post".to_string(), op));
+    }
+    if let Some(op) = &path_item.put {
+        methods.push(("put".to_string(), op));
+    }
+    if let Some(op) = &path_item.delete {
+        methods.push(("delete".to_string(), op));
+    }
+    if let Some(op) = &path_item.options {
+        methods.push(("options".to_string(), op));
+    }
+    if let Some(op) = &path_item.head {
+        methods.push(("head".to_string(), op));
+    }
+    if let Some(op) = &path_item.patch {
+        methods.push(("patch".to_string(), op));
+    }
+    if let Some(op) = &path_item.trace {
+        methods.push(("trace".to_string(), op));
+    }
     methods
 }
 
@@ -565,7 +654,10 @@ paths:
 "#;
         let result = split_openapi(yaml).unwrap();
         assert_eq!(result.len(), 3);
-        let methods: Vec<(&str, &str)> = result.iter().map(|e| (e.path.as_str(), e.method.as_str())).collect();
+        let methods: Vec<(&str, &str)> = result
+            .iter()
+            .map(|e| (e.path.as_str(), e.method.as_str()))
+            .collect();
         assert!(methods.contains(&("/users", "GET")));
         assert!(methods.contains(&("/users", "POST")));
         assert!(methods.contains(&("/items", "DELETE")));
@@ -902,7 +994,8 @@ paths:
         '201':
           description: Created
 "#;
-        let merged = merge_endpoint_yamls(&[snippet_get.to_string(), snippet_post.to_string()]).unwrap();
+        let merged =
+            merge_endpoint_yamls(&[snippet_get.to_string(), snippet_post.to_string()]).unwrap();
         let parsed: OpenAPI = serde_yaml::from_str(&merged).unwrap();
         assert_eq!(parsed.paths.paths.len(), 1);
         let path_item = match parsed.paths.paths.get("/users").unwrap() {

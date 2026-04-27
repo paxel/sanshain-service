@@ -86,17 +86,22 @@ impl CachedSpecRepository {
         // Endpoint data caches (60%)
         let endpoint_cache = Cache::builder()
             .max_capacity(endpoint_budget / 2)
-            .weigher(|_k: &EndpointKey, v: &Arc<(i64, String)>| {
-                (v.1.len() + 80) as u32
-            })
+            .weigher(|_k: &EndpointKey, v: &Arc<(i64, String)>| (v.1.len() + 80) as u32)
             .build();
 
         let branch_endpoints_cache = Cache::builder()
             .max_capacity(endpoint_budget / 2)
             .weigher(|_k: &i64, v: &Arc<Vec<EndpointRecord>>| {
-                let size: usize = v.iter().map(|e| {
-                    e.path.len() + e.normalized_path.len() + e.method.len() + e.yaml_content.len() + 80
-                }).sum();
+                let size: usize = v
+                    .iter()
+                    .map(|e| {
+                        e.path.len()
+                            + e.normalized_path.len()
+                            + e.method.len()
+                            + e.yaml_content.len()
+                            + 80
+                    })
+                    .sum();
                 (size + 24) as u32
             })
             .build();
@@ -117,10 +122,15 @@ impl CachedSpecRepository {
         let services_cache = Cache::builder()
             .max_capacity(report_budget / 2)
             .weigher(|_k: &String, v: &Arc<Vec<ServiceSummary>>| {
-                let size: usize = v.iter().map(|s| {
-                    s.name.len() + s.fallback_branch.as_ref().map_or(0, |b| b.len())
-                        + s.branches.iter().map(|b| b.len() + 24).sum::<usize>() + 80
-                }).sum();
+                let size: usize = v
+                    .iter()
+                    .map(|s| {
+                        s.name.len()
+                            + s.fallback_branch.as_ref().map_or(0, |b| b.len())
+                            + s.branches.iter().map(|b| b.len() + 24).sum::<usize>()
+                            + 80
+                    })
+                    .sum();
                 (size + 24) as u32
             })
             .build();
@@ -203,7 +213,11 @@ impl CachedSpecRepository {
         let hits = self.hits.load(Ordering::Relaxed);
         let misses = self.misses.load(Ordering::Relaxed);
         let total = hits + misses;
-        let hit_rate = if total > 0 { hits as f64 / total as f64 * 100.0 } else { 0.0 };
+        let hit_rate = if total > 0 {
+            hits as f64 / total as f64 * 100.0
+        } else {
+            0.0
+        };
         let limit_mb = self.memory_limit_mb.load(Ordering::Relaxed);
 
         let estimated_bytes = self.endpoint_cache.weighted_size()
@@ -301,12 +315,23 @@ impl CachedSpecRepository {
 impl SpecRepository for CachedSpecRepository {
     // --- Cached reads with write-through invalidation ---
 
-    async fn get_spec_version(&self, service_id: i64, branch_id: i64) -> Result<Option<(i32, String)>, RepositoryError> {
+    async fn get_spec_version(
+        &self,
+        service_id: i64,
+        branch_id: i64,
+    ) -> Result<Option<(i32, String)>, RepositoryError> {
         self.inner.get_spec_version(service_id, branch_id).await
     }
 
-    async fn increment_spec_version(&self, service_id: i64, branch_id: i64, content_hash: &str) -> Result<i32, RepositoryError> {
-        self.inner.increment_spec_version(service_id, branch_id, content_hash).await
+    async fn increment_spec_version(
+        &self,
+        service_id: i64,
+        branch_id: i64,
+        content_hash: &str,
+    ) -> Result<i32, RepositoryError> {
+        self.inner
+            .increment_spec_version(service_id, branch_id, content_hash)
+            .await
     }
 
     async fn ensure_service(&self, name: &str) -> Result<i64, RepositoryError> {
@@ -336,16 +361,26 @@ impl SpecRepository for CachedSpecRepository {
         Ok(result)
     }
 
-    async fn ensure_branch(&self, service_id: i64, branch_name: &str) -> Result<i64, RepositoryError> {
+    async fn ensure_branch(
+        &self,
+        service_id: i64,
+        branch_name: &str,
+    ) -> Result<i64, RepositoryError> {
         let id = self.inner.ensure_branch(service_id, branch_name).await?;
         if !self.is_disabled() {
-            self.branch_id_cache.insert((service_id, branch_name.to_string()), id).await;
+            self.branch_id_cache
+                .insert((service_id, branch_name.to_string()), id)
+                .await;
             self.branches_list_cache.invalidate_all();
         }
         Ok(id)
     }
 
-    async fn find_branch(&self, service_id: i64, branch_name: &str) -> Result<Option<i64>, RepositoryError> {
+    async fn find_branch(
+        &self,
+        service_id: i64,
+        branch_name: &str,
+    ) -> Result<Option<i64>, RepositoryError> {
         if !self.is_disabled() {
             let key = (service_id, branch_name.to_string());
             if let Some(id) = self.branch_id_cache.get(&key).await {
@@ -358,12 +393,17 @@ impl SpecRepository for CachedSpecRepository {
         if !self.is_disabled()
             && let Some(id) = result
         {
-            self.branch_id_cache.insert((service_id, branch_name.to_string()), id).await;
+            self.branch_id_cache
+                .insert((service_id, branch_name.to_string()), id)
+                .await;
         }
         Ok(result)
     }
 
-    async fn get_endpoints_for_branch(&self, branch_id: i64) -> Result<Vec<EndpointRecord>, RepositoryError> {
+    async fn get_endpoints_for_branch(
+        &self,
+        branch_id: i64,
+    ) -> Result<Vec<EndpointRecord>, RepositoryError> {
         if !self.is_disabled()
             && let Some(cached) = self.branch_endpoints_cache.get(&branch_id).await
         {
@@ -373,12 +413,18 @@ impl SpecRepository for CachedSpecRepository {
         self.record_miss();
         let result = self.inner.get_endpoints_for_branch(branch_id).await?;
         if !self.is_disabled() {
-            self.branch_endpoints_cache.insert(branch_id, Arc::new(result.clone())).await;
+            self.branch_endpoints_cache
+                .insert(branch_id, Arc::new(result.clone()))
+                .await;
         }
         Ok(result)
     }
 
-    async fn insert_endpoint(&self, branch_id: i64, endpoint: &EndpointRecord) -> Result<(), RepositoryError> {
+    async fn insert_endpoint(
+        &self,
+        branch_id: i64,
+        endpoint: &EndpointRecord,
+    ) -> Result<(), RepositoryError> {
         self.inner.insert_endpoint(branch_id, endpoint).await?;
         if !self.is_disabled() {
             self.branch_endpoints_cache.invalidate(&branch_id).await;
@@ -395,35 +441,72 @@ impl SpecRepository for CachedSpecRepository {
         Ok(id)
     }
 
-    async fn find_endpoint(&self, service_id: i64, branch_name: &str, api_type: ApiType, path: &str, method: &str) -> Result<Option<(i64, String)>, RepositoryError> {
+    async fn find_endpoint(
+        &self,
+        service_id: i64,
+        branch_name: &str,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<Option<(i64, String)>, RepositoryError> {
         if !self.is_disabled() {
-            let key = (service_id, branch_name.to_string(), format!("{:?}", api_type), path.to_string(), method.to_string());
+            let key = (
+                service_id,
+                branch_name.to_string(),
+                format!("{:?}", api_type),
+                path.to_string(),
+                method.to_string(),
+            );
             if let Some(cached) = self.endpoint_cache.get(&key).await {
                 self.record_hit();
                 return Ok(Some((cached.0, cached.1.clone())));
             }
         }
         self.record_miss();
-        let result = self.inner.find_endpoint(service_id, branch_name, api_type, path, method).await?;
+        let result = self
+            .inner
+            .find_endpoint(service_id, branch_name, api_type, path, method)
+            .await?;
         if !self.is_disabled()
             && let Some(ref val) = result
         {
-            let key = (service_id, branch_name.to_string(), format!("{:?}", api_type), path.to_string(), method.to_string());
+            let key = (
+                service_id,
+                branch_name.to_string(),
+                format!("{:?}", api_type),
+                path.to_string(),
+                method.to_string(),
+            );
             self.endpoint_cache.insert(key, Arc::new(val.clone())).await;
         }
         Ok(result)
     }
 
-    async fn find_endpoints_bulk(&self, service_id: i64, branch_name: &str, api_type: ApiType, endpoints: &[(String, String)]) -> Result<EndpointMap, RepositoryError> {
+    async fn find_endpoints_bulk(
+        &self,
+        service_id: i64,
+        branch_name: &str,
+        api_type: ApiType,
+        endpoints: &[(String, String)],
+    ) -> Result<EndpointMap, RepositoryError> {
         if self.is_disabled() {
-            return self.inner.find_endpoints_bulk(service_id, branch_name, api_type, endpoints).await;
+            return self
+                .inner
+                .find_endpoints_bulk(service_id, branch_name, api_type, endpoints)
+                .await;
         }
         // Try cache first for each endpoint
         let api_str = format!("{:?}", api_type);
         let mut result = EndpointMap::new();
         let mut misses = Vec::new();
         for (path, method) in endpoints {
-            let key = (service_id, branch_name.to_string(), api_str.clone(), path.clone(), method.clone());
+            let key = (
+                service_id,
+                branch_name.to_string(),
+                api_str.clone(),
+                path.clone(),
+                method.clone(),
+            );
             if let Some(cached) = self.endpoint_cache.get(&key).await {
                 self.record_hit();
                 result.insert((path.clone(), method.clone()), (cached.0, cached.1.clone()));
@@ -433,9 +516,18 @@ impl SpecRepository for CachedSpecRepository {
         }
         if !misses.is_empty() {
             self.record_miss();
-            let db_results = self.inner.find_endpoints_bulk(service_id, branch_name, api_type, &misses).await?;
+            let db_results = self
+                .inner
+                .find_endpoints_bulk(service_id, branch_name, api_type, &misses)
+                .await?;
             for ((path, method), val) in &db_results {
-                let key = (service_id, branch_name.to_string(), api_str.clone(), path.clone(), method.clone());
+                let key = (
+                    service_id,
+                    branch_name.to_string(),
+                    api_str.clone(),
+                    path.clone(),
+                    method.clone(),
+                );
                 self.endpoint_cache.insert(key, Arc::new(val.clone())).await;
             }
             result.extend(db_results);
@@ -443,7 +535,10 @@ impl SpecRepository for CachedSpecRepository {
         Ok(result)
     }
 
-    async fn record_dependency(&self, params: RecordDependencyParams<'_>) -> Result<(), RepositoryError> {
+    async fn record_dependency(
+        &self,
+        params: RecordDependencyParams<'_>,
+    ) -> Result<(), RepositoryError> {
         self.inner.record_dependency(params).await?;
         if !self.is_disabled() {
             self.report_cache.invalidate_all();
@@ -451,7 +546,10 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
-    async fn record_dependencies_bulk(&self, params: Vec<RecordDependencyParams<'_>>) -> Result<(), RepositoryError> {
+    async fn record_dependencies_bulk(
+        &self,
+        params: Vec<RecordDependencyParams<'_>>,
+    ) -> Result<(), RepositoryError> {
         self.inner.record_dependencies_bulk(params).await?;
         if !self.is_disabled() {
             self.report_cache.invalidate_all();
@@ -469,14 +567,19 @@ impl SpecRepository for CachedSpecRepository {
         self.record_miss();
         let result = self.inner.get_report(branch).await?;
         if !self.is_disabled() {
-            self.report_cache.insert(branch.to_string(), Arc::new(result.clone())).await;
+            self.report_cache
+                .insert(branch.to_string(), Arc::new(result.clone()))
+                .await;
         }
         Ok(result)
     }
 
     async fn is_branch_protected(&self, branch_name: &str) -> Result<bool, RepositoryError> {
         if !self.is_disabled()
-            && let Some(cached) = self.branch_protected_cache.get(&branch_name.to_string()).await
+            && let Some(cached) = self
+                .branch_protected_cache
+                .get(&branch_name.to_string())
+                .await
         {
             self.record_hit();
             return Ok(cached);
@@ -484,7 +587,9 @@ impl SpecRepository for CachedSpecRepository {
         self.record_miss();
         let result = self.inner.is_branch_protected(branch_name).await?;
         if !self.is_disabled() {
-            self.branch_protected_cache.insert(branch_name.to_string(), result).await;
+            self.branch_protected_cache
+                .insert(branch_name.to_string(), result)
+                .await;
         }
         Ok(result)
     }
@@ -518,13 +623,24 @@ impl SpecRepository for CachedSpecRepository {
         self.record_miss();
         let result = self.inner.list_protected_branches().await?;
         if !self.is_disabled() {
-            self.protected_branches_cache.insert(sentinel, Arc::new(result.clone())).await;
+            self.protected_branches_cache
+                .insert(sentinel, Arc::new(result.clone()))
+                .await;
         }
         Ok(result)
     }
 
-    async fn update_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str, yaml_content: &str) -> Result<(), RepositoryError> {
-        self.inner.update_endpoint(branch_id, api_type, path, method, yaml_content).await?;
+    async fn update_endpoint(
+        &self,
+        branch_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+        yaml_content: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .update_endpoint(branch_id, api_type, path, method, yaml_content)
+            .await?;
         if !self.is_disabled() {
             self.branch_endpoints_cache.invalidate(&branch_id).await;
             self.endpoint_cache.invalidate_all();
@@ -533,8 +649,16 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
-    async fn soft_delete_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<(), RepositoryError> {
-        self.inner.soft_delete_endpoint(branch_id, api_type, path, method).await?;
+    async fn soft_delete_endpoint(
+        &self,
+        branch_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .soft_delete_endpoint(branch_id, api_type, path, method)
+            .await?;
         if !self.is_disabled() {
             self.branch_endpoints_cache.invalidate(&branch_id).await;
             self.endpoint_cache.invalidate_all();
@@ -543,8 +667,16 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
-    async fn hard_delete_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<(), RepositoryError> {
-        self.inner.hard_delete_endpoint(branch_id, api_type, path, method).await?;
+    async fn hard_delete_endpoint(
+        &self,
+        branch_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .hard_delete_endpoint(branch_id, api_type, path, method)
+            .await?;
         if !self.is_disabled() {
             self.branch_endpoints_cache.invalidate(&branch_id).await;
             self.endpoint_cache.invalidate_all();
@@ -553,8 +685,16 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
-    async fn is_endpoint_deleted(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<bool, RepositoryError> {
-        self.inner.is_endpoint_deleted(branch_id, api_type, path, method).await
+    async fn is_endpoint_deleted(
+        &self,
+        branch_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<bool, RepositoryError> {
+        self.inner
+            .is_endpoint_deleted(branch_id, api_type, path, method)
+            .await
     }
 
     async fn delete_all_services(&self) -> Result<u64, RepositoryError> {
@@ -603,7 +743,11 @@ impl SpecRepository for CachedSpecRepository {
         Ok(result)
     }
 
-    async fn delete_branch(&self, service_name: &str, branch_name: &str) -> Result<bool, RepositoryError> {
+    async fn delete_branch(
+        &self,
+        service_name: &str,
+        branch_name: &str,
+    ) -> Result<bool, RepositoryError> {
         let result = self.inner.delete_branch(service_name, branch_name).await?;
         if !self.is_disabled() {
             self.branch_id_cache.invalidate_all();
@@ -635,7 +779,9 @@ impl SpecRepository for CachedSpecRepository {
         self.record_miss();
         let result = self.inner.list_services().await?;
         if !self.is_disabled() {
-            self.services_list_cache.insert(sentinel, Arc::new(result.clone())).await;
+            self.services_list_cache
+                .insert(sentinel, Arc::new(result.clone()))
+                .await;
         }
         Ok(result)
     }
@@ -651,23 +797,37 @@ impl SpecRepository for CachedSpecRepository {
         self.record_miss();
         let result = self.inner.list_services_detailed().await?;
         if !self.is_disabled() {
-            self.services_cache.insert(sentinel, Arc::new(result.clone())).await;
+            self.services_cache
+                .insert(sentinel, Arc::new(result.clone()))
+                .await;
         }
         Ok(result)
     }
 
-    async fn set_fallback_branch(&self, service_name: &str, branch: Option<&str>) -> Result<(), RepositoryError> {
+    async fn set_fallback_branch(
+        &self,
+        service_name: &str,
+        branch: Option<&str>,
+    ) -> Result<(), RepositoryError> {
         self.inner.set_fallback_branch(service_name, branch).await?;
         if !self.is_disabled() {
-            self.fallback_branch_cache.invalidate(&service_name.to_string()).await;
+            self.fallback_branch_cache
+                .invalidate(&service_name.to_string())
+                .await;
             self.services_cache.invalidate_all();
         }
         Ok(())
     }
 
-    async fn get_fallback_branch(&self, service_name: &str) -> Result<Option<String>, RepositoryError> {
+    async fn get_fallback_branch(
+        &self,
+        service_name: &str,
+    ) -> Result<Option<String>, RepositoryError> {
         if !self.is_disabled()
-            && let Some(cached) = self.fallback_branch_cache.get(&service_name.to_string()).await
+            && let Some(cached) = self
+                .fallback_branch_cache
+                .get(&service_name.to_string())
+                .await
         {
             self.record_hit();
             return Ok(cached);
@@ -675,14 +835,19 @@ impl SpecRepository for CachedSpecRepository {
         self.record_miss();
         let result = self.inner.get_fallback_branch(service_name).await?;
         if !self.is_disabled() {
-            self.fallback_branch_cache.insert(service_name.to_string(), result.clone()).await;
+            self.fallback_branch_cache
+                .insert(service_name.to_string(), result.clone())
+                .await;
         }
         Ok(result)
     }
 
     async fn list_branches(&self, service_name: &str) -> Result<Vec<String>, RepositoryError> {
         if !self.is_disabled()
-            && let Some(cached) = self.branches_list_cache.get(&service_name.to_string()).await
+            && let Some(cached) = self
+                .branches_list_cache
+                .get(&service_name.to_string())
+                .await
         {
             self.record_hit();
             return Ok((*cached).clone());
@@ -690,7 +855,9 @@ impl SpecRepository for CachedSpecRepository {
         self.record_miss();
         let result = self.inner.list_branches(service_name).await?;
         if !self.is_disabled() {
-            self.branches_list_cache.insert(service_name.to_string(), Arc::new(result.clone())).await;
+            self.branches_list_cache
+                .insert(service_name.to_string(), Arc::new(result.clone()))
+                .await;
         }
         Ok(result)
     }
@@ -710,16 +877,25 @@ impl SpecRepository for CachedSpecRepository {
         self.record_miss();
         let result = self.inner.list_clients().await?;
         if !self.is_disabled() {
-            self.clients_list_cache.insert(sentinel, Arc::new(result.clone())).await;
+            self.clients_list_cache
+                .insert(sentinel, Arc::new(result.clone()))
+                .await;
         }
         Ok(result)
     }
 
-    async fn list_client_branches(&self, client_name: &str) -> Result<Vec<String>, RepositoryError> {
+    async fn list_client_branches(
+        &self,
+        client_name: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
         self.inner.list_client_branches(client_name).await
     }
 
-    async fn list_client_endpoints(&self, client_name: &str, branch: &str) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
+    async fn list_client_endpoints(
+        &self,
+        client_name: &str,
+        branch: &str,
+    ) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
         self.inner.list_client_endpoints(client_name, branch).await
     }
 
@@ -733,8 +909,16 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.find_user(username).await
     }
 
-    async fn create_user(&self, username: &str, password_hash: &str, is_admin: bool, approved: bool) -> Result<User, RepositoryError> {
-        self.inner.create_user(username, password_hash, is_admin, approved).await
+    async fn create_user(
+        &self,
+        username: &str,
+        password_hash: &str,
+        is_admin: bool,
+        approved: bool,
+    ) -> Result<User, RepositoryError> {
+        self.inner
+            .create_user(username, password_hash, is_admin, approved)
+            .await
     }
 
     async fn update_password(&self, user_id: i64, new_hash: &str) -> Result<(), RepositoryError> {
@@ -753,15 +937,29 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.delete_user(user_id).await
     }
 
-    async fn create_session(&self, user_id: i64, expires_at: &str) -> Result<Session, RepositoryError> {
+    async fn create_session(
+        &self,
+        user_id: i64,
+        expires_at: &str,
+    ) -> Result<Session, RepositoryError> {
         self.inner.create_session(user_id, expires_at).await
     }
 
-    async fn create_session_with_token(&self, user_id: i64, token: &str, expires_at: &str) -> Result<Session, RepositoryError> {
-        self.inner.create_session_with_token(user_id, token, expires_at).await
+    async fn create_session_with_token(
+        &self,
+        user_id: i64,
+        token: &str,
+        expires_at: &str,
+    ) -> Result<Session, RepositoryError> {
+        self.inner
+            .create_session_with_token(user_id, token, expires_at)
+            .await
     }
 
-    async fn validate_session(&self, token: &str) -> Result<Option<(User, Session)>, RepositoryError> {
+    async fn validate_session(
+        &self,
+        token: &str,
+    ) -> Result<Option<(User, Session)>, RepositoryError> {
         self.inner.validate_session(token).await
     }
 
@@ -777,15 +975,29 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.set_setting(key, value).await
     }
 
-    async fn create_api_token(&self, id: &str, user_id: i64, name: &str, token_hash: &str, created_at: &str, expires_at: &str) -> Result<(), RepositoryError> {
-        self.inner.create_api_token(id, user_id, name, token_hash, created_at, expires_at).await
+    async fn create_api_token(
+        &self,
+        id: &str,
+        user_id: i64,
+        name: &str,
+        token_hash: &str,
+        created_at: &str,
+        expires_at: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .create_api_token(id, user_id, name, token_hash, created_at, expires_at)
+            .await
     }
 
     async fn list_api_tokens(&self, user_id: i64) -> Result<Vec<ApiToken>, RepositoryError> {
         self.inner.list_api_tokens(user_id).await
     }
 
-    async fn delete_api_token(&self, token_id: &str, user_id: i64) -> Result<bool, RepositoryError> {
+    async fn delete_api_token(
+        &self,
+        token_id: &str,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
         self.inner.delete_api_token(token_id, user_id).await
     }
 
@@ -813,24 +1025,51 @@ impl SpecRepository for CachedSpecRepository {
         Ok(result)
     }
 
-    async fn get_endpoint_id(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<Option<i64>, RepositoryError> {
-        self.inner.get_endpoint_id(branch_id, api_type, path, method).await
+    async fn get_endpoint_id(
+        &self,
+        branch_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<Option<i64>, RepositoryError> {
+        self.inner
+            .get_endpoint_id(branch_id, api_type, path, method)
+            .await
     }
 
-    async fn insert_endpoint_version(&self, endpoint_id: i64, version: i32, yaml_content: &str, diff: Option<&str>, created_at: &str) -> Result<(), RepositoryError> {
-        self.inner.insert_endpoint_version(endpoint_id, version, yaml_content, diff, created_at).await
+    async fn insert_endpoint_version(
+        &self,
+        endpoint_id: i64,
+        version: i32,
+        yaml_content: &str,
+        diff: Option<&str>,
+        created_at: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .insert_endpoint_version(endpoint_id, version, yaml_content, diff, created_at)
+            .await
     }
 
     async fn get_latest_endpoint_version(&self, endpoint_id: i64) -> Result<i32, RepositoryError> {
         self.inner.get_latest_endpoint_version(endpoint_id).await
     }
 
-    async fn get_endpoint_versions(&self, endpoint_id: i64) -> Result<Vec<EndpointVersion>, RepositoryError> {
+    async fn get_endpoint_versions(
+        &self,
+        endpoint_id: i64,
+    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
         self.inner.get_endpoint_versions(endpoint_id).await
     }
 
-    async fn apply_spec_changes(&self, branch_id: i64, changes: Vec<SpecChange>, is_protected: bool) -> Result<(), RepositoryError> {
-        self.inner.apply_spec_changes(branch_id, changes, is_protected).await?;
+    async fn apply_spec_changes(
+        &self,
+        branch_id: i64,
+        changes: Vec<SpecChange>,
+        is_protected: bool,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .apply_spec_changes(branch_id, changes, is_protected)
+            .await?;
         if !self.is_disabled() {
             self.branch_endpoints_cache.invalidate(&branch_id).await;
             self.endpoint_cache.invalidate_all();
@@ -839,19 +1078,36 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
-    async fn add_service_tags(&self, service_id: i64, tags: &[String]) -> Result<(), RepositoryError> {
+    async fn add_service_tags(
+        &self,
+        service_id: i64,
+        tags: &[String],
+    ) -> Result<(), RepositoryError> {
         self.inner.add_service_tags(service_id, tags).await
     }
 
-    async fn get_all_service_tags(&self) -> Result<std::collections::HashMap<String, Vec<String>>, RepositoryError> {
+    async fn get_all_service_tags(
+        &self,
+    ) -> Result<std::collections::HashMap<String, Vec<String>>, RepositoryError> {
         self.inner.get_all_service_tags().await
     }
 
-    async fn get_shared_contract(&self, branch_name: &str, api_type: ApiType, path: &str, method: &str) -> Result<Option<SharedContract>, RepositoryError> {
-        self.inner.get_shared_contract(branch_name, api_type, path, method).await
+    async fn get_shared_contract(
+        &self,
+        branch_name: &str,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<Option<SharedContract>, RepositoryError> {
+        self.inner
+            .get_shared_contract(branch_name, api_type, path, method)
+            .await
     }
 
-    async fn upsert_shared_contract(&self, contract: SharedContract) -> Result<(), RepositoryError> {
+    async fn upsert_shared_contract(
+        &self,
+        contract: SharedContract,
+    ) -> Result<(), RepositoryError> {
         self.inner.upsert_shared_contract(contract).await
     }
 }
@@ -859,8 +1115,8 @@ impl SpecRepository for CachedSpecRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
     use crate::infrastructure::database::DatabaseRepo;
+    use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
     use sqlx::sqlite::SqlitePoolOptions;
 
     async fn setup_cached_repo(memory_mb: u64) -> CachedSpecRepository {

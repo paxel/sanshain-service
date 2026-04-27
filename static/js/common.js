@@ -1,157 +1,167 @@
 // Sanshain — shared JS utilities
 // Used by admin, account, service, and dashboard pages.
-let sanshainToken = localStorage.getItem('sanshain_token');
+let sanshainToken = localStorage.getItem("sanshain_token");
 
 function setBannerVersion(version) {
-    const text = version ? `v${version}` : '';
-    const mobile = document.getElementById('version-badge');
-    const desktop = document.getElementById('version-badge-desktop');
-    if (mobile) mobile.textContent = text;
-    if (desktop) desktop.textContent = text;
+  const text = version ? `v${version}` : "";
+  const mobile = document.getElementById("version-badge");
+  const desktop = document.getElementById("version-badge-desktop");
+  if (mobile) mobile.textContent = text;
+  if (desktop) desktop.textContent = text;
 }
 
 function updateBannerAuth(user) {
-    const usernameEl = document.getElementById('banner-username');
-    const logoutEl = document.getElementById('banner-logout');
-    const signinEl = document.getElementById('banner-signin');
-    if (!usernameEl || !logoutEl || !signinEl) return;
+  const usernameEl = document.getElementById("banner-username");
+  const logoutEl = document.getElementById("banner-logout");
+  const signinEl = document.getElementById("banner-signin");
+  if (!usernameEl || !logoutEl || !signinEl) return;
 
-    if (user && user.username) {
-        usernameEl.textContent = user.username;
-        usernameEl.classList.remove('hidden');
-        logoutEl.classList.remove('hidden');
-        signinEl.classList.add('hidden');
-    } else {
-        usernameEl.textContent = '';
-        usernameEl.classList.add('hidden');
-        logoutEl.classList.add('hidden');
-        signinEl.classList.remove('hidden');
-    }
+  if (user && user.username) {
+    usernameEl.textContent = user.username;
+    usernameEl.classList.remove("hidden");
+    logoutEl.classList.remove("hidden");
+    signinEl.classList.add("hidden");
+  } else {
+    usernameEl.textContent = "";
+    usernameEl.classList.add("hidden");
+    logoutEl.classList.add("hidden");
+    signinEl.classList.remove("hidden");
+  }
 }
 
 async function renderBanner(user = null) {
-    try {
-        if (user && user.username) {
-            updateBannerAuth(user);
-            return user;
-        }
-
-        if (!sanshainToken) {
-            updateBannerAuth(null);
-            return null;
-        }
-
-        const res = await apiCall('/auth/me');
-        if (!res.ok) {
-            updateBannerAuth(null);
-            return null;
-        }
-
-        const data = await res.json();
-        updateBannerAuth(data);
-        return data;
-    } catch (_) {
-        updateBannerAuth(null);
-        return null;
+  try {
+    if (user && user.username) {
+      updateBannerAuth(user);
+      return user;
     }
+
+    if (!sanshainToken) {
+      updateBannerAuth(null);
+      return null;
+    }
+
+    const res = await apiCall("/auth/me");
+    if (!res.ok) {
+      updateBannerAuth(null);
+      return null;
+    }
+
+    const data = await res.json();
+    updateBannerAuth(data);
+    return data;
+  } catch (_) {
+    updateBannerAuth(null);
+    return null;
+  }
 }
 
 async function sanshainLogout(options = {}) {
-    const redirectTo = Object.prototype.hasOwnProperty.call(options, 'redirectTo') ? options.redirectTo : '/index.html';
-    try {
-        if (!csrfToken) {
-            await fetchCsrfToken();
-        }
-        await apiCall('/auth/logout', { method: 'POST' });
-    } catch (_) {
-        // Best effort logout; still clear local session state.
+  const redirectTo = Object.prototype.hasOwnProperty.call(options, "redirectTo")
+    ? options.redirectTo
+    : "/index.html";
+  try {
+    if (!csrfToken) {
+      await fetchCsrfToken();
     }
+    await apiCall("/auth/logout", { method: "POST" });
+  } catch (_) {
+    // Best effort logout; still clear local session state.
+  }
 
-    sanshainToken = null;
-    localStorage.removeItem('sanshain_token');
-    updateBannerAuth(null);
+  sanshainToken = null;
+  localStorage.removeItem("sanshain_token");
+  updateBannerAuth(null);
 
-    if (redirectTo) {
-        window.location.href = redirectTo;
-    }
+  if (redirectTo) {
+    window.location.href = redirectTo;
+  }
 }
 
 // --- Dark / Light theme ---
-(function() {
-    // Read preference from cookie, default to 'light'
-    function getThemeCookie() {
-        const m = document.cookie.match(/(?:^|;\s*)sanshain_theme=(\w+)/);
-        return m ? m[1] : null;
+(function () {
+  // Read preference from cookie, default to 'light'
+  function getThemeCookie() {
+    const m = document.cookie.match(/(?:^|;\s*)sanshain_theme=(\w+)/);
+    return m ? m[1] : null;
+  }
+  function setThemeCookie(theme) {
+    document.cookie = `sanshain_theme=${theme};path=/;max-age=${365 * 24 * 3600};SameSite=Lax`;
+  }
+  function applyTheme(theme) {
+    const html = document.documentElement;
+    if (theme === "dark") {
+      html.classList.add("dark");
+    } else {
+      html.classList.remove("dark");
     }
-    function setThemeCookie(theme) {
-        document.cookie = `sanshain_theme=${theme};path=/;max-age=${365*24*3600};SameSite=Lax`;
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", () => applySockeGimmick(theme));
+    } else {
+      applySockeGimmick(theme);
     }
-    function applyTheme(theme) {
-        const html = document.documentElement;
-        if (theme === 'dark') {
-            html.classList.add('dark');
-        } else {
-            html.classList.remove('dark');
-        }
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => applySockeGimmick(theme));
-        } else {
-            applySockeGimmick(theme);
-        }
+  }
+
+  function applySockeGimmick(theme) {
+    const isDark = theme === "dark";
+    const fromText = isDark ? /Sanshain/g : /SOKA/g;
+    const toText = isDark ? "SOKA" : "Sanshain";
+    const fromJa = isDark ? /サンシャイン/g : /そうか/g;
+    const toJa = isDark ? "そうか" : "サンシャイン";
+    const fromImg = isDark ? "sonne.png" : "socke.png";
+    const toImg = isDark ? "socke.png" : "sonne.png";
+
+    const updateText = (txt) => {
+      return txt.replace(fromText, toText).replace(fromJa, toJa);
+    };
+
+    // 1. Update <title>
+    if (
+      document.title.includes(isDark ? "Sanshain" : "SOKA") ||
+      document.title.includes(isDark ? "サンシャイン" : "そうか")
+    ) {
+      document.title = updateText(document.title);
     }
 
-    function applySockeGimmick(theme) {
-        const isDark = theme === 'dark';
-        const fromText = isDark ? /Sanshain/g : /SOKA/g;
-        const toText = isDark ? 'SOKA' : 'Sanshain';
-        const fromJa = isDark ? /サンシャイン/g : /そうか/g;
-        const toJa = isDark ? 'そうか' : 'サンシャイン';
-        const fromImg = isDark ? 'sonne.png' : 'socke.png';
-        const toImg = isDark ? 'socke.png' : 'sonne.png';
-
-        const updateText = (txt) => {
-            return txt.replace(fromText, toText).replace(fromJa, toJa);
-        };
-
-        // 1. Update <title>
-        if (document.title.includes(isDark ? 'Sanshain' : 'SOKA') || document.title.includes(isDark ? 'サンシャイン' : 'そうか')) {
-            document.title = updateText(document.title);
-        }
-
-        // 2. Update all text nodes (best effort, limited to headers/nav/footer)
-        const selectors = 'h1, h2, h3, a, span, div, footer, button, label, p, td, th, li';
-        document.querySelectorAll(selectors).forEach(el => {
-            const hasMatch = el.textContent.includes(isDark ? 'Sanshain' : 'SOKA') || el.textContent.includes(isDark ? 'サンシャイン' : 'そうか');
-            if (hasMatch) {
-                if (el.children.length === 0) {
-                    el.textContent = updateText(el.textContent);
-                } else if (el.childNodes.length > 0) {
-                    // Check immediate text nodes
-                    for (const node of el.childNodes) {
-                        if (node.nodeType === Node.TEXT_NODE) {
-                            node.textContent = updateText(node.textContent);
-                        }
-                    }
-                }
+    // 2. Update all text nodes (best effort, limited to headers/nav/footer)
+    const selectors = "h1, h2, h3, a, span, div, footer, button, label, p, td, th, li";
+    document.querySelectorAll(selectors).forEach((el) => {
+      const hasMatch =
+        el.textContent.includes(isDark ? "Sanshain" : "SOKA") ||
+        el.textContent.includes(isDark ? "サンシャイン" : "そうか");
+      if (hasMatch) {
+        if (el.children.length === 0) {
+          el.textContent = updateText(el.textContent);
+        } else if (el.childNodes.length > 0) {
+          // Check immediate text nodes
+          for (const node of el.childNodes) {
+            if (node.nodeType === Node.TEXT_NODE) {
+              node.textContent = updateText(node.textContent);
             }
-        });
+          }
+        }
+      }
+    });
 
-        // 3. Update images
-        document.querySelectorAll('img').forEach(img => {
-            if (img.src.includes(fromImg)) {
-                img.src = img.src.replace(fromImg, toImg);
-                if (img.alt.includes(isDark ? 'Sanshain' : 'SOKA') || img.alt.includes(isDark ? 'サンシャイン' : 'そうか')) {
-                    img.alt = updateText(img.alt);
-                }
-            }
-        });
-    }
-    const saved = getThemeCookie() || 'light';
-    applyTheme(saved);
+    // 3. Update images
+    document.querySelectorAll("img").forEach((img) => {
+      if (img.src.includes(fromImg)) {
+        img.src = img.src.replace(fromImg, toImg);
+        if (
+          img.alt.includes(isDark ? "Sanshain" : "SOKA") ||
+          img.alt.includes(isDark ? "サンシャイン" : "そうか")
+        ) {
+          img.alt = updateText(img.alt);
+        }
+      }
+    });
+  }
+  const saved = getThemeCookie() || "light";
+  applyTheme(saved);
 
-    // Inject global dark-mode CSS overrides
-    const style = document.createElement('style');
-    style.textContent = `
+  // Inject global dark-mode CSS overrides
+  const style = document.createElement("style");
+  style.textContent = `
         html.dark body { background: #0f172a !important; color: #e2e8f0 !important; }
         html.dark nav { background: transparent !important; }
         html.dark .bg-white { background: #1e293b !important; }
@@ -229,56 +239,68 @@ async function sanshainLogout(options = {}) {
             100% { opacity: 0; }
         }
     `;
-    document.head.appendChild(style);
+  document.head.appendChild(style);
 
-    // Expose toggle function globally
-    window.sanshainToggleTheme = function() {
-        const current = getThemeCookie() || 'light';
-        const next = current === 'dark' ? 'light' : 'dark';
-        setThemeCookie(next);
-        applyTheme(next);
-        // Update toggle button icons if present
-        document.querySelectorAll('.theme-toggle-icon').forEach(el => {
-            el.textContent = next === 'dark' ? '☀️' : '🌙';
-        });
-    };
-    // After DOM ready, inject toggle button into nav
-    document.addEventListener('DOMContentLoaded', () => {
-        const nav = document.querySelector('#site-banner > .container') || document.querySelector('nav .container');
-        if (!nav) return;
-        const btn = document.createElement('button');
-        btn.className = 'theme-toggle-btn ml-3 px-2 py-1 rounded-lg text-lg hover:bg-indigo-600 transition-colors';
-        btn.title = 'Toggle dark/light mode';
-        btn.innerHTML = `<span class="theme-toggle-icon">${(getThemeCookie() || 'light') === 'dark' ? '☀️' : '🌙'}</span>`;
-        btn.onclick = window.sanshainToggleTheme;
-        // Find the right-side flex container in nav
-        const rightSide = document.querySelector('#site-banner .justify-end') || nav.querySelector('.flex.items-center.space-x-4:last-child') || nav.querySelector('.flex.items-center:last-child') || nav.lastElementChild;
-        if (rightSide && rightSide !== nav.firstElementChild) {
-            rightSide.prepend(btn);
-        } else {
-            nav.appendChild(btn);
-        }
+  // Expose toggle function globally
+  window.sanshainToggleTheme = function () {
+    const current = getThemeCookie() || "light";
+    const next = current === "dark" ? "light" : "dark";
+    setThemeCookie(next);
+    applyTheme(next);
+    // Update toggle button icons if present
+    document.querySelectorAll(".theme-toggle-icon").forEach((el) => {
+      el.textContent = next === "dark" ? "☀️" : "🌙";
     });
+  };
+  // After DOM ready, inject toggle button into nav
+  document.addEventListener("DOMContentLoaded", () => {
+    const nav =
+      document.querySelector("#site-banner > .container") ||
+      document.querySelector("nav .container");
+    if (!nav) return;
+    const btn = document.createElement("button");
+    btn.className =
+      "theme-toggle-btn ml-3 px-2 py-1 rounded-lg text-lg hover:bg-indigo-600 transition-colors";
+    btn.title = "Toggle dark/light mode";
+    btn.innerHTML = `<span class="theme-toggle-icon">${(getThemeCookie() || "light") === "dark" ? "☀️" : "🌙"}</span>`;
+    btn.onclick = window.sanshainToggleTheme;
+    // Find the right-side flex container in nav
+    const rightSide =
+      document.querySelector("#site-banner .justify-end") ||
+      nav.querySelector(".flex.items-center.space-x-4:last-child") ||
+      nav.querySelector(".flex.items-center:last-child") ||
+      nav.lastElementChild;
+    if (rightSide && rightSide !== nav.firstElementChild) {
+      rightSide.prepend(btn);
+    } else {
+      nav.appendChild(btn);
+    }
+  });
 })();
 let csrfToken = null;
 
 // --- Network error helper ---
 function friendlyError(err) {
-    if (err instanceof TypeError && (err.message.includes('NetworkError') || err.message.includes('Failed to fetch') || err.message.includes('Load failed'))) {
-        return 'Server is not reachable. Please check that the service is running.';
-    }
-    return err.message || String(err);
+  if (
+    err instanceof TypeError &&
+    (err.message.includes("NetworkError") ||
+      err.message.includes("Failed to fetch") ||
+      err.message.includes("Load failed"))
+  ) {
+    return "Server is not reachable. Please check that the service is running.";
+  }
+  return err.message || String(err);
 }
 
 // --- CSRF ---
 async function fetchCsrfToken() {
-    try {
-        const res = await fetch('/csrf-token');
-        if (res.ok) {
-            const data = await res.json();
-            csrfToken = data.csrf_token;
-        }
-    } catch (_) {}
+  try {
+    const res = await fetch("/csrf-token");
+    if (res.ok) {
+      const data = await res.json();
+      csrfToken = data.csrf_token;
+    }
+  } catch (_) {}
 }
 
 // --- Authenticated API helper ---
@@ -286,93 +308,94 @@ async function fetchCsrfToken() {
 // If body is an object, serialises as JSON.
 // On 401, clears session and calls onSessionExpired() if defined.
 async function apiCall(url, options = {}) {
-    const headers = { ...options.headers };
-    if (sanshainToken) headers['Authorization'] = `Bearer ${sanshainToken}`;
-    if (options.body && typeof options.body === 'object') {
-        headers['Content-Type'] = 'application/json';
-        options.body = JSON.stringify(options.body);
-    }
-    const method = (options.method || 'GET').toUpperCase();
-    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method) && csrfToken) {
-        headers['X-CSRF-Token'] = csrfToken;
-    }
-    const res = await fetch(url, { ...options, headers });
-    if (res.status === 401) {
-        sanshainToken = null;
-        localStorage.removeItem('sanshain_token');
-        if (typeof onSessionExpired === 'function') onSessionExpired();
-        throw new Error('Session expired');
-    }
-    return res;
+  const headers = { ...options.headers };
+  if (sanshainToken) headers["Authorization"] = `Bearer ${sanshainToken}`;
+  if (options.body && typeof options.body === "object") {
+    headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify(options.body);
+  }
+  const method = (options.method || "GET").toUpperCase();
+  if (["POST", "PUT", "DELETE", "PATCH"].includes(method) && csrfToken) {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401) {
+    sanshainToken = null;
+    localStorage.removeItem("sanshain_token");
+    if (typeof onSessionExpired === "function") onSessionExpired();
+    throw new Error("Session expired");
+  }
+  return res;
 }
 
 // --- HTML / attribute escaping ---
 function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
 }
 
 function escapeAttr(str) {
-    return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  return str.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
 // --- Confirm modal ---
 // Requires a #confirm-modal, #confirm-message, #confirm-yes in the page.
 function confirmAction(message, onConfirm) {
-    document.getElementById('confirm-message').innerHTML = message;
-    document.getElementById('confirm-modal').classList.remove('hidden');
-    document.getElementById('confirm-yes').onclick = () => {
-        closeConfirmModal();
-        onConfirm();
-    };
+  document.getElementById("confirm-message").innerHTML = message;
+  document.getElementById("confirm-modal").classList.remove("hidden");
+  document.getElementById("confirm-yes").onclick = () => {
+    closeConfirmModal();
+    onConfirm();
+  };
 }
 // Alias used by admin page
 const confirmDelete = confirmAction;
 
 function closeConfirmModal() {
-    document.getElementById('confirm-modal').classList.add('hidden');
+  document.getElementById("confirm-modal").classList.add("hidden");
 }
 
 // --- Version badge ---
 function loadVersionBadge(elementId) {
-    fetch('/version')
-        .then(r => r.json())
-        .then(data => {
-            const el = document.getElementById(elementId);
-            if (el) el.textContent = `v${data.version}`;
-            setBannerVersion(data.version);
-        })
-        .catch(() => {});
+  fetch("/version")
+    .then((r) => r.json())
+    .then((data) => {
+      const el = document.getElementById(elementId);
+      if (el) el.textContent = `v${data.version}`;
+      setBannerVersion(data.version);
+    })
+    .catch(() => {});
 }
 
 // --- Staleness detection ---
 // Checks the server's version + instance_id against what was stored in sessionStorage.
 // If they differ (server restarted or updated), shows a reload banner at the top of the page.
 function checkStaleness() {
-    fetch('/version')
-        .then(r => r.json())
-        .then(data => {
-            const key = `${data.version}::${data.instance_id}`;
-            const stored = sessionStorage.getItem('sanshain_instance');
-            if (!stored) {
-                // First visit this session — store and move on
-                sessionStorage.setItem('sanshain_instance', key);
-                return;
-            }
-            if (stored !== key) {
-                showReloadBanner();
-            }
-        })
-        .catch(() => {});
+  fetch("/version")
+    .then((r) => r.json())
+    .then((data) => {
+      const key = `${data.version}::${data.instance_id}`;
+      const stored = sessionStorage.getItem("sanshain_instance");
+      if (!stored) {
+        // First visit this session — store and move on
+        sessionStorage.setItem("sanshain_instance", key);
+        return;
+      }
+      if (stored !== key) {
+        showReloadBanner();
+      }
+    })
+    .catch(() => {});
 }
 
 function showReloadBanner() {
-    if (document.getElementById('sanshain-reload-banner')) return;
-    const banner = document.createElement('div');
-    banner.id = 'sanshain-reload-banner';
-    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#fef3c7;border-bottom:2px solid #f59e0b;padding:10px 16px;display:flex;align-items:center;justify-content:center;gap:12px;font-size:14px;color:#92400e;font-family:ui-sans-serif,system-ui,sans-serif;';
-    banner.innerHTML = `
+  if (document.getElementById("sanshain-reload-banner")) return;
+  const banner = document.createElement("div");
+  banner.id = "sanshain-reload-banner";
+  banner.style.cssText =
+    "position:fixed;top:0;left:0;right:0;z-index:9999;background:#fef3c7;border-bottom:2px solid #f59e0b;padding:10px 16px;display:flex;align-items:center;justify-content:center;gap:12px;font-size:14px;color:#92400e;font-family:ui-sans-serif,system-ui,sans-serif;";
+  banner.innerHTML = `
         <svg style="width:20px;height:20px;flex-shrink:0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z"/>
         </svg>
@@ -380,19 +403,19 @@ function showReloadBanner() {
         <button onclick="sessionStorage.setItem('sanshain_instance','');location.reload()" style="background:#f59e0b;color:white;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px;">Reload</button>
         <button onclick="this.parentElement.remove();sessionStorage.setItem('sanshain_instance','')" style="background:none;border:none;cursor:pointer;color:#92400e;font-size:18px;line-height:1;padding:0 4px;" title="Dismiss">&times;</button>
     `;
-    document.body.prepend(banner);
+  document.body.prepend(banner);
 }
 
 // Run staleness check on every page load
 checkStaleness();
-loadVersionBadge('version-badge');
+loadVersionBadge("version-badge");
 
 // --- Cat Loader ---
 function injectLoader() {
-    if (document.getElementById('app-loader')) return;
-    const loader = document.createElement('div');
-    loader.id = 'app-loader';
-    loader.innerHTML = `
+  if (document.getElementById("app-loader")) return;
+  const loader = document.createElement("div");
+  loader.id = "app-loader";
+  loader.innerHTML = `
         <div class="cat-container">
             <svg class="cat-svg" viewBox="0 0 100 60">
                 <!-- Curled cat body -->
@@ -416,33 +439,33 @@ function injectLoader() {
         </div>
         <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
     `;
-    document.body.appendChild(loader);
+  document.body.appendChild(loader);
 }
 
-window.showLoader = function() {
-    injectLoader();
-    const l = document.getElementById('app-loader');
-    l.classList.remove('hidden');
-    l.style.opacity = '1';
+window.showLoader = function () {
+  injectLoader();
+  const l = document.getElementById("app-loader");
+  l.classList.remove("hidden");
+  l.style.opacity = "1";
 };
 
-window.hideLoader = function() {
-    const l = document.getElementById('app-loader');
-    if (l) {
-        l.classList.add('hidden');
-        l.style.opacity = '0';
-    }
+window.hideLoader = function () {
+  const l = document.getElementById("app-loader");
+  if (l) {
+    l.classList.add("hidden");
+    l.style.opacity = "0";
+  }
 };
 
 // --- Password visibility toggle ---
 function togglePasswordVisibility(inputId, btn) {
-    const input = document.getElementById(inputId);
-    if (!input) return;
-    if (input.type === 'password') {
-        input.type = 'text';
-        btn.textContent = 'Hide';
-    } else {
-        input.type = 'password';
-        btn.textContent = 'Show';
-    }
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  if (input.type === "password") {
+    input.type = "text";
+    btn.textContent = "Hide";
+  } else {
+    input.type = "password";
+    btn.textContent = "Show";
+  }
 }

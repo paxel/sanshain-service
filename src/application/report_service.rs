@@ -1,7 +1,10 @@
 use crate::domain::models::*;
 use crate::domain::ports::SpecRepository;
 
-pub async fn generate_report(repo: &impl SpecRepository, branch: &str) -> Result<DependencyReport, AppError> {
+pub async fn generate_report(
+    repo: &impl SpecRepository,
+    branch: &str,
+) -> Result<DependencyReport, AppError> {
     let mut report = repo.get_report(branch).await?;
     report.service_tags = repo.get_all_service_tags().await?;
     Ok(report)
@@ -9,15 +12,21 @@ pub async fn generate_report(repo: &impl SpecRepository, branch: &str) -> Result
 
 pub fn render_report_markdown(report: &DependencyReport) -> String {
     let mut md = String::new();
-    md.push_str(&format!("# Sanshain Dependency Report: Branch `{}`\n\n", report.branch));
-    
+    md.push_str(&format!(
+        "# Sanshain Dependency Report: Branch `{}`\n\n",
+        report.branch
+    ));
+
     md.push_str("| Client | Service | Type | Path | Method |\n");
     md.push_str("| --- | --- | --- | --- | --- |\n");
-    
+
     for dep in &report.dependency_graph {
-        md.push_str(&format!("| {} | {} | {:?} | `{}` | `{}` |\n", dep.client, dep.service, dep.api_type, dep.path, dep.method));
+        md.push_str(&format!(
+            "| {} | {} | {:?} | `{}` | `{}` |\n",
+            dep.client, dep.service, dep.api_type, dep.path, dep.method
+        ));
     }
-    
+
     md
 }
 
@@ -40,11 +49,20 @@ pub fn render_isolation_report(report: &DependencyReport) -> String {
             ApiType::AsyncApi => {
                 let kafka = "KAFKA".to_string();
                 let protocol = "https".to_string();
-                connections.entry(dep.client.clone()).or_default().insert((kafka.clone(), protocol.clone()));
-                connections.entry(dep.service.clone()).or_default().insert((kafka, protocol));
+                connections
+                    .entry(dep.client.clone())
+                    .or_default()
+                    .insert((kafka.clone(), protocol.clone()));
+                connections
+                    .entry(dep.service.clone())
+                    .or_default()
+                    .insert((kafka, protocol));
             }
             ApiType::OpenApi | ApiType::Proto => {
-                connections.entry(dep.client.clone()).or_default().insert((dep.service.clone(), "https".to_string()));
+                connections
+                    .entry(dep.client.clone())
+                    .or_default()
+                    .insert((dep.service.clone(), "https".to_string()));
             }
         }
     }
@@ -96,9 +114,11 @@ mod tests {
 
     #[test]
     fn openapi_dependencies() {
-        let report = make_report(vec![
-            make_dep("order-service", "user-service", ApiType::OpenApi),
-        ]);
+        let report = make_report(vec![make_dep(
+            "order-service",
+            "user-service",
+            ApiType::OpenApi,
+        )]);
         let result = render_isolation_report(&report);
         assert!(result.contains("## Service: order-service"));
         assert!(result.contains("| user-service | https | |"));
@@ -106,9 +126,11 @@ mod tests {
 
     #[test]
     fn asyncapi_dependencies_route_through_kafka() {
-        let report = make_report(vec![
-            make_dep("order-service", "notification-service", ApiType::AsyncApi),
-        ]);
+        let report = make_report(vec![make_dep(
+            "order-service",
+            "notification-service",
+            ApiType::AsyncApi,
+        )]);
         let result = render_isolation_report(&report);
         assert!(result.contains("## Service: order-service"));
         assert!(result.contains("## Service: notification-service"));
@@ -119,9 +141,7 @@ mod tests {
 
     #[test]
     fn proto_dependencies() {
-        let report = make_report(vec![
-            make_dep("gateway", "auth-service", ApiType::Proto),
-        ]);
+        let report = make_report(vec![make_dep("gateway", "auth-service", ApiType::Proto)]);
         let result = render_isolation_report(&report);
         assert!(result.contains("## Service: gateway"));
         assert!(result.contains("| auth-service | https | |"));

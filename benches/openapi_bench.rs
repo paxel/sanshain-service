@@ -1,6 +1,9 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use sanshain_service::openapi::{split_openapi, merge_endpoint_yamls, generate_diff, check_backward_compatibility, normalize_path};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use sanshain_service::asyncapi::split_asyncapi;
+use sanshain_service::openapi::{
+    check_backward_compatibility, generate_diff, merge_endpoint_yamls, normalize_path,
+    split_openapi,
+};
 use sanshain_service::proto::split_proto;
 use std::fs;
 

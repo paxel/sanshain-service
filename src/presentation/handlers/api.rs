@@ -1,13 +1,13 @@
-use axum::{
-    extract::{Query, State},
-    http::{StatusCode, HeaderMap},
-    response::IntoResponse,
-    Json,
-};
-use serde::Deserialize;
 use crate::AppState;
 use crate::application::services::{self, AppError};
 use crate::domain::models::ApiType;
+use axum::{
+    Json,
+    extract::{Query, State},
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+};
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct ProvideRequest {
@@ -29,15 +29,30 @@ pub async fn provide(
     Json(payload): Json<ProvideRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let res = if dry_run.dry_run {
-        services::provide_spec_dry_run(&state.repo, &payload.servicename, &payload.branch, ApiType::OpenApi, &payload.openapi_yaml).await?
+        services::provide_spec_dry_run(
+            &state.repo,
+            &payload.servicename,
+            &payload.branch,
+            ApiType::OpenApi,
+            &payload.openapi_yaml,
+        )
+        .await?
     } else {
-        services::provide_spec(&state.repo, &payload.servicename, &payload.branch, ApiType::OpenApi, &payload.openapi_yaml, payload.base_version).await?
+        services::provide_spec(
+            &state.repo,
+            &payload.servicename,
+            &payload.branch,
+            ApiType::OpenApi,
+            &payload.openapi_yaml,
+            payload.base_version,
+        )
+        .await?
     };
-    
+
     if !dry_run.dry_run {
         let _ = state.spec_updated_tx.send(());
     }
-    
+
     Ok((StatusCode::ACCEPTED, Json(res)))
 }
 
@@ -53,7 +68,15 @@ pub async fn provide_asyncapi(
     State(state): State<AppState>,
     Json(payload): Json<ProvideAsyncApiRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::provide_spec(&state.repo, &payload.servicename, &payload.branch, ApiType::AsyncApi, &payload.asyncapi_yaml, payload.base_version).await?;
+    let res = services::provide_spec(
+        &state.repo,
+        &payload.servicename,
+        &payload.branch,
+        ApiType::AsyncApi,
+        &payload.asyncapi_yaml,
+        payload.base_version,
+    )
+    .await?;
     let _ = state.spec_updated_tx.send(());
     Ok((StatusCode::ACCEPTED, Json(res)))
 }
@@ -70,7 +93,15 @@ pub async fn provide_proto(
     State(state): State<AppState>,
     Json(payload): Json<ProvideProtoRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::provide_spec(&state.repo, &payload.servicename, &payload.branch, ApiType::Proto, &payload.proto_content, payload.base_version).await?;
+    let res = services::provide_spec(
+        &state.repo,
+        &payload.servicename,
+        &payload.branch,
+        ApiType::Proto,
+        &payload.proto_content,
+        payload.base_version,
+    )
+    .await?;
     let _ = state.spec_updated_tx.send(());
     Ok((StatusCode::ACCEPTED, Json(res)))
 }
@@ -90,16 +121,21 @@ pub async fn require(
     Query(query): Query<RequireQuery>,
     _headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::require_endpoint(&state.repo, Some(state.spec_updated_tx.subscribe()), services::RequireEndpointParams {
-        clientname: &query.clientname,
-        servicename: &query.servicename,
-        branch: &query.branch,
-        api_type: ApiType::OpenApi,
-        path: &query.path,
-        method: &query.method,
-        timeout_secs: query.timeout,
-    }).await?;
-    
+    let res = services::require_endpoint(
+        &state.repo,
+        Some(state.spec_updated_tx.subscribe()),
+        services::RequireEndpointParams {
+            clientname: &query.clientname,
+            servicename: &query.servicename,
+            branch: &query.branch,
+            api_type: ApiType::OpenApi,
+            path: &query.path,
+            method: &query.method,
+            timeout_secs: query.timeout,
+        },
+    )
+    .await?;
+
     Ok(res)
 }
 
@@ -107,15 +143,20 @@ pub async fn require_asyncapi(
     State(state): State<AppState>,
     Query(query): Query<RequireQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::require_endpoint(&state.repo, Some(state.spec_updated_tx.subscribe()), services::RequireEndpointParams {
-        clientname: &query.clientname,
-        servicename: &query.servicename,
-        branch: &query.branch,
-        api_type: ApiType::AsyncApi,
-        path: &query.path,
-        method: &query.method,
-        timeout_secs: query.timeout,
-    }).await?;
+    let res = services::require_endpoint(
+        &state.repo,
+        Some(state.spec_updated_tx.subscribe()),
+        services::RequireEndpointParams {
+            clientname: &query.clientname,
+            servicename: &query.servicename,
+            branch: &query.branch,
+            api_type: ApiType::AsyncApi,
+            path: &query.path,
+            method: &query.method,
+            timeout_secs: query.timeout,
+        },
+    )
+    .await?;
     Ok(res)
 }
 
@@ -123,15 +164,20 @@ pub async fn require_proto(
     State(state): State<AppState>,
     Query(query): Query<RequireQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::require_endpoint(&state.repo, Some(state.spec_updated_tx.subscribe()), services::RequireEndpointParams {
-        clientname: &query.clientname,
-        servicename: &query.servicename,
-        branch: &query.branch,
-        api_type: ApiType::Proto,
-        path: &query.path,
-        method: &query.method,
-        timeout_secs: query.timeout,
-    }).await?;
+    let res = services::require_endpoint(
+        &state.repo,
+        Some(state.spec_updated_tx.subscribe()),
+        services::RequireEndpointParams {
+            clientname: &query.clientname,
+            servicename: &query.servicename,
+            branch: &query.branch,
+            api_type: ApiType::Proto,
+            path: &query.path,
+            method: &query.method,
+            timeout_secs: query.timeout,
+        },
+    )
+    .await?;
     Ok(res)
 }
 
@@ -155,18 +201,25 @@ pub async fn require_bundle(
     State(state): State<AppState>,
     Json(payload): Json<RequireBundleRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let endpoints: Vec<(String, String)> = payload.endpoints.into_iter()
+    let endpoints: Vec<(String, String)> = payload
+        .endpoints
+        .into_iter()
         .map(|e| (e.path, e.method))
         .collect();
 
-    let res = services::require_bundle(&state.repo, Some(state.spec_updated_tx.subscribe()), services::RequireBundleParams {
-        clientname: &payload.clientname,
-        servicename: &payload.servicename,
-        branch: &payload.branch,
-        api_type: payload.api_type.unwrap_or(ApiType::OpenApi),
-        endpoints: &endpoints,
-        timeout_secs: payload.timeout,
-    }).await?;
+    let res = services::require_bundle(
+        &state.repo,
+        Some(state.spec_updated_tx.subscribe()),
+        services::RequireBundleParams {
+            clientname: &payload.clientname,
+            servicename: &payload.servicename,
+            branch: &payload.branch,
+            api_type: payload.api_type.unwrap_or(ApiType::OpenApi),
+            endpoints: &endpoints,
+            timeout_secs: payload.timeout,
+        },
+    )
+    .await?;
     Ok(res)
 }
 
@@ -189,7 +242,10 @@ pub async fn report_markdown(
 ) -> Result<impl IntoResponse, AppError> {
     let res = services::generate_report(&state.repo, &query.branch).await?;
     Ok((
-        [(axum::http::header::CONTENT_TYPE, "text/markdown; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/markdown; charset=utf-8",
+        )],
         services::render_report_markdown(&res),
     ))
 }
@@ -215,6 +271,14 @@ pub async fn endpoint_versions(
     State(state): State<AppState>,
     Query(query): Query<VersionsQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::get_endpoint_version_history(&state.repo, &query.service, &query.branch, query.api_type.unwrap_or(ApiType::OpenApi), &query.path, &query.method).await?;
+    let res = services::get_endpoint_version_history(
+        &state.repo,
+        &query.service,
+        &query.branch,
+        query.api_type.unwrap_or(ApiType::OpenApi),
+        &query.path,
+        &query.method,
+    )
+    .await?;
     Ok(Json(res))
 }

@@ -96,3 +96,15 @@
 - All PRs must pass `cargo build`, `cargo test`, `cargo clippy`, and `cargo fmt --check`.
 - Docker images are built from release templates with pre-compiled binaries.
 - Database migrations run automatically on startup — no manual migration steps in deployment.
+
+### Quality Tooling
+The `quality.yml` workflow is the merge gate for all PRs and pushes:
+
+| Tool | Purpose | Command |
+|------|---------|---------|
+| Clippy | Rust linting | `cargo clippy -- -D warnings` |
+| rustfmt | Formatting | `cargo fmt --check` |
+| cargo-audit | Security audit | `cargo audit` |
+| cargo-tarpaulin | Coverage (informational) | `cargo tarpaulin --out Xml --skip-clean` |
+| ESLint | JS linting | `npx eslint static/js/` |
+| Prettier | JS formatting | `npx prettier --check static/js/` |

@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -21,8 +21,12 @@ pub enum AppError {
 impl From<crate::domain::ports::RepositoryError> for AppError {
     fn from(e: crate::domain::ports::RepositoryError) -> Self {
         match e {
-            crate::domain::ports::RepositoryError::NotFound => AppError::NotFound("Not found".to_string()),
-            crate::domain::ports::RepositoryError::Conflict => AppError::Conflict("Conflict".to_string()),
+            crate::domain::ports::RepositoryError::NotFound => {
+                AppError::NotFound("Not found".to_string())
+            }
+            crate::domain::ports::RepositoryError::Conflict => {
+                AppError::Conflict("Conflict".to_string())
+            }
             crate::domain::ports::RepositoryError::Internal(msg) => AppError::Internal(msg),
         }
     }
@@ -59,7 +63,6 @@ impl std::str::FromStr for ApiType {
         }
     }
 }
-
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

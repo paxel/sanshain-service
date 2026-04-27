@@ -57,9 +57,17 @@ impl AuthProvider for LdapAuthProvider {
 
         // Search for the user
         let escaped_username = escape_ldap_filter(username);
-        let filter = self.config.user_filter.replace("{username}", &escaped_username);
+        let filter = self
+            .config
+            .user_filter
+            .replace("{username}", &escaped_username);
         let (rs, _result) = ldap
-            .search(&self.config.base_dn, Scope::Subtree, &filter, vec!["dn", "cn", "memberOf"])
+            .search(
+                &self.config.base_dn,
+                Scope::Subtree,
+                &filter,
+                vec!["dn", "cn", "memberOf"],
+            )
             .await
             .map_err(|e| AuthProviderError::Internal(format!("LDAP search: {}", e)))?
             .success()
@@ -70,7 +78,9 @@ impl AuthProvider for LdapAuthProvider {
             return Err(AuthProviderError::InvalidCredentials);
         }
 
-        let entry = rs.into_iter().next().ok_or_else(|| AuthProviderError::Internal("LDAP search results unexpectedly empty".to_string()))?;
+        let entry = rs.into_iter().next().ok_or_else(|| {
+            AuthProviderError::Internal("LDAP search results unexpectedly empty".to_string())
+        })?;
         let entry = SearchEntry::construct(entry);
         let user_dn = entry.dn;
 

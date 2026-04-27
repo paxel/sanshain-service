@@ -50,6 +50,8 @@ The following major milestones have been delivered and are fully functional:
 - **Security: Removed pre-created admin token**: removed the long-lived session token from `ensure_initial_admin`. Admins must now log in via `/login` to obtain a session token. `INITIAL_ADMIN_TOKEN` env var removed.
 - **Markdown Report Viewer**: added `report-viewer.html` that renders markdown reports as styled HTML using `marked.js`, with copy-to-clipboard and download buttons. All report links now route through the viewer. Unified report button colors to indigo-600.
 
+- **Quality Hardening**: Added `.github/workflows/quality.yml` CI quality gate (Clippy `-D warnings`, `cargo fmt --check`, `cargo test`, `cargo audit`, `cargo tarpaulin`, ESLint, Prettier). Set up JS linting infrastructure (`package.json`, `eslint.config.js`, `.prettierrc`). Replaced all production `.unwrap()` calls with proper error handling in `pages.rs`, `fragments.rs`, and `spec_service.rs`. Extracted `parse_spec_endpoints` from `provide_spec_inner` to reduce complexity. Added 24 new unit tests across `auth_service.rs`, `admin_service.rs`, and `spec_service.rs` (total: 59 lib tests).
+
 ## Open
 
 - [x] Remove the unused `DashboardTemplate.is_admin` field warning after the unified banner cleanup.

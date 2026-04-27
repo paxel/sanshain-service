@@ -1,11 +1,11 @@
 pub mod handlers;
 pub mod middleware;
 
+use crate::application::services::AppError;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use crate::application::services::AppError;
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {

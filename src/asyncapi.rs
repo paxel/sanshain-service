@@ -23,13 +23,27 @@ fn split_asyncapi_v2(root: &Value) -> Result<Vec<AsyncApiSpec>, String> {
 
     if let Some(channels) = root.get("channels").and_then(|c| c.as_mapping()) {
         for (channel_name, channel_value) in channels {
-            let channel_name_str = channel_name.as_str().ok_or("Channel name must be a string")?;
+            let channel_name_str = channel_name
+                .as_str()
+                .ok_or("Channel name must be a string")?;
 
             if let Some(_publish) = channel_value.get("publish") {
-                specs.push(create_spec_v2(root, channel_name_str, "PUB", channel_value, "publish")?);
+                specs.push(create_spec_v2(
+                    root,
+                    channel_name_str,
+                    "PUB",
+                    channel_value,
+                    "publish",
+                )?);
             }
             if let Some(_subscribe) = channel_value.get("subscribe") {
-                specs.push(create_spec_v2(root, channel_name_str, "SUB", channel_value, "subscribe")?);
+                specs.push(create_spec_v2(
+                    root,
+                    channel_name_str,
+                    "SUB",
+                    channel_value,
+                    "subscribe",
+                )?);
             }
         }
     }
@@ -40,13 +54,17 @@ fn split_asyncapi_v2(root: &Value) -> Result<Vec<AsyncApiSpec>, String> {
 fn split_asyncapi_v3(root: &Value) -> Result<Vec<AsyncApiSpec>, String> {
     let mut specs = Vec::new();
 
-    let operations = root.get("operations").and_then(|o| o.as_mapping())
+    let operations = root
+        .get("operations")
+        .and_then(|o| o.as_mapping())
         .ok_or_else(|| "AsyncAPI 3.x document has no 'operations' section".to_string())?;
 
     let channels = root.get("channels").and_then(|c| c.as_mapping());
 
     for (_op_name, op_value) in operations {
-        let action = op_value.get("action").and_then(|a| a.as_str())
+        let action = op_value
+            .get("action")
+            .and_then(|a| a.as_str())
             .ok_or_else(|| "Operation missing 'action' field".to_string())?;
 
         let operation = match action {
@@ -56,10 +74,15 @@ fn split_asyncapi_v3(root: &Value) -> Result<Vec<AsyncApiSpec>, String> {
         };
 
         // Resolve channel reference
-        let channel_ref = op_value.get("channel").and_then(|c| c.get("$ref")).and_then(|r| r.as_str());
+        let channel_ref = op_value
+            .get("channel")
+            .and_then(|c| c.get("$ref"))
+            .and_then(|r| r.as_str());
         let channel_name = if let Some(ref_str) = channel_ref {
             // e.g. "#/channels/UserSignup"
-            ref_str.strip_prefix("#/channels/").ok_or_else(|| format!("Unsupported channel $ref: {}", ref_str))?
+            ref_str
+                .strip_prefix("#/channels/")
+                .ok_or_else(|| format!("Unsupported channel $ref: {}", ref_str))?
         } else {
             // channel might be inline or referenced by key directly
             return Err("Operation missing channel.$ref".to_string());
@@ -72,7 +95,14 @@ fn split_asyncapi_v3(root: &Value) -> Result<Vec<AsyncApiSpec>, String> {
             .and_then(|a| a.as_str())
             .unwrap_or(channel_name);
 
-        specs.push(create_spec_v3(root, channel_name, channel_address, operation, op_value, channels)?);
+        specs.push(create_spec_v3(
+            root,
+            channel_name,
+            channel_address,
+            operation,
+            op_value,
+            channels,
+        )?);
     }
 
     Ok(specs)
@@ -104,7 +134,10 @@ fn create_spec_v3(
     {
         let mut ch_map = Mapping::new();
         ch_map.insert(Value::String(channel_key.to_string()), ch_value.clone());
-        snippet.insert(Value::String("channels".to_string()), Value::Mapping(ch_map));
+        snippet.insert(
+            Value::String("channels".to_string()),
+            Value::Mapping(ch_map),
+        );
     }
 
     // Include only this operation
@@ -124,9 +157,15 @@ fn create_spec_v3(
     })
 }
 
-fn create_spec_v2(root: &Value, channel_name: &str, operation: &str, channel_value: &Value, op_key: &str) -> Result<AsyncApiSpec, String> {
+fn create_spec_v2(
+    root: &Value,
+    channel_name: &str,
+    operation: &str,
+    channel_value: &Value,
+    op_key: &str,
+) -> Result<AsyncApiSpec, String> {
     let mut snippet = Mapping::new();
-    
+
     // Copy top-level fields except channels
     if let Some(m) = root.as_mapping() {
         for (k, v) in m {
@@ -138,13 +177,23 @@ fn create_spec_v2(root: &Value, channel_name: &str, operation: &str, channel_val
 
     let mut channels = Mapping::new();
     let mut channel_map = channel_value.as_mapping().cloned().unwrap_or_default();
-    
+
     // Remove other operations from this channel in the snippet
-    let other_op = if op_key == "publish" { "subscribe" } else { "publish" };
+    let other_op = if op_key == "publish" {
+        "subscribe"
+    } else {
+        "publish"
+    };
     channel_map.remove(Value::String(other_op.to_string()));
-    
-    channels.insert(Value::String(channel_name.to_string()), Value::Mapping(channel_map));
-    snippet.insert(Value::String("channels".to_string()), Value::Mapping(channels));
+
+    channels.insert(
+        Value::String(channel_name.to_string()),
+        Value::Mapping(channel_map),
+    );
+    snippet.insert(
+        Value::String("channels".to_string()),
+        Value::Mapping(channels),
+    );
 
     let yaml_content = serde_yaml::to_string(&Value::Mapping(snippet))
         .map_err(|e| format!("Failed to serialize AsyncAPI snippet: {}", e))?;
@@ -185,13 +234,19 @@ channels:
 "#;
         let result = split_asyncapi(yaml).unwrap();
         assert_eq!(result.len(), 3);
-        
-        let user_created_pub = result.iter().find(|s| s.channel == "user-created" && s.operation == "PUB").unwrap();
+
+        let user_created_pub = result
+            .iter()
+            .find(|s| s.channel == "user-created" && s.operation == "PUB")
+            .unwrap();
         assert!(user_created_pub.yaml_content.contains("publish:"));
         assert!(!user_created_pub.yaml_content.contains("subscribe:"));
         assert!(user_created_pub.yaml_content.contains("asyncapi: 2.6.0"));
-        
-        let order_placed_pub = result.iter().find(|s| s.channel == "order-placed" && s.operation == "PUB").unwrap();
+
+        let order_placed_pub = result
+            .iter()
+            .find(|s| s.channel == "order-placed" && s.operation == "PUB")
+            .unwrap();
         assert!(order_placed_pub.yaml_content.contains("order-placed"));
     }
 
@@ -228,12 +283,18 @@ operations:
         let result = split_asyncapi(yaml).unwrap();
         assert_eq!(result.len(), 2);
 
-        let user_sub = result.iter().find(|s| s.channel == "user/signedup" && s.operation == "SUB").unwrap();
+        let user_sub = result
+            .iter()
+            .find(|s| s.channel == "user/signedup" && s.operation == "SUB")
+            .unwrap();
         assert!(user_sub.yaml_content.contains("asyncapi: 3.0.0"));
         assert!(user_sub.yaml_content.contains("UserSignup"));
         assert!(!user_sub.yaml_content.contains("OrderCreated"));
 
-        let order_pub = result.iter().find(|s| s.channel == "orders.created" && s.operation == "PUB").unwrap();
+        let order_pub = result
+            .iter()
+            .find(|s| s.channel == "orders.created" && s.operation == "PUB")
+            .unwrap();
         assert!(order_pub.yaml_content.contains("OrderCreated"));
         assert!(!order_pub.yaml_content.contains("UserSignup"));
     }

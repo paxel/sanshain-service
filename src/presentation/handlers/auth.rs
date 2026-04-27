@@ -1,13 +1,8 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
-use serde::{Deserialize, Serialize};
 use crate::AppState;
 use crate::application::services::{self, AppError};
 use crate::domain::models::User;
+use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
@@ -26,11 +21,12 @@ pub async fn auth_login(
     Json(payload): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let session = services::login(&state.repo, &payload.username, &payload.password).await?;
-    let user = services::list_users(&state.repo).await?
+    let user = services::list_users(&state.repo)
+        .await?
         .into_iter()
         .find(|u| u.id == session.user_id)
         .ok_or_else(|| AppError::Internal("User not found after login".to_string()))?;
-    
+
     Ok(Json(LoginResponse {
         token: session.token,
         is_admin: user.is_admin,
@@ -43,7 +39,8 @@ pub async fn auth_logout(
 ) -> Result<impl IntoResponse, AppError> {
     if let Some(auth_header) = headers.get("Authorization")
         && let Ok(auth_str) = auth_header.to_str()
-        && let Some(token) = auth_str.strip_prefix("Bearer ") {
+        && let Some(token) = auth_str.strip_prefix("Bearer ")
+    {
         services::logout(&state.repo, token).await?;
     }
     Ok(StatusCode::OK)
@@ -66,7 +63,13 @@ pub async fn auth_change_password(
     axum::Extension(user): axum::Extension<User>,
     Json(payload): Json<ChangePasswordRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    services::change_password(&state.repo, &user, &payload.old_password, &payload.new_password).await?;
+    services::change_password(
+        &state.repo,
+        &user,
+        &payload.old_password,
+        &payload.new_password,
+    )
+    .await?;
     Ok(StatusCode::OK)
 }
 
@@ -103,7 +106,9 @@ pub async fn create_token(
     axum::Extension(user): axum::Extension<User>,
     Json(payload): Json<CreateTokenRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let (id, token) = services::create_api_token(&state.repo, user.id, &payload.name, payload.expires_in_days).await?;
+    let (id, token) =
+        services::create_api_token(&state.repo, user.id, &payload.name, payload.expires_in_days)
+            .await?;
     Ok(Json(CreateTokenResponse { id, token }))
 }
 

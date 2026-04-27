@@ -66,6 +66,9 @@ The project follows **DDD Hexagonal (Onion) Architecture**:
 | File | Purpose |
 |---|---|
 | `tests/integration_test.rs` | Integration tests for the full API (spec upload, require, reports, auth, admin). |
+| `src/application/auth_service.rs` (tests) | Unit tests for password hashing, login, registration, change password. |
+| `src/application/admin_service.rs` (tests) | Unit tests for protected branches, services, fallback branches, cleanup. |
+| `src/application/spec_service.rs` (tests) | Unit tests for provide (insert/update/skip), dry run, compatibility, parsing. |
 
 ### Web Frontend
 
@@ -92,6 +95,10 @@ The project follows **DDD Hexagonal (Onion) Architecture**:
 | `docker-compose.release.template.yaml` | Docker Compose template for deployment. |
 | `api.yaml` | The service's own OpenAPI specification. |
 | `demo.sh` | Demo script showcasing API usage. |
+| `.github/workflows/quality.yml` | CI quality gate: Clippy, fmt, test, audit, tarpaulin, ESLint, Prettier. |
+| `package.json` | Node.js dev-dependencies for JS linting (ESLint, Prettier). |
+| `eslint.config.js` | ESLint 9 flat config for `static/js/*.js`. |
+| `.prettierrc` | Prettier formatting rules. |
 
 ### Documentation
 
@@ -116,6 +123,8 @@ The project follows **DDD Hexagonal (Onion) Architecture**:
 | `ai/plan.md` | Development task plan with status tracking. |
 | `ai/ai-rules.md` | AI assistant rules and guidelines. |
 | `ai/project.md` | This file — project summary for LLM context. |
+| `ai/quality-hardening.md` | Quality hardening summary: tools, metrics, configuration. |
+| `ai/skill-quality.md` | Reusable Junie skill for running quality checks. |
 
 ## Tech Stack
 

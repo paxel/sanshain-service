@@ -1,8 +1,8 @@
 use crate::domain::models::*;
 use crate::domain::ports::{RecordDependencyParams, RepositoryError, SpecRepository};
-use std::collections::HashMap;
-use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
 use crate::infrastructure::postgres_repository::PostgresSpecRepository;
+use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
+use std::collections::HashMap;
 
 /// Enum-based dispatch to avoid trait object limitations with RPITIT.
 #[derive(Clone)]
@@ -31,12 +31,24 @@ macro_rules! delegate {
 }
 
 impl SpecRepository for DatabaseRepo {
-    async fn get_spec_version(&self, service_id: i64, branch_id: i64) -> Result<Option<(i32, String)>, RepositoryError> {
+    async fn get_spec_version(
+        &self,
+        service_id: i64,
+        branch_id: i64,
+    ) -> Result<Option<(i32, String)>, RepositoryError> {
         delegate!(self, get_spec_version(service_id, branch_id))
     }
 
-    async fn increment_spec_version(&self, service_id: i64, branch_id: i64, content_hash: &str) -> Result<i32, RepositoryError> {
-        delegate!(self, increment_spec_version(service_id, branch_id, content_hash))
+    async fn increment_spec_version(
+        &self,
+        service_id: i64,
+        branch_id: i64,
+        content_hash: &str,
+    ) -> Result<i32, RepositoryError> {
+        delegate!(
+            self,
+            increment_spec_version(service_id, branch_id, content_hash)
+        )
     }
 
     async fn ensure_service(&self, name: &str) -> Result<i64, RepositoryError> {
@@ -45,18 +57,33 @@ impl SpecRepository for DatabaseRepo {
     async fn find_service(&self, name: &str) -> Result<Option<i64>, RepositoryError> {
         delegate!(self, find_service(name))
     }
-    async fn ensure_branch(&self, service_id: i64, branch_name: &str) -> Result<i64, RepositoryError> {
+    async fn ensure_branch(
+        &self,
+        service_id: i64,
+        branch_name: &str,
+    ) -> Result<i64, RepositoryError> {
         delegate!(self, ensure_branch(service_id, branch_name))
     }
-    async fn find_branch(&self, service_id: i64, branch_name: &str) -> Result<Option<i64>, RepositoryError> {
+    async fn find_branch(
+        &self,
+        service_id: i64,
+        branch_name: &str,
+    ) -> Result<Option<i64>, RepositoryError> {
         delegate!(self, find_branch(service_id, branch_name))
     }
 
-    async fn get_endpoints_for_branch(&self, branch_id: i64) -> Result<Vec<EndpointRecord>, RepositoryError> {
+    async fn get_endpoints_for_branch(
+        &self,
+        branch_id: i64,
+    ) -> Result<Vec<EndpointRecord>, RepositoryError> {
         delegate!(self, get_endpoints_for_branch(branch_id))
     }
 
-    async fn insert_endpoint(&self, branch_id: i64, endpoint: &EndpointRecord) -> Result<(), RepositoryError> {
+    async fn insert_endpoint(
+        &self,
+        branch_id: i64,
+        endpoint: &EndpointRecord,
+    ) -> Result<(), RepositoryError> {
         delegate!(self, insert_endpoint(branch_id, endpoint))
     }
 
@@ -64,19 +91,44 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, ensure_client(name))
     }
 
-    async fn find_endpoint(&self, service_id: i64, branch_name: &str, api_type: ApiType, path: &str, method: &str) -> Result<Option<(i64, String)>, RepositoryError> {
-        delegate!(self, find_endpoint(service_id, branch_name, api_type, path, method))
+    async fn find_endpoint(
+        &self,
+        service_id: i64,
+        branch_name: &str,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<Option<(i64, String)>, RepositoryError> {
+        delegate!(
+            self,
+            find_endpoint(service_id, branch_name, api_type, path, method)
+        )
     }
 
-    async fn find_endpoints_bulk(&self, service_id: i64, branch_name: &str, api_type: ApiType, endpoints: &[(String, String)]) -> Result<HashMap<(String, String), (i64, String)>, RepositoryError> {
-        delegate!(self, find_endpoints_bulk(service_id, branch_name, api_type, endpoints))
+    async fn find_endpoints_bulk(
+        &self,
+        service_id: i64,
+        branch_name: &str,
+        api_type: ApiType,
+        endpoints: &[(String, String)],
+    ) -> Result<HashMap<(String, String), (i64, String)>, RepositoryError> {
+        delegate!(
+            self,
+            find_endpoints_bulk(service_id, branch_name, api_type, endpoints)
+        )
     }
 
-    async fn record_dependency(&self, params: RecordDependencyParams<'_>) -> Result<(), RepositoryError> {
+    async fn record_dependency(
+        &self,
+        params: RecordDependencyParams<'_>,
+    ) -> Result<(), RepositoryError> {
         delegate!(self, record_dependency(params))
     }
 
-    async fn record_dependencies_bulk(&self, params: Vec<RecordDependencyParams<'_>>) -> Result<(), RepositoryError> {
+    async fn record_dependencies_bulk(
+        &self,
+        params: Vec<RecordDependencyParams<'_>>,
+    ) -> Result<(), RepositoryError> {
         delegate!(self, record_dependencies_bulk(params))
     }
 
@@ -100,19 +152,53 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, list_protected_branches())
     }
 
-    async fn update_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str, yaml_content: &str) -> Result<(), RepositoryError> {
-        delegate!(self, update_endpoint(branch_id, api_type, path, method, yaml_content))
+    async fn update_endpoint(
+        &self,
+        branch_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+        yaml_content: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            update_endpoint(branch_id, api_type, path, method, yaml_content)
+        )
     }
 
-    async fn soft_delete_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<(), RepositoryError> {
-        delegate!(self, soft_delete_endpoint(branch_id, api_type, path, method))
+    async fn soft_delete_endpoint(
+        &self,
+        branch_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            soft_delete_endpoint(branch_id, api_type, path, method)
+        )
     }
 
-    async fn hard_delete_endpoint(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<(), RepositoryError> {
-        delegate!(self, hard_delete_endpoint(branch_id, api_type, path, method))
+    async fn hard_delete_endpoint(
+        &self,
+        branch_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            hard_delete_endpoint(branch_id, api_type, path, method)
+        )
     }
 
-    async fn is_endpoint_deleted(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<bool, RepositoryError> {
+    async fn is_endpoint_deleted(
+        &self,
+        branch_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<bool, RepositoryError> {
         delegate!(self, is_endpoint_deleted(branch_id, api_type, path, method))
     }
 
@@ -136,7 +222,11 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, delete_service(name))
     }
 
-    async fn delete_branch(&self, service_name: &str, branch_name: &str) -> Result<bool, RepositoryError> {
+    async fn delete_branch(
+        &self,
+        service_name: &str,
+        branch_name: &str,
+    ) -> Result<bool, RepositoryError> {
         delegate!(self, delete_branch(service_name, branch_name))
     }
 
@@ -152,11 +242,18 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, list_services_detailed())
     }
 
-    async fn set_fallback_branch(&self, service_name: &str, branch: Option<&str>) -> Result<(), RepositoryError> {
+    async fn set_fallback_branch(
+        &self,
+        service_name: &str,
+        branch: Option<&str>,
+    ) -> Result<(), RepositoryError> {
         delegate!(self, set_fallback_branch(service_name, branch))
     }
 
-    async fn get_fallback_branch(&self, service_name: &str) -> Result<Option<String>, RepositoryError> {
+    async fn get_fallback_branch(
+        &self,
+        service_name: &str,
+    ) -> Result<Option<String>, RepositoryError> {
         delegate!(self, get_fallback_branch(service_name))
     }
 
@@ -172,11 +269,18 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, list_clients())
     }
 
-    async fn list_client_branches(&self, client_name: &str) -> Result<Vec<String>, RepositoryError> {
+    async fn list_client_branches(
+        &self,
+        client_name: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
         delegate!(self, list_client_branches(client_name))
     }
 
-    async fn list_client_endpoints(&self, client_name: &str, branch: &str) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
+    async fn list_client_endpoints(
+        &self,
+        client_name: &str,
+        branch: &str,
+    ) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
         delegate!(self, list_client_endpoints(client_name, branch))
     }
 
@@ -188,8 +292,17 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, find_user(username))
     }
 
-    async fn create_user(&self, username: &str, password_hash: &str, is_admin: bool, approved: bool) -> Result<User, RepositoryError> {
-        delegate!(self, create_user(username, password_hash, is_admin, approved))
+    async fn create_user(
+        &self,
+        username: &str,
+        password_hash: &str,
+        is_admin: bool,
+        approved: bool,
+    ) -> Result<User, RepositoryError> {
+        delegate!(
+            self,
+            create_user(username, password_hash, is_admin, approved)
+        )
     }
 
     async fn update_password(&self, user_id: i64, new_hash: &str) -> Result<(), RepositoryError> {
@@ -208,15 +321,27 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, delete_user(user_id))
     }
 
-    async fn create_session(&self, user_id: i64, expires_at: &str) -> Result<Session, RepositoryError> {
+    async fn create_session(
+        &self,
+        user_id: i64,
+        expires_at: &str,
+    ) -> Result<Session, RepositoryError> {
         delegate!(self, create_session(user_id, expires_at))
     }
 
-    async fn create_session_with_token(&self, user_id: i64, token: &str, expires_at: &str) -> Result<Session, RepositoryError> {
+    async fn create_session_with_token(
+        &self,
+        user_id: i64,
+        token: &str,
+        expires_at: &str,
+    ) -> Result<Session, RepositoryError> {
         delegate!(self, create_session_with_token(user_id, token, expires_at))
     }
 
-    async fn validate_session(&self, token: &str) -> Result<Option<(User, Session)>, RepositoryError> {
+    async fn validate_session(
+        &self,
+        token: &str,
+    ) -> Result<Option<(User, Session)>, RepositoryError> {
         delegate!(self, validate_session(token))
     }
 
@@ -232,15 +357,30 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, set_setting(key, value))
     }
 
-    async fn create_api_token(&self, id: &str, user_id: i64, name: &str, token_hash: &str, created_at: &str, expires_at: &str) -> Result<(), RepositoryError> {
-        delegate!(self, create_api_token(id, user_id, name, token_hash, created_at, expires_at))
+    async fn create_api_token(
+        &self,
+        id: &str,
+        user_id: i64,
+        name: &str,
+        token_hash: &str,
+        created_at: &str,
+        expires_at: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            create_api_token(id, user_id, name, token_hash, created_at, expires_at)
+        )
     }
 
     async fn list_api_tokens(&self, user_id: i64) -> Result<Vec<ApiToken>, RepositoryError> {
         delegate!(self, list_api_tokens(user_id))
     }
 
-    async fn delete_api_token(&self, token_id: &str, user_id: i64) -> Result<bool, RepositoryError> {
+    async fn delete_api_token(
+        &self,
+        token_id: &str,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
         delegate!(self, delete_api_token(token_id, user_id))
     }
 
@@ -256,27 +396,55 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, delete_stale_dependencies(cutoff_iso))
     }
 
-    async fn get_endpoint_id(&self, branch_id: i64, api_type: ApiType, path: &str, method: &str) -> Result<Option<i64>, RepositoryError> {
+    async fn get_endpoint_id(
+        &self,
+        branch_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<Option<i64>, RepositoryError> {
         delegate!(self, get_endpoint_id(branch_id, api_type, path, method))
     }
 
-    async fn insert_endpoint_version(&self, endpoint_id: i64, version: i32, yaml_content: &str, diff: Option<&str>, created_at: &str) -> Result<(), RepositoryError> {
-        delegate!(self, insert_endpoint_version(endpoint_id, version, yaml_content, diff, created_at))
+    async fn insert_endpoint_version(
+        &self,
+        endpoint_id: i64,
+        version: i32,
+        yaml_content: &str,
+        diff: Option<&str>,
+        created_at: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            insert_endpoint_version(endpoint_id, version, yaml_content, diff, created_at)
+        )
     }
 
     async fn get_latest_endpoint_version(&self, endpoint_id: i64) -> Result<i32, RepositoryError> {
         delegate!(self, get_latest_endpoint_version(endpoint_id))
     }
 
-    async fn get_endpoint_versions(&self, endpoint_id: i64) -> Result<Vec<EndpointVersion>, RepositoryError> {
+    async fn get_endpoint_versions(
+        &self,
+        endpoint_id: i64,
+    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
         delegate!(self, get_endpoint_versions(endpoint_id))
     }
 
-    async fn apply_spec_changes(&self, branch_id: i64, changes: Vec<SpecChange>, is_protected: bool) -> Result<(), RepositoryError> {
+    async fn apply_spec_changes(
+        &self,
+        branch_id: i64,
+        changes: Vec<SpecChange>,
+        is_protected: bool,
+    ) -> Result<(), RepositoryError> {
         delegate!(self, apply_spec_changes(branch_id, changes, is_protected))
     }
 
-    async fn add_service_tags(&self, service_id: i64, tags: &[String]) -> Result<(), RepositoryError> {
+    async fn add_service_tags(
+        &self,
+        service_id: i64,
+        tags: &[String],
+    ) -> Result<(), RepositoryError> {
         delegate!(self, add_service_tags(service_id, tags))
     }
 
@@ -284,11 +452,23 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, get_all_service_tags())
     }
 
-    async fn get_shared_contract(&self, branch_name: &str, api_type: ApiType, path: &str, method: &str) -> Result<Option<SharedContract>, RepositoryError> {
-        delegate!(self, get_shared_contract(branch_name, api_type, path, method))
+    async fn get_shared_contract(
+        &self,
+        branch_name: &str,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
+    ) -> Result<Option<SharedContract>, RepositoryError> {
+        delegate!(
+            self,
+            get_shared_contract(branch_name, api_type, path, method)
+        )
     }
 
-    async fn upsert_shared_contract(&self, contract: SharedContract) -> Result<(), RepositoryError> {
+    async fn upsert_shared_contract(
+        &self,
+        contract: SharedContract,
+    ) -> Result<(), RepositoryError> {
         delegate!(self, upsert_shared_contract(contract))
     }
 }

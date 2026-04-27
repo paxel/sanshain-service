@@ -3,30 +3,33 @@ use axum::{
     http::{Request, StatusCode},
     response::Response,
 };
-use serde_json::{json, Value};
-use sqlx::sqlite::SqlitePoolOptions;
-use std::sync::{Arc, OnceLock};
-use std::sync::atomic::{AtomicBool, AtomicU64};
-use std::collections::{HashMap, VecDeque};
-use tokio::sync::RwLock;
 use chrono::Utc;
-use tower::ServiceExt; // for `oneshot`
-use sanshain_service::{create_app, AppState};
-use sanshain_service::domain::models::ProvideResponse;
-use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
-use sanshain_service::infrastructure::database::DatabaseRepo;
-use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
 use sanshain_service::application::services;
+use sanshain_service::domain::models::ProvideResponse;
+use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
+use sanshain_service::infrastructure::database::DatabaseRepo;
+use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
+use sanshain_service::{AppState, create_app};
+use serde_json::{Value, json};
+use sqlx::sqlite::SqlitePoolOptions;
+use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::{Arc, OnceLock};
+use tokio::sync::RwLock;
+use tower::ServiceExt; // for `oneshot`
 
 const TEST_CSRF_TOKEN: &str = "test-csrf-token";
 
-static TEST_PROMETHEUS_HANDLE: OnceLock<metrics_exporter_prometheus::PrometheusHandle> = OnceLock::new();
+static TEST_PROMETHEUS_HANDLE: OnceLock<metrics_exporter_prometheus::PrometheusHandle> =
+    OnceLock::new();
 
 fn get_test_prometheus_handle() -> metrics_exporter_prometheus::PrometheusHandle {
-    TEST_PROMETHEUS_HANDLE.get_or_init(|| {
-        let (_, handle) = axum_prometheus::PrometheusMetricLayer::pair();
-        handle
-    }).clone()
+    TEST_PROMETHEUS_HANDLE
+        .get_or_init(|| {
+            let (_, handle) = axum_prometheus::PrometheusMetricLayer::pair();
+            handle
+        })
+        .clone()
 }
 
 async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
@@ -84,7 +87,10 @@ async fn setup_app_with_admin() -> (axum::Router, String) {
     let hash = services::hash_password("admin-pass").unwrap();
     let user = repo.create_user("admin", &hash, true, true).await.unwrap();
     use sanshain_service::domain::ports::SpecRepository;
-    let session = repo.create_session(user.id, "2099-12-31T23:59:59").await.unwrap();
+    let session = repo
+        .create_session(user.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap();
 
     let mut tokens = HashMap::new();
     tokens.insert(TEST_CSRF_TOKEN.to_string(), Utc::now());
@@ -202,7 +208,8 @@ paths:
         "openapi_yaml": openapi_yaml
     });
 
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -230,9 +237,10 @@ paths:
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     // 3. Get report
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -244,7 +252,9 @@ paths:
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let report: Value = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(report["dependency_graph"].as_array().unwrap().len(), 1);
@@ -252,7 +262,8 @@ paths:
     assert_eq!(report["missing_endpoints"].as_array().unwrap().len(), 0);
 
     // 4. Get markdown report
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -264,8 +275,13 @@ paths:
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(response.headers().get("content-type").unwrap(), "text/markdown; charset=utf-8");
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    assert_eq!(
+        response.headers().get("content-type").unwrap(),
+        "text/markdown; charset=utf-8"
+    );
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let md_report = String::from_utf8(body.to_vec()).unwrap();
     assert!(md_report.contains("# Sanshain Dependency Report: Branch `main`"));
     assert!(md_report.contains("| client-a | test-service | OpenApi | `/users` | `GET` |"));
@@ -331,7 +347,8 @@ components:
         "openapi_yaml": openapi_yaml
     });
 
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -356,7 +373,8 @@ components:
         ]
     });
 
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -370,7 +388,9 @@ components:
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 100000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 100000)
+        .await
+        .unwrap();
     let merged_yaml = String::from_utf8(body.to_vec()).unwrap();
 
     // Both paths present in merged YAML
@@ -397,7 +417,8 @@ components:
         ]
     });
 
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -410,9 +431,14 @@ components:
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body_str = String::from_utf8_lossy(&body);
-    assert!(body_str.contains("DELETE /nonexistent"), "Error body should list the missing endpoint");
+    assert!(
+        body_str.contains("DELETE /nonexistent"),
+        "Error body should list the missing endpoint"
+    );
 
     // Test empty endpoints returns error
     let bundle_empty = json!({
@@ -422,7 +448,8 @@ components:
         "endpoints": []
     });
 
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -460,7 +487,8 @@ paths:
     });
 
     // 1. First provide
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -475,7 +503,8 @@ paths:
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
     // 2. Second provide (identical) -> should be ACCEPTED (idempotent)
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -509,7 +538,8 @@ paths:
         "openapi_yaml": openapi_v1_compat
     });
 
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -554,14 +584,17 @@ components:
         "branch": "main",
         "openapi_yaml": openapi_v1_breaking
     });
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/provide")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&payload_with_schema).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&payload_with_schema).unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -598,7 +631,8 @@ components:
         "branch": "main",
         "openapi_yaml": openapi_v1_type_change
     });
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -648,7 +682,8 @@ components:
         "openapi_yaml": openapi_v2
     });
 
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -668,7 +703,8 @@ async fn test_protected_branches_api() {
     let (app, token) = setup_app_with_admin().await;
 
     // 1. List default protected branches
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -681,13 +717,16 @@ async fn test_protected_branches_api() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let branches: Vec<String> = serde_json::from_slice(&body).unwrap();
     assert!(branches.contains(&"main".to_string()));
     assert!(branches.contains(&"master".to_string()));
 
     // 2. Add a protected branch
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -695,7 +734,9 @@ async fn test_protected_branches_api() {
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({"pattern": "release"})).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"pattern": "release"})).unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -703,7 +744,8 @@ async fn test_protected_branches_api() {
     assert_eq!(response.status(), StatusCode::CREATED);
 
     // 3. Delete a protected branch
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("DELETE")
@@ -718,7 +760,8 @@ async fn test_protected_branches_api() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // 4. Delete non-existent -> 404
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("DELETE")
@@ -764,18 +807,22 @@ paths:
 "#;
 
     // Provide on feature branch
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/provide")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "servicename": "svc",
-                    "branch": "feature/test",
-                    "openapi_yaml": yaml1
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "servicename": "svc",
+                        "branch": "feature/test",
+                        "openapi_yaml": yaml1
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -783,18 +830,22 @@ paths:
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
     // Update on feature branch (should succeed, not protected)
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/provide")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "servicename": "svc",
-                    "branch": "feature/test",
-                    "openapi_yaml": yaml2
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "servicename": "svc",
+                        "branch": "feature/test",
+                        "openapi_yaml": yaml2
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -813,7 +864,9 @@ paths:
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let content = String::from_utf8(body.to_vec()).unwrap();
     assert!(content.contains("Updated DTO"));
 }
@@ -823,7 +876,8 @@ async fn test_admin_data_management() {
     let (app, token) = setup_app_with_admin().await;
 
     // Enable dev mode so API endpoints work without per-request auth
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -831,7 +885,9 @@ async fn test_admin_data_management() {
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({"enabled": true})).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"enabled": true})).unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -852,18 +908,22 @@ paths:
 "#;
 
     // Provide a spec
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/provide")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "servicename": "svc1",
-                    "branch": "main",
-                    "openapi_yaml": yaml
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "servicename": "svc1",
+                        "branch": "main",
+                        "openapi_yaml": yaml
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -884,7 +944,8 @@ paths:
     assert_eq!(response.status(), StatusCode::OK);
 
     // List services
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -896,12 +957,15 @@ paths:
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let svcs: Vec<Value> = serde_json::from_slice(&body).unwrap();
     assert!(svcs.iter().any(|s| s["name"] == "svc1"));
 
     // List branches
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -913,12 +977,15 @@ paths:
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let branches: Vec<String> = serde_json::from_slice(&body).unwrap();
     assert!(branches.contains(&"main".to_string()));
 
     // List clients
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -930,12 +997,15 @@ paths:
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let clients: Vec<String> = serde_json::from_slice(&body).unwrap();
     assert!(clients.contains(&"client1".to_string()));
 
     // Delete client
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("DELETE")
@@ -950,7 +1020,8 @@ paths:
     assert_eq!(response.status(), StatusCode::OK);
 
     // Delete non-existent client -> 404
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("DELETE")
@@ -965,7 +1036,8 @@ paths:
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
     // Delete service (cascades branches and endpoints)
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("DELETE")
@@ -980,7 +1052,8 @@ paths:
     assert_eq!(response.status(), StatusCode::OK);
 
     // Verify service is gone
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -992,7 +1065,9 @@ paths:
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let svcs: Vec<Value> = serde_json::from_slice(&body).unwrap();
     assert!(!svcs.iter().any(|s| s["name"] == "svc1"));
 }
@@ -1002,7 +1077,8 @@ async fn test_admin_auth_requires_session() {
     let (app, _) = setup_app().await;
 
     // 1. Request without token -> 401
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1015,7 +1091,8 @@ async fn test_admin_auth_requires_session() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     // 2. Request with invalid token -> 401
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1029,7 +1106,8 @@ async fn test_admin_auth_requires_session() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     // 3. Non-admin endpoint (health) still works
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1047,7 +1125,8 @@ async fn test_api_locked_without_dev_mode() {
     let (app, _) = setup_app().await;
 
     // API endpoints should be locked (dev_mode=false by default)
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1065,30 +1144,37 @@ async fn test_auth_login_and_session() {
     let (app, token) = setup_app_with_admin().await;
 
     // Login with correct credentials
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/auth/login")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "username": "admin",
-                    "password": "admin-pass"
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "username": "admin",
+                        "password": "admin-pass"
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let login_resp: Value = serde_json::from_slice(&body).unwrap();
     assert!(login_resp["token"].is_string());
     assert_eq!(login_resp["is_admin"], true);
     let new_token = login_resp["token"].as_str().unwrap();
 
     // Use new token to access /auth/me
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1100,23 +1186,29 @@ async fn test_auth_login_and_session() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let me: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(me["username"], "admin");
     assert_eq!(me["is_admin"], true);
 
     // Login with wrong password -> 401
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/auth/login")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "username": "admin",
-                    "password": "wrong"
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "username": "admin",
+                        "password": "wrong"
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -1124,7 +1216,8 @@ async fn test_auth_login_and_session() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     // Logout
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -1144,7 +1237,8 @@ async fn test_role_based_access_control() {
     let (app, admin_token) = setup_app_with_admin().await;
 
     // Enable local users
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -1152,7 +1246,9 @@ async fn test_role_based_access_control() {
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({"enabled": true})).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"enabled": true})).unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -1160,25 +1256,30 @@ async fn test_role_based_access_control() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Create a staff user (non-admin)
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/auth/register")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "username": "staff",
-                    "password": "staff-pass"
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "username": "staff",
+                        "password": "staff-pass"
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
-    
+
     // Admin lists users to find staff ID
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1190,13 +1291,21 @@ async fn test_role_based_access_control() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let users: Value = serde_json::from_slice(&body).unwrap();
-    let staff_user = users.as_array().unwrap().iter().find(|u| u["username"] == "staff").unwrap();
+    let staff_user = users
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["username"] == "staff")
+        .unwrap();
     let staff_id = staff_user["id"].as_i64().unwrap();
 
     // Approve staff user (still non-admin)
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -1211,29 +1320,36 @@ async fn test_role_based_access_control() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Login as staff
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/auth/login")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "username": "staff",
-                    "password": "staff-pass"
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "username": "staff",
+                        "password": "staff-pass"
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let login_resp: Value = serde_json::from_slice(&body).unwrap();
     let staff_token = login_resp["token"].as_str().unwrap().to_string();
     assert_eq!(login_resp["is_admin"], false);
 
     // 1. Staff should be able to see stats
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1247,7 +1363,8 @@ async fn test_role_based_access_control() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // 2. Staff should be able to see logs
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1261,7 +1378,8 @@ async fn test_role_based_access_control() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // 3. Staff should be able to see discovery routes (e.g. /admin/services)
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1275,14 +1393,20 @@ async fn test_role_based_access_control() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // 4. Staff should NOT be able to change debug config
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/admin/observability/debug-config")
                 .header("Authorization", format!("Bearer {}", staff_token))
                 .header("Content-Type", "application/json")
-                .body(Body::from(serde_json::to_vec(&json!({"business_logic_debug": true, "admin_user_debug": true})).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(
+                        &json!({"business_logic_debug": true, "admin_user_debug": true}),
+                    )
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -1290,7 +1414,8 @@ async fn test_role_based_access_control() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     // 5. Staff should NOT be able to delete a service
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("DELETE")
@@ -1310,7 +1435,8 @@ async fn test_dev_mode_toggle() {
     let (app, token) = setup_app_with_admin().await;
 
     // API should be locked by default
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1323,7 +1449,8 @@ async fn test_dev_mode_toggle() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     // Enable dev mode via admin
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -1331,7 +1458,9 @@ async fn test_dev_mode_toggle() {
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({"enabled": true})).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"enabled": true})).unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -1339,7 +1468,8 @@ async fn test_dev_mode_toggle() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Now API should work without auth (will get 404 since no data, but not 403)
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1357,17 +1487,21 @@ async fn test_user_registration_and_approval() {
     let (app, token) = setup_app_with_admin().await;
 
     // Registration should fail when local users disabled (default)
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/auth/register")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "username": "newuser",
-                    "password": "secret123"
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "username": "newuser",
+                        "password": "secret123"
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -1375,7 +1509,8 @@ async fn test_user_registration_and_approval() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     // Enable local users
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -1383,7 +1518,9 @@ async fn test_user_registration_and_approval() {
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({"enabled": true})).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"enabled": true})).unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -1391,17 +1528,21 @@ async fn test_user_registration_and_approval() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Register a new user
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/auth/register")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "username": "newuser",
-                    "password": "secret123"
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "username": "newuser",
+                        "password": "secret123"
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -1409,17 +1550,21 @@ async fn test_user_registration_and_approval() {
     assert_eq!(response.status(), StatusCode::CREATED);
 
     // Login should fail (not approved yet)
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/auth/login")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "username": "newuser",
-                    "password": "secret123"
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "username": "newuser",
+                        "password": "secret123"
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -1427,7 +1572,8 @@ async fn test_user_registration_and_approval() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     // Admin lists users
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1439,14 +1585,22 @@ async fn test_user_registration_and_approval() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let users: Value = serde_json::from_slice(&body).unwrap();
-    let new_user = users.as_array().unwrap().iter().find(|u| u["username"] == "newuser").unwrap();
+    let new_user = users
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["username"] == "newuser")
+        .unwrap();
     assert_eq!(new_user["approved"], false);
     let new_user_id = new_user["id"].as_i64().unwrap();
 
     // Admin approves user
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -1461,17 +1615,21 @@ async fn test_user_registration_and_approval() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Login should now succeed
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/auth/login")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "username": "newuser",
-                    "password": "secret123"
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "username": "newuser",
+                        "password": "secret123"
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -1479,17 +1637,21 @@ async fn test_user_registration_and_approval() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Duplicate registration should fail with 409
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/auth/register")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "username": "newuser",
-                    "password": "other"
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "username": "newuser",
+                        "password": "other"
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -1497,7 +1659,8 @@ async fn test_user_registration_and_approval() {
     assert_eq!(response.status(), StatusCode::CONFLICT);
 
     // Admin deletes user
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("DELETE")
@@ -1517,7 +1680,8 @@ async fn test_api_token_crud_and_bearer_auth() {
     let (app, token) = setup_app_with_admin().await;
 
     // Create an API token
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -1525,16 +1689,21 @@ async fn test_api_token_crud_and_bearer_auth() {
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "name": "jenkins-ci",
-                    "expires_in_days": 365
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "jenkins-ci",
+                        "expires_in_days": 365
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let create_resp: Value = serde_json::from_slice(&body).unwrap();
     let api_token = create_resp["token"].as_str().unwrap().to_string();
     let token_id = create_resp["id"].as_str().unwrap().to_string();
@@ -1542,7 +1711,8 @@ async fn test_api_token_crud_and_bearer_auth() {
     assert_eq!(create_resp["name"], "jenkins-ci");
 
     // List tokens
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1554,13 +1724,16 @@ async fn test_api_token_crud_and_bearer_auth() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let tokens_list: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(tokens_list.as_array().unwrap().len(), 1);
     assert_eq!(tokens_list[0]["name"], "jenkins-ci");
 
     // Disable dev mode so API endpoints require auth
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -1568,7 +1741,9 @@ async fn test_api_token_crud_and_bearer_auth() {
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({ "enabled": false })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({ "enabled": false })).unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -1576,7 +1751,8 @@ async fn test_api_token_crud_and_bearer_auth() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Use API token for /report (should work)
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1590,7 +1766,8 @@ async fn test_api_token_crud_and_bearer_auth() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Use invalid API token (should fail)
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1604,7 +1781,8 @@ async fn test_api_token_crud_and_bearer_auth() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     // Revoke the token
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("DELETE")
@@ -1619,7 +1797,8 @@ async fn test_api_token_crud_and_bearer_auth() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // List should be empty now
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1631,7 +1810,9 @@ async fn test_api_token_crud_and_bearer_auth() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let tokens_list: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(tokens_list.as_array().unwrap().len(), 0);
 }
@@ -1641,7 +1822,8 @@ async fn test_auth_config_api() {
     let (app, token) = setup_app_with_admin().await;
 
     // GET auth-config — default should be "dev"
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1653,12 +1835,15 @@ async fn test_auth_config_api() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let data: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(data["auth_mode"], "dev");
 
     // PUT auth-config — switch to local
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("PUT")
@@ -1666,9 +1851,12 @@ async fn test_auth_config_api() {
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "auth_mode": "local"
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "auth_mode": "local"
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -1676,7 +1864,8 @@ async fn test_auth_config_api() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Verify it changed
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1688,12 +1877,15 @@ async fn test_auth_config_api() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let data: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(data["auth_mode"], "local");
 
     // PUT auth-config — switch to ldap with config
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("PUT")
@@ -1701,17 +1893,20 @@ async fn test_auth_config_api() {
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "auth_mode": "ldap",
-                    "ldap_config": {
-                        "server_url": "ldap://ldap.example.com:389",
-                        "bind_dn": "cn=admin,dc=example,dc=com",
-                        "bind_password": "secret",
-                        "base_dn": "dc=example,dc=com",
-                        "user_filter": "(uid={username})",
-                        "admin_group": "cn=admins,ou=groups,dc=example,dc=com"
-                    }
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "auth_mode": "ldap",
+                        "ldap_config": {
+                            "server_url": "ldap://ldap.example.com:389",
+                            "bind_dn": "cn=admin,dc=example,dc=com",
+                            "bind_password": "secret",
+                            "base_dn": "dc=example,dc=com",
+                            "user_filter": "(uid={username})",
+                            "admin_group": "cn=admins,ou=groups,dc=example,dc=com"
+                        }
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -1719,7 +1914,8 @@ async fn test_auth_config_api() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Verify LDAP config is returned with redacted password
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1731,14 +1927,20 @@ async fn test_auth_config_api() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
     let data: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(data["auth_mode"], "ldap");
-    assert_eq!(data["ldap_config"]["server_url"], "ldap://ldap.example.com:389");
+    assert_eq!(
+        data["ldap_config"]["server_url"],
+        "ldap://ldap.example.com:389"
+    );
     assert_eq!(data["ldap_config"]["bind_password"], "****");
 
     // PUT with invalid auth mode should fail
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("PUT")
@@ -1746,9 +1948,12 @@ async fn test_auth_config_api() {
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "auth_mode": "invalid"
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "auth_mode": "invalid"
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -1756,7 +1961,8 @@ async fn test_auth_config_api() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     // PUT ldap without config should fail
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("PUT")
@@ -1764,9 +1970,12 @@ async fn test_auth_config_api() {
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "auth_mode": "ldap"
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "auth_mode": "ldap"
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -1774,7 +1983,8 @@ async fn test_auth_config_api() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     // Requires admin auth
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1857,7 +2067,8 @@ components:
         "openapi_yaml": openapi_yaml
     });
 
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -1885,14 +2096,21 @@ components:
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let content_encoding = response.headers().get("content-encoding").map(|v| v.to_str().unwrap().to_string());
-    assert_eq!(content_encoding, Some("gzip".to_string()), "Response should be gzip-compressed");
+    let content_encoding = response
+        .headers()
+        .get("content-encoding")
+        .map(|v| v.to_str().unwrap().to_string());
+    assert_eq!(
+        content_encoding,
+        Some("gzip".to_string()),
+        "Response should be gzip-compressed"
+    );
 }
 
 #[tokio::test]
 async fn test_gzip_request_decompression() {
-    use flate2::write::GzEncoder;
     use flate2::Compression;
+    use flate2::write::GzEncoder;
     use std::io::Write;
 
     let app = setup_app_dev_mode().await;
@@ -1915,13 +2133,15 @@ paths:
         "servicename": "gzip-request-test",
         "branch": "main",
         "openapi_yaml": openapi_yaml
-    })).unwrap();
+    }))
+    .unwrap();
 
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder.write_all(&payload).unwrap();
     let compressed = encoder.finish().unwrap();
 
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -1934,7 +2154,11 @@ paths:
         )
         .await
         .unwrap();
-    assert!(response.status().is_success(), "Server should accept gzip-compressed request body, got {}", response.status());
+    assert!(
+        response.status().is_success(),
+        "Server should accept gzip-compressed request body, got {}",
+        response.status()
+    );
 }
 
 #[tokio::test]
@@ -1942,7 +2166,8 @@ async fn test_branch_max_age_api() {
     let (app, admin_token) = setup_app_with_admin().await;
 
     // GET default max-age
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1954,12 +2179,15 @@ async fn test_branch_max_age_api() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["days"], 30);
 
     // SET max-age to 7 days
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -1975,7 +2203,8 @@ async fn test_branch_max_age_api() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Verify it changed
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -1986,12 +2215,15 @@ async fn test_branch_max_age_api() {
         )
         .await
         .unwrap();
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["days"], 7);
 
     // SET 0 should fail
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2007,7 +2239,8 @@ async fn test_branch_max_age_api() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     // Trigger cleanup (should delete 0 on empty DB)
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2021,12 +2254,15 @@ async fn test_branch_max_age_api() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["deleted"], 0);
 
     // Requires admin auth
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -2044,7 +2280,8 @@ async fn test_dependency_max_age_api() {
     let (app, admin_token) = setup_app_with_admin().await;
 
     // GET default max-age
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -2056,12 +2293,15 @@ async fn test_dependency_max_age_api() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["days"], 30);
 
     // SET max-age to 14 days
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2069,7 +2309,9 @@ async fn test_dependency_max_age_api() {
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({"days": 14})).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"days": 14})).unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -2077,7 +2319,8 @@ async fn test_dependency_max_age_api() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Verify it changed
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -2088,12 +2331,15 @@ async fn test_dependency_max_age_api() {
         )
         .await
         .unwrap();
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["days"], 14);
 
     // SET 0 should fail
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2109,7 +2355,8 @@ async fn test_dependency_max_age_api() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     // Trigger cleanup (should delete 0 on empty DB)
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2123,7 +2370,9 @@ async fn test_dependency_max_age_api() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["deleted"], 0);
 }
@@ -2133,7 +2382,8 @@ async fn test_htmx_fragment_endpoints() {
     let (app, admin_token) = setup_app_with_admin().await;
 
     // GET /fragments/admin/users — should return HTML fragment
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/fragments/admin/users")
@@ -2145,12 +2395,17 @@ async fn test_htmx_fragment_endpoints() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = String::from_utf8(
-        axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec()
-    ).unwrap();
+        axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
     assert!(body.contains("admin")); // at least the admin user should appear
 
     // GET /fragments/admin/dev-mode — should return toggle HTML
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/fragments/admin/dev-mode")
@@ -2162,12 +2417,17 @@ async fn test_htmx_fragment_endpoints() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = String::from_utf8(
-        axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec()
-    ).unwrap();
+        axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
     assert!(body.contains("hx-post")); // should contain htmx attributes
 
     // POST /fragments/admin/dev-mode/toggle — should toggle and return HTML
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2181,12 +2441,17 @@ async fn test_htmx_fragment_endpoints() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = String::from_utf8(
-        axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec()
-    ).unwrap();
+        axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
     assert!(body.contains("Enabled")); // dev mode was off, now on
 
     // GET /fragments/admin/services — should return HTML (empty list)
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/fragments/admin/services")
@@ -2198,12 +2463,17 @@ async fn test_htmx_fragment_endpoints() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = String::from_utf8(
-        axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec()
-    ).unwrap();
+        axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
     assert!(body.contains("No services"));
 
     // GET /fragments/admin/database-info — should return backend info
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/fragments/admin/database-info")
@@ -2215,12 +2485,17 @@ async fn test_htmx_fragment_endpoints() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = String::from_utf8(
-        axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec()
-    ).unwrap();
+        axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
     assert!(body.contains("sqlite") || body.contains("SQLite") || body.contains("Backend"));
 
     // GET /admin.html — should return the full admin page template
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/admin.html")
@@ -2231,8 +2506,12 @@ async fn test_htmx_fragment_endpoints() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = String::from_utf8(
-        axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec()
-    ).unwrap();
+        axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
     assert!(body.contains("htmx.org"));
     assert!(body.contains("hx-get"));
 }
@@ -2264,7 +2543,8 @@ async fn test_require_does_not_create_phantom_service() {
     let _ = response.status();
 
     // List services via admin API — phantom-service should NOT appear
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/admin/services")
@@ -2275,7 +2555,9 @@ async fn test_require_does_not_create_phantom_service() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let services: Vec<String> = serde_json::from_slice(&body).unwrap();
     assert!(
         !services.contains(&"phantom-service".to_string()),
@@ -2294,7 +2576,8 @@ async fn test_delete_service_does_not_create_phantom_client() {
         "branch": "main",
         "openapi_yaml": yaml
     });
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2323,7 +2606,8 @@ async fn test_delete_service_does_not_create_phantom_client() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Verify client appears in the list
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/admin/clients")
@@ -2334,12 +2618,15 @@ async fn test_delete_service_does_not_create_phantom_client() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let clients: Vec<String> = serde_json::from_slice(&body).unwrap();
     assert!(clients.contains(&"orphan-client".to_string()));
 
     // Delete the service — this removes dependencies but leaves the client row
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("DELETE")
@@ -2354,7 +2641,8 @@ async fn test_delete_service_does_not_create_phantom_client() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Client should NOT appear in the list anymore (no dependencies left)
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/admin/clients")
@@ -2365,7 +2653,9 @@ async fn test_delete_service_does_not_create_phantom_client() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let clients: Vec<String> = serde_json::from_slice(&body).unwrap();
     assert!(
         !clients.contains(&"orphan-client".to_string()),
@@ -2395,7 +2685,8 @@ paths:
         "branch": "main",
         "openapi_yaml": yaml
     });
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2420,10 +2711,20 @@ paths:
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body_str = String::from_utf8_lossy(&body);
-    assert!(body_str.contains("GET /missing"), "Error body should contain the missing endpoint: {}", body_str);
-    assert!(body_str.contains("err-svc"), "Error body should contain the service name: {}", body_str);
+    assert!(
+        body_str.contains("GET /missing"),
+        "Error body should contain the missing endpoint: {}",
+        body_str
+    );
+    assert!(
+        body_str.contains("err-svc"),
+        "Error body should contain the service name: {}",
+        body_str
+    );
 }
 
 #[tokio::test]
@@ -2479,33 +2780,52 @@ components:
 
     // Provide first version
     let payload = json!({ "servicename": "conflict-svc", "branch": "main", "openapi_yaml": yaml1 });
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .method("POST").uri("/provide")
+                .method("POST")
+                .uri("/provide")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(serde_json::to_vec(&payload).unwrap()))
                 .unwrap(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
     // Provide breaking change on protected branch — should get 409 with descriptive body
-    let payload2 = json!({ "servicename": "conflict-svc", "branch": "main", "openapi_yaml": yaml2 });
-    let response: Response = app.clone()
+    let payload2 =
+        json!({ "servicename": "conflict-svc", "branch": "main", "openapi_yaml": yaml2 });
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .method("POST").uri("/provide")
+                .method("POST")
+                .uri("/provide")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(serde_json::to_vec(&payload2).unwrap()))
                 .unwrap(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body_str = String::from_utf8_lossy(&body);
-    assert!(body_str.contains("User"), "Error body should contain schema name: {}", body_str);
-    assert!(body_str.contains("conflict-svc"), "Error body should contain service name: {}", body_str);
+    assert!(
+        body_str.contains("User"),
+        "Error body should contain schema name: {}",
+        body_str
+    );
+    assert!(
+        body_str.contains("conflict-svc"),
+        "Error body should contain service name: {}",
+        body_str
+    );
 }
 
 #[tokio::test]
@@ -2527,15 +2847,19 @@ paths:
 
     // Provide with dry_run=true
     let payload = json!({ "servicename": "dry-svc", "branch": "main", "openapi_yaml": yaml, "dry_run": true });
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .method("POST").uri("/provide")
+                .method("POST")
+                .uri("/provide")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(serde_json::to_vec(&payload).unwrap()))
                 .unwrap(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
     // Require the endpoint — should NOT be found since dry_run didn't store it
@@ -2568,16 +2892,20 @@ paths:
 
     // Provide a real spec
     let payload = json!({ "servicename": "dryreq-svc", "branch": "main", "openapi_yaml": yaml });
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .method("POST").uri("/provide")
+                .method("POST")
+                .uri("/provide")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::from(serde_json::to_vec(&payload).unwrap()))
                 .unwrap(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
     // Require with dry_run=true — should return the YAML but not create a client
@@ -2592,16 +2920,21 @@ paths:
     assert_eq!(response.status(), StatusCode::OK);
 
     // Client should NOT appear in the clients list
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/admin/clients")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let clients: Vec<String> = serde_json::from_slice(&body).unwrap();
     assert!(
         !clients.contains(&"dry-client".to_string()),
@@ -2620,7 +2953,8 @@ async fn test_multiple_provides() {
         "openapi_yaml": "openapi: 3.0.0\ninfo:\n  title: Test\n  version: 1.0.0\npaths:\n  /hello:\n    get:\n      responses:\n        '200':\n          description: OK"
     });
 
-    let res = app.clone()
+    let res = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2641,7 +2975,8 @@ async fn test_multiple_provides() {
         "proto_content": "syntax = \"proto3\";\npackage test;\nservice TestService {\n  rpc Hello (HelloRequest) returns (HelloResponse);\n}\nmessage HelloRequest {}\nmessage HelloResponse {}"
     });
 
-    let res = app.clone()
+    let res = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2662,7 +2997,8 @@ async fn test_multiple_provides() {
         "asyncapi_yaml": "asyncapi: 2.0.0\ninfo:\n  title: Test\n  version: 1.0.0\nchannels:\n  events:\n    publish:\n      message:\n        payload:\n          type: object"
     });
 
-    let res = app.clone()
+    let res = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2677,7 +3013,8 @@ async fn test_multiple_provides() {
     assert_eq!(res.status(), StatusCode::ACCEPTED);
 
     // 3. Verify all 3 exist via admin list endpoints
-    let res = app.clone()
+    let res = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -2689,15 +3026,21 @@ async fn test_multiple_provides() {
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
-    
+
     let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
     let endpoints: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let endpoints_list = endpoints.as_array().expect("Response should be an array");
-    
+
     // OpenAPI has 1 endpoint, Proto has 1 endpoint, AsyncAPI has 1 endpoint. Total 3.
-    assert_eq!(endpoints_list.len(), 3, "Should have 3 endpoints, got: {:?}", endpoints_list);
-    
-    let types: Vec<String> = endpoints_list.iter()
+    assert_eq!(
+        endpoints_list.len(),
+        3,
+        "Should have 3 endpoints, got: {:?}",
+        endpoints_list
+    );
+
+    let types: Vec<String> = endpoints_list
+        .iter()
         .map(|e| e["api_type"].as_str().unwrap().to_string())
         .collect();
     assert!(types.contains(&"openapi".to_string()));
@@ -2716,7 +3059,8 @@ async fn test_client_with_missing_endpoint_appears_in_list() {
         "branch": "main",
         "openapi_yaml": yaml
     });
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2746,7 +3090,8 @@ async fn test_client_with_missing_endpoint_appears_in_list() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
     // Client should still appear in the clients list
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/admin/clients")
@@ -2757,15 +3102,19 @@ async fn test_client_with_missing_endpoint_appears_in_list() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let clients: Vec<String> = serde_json::from_slice(&body).unwrap();
     assert!(
         clients.contains(&"missing-client".to_string()),
-        "Client with missing endpoint should appear in clients list, got: {:?}", clients
+        "Client with missing endpoint should appear in clients list, got: {:?}",
+        clients
     );
 
     // The report should show this in missing_endpoints
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/report?branch=main")
@@ -2776,7 +3125,9 @@ async fn test_client_with_missing_endpoint_appears_in_list() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let report: Value = serde_json::from_slice(&body).unwrap();
     let missing = report["missing_endpoints"].as_array().unwrap();
     assert!(
@@ -2797,7 +3148,8 @@ async fn test_no_duplicate_null_endpoint_dependencies() {
         "branch": "main",
         "openapi_yaml": yaml
     });
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2827,7 +3179,8 @@ async fn test_no_duplicate_null_endpoint_dependencies() {
     }
 
     // Check report: should have exactly ONE missing endpoint entry, not two
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/report?branch=main")
@@ -2838,15 +3191,23 @@ async fn test_no_duplicate_null_endpoint_dependencies() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let report: Value = serde_json::from_slice(&body).unwrap();
     let missing = report["missing_endpoints"].as_array().unwrap();
-    let dedup_missing: Vec<&Value> = missing.iter()
-        .filter(|m| m["client"].as_str() == Some("dedup-client") && m["service"].as_str() == Some("dedup-svc"))
+    let dedup_missing: Vec<&Value> = missing
+        .iter()
+        .filter(|m| {
+            m["client"].as_str() == Some("dedup-client")
+                && m["service"].as_str() == Some("dedup-svc")
+        })
         .collect();
     assert_eq!(
-        dedup_missing.len(), 1,
-        "Should have exactly 1 missing endpoint entry, not duplicates. Got: {:?}", dedup_missing
+        dedup_missing.len(),
+        1,
+        "Should have exactly 1 missing endpoint entry, not duplicates. Got: {:?}",
+        dedup_missing
     );
 }
 
@@ -2856,7 +3217,8 @@ async fn test_nuke_endpoints() {
 
     // Provide a service
     let yaml = "openapi: '3.0.0'\ninfo:\n  title: Svc\n  version: '1.0'\npaths:\n  /items:\n    get:\n      operationId: getItems\n      responses:\n        '200':\n          description: OK\n";
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2864,11 +3226,14 @@ async fn test_nuke_endpoints() {
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .header("Content-Type", "application/json")
-                .body(Body::from(serde_json::to_vec(&json!({
-                    "servicename": "nuke-svc",
-                    "branch": "main",
-                    "openapi_yaml": yaml
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "servicename": "nuke-svc",
+                        "branch": "main",
+                        "openapi_yaml": yaml
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -2888,7 +3253,8 @@ async fn test_nuke_endpoints() {
         .unwrap();
 
     // Nuke services with wrong confirmation should fail
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2896,7 +3262,9 @@ async fn test_nuke_endpoints() {
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({"confirmation": "wrong"})).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"confirmation": "wrong"})).unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -2904,7 +3272,8 @@ async fn test_nuke_endpoints() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     // Nuke services with correct confirmation
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2912,18 +3281,23 @@ async fn test_nuke_endpoints() {
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({"confirmation": "DELETE ALL SERVICES"})).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"confirmation": "DELETE ALL SERVICES"})).unwrap(),
+                ))
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let result: Value = serde_json::from_slice(&body).unwrap();
     assert!(result["deleted"].as_u64().unwrap() >= 1);
 
     // Verify services list is empty
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/admin/services")
@@ -2934,12 +3308,15 @@ async fn test_nuke_endpoints() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let services: Vec<Value> = serde_json::from_slice(&body).unwrap();
     assert!(services.is_empty(), "Services should be empty after nuke");
 
     // Nuke clients
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -2947,7 +3324,9 @@ async fn test_nuke_endpoints() {
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&json!({"confirmation": "DELETE ALL CLIENTS"})).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"confirmation": "DELETE ALL CLIENTS"})).unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -2955,7 +3334,8 @@ async fn test_nuke_endpoints() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Verify clients list is empty
-    let response: Response = app.clone()
+    let response: Response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/admin/clients")
@@ -2966,7 +3346,9 @@ async fn test_nuke_endpoints() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let clients: Vec<String> = serde_json::from_slice(&body).unwrap();
     assert!(clients.is_empty(), "Clients should be empty after nuke");
 }
@@ -3015,66 +3397,118 @@ paths:
 "#;
 
     // 1. ALPHA provides v1 on feature branch.
-    let payload_alpha_v1 = json!({ "servicename": "alpha-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v1 });
-    let response = app.clone().oneshot(
-        Request::builder().method("POST").uri("/provide")
-            .header("Content-Type", "application/json")
-            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-            .body(Body::from(serde_json::to_vec(&payload_alpha_v1).unwrap())).unwrap()
-    ).await.unwrap();
+    let payload_alpha_v1 =
+        json!({ "servicename": "alpha-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v1 });
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload_alpha_v1).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
     // 2. BETA provides v1 on same branch. Should be OK (same as source).
-    let payload_beta_v1 = json!({ "servicename": "beta-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v1 });
-    let response = app.clone().oneshot(
-        Request::builder().method("POST").uri("/provide")
-            .header("Content-Type", "application/json")
-            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-            .body(Body::from(serde_json::to_vec(&payload_beta_v1).unwrap())).unwrap()
-    ).await.unwrap();
+    let payload_beta_v1 =
+        json!({ "servicename": "beta-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v1 });
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload_beta_v1).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
     // 3. ALPHA provides compatible modification. OK. ALPHA becomes owner.
     let payload_alpha_v2 = json!({ "servicename": "alpha-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v2_compatible });
-    let response = app.clone().oneshot(
-        Request::builder().method("POST").uri("/provide")
-            .header("Content-Type", "application/json")
-            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-            .body(Body::from(serde_json::to_vec(&payload_alpha_v2).unwrap())).unwrap()
-    ).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload_alpha_v2).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
     // 4. BETA provides breaking change. Should fail (conflict with current ALPHA owner).
     let payload_beta_v2_breaking = json!({ "servicename": "beta-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v2_breaking });
-    let response = app.clone().oneshot(
-        Request::builder().method("POST").uri("/provide")
-            .header("Content-Type", "application/json")
-            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-            .body(Body::from(serde_json::to_vec(&payload_beta_v2_breaking).unwrap())).unwrap()
-    ).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&payload_beta_v2_breaking).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body_str = String::from_utf8_lossy(&body);
     assert!(body_str.contains("current owner's version"));
 
     // 5. ALPHA provides v1 again. OK. Reverts to source, owner becomes None.
-    let response = app.clone().oneshot(
-        Request::builder().method("POST").uri("/provide")
-            .header("Content-Type", "application/json")
-            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-            .body(Body::from(serde_json::to_vec(&payload_alpha_v1).unwrap())).unwrap()
-    ).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload_alpha_v1).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
     // 6. BETA provides breaking change. Should fail (conflict with source).
-    let response = app.clone().oneshot(
-        Request::builder().method("POST").uri("/provide")
-            .header("Content-Type", "application/json")
-            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-            .body(Body::from(serde_json::to_vec(&payload_beta_v2_breaking).unwrap())).unwrap()
-    ).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&payload_beta_v2_breaking).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body_str = String::from_utf8_lossy(&body);
     assert!(body_str.contains("source version"));
 }
@@ -3087,40 +3521,69 @@ async fn test_problem_3_optimistic_concurrency_integration() {
 
     // 1. First provide
     let payload1 = json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml1 });
-    let response = app.clone().oneshot(
-        Request::builder().method("POST").uri("/provide")
-            .header("Content-Type", "application/json")
-            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-            .body(Body::from(serde_json::to_vec(&payload1).unwrap())).unwrap()
-    ).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload1).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let res1: ProvideResponse = serde_json::from_slice(&body).unwrap();
     assert_eq!(res1.version, 1);
 
     // 2. Second provide with correct base_version
-    let payload2 = json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml2, "base_version": 1 });
-    let response = app.clone().oneshot(
-        Request::builder().method("POST").uri("/provide")
-            .header("Content-Type", "application/json")
-            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-            .body(Body::from(serde_json::to_vec(&payload2).unwrap())).unwrap()
-    ).await.unwrap();
+    let payload2 =
+        json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml2, "base_version": 1 });
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload2).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let res2: ProvideResponse = serde_json::from_slice(&body).unwrap();
     assert_eq!(res2.version, 2);
 
     // 3. Third provide with OUTDATED base_version
-    let payload3 = json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml1, "base_version": 1 });
-    let response = app.clone().oneshot(
-        Request::builder().method("POST").uri("/provide")
-            .header("Content-Type", "application/json")
-            .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-            .body(Body::from(serde_json::to_vec(&payload3).unwrap())).unwrap()
-    ).await.unwrap();
+    let payload3 =
+        json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml1, "base_version": 1 });
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload3).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body_str = String::from_utf8_lossy(&body);
     assert!(body_str.contains("Outdated spec version"));
 }

@@ -1,14 +1,14 @@
-use std::str::FromStr;
-use axum::{
-    extract::{Query, State, Path},
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
-use serde::Deserialize;
 use crate::AppState;
 use crate::application::services::{self, AppError};
-use crate::domain::models::{AuthMode, LdapConfig, ApiType};
+use crate::domain::models::{ApiType, AuthMode, LdapConfig};
+use axum::{
+    Json,
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+};
+use serde::Deserialize;
+use std::str::FromStr;
 
 pub async fn admin_list_services(
     State(state): State<AppState>,
@@ -76,7 +76,15 @@ pub async fn admin_get_endpoint_yaml(
     State(state): State<AppState>,
     Query(query): Query<AdminEndpointYamlQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::get_endpoint_yaml(&state.repo, &query.servicename, &query.branch, query.api_type, &query.path, &query.method).await?;
+    let res = services::get_endpoint_yaml(
+        &state.repo,
+        &query.servicename,
+        &query.branch,
+        query.api_type,
+        &query.path,
+        &query.method,
+    )
+    .await?;
     Ok(res)
 }
 
@@ -84,7 +92,15 @@ pub async fn admin_get_endpoint_versions(
     State(state): State<AppState>,
     Query(query): Query<AdminEndpointYamlQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::get_endpoint_version_history(&state.repo, &query.servicename, &query.branch, query.api_type, &query.path, &query.method).await?;
+    let res = services::get_endpoint_version_history(
+        &state.repo,
+        &query.servicename,
+        &query.branch,
+        query.api_type,
+        &query.path,
+        &query.method,
+    )
+    .await?;
     Ok(Json(res))
 }
 
@@ -115,7 +131,10 @@ pub async fn delete_protected_branch(
     if services::remove_protected_branch(&state.repo, &pattern).await? {
         Ok(StatusCode::OK)
     } else {
-        Err(AppError::NotFound(format!("Protected branch pattern {} not found", pattern)))
+        Err(AppError::NotFound(format!(
+            "Protected branch pattern {} not found",
+            pattern
+        )))
     }
 }
 
@@ -137,7 +156,10 @@ pub async fn admin_delete_branch(
     if services::delete_branch(&state.repo, &name, &branch).await? {
         Ok(StatusCode::OK)
     } else {
-        Err(AppError::NotFound(format!("Branch {} for service {} not found", branch, name)))
+        Err(AppError::NotFound(format!(
+            "Branch {} for service {} not found",
+            branch, name
+        )))
     }
 }
 
@@ -152,9 +174,7 @@ pub async fn admin_delete_client(
     }
 }
 
-pub async fn get_dev_mode(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
+pub async fn get_dev_mode(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     let res = services::get_dev_mode(&state.repo).await?;
     Ok(Json(res))
 }
@@ -172,9 +192,7 @@ pub async fn set_dev_mode(
     Ok(StatusCode::OK)
 }
 
-pub async fn get_local_users(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
+pub async fn get_local_users(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     let res = services::get_local_users_enabled(&state.repo).await?;
     Ok(Json(res))
 }
@@ -202,12 +220,10 @@ pub async fn set_auto_approve_users(
     Ok(StatusCode::OK)
 }
 
-pub async fn get_auth_config(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
+pub async fn get_auth_config(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     let mode = services::get_auth_mode(&state.repo).await?;
     let ldap = services::get_ldap_config(&state.repo).await?;
-    
+
     let ldap_val = ldap.map(|mut l| {
         if l.bind_password.is_some() {
             l.bind_password = Some("****".to_string());
@@ -235,7 +251,9 @@ pub async fn set_auth_config(
         .map_err(|_| AppError::BadRequest(format!("Invalid auth mode: {}", payload.auth_mode)))?;
 
     if mode == AuthMode::Ldap && payload.ldap_config.is_none() {
-        return Err(AppError::BadRequest("LDAP config required for ldap mode".to_string()));
+        return Err(AppError::BadRequest(
+            "LDAP config required for ldap mode".to_string(),
+        ));
     }
 
     services::set_auth_mode(&state.repo, &mode).await?;
