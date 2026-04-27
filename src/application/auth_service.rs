@@ -34,12 +34,18 @@ pub fn generate_random_password() -> String {
 pub async fn ensure_initial_admin(repo: &impl SpecRepository) -> Result<(), AppError> {
     let count = repo.user_count().await?;
     if count == 0 {
-        let password = generate_random_password();
+        let username =
+            std::env::var("INITIAL_ADMIN_USERNAME").unwrap_or_else(|_| "root".to_string());
+        let password =
+            std::env::var("INITIAL_ADMIN_PASSWORD").unwrap_or_else(|_| generate_random_password());
         let hash = hash_password(&password)?;
-        repo.create_user("admin", &hash, true, true).await?;
-        tracing::info!(
-            "Initial admin user created. Username: admin, Password: {}",
-            password
+        repo.create_user(&username, &hash, true, true).await?;
+        eprintln!(
+            "[INITIAL SETUP] Admin user created. Username: {}, Password: {}",
+            username, password
+        );
+        eprintln!(
+            "[INITIAL SETUP] Change this password immediately at http://localhost:3000/admin.html"
         );
     }
     Ok(())
@@ -321,7 +327,7 @@ mod tests {
         ensure_initial_admin(&repo).await.unwrap();
         let users = repo.list_users().await.unwrap();
         assert_eq!(users.len(), 1);
-        assert_eq!(users[0].username, "admin");
+        assert_eq!(users[0].username, "root");
         assert!(users[0].is_admin);
     }
 
