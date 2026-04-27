@@ -181,6 +181,9 @@ pub async fn main() {
         .unwrap_or(100);
 
     let (spec_updated_tx, _) = tokio::sync::broadcast::channel(spec_updated_channel_size);
+    let mut system = sysinfo::System::new_all();
+    system.refresh_all();
+
     let state = AppState {
         repo,
         db_url: db_connection_str,
@@ -197,6 +200,7 @@ pub async fn main() {
         failures_total,
         process_start_time: Utc::now(),
         prometheus_handle,
+        system: Arc::new(std::sync::Mutex::new(system)),
     };
 
     // Spawn background branch cleanup task

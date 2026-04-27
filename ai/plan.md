@@ -57,6 +57,7 @@ The following major milestones have been delivered and are fully functional:
 - [x] Remove the unused `DashboardTemplate.is_admin` field warning after the unified banner cleanup.
 - [x] Restore direct banner navigation to the discovery subviews (services, clients, graph, reports) after the banner unification accidentally hid those entry points.
 - [x] Update the changelog to describe the user-visible banner/navigation/license fixes and the major DDD refactoring for v0.13.1.
+- [x] Restore the broken observability raw metrics link by exposing the Prometheus endpoint at `/metrics` again and cover it with an integration regression test.
 
 ### Deployment
 - [ ] Kubernetes manifests (Deployment, Service, Ingress, ConfigMap, Secret).

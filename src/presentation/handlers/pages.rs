@@ -1,6 +1,9 @@
 use askama::Template;
+use axum::extract::State;
+use axum::http::header::CONTENT_TYPE;
 use axum::response::{Html, IntoResponse, Response};
 
+use crate::AppState;
 use crate::domain::models::AppError;
 
 #[derive(Template)]
@@ -39,6 +42,13 @@ pub async fn dashboard_page(
 
 pub async fn health() -> &'static str {
     "OK"
+}
+
+pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
+    (
+        [(CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+        state.prometheus_handle.render(),
+    )
 }
 
 pub async fn license_text() -> &'static str {

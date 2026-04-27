@@ -44,6 +44,7 @@ pub struct AppState {
     pub failures_total: Arc<AtomicU64>,
     pub process_start_time: DateTime<Utc>,
     pub prometheus_handle: metrics_exporter_prometheus::PrometheusHandle,
+    pub system: Arc<std::sync::Mutex<sysinfo::System>>,
 }
 
 pub fn create_app(state: AppState) -> Router {
@@ -119,6 +120,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/", get(pages::index_page))
         .route("/dashboard", get(pages::dashboard_page).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/health", get(pages::health))
+        .route("/metrics", get(pages::metrics))
         .route("/LICENSE", get(pages::license_text))
         .route("/version", get(|State(s): State<AppState>| async move { axum::Json(serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "instance_id": s.instance_id})) }))
 
@@ -170,6 +172,16 @@ mod tests {
             "The following admin routes are missing auth middleware: {:?}\n\
              Every /admin/* route must use `admin_auth` or `authenticated_auth`.",
             unprotected
+        );
+    }
+
+    #[test]
+    fn metrics_route_is_registered() {
+        let source = include_str!("lib.rs");
+
+        assert!(
+            source.contains(".route(\"/metrics\", get(pages::metrics))"),
+            "The app router must expose the Prometheus metrics endpoint at /metrics.",
         );
     }
 }

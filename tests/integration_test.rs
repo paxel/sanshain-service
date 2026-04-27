@@ -60,6 +60,7 @@ async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
         failures_total: Arc::new(AtomicU64::new(0)),
         process_start_time: Utc::now(),
         prometheus_handle: get_test_prometheus_handle(),
+        system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
     };
     let app = create_app(state);
     (app, repo)
@@ -111,6 +112,7 @@ async fn setup_app_with_admin() -> (axum::Router, String) {
         failures_total: Arc::new(AtomicU64::new(0)),
         process_start_time: Utc::now(),
         prometheus_handle: get_test_prometheus_handle(),
+        system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
     };
     let app = create_app(state);
     (app, session.token)
@@ -132,6 +134,28 @@ async fn test_health_endpoint() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_metrics_endpoint_is_available() {
+    let (app, _) = setup_app().await;
+
+    let response: Response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/metrics")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get("content-type").unwrap(),
+        "text/plain; version=0.0.4; charset=utf-8"
+    );
 }
 
 #[tokio::test]

@@ -427,17 +427,24 @@ pub async fn get_observability_stats(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
     use crate::domain::models::SystemStats;
+    let mut system = state.system.lock().map_err(|_| AppError::Internal("System stats lock poisoned".to_string()))?;
+    system.refresh_cpu_usage();
+    system.refresh_memory();
+
     let stats = SystemStats {
+        cpu_usage: system.global_cpu_usage(),
+        memory_used: system.used_memory(),
+        memory_total: system.total_memory(),
+        system_uptime: sysinfo::System::uptime(),
+        process_uptime: (chrono::Utc::now() - state.process_start_time)
+            .num_seconds()
+            .max(0) as u64,
         requests_total: state
             .requests_total
             .load(std::sync::atomic::Ordering::Relaxed),
         failures_total: state
             .failures_total
             .load(std::sync::atomic::Ordering::Relaxed),
-        process_uptime: (chrono::Utc::now() - state.process_start_time)
-            .num_seconds()
-            .max(0) as u64,
-        ..Default::default()
     };
     Ok(Json(stats))
 }
@@ -446,10 +453,10 @@ pub async fn get_observability_logs(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
     use crate::domain::models::LogResponse;
-    let errors = state.error_buffer.lock().unwrap().iter().cloned().collect();
-    let warnings = state.warn_buffer.lock().unwrap().iter().cloned().collect();
-    let infos = state.info_buffer.lock().unwrap().iter().cloned().collect();
-    let debugs = state.debug_buffer.lock().unwrap().iter().cloned().collect();
+    let errors = state.error_buffer.lock().map_err(|_| AppError::Internal("Error buffer lock poisoned".to_string()))?.iter().cloned().collect();
+    let warnings = state.warn_buffer.lock().map_err(|_| AppError::Internal("Warn buffer lock poisoned".to_string()))?.iter().cloned().collect();
+    let infos = state.info_buffer.lock().map_err(|_| AppError::Internal("Info buffer lock poisoned".to_string()))?.iter().cloned().collect();
+    let debugs = state.debug_buffer.lock().map_err(|_| AppError::Internal("Debug buffer lock poisoned".to_string()))?.iter().cloned().collect();
     Ok(Json(LogResponse {
         errors,
         warnings,
