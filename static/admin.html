@@ -11,7 +11,7 @@
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900 min-h-screen">
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
     <div id="app-loader">
         <div class="cat-container">
             <svg class="cat-svg" viewBox="0 0 100 60">
@@ -37,50 +37,41 @@
         <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
     </div>
 
-    <!-- Login Screen -->
-    <div id="login-screen" class="min-h-screen flex items-center justify-center hidden">
-        <div class="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm border border-slate-200">
-            <img src="/images/sonne.png" alt="Sanshain" class="mx-auto mb-3 h-16 w-auto">
-            <h1 class="text-2xl font-bold text-center mb-6 text-indigo-700">Sanshain Admin (サンシャイン)</h1>
-            <div id="login-error" class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"></div>
-            <form id="login-form" class="space-y-4">
-                <div>
-                    <label class="block text-sm font-medium text-slate-600 mb-1">Username</label>
-                    <input type="text" id="login-username" required
-                        class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-slate-600 mb-1">Password</label>
-                    <input type="password" id="login-password" required
-                        class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                </div>
-                <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium">
-                    Sign In
-                </button>
-            </form>
+    <!-- Not-admin notice (shown when logged in but not admin) -->
+    <div id="not-admin-screen" class="min-h-screen flex items-center justify-center hidden">
+        <div class="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm border border-slate-200 text-center">
+            <h2 class="text-xl font-bold text-red-600 mb-3">Access Denied</h2>
+            <p class="text-slate-600 mb-4">You need an admin account to access this page.</p>
+            <a href="/account.html" class="inline-block bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium">Go to Account</a>
         </div>
     </div>
 
     <!-- Admin Dashboard -->
     <div id="admin-dashboard" class="hidden">
-        <nav class="bg-indigo-700 text-white p-4 shadow-lg">
-            <div class="container mx-auto flex justify-between items-center">
-                <div class="flex items-center space-x-4">
-                    <a href="/" class="flex items-center space-x-3">
-                        <img src="/images/sonne.png" alt="Sanshain" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
-                        <h1 class="text-2xl font-bold tracking-tight">Sanshain Admin (サンシャイン)</h1>
-                    </a>
-                    <a href="/" class="text-indigo-200 hover:text-white text-sm">← Back to Dashboard</a>
-                    <span class="text-indigo-400">|</span>
-                    <a href="#observability" class="text-indigo-200 hover:text-white text-sm">Observability</a>
-                </div>
-                <div class="flex items-center space-x-4">
-                    <span id="admin-username" class="text-indigo-200 text-sm"></span>
-                    <button onclick="changePassword()" class="text-indigo-200 hover:text-white text-sm">Change Password</button>
-                    <button onclick="logout()" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded-lg text-sm transition-colors">Logout</button>
-                </div>
-            </div>
+<header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
+    <div class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div class="flex items-center justify-between gap-4 md:justify-start">
+            <a href="/" class="flex items-center space-x-3">
+                <img src="/images/sonne.png" alt="Sanshain Logo" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
+                <div class="text-2xl font-bold tracking-tight">Sanshain <span class="text-indigo-200">(サンシャイン)</span></div>
+            </a>
+            <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
+        </div>
+        <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
+            <a href="/services.html" class="text-white hover:text-indigo-100 transition-colors">Services</a>
+            <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
+            <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
+            <a href="/admin.html" class="text-white font-bold underline underline-offset-4">Admin</a>
         </nav>
+        <div class="flex items-center justify-end gap-4 text-sm">
+            <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+            <a id="banner-username" href="/account.html" class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"></a>
+            <button id="banner-logout" type="button" onclick="sanshainLogout()" class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500">Logout</button>
+            <a id="banner-signin" href="/account.html" class="hidden text-indigo-100 transition-colors hover:text-white">Sign In</a>
+        </div>
+    </div>
+</header>
 
         <main class="container mx-auto p-6 space-y-8">
             <!-- Dev Mode Toggle -->
@@ -525,70 +516,46 @@
     </div>
 
     <script>
-        // Use sanshainToken from common.js
-        function onSessionExpired() { showLogin(); }
+        // Use sanshainToken and renderBanner from common.js
+        function onSessionExpired() {
+            window.location.href = '/account.html';
+        }
 
-        function showLogin() {
+        function showNotAdmin() {
             hideLoader();
-            document.getElementById('login-screen').classList.remove('hidden');
+            document.getElementById('not-admin-screen').classList.remove('hidden');
             document.getElementById('admin-dashboard').classList.add('hidden');
         }
 
         function showDashboard() {
             hideLoader();
-            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('not-admin-screen').classList.add('hidden');
             document.getElementById('admin-dashboard').classList.remove('hidden');
             loadAll();
         }
 
-        document.getElementById('login-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const errEl = document.getElementById('login-error');
-            errEl.classList.add('hidden');
-            try {
-                if (!csrfToken) await fetchCsrfToken();
-                const res = await fetch('/auth/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
-                    body: JSON.stringify({
-                        username: document.getElementById('login-username').value,
-                        password: document.getElementById('login-password').value,
-                    }),
-                });
-                if (!res.ok) {
-                    errEl.textContent = res.status === 401 ? 'Invalid credentials' : `Error: ${res.status}`;
-                    errEl.classList.remove('hidden');
-                    return;
-                }
-                const data = await res.json();
-                sanshainToken = data.token;
-                localStorage.setItem('sanshain_token', sanshainToken);
-                showDashboard();
-            } catch (err) {
-                errEl.textContent = err.message;
-                errEl.classList.remove('hidden');
-            }
-        });
-
-        async function logout() {
-            try { await apiCall('/auth/logout', { method: 'POST' }); } catch (_) {}
-            sanshainToken = null;
-            localStorage.removeItem('sanshain_token');
-            showLogin();
-        }
-
         async function checkSession() {
-            if (!sanshainToken) { showLogin(); return; }
+            if (!sanshainToken) {
+                window.location.href = '/account.html';
+                return;
+            }
             try {
                 const res = await apiCall('/auth/me');
                 if (res.ok) {
                     const data = await res.json();
-                    document.getElementById('admin-username').textContent = data.username;
+                    if (!data.is_admin) {
+                        await renderBanner(data);
+                        showNotAdmin();
+                        return;
+                    }
+                    await renderBanner(data);
                     showDashboard();
                 } else {
-                    showLogin();
+                    window.location.href = '/account.html';
                 }
-            } catch (_) { showLogin(); }
+            } catch (_) {
+                window.location.href = '/account.html';
+            }
         }
 
         // --- Load All ---
@@ -603,7 +570,6 @@
             loadClients();
             loadLocalUsers();
             loadUsers();
-            loadMe();
             loadAuthConfig();
             loadObservability();
         }
@@ -767,15 +733,6 @@
             }
         }, 5000);
 
-        async function loadMe() {
-            try {
-                const res = await apiCall('/auth/me');
-                if (res.ok) {
-                    const data = await res.json();
-                    document.getElementById('admin-username').textContent = data.username;
-                }
-            } catch (_) {}
-        }
 
         // --- Database Info ---
         async function loadDatabaseInfo() {
