@@ -25,7 +25,7 @@ The following major milestones have been delivered and are fully functional:
 - **Improved Observability & Logging**: implemented detailed logging for specification processing. Providing invalid specs now logs the full erroneous input content at the `WARN` level. Added detailed `DEBUG` logs for unchanged endpoints and `INFO` summaries for all `provide` operations (inserts/updates/deletes).
 - **User Discovery Access**: moved read-only discovery endpoints to a less restrictive auth layer, allowing non-admin authorized users to view the service graph and dependencies.
 - **Auto-Approve Users**: added a system setting to automatically approve self-registered users, enabling immediate login without manual admin approval.
-- **Service Isolation Report**: implemented a table-per-service markdown report listing outbound communication links for compliance and architecture overview.
+- **Service Isolation Report**: redesigned from bullet-point lists to well-formatted markdown tables with Target, Protocol, and Port columns. AsyncAPI connections route through the central message service (KAFKA). All protocols display as `https`.
 - **Lenient Path Matching**: implemented path normalization and lenient variable matching to handle variations in OpenAPI specs and client requests; added database indexing for normalized paths to maintain performance.
 - **Simplified `sanshain.yaml` Format**: relocated `serviceName` to root and replaced protocol-specific file fields with a generic `file` parameter.
 - **Multiple Provides Support**: updated `docs/sanshain-yaml.md` to support a `provides` list in `sanshain.yaml`, allowing a single service to publish multiple API specifications simultaneously.

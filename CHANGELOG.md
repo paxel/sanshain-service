@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Modern Rust 2024 Features**: migrated to Rust 2024 edition, utilizing `let_chains` and other modern language features for cleaner code.
 
 ### Changed
+- **Isolation Report Redesign**: Replaced bullet-point lists in the Service Isolation Report with well-formatted markdown tables showing network connections with Target, Protocol, and Port columns. AsyncAPI connections now route through the central message service (KAFKA) instead of showing direct client-to-service links.
 - **Service Discovery Page Split**: Split the monolithic `service.html` (1693 lines) into four standalone pages — `services.html`, `clients.html`, `graph.html`, `reports.html` — each served as a first-level route. Shared utilities extracted into `js/discovery.js`. Old `/service.html` URLs redirect to the correct new page for backward compatibility.
 - **Landing Page Redesign**: Replaced central link cards on the home page with a visual "How it Works" graphic explaining the Provide -> Manage -> Require lifecycle.
 - **Protocol Support Visibility**: Added a new section highlighting support for OpenAPI, AsyncAPI, and Protobuf with icons.

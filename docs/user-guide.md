@@ -130,7 +130,7 @@ The **Reports** section provides system-wide compliance and isolation reports, o
 
 ![Isolation Report](images/Screenshot_20260421_231804.png)
 
-- **Service Isolation Report**: Lists all outbound service-to-service communication in a table-per-service format.
+- **Service Isolation Report**: Lists all outbound network connections per service in markdown tables with Target, Protocol, and Port columns. AsyncAPI connections are shown as routing through the central message service (KAFKA).
 - **Markdown Report**: A full text-based report of dependencies and unused endpoints.
 
 ## Typical Workflow
