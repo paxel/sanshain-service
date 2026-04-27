@@ -131,8 +131,8 @@ pub async fn get_branch_max_age_days(repo: &impl SpecRepository) -> Result<u64, 
     let val = repo
         .get_setting("branch_max_age_days")
         .await?
-        .unwrap_or("0".to_string());
-    Ok(val.parse().unwrap_or(0))
+        .unwrap_or("30".to_string());
+    Ok(val.parse().unwrap_or(30))
 }
 
 pub async fn set_branch_max_age_days(
@@ -157,8 +157,8 @@ pub async fn get_dependency_max_age_days(repo: &impl SpecRepository) -> Result<u
     let val = repo
         .get_setting("dependency_max_age_days")
         .await?
-        .unwrap_or("0".to_string());
-    Ok(val.parse().unwrap_or(0))
+        .unwrap_or("30".to_string());
+    Ok(val.parse().unwrap_or(30))
 }
 
 pub async fn set_dependency_max_age_days(

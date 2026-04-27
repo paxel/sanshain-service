@@ -15,20 +15,15 @@ pub struct ProvideRequest {
     pub branch: String,
     pub openapi_yaml: String,
     pub base_version: Option<i32>,
-}
-
-#[derive(Deserialize)]
-pub struct DryRunQuery {
     #[serde(default)]
     pub dry_run: bool,
 }
 
 pub async fn provide(
     State(state): State<AppState>,
-    Query(dry_run): Query<DryRunQuery>,
     Json(payload): Json<ProvideRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = if dry_run.dry_run {
+    let res = if payload.dry_run {
         services::provide_spec_dry_run(
             &state.repo,
             &payload.servicename,
@@ -49,7 +44,7 @@ pub async fn provide(
         .await?
     };
 
-    if !dry_run.dry_run {
+    if !payload.dry_run {
         let _ = state.spec_updated_tx.send(());
     }
 
@@ -114,6 +109,8 @@ pub struct RequireQuery {
     pub path: String,
     pub method: String,
     pub timeout: Option<u64>,
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
 pub async fn require(
@@ -121,20 +118,26 @@ pub async fn require(
     Query(query): Query<RequireQuery>,
     _headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::require_endpoint(
-        &state.repo,
-        Some(state.spec_updated_tx.subscribe()),
-        services::RequireEndpointParams {
-            clientname: &query.clientname,
-            servicename: &query.servicename,
-            branch: &query.branch,
-            api_type: ApiType::OpenApi,
-            path: &query.path,
-            method: &query.method,
-            timeout_secs: query.timeout,
-        },
-    )
-    .await?;
+    let params = services::RequireEndpointParams {
+        clientname: &query.clientname,
+        servicename: &query.servicename,
+        branch: &query.branch,
+        api_type: ApiType::OpenApi,
+        path: &query.path,
+        method: &query.method,
+        timeout_secs: query.timeout,
+    };
+    let res = if query.dry_run {
+        services::require_endpoint_dry_run(
+            &state.repo,
+            Some(state.spec_updated_tx.subscribe()),
+            params,
+        )
+        .await?
+    } else {
+        services::require_endpoint(&state.repo, Some(state.spec_updated_tx.subscribe()), params)
+            .await?
+    };
 
     Ok(res)
 }

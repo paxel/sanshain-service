@@ -8,6 +8,7 @@ use axum::{
     response::IntoResponse,
 };
 use serde::Deserialize;
+use serde_json::json;
 use std::str::FromStr;
 
 pub async fn admin_list_services(
@@ -276,14 +277,24 @@ pub async fn get_branch_max_age(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
     let res = services::get_branch_max_age_days(&state.repo).await?;
-    Ok(Json(serde_json::json!({ "branch_max_age_days": res })))
+    Ok(Json(json!({ "days": res })))
+}
+
+#[derive(Deserialize)]
+pub struct MaxAgeDaysPayload {
+    pub days: u64,
 }
 
 pub async fn set_branch_max_age(
     State(state): State<AppState>,
-    Json(days): Json<u64>,
+    Json(payload): Json<MaxAgeDaysPayload>,
 ) -> Result<impl IntoResponse, AppError> {
-    services::set_branch_max_age_days(&state.repo, days).await?;
+    if payload.days == 0 {
+        return Err(AppError::BadRequest(
+            "days must be greater than 0".to_string(),
+        ));
+    }
+    services::set_branch_max_age_days(&state.repo, payload.days).await?;
     Ok(StatusCode::OK)
 }
 
@@ -291,21 +302,26 @@ pub async fn trigger_branch_cleanup(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
     let res = services::cleanup_stale_branches(&state.repo).await?;
-    Ok(Json(res))
+    Ok(Json(json!({ "deleted": res })))
 }
 
 pub async fn get_dependency_max_age(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
     let res = services::get_dependency_max_age_days(&state.repo).await?;
-    Ok(Json(serde_json::json!({ "dependency_max_age_days": res })))
+    Ok(Json(json!({ "days": res })))
 }
 
 pub async fn set_dependency_max_age(
     State(state): State<AppState>,
-    Json(days): Json<u64>,
+    Json(payload): Json<MaxAgeDaysPayload>,
 ) -> Result<impl IntoResponse, AppError> {
-    services::set_dependency_max_age_days(&state.repo, days).await?;
+    if payload.days == 0 {
+        return Err(AppError::BadRequest(
+            "days must be greater than 0".to_string(),
+        ));
+    }
+    services::set_dependency_max_age_days(&state.repo, payload.days).await?;
     Ok(StatusCode::OK)
 }
 
@@ -313,7 +329,7 @@ pub async fn trigger_dependency_cleanup(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
     let res = services::cleanup_stale_dependencies(&state.repo).await?;
-    Ok(Json(res))
+    Ok(Json(json!({ "deleted": res })))
 }
 
 pub async fn admin_list_users(
@@ -358,7 +374,7 @@ pub async fn admin_nuke_services(
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
     let res = services::delete_all_services(&state.repo).await?;
-    Ok(Json(res))
+    Ok(Json(json!({ "deleted": res })))
 }
 
 pub async fn admin_nuke_clients(
@@ -369,7 +385,7 @@ pub async fn admin_nuke_clients(
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
     let res = services::delete_all_clients(&state.repo).await?;
-    Ok(Json(res))
+    Ok(Json(json!({ "deleted": res })))
 }
 
 pub async fn admin_nuke_users(
@@ -380,7 +396,7 @@ pub async fn admin_nuke_users(
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
     let res = services::delete_all_non_admin_users(&state.repo).await?;
-    Ok(Json(res))
+    Ok(Json(json!({ "deleted": res })))
 }
 
 pub async fn admin_nuke_database(
@@ -405,4 +421,72 @@ pub async fn admin_nuke_branch(
     }
     let res = services::delete_branch_all_services(&state.repo, &branch).await?;
     Ok(Json(res))
+}
+
+pub async fn get_observability_stats(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    use crate::domain::models::SystemStats;
+    let stats = SystemStats {
+        requests_total: state
+            .requests_total
+            .load(std::sync::atomic::Ordering::Relaxed),
+        failures_total: state
+            .failures_total
+            .load(std::sync::atomic::Ordering::Relaxed),
+        process_uptime: (chrono::Utc::now() - state.process_start_time)
+            .num_seconds()
+            .max(0) as u64,
+        ..Default::default()
+    };
+    Ok(Json(stats))
+}
+
+pub async fn get_observability_logs(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    use crate::domain::models::LogResponse;
+    let errors = state.error_buffer.lock().unwrap().iter().cloned().collect();
+    let warnings = state.warn_buffer.lock().unwrap().iter().cloned().collect();
+    let infos = state.info_buffer.lock().unwrap().iter().cloned().collect();
+    let debugs = state.debug_buffer.lock().unwrap().iter().cloned().collect();
+    Ok(Json(LogResponse {
+        errors,
+        warnings,
+        infos,
+        debugs,
+    }))
+}
+
+pub async fn get_debug_config(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    use crate::domain::models::DebugConfig;
+    Ok(Json(DebugConfig {
+        business_logic_debug: state
+            .business_logic_debug
+            .load(std::sync::atomic::Ordering::Relaxed),
+        admin_user_debug: state
+            .admin_user_debug
+            .load(std::sync::atomic::Ordering::Relaxed),
+    }))
+}
+
+pub async fn set_debug_config(
+    State(state): State<AppState>,
+    axum::Extension(user): axum::Extension<crate::domain::models::User>,
+    Json(config): Json<crate::domain::models::DebugConfig>,
+) -> Result<impl IntoResponse, AppError> {
+    if !user.is_admin {
+        return Err(AppError::Forbidden);
+    }
+    state.business_logic_debug.store(
+        config.business_logic_debug,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    state.admin_user_debug.store(
+        config.admin_user_debug,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    Ok(StatusCode::OK)
 }

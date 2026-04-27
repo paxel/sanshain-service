@@ -508,7 +508,10 @@ pub async fn get_endpoint_yaml(
     )
     .await?;
     endpoint.map(|(_, yaml)| yaml).ok_or_else(|| {
-        AppError::NotFound(format!("Endpoint not found: {} {}", method_to_use, path))
+        AppError::NotFound(format!(
+            "Endpoint not found: {} {} (service: {}, branch: {})",
+            method_to_use, path, servicename, branch
+        ))
     })
 }
 
@@ -647,8 +650,8 @@ async fn require_endpoint_inner(
             .await?;
         }
         return Err(AppError::NotFound(format!(
-            "Endpoint not found: {} {}",
-            method_to_use, params.path
+            "Endpoint not found: {} {} (service: {}, branch: {})",
+            method_to_use, params.path, params.servicename, params.branch
         )));
     }
 }

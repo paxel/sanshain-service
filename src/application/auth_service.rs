@@ -262,7 +262,7 @@ pub async fn create_api_token(
     name: &str,
     expires_in_days: u64,
 ) -> Result<(String, String), AppError> {
-    let raw_token = format!("ss_{}", Uuid::new_v4().to_string().replace("-", ""));
+    let raw_token = format!("san_{}", Uuid::new_v4().to_string().replace("-", ""));
     let mut hasher = Sha256::new();
     hasher.update(raw_token.as_bytes());
     let token_hash = hex::encode(hasher.finalize());

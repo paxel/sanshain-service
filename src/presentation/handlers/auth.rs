@@ -98,6 +98,7 @@ pub struct CreateTokenRequest {
 #[derive(Serialize)]
 pub struct CreateTokenResponse {
     pub id: String,
+    pub name: String,
     pub token: String,
 }
 
@@ -109,7 +110,11 @@ pub async fn create_token(
     let (id, token) =
         services::create_api_token(&state.repo, user.id, &payload.name, payload.expires_in_days)
             .await?;
-    Ok(Json(CreateTokenResponse { id, token }))
+    Ok(Json(CreateTokenResponse {
+        id,
+        name: payload.name.clone(),
+        token,
+    }))
 }
 
 pub async fn revoke_token(

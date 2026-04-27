@@ -92,6 +92,9 @@ pub async fn api_auth(
             req.extensions_mut().insert(user);
             return Ok(next.run(req).await);
         }
+
+        // Token was provided but invalid
+        return Err(StatusCode::UNAUTHORIZED);
     }
 
     if services::get_dev_mode(&state.repo).await.unwrap_or(false) {
