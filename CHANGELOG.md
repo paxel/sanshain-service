@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Admin API Routes**: Fixed a bug where several admin endpoints (client branches, endpoint YAML/versions) were missing from the router, causing 404 errors in the service discovery UI.
 - **Service Discovery Page Robustness**: Fixed a bug where navigating directly to Reports or Graph views via URL hash would result in empty branch selectors. All discovery views (Services, Clients, Reports, Graph) are now fully autonomous and ensure their required data is loaded independently.
 - **Integration Test Alignment**: resolved all 35/35 integration test failures by aligning the new architecture with legacy API contracts and behavior.
+- **Graph Protocol Icons for Clients**: Fixed missing protocol icons (AsyncAPI/Protobuf) on client nodes in the dependency graph. Client tags are now derived from their dependency edge `api_type`, so clients using messaging or gRPC protocols display the correct icons.
 
 ---
 

@@ -344,6 +344,19 @@ function renderCustomGraph(report, svgElement, direction) {
         }
     }
 
+    // Derive client tags from dependency api_type (clients don't have service_tags)
+    if (!report.service_tags) report.service_tags = {};
+    deps.forEach(d => {
+        const type = (d.api_type || '').toLowerCase();
+        if (type === 'asyncapi') {
+            if (!report.service_tags[d.client]) report.service_tags[d.client] = [];
+            if (!report.service_tags[d.client].includes('messaging')) report.service_tags[d.client].push('messaging');
+        } else if (type === 'proto') {
+            if (!report.service_tags[d.client]) report.service_tags[d.client] = [];
+            if (!report.service_tags[d.client].includes('grpc')) report.service_tags[d.client].push('grpc');
+        }
+    });
+
     // Inject virtual KAFKA node if any asyncapi dependency exists
     const KAFKA_NODE = 'KAFKA';
     const messagingRegisterEdges = new Set();
