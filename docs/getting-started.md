@@ -139,7 +139,7 @@ You can also manage **protected branch patterns** from the admin dashboard. By d
 
 ## Next Steps
 
-- **Populate sample data** — Run the [demo script](../demo.sh) to register example services and clients so you can explore the UI right away. See the [Demo Script](../README.md#demo-script) section in the README for details.
+- **Populate sample data** — Run the [demo script](../scripts/demo.sh) to register example services and clients so you can explore the UI right away. See the [Demo Script](../README.md#demo-script) section in the README for details.
 - **Provide your first spec** — Use `POST /provide` to upload an OpenAPI YAML, `POST /provide/asyncapi` for AsyncAPI, or `POST /provide/grpc` for Proto. See the [API Usage](../README.md#api-usage) section.
 - **Create an API token** — Visit `/account.html` to generate a `san_`-prefixed token for CI pipelines.
 - **Explore the dependency graph** — Open `/service.html` to browse services, branches, endpoints, and client dependencies.
