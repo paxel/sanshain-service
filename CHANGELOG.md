@@ -35,6 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Logout Redirect**: Fixed logout redirecting to the non-existent `/index.html` instead of `/`, which caused a 404 after signing out.
 - **Deep-Link Infinite Loading**: Fixed the services page showing an infinite loading screen when navigating via deep-links (e.g., clicking a client's "resolved → service" link). The `showServiceBranchEndpoints` and `showServiceBranches` functions now properly manage the loader overlay.
 - **Admin Link Visibility**: The Admin navigation link in the top banner is now hidden for non-admin users and only shown when the logged-in user has admin privileges.
+- **Cargo Audit Vulnerability**: Added `.cargo/audit.toml` to ignore RUSTSEC-2023-0071 (`rsa` crate Marvin Attack), a transitive dependency via `sqlx-mysql` that is never used at runtime since the project only uses SQLite and PostgreSQL backends. No upstream fix is available.
 
 ---
 
