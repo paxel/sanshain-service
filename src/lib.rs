@@ -104,7 +104,8 @@ pub fn create_app(state: AppState) -> Router {
         // Observability (GET routes accessible to any authenticated user, POST requires admin)
         .route("/admin/observability/stats", get(admin::get_observability_stats).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/observability/logs", get(admin::get_observability_logs).layer(from_fn_with_state(state.clone(), authenticated_auth)))
-        .route("/admin/observability/debug-config", get(admin::get_debug_config).post(admin::set_debug_config).layer(from_fn_with_state(state.clone(), authenticated_auth)))
+        .route("/admin/observability/debug-config", get(admin::get_debug_config).layer(from_fn_with_state(state.clone(), authenticated_auth)))
+        .route("/admin/observability/debug-config-update", post(admin::set_debug_config).layer(from_fn_with_state(state.clone(), admin_auth)))
 
         // Auth (Mixed prefix)
         .route("/auth/login", post(auth::auth_login))

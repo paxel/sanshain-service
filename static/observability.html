@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sanshain — Observability (サンシャイン)</title>
+    <script src="/js/common.js"></script>
+    <script src="/js/discovery.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@3.4/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+    <div id="app-loader">
+        <div class="cat-container">
+            <svg class="cat-svg" viewBox="0 0 100 60">
+                <ellipse cx="50" cy="45" rx="30" ry="15" fill="#6366f1" opacity="0.15"/>
+                <ellipse cx="50" cy="38" rx="22" ry="14" fill="#6366f1"/>
+                <circle cx="50" cy="22" r="12" fill="#6366f1"/>
+                <polygon points="40,14 42,4 46,12" fill="#6366f1"/>
+                <polygon points="60,14 58,4 54,12" fill="#6366f1"/>
+                <polygon points="40,14 42,4 46,12" fill="#818cf8" opacity="0.5"/>
+                <polygon points="60,14 58,4 54,12" fill="#818cf8" opacity="0.5"/>
+                <circle cx="45" cy="20" r="2" fill="white"/>
+                <circle cx="55" cy="20" r="2" fill="white"/>
+                <circle cx="45.5" cy="20.5" r="0.8" fill="#1e1b4b"/>
+                <circle cx="55.5" cy="20.5" r="0.8" fill="#1e1b4b"/>
+                <ellipse cx="50" cy="25" rx="1.5" ry="1" fill="#c7d2fe"/>
+                <ellipse cx="50" cy="38" rx="18" ry="10" fill="#818cf8" opacity="0.3"/>
+            </svg>
+            <div class="zzz-container">
+                <span class="zzz">z</span>
+                <span class="zzz">z</span>
+                <span class="zzz">z</span>
+            </div>
+        </div>
+        <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
+    </div>
+
+<header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
+    <div class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div class="flex items-center justify-between gap-4 md:justify-start">
+            <a href="/" class="flex items-center space-x-3">
+                <img src="/images/sonne.png" alt="Sanshain Logo" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
+                <div class="text-2xl font-bold tracking-tight">Sanshain <span class="text-indigo-200">(サンシャイン)</span></div>
+            </a>
+            <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
+        </div>
+        <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
+            <a href="/services.html" class="text-white hover:text-indigo-100 transition-colors">Services</a>
+            <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
+            <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
+            <a href="/observability.html" class="text-white font-bold underline underline-offset-4">Observability</a>
+            <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
+        </nav>
+        <div class="flex items-center justify-end gap-4 text-sm">
+            <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+            <a id="banner-username" href="/account.html" class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"></a>
+            <button id="banner-logout" type="button" onclick="sanshainLogout()" class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500">Logout</button>
+            <a id="banner-signin" href="/account.html" class="hidden text-indigo-100 transition-colors hover:text-white">Sign In</a>
+        </div>
+    </div>
+</header>
+
+<main class="container mx-auto flex-1 p-6 space-y-8">
+    <!-- System Observability -->
+    <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+        <div class="flex justify-between items-center mb-6">
+            <div>
+                <h2 class="text-lg font-semibold text-slate-800">System Observability</h2>
+                <p class="text-sm text-slate-500 mt-1">Monitor system performance, logs, and manage debug tracing.</p>
+            </div>
+            <div class="flex items-center space-x-4">
+                <a href="/metrics" target="_blank" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1 rounded-lg transition-colors border border-slate-200">📊 Raw Metrics</a>
+                <button onclick="loadObservability()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh All</button>
+            </div>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Resources</span>
+                <div class="mt-2 flex items-end justify-between">
+                    <div>
+                        <div class="text-2xl font-bold text-slate-800" id="stat-cpu">0%</div>
+                        <div class="text-xs text-slate-500">CPU Usage</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-sm font-semibold text-slate-700" id="stat-mem">0 / 0 MB</div>
+                        <div class="text-xs text-slate-500">Memory</div>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Throughput</span>
+                <div class="mt-2 flex items-end justify-between">
+                    <div>
+                        <div class="text-2xl font-bold text-slate-800" id="stat-requests">0</div>
+                        <div class="text-xs text-slate-500">Requests</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-sm font-semibold text-red-600" id="stat-failures">0</div>
+                        <div class="text-xs text-slate-500">Failures</div>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Availability</span>
+                <div class="mt-2">
+                    <div class="text-2xl font-bold text-slate-800" id="stat-uptime">0s</div>
+                    <div class="text-xs text-slate-500">Uptime</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Debug Toggles (greyed out for non-admins) -->
+        <div class="border-t border-slate-100 pt-6 mb-8">
+            <h3 class="text-sm font-semibold text-slate-800 mb-4 uppercase tracking-tight">Debug Tracing
+                <span id="debug-admin-hint" class="hidden text-xs font-normal text-slate-400 ml-2">(admin only)</span>
+            </h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div id="debug-logic-card" class="flex justify-between items-center bg-slate-50 p-4 rounded-lg border border-slate-100">
+                    <div>
+                        <span class="block text-sm font-medium text-slate-700">Business Logic</span>
+                        <span class="text-xs text-slate-500">Detailed logs for service layer and OpenAPI processing.</span>
+                    </div>
+                    <button id="toggle-debug-logic" onclick="toggleDebug('logic')"
+                        class="relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none bg-slate-200">
+                        <span id="dot-debug-logic" class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform translate-x-1"></span>
+                    </button>
+                </div>
+                <div id="debug-admin-card" class="flex justify-between items-center bg-slate-50 p-4 rounded-lg border border-slate-100">
+                    <div>
+                        <span class="block text-sm font-medium text-slate-700">Admin & User Activity</span>
+                        <span class="text-xs text-slate-500">Detailed logs for presentation and auth layer.</span>
+                    </div>
+                    <button id="toggle-debug-admin" onclick="toggleDebug('admin')"
+                        class="relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none bg-slate-200">
+                        <span id="dot-debug-admin" class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform translate-x-1"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Log Viewer -->
+        <div class="border-t border-slate-100 pt-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-sm font-semibold text-slate-800 uppercase tracking-tight">Live Log Buffer (Multi-Level)</h3>
+                <div class="flex space-x-2">
+                    <select id="log-filter" onchange="renderLogs()" class="text-xs border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none">
+                        <option value="ALL">All Levels</option>
+                        <option value="INFO">Info & Up</option>
+                        <option value="WARN">Warn & Up</option>
+                        <option value="ERROR">Errors Only</option>
+                    </select>
+                </div>
+            </div>
+            <div id="log-container" class="bg-slate-900 rounded-lg p-4 font-mono text-[10px] leading-relaxed overflow-y-auto max-h-[400px] text-slate-300">
+                <div class="text-slate-500 italic">No logs captured yet.</div>
+            </div>
+        </div>
+    </section>
+</main>
+
+<script>
+    let isAdmin = false;
+
+    function onSessionExpired() {
+        window.location.href = '/account.html';
+    }
+
+    async function checkSession() {
+        if (!sanshainToken) {
+            window.location.href = '/account.html';
+            return;
+        }
+        try {
+            const res = await apiCall('/auth/me');
+            if (res.ok) {
+                const data = await res.json();
+                isAdmin = !!data.is_admin;
+                await renderBanner(data);
+                applyAdminState();
+                hideLoader();
+                loadObservability();
+            } else {
+                window.location.href = '/account.html';
+            }
+        } catch (_) {
+            window.location.href = '/account.html';
+        }
+    }
+
+    function applyAdminState() {
+        const hint = document.getElementById('debug-admin-hint');
+        const logicBtn = document.getElementById('toggle-debug-logic');
+        const adminBtn = document.getElementById('toggle-debug-admin');
+        const logicCard = document.getElementById('debug-logic-card');
+        const adminCard = document.getElementById('debug-admin-card');
+
+        if (!isAdmin) {
+            hint.classList.remove('hidden');
+            logicBtn.disabled = true;
+            adminBtn.disabled = true;
+            logicBtn.classList.add('opacity-40', 'cursor-not-allowed');
+            adminBtn.classList.add('opacity-40', 'cursor-not-allowed');
+            logicCard.classList.add('opacity-60');
+            adminCard.classList.add('opacity-60');
+        }
+    }
+
+    // --- Observability ---
+    async function loadObservability() {
+        loadStats();
+        loadDebugConfig();
+        loadLogs();
+    }
+
+    async function loadStats() {
+        try {
+            const res = await apiCall('/admin/observability/stats');
+            if (res.ok) {
+                const data = await res.json();
+                document.getElementById('stat-cpu').textContent = `${data.cpu_usage.toFixed(1)}%`;
+                document.getElementById('stat-mem').textContent = `${(data.memory_used / 1024 / 1024).toFixed(0)} / ${(data.memory_total / 1024 / 1024).toFixed(0)} MB`;
+                document.getElementById('stat-requests').textContent = data.requests_total;
+                document.getElementById('stat-failures').textContent = data.failures_total;
+                document.getElementById('stat-uptime').textContent = formatUptime(data.uptime);
+            }
+        } catch (_) {}
+    }
+
+    function formatUptime(seconds) {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = seconds % 60;
+        if (h > 0) return `${h}h ${m}m ${s}s`;
+        if (m > 0) return `${m}m ${s}s`;
+        return `${s}s`;
+    }
+
+    let debugConfig = { business_logic_debug: false, admin_user_debug: false };
+
+    async function loadDebugConfig() {
+        try {
+            const res = await apiCall('/admin/observability/debug-config');
+            if (res.ok) {
+                debugConfig = await res.json();
+                updateDebugUI();
+            }
+        } catch (_) {}
+    }
+
+    function updateDebugUI() {
+        const logicToggle = document.getElementById('toggle-debug-logic');
+        const logicDot = document.getElementById('dot-debug-logic');
+        const adminToggle = document.getElementById('toggle-debug-admin');
+        const adminDot = document.getElementById('dot-debug-admin');
+
+        if (debugConfig.business_logic_debug) {
+            logicToggle.classList.remove('bg-slate-200');
+            logicToggle.classList.add('bg-indigo-600');
+            logicDot.classList.remove('translate-x-1');
+            logicDot.classList.add('translate-x-6');
+        } else {
+            logicToggle.classList.remove('bg-indigo-600');
+            logicToggle.classList.add('bg-slate-200');
+            logicDot.classList.remove('translate-x-6');
+            logicDot.classList.add('translate-x-1');
+        }
+
+        if (debugConfig.admin_user_debug) {
+            adminToggle.classList.remove('bg-slate-200');
+            adminToggle.classList.add('bg-indigo-600');
+            adminDot.classList.remove('translate-x-1');
+            adminDot.classList.add('translate-x-6');
+        } else {
+            adminToggle.classList.remove('bg-indigo-600');
+            adminToggle.classList.add('bg-slate-200');
+            adminDot.classList.remove('translate-x-6');
+            adminDot.classList.add('translate-x-1');
+        }
+    }
+
+    async function toggleDebug(type) {
+        if (!isAdmin) return;
+        if (type === 'logic') {
+            debugConfig.business_logic_debug = !debugConfig.business_logic_debug;
+        } else {
+            debugConfig.admin_user_debug = !debugConfig.admin_user_debug;
+        }
+        try {
+            await apiCall('/admin/observability/debug-config-update', {
+                method: 'POST',
+                body: debugConfig,
+            });
+            updateDebugUI();
+        } catch (_) {}
+    }
+
+    let currentLogs = { errors: [], warnings: [], infos: [], debugs: [] };
+
+    async function loadLogs() {
+        try {
+            const res = await apiCall('/admin/observability/logs');
+            if (res.ok) {
+                const data = await res.json();
+                currentLogs.errors = data.errors || [];
+                currentLogs.warnings = data.warnings || [];
+                currentLogs.infos = data.infos || [];
+                currentLogs.debugs = data.debugs || [];
+                renderLogs();
+            }
+        } catch (_) {}
+    }
+
+    function renderLogs() {
+        const container = document.getElementById('log-container');
+        const filter = document.getElementById('log-filter').value;
+
+        let errors = [...currentLogs.errors];
+        let warnings = [...currentLogs.warnings];
+        let infos = [...currentLogs.infos];
+        let debugs = [...currentLogs.debugs];
+
+        if (filter === 'INFO') {
+            debugs = [];
+        } else if (filter === 'WARN') {
+            debugs = [];
+            infos = [];
+        } else if (filter === 'ERROR') {
+            debugs = [];
+            infos = [];
+            warnings = [];
+        }
+
+        const allLogs = [...errors, ...warnings, ...infos, ...debugs].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+        if (allLogs.length === 0) {
+            container.innerHTML = '<div class="text-slate-500 italic">No logs captured yet.</div>';
+            return;
+        }
+
+        container.innerHTML = allLogs.map(l => {
+            const color = {
+                'ERROR': 'text-red-400',
+                'WARN': 'text-amber-400',
+                'INFO': 'text-indigo-300',
+                'DEBUG': 'text-slate-500',
+                'TRACE': 'text-slate-600'
+            }[l.level] || 'text-slate-300';
+
+            return `<div class="mb-1"><span class="text-slate-500">[${l.timestamp.substring(11, 19)}]</span> <span class="${color} font-bold">${l.level.padEnd(5)}</span> <span class="text-indigo-400">${escapeHtml(l.target)}</span>: ${escapeHtml(l.message)}</div>`;
+        }).join('');
+
+        if (filter === 'ALL' || filter === 'INFO') {
+            container.scrollTop = container.scrollHeight;
+        }
+    }
+
+    // Auto-refresh every 5s
+    setInterval(() => {
+        loadStats();
+        loadLogs();
+    }, 5000);
+
+    checkSession();
+</script>
+</body>
+</html>

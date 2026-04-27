@@ -1398,7 +1398,7 @@ async fn test_role_based_access_control() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/admin/observability/debug-config")
+                .uri("/admin/observability/debug-config-update")
                 .header("Authorization", format!("Bearer {}", staff_token))
                 .header("Content-Type", "application/json")
                 .body(Body::from(
