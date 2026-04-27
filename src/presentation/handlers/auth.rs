@@ -16,6 +16,11 @@ pub struct LoginResponse {
     pub is_admin: bool,
 }
 
+#[derive(Serialize)]
+pub struct ChangePasswordResponse {
+    pub token: String,
+}
+
 pub async fn auth_login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
@@ -60,17 +65,35 @@ pub struct ChangePasswordRequest {
 
 pub async fn auth_change_password(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     axum::Extension(user): axum::Extension<User>,
     Json(payload): Json<ChangePasswordRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    services::change_password(
+    let current_token = headers
+        .get("Authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "));
+
+    let session = services::change_password(
         &state.repo,
         &user,
+        current_token,
         &payload.old_password,
         &payload.new_password,
     )
     .await?;
-    Ok(StatusCode::OK)
+
+    match session {
+        Some(session) => Ok((
+            StatusCode::OK,
+            Json(ChangePasswordResponse {
+                token: session.token,
+            }),
+        )),
+        None => Err(AppError::Internal(
+            "Password updated without an authenticated session token".to_string(),
+        )),
+    }
 }
 
 pub async fn auth_register(

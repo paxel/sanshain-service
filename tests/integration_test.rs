@@ -412,7 +412,6 @@ components:
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = axum::body::to_bytes(response.into_body(), 100000)
         .await
         .unwrap();
@@ -1316,6 +1315,117 @@ async fn test_auth_change_password_route_updates_credentials() {
                     serde_json::to_vec(&json!({
                         "username": "admin",
                         "password": "new-admin-pass"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(new_login.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_root_change_password_keeps_session_and_allows_relogin() {
+    let (app, repo) = setup_app().await;
+    let hash = services::hash_password("root-pass").unwrap();
+    let user = repo.create_user("root", &hash, true, true).await.unwrap();
+
+    use sanshain_service::domain::ports::SpecRepository;
+    let session = repo
+        .create_session(user.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap();
+
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/change-password")
+                .header("Authorization", format!("Bearer {}", session.token))
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "old_password": "root-pass",
+                        "new_password": "new-root-pass"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let change_password_json: Value = serde_json::from_slice(&response_body).unwrap();
+    let refreshed_token = change_password_json["token"].as_str().unwrap().to_string();
+    assert_ne!(refreshed_token, session.token);
+
+    let still_authenticated: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/auth/me")
+                .header("Authorization", format!("Bearer {}", refreshed_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(still_authenticated.status(), StatusCode::OK);
+
+    let old_session: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/auth/me")
+                .header("Authorization", format!("Bearer {}", session.token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(old_session.status(), StatusCode::UNAUTHORIZED);
+
+    let old_login: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/login")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "username": "root",
+                        "password": "root-pass"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(old_login.status(), StatusCode::UNAUTHORIZED);
+
+    let new_login: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/login")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "username": "root",
+                        "password": "new-root-pass"
                     }))
                     .unwrap(),
                 ))

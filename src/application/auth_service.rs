@@ -77,15 +77,24 @@ pub async fn login(
 pub async fn change_password(
     repo: &impl SpecRepository,
     user: &User,
+    current_token: Option<&str>,
     old_password: &str,
     new_password: &str,
-) -> Result<(), AppError> {
+) -> Result<Option<Session>, AppError> {
     if !verify_password(old_password, &user.password_hash)? {
         return Err(AppError::Unauthorized);
     }
     let new_hash = hash_password(new_password)?;
     repo.update_password(user.id, &new_hash).await?;
-    Ok(())
+
+    if let Some(token) = current_token {
+        repo.delete_session(token).await?;
+        let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
+        let session = repo.create_session(user.id, &expires_at).await?;
+        return Ok(Some(session));
+    }
+
+    Ok(None)
 }
 
 pub async fn get_dev_mode(repo: &impl SpecRepository) -> Result<bool, AppError> {
@@ -397,7 +406,9 @@ mod tests {
         let repo = MockRepo::new();
         let hash = hash_password("old").unwrap();
         let user = repo.create_user("u", &hash, false, true).await.unwrap();
-        change_password(&repo, &user, "old", "new").await.unwrap();
+        change_password(&repo, &user, None, "old", "new")
+            .await
+            .unwrap();
         login(&repo, "u", "new").await.unwrap();
     }
 }

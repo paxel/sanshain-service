@@ -1121,6 +1121,11 @@
                     },
                 });
                 if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.token) {
+                        sanshainToken = data.token;
+                        localStorage.setItem('sanshain_token', sanshainToken);
+                    }
                     successEl.textContent = 'Password updated successfully.';
                     successEl.classList.remove('hidden');
                     setTimeout(closePasswordModal, 1500);
