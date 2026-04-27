@@ -201,6 +201,7 @@
     });
 
     async function showServiceBranches(serviceName) {
+        hideLoader();
         const list = document.getElementById('services-list');
         const breadcrumb = document.getElementById('service-breadcrumb');
         breadcrumb.classList.remove('hidden');
@@ -240,6 +241,7 @@
     }
 
     async function showServiceBranchEndpoints(serviceName, branchName) {
+        showLoader();
         const list = document.getElementById('services-list');
         const breadcrumb = document.getElementById('service-breadcrumb');
         breadcrumb.classList.remove('hidden');
@@ -285,6 +287,7 @@
             const unusedSet = new Set(uniqueEndpoints.filter(e => !usedKeys.has(`${e.method}:${e.path}`)).map(e => `${e.method}:${e.path}`));
 
             list.innerHTML = '';
+            hideLoader();
 
             if (uniqueEndpoints.length === 0) {
                 list.innerHTML = '<div class="text-center py-10 text-slate-500 italic">No endpoints found for this service on this branch.</div>';
@@ -333,6 +336,7 @@
                 list.appendChild(card);
             }
         } catch (err) {
+            hideLoader();
             list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${err.message}</div>`;
         }
     }

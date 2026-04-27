@@ -33,6 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Root Password Change Session Flow**: Fixed password changes to rotate the authenticated session and return a fresh token so `root` stays signed in after updating the password and can immediately continue using the admin/account pages without getting stuck on an invalidated session.
 - **Password Change Logout Bug**: Fixed the password change forms on both the account and admin pages so that entering an incorrect current password shows a clear "Current password is incorrect" error instead of silently logging the user out and preventing re-login.
 - **Logout Redirect**: Fixed logout redirecting to the non-existent `/index.html` instead of `/`, which caused a 404 after signing out.
+- **Deep-Link Infinite Loading**: Fixed the services page showing an infinite loading screen when navigating via deep-links (e.g., clicking a client's "resolved → service" link). The `showServiceBranchEndpoints` and `showServiceBranches` functions now properly manage the loader overlay.
 
 ---
 
