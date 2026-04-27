@@ -16,7 +16,10 @@
         .prose ul { list-style-type: disc; }
         .prose ol { list-style-type: decimal; }
         .prose li { margin: 0.25rem 0; line-height: 1.6; }
-        .prose table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+        .prose table { border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; width: max-content; min-width: 100%; }
+        .prose .table-wrapper { overflow-x: auto; margin: 1rem 0; }
+        .prose .table-wrapper table { margin: 0; }
+        .prose td, .prose th { white-space: nowrap; }
         .prose th { background: #f1f5f9; font-weight: 600; text-align: left; padding: 0.5rem 0.75rem; border: 1px solid #e2e8f0; color: #334155; }
         .prose td { padding: 0.5rem 0.75rem; border: 1px solid #e2e8f0; color: #475569; }
         .prose tr:nth-child(even) { background: #f8fafc; }
@@ -31,7 +34,7 @@
 <body class="bg-slate-50 min-h-screen">
     <!-- Header -->
     <header class="bg-gradient-to-r from-indigo-700 to-indigo-900 text-white shadow-lg">
-        <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
             <div class="flex items-center gap-3">
                 <a href="/services.html" class="text-indigo-200 hover:text-white transition-colors text-sm">← Back to Dashboard</a>
                 <span class="text-indigo-300">|</span>
@@ -58,7 +61,7 @@
     </header>
 
     <!-- Content -->
-    <main class="max-w-5xl mx-auto px-6 py-8">
+    <main class="max-w-7xl mx-auto px-6 py-8">
         <div id="loading" class="text-center py-20">
             <div class="inline-block w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
             <p class="mt-4 text-slate-500">Loading report…</p>
@@ -108,7 +111,10 @@
                 rawMarkdown = await resp.text();
                 document.getElementById('loading').classList.add('hidden');
                 const content = document.getElementById('report-content');
-                content.innerHTML = marked.parse(rawMarkdown);
+                let html = marked.parse(rawMarkdown);
+                // Wrap tables in a scrollable container for long service names
+                html = html.replace(/<table>/g, '<div class="table-wrapper"><table>').replace(/<\/table>/g, '</table></div>');
+                content.innerHTML = html;
                 content.classList.remove('hidden');
             } catch (e) {
                 showError(e.message);

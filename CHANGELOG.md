@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - **Isolation Report Redesign**: Replaced bullet-point lists in the Service Isolation Report with well-formatted markdown tables showing network connections with Target, Protocol, and Port columns. AsyncAPI connections now route through the central message service (KAFKA) instead of showing direct client-to-service links.
+- **Report Viewer Flexible Layout**: Widened the report viewer container from `max-w-5xl` to `max-w-7xl` and added horizontal scrolling for tables with long service names. Table cells no longer wrap, ensuring readability with long paths.
 - **Service Discovery Page Split**: Split the monolithic `service.html` (1693 lines) into four standalone pages — `services.html`, `clients.html`, `graph.html`, `reports.html` — each served as a first-level route. Shared utilities extracted into `js/discovery.js`. Old `/service.html` URLs redirect to the correct new page for backward compatibility.
 - **Landing Page Redesign**: Replaced central link cards on the home page with a visual "How it Works" graphic explaining the Provide -> Manage -> Require lifecycle.
 - **Protocol Support Visibility**: Added a new section highlighting support for OpenAPI, AsyncAPI, and Protobuf with icons.
