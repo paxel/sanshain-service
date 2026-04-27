@@ -136,3 +136,48 @@ pub fn create_app(state: AppState) -> Router {
         .layer(tower_http::decompression::RequestDecompressionLayer::new())
         .with_state(state)
 }
+
+#[cfg(test)]
+mod tests {
+    /// Ensures every `/admin/` and `/fragments/admin/` route in `create_app` has
+    /// either `admin_auth` or `authenticated_auth` middleware.
+    ///
+    /// This test reads the source of `lib.rs` at compile time and parses each
+    /// `.route(...)` call. If a developer adds a new admin route without attaching
+    /// auth middleware, this test will fail — making security-by-default enforceable.
+    #[test]
+    fn all_admin_routes_have_auth_middleware() {
+        let source = include_str!("lib.rs");
+        let mut unprotected = Vec::new();
+
+        for line in source.lines() {
+            let trimmed = line.trim();
+            if !trimmed.starts_with(".route(\"") {
+                continue;
+            }
+            // Extract the path from .route("/some/path", ...)
+            let path = trimmed
+                .strip_prefix(".route(\"")
+                .and_then(|s| s.split('"').next())
+                .unwrap_or("");
+
+            let is_admin_route =
+                path.starts_with("/admin/") || path.starts_with("/fragments/admin/");
+            if !is_admin_route {
+                continue;
+            }
+
+            let has_auth = trimmed.contains("admin_auth") || trimmed.contains("authenticated_auth");
+            if !has_auth {
+                unprotected.push(path.to_string());
+            }
+        }
+
+        assert!(
+            unprotected.is_empty(),
+            "The following admin routes are missing auth middleware: {:?}\n\
+             Every /admin/* and /fragments/admin/* route must use `admin_auth` or `authenticated_auth`.",
+            unprotected
+        );
+    }
+}

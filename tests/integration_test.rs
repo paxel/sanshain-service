@@ -3587,3 +3587,267 @@ async fn test_problem_3_optimistic_concurrency_integration() {
     let body_str = String::from_utf8_lossy(&body);
     assert!(body_str.contains("Outdated spec version"));
 }
+
+/// Exhaustive test: every admin-write endpoint must reject a non-admin (staff) token
+/// with 403 FORBIDDEN, while read-only admin endpoints should be accessible.
+/// This catches regressions where a new admin route forgets `admin_auth`.
+#[tokio::test]
+async fn test_all_admin_endpoints_require_admin_token() {
+    let (app, admin_token) = setup_app_with_admin().await;
+
+    // --- Setup: create a staff user and get their token ---
+    // Enable local users
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/settings/local-users")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"enabled": true})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Enable auto-approve
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/settings/auto-approve")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"enabled": true})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Register staff user
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/register")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"username": "staff", "password": "staff-pass"}))
+                        .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    // Login as staff
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/login")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"username": "staff", "password": "staff-pass"}))
+                        .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
+    let login_resp: Value = serde_json::from_slice(&body).unwrap();
+    let staff_token = login_resp["token"].as_str().unwrap().to_string();
+
+    // --- Admin-only (write) endpoints: staff must get 403 FORBIDDEN ---
+    let admin_only_endpoints: Vec<(&str, &str, Option<Value>)> = vec![
+        // Protected branches
+        (
+            "POST",
+            "/admin/protected-branches",
+            Some(json!({"pattern": "release"})),
+        ),
+        ("DELETE", "/admin/protected-branches/main", None),
+        // Service/branch/client deletion
+        ("DELETE", "/admin/services/any-service", None),
+        ("DELETE", "/admin/services/any-service/branches/main", None),
+        ("DELETE", "/admin/clients/any-client", None),
+        // Settings (POST = write)
+        (
+            "POST",
+            "/admin/settings/dev-mode",
+            Some(json!({"enabled": false})),
+        ),
+        (
+            "POST",
+            "/admin/settings/local-users",
+            Some(json!({"enabled": false})),
+        ),
+        (
+            "POST",
+            "/admin/settings/auto-approve",
+            Some(json!({"enabled": false})),
+        ),
+        // Auth config
+        ("PUT", "/admin/auth-config", Some(json!({"mode": "local"}))),
+        ("POST", "/admin/auth-config/test", Some(json!({}))),
+        // Nuke endpoints
+        ("POST", "/admin/nuke/database", None),
+        ("POST", "/admin/nuke/services", None),
+        ("POST", "/admin/nuke/clients", None),
+        ("POST", "/admin/nuke/users", None),
+        ("POST", "/admin/nuke/branch/main", None),
+        // Branch max-age
+        (
+            "POST",
+            "/admin/settings/branch-max-age",
+            Some(json!({"days": 7})),
+        ),
+        ("POST", "/admin/cleanup/branches", None),
+        ("POST", "/admin/settings/branch-cleanup", None),
+        // Dependency max-age
+        (
+            "POST",
+            "/admin/settings/dependency-max-age",
+            Some(json!({"days": 7})),
+        ),
+        ("POST", "/admin/cleanup/dependencies", None),
+        ("POST", "/admin/settings/dependency-cleanup", None),
+        // User management
+        ("POST", "/admin/users/999/approve", None),
+        ("DELETE", "/admin/users/999", None),
+        // Fragment endpoints (admin-only)
+        ("POST", "/fragments/admin/users/999/approve", None),
+        ("POST", "/fragments/admin/users/999/delete", None),
+        ("POST", "/fragments/admin/dev-mode/toggle", None),
+    ];
+
+    for (method, uri, body) in &admin_only_endpoints {
+        let builder = Request::builder()
+            .method(*method)
+            .uri(*uri)
+            .header("Authorization", format!("Bearer {}", staff_token))
+            .header("X-CSRF-Token", TEST_CSRF_TOKEN);
+        let req = if let Some(b) = body {
+            builder
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(b).unwrap()))
+                .unwrap()
+        } else {
+            builder.body(Body::empty()).unwrap()
+        };
+        let status = app.clone().oneshot(req).await.unwrap().status();
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "Staff user should get 403 on admin-only endpoint: {} {}",
+            method,
+            uri
+        );
+    }
+
+    // --- Read-only admin endpoints: staff should NOT get 401/403 (authenticated_auth) ---
+    let readonly_endpoints: Vec<&str> = vec![
+        "/admin/services",
+        "/admin/clients",
+        "/admin/observability/stats",
+        "/admin/observability/logs",
+        "/admin/endpoint-yaml?servicename=x&branch=main&path=/p&method=GET",
+        "/admin/endpoint-versions?servicename=x&branch=main&path=/p&method=GET",
+    ];
+
+    for uri in &readonly_endpoints {
+        let req = Request::builder()
+            .method("GET")
+            .uri(*uri)
+            .header("Authorization", format!("Bearer {}", staff_token))
+            .body(Body::empty())
+            .unwrap();
+        let status = app.clone().oneshot(req).await.unwrap().status();
+        assert!(
+            status != StatusCode::UNAUTHORIZED && status != StatusCode::FORBIDDEN,
+            "Staff user should NOT get 401/403 on read-only admin endpoint: GET {} (got {})",
+            uri,
+            status
+        );
+    }
+
+    // --- Admin-only GET endpoints: staff must get 403 ---
+    let admin_get_endpoints: Vec<&str> = vec![
+        "/admin/protected-branches",
+        "/admin/settings/dev-mode",
+        "/admin/settings/local-users",
+        "/admin/settings/auto-approve",
+        "/admin/auth-config",
+        "/admin/settings/branch-max-age",
+        "/admin/settings/dependency-max-age",
+        "/admin/users",
+    ];
+
+    for uri in &admin_get_endpoints {
+        let req = Request::builder()
+            .method("GET")
+            .uri(*uri)
+            .header("Authorization", format!("Bearer {}", staff_token))
+            .body(Body::empty())
+            .unwrap();
+        let status = app.clone().oneshot(req).await.unwrap().status();
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "Staff user should get 403 on admin-only GET endpoint: {}",
+            uri
+        );
+    }
+
+    // --- No auth at all: admin endpoints must reject with 401 UNAUTHORIZED ---
+    let no_auth_checks: Vec<(&str, &str)> = vec![
+        ("GET", "/admin/protected-branches"),
+        ("POST", "/admin/settings/dev-mode"),
+        ("GET", "/admin/services"),
+        ("DELETE", "/admin/services/x"),
+        ("GET", "/admin/users"),
+        ("POST", "/admin/nuke/database"),
+    ];
+
+    for (method, uri) in &no_auth_checks {
+        let builder = Request::builder()
+            .method(*method)
+            .uri(*uri)
+            .header("X-CSRF-Token", TEST_CSRF_TOKEN);
+        let req = if *method == "POST" {
+            builder
+                .header("Content-Type", "application/json")
+                .body(Body::from("{}"))
+                .unwrap()
+        } else {
+            builder.body(Body::empty()).unwrap()
+        };
+        let status = app.clone().oneshot(req).await.unwrap().status();
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "Unauthenticated request should get 401 on admin endpoint: {} {}",
+            method,
+            uri
+        );
+    }
+}
