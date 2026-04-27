@@ -14,6 +14,7 @@ function updateBannerAuth(user) {
   const usernameEl = document.getElementById("banner-username");
   const logoutEl = document.getElementById("banner-logout");
   const signinEl = document.getElementById("banner-signin");
+  const adminLink = document.getElementById("nav-admin-link");
   if (!usernameEl || !logoutEl || !signinEl) return;
 
   if (user && user.username) {
@@ -21,11 +22,17 @@ function updateBannerAuth(user) {
     usernameEl.classList.remove("hidden");
     logoutEl.classList.remove("hidden");
     signinEl.classList.add("hidden");
+    if (adminLink) {
+      adminLink.classList.toggle("hidden", !user.is_admin);
+    }
   } else {
     usernameEl.textContent = "";
     usernameEl.classList.add("hidden");
     logoutEl.classList.add("hidden");
     signinEl.classList.remove("hidden");
+    if (adminLink) {
+      adminLink.classList.add("hidden");
+    }
   }
 }
 

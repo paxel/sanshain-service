@@ -184,7 +184,7 @@ async fn test_root_page_banner_links_to_all_discovery_views() {
     assert!(html.contains("href=\"/graph.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Graph</a>"));
     assert!(html.contains("href=\"/reports.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Reports</a>"));
     assert!(html.contains("href=\"/observability.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Observability</a>"));
-    assert!(html.contains("href=\"/admin.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Admin</a>"));
+    assert!(html.contains("id=\"nav-admin-link\" href=\"/admin.html\""));
 }
 
 #[tokio::test]
