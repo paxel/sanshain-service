@@ -120,23 +120,6 @@
 </div>
 
 <script>
-    let allServices = [];
-    let allServiceBranches = {};
-
-    async function loadAllServiceBranches() {
-        const services = await fetchJSON('/admin/services');
-        allServiceBranches = {};
-        for (const name of services) {
-            try {
-                const branches = await fetchJSON(`/admin/services/${encodeURIComponent(name)}/branches`);
-                allServiceBranches[name] = branches || [];
-            } catch (_) {
-                allServiceBranches[name] = [];
-            }
-        }
-        allServices = services.map(name => ({ name, branches: allServiceBranches[name] || [] }));
-    }
-
     async function loadServices() {
         showLoader();
         const list = document.getElementById('services-list');
