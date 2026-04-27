@@ -3731,6 +3731,13 @@ async fn test_all_admin_endpoints_require_admin_token() {
         ),
         ("POST", "/admin/cleanup/dependencies", None),
         ("POST", "/admin/settings/dependency-cleanup", None),
+        // Cache
+        (
+            "POST",
+            "/admin/settings/cache",
+            Some(json!({"memory_mb": 256})),
+        ),
+        ("POST", "/admin/cache/clear", None),
         // User management
         ("POST", "/admin/users/999/approve", None),
         ("DELETE", "/admin/users/999", None),
@@ -3799,6 +3806,7 @@ async fn test_all_admin_endpoints_require_admin_token() {
         "/admin/auth-config",
         "/admin/settings/branch-max-age",
         "/admin/settings/dependency-max-age",
+        "/admin/settings/cache",
         "/admin/users",
     ];
 

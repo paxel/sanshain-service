@@ -490,3 +490,37 @@ pub async fn set_debug_config(
     );
     Ok(StatusCode::OK)
 }
+
+pub async fn get_cache_config(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let stats = state.repo.cache_stats();
+    Ok(Json(json!({
+        "enabled": stats.enabled,
+        "memory_limit_mb": stats.memory_limit_mb,
+        "memory_used_mb": stats.estimated_memory_used_bytes as f64 / 1024.0 / 1024.0,
+        "entry_count": stats.entry_count,
+        "hit_count": stats.hit_count,
+        "miss_count": stats.miss_count,
+        "hit_rate": stats.hit_rate_percent,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct CacheConfigPayload {
+    pub memory_mb: u64,
+}
+
+pub async fn set_cache_config(
+    State(state): State<AppState>,
+    Json(payload): Json<CacheConfigPayload>,
+) -> Result<impl IntoResponse, AppError> {
+    state.repo.rebuild_caches(payload.memory_mb);
+    Ok(Json(json!({ "memory_mb": payload.memory_mb })))
+}
+
+pub async fn clear_cache(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+    let limit = state.repo.cache_stats().memory_limit_mb;
+    state.repo.rebuild_caches(limit);
+    Ok(Json(json!({ "cleared": true })))
+}

@@ -98,6 +98,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/users", get(admin::admin_list_users).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/users/{id}/approve", post(admin::admin_approve_user).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/users/{id}", delete(admin::admin_delete_user_handler).layer(from_fn_with_state(state.clone(), admin_auth)))
+        .route("/admin/settings/cache", get(admin::get_cache_config).post(admin::set_cache_config).layer(from_fn_with_state(state.clone(), admin_auth)))
+        .route("/admin/cache/clear", post(admin::clear_cache).layer(from_fn_with_state(state.clone(), admin_auth)))
 
         // Observability (GET routes accessible to any authenticated user, POST requires admin)
         .route("/admin/observability/stats", get(admin::get_observability_stats).layer(from_fn_with_state(state.clone(), authenticated_auth)))

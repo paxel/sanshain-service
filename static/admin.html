@@ -97,6 +97,43 @@
                 </div>
             </section>
 
+            <!-- In-Memory Cache -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold text-slate-800">In-Memory Cache</h2>
+                    <p class="text-sm text-slate-500 mt-1">Memory-bounded cache for spec data. Set to 0 MB to disable. Set <code class="bg-slate-100 px-1 rounded">CACHE_MEMORY_MB</code> env var for initial value.</p>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <input type="number" id="cache-memory-mb" min="0" value="0"
+                        class="w-24 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    <span class="text-sm text-slate-500">MB</span>
+                    <button onclick="saveCacheConfig()" class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors">Save</button>
+                    <button onclick="clearCache()" class="px-3 py-1.5 bg-slate-600 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors">Clear Cache</button>
+                    <span id="cache-action-result" class="text-sm text-slate-500"></span>
+                </div>
+                <div id="cache-stats" class="mt-3 hidden">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                        <div class="bg-slate-50 rounded-lg p-3">
+                            <div class="text-slate-500">Hit Rate</div>
+                            <div id="cache-hit-rate" class="font-semibold text-slate-800">0%</div>
+                        </div>
+                        <div class="bg-slate-50 rounded-lg p-3">
+                            <div class="text-slate-500">Entries</div>
+                            <div id="cache-entries" class="font-semibold text-slate-800">0</div>
+                        </div>
+                        <div class="bg-slate-50 rounded-lg p-3">
+                            <div class="text-slate-500">Memory Used</div>
+                            <div id="cache-memory-used" class="font-semibold text-slate-800">0 MB</div>
+                        </div>
+                        <div class="bg-slate-50 rounded-lg p-3">
+                            <div class="text-slate-500">Hits / Misses</div>
+                            <div id="cache-hits-misses" class="font-semibold text-slate-800">0 / 0</div>
+                        </div>
+                    </div>
+                </div>
+                <div id="cache-disabled-msg" class="mt-3 text-sm text-slate-500 hidden">Cache disabled (set to 0 MB).</div>
+            </section>
+
             <!-- Database Configuration -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div>
@@ -230,6 +267,38 @@
                     </div>
                 </div>
                 <div id="protected-branches-list" class="space-y-2"></div>
+            </section>
+
+            <!-- Branch Cleanup -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold text-slate-800">Branch Cleanup</h2>
+                    <p class="text-sm text-slate-500 mt-1">Automatically delete non-protected branches older than the configured age.</p>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <input type="number" id="branch-max-age-days" min="1" value="30"
+                        class="w-24 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    <span class="text-sm text-slate-500">days</span>
+                    <button onclick="saveBranchMaxAge()" class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors">Save</button>
+                    <button onclick="triggerBranchCleanup()" class="px-3 py-1.5 bg-slate-600 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors">Run Cleanup</button>
+                    <span id="branch-cleanup-result" class="text-sm text-slate-500"></span>
+                </div>
+            </section>
+
+            <!-- Dependency Cleanup -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold text-slate-800">Dependency Cleanup</h2>
+                    <p class="text-sm text-slate-500 mt-1">Automatically delete stale dependency records older than the configured age.</p>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <input type="number" id="dependency-max-age-days" min="1" value="30"
+                        class="w-24 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    <span class="text-sm text-slate-500">days</span>
+                    <button onclick="saveDependencyMaxAge()" class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors">Save</button>
+                    <button onclick="triggerDependencyCleanup()" class="px-3 py-1.5 bg-slate-600 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors">Run Cleanup</button>
+                    <span id="dependency-cleanup-result" class="text-sm text-slate-500"></span>
+                </div>
             </section>
 
             <!-- Local Users Toggle -->
@@ -368,6 +437,22 @@
                 </div>
                 <div id="clients-count" class="text-xs text-slate-500 mb-2"></div>
                 <div id="clients-list" class="space-y-2 max-h-[500px] overflow-y-auto"></div>
+            </section>
+
+            <!-- Nuke Branch Across All Services -->
+            <section class="bg-white rounded-xl border border-orange-300 shadow-sm p-6">
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold text-orange-700">🔥 Nuke Branch Across All Services</h2>
+                    <p class="text-sm text-slate-500 mt-1">Delete a specific branch from <strong>every</strong> service at once. Useful for cleaning up old feature branches.</p>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <input type="text" id="nuke-branch-name" placeholder="e.g. feature/old-experiment"
+                        class="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        autocomplete="off">
+                    <button onclick="nukeBranchGlobal()"
+                        class="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg text-sm transition-colors font-medium whitespace-nowrap">🔥 Nuke Branch</button>
+                </div>
+                <div id="nuke-branch-result" class="mt-3 hidden text-sm"></div>
             </section>
 
             <!-- Database Nuke -->
@@ -510,6 +595,9 @@
         function loadAll() {
             loadDevMode();
             loadDatabaseInfo();
+            loadCacheConfig();
+            loadBranchMaxAge();
+            loadDependencyMaxAge();
             loadProtectedBranches();
             loadServices();
             loadClients();
@@ -788,6 +876,153 @@
                 await apiCall(`/admin/protected-branches/${encodeURIComponent(pattern)}`, { method: 'DELETE' });
                 loadProtectedBranches();
             } catch (_) {}
+        }
+
+        // --- Cache Config ---
+        async function loadCacheConfig() {
+            try {
+                const res = await apiCall('/admin/settings/cache');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('cache-memory-mb').value = data.memory_limit_mb;
+                    if (data.enabled) {
+                        document.getElementById('cache-stats').classList.remove('hidden');
+                        document.getElementById('cache-disabled-msg').classList.add('hidden');
+                        document.getElementById('cache-hit-rate').textContent = `${data.hit_rate.toFixed(1)}%`;
+                        document.getElementById('cache-entries').textContent = data.entry_count;
+                        document.getElementById('cache-memory-used').textContent = `${data.memory_used_mb.toFixed(1)} MB`;
+                        document.getElementById('cache-hits-misses').textContent = `${data.hit_count} / ${data.miss_count}`;
+                    } else {
+                        document.getElementById('cache-stats').classList.add('hidden');
+                        document.getElementById('cache-disabled-msg').classList.remove('hidden');
+                    }
+                }
+            } catch (_) {}
+        }
+
+        async function saveCacheConfig() {
+            const mb = parseInt(document.getElementById('cache-memory-mb').value, 10);
+            if (isNaN(mb) || mb < 0) return;
+            try {
+                const res = await apiCall('/admin/settings/cache', { method: 'POST', body: { memory_mb: mb } });
+                if (res.ok) {
+                    document.getElementById('cache-action-result').textContent = '✓ Saved';
+                    setTimeout(() => document.getElementById('cache-action-result').textContent = '', 3000);
+                    loadCacheConfig();
+                }
+            } catch (_) {}
+        }
+
+        async function clearCache() {
+            try {
+                const res = await apiCall('/admin/cache/clear', { method: 'POST', body: {} });
+                if (res.ok) {
+                    document.getElementById('cache-action-result').textContent = '✓ Cache cleared';
+                    setTimeout(() => document.getElementById('cache-action-result').textContent = '', 3000);
+                    loadCacheConfig();
+                }
+            } catch (_) {}
+        }
+
+        // --- Branch Cleanup ---
+        async function loadBranchMaxAge() {
+            try {
+                const res = await apiCall('/admin/settings/branch-max-age');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('branch-max-age-days').value = data.days;
+                }
+            } catch (_) {}
+        }
+
+        async function saveBranchMaxAge() {
+            const days = parseInt(document.getElementById('branch-max-age-days').value, 10);
+            if (isNaN(days) || days < 1) return;
+            try {
+                const res = await apiCall('/admin/settings/branch-max-age', { method: 'POST', body: { days } });
+                if (res.ok) {
+                    document.getElementById('branch-cleanup-result').textContent = '✓ Saved';
+                    setTimeout(() => document.getElementById('branch-cleanup-result').textContent = '', 3000);
+                }
+            } catch (_) {}
+        }
+
+        async function triggerBranchCleanup() {
+            try {
+                const res = await apiCall('/admin/settings/branch-cleanup', { method: 'POST', body: {} });
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('branch-cleanup-result').textContent = `✓ Deleted ${data.deleted} branches`;
+                    setTimeout(() => document.getElementById('branch-cleanup-result').textContent = '', 5000);
+                    loadServices();
+                }
+            } catch (_) {}
+        }
+
+        // --- Dependency Cleanup ---
+        async function loadDependencyMaxAge() {
+            try {
+                const res = await apiCall('/admin/settings/dependency-max-age');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('dependency-max-age-days').value = data.days;
+                }
+            } catch (_) {}
+        }
+
+        async function saveDependencyMaxAge() {
+            const days = parseInt(document.getElementById('dependency-max-age-days').value, 10);
+            if (isNaN(days) || days < 1) return;
+            try {
+                const res = await apiCall('/admin/settings/dependency-max-age', { method: 'POST', body: { days } });
+                if (res.ok) {
+                    document.getElementById('dependency-cleanup-result').textContent = '✓ Saved';
+                    setTimeout(() => document.getElementById('dependency-cleanup-result').textContent = '', 3000);
+                }
+            } catch (_) {}
+        }
+
+        async function triggerDependencyCleanup() {
+            try {
+                const res = await apiCall('/admin/settings/dependency-cleanup', { method: 'POST', body: {} });
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('dependency-cleanup-result').textContent = `✓ Deleted ${data.deleted} dependencies`;
+                    setTimeout(() => document.getElementById('dependency-cleanup-result').textContent = '', 5000);
+                    loadClients();
+                }
+            } catch (_) {}
+        }
+
+        // --- Nuke Branch ---
+        async function nukeBranchGlobal() {
+            const branch = document.getElementById('nuke-branch-name').value.trim();
+            if (!branch) return;
+            const resultEl = document.getElementById('nuke-branch-result');
+            nukeConfirm(`🔥 Delete branch <strong>${escapeHtml(branch)}</strong> from ALL services?`, `DELETE BRANCH ${branch}`, async () => {
+                try {
+                    const res = await apiCall(`/admin/nuke/branch/${encodeURIComponent(branch)}`, {
+                        method: 'POST',
+                        body: { confirmation: `DELETE BRANCH ${branch}` },
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        resultEl.classList.remove('hidden');
+                        resultEl.className = 'mt-3 text-sm text-green-600';
+                        resultEl.textContent = `✓ Deleted branch "${branch}" from ${data.deleted || 0} services`;
+                        document.getElementById('nuke-branch-name').value = '';
+                        loadServices();
+                    } else {
+                        resultEl.classList.remove('hidden');
+                        resultEl.className = 'mt-3 text-sm text-red-600';
+                        resultEl.textContent = 'Failed to delete branch';
+                    }
+                } catch (_) {
+                    resultEl.classList.remove('hidden');
+                    resultEl.className = 'mt-3 text-sm text-red-600';
+                    resultEl.textContent = 'Error deleting branch';
+                }
+            });
         }
 
         // --- Local Users Toggle ---
