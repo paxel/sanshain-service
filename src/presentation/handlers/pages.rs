@@ -41,20 +41,6 @@ pub async fn health() -> &'static str {
     "OK"
 }
 
-#[derive(Template)]
-#[template(path = "admin.html")]
-struct AdminTemplate {}
-
-pub async fn admin_page() -> Result<Response, AppError> {
-    let template = AdminTemplate {};
-    Ok(Html(
-        template
-            .render()
-            .map_err(|e| AppError::Internal(e.to_string()))?,
-    )
-    .into_response())
-}
-
 pub async fn license_text() -> &'static str {
     include_str!("../../../LICENSE")
 }

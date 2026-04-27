@@ -1,9 +1,0 @@
-{% if branches.is_empty() %}
-<p class="text-xs text-slate-400 italic">No branches</p>
-{% else %}
-{% for b in branches %}
-<div class="flex items-center bg-white border-slate-100 px-3 py-1.5 rounded border fade-in">
-    <span class="text-sm font-mono text-slate-600">{{ b }}</span>
-</div>
-{% endfor %}
-{% endif %}

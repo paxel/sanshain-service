@@ -22,7 +22,7 @@ use tower_http::services::ServeDir;
 use domain::models::LogEntry;
 use infrastructure::cached_repository::CachedSpecRepository;
 
-pub use presentation::handlers::{admin, api, auth, fragments, pages};
+pub use presentation::handlers::{admin, api, auth, pages};
 pub use presentation::middleware::{
     LogCaptureLayer, admin_auth, api_auth, authenticated_auth, validate_csrf,
 };
@@ -106,15 +106,6 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/observability/logs", get(admin::get_observability_logs).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/observability/debug-config", get(admin::get_debug_config).post(admin::set_debug_config).layer(from_fn_with_state(state.clone(), authenticated_auth)))
 
-        // Fragments
-        .route("/fragments/admin/users", get(fragments::fragment_users).layer(from_fn_with_state(state.clone(), admin_auth)))
-        .route("/fragments/admin/users/{id}/approve", post(fragments::fragment_approve_user).layer(from_fn_with_state(state.clone(), admin_auth)))
-        .route("/fragments/admin/users/{id}/delete", post(fragments::fragment_delete_user).layer(from_fn_with_state(state.clone(), admin_auth)))
-        .route("/fragments/admin/services", get(fragments::fragment_services).layer(from_fn_with_state(state.clone(), admin_auth)))
-        .route("/fragments/admin/dev-mode", get(fragments::fragment_dev_mode).layer(from_fn_with_state(state.clone(), admin_auth)))
-        .route("/fragments/admin/dev-mode/toggle", post(fragments::fragment_dev_mode_toggle).layer(from_fn_with_state(state.clone(), admin_auth)))
-        .route("/fragments/admin/database-info", get(fragments::fragment_database_info).layer(from_fn_with_state(state.clone(), admin_auth)))
-
         // Auth (Mixed prefix)
         .route("/auth/login", post(auth::auth_login))
         .route("/auth/logout", post(auth::auth_logout))
@@ -126,7 +117,6 @@ pub fn create_app(state: AppState) -> Router {
         // Pages / Root
         .route("/", get(pages::index_page))
         .route("/dashboard", get(pages::dashboard_page).layer(from_fn_with_state(state.clone(), authenticated_auth)))
-        .route("/admin.html", get(pages::admin_page))
         .route("/health", get(pages::health))
         .route("/LICENSE", get(pages::license_text))
         .route("/version", get(|State(s): State<AppState>| async move { axum::Json(serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "instance_id": s.instance_id})) }))
@@ -163,8 +153,7 @@ mod tests {
                 .and_then(|s| s.split('"').next())
                 .unwrap_or("");
 
-            let is_admin_route =
-                path.starts_with("/admin/") || path.starts_with("/fragments/admin/");
+            let is_admin_route = path.starts_with("/admin/");
             if !is_admin_route {
                 continue;
             }
@@ -178,7 +167,7 @@ mod tests {
         assert!(
             unprotected.is_empty(),
             "The following admin routes are missing auth middleware: {:?}\n\
-             Every /admin/* and /fragments/admin/* route must use `admin_auth` or `authenticated_auth`.",
+             Every /admin/* route must use `admin_auth` or `authenticated_auth`.",
             unprotected
         );
     }
