@@ -54,20 +54,13 @@ fn get_test_prometheus_handle() -> metrics_exporter_prometheus::PrometheusHandle
         .clone()
 }
 
-async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.unwrap();
-
+fn test_app_state(repo: SqliteSpecRepository) -> AppState {
     let mut tokens = HashMap::new();
     tokens.insert(TEST_CSRF_TOKEN.to_string(), Utc::now());
     let (spec_updated_tx, _) = tokio::sync::broadcast::channel(100);
-    let state = AppState {
-        repo: CachedSpecRepository::new(DatabaseRepo::Sqlite(repo.clone()), 256),
+
+    AppState {
+        repo: CachedSpecRepository::new(DatabaseRepo::Sqlite(repo), 256),
         db_url: "sqlite::memory:".to_string(),
         csrf_tokens: Arc::new(RwLock::new(tokens)),
         instance_id: "test".to_string(),
@@ -83,8 +76,19 @@ async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
         process_start_time: Utc::now(),
         prometheus_handle: get_test_prometheus_handle(),
         system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
-    };
-    let app = create_app(state);
+    }
+}
+
+async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+
+    let app = create_app(test_app_state(repo.clone()));
     (app, repo)
 }
 
@@ -115,28 +119,7 @@ async fn setup_app_with_admin() -> (axum::Router, String) {
         .await
         .unwrap();
 
-    let mut tokens = HashMap::new();
-    tokens.insert(TEST_CSRF_TOKEN.to_string(), Utc::now());
-    let (spec_updated_tx, _) = tokio::sync::broadcast::channel(100);
-    let state = AppState {
-        repo: CachedSpecRepository::new(DatabaseRepo::Sqlite(repo), 256),
-        db_url: "sqlite::memory:".to_string(),
-        csrf_tokens: Arc::new(RwLock::new(tokens)),
-        instance_id: "test".to_string(),
-        spec_updated_tx,
-        error_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
-        warn_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
-        info_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
-        debug_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
-        business_logic_debug: Arc::new(AtomicBool::new(false)),
-        admin_user_debug: Arc::new(AtomicBool::new(false)),
-        requests_total: Arc::new(AtomicU64::new(0)),
-        failures_total: Arc::new(AtomicU64::new(0)),
-        process_start_time: Utc::now(),
-        prometheus_handle: get_test_prometheus_handle(),
-        system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
-    };
-    let app = create_app(state);
+    let app = create_app(test_app_state(repo));
     (app, session.token)
 }
 
@@ -152,10 +135,12 @@ async fn test_sqlite_api_type_migration_handles_existing_dependencies() {
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("CREATE TABLE services (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE)")
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "CREATE TABLE services (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query("CREATE TABLE branches (id INTEGER PRIMARY KEY AUTOINCREMENT, service_id INTEGER NOT NULL, name TEXT NOT NULL, UNIQUE(service_id, name), FOREIGN KEY(service_id) REFERENCES services(id))")
         .execute(&pool)
         .await
@@ -164,10 +149,12 @@ async fn test_sqlite_api_type_migration_handles_existing_dependencies() {
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("CREATE TABLE clients (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE)")
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "CREATE TABLE clients (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query("CREATE TABLE dependencies (id INTEGER PRIMARY KEY AUTOINCREMENT, client_id INTEGER NOT NULL, endpoint_id INTEGER, requested_service_id INTEGER NOT NULL, requested_branch_name TEXT NOT NULL, requested_path TEXT NOT NULL, requested_normalized_path TEXT NOT NULL, requested_method TEXT NOT NULL, last_seen_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00', UNIQUE(client_id, endpoint_id, requested_service_id, requested_branch_name, requested_path, requested_method), FOREIGN KEY(client_id) REFERENCES clients(id), FOREIGN KEY(endpoint_id) REFERENCES endpoints(id), FOREIGN KEY(requested_service_id) REFERENCES services(id))")
         .execute(&pool)
         .await
@@ -200,10 +187,11 @@ async fn test_sqlite_api_type_migration_handles_existing_dependencies() {
     )
     .await;
 
-    let endpoint_api_type: String = sqlx::query_scalar("SELECT api_type FROM endpoints WHERE id = 1")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let endpoint_api_type: String =
+        sqlx::query_scalar("SELECT api_type FROM endpoints WHERE id = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let dependency_api_type: String =
         sqlx::query_scalar("SELECT api_type FROM dependencies WHERE id = 1")
             .fetch_one(&pool)
@@ -241,7 +229,9 @@ async fn test_sqlite_null_endpoint_unique_migration_deduplicates_unresolved_depe
 
     execute_sqlite_migration(
         &pool,
-        include_str!("../src/infrastructure/migrations/sqlite/20240423000000_null_endpoint_unique.sql"),
+        include_str!(
+            "../src/infrastructure/migrations/sqlite/20240423000000_null_endpoint_unique.sql"
+        ),
     )
     .await;
 
@@ -259,12 +249,15 @@ async fn test_sqlite_null_endpoint_unique_migration_deduplicates_unresolved_depe
 
 #[test]
 fn test_postgres_api_type_migration_drops_old_unique_constraints_by_columns() {
-    let migration = include_str!("../src/infrastructure/migrations/postgres/20240316000000_api_type.sql");
+    let migration =
+        include_str!("../src/infrastructure/migrations/postgres/20240316000000_api_type.sql");
 
     assert!(migration.contains("pg_constraint"));
     assert!(migration.contains("ARRAY['branch_id', 'path', 'method']"));
     assert!(migration.contains("ARRAY['client_id', 'endpoint_id', 'requested_service_id', 'requested_branch_name', 'requested_path', 'requested_method']"));
-    assert!(!migration.contains("dependencies_client_id_endpoint_id_requested_service_id_reques_key"));
+    assert!(
+        !migration.contains("dependencies_client_id_endpoint_id_requested_service_id_reques_key")
+    );
 }
 
 #[tokio::test]

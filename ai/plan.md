@@ -64,6 +64,8 @@ The following major milestones have been delivered and are fully functional:
 - [x] Fix the SQLite `20240316000000_api_type` migration ordering so existing databases no longer fail startup migrations with a foreign-key constraint error.
 - [x] Harden the PostgreSQL `20240316000000_api_type` migration for production by dropping legacy unique constraints by constrained columns instead of generated names.
 - [x] Add migration regression coverage for NULL-endpoint dependency deduplication and PostgreSQL api_type constraint handling.
+- [x] Refactor brittle Proto service parsing into boundary-safe helpers and add edge-case coverage for non-ASCII headers and malformed service blocks.
+- [x] Consolidate duplicated integration-test application setup into a shared helper and extend `ai/ai-rules.md` with KISS cleanup, dead-code/unused-file removal, coverage targets, and required security checks.
 
 ### Deployment
 - [ ] Kubernetes manifests (Deployment, Service, Ingress, ConfigMap, Secret).

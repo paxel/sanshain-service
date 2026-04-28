@@ -341,3 +341,163 @@ pub struct CacheStats {
     pub miss_count: u64,
     pub hit_rate_percent: f64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn api_type_accepts_canonical_names_and_legacy_aliases() {
+        let cases = [
+            ("openapi", ApiType::OpenApi),
+            ("REST", ApiType::OpenApi),
+            ("asyncapi", ApiType::AsyncApi),
+            ("kafka", ApiType::AsyncApi),
+            ("async", ApiType::AsyncApi),
+            ("proto", ApiType::Proto),
+            ("grpc", ApiType::Proto),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(ApiType::from_str(input).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn api_type_rejects_unknown_values() {
+        assert_eq!(
+            ApiType::from_str("soap").unwrap_err(),
+            "Unknown API type: soap"
+        );
+    }
+
+    #[test]
+    fn api_type_as_str_returns_stable_wire_values() {
+        assert_eq!(ApiType::OpenApi.as_str(), "openapi");
+        assert_eq!(ApiType::AsyncApi.as_str(), "asyncapi");
+        assert_eq!(ApiType::Proto.as_str(), "proto");
+    }
+
+    #[test]
+    fn auth_mode_parses_and_formats_supported_modes() {
+        let cases = [
+            ("dev", AuthMode::Dev),
+            ("local", AuthMode::Local),
+            ("ldap", AuthMode::Ldap),
+        ];
+
+        for (input, expected) in cases {
+            let parsed = AuthMode::from_str(input).unwrap();
+            assert_eq!(parsed, expected);
+            assert_eq!(parsed.as_str(), input);
+        }
+        assert!(AuthMode::from_str("oauth").is_err());
+    }
+
+    #[test]
+    fn app_error_maps_repository_errors_at_the_boundary() {
+        let not_found: AppError = crate::domain::ports::RepositoryError::NotFound.into();
+        let conflict: AppError = crate::domain::ports::RepositoryError::Conflict.into();
+        let internal: AppError =
+            crate::domain::ports::RepositoryError::Internal("boom".into()).into();
+
+        assert!(matches!(not_found, AppError::NotFound(message) if message == "Not found"));
+        assert!(matches!(conflict, AppError::Conflict(message) if message == "Conflict"));
+        assert!(matches!(internal, AppError::Internal(message) if message == "boom"));
+    }
+
+    #[test]
+    fn ldap_config_defaults_to_uid_user_filter() {
+        let config: LdapConfig = serde_json::from_value(serde_json::json!({
+            "server_url": "ldap://example.test",
+            "bind_dn": "cn=admin,dc=example,dc=test",
+            "base_dn": "dc=example,dc=test"
+        }))
+        .unwrap();
+
+        assert_eq!(config.user_filter, "(uid={username})");
+        assert!(config.group_filter.is_empty());
+        assert!(config.admin_group.is_empty());
+        assert!(!config.use_tls);
+    }
+
+    #[test]
+    fn ldap_config_serializes_password_for_persistence() {
+        let serialized = serde_json::to_value(LdapConfig {
+            server_url: "ldap://example.test".into(),
+            bind_dn: "cn=admin,dc=example,dc=test".into(),
+            bind_password: Some("secret".into()),
+            base_dn: "dc=example,dc=test".into(),
+            user_filter: "(uid={username})".into(),
+            group_filter: String::new(),
+            admin_group: String::new(),
+            use_tls: false,
+        })
+        .unwrap();
+
+        assert_eq!(serialized["bind_password"], "secret");
+    }
+
+    #[test]
+    fn ldap_config_validation_accepts_ldap_and_ldaps_hosts() {
+        for server_url in ["ldap://example.test", "ldaps://example.test"] {
+            let config = LdapConfig {
+                server_url: server_url.into(),
+                bind_dn: "cn=admin,dc=example,dc=test".into(),
+                bind_password: None,
+                base_dn: "dc=example,dc=test".into(),
+                user_filter: "(uid={username})".into(),
+                group_filter: String::new(),
+                admin_group: String::new(),
+                use_tls: false,
+            };
+
+            assert!(config.validate().is_ok());
+        }
+    }
+
+    #[test]
+    fn ldap_config_validation_rejects_invalid_required_fields() {
+        let valid = LdapConfig {
+            server_url: "ldap://example.test".into(),
+            bind_dn: "cn=admin,dc=example,dc=test".into(),
+            bind_password: None,
+            base_dn: "dc=example,dc=test".into(),
+            user_filter: "(uid={username})".into(),
+            group_filter: String::new(),
+            admin_group: String::new(),
+            use_tls: false,
+        };
+
+        let mut config = valid.clone();
+        config.server_url.clear();
+        assert_eq!(
+            config.validate().unwrap_err(),
+            "Server URL must not be empty"
+        );
+
+        let mut config = valid.clone();
+        config.server_url = "https://example.test".into();
+        assert_eq!(
+            config.validate().unwrap_err(),
+            "Server URL must start with ldap:// or ldaps://"
+        );
+
+        let mut config = valid.clone();
+        config.server_url = "ldap://bad host".into();
+        assert_eq!(config.validate().unwrap_err(), "Invalid LDAP server host");
+
+        let mut config = valid.clone();
+        config.server_url = "ldap:///bad".into();
+        assert_eq!(config.validate().unwrap_err(), "Invalid LDAP server host");
+
+        let mut config = valid.clone();
+        config.bind_dn.clear();
+        assert_eq!(config.validate().unwrap_err(), "Bind DN must not be empty");
+
+        let mut config = valid;
+        config.base_dn.clear();
+        assert_eq!(config.validate().unwrap_err(), "Base DN must not be empty");
+    }
+}

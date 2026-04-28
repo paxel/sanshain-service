@@ -7,7 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.13.2] - unrelease
 
+### Changed
+- **Code Quality Rules**: Strengthened the AI development rules around KISS refactoring, dead-code and unused-file cleanup, duplicate setup removal, coverage targets, and required security checks.
+
 ### Fixed
+- **Proto Splitting Robustness**: Replaced brittle byte-index service parsing with boundary-safe service-block extraction and added edge-case tests for non-ASCII headers and malformed service blocks.
+- **Integration Test Maintainability**: Consolidated duplicated integration-test application-state setup into one shared helper.
 - **PostgreSQL Migration Safety**: Hardened the `20240316000000_api_type` PostgreSQL migration so it drops legacy unique constraints by their constrained columns instead of relying on fragile auto-generated constraint names, ensuring production PostgreSQL databases can safely support multiple API types per endpoint/dependency key.
 - **Dependency Deduplication Migration Coverage**: Added regression coverage for the NULL-endpoint dependency deduplication migration and clarified that it keeps the newest inserted duplicate row before enforcing the partial unique index.
 

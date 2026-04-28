@@ -15,6 +15,7 @@
 ### Library Usage
 - Library-first: Before writing custom logic, check if a library call can achieve the same result (e.g., `argon2` for passwords, `chrono` for time, `uuid` for IDs).
 - Avoid duplication: If similar logic exists in multiple places, refactor it into a shared function or service.
+- Prefer small, boundary-safe helpers over manual byte indexing or ad-hoc parsers; use iterators, `strip_prefix`, `split_once`, crate parsers, or validated regex captures before writing custom loops.
 - Keep dependencies updated: Regularly check for major version updates in `Cargo.toml`.
 
 ### Ownership & Lifetimes
@@ -28,6 +29,8 @@
 - **Manual Handlers**: Avoid large, monolithic handlers. Delegate business logic to application services.
 - **Mocking Overlap**: Use a consistent Mock Repository for testing that implements all port traits, rather than creating ad-hoc mocks in every test file.
 - **Mixed Routing**: Be consistent with nesting and prefixing. Explicit routes are often better than deep nesting for clarity.
+- **Dead Code and Dead Files**: Remove unused code, obsolete helpers, generated scratch files, and stale assets when they are clearly no longer referenced. Do not keep "maybe useful later" code in the repository.
+- **Copy-Paste Setup**: Shared test/application setup must live in one helper or fixture; duplicated setup logic is a maintenance bug.
 
 ### Code Style
 - Follow `rustfmt` defaults. Run `cargo fmt` before committing.
@@ -46,6 +49,8 @@
 - Integration tests go in `tests/` and exercise the full HTTP stack.
 - Use `mockall` or hand-written mocks for port traits in unit tests.
 - Test both success and error paths; include edge cases (empty input, boundary values).
+- Target healthy unit-test coverage of 80–90% for domain and application logic. If coverage is below that range, add meaningful tests for core behavior before adding broad integration-only coverage.
+- Coverage must be measured with `cargo tarpaulin --out Xml --skip-clean` (or the current CI coverage command) for quality reviews; do not claim coverage improvements without running the tool.
 
 ## Service Development Best Practices
 
@@ -83,6 +88,8 @@
 ### AI Workflow Rules
 - For every task that involves code changes, you MUST run `cargo clippy -- -D warnings` and ensure it passes before submitting. You MUST NOT use `#[allow(...)]` to hide warnings or bypass this check.
 - Always verify that all existing and new tests pass using `cargo test`.
+- Run `cargo audit` and `cargo geiger` for security-sensitive or quality-hardening tasks, and document any accepted finding with a clear reason.
+- For cleanup/refactor tasks, explicitly check for dead code, unused files, duplicate setup, and hand-rolled logic that should be a library or standard-library call.
 - Use the `update_status` tool to keep the user informed about progress.
 - The current project version is defined by `Cargo.toml` for all documentation purposes.
 

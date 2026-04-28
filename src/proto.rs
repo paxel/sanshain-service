@@ -1,10 +1,20 @@
 use regex::Regex;
+use std::ops::Range;
 use std::sync::LazyLock;
 
 static RE_RPC: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)^\s*rpc\s+(\w+)\s*\(([^)]+)\)\s*returns\s*\(([^)]+)\)\s*(?:\{[^}]*\}|;)")
         .expect("failed to compile rpc regex")
 });
+static RE_SERVICE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\bservice\s+([A-Za-z_]\w*)\s*\{").expect("failed to compile service regex")
+});
+
+struct ServiceBlock {
+    name: String,
+    body: String,
+    range: Range<usize>,
+}
 
 pub struct ProtoSpec {
     pub service: String,
@@ -14,77 +24,18 @@ pub struct ProtoSpec {
 
 pub fn split_proto(content: &str) -> Result<Vec<ProtoSpec>, String> {
     let mut specs = Vec::new();
-
-    // Find all service blocks using balanced braces
-    let mut services = Vec::new();
-    let bytes = content.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if content[i..].starts_with("service ") {
-            let start_idx = i;
-            if let Some(brace_start_rel) = content[i..].find('{') {
-                let brace_start = i + brace_start_rel;
-                let service_name = content[start_idx..brace_start]
-                    .split_whitespace()
-                    .last()
-                    .unwrap_or("Unknown")
-                    .to_string();
-
-                let mut brace_count = 1;
-                let mut j = brace_start + 1;
-                while brace_count > 0 && j < bytes.len() {
-                    if bytes[j] == b'{' {
-                        brace_count += 1;
-                    } else if bytes[j] == b'}' {
-                        brace_count -= 1;
-                    }
-                    j += 1;
-                }
-                let body = content[brace_start + 1..j - 1].to_string();
-                services.push((service_name, body));
-                i = j;
-                continue;
-            }
-        }
-        i += 1;
-    }
-
-    // Get non-service lines for common base
-    let mut common_base = String::new();
-    let mut in_service = false;
-    let mut brace_count = 0;
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("service ") && trimmed.contains('{') {
-            in_service = true;
-            brace_count += 1;
-            continue;
-        }
-        if in_service {
-            if trimmed.contains('{') {
-                brace_count += 1;
-            }
-            if trimmed.contains('}') {
-                brace_count -= 1;
-            }
-            if brace_count == 0 {
-                in_service = false;
-            }
-            continue;
-        }
-        common_base.push_str(line);
-        common_base.push('\n');
-    }
+    let services = extract_service_blocks(content);
+    let common_base = remove_service_blocks(content, &services);
 
     let re_rpc = &*RE_RPC;
 
-    for (service_name, body) in services {
-        for rpc_cap in re_rpc.captures_iter(&body) {
+    for service in services {
+        for rpc_cap in re_rpc.captures_iter(&service.body) {
             let method_name = &rpc_cap[1];
             let rpc_line = rpc_cap[0].trim();
 
             let mut snippet = common_base.clone();
-            snippet.push_str(&format!("\nservice {} {{\n", service_name));
+            snippet.push_str(&format!("\nservice {} {{\n", service.name));
             snippet.push_str("  ");
             snippet.push_str(rpc_line);
             if !rpc_line.ends_with(';') && !rpc_line.ends_with('}') {
@@ -93,7 +44,7 @@ pub fn split_proto(content: &str) -> Result<Vec<ProtoSpec>, String> {
             snippet.push_str("\n}\n");
 
             specs.push(ProtoSpec {
-                service: service_name.clone(),
+                service: service.name.clone(),
                 method: method_name.to_string(),
                 content: snippet,
             });
@@ -101,6 +52,51 @@ pub fn split_proto(content: &str) -> Result<Vec<ProtoSpec>, String> {
     }
 
     Ok(specs)
+}
+
+fn extract_service_blocks(content: &str) -> Vec<ServiceBlock> {
+    RE_SERVICE
+        .captures_iter(content)
+        .filter_map(|captures| {
+            let service_match = captures.get(0)?;
+            let name = captures.get(1)?.as_str().to_string();
+            let open_brace = service_match.end() - 1;
+            let close_brace = find_matching_brace(content, open_brace)?;
+            Some(ServiceBlock {
+                name,
+                body: content[open_brace + 1..close_brace].to_string(),
+                range: service_match.start()..close_brace + 1,
+            })
+        })
+        .collect()
+}
+
+fn find_matching_brace(content: &str, open_brace: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for (offset, ch) in content[open_brace..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(open_brace + offset);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn remove_service_blocks(content: &str, services: &[ServiceBlock]) -> String {
+    let mut common_base = String::new();
+    let mut cursor = 0;
+    for service in services {
+        common_base.push_str(&content[cursor..service.range.start]);
+        cursor = service.range.end;
+    }
+    common_base.push_str(&content[cursor..]);
+    common_base
 }
 
 #[cfg(test)]
@@ -144,5 +140,42 @@ service HealthService {
             .find(|s| s.service == "HealthService" && s.method == "Check")
             .unwrap();
         assert!(check.content.contains("service HealthService"));
+    }
+
+    #[test]
+    fn test_split_proto_handles_non_ascii_before_service() {
+        let content = r#"
+syntax = "proto3";
+// Grüße from a generated spec header.
+message Req {}
+message Res {}
+
+service GreetingService {
+  rpc SayHello (Req) returns (Res);
+}
+"#;
+
+        let result = split_proto(content).unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].service, "GreetingService");
+        assert_eq!(result[0].method, "SayHello");
+        assert!(result[0].content.contains("Grüße"));
+    }
+
+    #[test]
+    fn test_split_proto_ignores_malformed_service_block() {
+        let content = r#"
+syntax = "proto3";
+message Req {}
+message Res {}
+
+service BrokenService {
+  rpc Broken (Req) returns (Res);
+"#;
+
+        let result = split_proto(content).unwrap();
+
+        assert!(result.is_empty());
     }
 }
