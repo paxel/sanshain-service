@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.13.2] - unreleased
 
 ### Added
+- **Cache Health Monitoring**: Enhanced the `CachedSpecRepository::cache_stats` API to provide accurate, real-time statistics including entry counts and memory usage by ensuring internal cache maintenance tasks are flushed before reporting.
+- **Maven Plugin Automation Scripts**: Introduced a new `scripts/` directory in `SanshainMaven` containing demonstration and automation scripts (`demo.sh`, `setup-demo.sh`, `provide.sh`, `require.sh`).
+- **Standardized Configuration Examples**: Added `settings-example.xml` in `SanshainMaven/scripts` to demonstrate how to securely manage Sanshain credentials using Maven settings and environment variables.
+- **Multi-Type API Support Demo**: The Maven demo project now showcases simultaneous support for OpenAPI, AsyncAPI, and Protocol Buffers (gRPC) specifications managed via a single `sanshain.yaml`.
 - **Comprehensive Integration Test Suite**: Introduced `scripts/itest.sh`, a bash-based integration test suite that verifies the full lifecycle of service operations (Auth, Provider, Consumer, Admin, Observability, and Shared Contract Rollback) with assertions and summary reporting.
 - **Interface Consistency Tests**: Introduced a new suite of integration tests in `tests/interface_test.rs` that strictly validate JSON response structures for administrative endpoints, preventing regressions where raw values (booleans/integers) are returned instead of expected JSON objects.
 - **UI Smoke Testing Suite**: Added a Playwright-based smoke testing framework in `tests/ui/smoke.test.js` to automate UI validation, including landing page rendering and admin settings persistence.

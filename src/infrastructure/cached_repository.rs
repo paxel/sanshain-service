@@ -209,7 +209,21 @@ impl CachedSpecRepository {
         }
     }
 
-    pub fn cache_stats(&self) -> CacheStats {
+    pub async fn cache_stats(&self) -> CacheStats {
+        // Run maintenance tasks to get accurate stats
+        self.endpoint_cache.run_pending_tasks().await;
+        self.branch_endpoints_cache.run_pending_tasks().await;
+        self.report_cache.run_pending_tasks().await;
+        self.services_cache.run_pending_tasks().await;
+        self.service_id_cache.run_pending_tasks().await;
+        self.branch_id_cache.run_pending_tasks().await;
+        self.protected_branches_cache.run_pending_tasks().await;
+        self.fallback_branch_cache.run_pending_tasks().await;
+        self.branch_protected_cache.run_pending_tasks().await;
+        self.services_list_cache.run_pending_tasks().await;
+        self.branches_list_cache.run_pending_tasks().await;
+        self.clients_list_cache.run_pending_tasks().await;
+
         let hits = self.hits.load(Ordering::Relaxed);
         let misses = self.misses.load(Ordering::Relaxed);
         let total = hits + misses;
@@ -1135,7 +1149,7 @@ mod tests {
         let id = repo.ensure_service("test-svc").await.unwrap();
         let found = repo.find_service("test-svc").await.unwrap();
         assert_eq!(found, Some(id));
-        let stats = repo.cache_stats();
+        let stats = repo.cache_stats().await;
         assert!(stats.hit_count > 0, "Expected cache hits");
     }
 
@@ -1146,7 +1160,7 @@ mod tests {
         let bid = repo.ensure_branch(sid, "main").await.unwrap();
         let found = repo.find_branch(sid, "main").await.unwrap();
         assert_eq!(found, Some(bid));
-        assert!(repo.cache_stats().hit_count > 0);
+        assert!(repo.cache_stats().await.hit_count > 0);
     }
 
     #[tokio::test]
@@ -1167,7 +1181,7 @@ mod tests {
         let _id = repo.ensure_service("svc").await.unwrap();
         let found = repo.find_service("svc").await.unwrap();
         assert!(found.is_some());
-        let stats = repo.cache_stats();
+        let stats = repo.cache_stats().await;
         assert!(!stats.enabled);
         assert_eq!(stats.entry_count, 0);
     }
@@ -1175,7 +1189,7 @@ mod tests {
     #[tokio::test]
     async fn test_cache_stats_hit_miss_counters() {
         let repo = setup_cached_repo(256).await;
-        let stats = repo.cache_stats();
+        let stats = repo.cache_stats().await;
         assert_eq!(stats.hit_count, 0);
         assert_eq!(stats.miss_count, 0);
 
@@ -1183,7 +1197,7 @@ mod tests {
         repo.ensure_service("svc").await.unwrap();
         // find_service should be a cache hit
         repo.find_service("svc").await.unwrap();
-        let stats = repo.cache_stats();
+        let stats = repo.cache_stats().await;
         assert!(stats.hit_count >= 1);
     }
 
@@ -1192,10 +1206,10 @@ mod tests {
         let repo = setup_cached_repo(256).await;
         repo.ensure_service("svc").await.unwrap();
         repo.find_service("svc").await.unwrap();
-        assert!(repo.cache_stats().hit_count > 0);
+        assert!(repo.cache_stats().await.hit_count > 0);
 
         repo.rebuild_caches(256);
-        let stats = repo.cache_stats();
+        let stats = repo.cache_stats().await;
         assert_eq!(stats.hit_count, 0);
         assert_eq!(stats.miss_count, 0);
     }
@@ -1208,12 +1222,12 @@ mod tests {
 
         let eps = repo.get_endpoints_for_branch(bid).await.unwrap();
         assert!(eps.is_empty());
-        let miss_before = repo.cache_stats().miss_count;
+        let miss_before = repo.cache_stats().await.miss_count;
 
         let eps = repo.get_endpoints_for_branch(bid).await.unwrap();
         assert!(eps.is_empty());
-        assert!(repo.cache_stats().hit_count > 0);
-        assert_eq!(repo.cache_stats().miss_count, miss_before);
+        assert!(repo.cache_stats().await.hit_count > 0);
+        assert_eq!(repo.cache_stats().await.miss_count, miss_before);
     }
 
     #[tokio::test]
@@ -1242,12 +1256,12 @@ mod tests {
         // First call populates cache
         let services = repo.list_services().await.unwrap();
         assert_eq!(services.len(), 2);
-        let miss_count = repo.cache_stats().miss_count;
+        let miss_count = repo.cache_stats().await.miss_count;
 
         // Second call should hit cache
         let services = repo.list_services().await.unwrap();
         assert_eq!(services.len(), 2);
-        assert_eq!(repo.cache_stats().miss_count, miss_count);
+        assert_eq!(repo.cache_stats().await.miss_count, miss_count);
     }
 
     #[tokio::test]

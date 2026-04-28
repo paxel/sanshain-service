@@ -528,7 +528,7 @@ pub async fn set_debug_config(
 pub async fn get_cache_config(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
-    let stats = state.repo.cache_stats();
+    let stats = state.repo.cache_stats().await;
     Ok(Json(json!({
         "enabled": stats.enabled,
         "memory_limit_mb": stats.memory_limit_mb,
@@ -554,7 +554,7 @@ pub async fn set_cache_config(
 }
 
 pub async fn clear_cache(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    let limit = state.repo.cache_stats().memory_limit_mb;
+    let limit = state.repo.cache_stats().await.memory_limit_mb;
     state.repo.rebuild_caches(limit);
     Ok(Json(json!({ "cleared": true })))
 }
