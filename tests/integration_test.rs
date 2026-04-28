@@ -332,6 +332,30 @@ async fn test_postgres_api_type_migration_handles_default_unique_constraint_name
 }
 
 #[tokio::test]
+async fn test_security_headers() {
+    let (app, _) = setup_app().await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/")
+                .method("GET")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    
+    let headers = response.headers();
+    assert_eq!(headers.get("X-Content-Type-Options").unwrap(), "nosniff");
+    assert_eq!(headers.get("X-Frame-Options").unwrap(), "SAMEORIGIN");
+    assert_eq!(headers.get("Referrer-Policy").unwrap(), "strict-origin-when-cross-origin");
+    assert!(headers.get("Content-Security-Policy").unwrap().to_str().unwrap().contains("default-src 'self'"));
+}
+
+#[tokio::test]
 async fn test_health_endpoint() {
     let (app, _) = setup_app().await;
 
@@ -638,7 +662,7 @@ components:
     assert!(merged_yaml.contains("Order"));
 
     // Parse and verify structure
-    let parsed: openapiv3::OpenAPI = serde_yaml::from_str(&merged_yaml).unwrap();
+    let parsed: openapiv3::OpenAPI = serde_yaml_ng::from_str(&merged_yaml).unwrap();
     assert_eq!(parsed.paths.paths.len(), 2);
     let components = parsed.components.unwrap();
     assert_eq!(components.schemas.len(), 2);

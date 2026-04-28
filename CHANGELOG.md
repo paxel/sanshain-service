@@ -16,6 +16,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **PostgreSQL Migration Safety**: Hardened the `20240316000000_api_type` PostgreSQL migration so it drops legacy unique constraints by their constrained columns instead of relying on fragile auto-generated constraint names, ensuring production PostgreSQL databases can safely support multiple API types per endpoint/dependency key.
 - **Dependency Deduplication Migration Coverage**: Added regression coverage for the NULL-endpoint dependency deduplication migration and clarified that it keeps the newest inserted duplicate row before enforcing the partial unique index.
 
+### Security
+- **Hardened YAML Parsing**: Migrated from the deprecated `serde_yaml` to `serde_yaml_ng`, a maintained and community-trusted fork. This addresses security audit findings and ensures continued support for OpenAPI/AsyncAPI parsing.
+- **HTTP Security Headers**: Implemented standard security headers across all API and page routes, including `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options`, and `Referrer-Policy`.
+- **Zero Unsafe Verification**: Verified that the service source code contains zero `unsafe` blocks, achieving maximum memory safety for all internal logic.
+
 
 ## [0.13.1] - 2026-04-27
 

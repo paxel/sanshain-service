@@ -9,6 +9,7 @@ pub mod proto;
 use axum::{
     Router,
     extract::State,
+    http::{HeaderValue, header},
     middleware::from_fn_with_state,
     routing::{delete, get, post},
 };
@@ -18,6 +19,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use tokio::sync::RwLock;
 use tower_http::services::ServeDir;
+use tower_http::set_header::SetResponseHeaderLayer;
 
 use domain::models::LogEntry;
 use infrastructure::cached_repository::CachedSpecRepository;
@@ -130,6 +132,22 @@ pub fn create_app(state: AppState) -> Router {
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .layer(tower_http::compression::CompressionLayer::new())
         .layer(tower_http::decompression::RequestDecompressionLayer::new())
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("SAMEORIGIN"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"),
+        ))
         .with_state(state)
 }
 

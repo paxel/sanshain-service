@@ -2,7 +2,7 @@ use openapiv3::{Components, OpenAPI, PathItem, ReferenceOr, SchemaKind, Type as 
 use regex::Regex;
 use serde::Serialize;
 use serde_json;
-use serde_yaml;
+use serde_yaml_ng;
 use similar::TextDiff;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -39,7 +39,7 @@ pub fn normalize_path(path: &str) -> String {
 
 pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
     tracing::debug!("Splitting OpenAPI specification ({} bytes)", yaml_str.len());
-    let openapi: OpenAPI = serde_yaml::from_str(yaml_str)
+    let openapi: OpenAPI = serde_yaml_ng::from_str(yaml_str)
         .map_err(|e| format!("Failed to parse OpenAPI YAML: {}", e))?;
 
     let component_graph = build_component_graph(&openapi.components);
@@ -84,7 +84,7 @@ pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
                 &component_graph,
             );
 
-            let endpoint_yaml = serde_yaml::to_string(&single_endpoint_openapi)
+            let endpoint_yaml = serde_yaml_ng::to_string(&single_endpoint_openapi)
                 .map_err(|e| format!("Failed to serialize endpoint YAML: {}", e))?;
 
             endpoints.push(EndpointSpec {
@@ -281,12 +281,12 @@ pub fn merge_endpoint_yamls(yamls: &[String]) -> Result<String, String> {
     }
 
     // Use the first snippet as the base (info, servers, openapi version)
-    let mut merged: OpenAPI = serde_yaml::from_str(&yamls[0])
+    let mut merged: OpenAPI = serde_yaml_ng::from_str(&yamls[0])
         .map_err(|e| format!("Failed to parse first endpoint YAML: {}", e))?;
 
     // Merge paths and components from all subsequent snippets
     for yaml in &yamls[1..] {
-        let spec: OpenAPI = serde_yaml::from_str(yaml)
+        let spec: OpenAPI = serde_yaml_ng::from_str(yaml)
             .map_err(|e| format!("Failed to parse endpoint YAML: {}", e))?;
 
         // Merge paths
@@ -350,7 +350,7 @@ pub fn merge_endpoint_yamls(yamls: &[String]) -> Result<String, String> {
         }
     }
 
-    serde_yaml::to_string(&merged).map_err(|e| format!("Failed to serialize merged YAML: {}", e))
+    serde_yaml_ng::to_string(&merged).map_err(|e| format!("Failed to serialize merged YAML: {}", e))
 }
 
 /// Generate a unified diff between two YAML strings.
@@ -375,9 +375,9 @@ pub fn generate_diff(old: &str, new: &str) -> String {
 pub fn check_backward_compatibility(old_yaml: &str, new_yaml: &str) -> Result<(), String> {
     tracing::debug!("Checking backward compatibility...");
     let old: OpenAPI =
-        serde_yaml::from_str(old_yaml).map_err(|e| format!("Failed to parse old YAML: {}", e))?;
+        serde_yaml_ng::from_str(old_yaml).map_err(|e| format!("Failed to parse old YAML: {}", e))?;
     let new: OpenAPI =
-        serde_yaml::from_str(new_yaml).map_err(|e| format!("Failed to parse new YAML: {}", e))?;
+        serde_yaml_ng::from_str(new_yaml).map_err(|e| format!("Failed to parse new YAML: {}", e))?;
 
     check_openapi_compatible(&old, &new)
 }
@@ -961,7 +961,7 @@ components:
         assert!(merged.contains("User"));
         assert!(merged.contains("Order"));
         // Verify it parses back correctly
-        let parsed: OpenAPI = serde_yaml::from_str(&merged).unwrap();
+        let parsed: OpenAPI = serde_yaml_ng::from_str(&merged).unwrap();
         assert_eq!(parsed.paths.paths.len(), 2);
         let components = parsed.components.unwrap();
         assert_eq!(components.schemas.len(), 2);
@@ -996,7 +996,7 @@ paths:
 "#;
         let merged =
             merge_endpoint_yamls(&[snippet_get.to_string(), snippet_post.to_string()]).unwrap();
-        let parsed: OpenAPI = serde_yaml::from_str(&merged).unwrap();
+        let parsed: OpenAPI = serde_yaml_ng::from_str(&merged).unwrap();
         assert_eq!(parsed.paths.paths.len(), 1);
         let path_item = match parsed.paths.paths.get("/users").unwrap() {
             ReferenceOr::Item(item) => item,

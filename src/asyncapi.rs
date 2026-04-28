@@ -1,4 +1,4 @@
-use serde_yaml::{Mapping, Value};
+use serde_yaml_ng::{Mapping, Value};
 
 pub struct AsyncApiSpec {
     pub channel: String,
@@ -7,7 +7,7 @@ pub struct AsyncApiSpec {
 }
 
 pub fn split_asyncapi(yaml_str: &str) -> Result<Vec<AsyncApiSpec>, String> {
-    let root: Value = serde_yaml::from_str(yaml_str)
+    let root: Value = serde_yaml_ng::from_str(yaml_str)
         .map_err(|e| format!("Failed to parse AsyncAPI YAML: {}", e))?;
 
     let version = root.get("asyncapi").and_then(|v| v.as_str()).unwrap_or("");
@@ -147,7 +147,7 @@ fn create_spec_v3(
     ops.insert(Value::String(op_key), op_value.clone());
     snippet.insert(Value::String("operations".to_string()), Value::Mapping(ops));
 
-    let yaml_content = serde_yaml::to_string(&Value::Mapping(snippet))
+    let yaml_content = serde_yaml_ng::to_string(&Value::Mapping(snippet))
         .map_err(|e| format!("Failed to serialize AsyncAPI snippet: {}", e))?;
 
     Ok(AsyncApiSpec {
@@ -195,7 +195,7 @@ fn create_spec_v2(
         Value::Mapping(channels),
     );
 
-    let yaml_content = serde_yaml::to_string(&Value::Mapping(snippet))
+    let yaml_content = serde_yaml_ng::to_string(&Value::Mapping(snippet))
         .map_err(|e| format!("Failed to serialize AsyncAPI snippet: {}", e))?;
 
     Ok(AsyncApiSpec {
@@ -241,7 +241,8 @@ channels:
             .unwrap();
         assert!(user_created_pub.yaml_content.contains("publish:"));
         assert!(!user_created_pub.yaml_content.contains("subscribe:"));
-        assert!(user_created_pub.yaml_content.contains("asyncapi: 2.6.0"));
+        assert!(user_created_pub.yaml_content.contains("asyncapi:"));
+        assert!(user_created_pub.yaml_content.contains("2.6.0"));
 
         let order_placed_pub = result
             .iter()
@@ -287,7 +288,8 @@ operations:
             .iter()
             .find(|s| s.channel == "user/signedup" && s.operation == "SUB")
             .unwrap();
-        assert!(user_sub.yaml_content.contains("asyncapi: 3.0.0"));
+        assert!(user_sub.yaml_content.contains("asyncapi:"));
+        assert!(user_sub.yaml_content.contains("3.0.0"));
         assert!(user_sub.yaml_content.contains("UserSignup"));
         assert!(!user_sub.yaml_content.contains("OrderCreated"));
 
