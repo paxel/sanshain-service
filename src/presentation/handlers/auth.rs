@@ -125,6 +125,27 @@ pub struct CreateTokenResponse {
     pub token: String,
 }
 
+#[derive(Serialize)]
+pub struct CsrfResponse {
+    pub csrf_token: String,
+}
+
+pub async fn get_csrf_token(State(state): State<AppState>) -> impl IntoResponse {
+    use rand::distr::{Alphanumeric, SampleString};
+    let token = Alphanumeric.sample_string(&mut rand::rng(), 32);
+    let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
+
+    let mut tokens = state.csrf_tokens.write().await;
+    tokens.insert(token.clone(), expires_at);
+    // Optional: cleanup old tokens
+    if tokens.len() > 1000 {
+        let now = chrono::Utc::now();
+        tokens.retain(|_, v| *v > now);
+    }
+
+    Json(CsrfResponse { csrf_token: token })
+}
+
 pub async fn create_token(
     State(state): State<AppState>,
     axum::Extension(user): axum::Extension<User>,

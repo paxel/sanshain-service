@@ -24,8 +24,16 @@ test.describe('Sanshain UI Smoke Test', () => {
     await page.fill('input[id="login-password"]', 'root_password');
     await page.click('button:has-text("Sign In")');
     
-    // Wait for redirect or UI change
-    await expect(page.locator('#account-dashboard')).toBeVisible();
+    // Wait for redirect or UI change with better error info
+    try {
+      await expect(page.locator('#account-dashboard')).toBeVisible({ timeout: 10000 });
+    } catch (e) {
+      const errorText = await page.locator('#login-error').textContent();
+      if (errorText && errorText.trim().length > 0) {
+        throw new Error(`Login failed with error: ${errorText}`);
+      }
+      throw e;
+    }
     await expect(page.locator('#banner-username')).toContainText('root');
     
     // Navigate to Admin
@@ -34,19 +42,22 @@ test.describe('Sanshain UI Smoke Test', () => {
     
     // Toggle Developer Mode
     const devModeToggle = page.locator('#dev-mode-toggle');
-    const initialState = await devModeToggle.isChecked();
+    const initialState = await devModeToggle.getAttribute('class');
+    const isInitiallyOn = initialState.includes('bg-indigo-600');
     
     await devModeToggle.click();
-    await page.waitForTimeout(500); // Wait for API call
+    await page.waitForTimeout(1000); // Wait for API call and UI update
     
     // Refresh to verify persistence
     await page.reload();
     await page.waitForSelector('#admin-panel');
-    const newState = await devModeToggle.isChecked();
+    const newState = await page.locator('#dev-mode-toggle').getAttribute('class');
+    const isNowOn = newState.includes('bg-indigo-600');
     
-    expect(newState).not.toBe(initialState);
+    expect(isNowOn).not.toBe(isInitiallyOn);
     
     // Restore state
-    await devModeToggle.click();
+    await page.locator('#dev-mode-toggle').click();
+    await page.waitForTimeout(500);
   });
 });

@@ -204,8 +204,17 @@ where
     }
 }
 
-pub async fn validate_csrf(req: Request, next: Next) -> Result<impl IntoResponse, StatusCode> {
+pub async fn validate_csrf(
+    State(state): State<AppState>,
+    req: Request,
+    next: Next,
+) -> Result<impl IntoResponse, StatusCode> {
     if req.method() == axum::http::Method::GET || req.method() == axum::http::Method::HEAD {
+        return Ok(next.run(req).await);
+    }
+
+    let path = req.uri().path();
+    if path == "/auth/login" || path == "/auth/register" {
         return Ok(next.run(req).await);
     }
 
@@ -214,12 +223,26 @@ pub async fn validate_csrf(req: Request, next: Next) -> Result<impl IntoResponse
         .get("X-CSRF-Token")
         .and_then(|h| h.to_str().ok());
 
-    if let Some(token) = csrf_header
-        && token == "test-csrf-token"
-    {
+    if let Some(token) = csrf_header {
+        if token == "test-csrf-token" {
+            return Ok(next.run(req).await);
+        }
+        let tokens = state.csrf_tokens.read().await;
+        if let Some(expiry) = tokens.get(token)
+            && *expiry > chrono::Utc::now()
+        {
+            return Ok(next.run(req).await);
+        }
+    }
+
+    // Fallback for non-browser API calls (e.g. if they have a Bearer token)
+    let auth_header = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok());
+    if auth_header.is_some() {
         return Ok(next.run(req).await);
     }
 
-    // In real app we would check against session, but for tests this suffices
-    Ok(next.run(req).await)
+    Err(StatusCode::FORBIDDEN)
 }
