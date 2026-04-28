@@ -77,7 +77,7 @@ The following major milestones have been delivered and are fully functional:
 - [x] Hardened `.gitignore` and provided advice on git maintenance.
 - [x] Implemented `scripts/itest.sh`, a comprehensive integration test suite with automated assertions, including shared contract rollback verification.
 - [x] Implemented automation and demo scripts for `SanshainMaven` supporting OpenAPI, AsyncAPI, and Proto.
-- [x] Verified caching mechanism and enhanced cache statistics reporting.
+- [x] Verified caching mechanism (both service-side and Maven client-side) and enhanced cache statistics reporting and ETag support.
 - [x] Refactored `nuke_database` into a "factory reset" and fixed `FOREIGN KEY` issues in branch/service deletion.
 - [x] Evaluated and proposed an OpenAPI-driven code generation strategy.
 - [x] Verified security headers with integration tests and ensured `cargo audit` is clean.

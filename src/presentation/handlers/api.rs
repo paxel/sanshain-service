@@ -4,9 +4,10 @@ use crate::domain::models::ApiType;
 use axum::{
     Json,
     extract::{Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
 };
+use sha2::{Digest, Sha256};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -116,7 +117,7 @@ pub struct RequireQuery {
 pub async fn require(
     State(state): State<AppState>,
     Query(query): Query<RequireQuery>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
     let params = services::RequireEndpointParams {
         clientname: &query.clientname,
@@ -139,12 +140,22 @@ pub async fn require(
             .await?
     };
 
-    Ok(res)
+    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.as_bytes())));
+    if let Some(if_none_match) = headers.get("if-none-match") {
+        if if_none_match == etag.as_str() {
+            return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
+        }
+    }
+
+    let mut headers = HeaderMap::new();
+    headers.insert("ETag", HeaderValue::from_str(&etag).unwrap());
+    Ok((headers, res).into_response())
 }
 
 pub async fn require_asyncapi(
     State(state): State<AppState>,
     Query(query): Query<RequireQuery>,
+    headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
     let res = services::require_endpoint(
         &state.repo,
@@ -160,12 +171,23 @@ pub async fn require_asyncapi(
         },
     )
     .await?;
-    Ok(res)
+
+    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.as_bytes())));
+    if let Some(if_none_match) = headers.get("if-none-match") {
+        if if_none_match == etag.as_str() {
+            return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
+        }
+    }
+
+    let mut headers = HeaderMap::new();
+    headers.insert("ETag", HeaderValue::from_str(&etag).unwrap());
+    Ok((headers, res).into_response())
 }
 
 pub async fn require_proto(
     State(state): State<AppState>,
     Query(query): Query<RequireQuery>,
+    headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
     let res = services::require_endpoint(
         &state.repo,
@@ -181,7 +203,17 @@ pub async fn require_proto(
         },
     )
     .await?;
-    Ok(res)
+
+    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.as_bytes())));
+    if let Some(if_none_match) = headers.get("if-none-match") {
+        if if_none_match == etag.as_str() {
+            return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
+        }
+    }
+
+    let mut headers = HeaderMap::new();
+    headers.insert("ETag", HeaderValue::from_str(&etag).unwrap());
+    Ok((headers, res).into_response())
 }
 
 #[derive(Deserialize)]
@@ -202,6 +234,7 @@ pub struct RequireBundleRequest {
 
 pub async fn require_bundle(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<RequireBundleRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let endpoints: Vec<(String, String)> = payload
@@ -223,7 +256,17 @@ pub async fn require_bundle(
         },
     )
     .await?;
-    Ok(res)
+
+    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.as_bytes())));
+    if let Some(if_none_match) = headers.get("if-none-match") {
+        if if_none_match == etag.as_str() {
+            return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
+        }
+    }
+
+    let mut headers = HeaderMap::new();
+    headers.insert("ETag", HeaderValue::from_str(&etag).unwrap());
+    Ok((headers, res).into_response())
 }
 
 #[derive(Deserialize)]

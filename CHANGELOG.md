@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.13.2] - unreleased
 
 ### Added
+- **ETag Support for Require**: Implemented server-side ETag generation and `If-None-Match` validation for all `/require` and `/require-bundle` endpoints. This enables client-side caching (e.g., in the Maven plugin) to avoid redundant downloads when API specifications are unchanged.
 - **Cache Health Monitoring**: Enhanced the `CachedSpecRepository::cache_stats` API to provide accurate, real-time statistics including entry counts and memory usage by ensuring internal cache maintenance tasks are flushed before reporting.
 - **Maven Plugin Automation Scripts**: Introduced a new `scripts/` directory in `SanshainMaven` containing demonstration and automation scripts (`demo.sh`, `setup-demo.sh`, `provide.sh`, `require.sh`).
 - **Standardized Configuration Examples**: Added `settings-example.xml` in `SanshainMaven/scripts` to demonstrate how to securely manage Sanshain credentials using Maven settings and environment variables.
