@@ -25,8 +25,8 @@ test.describe('Sanshain UI Smoke Test', () => {
     await page.click('button:has-text("Sign In")');
     
     // Wait for redirect or UI change
-    await page.waitForURL('**/account.html');
-    await expect(page.locator('#user-display-name')).toContainText('root');
+    await expect(page.locator('#account-dashboard')).toBeVisible();
+    await expect(page.locator('#banner-username')).toContainText('root');
     
     // Navigate to Admin
     await page.goto(`${BASE_URL}/admin.html`);

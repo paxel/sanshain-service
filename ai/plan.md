@@ -86,6 +86,7 @@ The following major milestones have been delivered and are fully functional:
 - [x] Hardened `.gitignore` with `test-results/`.
 - [x] Optimized CI workflows for disk space and build speed (rust-cache, taiki-e/install-action).
 - [x] Hardened CI service startup logic to prevent Playwright connection timeouts.
+- [x] Fixed invalid element IDs and waiting logic in Playwright smoke tests.
 - [x] Fixed broken task runners and cargo aliases in CI.
 
 ### Deployment
