@@ -1,6 +1,6 @@
 [alias]
 # Formatting check
-fmt-check = ["fmt", "--", "--check"]
+fmt-check = ["fmt", "--check"]
 
 # Linting with clippy
 lint = ["clippy", "--", "-D", "warnings"]

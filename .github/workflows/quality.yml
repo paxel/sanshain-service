@@ -21,10 +21,8 @@ jobs:
           components: clippy, rustfmt
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: SanshainService
       - name: Formatting
-        run: cargo fmt -- --check
+        run: cargo fmt --check
       - name: Clippy
         run: cargo clippy -- -D warnings
       - name: Tests
@@ -32,17 +30,26 @@ jobs:
       - name: Integration Tests
         run: |
           export INITIAL_ADMIN_PASSWORD=root_password
+          cargo build
           cargo run &
+          PID=$!
           # Wait for service to be ready
-          for i in {1..30}; do
+          READY=0
+          for i in {1..60}; do
             if curl -s http://localhost:3000/health | grep -q "OK"; then
               echo "Service is up!"
+              READY=1
               break
             fi
             echo "Waiting for service... ($i)"
             sleep 2
           done
+          if [ $READY -eq 0 ]; then
+            echo "Service failed to start"
+            exit 1
+          fi
           ./scripts/itest.sh http://localhost:3000 root_password
+          kill $PID
         env:
           INITIAL_ADMIN_PASSWORD: root_password
       - name: Install tools
@@ -79,8 +86,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: SanshainService
       - name: Install dependencies
         run: npm ci
       - name: Install Playwright Browsers
@@ -88,16 +93,25 @@ jobs:
       - name: Run UI Tests
         run: |
           export INITIAL_ADMIN_PASSWORD=root_password
+          cargo build
           cargo run &
+          PID=$!
           # Wait for service to be ready
-          for i in {1..30}; do
+          READY=0
+          for i in {1..60}; do
             if curl -s http://localhost:3000/health | grep -q "OK"; then
               echo "Service is up!"
+              READY=1
               break
             fi
             echo "Waiting for service... ($i)"
             sleep 2
           done
+          if [ $READY -eq 0 ]; then
+            echo "Service failed to start"
+            exit 1
+          fi
           npm run test:ui
+          kill $PID
         env:
           INITIAL_ADMIN_PASSWORD: root_password

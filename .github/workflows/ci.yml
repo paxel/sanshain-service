@@ -28,8 +28,6 @@ jobs:
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: SanshainService
 
       - name: Build
         run: cargo build --verbose

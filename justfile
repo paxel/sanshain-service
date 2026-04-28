@@ -5,7 +5,7 @@ check: fmt-check lint test
 
 # Check formatting
 fmt-check:
-    cargo fmt -- --check
+    cargo fmt --check
 
 # Fix formatting
 fmt:

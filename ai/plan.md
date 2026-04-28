@@ -85,6 +85,7 @@ The following major milestones have been delivered and are fully functional:
 - [x] Integrated `itest.sh` and Playwright UI tests into GitHub Actions and SourceHut CI.
 - [x] Hardened `.gitignore` with `test-results/`.
 - [x] Optimized CI workflows for disk space and build speed (rust-cache, taiki-e/install-action).
+- [x] Hardened CI service startup logic to prevent Playwright connection timeouts.
 - [x] Fixed broken task runners and cargo aliases in CI.
 
 ### Deployment

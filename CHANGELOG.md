@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.13.2] - unreleased
 
 ### Added
+- **CI Hardening**: Resolved "Connection Refused" errors in Playwright tests by explicitly decoupling compilation from service startup and increasing health check timeouts in GitHub Actions and SourceHut.
 - **CI Resilience**: Hardened GitHub Actions workflows against disk space issues by adding automated cleanup of pre-installed runner software and optimizing Rust caching with `Swatinem/rust-cache`.
 - **Robust CI Tooling**: Switched to `taiki-e/install-action` for installing `cargo-audit` and `cargo-tarpaulin`. This is more reliable than manual binary installation and significantly reduces CI build times and disk usage.
 - **Git Maintenance**: Added `test-results/` to `.gitignore` to prevent Playwright artifacts from being tracked.

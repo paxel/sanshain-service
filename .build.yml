@@ -20,13 +20,20 @@ tasks:
   - itest: |
       cd sanshain
       export INITIAL_ADMIN_PASSWORD=root_password
+      cargo build
       cargo run &
-      for i in $(seq 1 30); do
+      READY=0
+      for i in $(seq 1 60); do
         if curl -s http://localhost:3000/health | grep -q "OK"; then
           echo "Service is up!"
+          READY=1
           break
         fi
         echo "Waiting for service... ($i)"
         sleep 2
       done
+      if [ $READY -eq 0 ]; then
+        echo "Service failed to start"
+        exit 1
+      fi
       ./scripts/itest.sh http://localhost:3000 root_password
