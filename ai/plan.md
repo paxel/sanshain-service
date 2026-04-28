@@ -75,7 +75,7 @@ The following major milestones have been delivered and are fully functional:
 - [x] Expanded `api.yaml` and implemented `tests/interface_test.rs` to enforce backend/frontend contract consistency.
 - [x] Introduced a Playwright-based UI smoke test suite in `tests/ui/` for automated rendering and flow validation.
 - [x] Hardened `.gitignore` and provided advice on git maintenance.
-- [x] Implemented `scripts/itest.sh`, a comprehensive integration test suite with automated assertions.
+- [x] Implemented `scripts/itest.sh`, a comprehensive integration test suite with automated assertions, including shared contract rollback verification.
 - [x] Refactored `nuke_database` into a "factory reset" and fixed `FOREIGN KEY` issues in branch/service deletion.
 - [x] Evaluated and proposed an OpenAPI-driven code generation strategy.
 - [x] Verified security headers with integration tests and ensured `cargo audit` is clean.

@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.13.2] - unreleased
 
 ### Added
-- **Comprehensive Integration Test Suite**: Introduced `scripts/itest.sh`, a bash-based integration test suite that verifies the full lifecycle of service operations (Auth, Provider, Consumer, Admin, Observability) with assertions and summary reporting.
+- **Comprehensive Integration Test Suite**: Introduced `scripts/itest.sh`, a bash-based integration test suite that verifies the full lifecycle of service operations (Auth, Provider, Consumer, Admin, Observability, and Shared Contract Rollback) with assertions and summary reporting.
 - **Interface Consistency Tests**: Introduced a new suite of integration tests in `tests/interface_test.rs` that strictly validate JSON response structures for administrative endpoints, preventing regressions where raw values (booleans/integers) are returned instead of expected JSON objects.
 - **UI Smoke Testing Suite**: Added a Playwright-based smoke testing framework in `tests/ui/smoke.test.js` to automate UI validation, including landing page rendering and admin settings persistence.
 - **Comprehensive Admin OpenAPI Spec**: Expanded `api.yaml` to include all administrative endpoints, serving as a single source of truth for the entire API.

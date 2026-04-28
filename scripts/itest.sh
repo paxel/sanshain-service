@@ -56,23 +56,19 @@ call_api() {
     
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     
-    local auth_header=""
+    local auth_header=()
     if [ "$auth" = "true" ] && [ -n "$TOKEN" ]; then
-        auth_header="-H \"Authorization: Bearer $TOKEN\""
+        auth_header=("-H" "Authorization: Bearer $TOKEN")
     fi
     
-    local cmd="curl -s -w \"\\n%{http_code}\" -X $method \"$BASE_URL$path\""
+    local data_header=()
     if [ -n "$data" ]; then
-        cmd="$cmd -H \"Content-Type: application/json\" -d '$data'"
-    fi
-    
-    if [ -n "$auth_header" ]; then
-        cmd="$cmd $auth_header"
+        data_header=("-H" "Content-Type: application/json" "-d" "$data")
     fi
 
     # Execute
     local response
-    response=$(eval "$cmd")
+    response=$(curl -s -w "\n%{http_code}" -X "$method" "$BASE_URL$path" "${auth_header[@]}" "${data_header[@]}")
     
     LAST_BODY=$(echo "$response" | sed '$d')
     LAST_STATUS=$(echo "$response" | tail -1)
@@ -210,6 +206,155 @@ BUNDLE_PAYLOAD=$(jq -n --arg client "itest-client" --arg svc "$SVC_NAME" --arg b
 call_api POST "/require-bundle" "$BUNDLE_PAYLOAD"
 assert_status 200 "Require bundle (multiple endpoints)"
 
+# 7. Advanced Features: Optimistic Concurrency
+header "Optimistic Concurrency Tests"
+
+CONCURRENCY_SVC="concurrency-svc-$TEST_ID"
+log_info "Using service: $CONCURRENCY_SVC"
+
+# Step 1: First provide
+PAYLOAD_C1=$(jq -n --arg svc "$CONCURRENCY_SVC" --arg branch "main" --arg yaml "$OPENAPI_SPEC" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_C1"
+assert_status 202 "First provide"
+V1=$(echo "$LAST_BODY" | jq -r .version)
+
+# Step 2: Second provide (increment version)
+OPENAPI_SPEC_V2="$OPENAPI_SPEC
+# Change V2"
+PAYLOAD_C2=$(jq -n --arg svc "$CONCURRENCY_SVC" --arg branch "main" --arg yaml "$OPENAPI_SPEC_V2" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_C2"
+assert_status 202 "Second provide"
+V2=$(echo "$LAST_BODY" | jq -r .version)
+
+# Step 3: Outdated base_version
+PAYLOAD_OUTDATED=$(jq -n --arg svc "$CONCURRENCY_SVC" --arg branch "main" --arg yaml "$OPENAPI_SPEC" --argjson v "$V1" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml, base_version:$v}')
+call_api POST "/provide" "$PAYLOAD_OUTDATED"
+assert_status 409 "Reject outdated base_version ($V1 vs $V2)"
+
+# Step 4: Correct base_version
+PAYLOAD_CORRECT=$(jq -n --arg svc "$CONCURRENCY_SVC" --arg branch "main" --arg yaml "$OPENAPI_SPEC" --argjson v "$V2" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml, base_version:$v}')
+call_api POST "/provide" "$PAYLOAD_CORRECT"
+assert_status 202 "Accept correct base_version ($V2)"
+
+# 8. Advanced Features: Shared Contracts (Multi-producer)
+header "Shared Contracts (Multi-producer) Tests"
+
+SHARED_BRANCH="feat-shared-$TEST_ID"
+log_info "Using branch: $SHARED_BRANCH"
+
+ENDPOINT_V1="openapi: '3.0.0'
+info:
+  title: Shared API
+  version: '1.0'
+paths:
+  /shared:
+    get:
+      responses:
+        '200':
+          description: V1"
+
+ENDPOINT_V2_COMPAT="openapi: '3.0.0'
+info:
+  title: Shared API
+  version: '1.0'
+paths:
+  /shared:
+    get:
+      responses:
+        '200':
+          description: V1
+        '201':
+          description: V2 COMPAT"
+
+ENDPOINT_INCOMPAT="openapi: '3.0.0'
+info:
+  title: Shared API
+  version: '1.0'
+paths:
+  /shared:
+    get:
+      responses:
+        '201':
+          description: 'INCOMPAT (Breaking: 200 removed)'"
+
+# ALPHA provides V1
+PAYLOAD_ALPHA_V1=$(jq -n --arg svc "service-ALPHA" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V1" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_ALPHA_V1"
+assert_status 202 "ALPHA provides V1 (Source established)"
+
+# BETA provides V2 (COMPAT)
+PAYLOAD_BETA_V2=$(jq -n --arg svc "service-BETA" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V2_COMPAT" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_BETA_V2"
+assert_status 202 "BETA provides V2 COMPAT (Current updated, owner=BETA)"
+
+# ALPHA provides INCOMPAT (compared to current V2)
+PAYLOAD_ALPHA_INCOMPAT=$(jq -n --arg svc "service-ALPHA" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_INCOMPAT" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_ALPHA_INCOMPAT"
+assert_status 409 "ALPHA rejected for INCOMPAT change compared to current (BETA's)"
+
+# BETA provides INCOMPAT (compared to source V1)
+PAYLOAD_BETA_INCOMPAT=$(jq -n --arg svc "service-BETA" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_INCOMPAT" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_BETA_INCOMPAT"
+assert_status 409 "BETA rejected for INCOMPAT change compared to source"
+
+# BETA provides V1 (reset to source)
+PAYLOAD_BETA_V1=$(jq -n --arg svc "service-BETA" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V1" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_BETA_V1"
+assert_status 202 "BETA provides V1 (Reset to source, owner released)"
+
+# GAMMA provides V3 (after BETA rolled back)
+ENDPOINT_V3_COMPAT="openapi: '3.0.0'
+info:
+  title: Shared API
+  version: '1.0'
+paths:
+  /shared:
+    get:
+      responses:
+        '200':
+          description: V1
+        '202':
+          description: V3 COMPAT"
+
+PAYLOAD_GAMMA_V3=$(jq -n --arg svc "service-GAMMA" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V3_COMPAT" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_GAMMA_V3"
+assert_status 202 "GAMMA provides V3 COMPAT (New owner after rollback)"
+
+# GAMMA rolls back to V1
+PAYLOAD_GAMMA_V1=$(jq -n --arg svc "service-GAMMA" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V1" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_GAMMA_V1"
+assert_status 202 "GAMMA provides V1 (Reset to source, owner released again)"
+
+# ALPHA provides V4 (Original committer can take over again)
+ENDPOINT_V4_COMPAT="openapi: '3.0.0'
+info:
+  title: Shared API
+  version: '1.0'
+paths:
+  /shared:
+    get:
+      responses:
+        '200':
+          description: V1
+        '203':
+          description: V4 COMPAT"
+
+PAYLOAD_ALPHA_V4=$(jq -n --arg svc "service-ALPHA" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V4_COMPAT" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_ALPHA_V4"
+assert_status 202 "ALPHA provides V4 COMPAT (Takeover possible by original committer)"
+
 # 5. Admin API
 header "Admin API Tests"
 
@@ -282,8 +427,8 @@ echo ""
 echo "==========================================================================="
 echo "  TEST SUMMARY"
 echo "==========================================================================="
-echo -e "  Total Tests:   $TOTAL_TESTS"
-echo -e "  Passed:        ${GREEN}$PASSED_TESTS${NC}"
+echo -e "  API Calls:     $TOTAL_TESTS"
+echo -e "  Assertions:    ${GREEN}$PASSED_TESTS${NC}"
 echo -e "  Failed:        $([ $FAILED_TESTS -gt 0 ] && echo -e "${RED}$FAILED_TESTS${NC}" || echo -e "${GREEN}0${NC}")"
 echo "==========================================================================="
 
