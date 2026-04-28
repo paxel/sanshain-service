@@ -374,10 +374,10 @@ pub fn generate_diff(old: &str, new: &str) -> String {
 /// Returns Ok(()) if compatible, Err(description) if breaking.
 pub fn check_backward_compatibility(old_yaml: &str, new_yaml: &str) -> Result<(), String> {
     tracing::debug!("Checking backward compatibility...");
-    let old: OpenAPI =
-        serde_yaml_ng::from_str(old_yaml).map_err(|e| format!("Failed to parse old YAML: {}", e))?;
-    let new: OpenAPI =
-        serde_yaml_ng::from_str(new_yaml).map_err(|e| format!("Failed to parse new YAML: {}", e))?;
+    let old: OpenAPI = serde_yaml_ng::from_str(old_yaml)
+        .map_err(|e| format!("Failed to parse old YAML: {}", e))?;
+    let new: OpenAPI = serde_yaml_ng::from_str(new_yaml)
+        .map_err(|e| format!("Failed to parse new YAML: {}", e))?;
 
     check_openapi_compatible(&old, &new)
 }

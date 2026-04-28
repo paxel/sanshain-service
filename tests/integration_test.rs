@@ -347,12 +347,22 @@ async fn test_security_headers() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     let headers = response.headers();
     assert_eq!(headers.get("X-Content-Type-Options").unwrap(), "nosniff");
     assert_eq!(headers.get("X-Frame-Options").unwrap(), "SAMEORIGIN");
-    assert_eq!(headers.get("Referrer-Policy").unwrap(), "strict-origin-when-cross-origin");
-    assert!(headers.get("Content-Security-Policy").unwrap().to_str().unwrap().contains("default-src 'self'"));
+    assert_eq!(
+        headers.get("Referrer-Policy").unwrap(),
+        "strict-origin-when-cross-origin"
+    );
+    assert!(
+        headers
+            .get("Content-Security-Policy")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("default-src 'self'")
+    );
 }
 
 #[tokio::test]
