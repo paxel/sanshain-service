@@ -4,7 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.13.1] - 2026-04-28
+
+## [0.13.2] - unrelease
+
+### Fixed
+- **PostgreSQL Migration Safety**: Hardened the `20240316000000_api_type` PostgreSQL migration so it drops legacy unique constraints by their constrained columns instead of relying on fragile auto-generated constraint names, ensuring production PostgreSQL databases can safely support multiple API types per endpoint/dependency key.
+- **Dependency Deduplication Migration Coverage**: Added regression coverage for the NULL-endpoint dependency deduplication migration and clarified that it keeps the newest inserted duplicate row before enforcing the partial unique index.
+
+
+## [0.13.1] - 2026-04-27
 
 ### Added
 - **DDD Hexagonal Architecture**: refactored the entire service from a monolithic state into a clean Domain-Driven Design structure. Logic is now separated into Domain (models/ports), Application (services), Infrastructure (adapters), and Presentation (Axum handlers) layers.
@@ -36,6 +44,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Deep-Link Infinite Loading**: Fixed the services page showing an infinite loading screen when navigating via deep-links (e.g., clicking a client's "resolved → service" link). The `showServiceBranchEndpoints` and `showServiceBranches` functions now properly manage the loader overlay.
 - **Admin Link Visibility**: The Admin navigation link in the top banner is now hidden for non-admin users and only shown when the logged-in user has admin privileges.
 - **Cargo Audit Vulnerability**: Added `.cargo/audit.toml` to ignore RUSTSEC-2023-0071 (`rsa` crate Marvin Attack), a transitive dependency via `sqlx-mysql` that is never used at runtime since the project only uses SQLite and PostgreSQL backends. No upstream fix is available.
+- **SQLite Migration Ordering**: Fixed the `20240316000000_api_type` SQLite migration so it drops the dependent `dependencies` table before rebuilding `endpoints`, avoiding foreign-key failures during startup migrations on existing databases.
 
 ---
 

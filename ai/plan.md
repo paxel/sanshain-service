@@ -60,6 +60,10 @@ The following major milestones have been delivered and are fully functional:
 - [x] Restore the broken observability raw metrics link by exposing the Prometheus endpoint at `/metrics` again and cover it with an integration regression test.
 - [x] Fix the landing/info banner and shared nav highlighting, restore admin password changes, and expose the auto-acknowledge new users admin setting in the UI with regression coverage.
 - [x] Fix the root password-change flow so changing the admin password rotates the session token cleanly, keeps the UI logged in, and still allows re-login with the new password.
+- [x] Bump the service version to 0.13.2 for the SQLite migration fix release.
+- [x] Fix the SQLite `20240316000000_api_type` migration ordering so existing databases no longer fail startup migrations with a foreign-key constraint error.
+- [x] Harden the PostgreSQL `20240316000000_api_type` migration for production by dropping legacy unique constraints by constrained columns instead of generated names.
+- [x] Add migration regression coverage for NULL-endpoint dependency deduplication and PostgreSQL api_type constraint handling.
 
 ### Deployment
 - [ ] Kubernetes manifests (Deployment, Service, Ingress, ConfigMap, Secret).

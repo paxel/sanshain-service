@@ -1,4 +1,4 @@
--- Deduplicate existing NULL-endpoint dependency rows, keeping the one with the latest last_seen_at
+-- Deduplicate existing NULL-endpoint dependency rows, keeping the newest inserted row.
 DELETE FROM dependencies
 WHERE endpoint_id IS NULL
   AND id NOT IN (
