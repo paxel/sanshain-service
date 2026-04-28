@@ -177,7 +177,7 @@ pub async fn admin_delete_client(
 
 pub async fn get_dev_mode(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     let res = services::get_dev_mode(&state.repo).await?;
-    Ok(Json(res))
+    Ok(Json(json!({ "dev_mode": res })))
 }
 
 #[derive(Deserialize)]
@@ -195,7 +195,7 @@ pub async fn set_dev_mode(
 
 pub async fn get_local_users(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     let res = services::get_local_users_enabled(&state.repo).await?;
-    Ok(Json(res))
+    Ok(Json(json!({ "local_users_enabled": res })))
 }
 
 pub async fn set_local_users(
@@ -210,7 +210,7 @@ pub async fn get_auto_approve_users(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
     let res = services::get_auto_approve_users(&state.repo).await?;
-    Ok(Json(res))
+    Ok(Json(json!({ "auto_approve_users": res })))
 }
 
 pub async fn set_auto_approve_users(
@@ -420,7 +420,7 @@ pub async fn admin_nuke_branch(
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
     let res = services::delete_branch_all_services(&state.repo, &branch).await?;
-    Ok(Json(res))
+    Ok(Json(json!({ "deleted": res })))
 }
 
 pub async fn get_observability_stats(

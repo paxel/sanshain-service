@@ -7,12 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.13.2] - unreleased
 
+### Added
+- **Interface Consistency Tests**: Introduced a new suite of integration tests in `tests/interface_test.rs` that strictly validate JSON response structures for administrative endpoints, preventing regressions where raw values (booleans/integers) are returned instead of expected JSON objects.
+- **UI Smoke Testing Suite**: Added a Playwright-based smoke testing framework in `tests/ui/smoke.test.js` to automate UI validation, including landing page rendering and admin settings persistence.
+- **Comprehensive Admin OpenAPI Spec**: Expanded `api.yaml` to include all administrative endpoints, serving as a single source of truth for the entire API.
+- **Improved Git Maintenance**: Hardened `.gitignore` to cover SQLite temporary files, JetBrains workspace state, local environment files, and tool-specific temporary folders, ensuring a cleaner repository state.
+
 ### Changed
+- **Backend API Standardization**: Hardened all administrative endpoints (including nuke operations and settings toggles) to consistently return JSON objects. For example, `/admin/nuke/branch/{branch}` now returns `{"deleted": count}` instead of a raw integer.
 - **Content Security Policy**: Updated CSP to allow Tailwind CSS and jsDelivr CDNs, restoring UI functionality across all service pages including Services, Clients, Graph, Reports, and Observability.
 - **Image Robustness**: Added explicit `width` and `height` attributes to critical UI images (logo, landing page graphics, account icons) across all pages to prevent layout shifts and oversized images when CSS/JS is slow or blocked.
 - **Code Quality Rules**: Strengthened the AI development rules around KISS refactoring, dead-code and unused-file cleanup, duplicate setup removal, coverage targets, and required security checks.
 
 ### Fixed
+- **Admin Settings Persistence**: Fixed an issue where "developer mode", "local user registration", and "auto-approve" settings were not persisting in the UI. The backend API now returns these boolean settings as JSON objects (e.g., `{"dev_mode": true}`) instead of raw boolean values, matching the frontend expectations.
 - **Proto Splitting Robustness**: Replaced brittle byte-index service parsing with boundary-safe service-block extraction and added edge-case tests for non-ASCII headers and malformed service blocks.
 - **Integration Test Maintainability**: Consolidated duplicated integration-test application-state setup into one shared helper.
 - **PostgreSQL Migration Safety**: Hardened the `20240316000000_api_type` PostgreSQL migration so it drops legacy unique constraints by their constrained columns instead of relying on fragile auto-generated constraint names, ensuring production PostgreSQL databases can safely support multiple API types per endpoint/dependency key.

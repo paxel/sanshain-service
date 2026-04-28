@@ -109,6 +109,224 @@ paths:
         "409":
           description: Conflict on protected branch.
 
+  /admin/settings/dev-mode:
+    get:
+      summary: Get developer mode status
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Developer mode status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dev_mode:
+                    type: boolean
+    post:
+      summary: Set developer mode status
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnabledPayload"
+      responses:
+        "200":
+          description: Status updated
+
+  /admin/settings/local-users:
+    get:
+      summary: Get local users enabled status
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Local users status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  local_users_enabled:
+                    type: boolean
+    post:
+      summary: Set local users enabled status
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnabledPayload"
+      responses:
+        "200":
+          description: Status updated
+
+  /admin/settings/auto-approve:
+    get:
+      summary: Get auto-approve status
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Auto-approve status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  auto_approve_users:
+                    type: boolean
+    post:
+      summary: Set auto-approve status
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnabledPayload"
+      responses:
+        "200":
+          description: Status updated
+
+  /admin/settings/branch-max-age:
+    get:
+      summary: Get branch max age
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Max age in days
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  days:
+                    type: integer
+    post:
+      summary: Set branch max age
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaxAgePayload"
+      responses:
+        "200":
+          description: Status updated
+
+  /admin/settings/dependency-max-age:
+    get:
+      summary: Get dependency max age
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Max age in days
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  days:
+                    type: integer
+    post:
+      summary: Set dependency max age
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaxAgePayload"
+      responses:
+        "200":
+          description: Status updated
+
+  /admin/users:
+    get:
+      summary: List all users
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+
+  /admin/users/{id}/approve:
+    post:
+      summary: Approve a user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User approved
+
+  /admin/users/{id}:
+    delete:
+      summary: Delete a user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User deleted
+
+  /admin/nuke/branch/{branch}:
+    post:
+      summary: Delete a branch from all services
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: branch
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NukeConfirmPayload"
+      responses:
+        "200":
+          description: Branch deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: integer
+
   /require:
     get:
       operationId: requireEndpoint
@@ -346,6 +564,11 @@ paths:
                 type: string
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
   parameters:
     clientname:
       name: clientname
@@ -536,3 +759,44 @@ components:
         method:
           type: string
           description: "HTTP method (e.g. `GET`, `POST`)."
+
+    EnabledPayload:
+      type: object
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+
+    MaxAgePayload:
+      type: object
+      required:
+        - days
+      properties:
+        days:
+          type: integer
+
+    NukeConfirmPayload:
+      type: object
+      required:
+        - confirmation
+      properties:
+        confirmation:
+          type: string
+
+    User:
+      type: object
+      required:
+        - id
+        - username
+        - is_admin
+        - approved
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        is_admin:
+          type: boolean
+        approved:
+          type: boolean

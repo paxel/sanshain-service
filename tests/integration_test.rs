@@ -1722,7 +1722,7 @@ async fn test_auto_approve_setting_controls_new_user_approval() {
         .await
         .unwrap();
     let default_json: Value = serde_json::from_slice(&default_body).unwrap();
-    assert_eq!(default_json, false);
+    assert_eq!(default_json, json!({ "auto_approve_users": false }));
 
     let register_pending: Response = app
         .clone()

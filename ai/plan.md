@@ -71,6 +71,11 @@ The following major milestones have been delivered and are fully functional:
 - [x] Harden the service against `cargo geiger` findings by migrating from deprecated `serde_yaml` and untrusted `serde_yml` to `serde_yaml_ng`, a maintained fork.
 - [x] Verified zero `unsafe` usage in the project's own source code.
 - [x] Implemented standard HTTP security headers (CSP, HSTS, XFO, etc.) across all routes to improve the security posture.
+- [x] Fixed admin settings persistence (dev-mode, local-users, auto-approve) by returning JSON objects instead of raw booleans.
+- [x] Expanded `api.yaml` and implemented `tests/interface_test.rs` to enforce backend/frontend contract consistency.
+- [x] Introduced a Playwright-based UI smoke test suite in `tests/ui/` for automated rendering and flow validation.
+- [x] Hardened `.gitignore` and provided advice on git maintenance.
+- [x] Evaluated and proposed an OpenAPI-driven code generation strategy.
 - [x] Verified security headers with integration tests and ensured `cargo audit` is clean.
 
 ### Deployment
