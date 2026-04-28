@@ -1,12 +1,11 @@
 # Sanshain Service Tasks
 
 # Run all local checks (fmt, lint, test)
-check:
-    cargo check-all
+check: fmt-check lint test
 
 # Check formatting
 fmt-check:
-    cargo fmt-check
+    cargo fmt -- --check
 
 # Fix formatting
 fmt:
@@ -14,7 +13,7 @@ fmt:
 
 # Run clippy
 lint:
-    cargo lint
+    cargo clippy -- -D warnings
 
 # Run unit and integration tests
 test:
@@ -22,8 +21,8 @@ test:
 
 # Run the automated bash integration test suite (requires service running)
 itest:
-    cargo itest
+    ./scripts/itest.sh
 
 # Run Playwright UI smoke tests (requires service running)
 ui-test:
-    cargo ui-test
+    npx playwright test tests/ui/smoke.test.js

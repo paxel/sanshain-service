@@ -3,11 +3,11 @@
   "type": "module",
   "scripts": {
     "fmt": "cargo fmt",
-    "fmt:check": "cargo fmt-check",
-    "lint": "cargo lint",
+    "fmt:check": "cargo fmt -- --check",
+    "lint": "cargo clippy -- -D warnings",
     "test:unit": "cargo test",
-    "test:itest": "cargo itest",
-    "test:ui": "cargo ui-test",
+    "test:itest": "./scripts/itest.sh",
+    "test:ui": "npx playwright test tests/ui/smoke.test.js",
     "test": "cargo test",
     "check": "npm run fmt:check && npm run lint && npm run test"
   },

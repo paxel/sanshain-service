@@ -84,7 +84,8 @@ The following major milestones have been delivered and are fully functional:
 - [x] Added modern automation (Cargo Aliases, Justfile, NPM) and integrated `fmt --check` into `itest.sh`.
 - [x] Integrated `itest.sh` and Playwright UI tests into GitHub Actions and SourceHut CI.
 - [x] Hardened `.gitignore` with `test-results/`.
-- [x] Optimized CI workflows for disk space and build speed (rust-cache, cargo-binstall).
+- [x] Optimized CI workflows for disk space and build speed (rust-cache, taiki-e/install-action).
+- [x] Fixed broken task runners and cargo aliases in CI.
 
 ### Deployment
 - [ ] Kubernetes manifests (Deployment, Service, Ingress, ConfigMap, Secret).

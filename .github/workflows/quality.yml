@@ -24,9 +24,9 @@ jobs:
         with:
           workspaces: SanshainService
       - name: Formatting
-        run: cargo fmt-check
+        run: cargo fmt -- --check
       - name: Clippy
-        run: cargo lint
+        run: cargo clippy -- -D warnings
       - name: Tests
         run: cargo test
       - name: Integration Tests
@@ -46,9 +46,9 @@ jobs:
         env:
           INITIAL_ADMIN_PASSWORD: root_password
       - name: Install tools
-        run: |
-          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install.sh | bash
-          cargo binstall -y cargo-audit cargo-tarpaulin
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-tarpaulin
       - name: Security Audit
         run: cargo audit
       - name: Coverage
