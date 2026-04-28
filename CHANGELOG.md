@@ -5,9 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [0.13.2] - unrelease
+## [0.13.2] - unreleased
 
 ### Changed
+- **Content Security Policy**: Updated CSP to allow Tailwind CSS and jsDelivr CDNs, restoring UI functionality across all service pages including Services, Clients, Graph, Reports, and Observability.
+- **Image Robustness**: Added explicit `width` and `height` attributes to critical UI images (logo, landing page graphics, account icons) across all pages to prevent layout shifts and oversized images when CSS/JS is slow or blocked.
 - **Code Quality Rules**: Strengthened the AI development rules around KISS refactoring, dead-code and unused-file cleanup, duplicate setup removal, coverage targets, and required security checks.
 
 ### Fixed

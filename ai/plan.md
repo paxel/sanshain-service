@@ -66,6 +66,8 @@ The following major milestones have been delivered and are fully functional:
 - [x] Add migration regression coverage for NULL-endpoint dependency deduplication and PostgreSQL api_type constraint handling.
 - [x] Refactor brittle Proto service parsing into boundary-safe helpers and add edge-case coverage for non-ASCII headers and malformed service blocks.
 - [x] Consolidate duplicated integration-test application setup into a shared helper and extend `ai/ai-rules.md` with KISS cleanup, dead-code/unused-file removal, coverage targets, and required security checks.
+- [x] Fix landing page UI breakage by updating CSP to allow required CDNs (Tailwind, jsDelivr) and adding image dimension fallbacks.
+- [x] Apply UI fixes (image dimension fallbacks) to all discovery pages: Services, Clients, Graph, Reports, Observability, Admin, and Account.
 - [x] Harden the service against `cargo geiger` findings by migrating from deprecated `serde_yaml` and untrusted `serde_yml` to `serde_yaml_ng`, a maintained fork.
 - [x] Verified zero `unsafe` usage in the project's own source code.
 - [x] Implemented standard HTTP security headers (CSP, HSTS, XFO, etc.) across all routes to improve the security posture.
