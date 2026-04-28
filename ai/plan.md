@@ -81,6 +81,9 @@ The following major milestones have been delivered and are fully functional:
 - [x] Refactored `nuke_database` into a "factory reset" and fixed `FOREIGN KEY` issues in branch/service deletion.
 - [x] Evaluated and proposed an OpenAPI-driven code generation strategy.
 - [x] Verified security headers with integration tests and ensured `cargo audit` is clean.
+- [x] Added modern automation (Cargo Aliases, Justfile, NPM) and integrated `fmt --check` into `itest.sh`.
+- [x] Integrated `itest.sh` and Playwright UI tests into GitHub Actions and SourceHut CI.
+- [x] Hardened `.gitignore` with `test-results/`.
 
 ### Deployment
 - [ ] Kubernetes manifests (Deployment, Service, Ingress, ConfigMap, Secret).

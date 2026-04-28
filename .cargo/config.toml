@@ -1,0 +1,15 @@
+[alias]
+# Formatting check
+fmt-check = "fmt -- --check"
+
+# Linting with clippy
+lint = "clippy -- -D warnings"
+
+# Run all local checks (fmt, lint, test)
+check-all = "!cargo fmt-check && cargo lint && cargo test"
+
+# Integration tests (requires service running)
+itest = "!./scripts/itest.sh"
+
+# UI tests (requires service running)
+ui-test = "!npx playwright test tests/ui/smoke.test.js"

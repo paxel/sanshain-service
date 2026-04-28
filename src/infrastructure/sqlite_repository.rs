@@ -786,7 +786,10 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn nuke_database(&self, keep_user_id: Option<i64>) -> Result<(), RepositoryError> {
-        let mut tx = self.pool.begin().await
+        let mut tx = self
+            .pool
+            .begin()
+            .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         sqlx::query("DELETE FROM endpoint_versions")
@@ -858,14 +861,18 @@ impl SpecRepository for SqliteSpecRepository {
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         }
 
-        tx.commit().await
+        tx.commit()
+            .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         Ok(())
     }
 
     async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {
-        let mut tx = self.pool.begin().await
+        let mut tx = self
+            .pool
+            .begin()
+            .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM services WHERE name = ?")
@@ -938,7 +945,8 @@ impl SpecRepository for SqliteSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        tx.commit().await
+        tx.commit()
+            .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         Ok(true)
@@ -949,7 +957,10 @@ impl SpecRepository for SqliteSpecRepository {
         service_name: &str,
         branch_name: &str,
     ) -> Result<bool, RepositoryError> {
-        let mut tx = self.pool.begin().await
+        let mut tx = self
+            .pool
+            .begin()
+            .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         let row: Option<(i64, i64)> = sqlx::query_as(
@@ -977,7 +988,7 @@ impl SpecRepository for SqliteSpecRepository {
 
         // Delete dependencies referencing this branch by name (including NULL endpoint_id)
         sqlx::query(
-            "DELETE FROM dependencies WHERE requested_service_id = ? AND requested_branch_name = ?"
+            "DELETE FROM dependencies WHERE requested_service_id = ? AND requested_branch_name = ?",
         )
         .bind(service_id)
         .bind(branch_name)
@@ -1006,7 +1017,8 @@ impl SpecRepository for SqliteSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        tx.commit().await
+        tx.commit()
+            .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         Ok(true)

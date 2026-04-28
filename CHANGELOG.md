@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.13.2] - unreleased
 
 ### Added
+- **Git Maintenance**: Added `test-results/` to `.gitignore` to prevent Playwright artifacts from being tracked.
+- **Automated CI Integration**: Enhanced CI pipelines for both GitHub and SourceHut:
+    - **Integration Testing**: Integrated `scripts/itest.sh` into GitHub Actions and SourceHut `.build.yml` to verify the full API lifecycle on every push.
+    - **UI Automation**: Added Playwright-based UI smoke tests to GitHub Actions, including automated browser dependency management.
+    - **Modern Linting**: Switched to standardized `cargo` aliases (`fmt-check`, `lint`) in CI.
+- **21st-Century Automation**: Replaced the legacy `Makefile` with modern alternatives:
+    - **Cargo Aliases**: Integrated task automation directly into `cargo` via `.cargo/config.toml` (`cargo fmt-check`, `cargo lint`, `cargo itest`, etc.).
+    - **Justfile**: Added `justfile` for modern, clean task execution.
+    - **NPM Orchestration**: Expanded the root `package.json` to coordinate tasks across the entire polyglot monorepo.
+- **Standardized Test Scripts**: Added npm scripts to `package.json` for consistent local verification.
+- **Enhanced `itest.sh`**: Integrated `cargo fmt --check` into the integration test suite to ensure all contributions follow the project's formatting standards.
 - **ETag Support for Require**: Implemented server-side ETag generation and `If-None-Match` validation for all `/require` and `/require-bundle` endpoints. This enables client-side caching (e.g., in the Maven plugin) to avoid redundant downloads when API specifications are unchanged.
 - **Cache Health Monitoring**: Enhanced the `CachedSpecRepository::cache_stats` API to provide accurate, real-time statistics including entry counts and memory usage by ensuring internal cache maintenance tasks are flushed before reporting.
 - **Maven Plugin Automation Scripts**: Introduced a new `scripts/` directory in `SanshainMaven` containing demonstration and automation scripts (`demo.sh`, `setup-demo.sh`, `provide.sh`, `require.sh`).

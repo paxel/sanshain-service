@@ -103,6 +103,18 @@ assert_json() {
 }
 
 # ---------------------------------------------------------------------------
+# Static Analysis & Formatting
+# ---------------------------------------------------------------------------
+
+header "Static Analysis & Formatting"
+log_info "Running cargo fmt --check..."
+if cargo fmt --check; then
+    log_success "Formatting check passed"
+else
+    log_failure "Formatting check failed. Run 'cargo fmt' to fix."
+fi
+
+# ---------------------------------------------------------------------------
 # Test Cases
 # ---------------------------------------------------------------------------
 

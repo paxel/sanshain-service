@@ -5,6 +5,9 @@ packages:
   - cargo
   - openssl-dev
   - build-base
+  - curl
+  - jq
+  - bash
 sources:
   - https://git.sr.ht/~taum/sanshain
 tasks:
@@ -14,3 +17,16 @@ tasks:
   - test: |
       cd sanshain
       cargo test
+  - itest: |
+      cd sanshain
+      export INITIAL_ADMIN_PASSWORD=root_password
+      cargo run &
+      for i in $(seq 1 30); do
+        if curl -s http://localhost:3000/health | grep -q "OK"; then
+          echo "Service is up!"
+          break
+        fi
+        echo "Waiting for service... ($i)"
+        sleep 2
+      done
+      ./scripts/itest.sh http://localhost:3000 root_password

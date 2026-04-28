@@ -2,7 +2,9 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use chrono::Utc;
 use sanshain_service::application::services;
+use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
 use sanshain_service::infrastructure::database::DatabaseRepo;
 use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
 use sanshain_service::{AppState, create_app};
@@ -13,8 +15,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, OnceLock};
 use tokio::sync::RwLock;
 use tower::ServiceExt;
-use chrono::Utc;
-use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
 
 const TEST_CSRF_TOKEN: &str = "test-csrf-token";
 
@@ -76,21 +76,26 @@ async fn test_admin_settings_interface_consistency() {
     }
     let (app, repo) = setup_app().await;
     services::ensure_initial_admin(&repo).await.unwrap();
-    
+
     // Login to get token
     let login_req = Request::builder()
         .method("POST")
         .uri("/auth/login")
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({
-            "username": "root",
-            "password": "root_password"
-        }).to_string()))
+        .body(Body::from(
+            json!({
+                "username": "root",
+                "password": "root_password"
+            })
+            .to_string(),
+        ))
         .unwrap();
-    
+
     let login_res = app.clone().oneshot(login_req).await.unwrap();
     assert_eq!(login_res.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(login_res.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(login_res.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let login_data: Value = serde_json::from_slice(&body).unwrap();
     let token = login_data["token"].as_str().unwrap();
 
@@ -108,10 +113,17 @@ async fn test_admin_settings_interface_consistency() {
                 .unwrap();
             let res = app.oneshot(req).await.unwrap();
             assert_eq!(res.status(), StatusCode::OK, "Failed GET {}", uri);
-            let body = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+            let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+                .await
+                .unwrap();
             let data: Value = serde_json::from_slice(&body).unwrap();
             assert!(data.is_object(), "Response from {} is not an object", uri);
-            assert!(data.get(&key).is_some(), "Key {} missing in response from {}", key, uri);
+            assert!(
+                data.get(&key).is_some(),
+                "Key {} missing in response from {}",
+                key,
+                uri
+            );
         }
     };
 
@@ -130,19 +142,24 @@ async fn test_admin_list_interface_consistency() {
     }
     let (app, repo) = setup_app().await;
     services::ensure_initial_admin(&repo).await.unwrap();
-    
+
     let login_req = Request::builder()
         .method("POST")
         .uri("/auth/login")
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({
-            "username": "root",
-            "password": "root_password"
-        }).to_string()))
+        .body(Body::from(
+            json!({
+                "username": "root",
+                "password": "root_password"
+            })
+            .to_string(),
+        ))
         .unwrap();
-    
+
     let login_res = app.clone().oneshot(login_req).await.unwrap();
-    let body = axum::body::to_bytes(login_res.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(login_res.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let login_data: Value = serde_json::from_slice(&body).unwrap();
     let token = login_data["token"].as_str().unwrap();
 
@@ -159,7 +176,9 @@ async fn test_admin_list_interface_consistency() {
                 .unwrap();
             let res = app.oneshot(req).await.unwrap();
             assert_eq!(res.status(), StatusCode::OK, "Failed GET {}", uri);
-            let body = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+            let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+                .await
+                .unwrap();
             let data: Value = serde_json::from_slice(&body).unwrap();
             assert!(data.is_array(), "Response from {} is not an array", uri);
         }

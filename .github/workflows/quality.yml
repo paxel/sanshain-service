@@ -13,11 +13,27 @@ jobs:
         with:
           components: clippy, rustfmt
       - name: Formatting
-        run: cargo fmt --check
+        run: cargo fmt-check
       - name: Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo lint
       - name: Tests
         run: cargo test
+      - name: Integration Tests
+        run: |
+          export INITIAL_ADMIN_PASSWORD=root_password
+          cargo run &
+          # Wait for service to be ready
+          for i in {1..30}; do
+            if curl -s http://localhost:3000/health | grep -q "OK"; then
+              echo "Service is up!"
+              break
+            fi
+            echo "Waiting for service... ($i)"
+            sleep 2
+          done
+          ./scripts/itest.sh http://localhost:3000 root_password
+        env:
+          INITIAL_ADMIN_PASSWORD: root_password
       - name: Security Audit
         run: cargo install cargo-audit && cargo audit
       - name: Coverage
@@ -30,3 +46,32 @@ jobs:
       - run: npm ci
       - run: npx eslint static/js/
       - run: npx prettier --check static/js/
+  ui-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'npm'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+      - name: Run UI Tests
+        run: |
+          export INITIAL_ADMIN_PASSWORD=root_password
+          cargo run &
+          # Wait for service to be ready
+          for i in {1..30}; do
+            if curl -s http://localhost:3000/health | grep -q "OK"; then
+              echo "Service is up!"
+              break
+            fi
+            echo "Waiting for service... ($i)"
+            sleep 2
+          done
+          npm run test:ui
+        env:
+          INITIAL_ADMIN_PASSWORD: root_password

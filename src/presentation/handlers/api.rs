@@ -7,8 +7,8 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
 };
-use sha2::{Digest, Sha256};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 #[derive(Deserialize)]
 pub struct ProvideRequest {
@@ -141,10 +141,8 @@ pub async fn require(
     };
 
     let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.as_bytes())));
-    if let Some(if_none_match) = headers.get("if-none-match") {
-        if if_none_match == etag.as_str() {
-            return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
-        }
+    if headers.get("if-none-match") == Some(&HeaderValue::from_str(&etag).unwrap()) {
+        return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
     }
 
     let mut headers = HeaderMap::new();
@@ -173,10 +171,8 @@ pub async fn require_asyncapi(
     .await?;
 
     let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.as_bytes())));
-    if let Some(if_none_match) = headers.get("if-none-match") {
-        if if_none_match == etag.as_str() {
-            return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
-        }
+    if headers.get("if-none-match") == Some(&HeaderValue::from_str(&etag).unwrap()) {
+        return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
     }
 
     let mut headers = HeaderMap::new();
@@ -205,10 +201,8 @@ pub async fn require_proto(
     .await?;
 
     let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.as_bytes())));
-    if let Some(if_none_match) = headers.get("if-none-match") {
-        if if_none_match == etag.as_str() {
-            return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
-        }
+    if headers.get("if-none-match") == Some(&HeaderValue::from_str(&etag).unwrap()) {
+        return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
     }
 
     let mut headers = HeaderMap::new();
@@ -258,10 +252,8 @@ pub async fn require_bundle(
     .await?;
 
     let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.as_bytes())));
-    if let Some(if_none_match) = headers.get("if-none-match") {
-        if if_none_match == etag.as_str() {
-            return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
-        }
+    if headers.get("if-none-match") == Some(&HeaderValue::from_str(&etag).unwrap()) {
+        return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
     }
 
     let mut headers = HeaderMap::new();
