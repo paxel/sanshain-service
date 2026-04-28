@@ -9,9 +9,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Free up space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SanshainService
       - name: Formatting
         run: cargo fmt-check
       - name: Clippy
@@ -34,10 +45,14 @@ jobs:
           ./scripts/itest.sh http://localhost:3000 root_password
         env:
           INITIAL_ADMIN_PASSWORD: root_password
+      - name: Install tools
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install.sh | bash
+          cargo binstall -y cargo-audit cargo-tarpaulin
       - name: Security Audit
-        run: cargo install cargo-audit && cargo audit
+        run: cargo audit
       - name: Coverage
-        run: cargo install cargo-tarpaulin && cargo tarpaulin --out Xml --skip-clean
+        run: cargo tarpaulin --out Xml --skip-clean
   js-quality:
     runs-on: ubuntu-latest
     steps:
@@ -50,11 +65,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Free up space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
       - uses: actions/setup-node@v4
         with:
           node-version: lts/*
           cache: 'npm'
       - uses: dtolnay/rust-toolchain@stable
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SanshainService
       - name: Install dependencies
         run: npm ci
       - name: Install Playwright Browsers

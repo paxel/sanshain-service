@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.13.2] - unreleased
 
 ### Added
+- **CI Resilience**: Hardened GitHub Actions workflows against disk space issues by adding automated cleanup of pre-installed runner software and optimizing Rust caching with `Swatinem/rust-cache`.
+- **Faster CI Tools**: Switched to `cargo-binstall` for installing `cargo-audit` and `cargo-tarpaulin`, significantly reducing CI build times and disk usage by using pre-built binaries.
 - **Git Maintenance**: Added `test-results/` to `.gitignore` to prevent Playwright artifacts from being tracked.
 - **Automated CI Integration**: Enhanced CI pipelines for both GitHub and SourceHut:
     - **Integration Testing**: Integrated `scripts/itest.sh` into GitHub Actions and SourceHut `.build.yml` to verify the full API lifecycle on every push.
