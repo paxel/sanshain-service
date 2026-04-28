@@ -75,6 +75,8 @@ The following major milestones have been delivered and are fully functional:
 - [x] Expanded `api.yaml` and implemented `tests/interface_test.rs` to enforce backend/frontend contract consistency.
 - [x] Introduced a Playwright-based UI smoke test suite in `tests/ui/` for automated rendering and flow validation.
 - [x] Hardened `.gitignore` and provided advice on git maintenance.
+- [x] Implemented `scripts/itest.sh`, a comprehensive integration test suite with automated assertions.
+- [x] Refactored `nuke_database` into a "factory reset" and fixed `FOREIGN KEY` issues in branch/service deletion.
 - [x] Evaluated and proposed an OpenAPI-driven code generation strategy.
 - [x] Verified security headers with integration tests and ensured `cargo audit` is clean.
 
@@ -101,8 +103,8 @@ Design exploration document: [`ai/sync.plan`](sync.plan.md)
   - [ ] Display the "current" with diff to "source"
 - [x] Problem 3: Concurrent developers on same service/branch overwrite each other (optimistic concurrency with `base_version`).
 - [x] Problem 4: Provide returns JSON body with version and content hash.
-- [x] Problem 5: Skip specification processing if content hash matches current version.
-- [x] Require-Side Caching: implemented ETag and If-None-Match support for all require endpoints to reduce network traffic and build times.
+- [x] Problem 5: Skip specification processing if the content hash matches the current version.
+- [x] Require-Side Caching: implemented ETag and If-None-Match support for all require-endpoints to reduce network traffic and build times.
 - [ ] Problem 6: Bundle Hash Stability (ensure stable ETag regardless of request order).
 - [ ] Problem 7: Semantic Versioning for Specs.
 

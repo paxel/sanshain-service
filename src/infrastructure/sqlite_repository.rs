@@ -786,76 +786,91 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn nuke_database(&self, keep_user_id: Option<i64>) -> Result<(), RepositoryError> {
+        let mut tx = self.pool.begin().await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
         sqlx::query("DELETE FROM endpoint_versions")
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM service_spec_versions")
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM dependencies")
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM endpoints")
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM branches")
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM services")
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM clients")
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        sqlx::query("DELETE FROM protected_branches")
-            .execute(&self.pool)
+        sqlx::query("DELETE FROM service_tags")
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM shared_contracts")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
         // Delete all sessions except the current admin's
         if let Some(uid) = keep_user_id {
             sqlx::query("DELETE FROM sessions WHERE user_id != ?")
                 .bind(uid)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             sqlx::query("DELETE FROM api_tokens WHERE user_id != ?")
                 .bind(uid)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             sqlx::query("DELETE FROM users WHERE id != ?")
                 .bind(uid)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         } else {
             sqlx::query("DELETE FROM sessions")
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             sqlx::query("DELETE FROM api_tokens")
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             sqlx::query("DELETE FROM users")
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         }
+
+        tx.commit().await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
         Ok(())
     }
 
     async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {
+        let mut tx = self.pool.begin().await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
         let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM services WHERE name = ?")
             .bind(name)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
@@ -868,14 +883,14 @@ impl SpecRepository for SqliteSpecRepository {
         let branch_rows: Vec<(i64,)> =
             sqlx::query_as("SELECT id FROM branches WHERE service_id = ?")
                 .bind(service_id)
-                .fetch_all(&self.pool)
+                .fetch_all(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         for (branch_id,) in &branch_rows {
             sqlx::query("DELETE FROM service_spec_versions WHERE branch_id = ?")
                 .bind(branch_id)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
@@ -884,14 +899,14 @@ impl SpecRepository for SqliteSpecRepository {
                 "DELETE FROM dependencies WHERE endpoint_id IN (SELECT id FROM endpoints WHERE branch_id = ?)"
             )
             .bind(branch_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
             // Delete endpoints
             sqlx::query("DELETE FROM endpoints WHERE branch_id = ?")
                 .bind(branch_id)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         }
@@ -899,28 +914,31 @@ impl SpecRepository for SqliteSpecRepository {
         // Delete dependencies referencing this service (including those with NULL endpoint_id)
         sqlx::query("DELETE FROM dependencies WHERE requested_service_id = ?")
             .bind(service_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         sqlx::query("DELETE FROM service_spec_versions WHERE service_id = ?")
             .bind(service_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         // Delete branches
         sqlx::query("DELETE FROM branches WHERE service_id = ?")
             .bind(service_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         // Delete service
         sqlx::query("DELETE FROM services WHERE id = ?")
             .bind(service_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        tx.commit().await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         Ok(true)
@@ -931,17 +949,20 @@ impl SpecRepository for SqliteSpecRepository {
         service_name: &str,
         branch_name: &str,
     ) -> Result<bool, RepositoryError> {
-        let row: Option<(i64,)> = sqlx::query_as(
-            "SELECT b.id FROM branches b JOIN services s ON b.service_id = s.id WHERE s.name = ? AND b.name = ?"
+        let mut tx = self.pool.begin().await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        let row: Option<(i64, i64)> = sqlx::query_as(
+            "SELECT b.id, s.id FROM branches b JOIN services s ON b.service_id = s.id WHERE s.name = ? AND b.name = ?"
         )
         .bind(service_name)
         .bind(branch_name)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        let branch_id = match row {
-            Some((id,)) => id,
+        let (branch_id, service_id) = match row {
+            Some(r) => r,
             None => return Ok(false),
         };
 
@@ -950,42 +971,42 @@ impl SpecRepository for SqliteSpecRepository {
             "DELETE FROM dependencies WHERE endpoint_id IN (SELECT id FROM endpoints WHERE branch_id = ?)"
         )
         .bind(branch_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         // Delete dependencies referencing this branch by name (including NULL endpoint_id)
-        let service_row: Option<(i64,)> = sqlx::query_as(
-            "SELECT s.id FROM services s JOIN branches b ON b.service_id = s.id WHERE b.id = ?",
+        sqlx::query(
+            "DELETE FROM dependencies WHERE requested_service_id = ? AND requested_branch_name = ?"
         )
-        .bind(branch_id)
-        .fetch_optional(&self.pool)
+        .bind(service_id)
+        .bind(branch_name)
+        .execute(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        if let Some((service_id,)) = service_row {
-            sqlx::query(
-                "DELETE FROM dependencies WHERE requested_service_id = ? AND requested_branch_name = ?"
-            )
-            .bind(service_id)
-            .bind(branch_name)
-            .execute(&self.pool)
+        // Delete spec versions
+        sqlx::query("DELETE FROM service_spec_versions WHERE branch_id = ?")
+            .bind(branch_id)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        }
 
         // Delete endpoints
         sqlx::query("DELETE FROM endpoints WHERE branch_id = ?")
             .bind(branch_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         // Delete branch
         sqlx::query("DELETE FROM branches WHERE id = ?")
             .bind(branch_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        tx.commit().await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         Ok(true)
