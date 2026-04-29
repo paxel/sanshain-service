@@ -24,7 +24,23 @@ test.describe('Sanshain UI Smoke Test', () => {
       localStorage.clear();
     });
 
+    // Handle reload banner if it appears despite clearing storage
+    page.on('dialog', async dialog => {
+      if (dialog.message().includes('reload')) {
+        await dialog.dismiss();
+      }
+    });
+    
+    // Explicitly check for and dismiss the reload banner if it's a DOM element
+    const dismissReloadBanner = async () => {
+      const banner = page.locator('#sanshain-reload-banner');
+      if (await banner.isVisible()) {
+        await banner.locator('button:has-text("×")').click();
+      }
+    };
+
     await page.goto(`${BASE_URL}/account.html`);
+    await dismissReloadBanner();
     
     // Login - Use specific selectors to avoid ambiguity with the "Sign In" tab
     await page.waitForSelector('#login-username', { state: 'visible' });
@@ -46,7 +62,8 @@ test.describe('Sanshain UI Smoke Test', () => {
     
     // Navigate to Admin
     await page.goto(`${BASE_URL}/admin.html`);
-    await page.waitForSelector('#admin-panel');
+    await dismissReloadBanner();
+    await page.waitForSelector('#admin-dashboard');
     
     // Toggle Developer Mode
     const devModeToggle = page.locator('#dev-mode-toggle');
@@ -58,7 +75,7 @@ test.describe('Sanshain UI Smoke Test', () => {
     
     // Refresh to verify persistence
     await page.reload();
-    await page.waitForSelector('#admin-panel');
+    await page.waitForSelector('#admin-dashboard');
     const newState = await page.locator('#dev-mode-toggle').getAttribute('class');
     const isNowOn = newState.includes('bg-indigo-600');
     

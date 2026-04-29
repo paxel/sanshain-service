@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.13.2] - unreleased
 
 ### Fixed
-- **UI Test Reliability**: Hardened Playwright smoke tests by clearing `localStorage` and `sessionStorage` before runs and using unambiguous selectors, resolving issues with stale sessions and false-negative timeouts in CI.
+- **UI Test Reliability**: Fixed a critical mismatch in element IDs (`#admin-dashboard` instead of `#admin-panel`) in Playwright smoke tests. Hardened tests by clearing `localStorage` and `sessionStorage` before runs and using unambiguous selectors, and added automatic dismissal of the "Reload" banner.
 - **Security & CSRF**: Implemented a functional CSRF protection mechanism with appropriate bypasses for authenticated API clients and login routes, hardening the frontend/backend interface.
 - **UI Testing**: Corrected a regression in Playwright smoke tests where an invalid element ID (`#user-display-name`) and improper wait logic caused false negatives in login verification.
 - **CI Hardening**: Resolved "Connection Refused" errors in Playwright tests by explicitly decoupling compilation from service startup and increasing health check timeouts in GitHub Actions and SourceHut.
