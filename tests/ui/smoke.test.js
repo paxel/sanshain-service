@@ -17,12 +17,20 @@ test.describe('Sanshain UI Smoke Test', () => {
   });
 
   test('Login and Admin settings persistence', async ({ page }) => {
+    // Clear storage before starting to avoid stale session or banner issues
+    await page.goto(BASE_URL);
+    await page.evaluate(() => {
+      sessionStorage.clear();
+      localStorage.clear();
+    });
+
     await page.goto(`${BASE_URL}/account.html`);
     
-    // Login
+    // Login - Use specific selectors to avoid ambiguity with the "Sign In" tab
+    await page.waitForSelector('#login-username', { state: 'visible' });
     await page.fill('input[id="login-username"]', 'root');
     await page.fill('input[id="login-password"]', 'root_password');
-    await page.click('button:has-text("Sign In")');
+    await page.click('#login-panel button[type="submit"]');
     
     // Wait for redirect or UI change with better error info
     try {
