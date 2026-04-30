@@ -4,6 +4,8 @@
 
 The following major milestones have been delivered and are fully functional:
 
+- **Version 1.0.0 (Release Candidate)**: Promoted the service to its first major stable release. This version consolidates all previous improvements and introduces a major breaking change: squashed database migrations for consistent PostgreSQL/SQLite deployments. Direct upgrades from `0.13.x` require a fresh database or manual schema migration.
+
 - **Landing Page Redesign (v0.13.1)**: Replaced old link cards with a beautiful three-step visual graphic (Provide -> Manage -> Require) and added a "Unified Contract Management" section highlighting support for OpenAPI, AsyncAPI, and Protobuf. Updated top banner to link the username to the account page. Fixed a bug where navigating directly to Reports or Graph views via URL hash would result in empty branch selectors; all discovery views are now fully autonomous. Registered missing admin API routes causing 404s in service discovery.
 
 - **Service Discovery Page Split (v0.13.1)**: Split the monolithic `service.html` (1693 lines) into four standalone pages — `services.html`, `clients.html`, `graph.html`, `reports.html`. Shared utilities extracted into `js/discovery.js`. Cross-page navigation uses URL redirects with query params for deep-linking. Old `/service.html` URLs redirect to the correct new page for backward compatibility. Banner nav links updated across all pages.
@@ -88,6 +90,7 @@ The following major milestones have been delivered and are fully functional:
 - [x] Hardened CI service startup logic to prevent Playwright connection timeouts.
 - [x] Fixed invalid element IDs (#admin-dashboard) and added reload banner dismissal in Playwright smoke tests.
 - [x] Fixed broken task runners and cargo aliases in CI.
+- [x] **PostgreSQL Stabilization & Migration Squashing (v1.0.0)**: Consolidated migrations into a single initial schema, fixed `name[] = text[]` operator errors, implemented `ON DELETE CASCADE` for data integrity, and added `testcontainers` for real PostgreSQL verification.
 
 ### Deployment
 - [ ] Kubernetes manifests (Deployment, Service, Ingress, ConfigMap, Secret).

@@ -1,0 +1,43 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.38s
+     Running `target/debug/sanshain_service`
+2026-04-29T20:18:06.678815Z  INFO sanshain_service::infrastructure::sqlite_repository: Running SQLite migrations...
+2026-04-29T20:18:06.682751Z  INFO sanshain_service: Using SQLite database backend
+2026-04-29T20:18:06.684261Z  INFO sanshain_service: In-memory cache enabled with 256 MB limit
+2026-04-29T20:18:06.684883Z  INFO sanshain_service: Instance ID: 01f312c7-ea18-491c-9efc-b1731db53319
+2026-04-29T20:18:07.297147Z  INFO sanshain_service: Listening on 0.0.0.0:3000
+2026-04-29T20:19:10.816184Z  WARN sanshain_service::presentation: Client error: Unauthorized
+2026-04-29T20:19:11.500383Z  INFO sanshain_service::application::spec_service: Spec update is backward-compatible for protected branch 'main'
+2026-04-29T20:19:11.529108Z  WARN sanshain_service::application::spec_service: Skipping 1 SUB operation(s) for service 'itest-svc-1777493951' branch 'main': subscribe channels ["user/signup"] are not stored via /provide. Declare them as 'requires' in sanshain.yaml instead.
+2026-04-29T20:19:11.587138Z  WARN sanshain_service::presentation: Client error: Endpoint not found: GET /missing (service: itest-svc-1777493951, branch: main)
+2026-04-29T20:19:11.694796Z  INFO sanshain_service::application::spec_service: Spec update is backward-compatible for protected branch 'main'
+2026-04-29T20:19:11.733349Z  WARN sanshain_service::presentation: Client error: Outdated spec version: your base version is 1, but current version is 2. Pull latest changes.
+2026-04-29T20:19:11.765410Z  INFO sanshain_service::application::spec_service: Spec update is backward-compatible for protected branch 'main'
+2026-04-29T20:19:11.873974Z  WARN sanshain_service::application::spec_service: Rejected shared endpoint modification: Response status '200' was removed from GET /shared
+2026-04-29T20:19:11.874142Z  WARN sanshain_service::presentation: Client error: Breaking change for shared endpoint GET /shared on branch 'feat-shared-1777493951' (compared to current owner's version): Response status '200' was removed from GET /shared
+2026-04-29T20:19:11.907362Z  WARN sanshain_service::application::spec_service: Rejected shared endpoint modification: Response status '200' was removed from GET /shared
+2026-04-29T20:19:11.907537Z  WARN sanshain_service::presentation: Client error: Breaking change for shared endpoint GET /shared on branch 'feat-shared-1777493951' (compared to source version): Response status '200' was removed from GET /shared
+2026-04-29T20:19:12.192486Z  WARN sanshain_service::presentation: Client error: Invalid confirmation
+2026-04-29T20:19:25.013327Z  WARN sanshain_service::presentation: Client error: Unauthorized
+2026-04-29T20:19:25.674973Z  INFO sanshain_service::application::spec_service: Spec update is backward-compatible for protected branch 'main'
+2026-04-29T20:19:25.704716Z  WARN sanshain_service::application::spec_service: Skipping 1 SUB operation(s) for service 'itest-svc-1777493965' branch 'main': subscribe channels ["user/signup"] are not stored via /provide. Declare them as 'requires' in sanshain.yaml instead.
+2026-04-29T20:19:25.759181Z  WARN sanshain_service::presentation: Client error: Endpoint not found: GET /missing (service: itest-svc-1777493965, branch: main)
+2026-04-29T20:19:25.859550Z  INFO sanshain_service::application::spec_service: Spec update is backward-compatible for protected branch 'main'
+2026-04-29T20:19:25.899789Z  WARN sanshain_service::presentation: Client error: Outdated spec version: your base version is 1, but current version is 2. Pull latest changes.
+2026-04-29T20:19:25.932282Z  INFO sanshain_service::application::spec_service: Spec update is backward-compatible for protected branch 'main'
+2026-04-29T20:19:26.039030Z  WARN sanshain_service::application::spec_service: Rejected shared endpoint modification: Response status '200' was removed from GET /shared
+2026-04-29T20:19:26.039131Z  WARN sanshain_service::presentation: Client error: Breaking change for shared endpoint GET /shared on branch 'feat-shared-1777493965' (compared to current owner's version): Response status '200' was removed from GET /shared
+2026-04-29T20:19:26.071361Z  WARN sanshain_service::application::spec_service: Rejected shared endpoint modification: Response status '200' was removed from GET /shared
+2026-04-29T20:19:26.071527Z  WARN sanshain_service::presentation: Client error: Breaking change for shared endpoint GET /shared on branch 'feat-shared-1777493965' (compared to source version): Response status '200' was removed from GET /shared
+2026-04-29T20:19:26.344082Z  WARN sanshain_service::presentation: Client error: Invalid confirmation
+2026-04-30T12:15:22.297561Z ERROR sanshain_service::presentation: Server error: error returned from database: (code: 1) no such table: users
+2026-04-30T12:15:22.297800Z ERROR tower_http::trace::on_failure: response failed classification=Status code: 500 Internal Server Error latency=6 ms
+2026-04-30T12:15:22.318558Z ERROR sanshain_service::presentation: Server error: error returned from database: (code: 1) no such table: users
+2026-04-30T12:15:22.318730Z ERROR tower_http::trace::on_failure: response failed classification=Status code: 500 Internal Server Error latency=0 ms
+2026-04-30T12:18:07.288940Z  WARN sanshain_service: Branch cleanup failed: Internal("error returned from database: (code: 1) no such table: settings")
+2026-04-30T12:18:07.289631Z  WARN sanshain_service: Dependency cleanup failed: Internal("error returned from database: (code: 1) no such table: settings")
+2026-04-30T13:18:07.289816Z  WARN sanshain_service: Branch cleanup failed: Internal("error returned from database: (code: 1) no such table: settings")
+2026-04-30T13:18:07.290451Z  WARN sanshain_service: Dependency cleanup failed: Internal("error returned from database: (code: 1) no such table: settings")
+2026-04-30T14:18:07.290202Z  WARN sanshain_service: Branch cleanup failed: Internal("error returned from database: (code: 1) no such table: settings")
+2026-04-30T14:18:07.290790Z  WARN sanshain_service: Dependency cleanup failed: Internal("error returned from database: (code: 1) no such table: settings")
+2026-04-30T15:18:07.290069Z  WARN sanshain_service: Branch cleanup failed: Internal("error returned from database: (code: 1) no such table: settings")
+2026-04-30T15:18:07.290581Z  WARN sanshain_service: Dependency cleanup failed: Internal("error returned from database: (code: 1) no such table: settings")

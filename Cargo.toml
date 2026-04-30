@@ -1,6 +1,6 @@
 [package]
 name = "sanshain_service"
-version = "0.13.2"
+version = "1.0.0"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -36,6 +36,8 @@ thiserror = "2"
 [dev-dependencies]
 flate2 = "1"
 criterion = "0.5"
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["postgres"] }
 
 [[bench]]
 name = "openapi_bench"
