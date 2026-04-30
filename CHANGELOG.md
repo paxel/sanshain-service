@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.13.2] - unreleased
 
 ### Fixed
+- **Security Update**: Resolved a `cargo audit` vulnerability (`RUSTSEC-2025-0111` in `tokio-tar`) and warning (`RUSTSEC-2025-0134` in `rustls-pemfile`) by bumping the `testcontainers` and `testcontainers-modules` dev-dependencies to their latest versions.
 - **LDAP Debugging**: Added detailed error feedback to the admin dashboard for LDAP connection failures. The UI now displays the specific error message from the backend and provides a troubleshooting guide for common LDAP issues.
 - **UI Test Reliability**: Fixed a critical mismatch in element IDs (`#admin-dashboard` instead of `#admin-panel`) in Playwright smoke tests. Hardened tests by clearing `localStorage` and `sessionStorage` before runs and using unambiguous selectors, and added automatic dismissal of the "Reload" banner.
 - **Security & CSRF**: Implemented a functional CSRF protection mechanism with appropriate bypasses for authenticated API clients and login routes, hardening the frontend/backend interface.
