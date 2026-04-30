@@ -283,6 +283,16 @@
                             <button onclick="testLdapConnection()" class="bg-slate-100 text-slate-700 px-4 py-1.5 rounded-lg text-sm hover:bg-slate-200 transition-colors">Test Connection</button>
                         </div>
                         <div id="ldap-test-result" class="hidden text-sm p-3 rounded-lg"></div>
+                        <div id="ldap-troubleshooting" class="hidden mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                            <p class="font-semibold mb-1">Common Troubleshooting Tips:</p>
+                            <ul class="list-disc ml-5 space-y-1">
+                                <li>Ensure the <strong>Server URL</strong> is correct (e.g., <code>ldap://hostname:389</code> or <code>ldaps://hostname:636</code>).</li>
+                                <li>Check if the <strong>Bind DN</strong> and <strong>Bind Password</strong> are correct.</li>
+                                <li>Verify that the Sanshain service can reach the LDAP server (check firewalls/network).</li>
+                                <li>For <strong>User Filter</strong>, typically <code>(uid={username})</code> or <code>(sAMAccountName={username})</code> is used.</li>
+                                <li>If using <strong>ldaps://</strong>, ensure the server certificate is trusted or matches the hostname.</li>
+                            </ul>
+                        </div>
                     </div>
                     <div class="pt-2">
                         <button onclick="saveAuthConfig()" class="bg-indigo-600 text-white px-4 py-1.5 rounded-lg text-sm hover:bg-indigo-700 transition-colors">Save Authentication Settings</button>
@@ -1071,7 +1081,9 @@
 
         async function testLdapConnection() {
             const resultEl = document.getElementById('ldap-test-result');
+            const troubleEl = document.getElementById('ldap-troubleshooting');
             resultEl.classList.remove('hidden', 'bg-green-50', 'text-green-700', 'bg-red-50', 'text-red-700');
+            troubleEl.classList.add('hidden');
             resultEl.textContent = 'Testing…';
             resultEl.classList.add('bg-slate-50', 'text-slate-600');
             try {
@@ -1084,13 +1096,16 @@
                     resultEl.textContent = '✓ Connection successful';
                     resultEl.classList.add('bg-green-50', 'text-green-700');
                 } else {
-                    resultEl.textContent = '✗ Connection failed (HTTP ' + res.status + ')';
+                    const errorText = await res.text();
+                    resultEl.textContent = '✗ Connection failed: ' + errorText;
                     resultEl.classList.add('bg-red-50', 'text-red-700');
+                    troubleEl.classList.remove('hidden');
                 }
             } catch (e) {
                 resultEl.classList.remove('bg-slate-50', 'text-slate-600');
                 resultEl.textContent = '✗ ' + e.message;
                 resultEl.classList.add('bg-red-50', 'text-red-700');
+                troubleEl.classList.remove('hidden');
             }
         }
 

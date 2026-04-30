@@ -30,7 +30,12 @@ impl LdapAuthProvider {
     async fn connect(&self) -> Result<ldap3::Ldap, AuthProviderError> {
         let (conn, mut ldap) = LdapConnAsync::new(&self.config.server_url)
             .await
-            .map_err(|e| AuthProviderError::ConnectionFailed(format!("LDAP connect: {}", e)))?;
+            .map_err(|e| {
+                AuthProviderError::ConnectionFailed(format!(
+                    "Could not connect to LDAP server at {}: {}",
+                    self.config.server_url, e
+                ))
+            })?;
 
         ldap3::drive!(conn);
 
@@ -38,9 +43,19 @@ impl LdapAuthProvider {
         let bind_pw = self.config.bind_password.as_deref().unwrap_or("");
         ldap.simple_bind(&self.config.bind_dn, bind_pw)
             .await
-            .map_err(|e| AuthProviderError::ConnectionFailed(format!("LDAP bind: {}", e)))?
+            .map_err(|e| {
+                AuthProviderError::ConnectionFailed(format!(
+                    "LDAP bind request failed for {}: {}",
+                    self.config.bind_dn, e
+                ))
+            })?
             .success()
-            .map_err(|e| AuthProviderError::ConnectionFailed(format!("LDAP bind failed: {}", e)))?;
+            .map_err(|e| {
+                AuthProviderError::ConnectionFailed(format!(
+                    "LDAP bind failed (check DN/Password): {}",
+                    e
+                ))
+            })?;
 
         Ok(ldap)
     }
