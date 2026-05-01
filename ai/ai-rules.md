@@ -52,6 +52,14 @@
 - Target healthy unit-test coverage of 80–90% for domain and application logic. If coverage is below that range, add meaningful tests for core behavior before adding broad integration-only coverage.
 - Coverage must be measured with `cargo tarpaulin --out Xml --skip-clean` (or the current CI coverage command) for quality reviews; do not claim coverage improvements without running the tool.
 
+#### Test Quality Rules
+- Tests must be reasonable and useful and assert actual values — avoid tautologies and vacuous checks.
+  - Prefer concrete assertions over permissive ones: use `assert_eq!`, `assert_ne!`, and exact field/value checks instead of only `is_ok()`/`is_err()`.
+  - Avoid assertions that only check non-emptiness, length, or presence of any substring when a precise structure or value is known.
+  - Do not write tests that merely reassert implementation details without validating observable behavior at the public API boundary.
+  - Keep randomness controlled (fixed seeds or deterministic inputs) so assertions target exact, stable results.
+  - No coverage gaming: do not add no-op tests solely to bump coverage; each test must validate meaningful behavior or error handling.
+
 ## Service Development Best Practices
 
 ### Architecture (DDD Hexagonal/Onion)
