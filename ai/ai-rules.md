@@ -93,6 +93,11 @@
 - Use the `update_status` tool to keep the user informed about progress.
 - The current project version is defined by `Cargo.toml` for all documentation purposes.
 
+#### Git guardrails
+- STRICTLY FORBIDDEN: Commit, edit, or delete anything under the `.git/` directory. Never touch `.git/*`, including `.git/config`, `.git/hooks/*`, or any internal Git metadata, unless the user explicitly instructs to do so in this session.
+- Do not rewrite history (no `git reset --hard`, `rebase --onto`, force-pushes, or similar) unless explicitly requested by the user.
+- Do not create or modify Git hooks automatically.
+
 ### Documentation
 - Keep `README.md` current with every new feature or endpoint.
 - Update `CHANGELOG.md` (Keep a Changelog format) with every user-facing change.
