@@ -62,6 +62,10 @@ async fn app_with_seed() -> (axum::Router, SqliteSpecRepository, String) {
     repo.run_migrations().await.unwrap();
 
     // Seed initial admin and get token
+    unsafe {
+        std::env::set_var("INITIAL_ADMIN_USERNAME", "root");
+        std::env::set_var("INITIAL_ADMIN_PASSWORD", "root_password");
+    }
     services::ensure_initial_admin(&repo).await.unwrap();
     let token = services::login(&repo, "root", "root_password")
         .await
