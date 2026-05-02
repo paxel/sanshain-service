@@ -1,19 +1,49 @@
-use sanshain_service::{openapi, asyncapi, proto};
-use sanshain_service::domain::models::ApiType;
 use sanshain_service::application::mock_repo::MockRepo;
 use sanshain_service::application::spec_service;
+use sanshain_service::domain::models::ApiType;
+use sanshain_service::{asyncapi, openapi, proto};
 
 // ---------- openapi::normalize_path variants (10) ----------
-#[test] fn norm_collapse_slashes() { assert_eq!(openapi::normalize_path("//a///b"), "/a/b"); }
-#[test] fn norm_trim_vars() { assert_eq!(openapi::normalize_path("/a/{id}/x"), "/a/{}/x"); }
-#[test] fn norm_var_with_pattern() { assert_eq!(openapi::normalize_path("/a/{id:[0-9]+}/x"), "/a/{}/x"); }
-#[test] fn norm_trailing_slash() { assert_eq!(openapi::normalize_path("/a/b/"), "/a/b"); }
-#[test] fn norm_root_kept() { assert_eq!(openapi::normalize_path("/"), "/"); }
-#[test] fn norm_whitespace() { assert_eq!(openapi::normalize_path("  /a/b  "), "/a/b"); }
-#[test] fn norm_multiple_vars() { assert_eq!(openapi::normalize_path("/a/{x}/{y}"), "/a/{}/{}"); }
-#[test] fn norm_no_change() { assert_eq!(openapi::normalize_path("/a/b"), "/a/b"); }
-#[test] fn norm_empty_becomes_empty() { assert_eq!(openapi::normalize_path(""), ""); }
-#[test] fn norm_only_slashes() { assert_eq!(openapi::normalize_path("////"), "/"); }
+#[test]
+fn norm_collapse_slashes() {
+    assert_eq!(openapi::normalize_path("//a///b"), "/a/b");
+}
+#[test]
+fn norm_trim_vars() {
+    assert_eq!(openapi::normalize_path("/a/{id}/x"), "/a/{}/x");
+}
+#[test]
+fn norm_var_with_pattern() {
+    assert_eq!(openapi::normalize_path("/a/{id:[0-9]+}/x"), "/a/{}/x");
+}
+#[test]
+fn norm_trailing_slash() {
+    assert_eq!(openapi::normalize_path("/a/b/"), "/a/b");
+}
+#[test]
+fn norm_root_kept() {
+    assert_eq!(openapi::normalize_path("/"), "/");
+}
+#[test]
+fn norm_whitespace() {
+    assert_eq!(openapi::normalize_path("  /a/b  "), "/a/b");
+}
+#[test]
+fn norm_multiple_vars() {
+    assert_eq!(openapi::normalize_path("/a/{x}/{y}"), "/a/{}/{}");
+}
+#[test]
+fn norm_no_change() {
+    assert_eq!(openapi::normalize_path("/a/b"), "/a/b");
+}
+#[test]
+fn norm_empty_becomes_empty() {
+    assert_eq!(openapi::normalize_path(""), "");
+}
+#[test]
+fn norm_only_slashes() {
+    assert_eq!(openapi::normalize_path("////"), "/");
+}
 
 // ---------- openapi::generate_diff and split/merge (7) ----------
 #[test]
@@ -230,9 +260,9 @@ service B{ rpc M2 (X) returns (Y);}
 "#;
     let res = proto::split_proto(p).unwrap();
     assert!(!res.is_empty());
-    let names: Vec<(String,String)> = res.into_iter().map(|s| (s.service, s.method)).collect();
-    assert!(names.iter().any(|(svc,m)| svc=="A" && m=="M1"));
-    assert!(names.iter().any(|(svc,m)| svc=="B" && m=="M2"));
+    let names: Vec<(String, String)> = res.into_iter().map(|s| (s.service, s.method)).collect();
+    assert!(names.iter().any(|(svc, m)| svc == "A" && m == "M1"));
+    assert!(names.iter().any(|(svc, m)| svc == "B" && m == "M2"));
 }
 
 #[test]
@@ -283,7 +313,9 @@ channels:
   X:
     publish: {}
 "#;
-    let r = spec_service::provide_spec_dry_run(&repo, "svc", "devx", ApiType::AsyncApi, y).await.unwrap();
+    let r = spec_service::provide_spec_dry_run(&repo, "svc", "devx", ApiType::AsyncApi, y)
+        .await
+        .unwrap();
     assert!(r.changes.inserts > 0);
 }
 
@@ -291,6 +323,8 @@ channels:
 async fn dry_run_proto_insert_count() {
     let repo = MockRepo::new();
     let p = r#"syntax="proto3"; message X{} message Y{} service A{ rpc M (X) returns (Y);} "#;
-    let r = spec_service::provide_spec_dry_run(&repo, "svc", "devy", ApiType::Proto, p).await.unwrap();
+    let r = spec_service::provide_spec_dry_run(&repo, "svc", "devy", ApiType::Proto, p)
+        .await
+        .unwrap();
     assert!(r.changes.inserts > 0);
 }

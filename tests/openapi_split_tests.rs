@@ -1,4 +1,4 @@
-use sanshain_service::openapi::{split_openapi, EndpointSpec};
+use sanshain_service::openapi::{EndpointSpec, split_openapi};
 
 fn one_path_yaml(method: &str) -> String {
     format!(
@@ -34,7 +34,7 @@ paths:
         '201': { description: Created }
 "#;
     let mut eps = split_openapi(y).unwrap();
-    eps.sort_by(|a,b| a.method.cmp(&b.method));
+    eps.sort_by(|a, b| a.method.cmp(&b.method));
     let methods: Vec<_> = eps.iter().map(|e| e.method.as_str()).collect();
     assert_eq!(methods, vec!["GET", "POST"]);
 }

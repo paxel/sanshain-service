@@ -1,5 +1,5 @@
-use sanshain_service::application::spec_service;
 use sanshain_service::application::mock_repo::MockRepo;
+use sanshain_service::application::spec_service;
 use sanshain_service::domain::models::*;
 use sanshain_service::domain::ports::SpecRepository;
 
@@ -37,15 +37,10 @@ service BService { rpc DoB (Req) returns (Res); }
 #[tokio::test]
 async fn asyncapi_dry_run_counts_only_pub() {
     let repo = MockRepo::new();
-    let resp = spec_service::provide_spec_dry_run(
-        &repo,
-        "svc",
-        "main",
-        ApiType::AsyncApi,
-        ASYNCAPI_V2,
-    )
-    .await
-    .unwrap();
+    let resp =
+        spec_service::provide_spec_dry_run(&repo, "svc", "main", ApiType::AsyncApi, ASYNCAPI_V2)
+            .await
+            .unwrap();
     // Only the publish operation should be considered (1 insert)
     assert_eq!(resp.changes.inserts, 1);
     assert_eq!(resp.changes.updates, 0);
@@ -116,7 +111,10 @@ async fn require_bundle_dry_run_reports_missing() {
     let repo = MockRepo::new();
     // Create the service so dry-run doesn't fail with "Service not found"
     let _ = repo.ensure_service("svc").await.unwrap();
-    let eps = vec![("/x".to_string(), "GET".to_string()), ("/y".to_string(), "POST".to_string())];
+    let eps = vec![
+        ("/x".to_string(), "GET".to_string()),
+        ("/y".to_string(), "POST".to_string()),
+    ];
     let params = spec_service::RequireBundleParams {
         clientname: "cli",
         servicename: "svc",
@@ -139,7 +137,8 @@ async fn require_bundle_dry_run_reports_missing() {
 #[tokio::test]
 async fn get_endpoint_yaml_not_found() {
     let repo = MockRepo::new();
-    let res = spec_service::get_endpoint_yaml(&repo, "svc", "main", ApiType::OpenApi, "/x", "get").await;
+    let res =
+        spec_service::get_endpoint_yaml(&repo, "svc", "main", ApiType::OpenApi, "/x", "get").await;
     match res {
         Err(AppError::NotFound(msg)) => assert!(msg.contains("Endpoint not found")),
         other => panic!("expected NotFound, got {:?}", other),

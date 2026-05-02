@@ -17,9 +17,7 @@ fn v3_base(operations: &str, channels: &str) -> String {
 // 1. v2 publish and subscribe create two specs
 #[test]
 fn v2_publish_and_subscribe() {
-    let y = v2_base(
-        "  user.signedup:\n    publish: {}\n    subscribe: {}\n",
-    );
+    let y = v2_base("  user.signedup:\n    publish: {}\n    subscribe: {}\n");
     let specs = split_asyncapi(&y).unwrap();
     let ops: Vec<_> = specs.iter().map(|s| s.operation.as_str()).collect();
     assert!(ops.contains(&"PUB"));
@@ -40,7 +38,8 @@ fn v3_send_maps_to_pub() {
 // 3. v3 receive action mapped to SUB
 #[test]
 fn v3_receive_maps_to_sub() {
-    let ops = "  ReceiveSignup:\n    action: receive\n    channel: { $ref: '#/channels/UserSignup' }\n";
+    let ops =
+        "  ReceiveSignup:\n    action: receive\n    channel: { $ref: '#/channels/UserSignup' }\n";
     let chs = "  UserSignup: { address: 'user.signedup' }\n";
     let y = v3_base(ops, chs);
     let specs = split_asyncapi(&y).unwrap();

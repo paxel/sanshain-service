@@ -64,7 +64,10 @@ fn split_openapi_includes_only_used_components_per_method() {
             post_yaml = p.yaml_content;
         }
     }
-    assert!(!get_yaml.is_empty() && !post_yaml.is_empty(), "both methods present");
+    assert!(
+        !get_yaml.is_empty() && !post_yaml.is_empty(),
+        "both methods present"
+    );
 
     // GET should contain OkResp and Pet, but not RB1/Owner
     assert!(get_yaml.contains("OkResp"));
@@ -145,7 +148,10 @@ components: {}
 
     let mut methods: Vec<String> = parts.into_iter().map(|p| p.method).collect();
     methods.sort();
-    assert_eq!(methods, vec![
-        "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"
-    ]);
+    assert_eq!(
+        methods,
+        vec![
+            "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"
+        ]
+    );
 }

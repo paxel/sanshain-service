@@ -1,17 +1,44 @@
-use sanshain_service::{openapi, asyncapi, proto};
 use sanshain_service::application::mock_repo::MockRepo;
 use sanshain_service::application::spec_service;
 use sanshain_service::domain::models::ApiType;
+use sanshain_service::{asyncapi, openapi, proto};
 
 // ---------------------- OpenAPI normalize_path (8) ----------------------
-#[test] fn norm_space_inside_kept() { assert_eq!(openapi::normalize_path("/a b/c"), "/a b/c"); }
-#[test] fn norm_tab_trim() { assert_eq!(openapi::normalize_path("\t/a/b\t"), "/a/b"); }
-#[test] fn norm_mixed_vars() { assert_eq!(openapi::normalize_path("/a/{x}/b/{y:.*}/c"), "/a/{}/b/{}/c"); }
-#[test] fn norm_multibyte_ok() { assert_eq!(openapi::normalize_path("/привет/{id}/мир"), "/привет/{}/мир"); }
-#[test] fn norm_dotdot_left_alone() { assert_eq!(openapi::normalize_path("/a/../b"), "/a/../b"); }
-#[test] fn norm_many_trailing() { assert_eq!(openapi::normalize_path("/a/b////"), "/a/b"); }
-#[test] fn norm_leading_spaces_only() { assert_eq!(openapi::normalize_path("    "), ""); }
-#[test] fn norm_mixed_slashes() { assert_eq!(openapi::normalize_path("/a//b///c"), "/a/b/c"); }
+#[test]
+fn norm_space_inside_kept() {
+    assert_eq!(openapi::normalize_path("/a b/c"), "/a b/c");
+}
+#[test]
+fn norm_tab_trim() {
+    assert_eq!(openapi::normalize_path("\t/a/b\t"), "/a/b");
+}
+#[test]
+fn norm_mixed_vars() {
+    assert_eq!(openapi::normalize_path("/a/{x}/b/{y:.*}/c"), "/a/{}/b/{}/c");
+}
+#[test]
+fn norm_multibyte_ok() {
+    assert_eq!(
+        openapi::normalize_path("/привет/{id}/мир"),
+        "/привет/{}/мир"
+    );
+}
+#[test]
+fn norm_dotdot_left_alone() {
+    assert_eq!(openapi::normalize_path("/a/../b"), "/a/../b");
+}
+#[test]
+fn norm_many_trailing() {
+    assert_eq!(openapi::normalize_path("/a/b////"), "/a/b");
+}
+#[test]
+fn norm_leading_spaces_only() {
+    assert_eq!(openapi::normalize_path("    "), "");
+}
+#[test]
+fn norm_mixed_slashes() {
+    assert_eq!(openapi::normalize_path("/a//b///c"), "/a/b/c");
+}
 
 // ---------------------- OpenAPI split/merge/diff/compat (12) ----------------------
 #[test]
@@ -284,7 +311,8 @@ fn proto_handles_block_style() {
 
 #[test]
 fn proto_unicode_comments_kept() {
-    let p = r#"syntax="proto3"; // 你好\nmessage X{} message Y{} service S{ rpc M (X) returns (Y); }"#;
+    let p =
+        r#"syntax="proto3"; // 你好\nmessage X{} message Y{} service S{ rpc M (X) returns (Y); }"#;
     let parts = proto::split_proto(p).unwrap();
     assert!(parts[0].content.contains("你好"));
 }
@@ -305,11 +333,15 @@ paths:
   /p:
     get: { responses: { '200': { description: ok } } }
 "#;
-    let first = spec_service::provide_spec_dry_run(&repo, "svcO", "dev", ApiType::OpenApi, y1).await.unwrap();
+    let first = spec_service::provide_spec_dry_run(&repo, "svcO", "dev", ApiType::OpenApi, y1)
+        .await
+        .unwrap();
     assert!(first.changes.inserts >= 1);
 
     // Second run with same content should not insert more; may be zero inserts and/or some upserts per repo impl.
-    let second = spec_service::provide_spec_dry_run(&repo, "svcO", "dev", ApiType::OpenApi, y1).await.unwrap();
+    let second = spec_service::provide_spec_dry_run(&repo, "svcO", "dev", ApiType::OpenApi, y1)
+        .await
+        .unwrap();
     assert!(second.changes.inserts >= 0);
 }
 
@@ -321,7 +353,9 @@ asyncapi: '2.6.0'
 channels:
   C: { publish: {}, subscribe: {} }
 "#;
-    let r = spec_service::provide_spec_dry_run(&repo, "svcA", "dev", ApiType::AsyncApi, y).await.unwrap();
+    let r = spec_service::provide_spec_dry_run(&repo, "svcA", "dev", ApiType::AsyncApi, y)
+        .await
+        .unwrap();
     assert!(r.changes.inserts >= 1);
 }
 
@@ -333,7 +367,9 @@ syntax="proto3";
 message X{} message Y{}
 service A{ rpc M1 (X) returns (Y); rpc M2 (X) returns (Y); }
 "#;
-    let r = spec_service::provide_spec_dry_run(&repo, "svcP", "dev", ApiType::Proto, p).await.unwrap();
+    let r = spec_service::provide_spec_dry_run(&repo, "svcP", "dev", ApiType::Proto, p)
+        .await
+        .unwrap();
     assert!(r.changes.inserts >= 1);
 }
 
@@ -343,8 +379,12 @@ async fn dry_run_across_branches_isolated() {
     let y = r#"openapi: 3.0.0
 info: {title: x, version: v}
 paths: { }"#;
-    let a = spec_service::provide_spec_dry_run(&repo, "svcB", "dev1", ApiType::OpenApi, y).await.unwrap();
-    let b = spec_service::provide_spec_dry_run(&repo, "svcB", "dev2", ApiType::OpenApi, y).await.unwrap();
+    let a = spec_service::provide_spec_dry_run(&repo, "svcB", "dev1", ApiType::OpenApi, y)
+        .await
+        .unwrap();
+    let b = spec_service::provide_spec_dry_run(&repo, "svcB", "dev2", ApiType::OpenApi, y)
+        .await
+        .unwrap();
     // Both should be fine and independent.
     assert!(a.changes.inserts >= 0 && b.changes.inserts >= 0);
 }

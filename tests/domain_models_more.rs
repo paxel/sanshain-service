@@ -1,5 +1,5 @@
-use std::str::FromStr;
 use sanshain_service::domain::models::*;
+use std::str::FromStr;
 
 // 1-3. ApiType::as_str for each variant
 #[test]
@@ -12,10 +12,22 @@ fn api_type_as_str_values() {
 // 4-8. ApiType::from_str mappings and alias support
 #[test]
 fn api_type_from_str_mappings() {
-    assert!(matches!(ApiType::from_str("openapi").unwrap(), ApiType::OpenApi));
-    assert!(matches!(ApiType::from_str("rest").unwrap(), ApiType::OpenApi));
-    assert!(matches!(ApiType::from_str("asyncapi").unwrap(), ApiType::AsyncApi));
-    assert!(matches!(ApiType::from_str("kafka").unwrap(), ApiType::AsyncApi));
+    assert!(matches!(
+        ApiType::from_str("openapi").unwrap(),
+        ApiType::OpenApi
+    ));
+    assert!(matches!(
+        ApiType::from_str("rest").unwrap(),
+        ApiType::OpenApi
+    ));
+    assert!(matches!(
+        ApiType::from_str("asyncapi").unwrap(),
+        ApiType::AsyncApi
+    ));
+    assert!(matches!(
+        ApiType::from_str("kafka").unwrap(),
+        ApiType::AsyncApi
+    ));
     assert!(matches!(ApiType::from_str("grpc").unwrap(), ApiType::Proto));
 }
 

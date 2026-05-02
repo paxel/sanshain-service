@@ -59,7 +59,12 @@ async fn health_and_metrics_and_version_are_accessible() {
     // /health
     let res = app
         .clone()
-        .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert!(res.status().is_success());
@@ -67,7 +72,12 @@ async fn health_and_metrics_and_version_are_accessible() {
     // /metrics
     let res = app
         .clone()
-        .oneshot(Request::builder().uri("/metrics").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/metrics")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert!(res.status().is_success());
@@ -75,7 +85,12 @@ async fn health_and_metrics_and_version_are_accessible() {
     // /version
     let res = app
         .clone()
-        .oneshot(Request::builder().uri("/version").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/version")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert!(res.status().is_success());
@@ -87,7 +102,12 @@ async fn static_file_served_via_fallback() {
 
     // The repository includes static/service.html; request it via fallback service
     let res = app
-        .oneshot(Request::builder().uri("/service.html").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/service.html")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert!(res.status().is_success());

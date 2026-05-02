@@ -1,16 +1,28 @@
-use sanshain_service::application::{admin_service, report_service};
 use sanshain_service::application::mock_repo::MockRepo;
+use sanshain_service::application::{admin_service, report_service};
 use sanshain_service::domain::models::*;
 use sanshain_service::domain::ports::SpecRepository;
 
 fn dep(client: &str, service: &str, api_type: ApiType, path: &str, method: &str) -> DependencyInfo {
-    DependencyInfo { client: client.into(), service: service.into(), api_type, path: path.into(), method: method.into() }
+    DependencyInfo {
+        client: client.into(),
+        service: service.into(),
+        api_type,
+        path: path.into(),
+        method: method.into(),
+    }
 }
 
 // 1. render_report_markdown empty table header present
 #[test]
 fn report_markdown_headers() {
-    let report = DependencyReport { branch: "main".into(), dependency_graph: vec![], service_tags: Default::default(), missing_endpoints: vec![], unused_endpoints: vec![] };
+    let report = DependencyReport {
+        branch: "main".into(),
+        dependency_graph: vec![],
+        service_tags: Default::default(),
+        missing_endpoints: vec![],
+        unused_endpoints: vec![],
+    };
     let md = report_service::render_report_markdown(&report);
     assert!(md.contains("# Sanshain Dependency Report: Branch `main`"));
     assert!(md.contains("| Client | Service | Type | Path | Method |"));
@@ -19,7 +31,13 @@ fn report_markdown_headers() {
 // 2. render_report_markdown with one dep row
 #[test]
 fn report_markdown_one_row() {
-    let report = DependencyReport { branch: "dev".into(), dependency_graph: vec![dep("cli","svc", ApiType::OpenApi, "/x","GET")], service_tags: Default::default(), missing_endpoints: vec![], unused_endpoints: vec![] };
+    let report = DependencyReport {
+        branch: "dev".into(),
+        dependency_graph: vec![dep("cli", "svc", ApiType::OpenApi, "/x", "GET")],
+        service_tags: Default::default(),
+        missing_endpoints: vec![],
+        unused_endpoints: vec![],
+    };
     let md = report_service::render_report_markdown(&report);
     assert!(md.contains("| cli | svc | OpenApi | `/x` | `GET` |"));
 }
@@ -34,7 +52,9 @@ async fn generate_report_populates_tags() {
         let mut tags = repo.service_tags.lock().unwrap();
         tags.insert(sid, vec!["a".into(), "b".into()]);
     }
-    let rep = report_service::generate_report(&repo, "main").await.unwrap();
+    let rep = report_service::generate_report(&repo, "main")
+        .await
+        .unwrap();
     assert_eq!(rep.branch, "main");
 }
 

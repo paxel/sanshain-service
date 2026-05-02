@@ -21,7 +21,10 @@ fn normalize_root_slash_kept() {
 // 4. replaces variables with {}
 #[test]
 fn normalize_replaces_variables() {
-    assert_eq!(normalize_path("/users/{id}/orders/{oid:[0-9]+}"), "/users/{}/orders/{}");
+    assert_eq!(
+        normalize_path("/users/{id}/orders/{oid:[0-9]+}"),
+        "/users/{}/orders/{}"
+    );
 }
 
 // 5. trims whitespace

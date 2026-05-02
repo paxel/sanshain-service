@@ -15,7 +15,9 @@ async fn auth_mode_default_dev() {
 #[tokio::test]
 async fn set_auth_mode_local() {
     let repo = MockRepo::new();
-    auth_service::set_auth_mode(&repo, &AuthMode::Local).await.unwrap();
+    auth_service::set_auth_mode(&repo, &AuthMode::Local)
+        .await
+        .unwrap();
     let mode = auth_service::get_auth_mode(&repo).await.unwrap();
     assert!(matches!(mode, AuthMode::Local));
 }
@@ -61,25 +63,61 @@ fn ldap_validate_ok() {
 // 5-8. LdapConfig::validate errors on bad inputs
 #[test]
 fn ldap_validate_bad_url() {
-    let cfg = LdapConfig { server_url: "http://bad".to_string(), bind_dn: "x".to_string(), bind_password: None, base_dn: "y".to_string(), user_filter: String::new(), group_filter: String::new(), admin_group: String::new(), use_tls: false };
+    let cfg = LdapConfig {
+        server_url: "http://bad".to_string(),
+        bind_dn: "x".to_string(),
+        bind_password: None,
+        base_dn: "y".to_string(),
+        user_filter: String::new(),
+        group_filter: String::new(),
+        admin_group: String::new(),
+        use_tls: false,
+    };
     assert!(cfg.validate().is_err());
 }
 
 #[test]
 fn ldap_validate_empty_bind_dn() {
-    let cfg = LdapConfig { server_url: "ldap://x".to_string(), bind_dn: String::new(), bind_password: None, base_dn: "y".to_string(), user_filter: String::new(), group_filter: String::new(), admin_group: String::new(), use_tls: false };
+    let cfg = LdapConfig {
+        server_url: "ldap://x".to_string(),
+        bind_dn: String::new(),
+        bind_password: None,
+        base_dn: "y".to_string(),
+        user_filter: String::new(),
+        group_filter: String::new(),
+        admin_group: String::new(),
+        use_tls: false,
+    };
     assert!(cfg.validate().is_err());
 }
 
 #[test]
 fn ldap_validate_empty_base_dn() {
-    let cfg = LdapConfig { server_url: "ldap://x".to_string(), bind_dn: "cn=admin".to_string(), bind_password: None, base_dn: String::new(), user_filter: String::new(), group_filter: String::new(), admin_group: String::new(), use_tls: false };
+    let cfg = LdapConfig {
+        server_url: "ldap://x".to_string(),
+        bind_dn: "cn=admin".to_string(),
+        bind_password: None,
+        base_dn: String::new(),
+        user_filter: String::new(),
+        group_filter: String::new(),
+        admin_group: String::new(),
+        use_tls: false,
+    };
     assert!(cfg.validate().is_err());
 }
 
 #[test]
 fn ldap_validate_bad_host() {
-    let cfg = LdapConfig { server_url: "ldap:///".to_string(), bind_dn: "cn=a".to_string(), bind_password: None, base_dn: "dc=x".to_string(), user_filter: String::new(), group_filter: String::new(), admin_group: String::new(), use_tls: false };
+    let cfg = LdapConfig {
+        server_url: "ldap:///".to_string(),
+        bind_dn: "cn=a".to_string(),
+        bind_password: None,
+        base_dn: "dc=x".to_string(),
+        user_filter: String::new(),
+        group_filter: String::new(),
+        admin_group: String::new(),
+        use_tls: false,
+    };
     assert!(cfg.validate().is_err());
 }
 
@@ -103,7 +141,9 @@ async fn admin_delete_user_not_found() {
 #[tokio::test]
 async fn register_user_forbidden_when_disabled() {
     let repo = MockRepo::new();
-    auth_service::set_local_users_enabled(&repo, false).await.unwrap();
+    auth_service::set_local_users_enabled(&repo, false)
+        .await
+        .unwrap();
     let res = auth_service::register_user(&repo, "u", "p").await;
     assert!(matches!(res, Err(AppError::Forbidden)));
 }
@@ -112,9 +152,15 @@ async fn register_user_forbidden_when_disabled() {
 #[tokio::test]
 async fn register_user_ok_when_enabled_autoapprove() {
     let repo = MockRepo::new();
-    auth_service::set_local_users_enabled(&repo, true).await.unwrap();
-    auth_service::set_auto_approve_users(&repo, true).await.unwrap();
-    auth_service::register_user(&repo, "bob", "pw").await.unwrap();
+    auth_service::set_local_users_enabled(&repo, true)
+        .await
+        .unwrap();
+    auth_service::set_auto_approve_users(&repo, true)
+        .await
+        .unwrap();
+    auth_service::register_user(&repo, "bob", "pw")
+        .await
+        .unwrap();
     let users = auth_service::list_users(&repo).await.unwrap();
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].username, "bob");

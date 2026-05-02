@@ -1,8 +1,8 @@
-use sanshain_service::{openapi, asyncapi, proto};
 use sanshain_service::application::mock_repo::MockRepo;
 use sanshain_service::application::spec_service;
 use sanshain_service::domain::models::ApiType;
-use sanshain_service::domain::ports::SpecRepository; // bring trait into scope for MockRepo methods
+use sanshain_service::domain::ports::SpecRepository;
+use sanshain_service::{asyncapi, openapi, proto}; // bring trait into scope for MockRepo methods
 
 // ---------------------- OpenAPI compatibility and helpers (14 tests) ----------------------
 #[test]
@@ -96,9 +96,12 @@ paths:
     let parts = openapi::split_openapi(y).unwrap();
     let mut methods: Vec<String> = parts.iter().map(|e| e.method.clone()).collect();
     methods.sort();
-    assert_eq!(methods, vec![
-        "DELETE","GET","HEAD","OPTIONS","PATCH","POST","PUT","TRACE"
-    ]);
+    assert_eq!(
+        methods,
+        vec![
+            "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"
+        ]
+    );
 }
 
 #[test]
@@ -259,7 +262,8 @@ fn proto_keeps_package_and_syntax_in_snippet() {
 
 #[test]
 fn proto_ignores_garbage_but_parses_service() {
-    let p = r#"garbage; syntax="proto3"; message X{} message Y{} service S{ rpc M (X) returns (Y); }"#;
+    let p =
+        r#"garbage; syntax="proto3"; message X{} message Y{} service S{ rpc M (X) returns (Y); }"#;
     let parts = proto::split_proto(p).unwrap();
     assert!(parts.is_empty() || parts[0].service == "S");
 }
@@ -280,8 +284,12 @@ async fn dry_run_openapi_inserts_once_updates_zero_on_same_content() {
 info: {title: x, version: v}
 paths: { /p: { get: { responses: { '200': { description: ok } } } } }
 "#;
-    let r1 = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::OpenApi, y).await.unwrap();
-    let r2 = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::OpenApi, y).await.unwrap();
+    let r1 = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::OpenApi, y)
+        .await
+        .unwrap();
+    let r2 = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::OpenApi, y)
+        .await
+        .unwrap();
     assert!(r1.changes.inserts >= 1);
     assert!(r2.changes.inserts >= 0);
 }
@@ -297,8 +305,12 @@ paths: { /a: { get: { responses: { '200': { description: ok } } } } }
 info: {title: x, version: v}
 paths: { /a: { get: { responses: { '200': { description: ok } } } }, /b: { post: { responses: { '201': { description: c } } } } }
 "#;
-    let r1 = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::OpenApi, a).await.unwrap();
-    let r2 = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::OpenApi, b).await.unwrap();
+    let r1 = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::OpenApi, a)
+        .await
+        .unwrap();
+    let r2 = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::OpenApi, b)
+        .await
+        .unwrap();
     assert!(r1.changes.inserts >= 1);
     assert!(r2.changes.inserts >= 1);
 }
@@ -313,7 +325,9 @@ channels:
     publish: {}
     subscribe: {}
 "#;
-    let r = spec_service::provide_spec_dry_run(&repo, "svcA", "dev", ApiType::AsyncApi, y).await.unwrap();
+    let r = spec_service::provide_spec_dry_run(&repo, "svcA", "dev", ApiType::AsyncApi, y)
+        .await
+        .unwrap();
     assert!(r.changes.inserts >= 1);
 }
 
@@ -321,7 +335,9 @@ channels:
 async fn dry_run_proto_with_two_rpcs_counts_at_least_one_insert() {
     let repo = MockRepo::new();
     let p = r#"syntax="proto3"; message X{} message Y{} service S{ rpc A (X) returns (Y); rpc B (X) returns (Y); }"#;
-    let r = spec_service::provide_spec_dry_run(&repo, "svcP", "dev", ApiType::Proto, p).await.unwrap();
+    let r = spec_service::provide_spec_dry_run(&repo, "svcP", "dev", ApiType::Proto, p)
+        .await
+        .unwrap();
     assert!(r.changes.inserts >= 1);
 }
 
@@ -332,8 +348,12 @@ async fn dry_run_isolated_across_branches_openapi() {
 info: {title: x, version: v}
 paths: { /p: { get: { responses: { '200': { description: ok } } } } }
 "#;
-    let a = spec_service::provide_spec_dry_run(&repo, "svcB", "dev1", ApiType::OpenApi, y).await.unwrap();
-    let b = spec_service::provide_spec_dry_run(&repo, "svcB", "dev2", ApiType::OpenApi, y).await.unwrap();
+    let a = spec_service::provide_spec_dry_run(&repo, "svcB", "dev1", ApiType::OpenApi, y)
+        .await
+        .unwrap();
+    let b = spec_service::provide_spec_dry_run(&repo, "svcB", "dev2", ApiType::OpenApi, y)
+        .await
+        .unwrap();
     assert!(a.changes.inserts >= 0 && b.changes.inserts >= 0);
 }
 

@@ -1,14 +1,16 @@
-use sanshain_service::application::{
-    admin_service,
-    auth_service,
-    spec_service,
-};
 use sanshain_service::application::mock_repo::MockRepo;
-use sanshain_service::domain::ports::SpecRepository;
+use sanshain_service::application::{admin_service, auth_service, spec_service};
 use sanshain_service::domain::models::*;
+use sanshain_service::domain::ports::SpecRepository;
 
 // Helper to quickly create a user and store in repo
-fn add_user(repo: &MockRepo, username: &str, password_hash: &str, approved: bool, is_admin: bool) -> i64 {
+fn add_user(
+    repo: &MockRepo,
+    username: &str,
+    password_hash: &str,
+    approved: bool,
+    is_admin: bool,
+) -> i64 {
     let mut users = repo.users.lock().unwrap();
     let id = repo.next_id();
     users.push(User {
@@ -106,7 +108,9 @@ async fn local_users_enabled_default_and_set() {
     let repo = MockRepo::new();
     // default is true per implementation
     assert!(auth_service::get_local_users_enabled(&repo).await.unwrap());
-    auth_service::set_local_users_enabled(&repo, false).await.unwrap();
+    auth_service::set_local_users_enabled(&repo, false)
+        .await
+        .unwrap();
     assert!(!auth_service::get_local_users_enabled(&repo).await.unwrap());
 }
 
@@ -115,7 +119,9 @@ async fn local_users_enabled_default_and_set() {
 async fn auto_approve_users_toggle() {
     let repo = MockRepo::new();
     assert!(!auth_service::get_auto_approve_users(&repo).await.unwrap());
-    auth_service::set_auto_approve_users(&repo, true).await.unwrap();
+    auth_service::set_auto_approve_users(&repo, true)
+        .await
+        .unwrap();
     assert!(auth_service::get_auto_approve_users(&repo).await.unwrap());
 }
 
@@ -133,7 +139,13 @@ async fn ensure_initial_admin_creates() {
 #[tokio::test]
 async fn ensure_initial_admin_skips() {
     let repo = MockRepo::new();
-    add_user(&repo, "u", &auth_service::hash_password("p").unwrap(), true, true);
+    add_user(
+        &repo,
+        "u",
+        &auth_service::hash_password("p").unwrap(),
+        true,
+        true,
+    );
     auth_service::ensure_initial_admin(&repo).await.unwrap();
     let users = repo.users.lock().unwrap();
     assert_eq!(users.len(), 1);
@@ -169,7 +181,9 @@ async fn change_password_no_token() {
         let users = repo.users.lock().unwrap();
         users.iter().find(|u| u.id == id).unwrap().clone()
     };
-    let res = auth_service::change_password(&repo, &user, None, "old", "new").await.unwrap();
+    let res = auth_service::change_password(&repo, &user, None, "old", "new")
+        .await
+        .unwrap();
     assert!(res.is_none());
 }
 
@@ -184,7 +198,11 @@ async fn change_password_with_token() {
     let token = {
         let mut sessions = repo.sessions.lock().unwrap();
         let token = format!("tok-{}", id);
-        sessions.push(Session { token: token.clone(), user_id: id, expires_at: expires });
+        sessions.push(Session {
+            token: token.clone(),
+            user_id: id,
+            expires_at: expires,
+        });
         token
     };
     let user = {
@@ -205,10 +223,16 @@ async fn admin_protected_branches_flow() {
     // defaults contain main/master
     let mut list = admin_service::list_protected_branches(&repo).await.unwrap();
     assert!(list.contains(&"main".to_string()));
-    admin_service::add_protected_branch(&repo, "release/*").await.unwrap();
+    admin_service::add_protected_branch(&repo, "release/*")
+        .await
+        .unwrap();
     list = admin_service::list_protected_branches(&repo).await.unwrap();
     assert!(list.iter().any(|s| s == "release/*"));
-    assert!(admin_service::remove_protected_branch(&repo, "release/*").await.unwrap());
+    assert!(
+        admin_service::remove_protected_branch(&repo, "release/*")
+            .await
+            .unwrap()
+    );
 }
 
 // 20. admin: fallback branch set/get
@@ -217,8 +241,12 @@ async fn admin_fallback_branch() {
     let repo = MockRepo::new();
     // ensure a service exists
     repo.ensure_service("svc").await.unwrap();
-    admin_service::set_fallback_branch(&repo, "svc", Some("dev")).await.unwrap();
-    let got = admin_service::get_fallback_branch(&repo, "svc").await.unwrap();
+    admin_service::set_fallback_branch(&repo, "svc", Some("dev"))
+        .await
+        .unwrap();
+    let got = admin_service::get_fallback_branch(&repo, "svc")
+        .await
+        .unwrap();
     assert_eq!(got, Some("dev".to_string()));
 }
 
@@ -226,7 +254,12 @@ async fn admin_fallback_branch() {
 #[tokio::test]
 async fn admin_list_services_clients_empty() {
     let repo = MockRepo::new();
-    assert!(admin_service::list_services(&repo).await.unwrap().is_empty());
+    assert!(
+        admin_service::list_services(&repo)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     assert!(admin_service::list_clients(&repo).await.unwrap().is_empty());
 }
 
@@ -265,7 +298,9 @@ async fn admin_delete_branch_all_services() {
         let mut eps = repo.endpoints.lock().unwrap();
         eps.insert(b1, vec![]);
     }
-    let cnt = admin_service::delete_branch_all_services(&repo, "dev").await.unwrap();
+    let cnt = admin_service::delete_branch_all_services(&repo, "dev")
+        .await
+        .unwrap();
     // both services may report deletion depending on internal state
     assert!(cnt >= 1);
 }
@@ -304,9 +339,17 @@ paths:
         '200': { description: OK }
 "#;
     let tags = vec!["messaging".to_string(), "api".to_string()];
-    let _ = spec_service::provide_spec_with_tags(&repo, "svc", "main", ApiType::OpenApi, yaml, &tags, None)
-        .await
-        .unwrap();
+    let _ = spec_service::provide_spec_with_tags(
+        &repo,
+        "svc",
+        "main",
+        ApiType::OpenApi,
+        yaml,
+        &tags,
+        None,
+    )
+    .await
+    .unwrap();
     // verify tags recorded
     let services = repo.services.lock().unwrap().clone();
     let svc_id = *services.get("svc").unwrap();
@@ -335,7 +378,9 @@ async fn admin_delete_branch_for_service() {
         let mut eps = repo.endpoints.lock().unwrap();
         eps.insert(bid, vec![]);
     }
-    let ok = admin_service::delete_branch(&repo, "svc", "dev").await.unwrap();
+    let ok = admin_service::delete_branch(&repo, "svc", "dev")
+        .await
+        .unwrap();
     assert!(ok);
 }
 
@@ -343,7 +388,13 @@ async fn admin_delete_branch_for_service() {
 #[tokio::test]
 async fn admin_nuke_database_keep_user() {
     let repo = MockRepo::new();
-    let id = add_user(&repo, "keep", &auth_service::hash_password("x").unwrap(), true, true);
+    let id = add_user(
+        &repo,
+        "keep",
+        &auth_service::hash_password("x").unwrap(),
+        true,
+        true,
+    );
     admin_service::nuke_database(&repo, Some(id)).await.unwrap();
     let users = repo.users.lock().unwrap();
     assert_eq!(users.len(), 1);

@@ -1,7 +1,7 @@
 use sanshain_service::application::auth_service as auth;
 use sanshain_service::application::mock_repo::MockRepo;
-use sanshain_service::domain::ports::SpecRepository;
 use sanshain_service::domain::models::*;
+use sanshain_service::domain::ports::SpecRepository;
 
 // 1. dev_mode default false
 #[tokio::test]
@@ -66,7 +66,13 @@ async fn login_unknown_user_unauthorized() {
 async fn change_password_wrong_old_password() {
     let repo = MockRepo::new();
     let hash = auth::hash_password("old").unwrap();
-    let user = User { id: 1, username: "u".into(), password_hash: hash, is_admin: false, approved: true };
+    let user = User {
+        id: 1,
+        username: "u".into(),
+        password_hash: hash,
+        is_admin: false,
+        approved: true,
+    };
     let res = auth::change_password(&repo, &user, None, "bad", "new").await;
     assert!(matches!(res, Err(AppError::Unauthorized)));
 }
@@ -90,7 +96,16 @@ fn random_password_length() {
 #[tokio::test]
 async fn ldap_config_roundtrip_tls() {
     let repo = MockRepo::new();
-    let cfg = LdapConfig { server_url: "ldaps://host".into(), bind_dn: "cn=a".into(), bind_password: Some("pw".into()), base_dn: "dc=x".into(), user_filter: "(uid={username})".into(), group_filter: String::new(), admin_group: String::new(), use_tls: true };
+    let cfg = LdapConfig {
+        server_url: "ldaps://host".into(),
+        bind_dn: "cn=a".into(),
+        bind_password: Some("pw".into()),
+        base_dn: "dc=x".into(),
+        user_filter: "(uid={username})".into(),
+        group_filter: String::new(),
+        admin_group: String::new(),
+        use_tls: true,
+    };
     auth::set_ldap_config(&repo, &cfg).await.unwrap();
     let got = auth::get_ldap_config(&repo).await.unwrap().unwrap();
     assert_eq!(got.server_url, "ldaps://host");
@@ -106,5 +121,8 @@ async fn register_user_conflict() {
     let hash = auth::hash_password("pw").unwrap();
     repo.create_user("bob", &hash, false, true).await.unwrap();
     let res = auth::register_user(&repo, "bob", "pw").await;
-    match res { Err(AppError::Conflict(_)) => {}, _ => panic!("expected conflict"), }
+    match res {
+        Err(AppError::Conflict(_)) => {}
+        _ => panic!("expected conflict"),
+    }
 }

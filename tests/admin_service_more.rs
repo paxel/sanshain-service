@@ -75,7 +75,9 @@ async fn list_client_branches_empty() {
 #[tokio::test]
 async fn list_client_endpoints_empty() {
     let repo = MockRepo::new();
-    let v = admin::list_client_endpoints(&repo, "c", "main").await.unwrap();
+    let v = admin::list_client_endpoints(&repo, "c", "main")
+        .await
+        .unwrap();
     assert!(v.is_empty());
 }
 
@@ -84,18 +86,37 @@ async fn list_client_endpoints_empty() {
 async fn fallback_branch_roundtrip() {
     let repo = MockRepo::new();
     repo.ensure_service("svc").await.unwrap();
-    assert!(admin::get_fallback_branch(&repo, "svc").await.unwrap().is_none());
-    admin::set_fallback_branch(&repo, "svc", Some("dev")).await.unwrap();
-    assert_eq!(admin::get_fallback_branch(&repo, "svc").await.unwrap(), Some("dev".into()));
-    admin::set_fallback_branch(&repo, "svc", None).await.unwrap();
-    assert!(admin::get_fallback_branch(&repo, "svc").await.unwrap().is_none());
+    assert!(
+        admin::get_fallback_branch(&repo, "svc")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    admin::set_fallback_branch(&repo, "svc", Some("dev"))
+        .await
+        .unwrap();
+    assert_eq!(
+        admin::get_fallback_branch(&repo, "svc").await.unwrap(),
+        Some("dev".into())
+    );
+    admin::set_fallback_branch(&repo, "svc", None)
+        .await
+        .unwrap();
+    assert!(
+        admin::get_fallback_branch(&repo, "svc")
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 // 11. delete_branch_all_services over empty set returns 0
 #[tokio::test]
 async fn delete_branch_all_services_empty() {
     let repo = MockRepo::new();
-    let n = admin::delete_branch_all_services(&repo, "old").await.unwrap();
+    let n = admin::delete_branch_all_services(&repo, "old")
+        .await
+        .unwrap();
     assert_eq!(n, 0);
 }
 
