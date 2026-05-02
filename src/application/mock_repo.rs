@@ -22,6 +22,12 @@ pub struct MockRepo {
     pub spec_versions: Mutex<HashMap<(i64, i64), (i32, String)>>,
 }
 
+impl Default for MockRepo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockRepo {
     pub fn new() -> Self {
         let mut settings = HashMap::new();
