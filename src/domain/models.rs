@@ -203,6 +203,7 @@ pub struct EndpointRecord {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SharedContract {
     pub branch_name: String,
+    pub service_id: i64,
     pub api_type: ApiType,
     pub path: String,
     pub method: String,

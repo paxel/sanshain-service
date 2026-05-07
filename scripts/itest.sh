@@ -102,6 +102,16 @@ assert_json() {
     fi
 }
 
+assert_contains() {
+    local substring="$1"
+    local msg="$2"
+    if echo "$LAST_BODY" | grep -q "$substring"; then
+        log_success "$msg"
+    else
+        log_failure "$msg (Expected contains \"$substring\")"
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # Static Analysis & Formatting
 # ---------------------------------------------------------------------------
@@ -252,9 +262,10 @@ PAYLOAD_CORRECT=$(jq -n --arg svc "$CONCURRENCY_SVC" --arg branch "main" --arg y
 call_api POST "/provide" "$PAYLOAD_CORRECT"
 assert_status 202 "Accept correct base_version ($V2)"
 
-# 8. Advanced Features: Shared Contracts (Multi-producer)
+# 8. Advanced Features: Shared Contracts (Multi-producer, SAME SERVICE)
 header "Shared Contracts (Multi-producer) Tests"
 
+SHARED_SVC="service-SHARED"
 SHARED_BRANCH="feat-shared-$TEST_ID"
 log_info "Using branch: $SHARED_BRANCH"
 
@@ -293,37 +304,37 @@ paths:
         '201':
           description: 'INCOMPAT (Breaking: 200 removed)'"
 
-# ALPHA provides V1
-PAYLOAD_ALPHA_V1=$(jq -n --arg svc "service-ALPHA" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V1" \
+# Developer 1 (ALPHA) provides V1
+PAYLOAD_ALPHA_V1=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V1" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_ALPHA_V1"
 assert_status 202 "ALPHA provides V1 (Source established)"
 
-# BETA provides V2 (COMPAT)
-PAYLOAD_BETA_V2=$(jq -n --arg svc "service-BETA" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V2_COMPAT" \
+# Developer 2 (BETA) provides V2 (COMPAT)
+PAYLOAD_BETA_V2=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V2_COMPAT" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_BETA_V2"
 assert_status 202 "BETA provides V2 COMPAT (Current updated, owner=BETA)"
 
-# ALPHA provides INCOMPAT (compared to current V2)
-PAYLOAD_ALPHA_INCOMPAT=$(jq -n --arg svc "service-ALPHA" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_INCOMPAT" \
+# Developer 1 (ALPHA) provides INCOMPAT (compared to current V2)
+PAYLOAD_ALPHA_INCOMPAT=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_INCOMPAT" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_ALPHA_INCOMPAT"
 assert_status 409 "ALPHA rejected for INCOMPAT change compared to current (BETA's)"
 
-# BETA provides INCOMPAT (compared to source V1)
-PAYLOAD_BETA_INCOMPAT=$(jq -n --arg svc "service-BETA" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_INCOMPAT" \
+# Developer 2 (BETA) provides INCOMPAT (compared to source V1)
+PAYLOAD_BETA_INCOMPAT=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_INCOMPAT" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_BETA_INCOMPAT"
 assert_status 409 "BETA rejected for INCOMPAT change compared to source"
 
-# BETA provides V1 (reset to source)
-PAYLOAD_BETA_V1=$(jq -n --arg svc "service-BETA" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V1" \
+# Developer 2 (BETA) provides V1 (reset to source)
+PAYLOAD_BETA_V1=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V1" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_BETA_V1"
 assert_status 202 "BETA provides V1 (Reset to source, owner released)"
 
-# GAMMA provides V3 (after BETA rolled back)
+# Developer 3 (GAMMA) provides V3 (after BETA rolled back)
 ENDPOINT_V3_COMPAT="openapi: '3.0.0'
 info:
   title: Shared API
@@ -337,18 +348,18 @@ paths:
         '202':
           description: V3 COMPAT"
 
-PAYLOAD_GAMMA_V3=$(jq -n --arg svc "service-GAMMA" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V3_COMPAT" \
+PAYLOAD_GAMMA_V3=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V3_COMPAT" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_GAMMA_V3"
 assert_status 202 "GAMMA provides V3 COMPAT (New owner after rollback)"
 
-# GAMMA rolls back to V1
-PAYLOAD_GAMMA_V1=$(jq -n --arg svc "service-GAMMA" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V1" \
+# Developer 3 (GAMMA) rolls back to V1
+PAYLOAD_GAMMA_V1=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V1" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_GAMMA_V1"
 assert_status 202 "GAMMA provides V1 (Reset to source, owner released again)"
 
-# ALPHA provides V4 (Original committer can take over again)
+# Developer 1 (ALPHA) provides V4 (Original committer can take over again)
 ENDPOINT_V4_COMPAT="openapi: '3.0.0'
 info:
   title: Shared API
@@ -362,10 +373,56 @@ paths:
         '203':
           description: V4 COMPAT"
 
-PAYLOAD_ALPHA_V4=$(jq -n --arg svc "service-ALPHA" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V4_COMPAT" \
+PAYLOAD_ALPHA_V4=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V4_COMPAT" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_ALPHA_V4"
 assert_status 202 "ALPHA provides V4 COMPAT (Takeover possible by original committer)"
+
+# 9. Cross-service Independence (Same Path, Different Services)
+header "Cross-service Independence Tests"
+
+SVC_X="service-X-$TEST_ID"
+SVC_Y="service-Y-$TEST_ID"
+COMMON_PATH="/notification"
+
+SPEC_X="openapi: '3.0.0'
+info:
+  title: Service X API
+  version: '1.0'
+paths:
+  $COMMON_PATH:
+    get:
+      responses:
+        '200':
+          description: Result X"
+
+SPEC_Y="openapi: '3.0.0'
+info:
+  title: Service Y API
+  version: '1.0'
+paths:
+  $COMMON_PATH:
+    get:
+      responses:
+        '202':
+          description: Result Y"
+
+PAYLOAD_X=$(jq -n --arg svc "$SVC_X" --arg branch "main" --arg yaml "$SPEC_X" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_X"
+assert_status 202 "Service X provides $COMMON_PATH (200 OK)"
+
+PAYLOAD_Y=$(jq -n --arg svc "$SVC_Y" --arg branch "main" --arg yaml "$SPEC_Y" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_Y"
+assert_status 202 "Service Y provides $COMMON_PATH (202 Accepted) without conflict"
+
+# Verify they are independent
+call_api GET "/admin/endpoint-yaml?servicename=$SVC_X&branch=main&api_type=openapi&path=$COMMON_PATH&method=GET"
+assert_contains "Result X" "Service X endpoint preserved"
+
+call_api GET "/admin/endpoint-yaml?servicename=$SVC_Y&branch=main&api_type=openapi&path=$COMMON_PATH&method=GET"
+assert_contains "Result Y" "Service Y endpoint preserved"
 
 # 5. Admin API
 header "Admin API Tests"

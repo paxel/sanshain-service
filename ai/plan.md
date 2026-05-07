@@ -4,6 +4,8 @@
 
 The following major milestones have been delivered and are fully functional:
 
+- **Version 1.0.1 (Released)**: Fixed a critical production bug where independent services with identical endpoint paths incorrectly shared a "shared contract." Scoped contract tracking to individual service branches (`branch_id`) and verified independence with new automated integration tests.
+
 - **Version 1.0.0 (Released)**: Promoted the service to its first major stable release. This version consolidates all previous improvements and introduces a major breaking change: squashed database migrations for consistent PostgreSQL/SQLite deployments. Direct upgrades from `0.13.x` require a fresh database or manual schema migration.
 
 - **Landing Page Redesign (v0.13.1)**: Replaced old link cards with a beautiful three-step visual graphic (Provide -> Manage -> Require) and added a "Unified Contract Management" section highlighting support for OpenAPI, AsyncAPI, and Protobuf. Updated top banner to link the username to the account page. Fixed a bug where navigating directly to Reports or Graph views via URL hash would result in empty branch selectors; all discovery views are now fully autonomous. Registered missing admin API routes causing 404s in service discovery.

@@ -71,7 +71,7 @@ async fn provide_with_tags_persists_and_auto_tag() {
         "main",
         ApiType::AsyncApi,
         ASYNCAPI_V2,
-        &vec!["custom".to_string()],
+        &["custom".to_string()],
         None,
     )
     .await

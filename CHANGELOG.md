@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [1.0.1] - 2026-05-07
+
+### Fixed
+- **Shared Contract Collision**: Resolved a critical bug where independent services with identical endpoint paths (e.g., `/notification`) incorrectly shared a single contract. Contracts are now explicitly scoped by `(branch_name, service_id)`, ensuring each service maintains compatibility only with its own endpoints.
+- **Database Schema**: Refactored `shared_contracts` table to use `(branch_name, service_id)` as the uniqueness constraint for both SQLite and PostgreSQL, replacing the previous global `branch_name`-only scope.
+
+### Added
+- **Cross-Service Testing**: Expanded the automated integration test suite (`itest.sh`) with dedicated scenarios verifying endpoint independence across different services.
+
 ## [1.0.0] - 2026-05-02
 
 ### Breaking Changes
@@ -16,7 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Migration Squashing**: Consolidated all database migrations into a single initial schema for both SQLite and PostgreSQL. This resolves issues with "previously applied but modified" migrations and simplifies fresh installations.
 - **PostgreSQL Stability**: Fixed a critical `name[] = text[]` operator error in PostgreSQL migrations.
 - **Robust Data Deletion**: Implemented `ON DELETE CASCADE` across all major foreign key relationships, ensuring reliable cleanup of dependent data (branches, endpoints, versions, etc.) during deletion operations.
-- **Shared Contract Fix**: Corrected the `shared_contracts` table schema to use `branch_name` instead of `branch_id`, matching the application logic.
+- **Shared Contract Schema**: Established the `shared_contracts` table with `branch_name`-based scoping in the initial schema.
 
 ### Added
 - **PostgreSQL Testing**: Integrated `testcontainers` for automated PostgreSQL integration testing. The test suite now verifies full API flows against a real PostgreSQL instance.

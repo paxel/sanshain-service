@@ -455,13 +455,14 @@ impl SpecRepository for DatabaseRepo {
     async fn get_shared_contract(
         &self,
         branch_name: &str,
+        service_id: i64,
         api_type: ApiType,
         path: &str,
         method: &str,
     ) -> Result<Option<SharedContract>, RepositoryError> {
         delegate!(
             self,
-            get_shared_contract(branch_name, api_type, path, method)
+            get_shared_contract(branch_name, service_id, api_type, path, method)
         )
     }
 

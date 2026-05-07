@@ -1836,14 +1836,16 @@ impl SpecRepository for SqliteSpecRepository {
     async fn get_shared_contract(
         &self,
         branch_name: &str,
+        service_id: i64,
         api_type: ApiType,
         path: &str,
         method: &str,
     ) -> Result<Option<SharedContract>, RepositoryError> {
         let row = sqlx::query(
-            "SELECT branch_name, api_type, path, method, source_yaml, current_yaml, owner_service_id FROM shared_contracts WHERE branch_name = ? AND api_type = ? AND path = ? AND method = ?"
+            "SELECT branch_name, service_id, api_type, path, method, source_yaml, current_yaml, owner_service_id FROM shared_contracts WHERE branch_name = ? AND service_id = ? AND api_type = ? AND path = ? AND method = ?"
         )
         .bind(branch_name)
+        .bind(service_id)
         .bind(api_type.as_str())
         .bind(path)
         .bind(method)
@@ -1856,12 +1858,13 @@ impl SpecRepository for SqliteSpecRepository {
                 use sqlx::Row;
                 Ok(Some(SharedContract {
                     branch_name: r.get(0),
-                    api_type: ApiType::from_str(r.get::<&str, _>(1)).unwrap_or_default(),
-                    path: r.get(2),
-                    method: r.get(3),
-                    source_yaml: r.get(4),
-                    current_yaml: r.get(5),
-                    owner_service_id: r.get(6),
+                    service_id: r.get(1),
+                    api_type: ApiType::from_str(r.get::<&str, _>(2)).unwrap_or_default(),
+                    path: r.get(3),
+                    method: r.get(4),
+                    source_yaml: r.get(5),
+                    current_yaml: r.get(6),
+                    owner_service_id: r.get(7),
                 }))
             }
             None => Ok(None),
@@ -1874,15 +1877,16 @@ impl SpecRepository for SqliteSpecRepository {
     ) -> Result<(), RepositoryError> {
         sqlx::query(
             r#"
-            INSERT INTO shared_contracts (branch_name, api_type, path, method, source_yaml, current_yaml, owner_service_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(branch_name, api_type, path, method) DO UPDATE SET
+            INSERT INTO shared_contracts (branch_name, service_id, api_type, path, method, source_yaml, current_yaml, owner_service_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(branch_name, service_id, api_type, path, method) DO UPDATE SET
                 source_yaml = excluded.source_yaml,
                 current_yaml = excluded.current_yaml,
                 owner_service_id = excluded.owner_service_id
             "#
         )
         .bind(&contract.branch_name)
+        .bind(contract.service_id)
         .bind(contract.api_type.as_str())
         .bind(&contract.path)
         .bind(&contract.method)

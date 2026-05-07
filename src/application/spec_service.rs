@@ -326,6 +326,7 @@ async fn provide_spec_inner(
             let shared = repo
                 .get_shared_contract(
                     branch,
+                    sid,
                     api_type,
                     &endpoint.normalized_path,
                     &endpoint.method,
@@ -335,6 +336,7 @@ async fn provide_spec_inner(
                 None => {
                     repo.upsert_shared_contract(SharedContract {
                         branch_name: branch.to_string(),
+                        service_id: sid,
                         api_type,
                         path: endpoint.normalized_path.clone(),
                         method: endpoint.method.clone(),
@@ -428,9 +430,8 @@ async fn provide_spec_inner(
         if !is_protected
             && !dry_run
             && let Some(mut entry) = repo
-                .get_shared_contract(branch, old_api_type, &_norm_path, &method)
+                .get_shared_contract(branch, sid, old_api_type, &_norm_path, &method)
                 .await?
-            && entry.owner_service_id == Some(sid)
         {
             entry.current_yaml = entry.source_yaml.clone();
             entry.owner_service_id = None;

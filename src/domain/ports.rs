@@ -478,10 +478,11 @@ pub trait SpecRepository: Send + Sync {
 
     // --- Shared Contracts (Problem 2) ---
 
-    /// Get a shared contract for a branch and endpoint.
+    /// Get a shared contract for a service on a branch and endpoint.
     fn get_shared_contract(
         &self,
         branch_name: &str,
+        service_id: i64,
         api_type: ApiType,
         path: &str,
         method: &str,

@@ -3652,9 +3652,8 @@ paths:
         .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
-    // 2. BETA provides v1 on same branch. Should be OK (same as source).
-    let payload_beta_v1 =
-        json!({ "servicename": "beta-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v1 });
+    // 2. BETA (different service) provides breaking change on same branch. Should SUCCEED (different service = independent).
+    let payload_beta_breaking = json!({ "servicename": "beta-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v2_breaking });
     let response = app
         .clone()
         .oneshot(
@@ -3663,7 +3662,9 @@ paths:
                 .uri("/provide")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&payload_beta_v1).unwrap()))
+                .body(Body::from(
+                    serde_json::to_vec(&payload_beta_breaking).unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -3687,8 +3688,8 @@ paths:
         .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
-    // 4. BETA provides breaking change. Should fail (conflict with current ALPHA owner).
-    let payload_beta_v2_breaking = json!({ "servicename": "beta-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v2_breaking });
+    // 4. ALPHA (same service) provides breaking change. Should fail (conflict with source).
+    let payload_alpha_v2_breaking = json!({ "servicename": "alpha-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v2_breaking });
     let response = app
         .clone()
         .oneshot(
@@ -3698,7 +3699,7 @@ paths:
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
-                    serde_json::to_vec(&payload_beta_v2_breaking).unwrap(),
+                    serde_json::to_vec(&payload_alpha_v2_breaking).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3709,7 +3710,7 @@ paths:
         .await
         .unwrap();
     let body_str = String::from_utf8_lossy(&body);
-    assert!(body_str.contains("current owner's version"));
+    assert!(body_str.contains("source version"));
 
     // 5. ALPHA provides v1 again. OK. Reverts to source, owner becomes None.
     let response = app
@@ -3727,7 +3728,8 @@ paths:
         .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
-    // 6. BETA provides breaking change. Should fail (conflict with source).
+    // 6. ALPHA (same service) provides breaking change after rollback. Should fail (conflict with source).
+    let payload_alpha_v2_breaking_on_v1 = json!({ "servicename": "alpha-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v2_breaking });
     let response = app
         .clone()
         .oneshot(
@@ -3737,7 +3739,7 @@ paths:
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
-                    serde_json::to_vec(&payload_beta_v2_breaking).unwrap(),
+                    serde_json::to_vec(&payload_alpha_v2_breaking_on_v1).unwrap(),
                 ))
                 .unwrap(),
         )

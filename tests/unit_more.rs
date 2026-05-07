@@ -1,7 +1,6 @@
 use sanshain_service::application::auth_service;
 use sanshain_service::application::mock_repo::MockRepo;
 use sanshain_service::domain::models::*;
-use sanshain_service::domain::ports::SpecRepository;
 
 // 1. get_auth_mode default is Dev
 #[tokio::test]

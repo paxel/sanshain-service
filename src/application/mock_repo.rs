@@ -662,7 +662,8 @@ impl SpecRepository for MockRepo {
 
     async fn get_shared_contract(
         &self,
-        _branch: &str,
+        _branch_name: &str,
+        _service_id: i64,
         _api_type: ApiType,
         _path: &str,
         _method: &str,

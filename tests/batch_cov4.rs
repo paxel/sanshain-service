@@ -93,7 +93,7 @@ components: { schemas: { A: { type: object } } }
 paths:
   /q: { post: { responses: { '201': { description: created } } } }
 "#;
-    let merged = openapi::merge_endpoint_yamls(&vec![a.into(), b.into()]).unwrap();
+    let merged = openapi::merge_endpoint_yamls(&[a.into(), b.into()]).unwrap();
     // At minimum the merged doc should include both paths without duplicating schema A.
     assert!(merged.contains("/p"));
     assert!(merged.contains("/q"));
@@ -306,7 +306,7 @@ fn proto_ignores_garbage() {
 #[test]
 fn proto_handles_block_style() {
     let p = r#"syntax="proto3"; message A{} message B{} service S{ rpc M (A) returns (B) {} }"#;
-    assert!(proto::split_proto(p).unwrap().len() >= 1);
+    assert!(!proto::split_proto(p).unwrap().is_empty());
 }
 
 #[test]
@@ -339,10 +339,9 @@ paths:
     assert!(first.changes.inserts >= 1);
 
     // Second run with same content should not insert more; may be zero inserts and/or some upserts per repo impl.
-    let second = spec_service::provide_spec_dry_run(&repo, "svcO", "dev", ApiType::OpenApi, y1)
+    let _second = spec_service::provide_spec_dry_run(&repo, "svcO", "dev", ApiType::OpenApi, y1)
         .await
         .unwrap();
-    assert!(second.changes.inserts >= 0);
 }
 
 #[tokio::test]
@@ -379,12 +378,10 @@ async fn dry_run_across_branches_isolated() {
     let y = r#"openapi: 3.0.0
 info: {title: x, version: v}
 paths: { }"#;
-    let a = spec_service::provide_spec_dry_run(&repo, "svcB", "dev1", ApiType::OpenApi, y)
+    let _a = spec_service::provide_spec_dry_run(&repo, "svcB", "dev1", ApiType::OpenApi, y)
         .await
         .unwrap();
-    let b = spec_service::provide_spec_dry_run(&repo, "svcB", "dev2", ApiType::OpenApi, y)
+    let _b = spec_service::provide_spec_dry_run(&repo, "svcB", "dev2", ApiType::OpenApi, y)
         .await
         .unwrap();
-    // Both should be fine and independent.
-    assert!(a.changes.inserts >= 0 && b.changes.inserts >= 0);
 }
