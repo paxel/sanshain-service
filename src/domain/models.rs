@@ -212,6 +212,14 @@ pub struct SharedContract {
     pub owner_service_id: Option<i64>,
 }
 
+#[derive(Serialize, Clone, Debug)]
+pub struct SharedContractInfo {
+    pub source_yaml: String,
+    pub current_yaml: String,
+    pub owner_service: Option<String>,
+    pub has_changes: bool,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum NodeSource {
     Branch,

@@ -600,6 +600,46 @@ pub async fn get_endpoint_version_history(
     Ok(repo.get_endpoint_versions(endpoint_id).await?)
 }
 
+pub async fn get_shared_contract_info(
+    repo: &impl SpecRepository,
+    servicename: &str,
+    branch: &str,
+    api_type: ApiType,
+    path: &str,
+    method: &str,
+) -> Result<Option<SharedContractInfo>, AppError> {
+    let service_id = match repo.find_service(servicename).await? {
+        Some(id) => id,
+        None => return Ok(None),
+    };
+
+    let method_to_use = match api_type {
+        ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
+        ApiType::Proto => method.to_string(),
+    };
+
+    let contract = repo
+        .get_shared_contract(branch, service_id, api_type, path, &method_to_use)
+        .await?;
+
+    match contract {
+        None => Ok(None),
+        Some(c) => {
+            let owner_service = match c.owner_service_id {
+                Some(owner_id) => repo.get_service_name_by_id(owner_id).await?,
+                None => None,
+            };
+            let has_changes = c.source_yaml != c.current_yaml;
+            Ok(Some(SharedContractInfo {
+                source_yaml: c.source_yaml,
+                current_yaml: c.current_yaml,
+                owner_service,
+                has_changes,
+            }))
+        }
+    }
+}
+
 pub async fn require_endpoint(
     repo: &impl SpecRepository,
     notifier: Option<tokio::sync::broadcast::Receiver<()>>,

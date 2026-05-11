@@ -102,6 +102,16 @@ impl SpecRepository for MockRepo {
         let services = self.services.lock().unwrap();
         Ok(services.get(name).copied())
     }
+    async fn get_service_name_by_id(
+        &self,
+        service_id: i64,
+    ) -> Result<Option<String>, RepositoryError> {
+        let services = self.services.lock().unwrap();
+        Ok(services
+            .iter()
+            .find(|&(_, &id)| id == service_id)
+            .map(|(name, _)| name.clone()))
+    }
     async fn ensure_branch(
         &self,
         service_id: i64,

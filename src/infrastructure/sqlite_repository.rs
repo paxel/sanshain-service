@@ -165,6 +165,17 @@ impl SpecRepository for SqliteSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(row.map(|r| r.0))
     }
+    async fn get_service_name_by_id(
+        &self,
+        service_id: i64,
+    ) -> Result<Option<String>, RepositoryError> {
+        let row: Option<(String,)> = sqlx::query_as("SELECT name FROM services WHERE id = ?")
+            .bind(service_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.map(|r| r.0))
+    }
     async fn find_branch(
         &self,
         service_id: i64,

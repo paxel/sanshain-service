@@ -375,6 +375,13 @@ impl SpecRepository for CachedSpecRepository {
         Ok(result)
     }
 
+    async fn get_service_name_by_id(
+        &self,
+        service_id: i64,
+    ) -> Result<Option<String>, RepositoryError> {
+        self.inner.get_service_name_by_id(service_id).await
+    }
+
     async fn ensure_branch(
         &self,
         service_id: i64,

@@ -351,12 +351,14 @@
 
         let yamlText = null;
         let versions = [];
+        let contractInfo = null;
+
+        const headers = {};
+        const token = localStorage.getItem('sanshain_token');
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const apiType = (ep.api_type || 'openapi').toLowerCase();
 
         try {
-            const headers = {};
-            const token = localStorage.getItem('sanshain_token');
-            if (token) headers['Authorization'] = `Bearer ${token}`;
-            const apiType = (ep.api_type || 'openapi').toLowerCase();
             const res = await fetch(`/admin/endpoint-yaml?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${apiType}`, {headers});
             if (!res.ok) throw new Error(`${res.status}`);
             yamlText = await res.text();
@@ -366,42 +368,59 @@
         }
 
         try {
-            const apiType = (ep.api_type || 'openapi').toLowerCase();
             versions = await fetchJSON(`/admin/endpoint-versions?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${apiType}`);
         } catch (_) { versions = []; }
+
+        try {
+            const scRes = await fetch(`/admin/shared-contract?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${apiType}`, {headers});
+            if (scRes.ok) contractInfo = await scRes.json();
+        } catch (_) { contractInfo = null; }
 
         const filename = `${serviceName}_${ep.method}_${ep.path.replace(/\//g, '_')}.yaml`;
 
         if (!versions || versions.length === 0) {
+            if (!contractInfo) {
+                renderPaginatedYaml(content, yamlText, filename);
+                return;
+            }
+        }
+
+        const tabs = [];
+        tabs.push({id: 'yaml', label: 'Current YAML'});
+        if (versions && versions.length > 0) tabs.push({id: 'versions', label: `Version History (${versions.length})`});
+        if (contractInfo) tabs.push({id: 'contract', label: 'Shared Contract'});
+
+        if (tabs.length === 1) {
             renderPaginatedYaml(content, yamlText, filename);
             return;
         }
 
-        content.innerHTML = `
-            <div class="flex border-b border-slate-200 mb-4">
-                <button id="tab-yaml" class="px-4 py-2 text-sm font-medium border-b-2 border-indigo-600 text-indigo-600">Current YAML</button>
-                <button id="tab-versions" class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700">Version History (${versions.length})</button>
-            </div>
-            <div id="tab-yaml-content"></div>
-            <div id="tab-versions-content" class="hidden"></div>`;
+        const tabBar = tabs.map((t, i) =>
+            `<button id="tab-${t.id}" class="px-4 py-2 text-sm font-medium border-b-2 ${i === 0 ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}">${t.label}</button>`
+        ).join('');
+        const tabPanes = tabs.map((t, i) =>
+            `<div id="tab-${t.id}-content" class="${i > 0 ? 'hidden' : ''}"></div>`
+        ).join('');
 
-        const yamlTab = document.getElementById('tab-yaml');
-        const versionsTab = document.getElementById('tab-versions');
-        const yamlContent = document.getElementById('tab-yaml-content');
-        const versionsContent = document.getElementById('tab-versions-content');
+        content.innerHTML = `<div class="flex border-b border-slate-200 mb-4">${tabBar}</div>${tabPanes}`;
 
-        function activateTab(tab) {
-            [yamlTab, versionsTab].forEach(t => { t.classList.remove('border-indigo-600','text-indigo-600'); t.classList.add('border-transparent','text-slate-500'); });
-            tab.classList.remove('border-transparent','text-slate-500');
-            tab.classList.add('border-indigo-600','text-indigo-600');
-            yamlContent.classList.toggle('hidden', tab !== yamlTab);
-            versionsContent.classList.toggle('hidden', tab !== versionsTab);
+        const tabEls = tabs.map(t => document.getElementById(`tab-${t.id}`));
+        const paneEls = tabs.map(t => document.getElementById(`tab-${t.id}-content`));
+
+        function activateTab(idx) {
+            tabEls.forEach((el, i) => {
+                el.classList.toggle('border-indigo-600', i === idx);
+                el.classList.toggle('text-indigo-600', i === idx);
+                el.classList.toggle('border-transparent', i !== idx);
+                el.classList.toggle('text-slate-500', i !== idx);
+            });
+            paneEls.forEach((el, i) => el.classList.toggle('hidden', i !== idx));
         }
-        yamlTab.onclick = () => activateTab(yamlTab);
-        versionsTab.onclick = () => activateTab(versionsTab);
+        tabEls.forEach((el, i) => el.onclick = () => activateTab(i));
 
-        renderPaginatedYaml(yamlContent, yamlText, filename);
-        renderVersionHistory(versionsContent, versions);
+        renderPaginatedYaml(document.getElementById('tab-yaml-content'), yamlText, filename);
+        if (versions && versions.length > 0) renderVersionHistory(document.getElementById('tab-versions-content'), versions);
+        if (contractInfo) renderSharedContract(document.getElementById('tab-contract-content'), contractInfo);
     }
 
     function toggleClientPopover(badge) {

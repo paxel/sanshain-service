@@ -57,6 +57,12 @@ impl SpecRepository for DatabaseRepo {
     async fn find_service(&self, name: &str) -> Result<Option<i64>, RepositoryError> {
         delegate!(self, find_service(name))
     }
+    async fn get_service_name_by_id(
+        &self,
+        service_id: i64,
+    ) -> Result<Option<String>, RepositoryError> {
+        delegate!(self, get_service_name_by_id(service_id))
+    }
     async fn ensure_branch(
         &self,
         service_id: i64,

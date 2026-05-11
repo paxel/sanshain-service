@@ -80,6 +80,12 @@ pub trait SpecRepository: Send + Sync {
         name: &str,
     ) -> impl Future<Output = Result<Option<i64>, RepositoryError>> + Send;
 
+    /// Get a service name by its ID. Returns None if not found.
+    fn get_service_name_by_id(
+        &self,
+        service_id: i64,
+    ) -> impl Future<Output = Result<Option<String>, RepositoryError>> + Send;
+
     /// Ensure a branch exists for a service and return its ID.
     fn ensure_branch(
         &self,

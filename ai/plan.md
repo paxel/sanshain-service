@@ -115,7 +115,7 @@ The following major milestones have been delivered and are fully functional:
 Design exploration document: [`ai/sync.plan`](sync.plan.md)
 - [x] Problem 1: `/provide/asyncapi` should only store PUB operations (SUB belongs in `requires`).
 - [x] Problem 2: Multiple publishers for the same topic — detect and warn about conflicts.
-  - [ ] Display the "current" with diff to "source"
+  - [x] Display the "current" with diff to "source"
 - [x] Problem 3: Concurrent developers on same service/branch overwrite each other (optimistic concurrency with `base_version`).
 - [x] Problem 4: Provide returns JSON body with version and content hash.
 - [x] Problem 5: Skip specification processing if the content hash matches the current version.

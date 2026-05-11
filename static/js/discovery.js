@@ -312,6 +312,47 @@ async function checkDiscoveryAuth(onSuccess) {
   }
 }
 
+function renderSharedContract(container, contractInfo) {
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  if (!contractInfo.has_changes) {
+    let html = '<div class="flex items-center gap-2 text-green-600 py-4"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span class="text-sm font-medium">No divergence from source</span></div>';
+    if (contractInfo.owner_service) {
+      html += `<div class="text-xs text-slate-500">Owner: <span class="font-medium text-slate-700">${esc(contractInfo.owner_service)}</span></div>`;
+    }
+    container.innerHTML = html;
+    return;
+  }
+
+  const diff = simpleDiff(contractInfo.source_yaml, contractInfo.current_yaml);
+  const adds = diff.filter((d) => d.type === "add").length;
+  const dels = diff.filter((d) => d.type === "del").length;
+
+  let html = '';
+  if (contractInfo.owner_service) {
+    html += `<div class="mb-3"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">Owner: ${esc(contractInfo.owner_service)}</span></div>`;
+  }
+  html += `<div class="text-xs text-slate-500 mb-2">Source → Current: <span class="text-green-600">+${adds}</span> / <span class="text-red-600">-${dels}</span> lines</div>`;
+  html += `<pre class="diff-pre bg-slate-800 p-4 rounded-xl text-sm overflow-x-auto whitespace-pre-wrap leading-relaxed">${renderDiffHtml(diff)}</pre>`;
+  html += `<div class="flex gap-2 mt-3">
+    <button id="sc-show-source" class="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200">View Source YAML</button>
+    <button id="sc-show-current" class="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200">View Current YAML</button>
+  </div>
+  <div id="sc-raw-content" class="hidden mt-3"></div>`;
+  container.innerHTML = html;
+
+  document.getElementById('sc-show-source').onclick = () => {
+    const raw = document.getElementById('sc-raw-content');
+    raw.classList.toggle('hidden');
+    raw.innerHTML = `<pre class="bg-slate-800 text-green-300 p-4 rounded-xl text-sm overflow-x-auto whitespace-pre-wrap leading-relaxed">${esc(contractInfo.source_yaml)}</pre>`;
+  };
+  document.getElementById('sc-show-current').onclick = () => {
+    const raw = document.getElementById('sc-raw-content');
+    raw.classList.toggle('hidden');
+    raw.innerHTML = `<pre class="bg-slate-800 text-green-300 p-4 rounded-xl text-sm overflow-x-auto whitespace-pre-wrap leading-relaxed">${esc(contractInfo.current_yaml)}</pre>`;
+  };
+}
+
 function closeModal() {
   document.getElementById("modal").classList.add("hidden");
   const reportBtn = document.getElementById("md-report-btn");
