@@ -350,6 +350,17 @@ pub fn merge_endpoint_yamls(yamls: &[String]) -> Result<String, String> {
         }
     }
 
+    // Sort paths and component maps for deterministic output regardless of input order.
+    merged.paths.paths.sort_keys();
+    if let Some(ref mut components) = merged.components {
+        components.schemas.sort_keys();
+        components.responses.sort_keys();
+        components.parameters.sort_keys();
+        components.request_bodies.sort_keys();
+        components.headers.sort_keys();
+        components.security_schemes.sort_keys();
+    }
+
     serde_yaml_ng::to_string(&merged).map_err(|e| format!("Failed to serialize merged YAML: {}", e))
 }
 
@@ -1010,5 +1021,64 @@ paths:
     fn test_merge_empty_input() {
         let result = merge_endpoint_yamls(&[]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_merge_endpoint_yamls_order_independent() {
+        let snippet_users = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
+"#;
+        let snippet_orders = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /orders:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Order'
+      responses:
+        '201':
+          description: Created
+components:
+  schemas:
+    Order:
+      type: object
+      properties:
+        id:
+          type: integer
+"#;
+        let order_a =
+            merge_endpoint_yamls(&[snippet_users.to_string(), snippet_orders.to_string()]).unwrap();
+        let order_b =
+            merge_endpoint_yamls(&[snippet_orders.to_string(), snippet_users.to_string()]).unwrap();
+        assert_eq!(
+            order_a, order_b,
+            "Merge output must be identical regardless of input order"
+        );
     }
 }

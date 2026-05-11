@@ -228,6 +228,51 @@ BUNDLE_PAYLOAD=$(jq -n --arg client "itest-client" --arg svc "$SVC_NAME" --arg b
 call_api POST "/require-bundle" "$BUNDLE_PAYLOAD"
 assert_status 200 "Require bundle (multiple endpoints)"
 
+# Bundle ETag Stability
+header "Bundle ETag Stability Tests"
+
+ETAG_SVC="etag-svc-$TEST_ID"
+ETAG_SPEC="openapi: '3.0.0'
+info:
+  title: ETag Test
+  version: '1.0'
+paths:
+  /alpha:
+    get:
+      responses:
+        '200':
+          description: Alpha
+  /beta:
+    post:
+      responses:
+        '201':
+          description: Beta"
+
+PAYLOAD_ETAG=$(jq -n --arg svc "$ETAG_SVC" --arg branch "main" --arg yaml "$ETAG_SPEC" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_ETAG"
+assert_status 202 "Provide spec for ETag stability test"
+
+# Order A: alpha first, beta second
+BUNDLE_A=$(jq -n --arg client "etag-client" --arg svc "$ETAG_SVC" --arg branch "main" \
+    '{clientname:$client, servicename:$svc, branch:$branch, endpoints:[{path:"/alpha", method:"GET"}, {path:"/beta", method:"POST"}]}')
+ETAG_A=$(curl -s -o /dev/null -D - -X POST "$BASE_URL/require-bundle" \
+    -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -H "X-CSRF-Token: test" \
+    -d "$BUNDLE_A" | grep -i "^etag:" | tr -d '\r\n ')
+
+# Order B: beta first, alpha second
+BUNDLE_B=$(jq -n --arg client "etag-client" --arg svc "$ETAG_SVC" --arg branch "main" \
+    '{clientname:$client, servicename:$svc, branch:$branch, endpoints:[{path:"/beta", method:"POST"}, {path:"/alpha", method:"GET"}]}')
+ETAG_B=$(curl -s -o /dev/null -D - -X POST "$BASE_URL/require-bundle" \
+    -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -H "X-CSRF-Token: test" \
+    -d "$BUNDLE_B" | grep -i "^etag:" | tr -d '\r\n ')
+
+if [ "$ETAG_A" = "$ETAG_B" ] && [ -n "$ETAG_A" ]; then
+    log_success "Bundle ETags match regardless of endpoint order"
+else
+    log_failure "Bundle ETags differ: A='$ETAG_A' B='$ETAG_B'"
+fi
+
 # 7. Advanced Features: Optimistic Concurrency
 header "Optimistic Concurrency Tests"
 

@@ -766,6 +766,11 @@ async fn require_bundle_inner(
             })
             .collect();
 
+        // Sort endpoints deterministically so bundle output (and thus ETag) is
+        // independent of the request order.
+        let mut sorted_endpoints = normalized_endpoints.clone();
+        sorted_endpoints.sort();
+
         let found_endpoints = find_endpoints_bulk_with_fallback(
             repo,
             service_id,
@@ -779,17 +784,13 @@ async fn require_bundle_inner(
         if found_endpoints.len() == params.endpoints.len() {
             let mut yamls = Vec::new();
             let mut bulk_params = Vec::new();
-            for (path, method) in params.endpoints {
-                let m_use = match params.api_type {
-                    ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
-                    ApiType::Proto => method.to_string(),
-                };
+            for (path, method) in &sorted_endpoints {
                 let (id, yaml) = found_endpoints
-                    .get(&(path.clone(), m_use.clone()))
+                    .get(&(path.clone(), method.clone()))
                     .ok_or_else(|| {
                         AppError::Internal(format!(
                             "endpoint unexpectedly missing: {} {}",
-                            m_use, path
+                            method, path
                         ))
                     })?;
                 yamls.push(yaml.clone());

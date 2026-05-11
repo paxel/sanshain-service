@@ -506,6 +506,157 @@ components:
 }
 
 #[tokio::test]
+async fn test_require_bundle_etag_stability() {
+    let app = setup_app_dev_mode().await;
+
+    // Provide a spec with two distinct endpoints
+    let openapi_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test API
+  version: 1.0.0
+paths:
+  /users:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+      responses:
+        '201':
+          description: Created
+  /orders:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
+    Order:
+      type: object
+      properties:
+        id:
+          type: integer
+"#;
+    let provide_payload = json!({
+        "servicename": "etag-svc",
+        "branch": "main",
+        "openapi_yaml": openapi_yaml
+    });
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&provide_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // Request bundle: order A (users first, orders second)
+    let bundle_a = json!({
+        "clientname": "etag-client",
+        "servicename": "etag-svc",
+        "branch": "main",
+        "endpoints": [
+            { "path": "/users", "method": "POST" },
+            { "path": "/orders", "method": "GET" }
+        ]
+    });
+    let resp_a: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/require-bundle")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&bundle_a).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp_a.status(), StatusCode::OK);
+    let etag_a = resp_a
+        .headers()
+        .get("etag")
+        .expect("Response A should have ETag")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let body_a = String::from_utf8(
+        axum::body::to_bytes(resp_a.into_body(), 100000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+
+    // Request bundle: order B (orders first, users second)
+    let bundle_b = json!({
+        "clientname": "etag-client",
+        "servicename": "etag-svc",
+        "branch": "main",
+        "endpoints": [
+            { "path": "/orders", "method": "GET" },
+            { "path": "/users", "method": "POST" }
+        ]
+    });
+    let resp_b: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/require-bundle")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&bundle_b).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp_b.status(), StatusCode::OK);
+    let etag_b = resp_b
+        .headers()
+        .get("etag")
+        .expect("Response B should have ETag")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let body_b = String::from_utf8(
+        axum::body::to_bytes(resp_b.into_body(), 100000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        etag_a, etag_b,
+        "ETags must match regardless of endpoint order"
+    );
+    assert_eq!(
+        body_a, body_b,
+        "Response bodies must match regardless of endpoint order"
+    );
+}
+
+#[tokio::test]
 async fn test_idempotency_and_conflict() {
     let app = setup_app_dev_mode().await;
 

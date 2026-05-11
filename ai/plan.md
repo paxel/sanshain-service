@@ -120,7 +120,7 @@ Design exploration document: [`ai/sync.plan`](sync.plan.md)
 - [x] Problem 5: Skip specification processing if the content hash matches the current version.
 - [x] Require-Side Caching: implemented ETag and If-None-Match support for all require-endpoints to reduce network traffic and build times.
 - [x] Onboarding Improvements: auto-skip shared contract checks for new services (no protected-branch endpoints) and `force` parameter to reset shared contract source on feature branches.
-- [ ] Problem 6: Bundle Hash Stability (ensure stable ETag regardless of request order).
+- [x] Problem 6: Bundle Hash Stability (ensure stable ETag regardless of request order).
 - [ ] Problem 7: Semantic Versioning for Specs.
 
 ### Going big
