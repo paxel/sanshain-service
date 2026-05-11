@@ -30,6 +30,7 @@ pub async fn provide_spec(
     api_type: ApiType,
     content: &str,
     base_version: Option<i32>,
+    force: bool,
 ) -> Result<ProvideResponse, AppError> {
     provide_spec_inner(
         repo,
@@ -41,6 +42,7 @@ pub async fn provide_spec(
             dry_run: false,
             extra_tags: &[],
             base_version,
+            force,
         },
     )
     .await
@@ -52,6 +54,7 @@ pub async fn provide_spec_dry_run(
     branch: &str,
     api_type: ApiType,
     content: &str,
+    force: bool,
 ) -> Result<ProvideResponse, AppError> {
     provide_spec_inner(
         repo,
@@ -63,11 +66,13 @@ pub async fn provide_spec_dry_run(
             dry_run: true,
             extra_tags: &[],
             base_version: None,
+            force,
         },
     )
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn provide_spec_with_tags(
     repo: &impl SpecRepository,
     servicename: &str,
@@ -76,6 +81,7 @@ pub async fn provide_spec_with_tags(
     content: &str,
     tags: &[String],
     base_version: Option<i32>,
+    force: bool,
 ) -> Result<ProvideResponse, AppError> {
     provide_spec_inner(
         repo,
@@ -87,6 +93,7 @@ pub async fn provide_spec_with_tags(
             dry_run: false,
             extra_tags: tags,
             base_version,
+            force,
         },
     )
     .await
@@ -100,6 +107,7 @@ struct ProvideInternalParams<'a> {
     pub dry_run: bool,
     pub extra_tags: &'a [String],
     pub base_version: Option<i32>,
+    pub force: bool,
 }
 
 fn parse_spec_endpoints(
@@ -178,6 +186,22 @@ fn parse_spec_endpoints(
     }
 }
 
+async fn has_protected_branch_endpoints(
+    repo: &impl SpecRepository,
+    service_id: i64,
+) -> Result<bool, AppError> {
+    let protected_branches = repo.list_protected_branches().await?;
+    for pb in &protected_branches {
+        if let Some(bid) = repo.find_branch(service_id, pb).await? {
+            let endpoints = repo.get_endpoints_for_branch(bid).await?;
+            if !endpoints.is_empty() {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
 async fn provide_spec_inner(
     repo: &impl SpecRepository,
     params: ProvideInternalParams<'_>,
@@ -190,6 +214,7 @@ async fn provide_spec_inner(
         dry_run,
         extra_tags,
         base_version,
+        force,
     } = params;
 
     tracing::debug!(
@@ -267,6 +292,12 @@ async fn provide_spec_inner(
 
     let is_protected = repo.is_branch_protected(branch).await?;
 
+    if force && is_protected {
+        return Err(AppError::BadRequest(
+            "Force mode is not allowed on protected branches.".to_string(),
+        ));
+    }
+
     if is_protected && api_type == ApiType::OpenApi {
         let existing = repo.get_endpoints_for_branch(bid).await?;
         if !existing.is_empty() {
@@ -321,64 +352,84 @@ async fn provide_spec_inner(
     let mut inserts = 0;
     let mut updates = 0;
 
+    let skip_compat = if !is_protected && !dry_run {
+        force || !has_protected_branch_endpoints(repo, sid).await?
+    } else {
+        false
+    };
+
     for endpoint in endpoints {
         if !is_protected && !dry_run {
-            let shared = repo
-                .get_shared_contract(
-                    branch,
-                    sid,
+            if skip_compat {
+                repo.upsert_shared_contract(SharedContract {
+                    branch_name: branch.to_string(),
+                    service_id: sid,
                     api_type,
-                    &endpoint.normalized_path,
-                    &endpoint.method,
-                )
+                    path: endpoint.normalized_path.clone(),
+                    method: endpoint.method.clone(),
+                    source_yaml: endpoint.yaml_content.clone(),
+                    current_yaml: endpoint.yaml_content.clone(),
+                    owner_service_id: None,
+                })
                 .await?;
-            match shared {
-                None => {
-                    repo.upsert_shared_contract(SharedContract {
-                        branch_name: branch.to_string(),
-                        service_id: sid,
+            } else {
+                let shared = repo
+                    .get_shared_contract(
+                        branch,
+                        sid,
                         api_type,
-                        path: endpoint.normalized_path.clone(),
-                        method: endpoint.method.clone(),
-                        source_yaml: endpoint.yaml_content.clone(),
-                        current_yaml: endpoint.yaml_content.clone(),
-                        owner_service_id: None,
-                    })
+                        &endpoint.normalized_path,
+                        &endpoint.method,
+                    )
                     .await?;
-                }
-                Some(mut entry) => {
-                    if endpoint.yaml_content == entry.source_yaml {
-                        if entry.owner_service_id == Some(sid) {
-                            entry.current_yaml = entry.source_yaml.clone();
-                            entry.owner_service_id = None;
+                match shared {
+                    None => {
+                        repo.upsert_shared_contract(SharedContract {
+                            branch_name: branch.to_string(),
+                            service_id: sid,
+                            api_type,
+                            path: endpoint.normalized_path.clone(),
+                            method: endpoint.method.clone(),
+                            source_yaml: endpoint.yaml_content.clone(),
+                            current_yaml: endpoint.yaml_content.clone(),
+                            owner_service_id: None,
+                        })
+                        .await?;
+                    }
+                    Some(mut entry) => {
+                        if endpoint.yaml_content == entry.source_yaml {
+                            if entry.owner_service_id == Some(sid) {
+                                entry.current_yaml = entry.source_yaml.clone();
+                                entry.owner_service_id = None;
+                                repo.upsert_shared_contract(entry).await?;
+                            }
+                        } else if endpoint.yaml_content != entry.current_yaml {
+                            let is_owner = entry.owner_service_id == Some(sid);
+                            let check_against = if is_owner || entry.owner_service_id.is_none() {
+                                &entry.source_yaml
+                            } else {
+                                &entry.current_yaml
+                            };
+
+                            if let Err(reason) =
+                                check_compatibility(api_type, check_against, &endpoint.yaml_content)
+                            {
+                                tracing::warn!("Rejected shared endpoint modification: {}", reason);
+                                let owner_desc = if is_owner || entry.owner_service_id.is_none() {
+                                    "source"
+                                } else {
+                                    "current owner's"
+                                };
+                                return Err(AppError::Conflict(format!(
+                                    "Breaking change for shared endpoint {} {} on branch '{}' (compared to {} version): {}",
+                                    endpoint.method, endpoint.path, branch, owner_desc, reason
+                                )));
+                            }
+
+                            entry.current_yaml = endpoint.yaml_content.clone();
+                            entry.owner_service_id = Some(sid);
                             repo.upsert_shared_contract(entry).await?;
                         }
-                    } else if endpoint.yaml_content != entry.current_yaml {
-                        let is_owner = entry.owner_service_id == Some(sid);
-                        let check_against = if is_owner || entry.owner_service_id.is_none() {
-                            &entry.source_yaml
-                        } else {
-                            &entry.current_yaml
-                        };
-
-                        if let Err(reason) =
-                            check_compatibility(api_type, check_against, &endpoint.yaml_content)
-                        {
-                            tracing::warn!("Rejected shared endpoint modification: {}", reason);
-                            let owner_desc = if is_owner || entry.owner_service_id.is_none() {
-                                "source"
-                            } else {
-                                "current owner's"
-                            };
-                            return Err(AppError::Conflict(format!(
-                                "Breaking change for shared endpoint {} {} on branch '{}' (compared to {} version): {}",
-                                endpoint.method, endpoint.path, branch, owner_desc, reason
-                            )));
-                        }
-
-                        entry.current_yaml = endpoint.yaml_content.clone();
-                        entry.owner_service_id = Some(sid);
-                        repo.upsert_shared_contract(entry).await?;
                     }
                 }
             }
@@ -941,9 +992,17 @@ paths:
     #[tokio::test]
     async fn test_provide_spec_insert() {
         let repo = MockRepo::new();
-        let resp = provide_spec(&repo, "svc", "main", ApiType::OpenApi, SIMPLE_OPENAPI, None)
-            .await
-            .unwrap();
+        let resp = provide_spec(
+            &repo,
+            "svc",
+            "main",
+            ApiType::OpenApi,
+            SIMPLE_OPENAPI,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
         assert_eq!(resp.version, 1);
         assert_eq!(resp.changes.inserts, 1);
         assert_eq!(resp.changes.updates, 0);
@@ -953,9 +1012,17 @@ paths:
     #[tokio::test]
     async fn test_provide_spec_update() {
         let repo = MockRepo::new();
-        provide_spec(&repo, "svc", "main", ApiType::OpenApi, SIMPLE_OPENAPI, None)
-            .await
-            .unwrap();
+        provide_spec(
+            &repo,
+            "svc",
+            "main",
+            ApiType::OpenApi,
+            SIMPLE_OPENAPI,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
         let resp = provide_spec(
             &repo,
             "svc",
@@ -963,6 +1030,7 @@ paths:
             ApiType::OpenApi,
             UPDATED_OPENAPI,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -973,12 +1041,28 @@ paths:
     #[tokio::test]
     async fn test_provide_spec_no_change_skip() {
         let repo = MockRepo::new();
-        let r1 = provide_spec(&repo, "svc", "main", ApiType::OpenApi, SIMPLE_OPENAPI, None)
-            .await
-            .unwrap();
-        let r2 = provide_spec(&repo, "svc", "main", ApiType::OpenApi, SIMPLE_OPENAPI, None)
-            .await
-            .unwrap();
+        let r1 = provide_spec(
+            &repo,
+            "svc",
+            "main",
+            ApiType::OpenApi,
+            SIMPLE_OPENAPI,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+        let r2 = provide_spec(
+            &repo,
+            "svc",
+            "main",
+            ApiType::OpenApi,
+            SIMPLE_OPENAPI,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
         assert_eq!(r1.version, r2.version);
         assert_eq!(r2.changes.inserts, 0);
         assert_eq!(r2.changes.updates, 0);
@@ -988,9 +1072,16 @@ paths:
     #[tokio::test]
     async fn test_provide_spec_dry_run() {
         let repo = MockRepo::new();
-        let resp = provide_spec_dry_run(&repo, "svc", "main", ApiType::OpenApi, SIMPLE_OPENAPI)
-            .await
-            .unwrap();
+        let resp = provide_spec_dry_run(
+            &repo,
+            "svc",
+            "main",
+            ApiType::OpenApi,
+            SIMPLE_OPENAPI,
+            false,
+        )
+        .await
+        .unwrap();
         assert_eq!(resp.changes.inserts, 1);
         // Dry run should not persist
         let services = repo.list_services().await.unwrap();

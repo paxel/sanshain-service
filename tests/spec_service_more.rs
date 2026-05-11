@@ -37,10 +37,16 @@ service BService { rpc DoB (Req) returns (Res); }
 #[tokio::test]
 async fn asyncapi_dry_run_counts_only_pub() {
     let repo = MockRepo::new();
-    let resp =
-        spec_service::provide_spec_dry_run(&repo, "svc", "main", ApiType::AsyncApi, ASYNCAPI_V2)
-            .await
-            .unwrap();
+    let resp = spec_service::provide_spec_dry_run(
+        &repo,
+        "svc",
+        "main",
+        ApiType::AsyncApi,
+        ASYNCAPI_V2,
+        false,
+    )
+    .await
+    .unwrap();
     // Only the publish operation should be considered (1 insert)
     assert_eq!(resp.changes.inserts, 1);
     assert_eq!(resp.changes.updates, 0);
@@ -52,9 +58,10 @@ async fn asyncapi_dry_run_counts_only_pub() {
 #[tokio::test]
 async fn proto_dry_run_extracts_all_rpcs() {
     let repo = MockRepo::new();
-    let resp = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::Proto, PROTO)
-        .await
-        .unwrap();
+    let resp =
+        spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::Proto, PROTO, false)
+            .await
+            .unwrap();
     // Two RPCs → two inserts
     assert_eq!(resp.changes.inserts, 2);
     assert_eq!(resp.changes.updates, 0);
@@ -73,6 +80,7 @@ async fn provide_with_tags_persists_and_auto_tag() {
         ASYNCAPI_V2,
         &["custom".to_string()],
         None,
+        false,
     )
     .await
     .unwrap();
@@ -170,14 +178,15 @@ async fn require_endpoint_dry_run_not_found() {
 async fn provide_spec_proto_base_version_conflict() {
     let repo = MockRepo::new();
     // First commit establishes version 1
-    let r1 = spec_service::provide_spec(&repo, "svc", "main", ApiType::Proto, PROTO, None)
+    let r1 = spec_service::provide_spec(&repo, "svc", "main", ApiType::Proto, PROTO, None, false)
         .await
         .unwrap();
     assert_eq!(r1.version, 1);
     // Second call with stale base_version should conflict
-    let err = spec_service::provide_spec(&repo, "svc", "main", ApiType::Proto, PROTO, Some(0))
-        .await
-        .unwrap_err();
+    let err =
+        spec_service::provide_spec(&repo, "svc", "main", ApiType::Proto, PROTO, Some(0), false)
+            .await
+            .unwrap_err();
     match err {
         AppError::Conflict(msg) => assert!(msg.contains("Outdated spec version")),
         other => panic!("expected Conflict, got {:?}", other),
@@ -221,9 +230,17 @@ paths:
 async fn protected_branch_rejects_breaking_change() {
     let repo = MockRepo::new();
     // 'main' is protected in MockRepo
-    spec_service::provide_spec(&repo, "svc", "main", ApiType::OpenApi, OPENAPI_OK, None)
-        .await
-        .unwrap();
+    spec_service::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::OpenApi,
+        OPENAPI_OK,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
     let err = spec_service::provide_spec(
         &repo,
         "svc",
@@ -231,6 +248,7 @@ async fn protected_branch_rejects_breaking_change() {
         ApiType::OpenApi,
         OPENAPI_BREAKING,
         None,
+        false,
     )
     .await
     .unwrap_err();
@@ -259,7 +277,7 @@ paths:
       responses:
         '200': { description: OK }
 "#;
-    let err = spec_service::provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml, None)
+    let err = spec_service::provide_spec(&repo, "svc", "main", ApiType::OpenApi, yaml, None, false)
         .await
         .unwrap_err();
     match err {
@@ -272,8 +290,16 @@ paths:
 async fn provide_spec_on_unprotected_hits_shared_contract_path() {
     let repo = MockRepo::new();
     // Use a non-protected branch name
-    let resp = spec_service::provide_spec(&repo, "svc", "dev", ApiType::OpenApi, OPENAPI_OK, None)
-        .await
-        .unwrap();
+    let resp = spec_service::provide_spec(
+        &repo,
+        "svc",
+        "dev",
+        ApiType::OpenApi,
+        OPENAPI_OK,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
     assert_eq!(resp.version, 1);
 }

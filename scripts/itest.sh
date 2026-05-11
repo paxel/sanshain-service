@@ -304,6 +304,12 @@ paths:
         '201':
           description: 'INCOMPAT (Breaking: 200 removed)'"
 
+# First, push V1 to main so the service has protected-branch endpoints (disables auto-skip)
+PAYLOAD_SHARED_MAIN=$(jq -n --arg svc "$SHARED_SVC" --arg branch "main" --arg yaml "$ENDPOINT_V1" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_SHARED_MAIN"
+assert_status 202 "SHARED service pushed to main (enables conflict detection)"
+
 # Developer 1 (ALPHA) provides V1
 PAYLOAD_ALPHA_V1=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V1" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
@@ -462,6 +468,77 @@ call_api POST "/provide" "$PAYLOAD_TEMP"
 call_api POST "/admin/nuke/branch/$BRANCH_TO_NUKE" "{\"confirmation\":\"DELETE BRANCH $BRANCH_TO_NUKE\"}"
 assert_status 200 "Nuke temporary branch"
 assert_json ".deleted" "1" "Deleted 1 service branch during nuke"
+
+# 10. Force Mode & Onboarding
+header "Force Mode & Onboarding Tests"
+
+# Auto-skip: A brand new service with no protected-branch endpoints can push incompatible specs
+ONBOARD_SVC="onboard-svc-$TEST_ID"
+ONBOARD_BRANCH="feature-onboard-$TEST_ID"
+
+ONBOARD_V1="openapi: '3.0.0'
+info:
+  title: Onboard API
+  version: '1.0'
+paths:
+  /onboard:
+    get:
+      responses:
+        '200':
+          description: OK"
+
+ONBOARD_V2_BREAKING="openapi: '3.0.0'
+info:
+  title: Onboard API
+  version: '2.0'
+paths:
+  /onboard:
+    get:
+      responses:
+        '201':
+          description: Breaking change removed 200"
+
+PAYLOAD_OB1=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "$ONBOARD_BRANCH" --arg yaml "$ONBOARD_V1" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_OB1"
+assert_status 202 "New service first spec on feature branch (auto-skip)"
+
+PAYLOAD_OB2=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "$ONBOARD_BRANCH" --arg yaml "$ONBOARD_V2_BREAKING" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_OB2"
+assert_status 202 "New service breaking change on feature branch succeeds (auto-skip, no protected endpoints)"
+
+# Force on protected branch should be rejected
+FORCE_PROTECTED_PAYLOAD=$(jq -n --arg svc "$SVC_NAME" --arg branch "main" --arg yaml "$ONBOARD_V1" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml, force:true}')
+call_api POST "/provide" "$FORCE_PROTECTED_PAYLOAD"
+assert_status 400 "Force on protected branch rejected"
+
+# Force on feature branch should succeed even with breaking change
+# First, push the onboard service to a protected branch so auto-skip no longer applies
+PAYLOAD_OB_MAIN=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "main" --arg yaml "$ONBOARD_V1" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_OB_MAIN"
+assert_status 202 "Push onboard service to protected branch"
+
+# Use a fresh feature branch so V1 becomes the source (not the V2 from auto-skip)
+ONBOARD_BRANCH2="feature-onboard2-$TEST_ID"
+PAYLOAD_OB_FRESH=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "$ONBOARD_BRANCH2" --arg yaml "$ONBOARD_V1" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_OB_FRESH"
+assert_status 202 "Establish V1 source on fresh feature branch"
+
+# Now a breaking change on the fresh feature branch WITHOUT force should fail
+PAYLOAD_OB3=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "$ONBOARD_BRANCH2" --arg yaml "$ONBOARD_V2_BREAKING" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_OB3"
+assert_status 409 "Breaking change rejected after protected branch push"
+
+# With force=true on feature branch, it should succeed
+PAYLOAD_OB4=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "$ONBOARD_BRANCH2" --arg yaml "$ONBOARD_V2_BREAKING" \
+    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml, force:true}')
+call_api POST "/provide" "$PAYLOAD_OB4"
+assert_status 202 "Force on feature branch overrides breaking change"
 
 # Real Database Nuke (Factory Reset)
 header "Database Nuke (Factory Reset) Tests"

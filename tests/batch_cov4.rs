@@ -333,15 +333,17 @@ paths:
   /p:
     get: { responses: { '200': { description: ok } } }
 "#;
-    let first = spec_service::provide_spec_dry_run(&repo, "svcO", "dev", ApiType::OpenApi, y1)
-        .await
-        .unwrap();
+    let first =
+        spec_service::provide_spec_dry_run(&repo, "svcO", "dev", ApiType::OpenApi, y1, false)
+            .await
+            .unwrap();
     assert!(first.changes.inserts >= 1);
 
     // Second run with same content should not insert more; may be zero inserts and/or some upserts per repo impl.
-    let _second = spec_service::provide_spec_dry_run(&repo, "svcO", "dev", ApiType::OpenApi, y1)
-        .await
-        .unwrap();
+    let _second =
+        spec_service::provide_spec_dry_run(&repo, "svcO", "dev", ApiType::OpenApi, y1, false)
+            .await
+            .unwrap();
 }
 
 #[tokio::test]
@@ -352,7 +354,7 @@ asyncapi: '2.6.0'
 channels:
   C: { publish: {}, subscribe: {} }
 "#;
-    let r = spec_service::provide_spec_dry_run(&repo, "svcA", "dev", ApiType::AsyncApi, y)
+    let r = spec_service::provide_spec_dry_run(&repo, "svcA", "dev", ApiType::AsyncApi, y, false)
         .await
         .unwrap();
     assert!(r.changes.inserts >= 1);
@@ -366,7 +368,7 @@ syntax="proto3";
 message X{} message Y{}
 service A{ rpc M1 (X) returns (Y); rpc M2 (X) returns (Y); }
 "#;
-    let r = spec_service::provide_spec_dry_run(&repo, "svcP", "dev", ApiType::Proto, p)
+    let r = spec_service::provide_spec_dry_run(&repo, "svcP", "dev", ApiType::Proto, p, false)
         .await
         .unwrap();
     assert!(r.changes.inserts >= 1);
@@ -378,10 +380,10 @@ async fn dry_run_across_branches_isolated() {
     let y = r#"openapi: 3.0.0
 info: {title: x, version: v}
 paths: { }"#;
-    let _a = spec_service::provide_spec_dry_run(&repo, "svcB", "dev1", ApiType::OpenApi, y)
+    let _a = spec_service::provide_spec_dry_run(&repo, "svcB", "dev1", ApiType::OpenApi, y, false)
         .await
         .unwrap();
-    let _b = spec_service::provide_spec_dry_run(&repo, "svcB", "dev2", ApiType::OpenApi, y)
+    let _b = spec_service::provide_spec_dry_run(&repo, "svcB", "dev2", ApiType::OpenApi, y, false)
         .await
         .unwrap();
 }

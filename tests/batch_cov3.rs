@@ -313,7 +313,7 @@ channels:
   X:
     publish: {}
 "#;
-    let r = spec_service::provide_spec_dry_run(&repo, "svc", "devx", ApiType::AsyncApi, y)
+    let r = spec_service::provide_spec_dry_run(&repo, "svc", "devx", ApiType::AsyncApi, y, false)
         .await
         .unwrap();
     assert!(r.changes.inserts > 0);
@@ -323,7 +323,7 @@ channels:
 async fn dry_run_proto_insert_count() {
     let repo = MockRepo::new();
     let p = r#"syntax="proto3"; message X{} message Y{} service A{ rpc M (X) returns (Y);} "#;
-    let r = spec_service::provide_spec_dry_run(&repo, "svc", "devy", ApiType::Proto, p)
+    let r = spec_service::provide_spec_dry_run(&repo, "svc", "devy", ApiType::Proto, p, false)
         .await
         .unwrap();
     assert!(r.changes.inserts > 0);

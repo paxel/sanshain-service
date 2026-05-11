@@ -18,6 +18,8 @@ pub struct ProvideRequest {
     pub base_version: Option<i32>,
     #[serde(default)]
     pub dry_run: bool,
+    #[serde(default)]
+    pub force: bool,
 }
 
 pub async fn provide(
@@ -31,6 +33,7 @@ pub async fn provide(
             &payload.branch,
             ApiType::OpenApi,
             &payload.openapi_yaml,
+            payload.force,
         )
         .await?
     } else {
@@ -41,6 +44,7 @@ pub async fn provide(
             ApiType::OpenApi,
             &payload.openapi_yaml,
             payload.base_version,
+            payload.force,
         )
         .await?
     };
@@ -58,6 +62,8 @@ pub struct ProvideAsyncApiRequest {
     pub branch: String,
     pub asyncapi_yaml: String,
     pub base_version: Option<i32>,
+    #[serde(default)]
+    pub force: bool,
 }
 
 pub async fn provide_asyncapi(
@@ -71,6 +77,7 @@ pub async fn provide_asyncapi(
         ApiType::AsyncApi,
         &payload.asyncapi_yaml,
         payload.base_version,
+        payload.force,
     )
     .await?;
     let _ = state.spec_updated_tx.send(());
@@ -83,6 +90,8 @@ pub struct ProvideProtoRequest {
     pub branch: String,
     pub proto_content: String,
     pub base_version: Option<i32>,
+    #[serde(default)]
+    pub force: bool,
 }
 
 pub async fn provide_proto(
@@ -96,6 +105,7 @@ pub async fn provide_proto(
         ApiType::Proto,
         &payload.proto_content,
         payload.base_version,
+        payload.force,
     )
     .await?;
     let _ = state.spec_updated_tx.send(());

@@ -179,6 +179,10 @@ Provide an OpenAPI specification for a service branch. For AsyncAPI, use `/provi
 - If a service modifies an endpoint, it becomes the "owner"; other services must then be compatible with the owner's version.
 - If the owner reverts to the source version, ownership is cleared.
 
+**Auto-Skip for New Services:** If a service has **no endpoints on any protected branch** (i.e., it has never been "released"), the shared contract backward-compatibility check is automatically skipped on feature branches. This allows developers to freely iterate on a brand new API until the first merge to `main`/`master`. No special parameter is needed — the behavior is transparent.
+
+**Force Mode (`force`):** When `force` is set to `true` in the provide request body, the shared contract `source_yaml` and `current_yaml` are both reset to the new content, bypassing all backward-compatibility checks. This is useful when a developer needs to start fresh on a feature branch after a fundamentally broken API iteration. Force mode is **blocked on protected branches** (returns `400 Bad Request`).
+
 ### 2. `GET /require`
 Request the OpenAPI snippet for a specific endpoint and record the dependency. For AsyncAPI, use `/require/asyncapi`. For Proto, use `/require/grpc`.
 
@@ -278,7 +282,7 @@ Sanshain uses session-based authentication with Argon2 password hashing.
 
 #### API Tokens (for CI/Programmatic Access)
 
-Approved users can create long-lived API tokens for use in CI pipelines (Jenkins, Maven, Gradle, etc.) without embedding credentials.
+Approved users can create long-lived API tokens for use in CI pipelines without embedding credentials.
 
 **Endpoints:**
 - `POST /auth/tokens` — Create a token: `{"name": "jenkins-ci", "expires_in_days": 365}`. Returns the raw token **once** (prefixed `san_`).
@@ -286,15 +290,6 @@ Approved users can create long-lived API tokens for use in CI pipelines (Jenkins
 - `DELETE /auth/tokens/{id}` — Revoke a token.
 
 **Usage:** Send the token as a Bearer header: `Authorization: Bearer san_xxxxxxxxxxxx`
-
-**Maven `settings.xml`:**
-```xml
-<server>
-  <id>sanshain</id>
-  <username>ignored</username>
-  <password>san_xxxxxxxxxxxx</password>
-</server>
-```
 
 **User Account Page:** Visit `/account.html` to register, log in, change your password, and create/manage API tokens via the web UI.
 

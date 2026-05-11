@@ -3634,6 +3634,24 @@ paths:
           description: Not Found
 "#;
 
+    // 0. Seed ALPHA on protected branch so shared contract checks are active (auto-skip is off).
+    let payload_alpha_seed =
+        json!({ "servicename": "alpha-svc", "branch": "main", "openapi_yaml": yaml_v1 });
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload_alpha_seed).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
     // 1. ALPHA provides v1 on feature branch.
     let payload_alpha_v1 =
         json!({ "servicename": "alpha-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v1 });

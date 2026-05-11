@@ -44,12 +44,9 @@
                     📋 Copy to Clipboard
                 </button>
                 <details class="mb-4">
-                    <summary class="cursor-pointer text-sm text-slate-600 hover:text-slate-800">Maven settings.xml usage</summary>
-                    <pre class="bg-slate-100 rounded p-3 text-xs mt-2 overflow-x-auto">&lt;server&gt;
-  &lt;id&gt;sanshain&lt;/id&gt;
-  &lt;username&gt;ignored&lt;/username&gt;
-  &lt;password&gt;<span id="tokenValueMaven"></span>&lt;/password&gt;
-&lt;/server&gt;</pre>
+                    <summary class="cursor-pointer text-sm text-slate-600 hover:text-slate-800">Usage in CI / client plugins</summary>
+                    <pre class="bg-slate-100 rounded p-3 text-xs mt-2 overflow-x-auto">Authorization: Bearer <span id="tokenValueUsage"></span></pre>
+                    <p class="text-xs text-slate-500 mt-1">Pass this token as a Bearer header in your HTTP requests or configure it in your client plugin's settings.</p>
                 </details>
                 <button id="closeModal" class="w-full border border-slate-300 hover:bg-slate-50 px-4 py-2 rounded text-sm">
                     Close
@@ -143,7 +140,7 @@
             }
             const data = await res.json();
             document.getElementById('tokenValue').textContent = data.token;
-            document.getElementById('tokenValueMaven').textContent = data.token;
+            document.getElementById('tokenValueUsage').textContent = data.token;
             document.getElementById('tokenModal').classList.remove('hidden');
             document.getElementById('tokenName').value = '';
             loadTokens();

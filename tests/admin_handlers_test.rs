@@ -78,9 +78,17 @@ paths:
       responses:
         '200': { description: ok }
 "#;
-    let _ = services::provide_spec(&repo, "demo-svc", "main", ApiType::OpenApi, openapi, None)
-        .await
-        .unwrap();
+    let _ = services::provide_spec(
+        &repo,
+        "demo-svc",
+        "main",
+        ApiType::OpenApi,
+        openapi,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
 
     let app = create_app(test_state(repo.clone()));
     (app, repo, token.token)

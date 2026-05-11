@@ -318,9 +318,10 @@ paths:
       responses:
         '200': { description: OK }
 "#;
-    let resp = spec_service::provide_spec_dry_run(&repo, "svc", "main", ApiType::OpenApi, yaml)
-        .await
-        .unwrap();
+    let resp =
+        spec_service::provide_spec_dry_run(&repo, "svc", "main", ApiType::OpenApi, yaml, false)
+            .await
+            .unwrap();
     assert_eq!(resp.changes.inserts, 1);
     assert_eq!(resp.version, 0); // dry-run leaves version 0 in mock
 }
@@ -347,6 +348,7 @@ paths:
         yaml,
         &tags,
         None,
+        false,
     )
     .await
     .unwrap();

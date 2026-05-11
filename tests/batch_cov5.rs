@@ -283,10 +283,10 @@ async fn dry_run_openapi_inserts_once_updates_zero_on_same_content() {
 info: {title: x, version: v}
 paths: { /p: { get: { responses: { '200': { description: ok } } } } }
 "#;
-    let _r1 = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::OpenApi, y)
+    let _r1 = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::OpenApi, y, false)
         .await
         .unwrap();
-    let _r2 = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::OpenApi, y)
+    let _r2 = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::OpenApi, y, false)
         .await
         .unwrap();
 }
@@ -302,10 +302,10 @@ paths: { /a: { get: { responses: { '200': { description: ok } } } } }
 info: {title: x, version: v}
 paths: { /a: { get: { responses: { '200': { description: ok } } } }, /b: { post: { responses: { '201': { description: c } } } } }
 "#;
-    let r1 = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::OpenApi, a)
+    let r1 = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::OpenApi, a, false)
         .await
         .unwrap();
-    let r2 = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::OpenApi, b)
+    let r2 = spec_service::provide_spec_dry_run(&repo, "svc", "dev", ApiType::OpenApi, b, false)
         .await
         .unwrap();
     assert!(r1.changes.inserts >= 1);
@@ -322,7 +322,7 @@ channels:
     publish: {}
     subscribe: {}
 "#;
-    let r = spec_service::provide_spec_dry_run(&repo, "svcA", "dev", ApiType::AsyncApi, y)
+    let r = spec_service::provide_spec_dry_run(&repo, "svcA", "dev", ApiType::AsyncApi, y, false)
         .await
         .unwrap();
     assert!(r.changes.inserts >= 1);
@@ -332,7 +332,7 @@ channels:
 async fn dry_run_proto_with_two_rpcs_counts_at_least_one_insert() {
     let repo = MockRepo::new();
     let p = r#"syntax="proto3"; message X{} message Y{} service S{ rpc A (X) returns (Y); rpc B (X) returns (Y); }"#;
-    let r = spec_service::provide_spec_dry_run(&repo, "svcP", "dev", ApiType::Proto, p)
+    let r = spec_service::provide_spec_dry_run(&repo, "svcP", "dev", ApiType::Proto, p, false)
         .await
         .unwrap();
     assert!(r.changes.inserts >= 1);
@@ -345,10 +345,10 @@ async fn dry_run_isolated_across_branches_openapi() {
 info: {title: x, version: v}
 paths: { /p: { get: { responses: { '200': { description: ok } } } } }
 "#;
-    let _a = spec_service::provide_spec_dry_run(&repo, "svcB", "dev1", ApiType::OpenApi, y)
+    let _a = spec_service::provide_spec_dry_run(&repo, "svcB", "dev1", ApiType::OpenApi, y, false)
         .await
         .unwrap();
-    let _b = spec_service::provide_spec_dry_run(&repo, "svcB", "dev2", ApiType::OpenApi, y)
+    let _b = spec_service::provide_spec_dry_run(&repo, "svcB", "dev2", ApiType::OpenApi, y, false)
         .await
         .unwrap();
 }
@@ -364,8 +364,10 @@ channels:
 "#;
     let p = r#"syntax="proto3"; message X{} message Y{} service S{ rpc M (X) returns (Y); }"#;
     // Provide real (non-dry) calls should succeed without error for both types
-    let r1 = spec_service::provide_spec(&repo, "svcMsg", "main", ApiType::AsyncApi, a, None).await;
-    let r2 = spec_service::provide_spec(&repo, "svcRpc", "main", ApiType::Proto, p, None).await;
+    let r1 = spec_service::provide_spec(&repo, "svcMsg", "main", ApiType::AsyncApi, a, None, false)
+        .await;
+    let r2 =
+        spec_service::provide_spec(&repo, "svcRpc", "main", ApiType::Proto, p, None, false).await;
     assert!(r1.is_ok() && r2.is_ok());
 }
 

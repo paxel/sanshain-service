@@ -62,9 +62,17 @@ paths:
 async fn protected_branch_rejects_breaking_change() {
     let repo = MockRepo::new(); // has "main" protected by default
     // Seed initial spec on protected branch
-    let _ = spec_service::provide_spec(&repo, "svc", "main", ApiType::OpenApi, &openapi_ok(), None)
-        .await
-        .expect("seed ok");
+    let _ = spec_service::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::OpenApi,
+        &openapi_ok(),
+        None,
+        false,
+    )
+    .await
+    .expect("seed ok");
 
     // Attempt a breaking update on protected branch
     let err = spec_service::provide_spec(
@@ -74,6 +82,7 @@ async fn protected_branch_rejects_breaking_change() {
         ApiType::OpenApi,
         &openapi_breaking_remove_status(),
         None,
+        false,
     )
     .await
     .unwrap_err();
@@ -84,15 +93,31 @@ async fn protected_branch_rejects_breaking_change() {
 async fn unprotected_branch_allows_update_and_increments_version() {
     let repo = MockRepo::new();
     // Unprotected branch "dev" should allow the update
-    let r1 = spec_service::provide_spec(&repo, "svc", "dev", ApiType::OpenApi, &openapi_ok(), None)
-        .await
-        .expect("first provide on dev");
+    let r1 = spec_service::provide_spec(
+        &repo,
+        "svc",
+        "dev",
+        ApiType::OpenApi,
+        &openapi_ok(),
+        None,
+        false,
+    )
+    .await
+    .expect("first provide on dev");
     assert_eq!(r1.version, 1);
 
     // A second identical update should NOT bump version again (no-op)
-    let r2 = spec_service::provide_spec(&repo, "svc", "dev", ApiType::OpenApi, &openapi_ok(), None)
-        .await
-        .expect("second provide on dev");
+    let r2 = spec_service::provide_spec(
+        &repo,
+        "svc",
+        "dev",
+        ApiType::OpenApi,
+        &openapi_ok(),
+        None,
+        false,
+    )
+    .await
+    .expect("second provide on dev");
     assert_eq!(r2.version, r1.version);
 }
 
@@ -100,25 +125,44 @@ async fn unprotected_branch_allows_update_and_increments_version() {
 async fn dry_run_reports_inserts_then_noop() {
     let repo = MockRepo::new();
     // First time on a fresh branch should report inserts > 0
-    let r1 =
-        spec_service::provide_spec_dry_run(&repo, "svc", "draft", ApiType::OpenApi, &openapi_ok())
-            .await
-            .expect("dry run ok");
+    let r1 = spec_service::provide_spec_dry_run(
+        &repo,
+        "svc",
+        "draft",
+        ApiType::OpenApi,
+        &openapi_ok(),
+        false,
+    )
+    .await
+    .expect("dry run ok");
     assert!(r1.changes.inserts > 0);
     assert_eq!(r1.changes.updates, 0);
     assert_eq!(r1.changes.deletes, 0);
 
     // Actually apply once
-    let _ =
-        spec_service::provide_spec(&repo, "svc", "draft", ApiType::OpenApi, &openapi_ok(), None)
-            .await
-            .expect("apply ok");
+    let _ = spec_service::provide_spec(
+        &repo,
+        "svc",
+        "draft",
+        ApiType::OpenApi,
+        &openapi_ok(),
+        None,
+        false,
+    )
+    .await
+    .expect("apply ok");
 
     // Now dry-run again with same content should be a no-op
-    let r2 =
-        spec_service::provide_spec_dry_run(&repo, "svc", "draft", ApiType::OpenApi, &openapi_ok())
-            .await
-            .expect("dry run noop");
+    let r2 = spec_service::provide_spec_dry_run(
+        &repo,
+        "svc",
+        "draft",
+        ApiType::OpenApi,
+        &openapi_ok(),
+        false,
+    )
+    .await
+    .expect("dry run noop");
     assert_eq!(r2.changes.inserts, 0);
     assert_eq!(r2.changes.updates, 0);
     assert_eq!(r2.changes.deletes, 0);
@@ -127,10 +171,17 @@ async fn dry_run_reports_inserts_then_noop() {
 #[tokio::test]
 async fn protected_branch_allows_compatible_change() {
     let repo = MockRepo::new();
-    let r1 =
-        spec_service::provide_spec(&repo, "svc", "main", ApiType::OpenApi, &openapi_ok(), None)
-            .await
-            .expect("seed on main");
+    let r1 = spec_service::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::OpenApi,
+        &openapi_ok(),
+        None,
+        false,
+    )
+    .await
+    .expect("seed on main");
     assert_eq!(r1.version, 1);
 
     // Adding an extra response is backward-compatible, should be accepted on protected branch
@@ -141,6 +192,7 @@ async fn protected_branch_allows_compatible_change() {
         ApiType::OpenApi,
         &openapi_compatible_additional_response(),
         None,
+        false,
     )
     .await
     .expect("compatible update on main");
@@ -150,10 +202,17 @@ async fn protected_branch_allows_compatible_change() {
 #[tokio::test]
 async fn base_version_conflict_is_reported() {
     let repo = MockRepo::new();
-    let r1 =
-        spec_service::provide_spec(&repo, "svc", "dev2", ApiType::OpenApi, &openapi_ok(), None)
-            .await
-            .expect("seed dev2");
+    let r1 = spec_service::provide_spec(
+        &repo,
+        "svc",
+        "dev2",
+        ApiType::OpenApi,
+        &openapi_ok(),
+        None,
+        false,
+    )
+    .await
+    .expect("seed dev2");
     assert_eq!(r1.version, 1);
 
     // Provide again but claim base_version 0 (outdated) — should be a conflict
@@ -164,6 +223,7 @@ async fn base_version_conflict_is_reported() {
         ApiType::OpenApi,
         &openapi_ok(),
         Some(0),
+        false,
     )
     .await
     .unwrap_err();
