@@ -3,6 +3,31 @@
 This file contains historical changelog entries for the Sanshain Service.
 For recent changes, see [CHANGELOG.md](CHANGELOG.md).
 
+## [1.0.1] - 2026-05-07
+
+### Fixed
+- **Shared Contract Collision**: Resolved a critical bug where independent services with identical endpoint paths (e.g., `/notification`) incorrectly shared a single contract. Contracts are now explicitly scoped by `(branch_name, service_id)`, ensuring each service maintains compatibility only with its own endpoints.
+- **Database Schema**: Refactored `shared_contracts` table to use `(branch_name, service_id)` as the uniqueness constraint for both SQLite and PostgreSQL, replacing the previous global `branch_name`-only scope.
+
+### Added
+- **Cross-Service Testing**: Expanded the automated integration test suite (`itest.sh`) with dedicated scenarios verifying endpoint independence across different services.
+
+## [1.0.0] - 2026-05-02
+
+### Breaking Changes
+- **Database Migration Squash**: All legacy database migrations have been squashed into a single `20240430000000_initial_schema.sql`.
+  - **IMPORTANT**: This makes direct upgrades from `v0.13.x` impossible without manual intervention. Users must either nuke their existing database or manually reconcile their schema.
+  - This change was necessary to fix critical PostgreSQL production issues and establish a stable baseline for `1.0.0`.
+
+### Major Changes
+- **Migration Squashing**: Consolidated all database migrations into a single initial schema for both SQLite and PostgreSQL. This resolves issues with "previously applied but modified" migrations and simplifies fresh installations.
+- **PostgreSQL Stability**: Fixed a critical `name[] = text[]` operator error in PostgreSQL migrations.
+- **Robust Data Deletion**: Implemented `ON DELETE CASCADE` across all major foreign key relationships, ensuring reliable cleanup of dependent data (branches, endpoints, versions, etc.) during deletion operations.
+- **Shared Contract Schema**: Established the `shared_contracts` table with `branch_name`-based scoping in the initial schema.
+
+### Added
+- **PostgreSQL Testing**: Integrated `testcontainers` for automated PostgreSQL integration testing. The test suite now verifies full API flows against a real PostgreSQL instance.
+
 ## [0.13.2] - 2026-04-30
 
 ### Fixed
