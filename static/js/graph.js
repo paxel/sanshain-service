@@ -691,6 +691,15 @@ function renderCustomGraph(report, svgElement, direction) {
       edgeWidth = "2";
       markerEnd = "url(#arrow)";
     }
+    // Ghost edge styling: if either endpoint is a target-only (ghost) node
+    const edgeSourceFrom = report.node_sources && report.node_sources[e.v];
+    const edgeSourceTo = report.node_sources && report.node_sources[e.w];
+    const isGhostEdge = edgeSourceFrom === "Target" || edgeSourceTo === "Target";
+    if (isGhostEdge) {
+      edgeColor = "#cbd5e1";
+      edgeWidth = "1.5";
+    }
+
     path.setAttribute("stroke", edgeColor);
     path.setAttribute("stroke-width", edgeWidth);
     path.setAttribute("fill", "none");
@@ -705,6 +714,10 @@ function renderCustomGraph(report, svgElement, direction) {
     else path.dataset.edgeType = "normal";
     if (isCycle || isMissing || isBidirectionalPubSub || isMessagingRegister)
       path.setAttribute("stroke-dasharray", "6 3");
+    if (isGhostEdge) {
+      path.setAttribute("stroke-dasharray", "4 2");
+      path.setAttribute("opacity", "0.3");
+    }
     mainG.appendChild(path);
 
     edgeElements.set(key, { path, hitArea });
@@ -743,10 +756,29 @@ function renderCustomGraph(report, svgElement, direction) {
       textColor = "#115e59";
     }
 
+    // Ghost / branch-only / conflict styling from merged report
+    const nodeSource = report.node_sources && report.node_sources[node];
+    let isGhost = false;
+    let isBranchOnly = false;
+    let strokeDash = "";
+    if (nodeSource === "Target") {
+      isGhost = true;
+      fill = "#f1f5f9";
+      stroke = "#94a3b8";
+      textColor = "#94a3b8";
+      strokeDash = "4 2";
+    } else if (nodeSource === "Branch") {
+      isBranchOnly = true;
+      stroke = "#22c55e";
+    }
+
+    const hasConflict = report.conflicts && report.conflicts.some(c => c.service === node);
+
     const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
     group.setAttribute("class", "graph-node");
     group.dataset.node = node;
     if (nodeTags.length > 0) group.dataset.tags = nodeTags.join(",");
+    if (nodeSource) group.dataset.source = nodeSource.toLowerCase();
     // Set role for legend highlighting
     if (isMissingService) group.dataset.role = "missing";
     else if (hasTag("messaging")) group.dataset.role = "tag-messaging";
@@ -755,6 +787,7 @@ function renderCustomGraph(report, svgElement, direction) {
     else if (isService) group.dataset.role = "service";
     else group.dataset.role = "client";
     group.style.cursor = "pointer";
+    if (isGhost) group.setAttribute("opacity", "0.35");
 
     const cx = nd.x,
       cy = nd.y,
@@ -771,8 +804,9 @@ function renderCustomGraph(report, svgElement, direction) {
     rect.setAttribute("ry", "8");
     rect.setAttribute("fill", fill);
     rect.setAttribute("stroke", stroke);
-    rect.setAttribute("stroke-width", "2");
+    rect.setAttribute("stroke-width", isBranchOnly ? "3" : "2");
     if (isMissingService) rect.setAttribute("stroke-dasharray", "6 3");
+    if (strokeDash) rect.setAttribute("stroke-dasharray", strokeDash);
     group.appendChild(rect);
 
     // Add Symbols (Top-Left: ! for missing, Top-Right: ✉️ for AsyncAPI, 🔌 for gRPC)
@@ -814,6 +848,30 @@ function renderCustomGraph(report, svgElement, direction) {
         group.appendChild(svgG);
       }
     });
+
+    // Ghost indicator
+    if (isGhost) {
+      const ghost = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      ghost.setAttribute("x", cx - hw + 10);
+      ghost.setAttribute("y", cy - hh + 14);
+      ghost.setAttribute("font-size", "11");
+      ghost.setAttribute("text-anchor", "middle");
+      ghost.textContent = "👻";
+      group.appendChild(ghost);
+    }
+
+    // Conflict warning badge
+    if (hasConflict) {
+      const badge = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      badge.setAttribute("x", cx - hw + (isGhost ? 24 : 8));
+      badge.setAttribute("y", cy - hh + 14);
+      badge.setAttribute("font-size", "12");
+      badge.setAttribute("font-weight", "bold");
+      badge.setAttribute("text-anchor", "middle");
+      badge.setAttribute("fill", "#dc2626");
+      badge.textContent = "⚠";
+      group.appendChild(badge);
+    }
 
     // Double border for "both" nodes
     if (isClient && isService) {

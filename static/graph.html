@@ -76,6 +76,10 @@
                 <select id="graph-branch-select" class="rounded-lg border border-slate-300 text-sm text-slate-700 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <option value="">Loading branches...</option>
                 </select>
+                <label class="text-xs text-slate-500 font-medium">Target:</label>
+                <select id="graph-target-select" class="rounded-lg border border-slate-300 text-sm text-slate-700 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="">None</option>
+                </select>
                 <div class="inline-flex rounded-lg border border-slate-300 text-sm overflow-hidden bg-white">
                     <button id="graph-mode-custom" class="px-3 py-1.5 bg-indigo-600 text-white" onclick="switchGraphMode('custom')">Graph</button>
                     <button id="graph-mode-mermaid" class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50" onclick="switchGraphMode('mermaid')">Mermaid</button>
@@ -172,6 +176,18 @@
                         <span class="w-4 text-center font-bold text-orange-600">!</span>
                         <span>Missing svc.</span>
                     </div>
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-source:target">
+                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#f1f5f9;border:2px dashed #94a3b8;opacity:0.5"></span>
+                        <span>Ghost (target)</span>
+                    </div>
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-source:branch">
+                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#dcfce7;border:2px solid #22c55e"></span>
+                        <span>Branch only</span>
+                    </div>
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-source:conflict">
+                        <span class="w-4 text-center font-bold text-red-600">⚠</span>
+                        <span>Conflict</span>
+                    </div>
                     <div class="pt-2 border-t border-slate-100">
                         <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">Service Tags</p>
                         <div class="space-y-2">
@@ -264,6 +280,35 @@
                 else if (allBranchNames.has('main')) branchSelect.value = 'main';
             }
 
+            // Populate target branch dropdown from protected branches
+            const targetSelect = document.getElementById('graph-target-select');
+            try {
+                const protectedBranches = await fetchJSON('/branches/protected');
+                targetSelect.innerHTML = '<option value="">None</option>';
+                for (const pb of protectedBranches) {
+                    const opt = document.createElement('option');
+                    opt.value = pb;
+                    opt.textContent = pb;
+                    targetSelect.appendChild(opt);
+                }
+                // Also add all known branches as options (after protected ones)
+                for (const name of [...allBranchNames].sort()) {
+                    if (!protectedBranches.includes(name)) {
+                        const opt = document.createElement('option');
+                        opt.value = name;
+                        opt.textContent = name;
+                        targetSelect.appendChild(opt);
+                    }
+                }
+                // Default to first protected branch if current branch is not protected
+                const currentBranch = branchSelect.value;
+                if (protectedBranches.length > 0 && !protectedBranches.includes(currentBranch)) {
+                    targetSelect.value = protectedBranches[0];
+                }
+            } catch (e) {
+                console.warn('Could not load protected branches for target dropdown:', e);
+            }
+
             await loadGraph();
         } catch (err) {
             console.error('Failed to show graph:', err);
@@ -277,6 +322,7 @@
     }
 
     document.getElementById('graph-branch-select').addEventListener('change', () => loadGraph());
+    document.getElementById('graph-target-select').addEventListener('change', () => loadGraph());
 
     async function loadGraph() {
         showLoader();
@@ -301,7 +347,13 @@
         }
 
         try {
-            const report = await fetchJSON(`/report?branch=${encodeURIComponent(branch)}`);
+            const target = document.getElementById('graph-target-select').value;
+            let report;
+            if (target && target !== branch) {
+                report = await fetchJSON(`/report/merged?branch=${encodeURIComponent(branch)}&target=${encodeURIComponent(target)}`);
+            } else {
+                report = await fetchJSON(`/report?branch=${encodeURIComponent(branch)}`);
+            }
             lastGraphReport = report;
 
             const datalist = document.getElementById('graph-services-list');

@@ -103,6 +103,7 @@ The following major milestones have been delivered and are fully functional:
 - [ ] OpenTelemetry tracing.
 
 ### Custom Dependency Graph Visualization (Polish)
+- [x] Graph Fallback for Feature Branches (merged report API, ghost nodes, conflict detection, target branch dropdown).
 - [ ] Edge bundling / merge at endpoint entry points.
 - [ ] Export as PNG.
 

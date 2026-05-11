@@ -4264,3 +4264,174 @@ async fn test_all_admin_endpoints_require_admin_token() {
         );
     }
 }
+
+#[tokio::test]
+async fn test_merged_report() {
+    let app = setup_app_dev_mode().await;
+
+    // Provide a service on "main" branch
+    let yaml_main = r#"
+openapi: 3.0.0
+info:
+  title: Main API
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "servicename": "merge-svc",
+                        "branch": "main",
+                        "openapi_yaml": yaml_main
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // Require from main to create a dependency
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require?clientname=merge-client&servicename=merge-svc&branch=main&path=/users&method=GET")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Provide a different service on "feature" branch
+    let yaml_feature = r#"
+openapi: 3.0.0
+info:
+  title: Feature API
+  version: 1.0.0
+paths:
+  /orders:
+    post:
+      responses:
+        '201':
+          description: Created
+"#;
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "servicename": "feature-svc",
+                        "branch": "feature",
+                        "openapi_yaml": yaml_feature
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // Require from feature to create a dependency
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require?clientname=feature-client&servicename=feature-svc&branch=feature&path=/orders&method=POST")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Call merged report: feature branch with main as target
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/report/merged?branch=feature&target=main")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 100000)
+        .await
+        .unwrap();
+    let merged: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    // Verify structure
+    assert_eq!(merged["branch"], "feature");
+    assert_eq!(merged["target"], "main");
+    assert!(merged["dependency_graph"].is_array());
+    assert!(merged["node_sources"].is_object());
+    assert!(merged["conflicts"].is_array());
+
+    // feature-svc should be Branch source, merge-svc should be Target source
+    let node_sources = &merged["node_sources"];
+    assert_eq!(node_sources["feature-svc"], "Branch");
+    assert_eq!(node_sources["merge-svc"], "Target");
+
+    // dependency_graph should contain entries from both branches
+    let deps = merged["dependency_graph"].as_array().unwrap();
+    let feature_dep = deps.iter().find(|d| d["service"] == "feature-svc").unwrap();
+    assert_eq!(feature_dep["source"], "Branch");
+    let main_dep = deps.iter().find(|d| d["service"] == "merge-svc").unwrap();
+    assert_eq!(main_dep["source"], "Target");
+}
+
+#[tokio::test]
+async fn test_protected_branches_public_endpoint() {
+    let app = setup_app_dev_mode().await;
+
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/branches/protected")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 100000)
+        .await
+        .unwrap();
+    let branches: Vec<String> = serde_json::from_slice(&body).unwrap();
+    // Default protected branches include "main" and "master"
+    assert!(branches.contains(&"main".to_string()));
+    assert!(branches.contains(&"master".to_string()));
+}

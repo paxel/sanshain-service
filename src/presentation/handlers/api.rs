@@ -307,6 +307,27 @@ pub async fn report_isolation(
 }
 
 #[derive(Deserialize)]
+pub struct MergedReportQuery {
+    pub branch: String,
+    pub target: String,
+}
+
+pub async fn report_merged(
+    State(state): State<AppState>,
+    Query(query): Query<MergedReportQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let res = services::generate_merged_report(&state.repo, &query.branch, &query.target).await?;
+    Ok(Json(res))
+}
+
+pub async fn list_protected_branches_public(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let res = services::list_protected_branches(&state.repo).await?;
+    Ok(Json(res))
+}
+
+#[derive(Deserialize)]
 pub struct VersionsQuery {
     pub service: String,
     pub branch: String,

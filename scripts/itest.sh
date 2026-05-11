@@ -585,6 +585,23 @@ PAYLOAD_OB4=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "$ONBOARD_BRANCH2" --a
 call_api POST "/provide" "$PAYLOAD_OB4"
 assert_status 202 "Force on feature branch overrides breaking change"
 
+# 5b. Merged Report & Protected Branches Public Endpoint
+header "Merged Report & Graph Fallback Tests"
+
+# Public protected branches endpoint
+call_api GET "/branches/protected"
+assert_status 200 "Public protected branches endpoint"
+assert_json ". | length > 0" "true" "Protected branches returned"
+
+# Merged report: feature branch with main as target
+call_api GET "/report/merged?branch=$SHARED_BRANCH&target=main"
+assert_status 200 "Merged report endpoint"
+assert_json ".branch" "$SHARED_BRANCH" "Merged report branch field"
+assert_json ".target" "main" "Merged report target field"
+assert_json ".dependency_graph | length >= 0" "true" "Merged report has dependency_graph"
+assert_json ".node_sources | length >= 0" "true" "Merged report has node_sources"
+assert_json ".conflicts | type" "array" "Merged report has conflicts array"
+
 # Real Database Nuke (Factory Reset)
 header "Database Nuke (Factory Reset) Tests"
 

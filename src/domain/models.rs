@@ -212,6 +212,44 @@ pub struct SharedContract {
     pub owner_service_id: Option<i64>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub enum NodeSource {
+    Branch,
+    Target,
+    Both,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct MergedDependencyInfo {
+    pub api_type: ApiType,
+    pub client: String,
+    pub service: String,
+    pub path: String,
+    pub method: String,
+    pub source: NodeSource,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct ConflictInfo {
+    pub service: String,
+    pub api_type: ApiType,
+    pub path: String,
+    pub method: String,
+    pub description: String,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct MergedDependencyReport {
+    pub branch: String,
+    pub target: String,
+    pub dependency_graph: Vec<MergedDependencyInfo>,
+    pub unused_endpoints: Vec<EndpointInfo>,
+    pub missing_endpoints: Vec<MissingEndpointInfo>,
+    pub conflicts: Vec<ConflictInfo>,
+    pub service_tags: HashMap<String, Vec<String>>,
+    pub node_sources: HashMap<String, NodeSource>,
+}
+
 #[derive(Serialize, Clone, Debug)]
 pub struct DependencyReport {
     pub branch: String,
