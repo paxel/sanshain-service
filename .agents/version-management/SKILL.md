@@ -16,9 +16,9 @@ When bumping the version, **all** of the following files must be updated:
 
 | File | Field / Location | Example |
 |------|-----------------|---------|
-| `Cargo.toml` | `version = "X.Y.Z"` (line ~3) | `version = "1.1.0"` |
-| `api.yaml` | `info.version` (line ~7) | `version: "1.1.0"` |
-| `README.md` | Example output for `GET /version` | `{"version": "1.1.0"}` |
+| `Cargo.toml` | `version = "X.Y.Z"` (line ~3) | `version = "1.2.0"` |
+| `api.yaml` | `info.version` (line ~7) | `version: "1.2.0"` |
+| `README.md` | Example output for `GET /version` | `{"version": "1.2.0"}` |
 | `CHANGELOG.md` | New section header | `## [X.Y.Z] - YYYY-MM-DD` |
 
 ### Files that should NOT be updated

@@ -4,6 +4,10 @@
 
 The following major milestones have been delivered and are fully functional:
 
+- **Version 1.2.0 (Released)**: Added a favicon to the web interface using the service logo. Bumped minor version across all project files (`Cargo.toml`, `api.yaml`, `README.md`, etc.).
+
+- **Version 1.1.0 (Released)**: Promoted service to `1.1.0` to reflect accumulated improvements since `1.0.1`. Added graph fallback for feature branches (ghost nodes), public protected branches endpoint, and auto-skip for new services. Introduced `force` mode for `provide` endpoints and a shared contract diff viewer.
+
 - **Version 1.0.1 (Released)**: Fixed a critical production bug where independent services with identical endpoint paths incorrectly shared a "shared contract." Scoped contract tracking to individual service branches (`branch_id`) and verified independence with new automated integration tests.
 
 - **Version 1.0.0 (Released)**: Promoted the service to its first major stable release. This version consolidates all previous improvements and introduces a major breaking change: squashed database migrations for consistent PostgreSQL/SQLite deployments. Direct upgrades from `0.13.x` require a fresh database or manual schema migration.

@@ -304,7 +304,7 @@ All pages include a 🌙/☀️ **dark/light mode toggle** in the navigation bar
 
 ### Version
 
-`GET /version` returns the service version as JSON: `{"version": "1.1.0"}`.
+`GET /version` returns the service version as JSON: `{"version": "1.2.0"}`.
 
 ### 7. Admin API (Session-Based Authentication)
 All `/admin/*` endpoints require a valid admin session token (`Authorization: Bearer <token>`).

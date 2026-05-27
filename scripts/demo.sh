@@ -194,7 +194,7 @@ components:
 USER_SERVICE_V2='openapi: 3.0.0
 info:
   title: User Service
-  version: 1.1.0
+  version: 1.2.0
 paths:
   /users:
     get:

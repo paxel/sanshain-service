@@ -4,7 +4,7 @@ info:
   description: |
     API contract for Sanshain clients (build plugins, CLIs).
     Covers core operations: providing specifications (OpenAPI, AsyncAPI, gRPC/Proto) and requiring endpoint snippets.
-  version: "1.1.0"
+  version: "1.2.0"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt
