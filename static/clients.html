@@ -274,6 +274,7 @@
                                 ${ep.method}
                             </span>
                             <span class="font-mono text-sm text-slate-700">${ep.path}</span>
+                            ${ep.has_changes ? '<span class="text-[10px] text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">modified</span>' : ''}
                             <span class="ml-3 text-xs text-slate-500">${ep.service}</span>
                         </div>
                         <div class="flex items-center">

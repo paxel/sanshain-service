@@ -18,7 +18,7 @@ pub struct MockRepo {
     pub api_tokens: Mutex<Vec<ApiToken>>,
     pub endpoint_versions: Mutex<Vec<EndpointVersion>>,
     pub service_tags: Mutex<HashMap<i64, Vec<String>>>,
-    pub shared_contracts: Mutex<HashMap<(String, ApiType, String, String), SharedContract>>,
+    pub shared_contracts: Mutex<HashMap<(String, i64, ApiType, String, String), SharedContract>>,
     pub spec_versions: Mutex<HashMap<(i64, i64), (i32, String)>>,
 }
 
@@ -140,8 +140,23 @@ impl SpecRepository for MockRepo {
         &self,
         branch_id: i64,
     ) -> Result<Vec<EndpointRecord>, RepositoryError> {
+        let branch_info = {
+            let branches = self.branches.lock().unwrap();
+            branches
+                .iter()
+                .find(|&(_, &id)| id == branch_id)
+                .map(|(k, _)| k.clone())
+        };
+
+        let (service_id, branch_name) = match branch_info {
+            Some(info) => info,
+            None => return Ok(Vec::new()),
+        };
+
         let endpoints = self.endpoints.lock().unwrap();
         let deleted = self.deleted_endpoints.lock().unwrap();
+        let contracts = self.shared_contracts.lock().unwrap();
+
         Ok(endpoints
             .get(&branch_id)
             .cloned()
@@ -149,6 +164,20 @@ impl SpecRepository for MockRepo {
             .into_iter()
             .filter(|ep| {
                 !deleted.contains(&(branch_id, ep.api_type, ep.path.clone(), ep.method.clone()))
+            })
+            .map(|mut ep| {
+                let contract_key = (
+                    branch_name.clone(),
+                    service_id,
+                    ep.api_type,
+                    ep.normalized_path.clone(),
+                    ep.method.clone(),
+                );
+                ep.has_changes = contracts
+                    .get(&contract_key)
+                    .map(|c| c.source_yaml != c.current_yaml)
+                    .unwrap_or(false);
+                ep
             })
             .collect())
     }
@@ -398,6 +427,8 @@ impl SpecRepository for MockRepo {
         _client_name: &str,
         _branch: &str,
     ) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
+        // This is a simplified mock implementation
+        // Real implementation joins dependencies, services, endpoints, and shared_contracts
         Ok(Vec::new())
     }
 
@@ -617,6 +648,7 @@ impl SpecRepository for MockRepo {
                         normalized_path,
                         method,
                         yaml_content,
+                        has_changes: false,
                     });
                 }
                 SpecChange::Update {
@@ -672,19 +704,36 @@ impl SpecRepository for MockRepo {
 
     async fn get_shared_contract(
         &self,
-        _branch_name: &str,
-        _service_id: i64,
-        _api_type: ApiType,
-        _path: &str,
-        _method: &str,
+        branch_name: &str,
+        service_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
     ) -> Result<Option<SharedContract>, RepositoryError> {
-        Ok(None)
+        let contracts = self.shared_contracts.lock().unwrap();
+        let key = (
+            branch_name.to_string(),
+            service_id,
+            api_type,
+            path.to_string(),
+            method.to_string(),
+        );
+        Ok(contracts.get(&key).cloned())
     }
 
     async fn upsert_shared_contract(
         &self,
-        _contract: SharedContract,
+        contract: SharedContract,
     ) -> Result<(), RepositoryError> {
+        let mut contracts = self.shared_contracts.lock().unwrap();
+        let key = (
+            contract.branch_name.clone(),
+            contract.service_id,
+            contract.api_type,
+            contract.path.clone(),
+            contract.method.clone(),
+        );
+        contracts.insert(key, contract);
         Ok(())
     }
 }

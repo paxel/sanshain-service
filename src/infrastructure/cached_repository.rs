@@ -1130,7 +1130,12 @@ impl SpecRepository for CachedSpecRepository {
         &self,
         contract: SharedContract,
     ) -> Result<(), RepositoryError> {
-        self.inner.upsert_shared_contract(contract).await
+        self.inner.upsert_shared_contract(contract).await?;
+        if !self.is_disabled() {
+            // has_changes flag in endpoint list views depends on shared_contracts
+            self.branch_endpoints_cache.invalidate_all();
+        }
+        Ok(())
     }
 }
 

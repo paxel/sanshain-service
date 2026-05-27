@@ -245,8 +245,18 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
         branch_id: i64,
     ) -> Result<Vec<EndpointRecord>, RepositoryError> {
-        let rows: Vec<(i64, String, String, String, String, String)> = sqlx::query_as(
-            "SELECT id, api_type, path, normalized_path, method, yaml_content FROM endpoints WHERE branch_id = ? AND deleted = FALSE"
+        let rows: Vec<(i64, String, String, String, String, String, bool)> = sqlx::query_as(
+            "SELECT e.id, e.api_type, e.path, e.normalized_path, e.method, e.yaml_content, \
+             COALESCE(sc.source_yaml != sc.current_yaml, 0) as has_changes \
+             FROM endpoints e \
+             JOIN branches b ON e.branch_id = b.id \
+             LEFT JOIN shared_contracts sc ON \
+                 sc.service_id = b.service_id AND \
+                 sc.branch_name = b.name AND \
+                 sc.api_type = e.api_type AND \
+                 sc.path = e.normalized_path AND \
+                 sc.method = e.method \
+             WHERE e.branch_id = ? AND e.deleted = FALSE"
         )
         .bind(branch_id)
         .fetch_all(&self.pool)
@@ -256,13 +266,14 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(id, api_type, path, normalized_path, method, yaml_content)| EndpointRecord {
+                |(id, api_type, path, normalized_path, method, yaml_content, has_changes)| EndpointRecord {
                     id: Some(id),
                     api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                     path,
                     normalized_path,
                     method,
                     yaml_content,
+                    has_changes,
                 },
             )
             .collect())
@@ -1181,12 +1192,19 @@ impl SpecRepository for SqliteSpecRepository {
         client_name: &str,
         branch: &str,
     ) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
-        let rows: Vec<(String, String, String, String, String, Option<String>)> = sqlx::query_as(
-            "SELECT d.api_type, s.name, d.requested_branch_name, d.requested_path, d.requested_method, e.yaml_content \
+        let rows: Vec<(String, String, String, String, String, Option<String>, bool)> = sqlx::query_as(
+            "SELECT d.api_type, s.name, d.requested_branch_name, d.requested_path, d.requested_method, e.yaml_content, \
+             COALESCE(sc.source_yaml != sc.current_yaml, 0) as has_changes \
              FROM dependencies d \
              JOIN clients c ON d.client_id = c.id \
              JOIN services s ON d.requested_service_id = s.id \
              LEFT JOIN endpoints e ON d.endpoint_id = e.id \
+             LEFT JOIN shared_contracts sc ON \
+                 sc.service_id = d.requested_service_id AND \
+                 sc.branch_name = d.requested_branch_name AND \
+                 sc.api_type = d.api_type AND \
+                 sc.path = d.requested_normalized_path AND \
+                 sc.method = d.requested_method \
              WHERE c.name = ? AND d.requested_branch_name = ? \
              ORDER BY s.name, d.requested_path, d.requested_method"
         )
@@ -1198,13 +1216,14 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(api_type, service, branch, path, method, yaml_content)| ClientEndpointInfo {
+                |(api_type, service, branch, path, method, yaml_content, has_changes)| ClientEndpointInfo {
                     api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                     service,
                     branch,
                     path,
                     method,
                     yaml_content,
+                    has_changes,
                 },
             )
             .collect())

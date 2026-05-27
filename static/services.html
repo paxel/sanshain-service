@@ -262,7 +262,7 @@
                 report = await fetchJSON(`/report?branch=${encodeURIComponent(branchName)}`);
             } catch (_) {}
 
-            const uniqueEndpoints = (providedEndpoints || []).map(e => ({ api_type: e.api_type, path: e.path, method: e.method, service: serviceName }));
+            const uniqueEndpoints = (providedEndpoints || []).map(e => ({ api_type: e.api_type, path: e.path, method: e.method, service: serviceName, has_changes: e.has_changes }));
 
             const providedKeys = new Set(uniqueEndpoints.map(e => `${e.method}:${e.path}`));
             const reportEndpoints = [
@@ -324,6 +324,7 @@
                                 ${ep.method}
                             </span>
                             <span class="font-mono text-sm text-slate-700">${ep.path}</span>
+                            ${ep.has_changes ? '<span class="text-[10px] text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">modified</span>' : ''}
                         </div>
                         <div class="flex items-center">
                             ${isUnused

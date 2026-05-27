@@ -1111,6 +1111,61 @@ paths:
     }
 
     #[tokio::test]
+    async fn test_list_endpoints_with_changes() {
+        let repo = MockRepo::new();
+        // 1. Provide initial spec to main
+        provide_spec(
+            &repo,
+            "svc",
+            "main",
+            ApiType::OpenApi,
+            SIMPLE_OPENAPI,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+
+        // 2. Provide modified spec to a feature branch
+        provide_spec(
+            &repo,
+            "svc",
+            "feat",
+            ApiType::OpenApi,
+            UPDATED_OPENAPI,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+
+        // 3. Simulate shared contract with changes for /hello
+        let service_id = repo.find_service("svc").await.unwrap().unwrap();
+        repo.upsert_shared_contract(SharedContract {
+            branch_name: "feat".to_string(),
+            service_id,
+            api_type: ApiType::OpenApi,
+            path: "/hello".to_string(),
+            method: "GET".to_string(),
+            source_yaml: "old".to_string(),
+            current_yaml: "new".to_string(),
+            owner_service_id: None,
+        })
+        .await
+        .unwrap();
+
+        // 4. List endpoints and verify has_changes
+        let endpoints = list_service_endpoints(&repo, "svc", "feat")
+            .await
+            .unwrap();
+        let hello = endpoints.iter().find(|e| e.path == "/hello").unwrap();
+        assert!(hello.has_changes);
+
+        let world = endpoints.iter().find(|e| e.path == "/world").unwrap();
+        assert!(!world.has_changes);
+    }
+
+    #[tokio::test]
     async fn test_provide_spec_dry_run() {
         let repo = MockRepo::new();
         let resp = provide_spec_dry_run(

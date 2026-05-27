@@ -198,6 +198,8 @@ pub struct EndpointRecord {
     pub normalized_path: String,
     pub method: String,
     pub yaml_content: String,
+    #[serde(default)]
+    pub has_changes: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -302,6 +304,8 @@ pub struct ClientEndpointInfo {
     pub path: String,
     pub method: String,
     pub yaml_content: Option<String>,
+    #[serde(default)]
+    pub has_changes: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]

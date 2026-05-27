@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - **Favicon**: Added a favicon link to the layout template using the service logo.
+- **Modified Endpoint Highlighting**: Service and Client views now display a "modified" label next to endpoints that have diverged from their protected branch baseline, providing immediate visual feedback on changes.
 
 ### Changed
 - **Version Bump**: Bumped minor version to `1.2.0`.
