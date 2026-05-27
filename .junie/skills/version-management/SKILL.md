@@ -1,3 +1,8 @@
+---
+name: version-management
+description: Automate version bumping, changelog maintenance, and release documentation.
+---
+
 # Version Management Skill
 
 ## Purpose
@@ -26,6 +31,12 @@ When bumping the version, **all** of the following files must be updated:
 - `ai/plan.md` — references to old versions are historical context
 - `tests/integration_test.rs` — contains spec versions in test fixtures, not the service version
 - `src/presentation/handlers/pages.rs` — `text/plain; version=0.0.4` is the Prometheus exposition format version
+
+## Guidelines
+
+- **Consistency**: Ensure the version is updated in all required files simultaneously.
+- **Traceability**: Always update the `CHANGELOG.md` when bumping the version.
+- **Verification**: Never consider a version bump complete without running the verification tests.
 
 ## Procedures
 

@@ -7,11 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.2.0] - 2026-05-27
 
+### Fixed
+- **Skill Visibility**: Moved skills from `.agents/` to `.junie/skills/` so they are correctly discovered and displayed by the Junie CLI.
+- **Skill Creator**: Updated validation script and instructions to use `.junie/skills/` as the primary skill location.
+
 ### Added
+- **Skill Creator**: Created `.junie/skills/skill_creator` to automate the creation and validation of AI skills according to the official Agent Skills specification.
 - **Favicon**: Added a favicon link to the layout template using the service logo.
 - **Modified Endpoint Highlighting**: Service and Client views now display a "modified" label next to endpoints that have diverged from their protected branch baseline, providing immediate visual feedback on changes.
 
 ### Changed
+- **Skill Conformity**: Updated `.junie/skills/version-management/SKILL.md` to conform to the official AI SKILL definitions (YAML frontmatter and standard sections).
 - **Version Bump**: Bumped minor version to `1.2.0`.
 
 ## [1.1.0] - 2026-05-11
