@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Verify Release Skill**: Created `.junie/skills/verify_release` to automate full service verification, including Rust tests, JS lints, security audits, and integration tests.
 - **Skill Creator**: Created `.junie/skills/skill_creator` to automate the creation and validation of AI skills according to the official Agent Skills specification.
 - **Favicon**: Added a favicon link to the layout template using the service logo.
+- **Graph Visualization**: Fixed a bug where circular dependency lines were incorrectly rendered as dashed lines; they are now solid purple as intended.
 - **Modified Endpoint Highlighting**: Service and Client views now display a "modified" label next to endpoints that have diverged from their protected branch baseline, providing immediate visual feedback on changes.
 
 ### Changed

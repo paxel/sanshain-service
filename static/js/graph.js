@@ -312,6 +312,7 @@ function renderCustomGraph(report, svgElement, direction) {
   const allNodes = new Set();
   const adjMap = new Map();
   const edgeLabels = new Map(); // "from-->to" -> Set<"METHOD /path">
+  const edgeSources = new Map(); // "from-->to" -> Set<"Both" | "Branch" | "Target">
 
   deps.forEach((d) => {
     const from = d.client,
@@ -323,6 +324,8 @@ function renderCustomGraph(report, svgElement, direction) {
     const key = `${from}-->${to}`;
     if (!edgeLabels.has(key)) edgeLabels.set(key, new Set());
     edgeLabels.get(key).add(`${d.method} ${d.path}`);
+    if (!edgeSources.has(key)) edgeSources.set(key, new Set());
+    if (d.source) edgeSources.get(key).add(d.source);
   });
 
   const clientNodes = new Set(deps.map((d) => d.client));
@@ -691,10 +694,18 @@ function renderCustomGraph(report, svgElement, direction) {
       edgeWidth = "2";
       markerEnd = "url(#arrow)";
     }
-    // Ghost edge styling: if either endpoint is a target-only (ghost) node
-    const edgeSourceFrom = report.node_sources && report.node_sources[e.v];
-    const edgeSourceTo = report.node_sources && report.node_sources[e.w];
-    const isGhostEdge = edgeSourceFrom === "Target" || edgeSourceTo === "Target";
+    // Ghost edge styling: determine if this edge exists only in target
+    const eSources = edgeSources.get(key);
+    let isGhostEdge = false;
+    if (eSources && eSources.has("Target") && !eSources.has("Both") && !eSources.has("Branch")) {
+      isGhostEdge = true;
+    } else if (!eSources || eSources.size === 0) {
+      // Fallback to node-based ghosting if edge sources are missing (non-merged report)
+      const edgeSourceFrom = report.node_sources && report.node_sources[e.v];
+      const edgeSourceTo = report.node_sources && report.node_sources[e.w];
+      isGhostEdge = edgeSourceFrom === "Target" || edgeSourceTo === "Target";
+    }
+
     if (isGhostEdge) {
       edgeColor = "#cbd5e1";
       edgeWidth = "1.5";
@@ -712,7 +723,7 @@ function renderCustomGraph(report, svgElement, direction) {
     else if (isMessagingRegister) path.dataset.edgeType = "messaging-register";
     else if (isBidirectionalPubSub) path.dataset.edgeType = "pubsub-bidir";
     else path.dataset.edgeType = "normal";
-    if (isCycle || isMissing || isBidirectionalPubSub || isMessagingRegister)
+    if (isMissing || isBidirectionalPubSub || isMessagingRegister)
       path.setAttribute("stroke-dasharray", "6 3");
     if (isGhostEdge) {
       path.setAttribute("stroke-dasharray", "4 2");
