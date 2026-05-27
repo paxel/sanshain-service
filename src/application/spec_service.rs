@@ -1155,9 +1155,7 @@ paths:
         .unwrap();
 
         // 4. List endpoints and verify has_changes
-        let endpoints = list_service_endpoints(&repo, "svc", "feat")
-            .await
-            .unwrap();
+        let endpoints = list_service_endpoints(&repo, "svc", "feat").await.unwrap();
         let hello = endpoints.iter().find(|e| e.path == "/hello").unwrap();
         assert!(hello.has_changes);
 

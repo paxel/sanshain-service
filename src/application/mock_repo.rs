@@ -18,9 +18,11 @@ pub struct MockRepo {
     pub api_tokens: Mutex<Vec<ApiToken>>,
     pub endpoint_versions: Mutex<Vec<EndpointVersion>>,
     pub service_tags: Mutex<HashMap<i64, Vec<String>>>,
-    pub shared_contracts: Mutex<HashMap<(String, i64, ApiType, String, String), SharedContract>>,
+    pub shared_contracts: Mutex<HashMap<SharedContractKey, SharedContract>>,
     pub spec_versions: Mutex<HashMap<(i64, i64), (i32, String)>>,
 }
+
+type SharedContractKey = (String, i64, ApiType, String, String);
 
 impl Default for MockRepo {
     fn default() -> Self {

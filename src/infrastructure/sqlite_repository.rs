@@ -256,7 +256,7 @@ impl SpecRepository for SqliteSpecRepository {
                  sc.api_type = e.api_type AND \
                  sc.path = e.normalized_path AND \
                  sc.method = e.method \
-             WHERE e.branch_id = ? AND e.deleted = FALSE"
+             WHERE e.branch_id = ? AND e.deleted = FALSE",
         )
         .bind(branch_id)
         .fetch_all(&self.pool)
@@ -266,14 +266,16 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(id, api_type, path, normalized_path, method, yaml_content, has_changes)| EndpointRecord {
-                    id: Some(id),
-                    api_type: ApiType::from_str(&api_type).unwrap_or_default(),
-                    path,
-                    normalized_path,
-                    method,
-                    yaml_content,
-                    has_changes,
+                |(id, api_type, path, normalized_path, method, yaml_content, has_changes)| {
+                    EndpointRecord {
+                        id: Some(id),
+                        api_type: ApiType::from_str(&api_type).unwrap_or_default(),
+                        path,
+                        normalized_path,
+                        method,
+                        yaml_content,
+                        has_changes,
+                    }
                 },
             )
             .collect())
@@ -1192,7 +1194,8 @@ impl SpecRepository for SqliteSpecRepository {
         client_name: &str,
         branch: &str,
     ) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
-        let rows: Vec<(String, String, String, String, String, Option<String>, bool)> = sqlx::query_as(
+        type ClientEndpointRow = (String, String, String, String, String, Option<String>, bool);
+        let rows: Vec<ClientEndpointRow> = sqlx::query_as(
             "SELECT d.api_type, s.name, d.requested_branch_name, d.requested_path, d.requested_method, e.yaml_content, \
              COALESCE(sc.source_yaml != sc.current_yaml, 0) as has_changes \
              FROM dependencies d \
@@ -1216,14 +1219,16 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(api_type, service, branch, path, method, yaml_content, has_changes)| ClientEndpointInfo {
-                    api_type: ApiType::from_str(&api_type).unwrap_or_default(),
-                    service,
-                    branch,
-                    path,
-                    method,
-                    yaml_content,
-                    has_changes,
+                |(api_type, service, branch, path, method, yaml_content, has_changes)| {
+                    ClientEndpointInfo {
+                        api_type: ApiType::from_str(&api_type).unwrap_or_default(),
+                        service,
+                        branch,
+                        path,
+                        method,
+                        yaml_content,
+                        has_changes,
+                    }
                 },
             )
             .collect())
