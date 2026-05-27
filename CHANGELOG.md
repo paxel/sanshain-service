@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.2.0] - 2026-05-27
 
 ### Fixed
+- **Demo Scripts**: Restored functionality of `demo.sh`, `demo2.sh`, `demo3.sh`, and `demo_protocols.sh`.
+  - Added automatic authentication support via `SANSHAIN_PASSWORD`.
+  - Fixed `require-bundle` payload structure and usage in `demo.sh`.
+  - Standardized `BASE_URL` handling across all scripts.
+  - Added missing `branch` and `service` parameters to various API calls.
+  - Corrected AsyncAPI operations in `demo_protocols.sh` to ensure compatibility with service filtering.
 - **Skill Visibility**: Moved skills from `.agents/` to `.junie/skills/` so they are correctly discovered and displayed by the Junie CLI.
 - **Skill Creator**: Updated validation script and instructions to use `.junie/skills/` as the primary skill location.
 

@@ -14,7 +14,23 @@ set -euo pipefail
 # ============================================================================
 
 BASE_URL="${SANSHAIN_URL:-http://localhost:3000}"
+ADMIN_USER="${SANSHAIN_USER:-root}"
+ADMIN_PASSWORD="${SANSHAIN_PASSWORD:-}"
 TOKEN="${SANSHAIN_TOKEN:-}"
+
+if [ -z "$TOKEN" ] && [ -n "$ADMIN_PASSWORD" ]; then
+  echo ">>> Logging in to obtain token..."
+  LOGIN_RESPONSE=$(curl -s -X POST "$BASE_URL/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"username\":\"$ADMIN_USER\", \"password\":\"$ADMIN_PASSWORD\"}")
+  TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r .token)
+  if [ "$TOKEN" = "null" ]; then
+    echo "    Login failed. Proceeding without token (dev_mode must be enabled)."
+    TOKEN=""
+  else
+    echo "    Login successful."
+  fi
+fi
 
 AUTH_HEADER=""
 if [ -n "$TOKEN" ]; then
@@ -102,6 +118,12 @@ info:
   title: ETL Orchestrator
   version: 1.0.0
 paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: OK
   /jobs:
     post:
       summary: Trigger new ETL job

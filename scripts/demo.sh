@@ -18,7 +18,23 @@ set -euo pipefail
 # ============================================================================
 
 BASE_URL="${SANSHAIN_URL:-http://localhost:3000}"
+ADMIN_USER="${SANSHAIN_USER:-root}"
+ADMIN_PASSWORD="${SANSHAIN_PASSWORD:-}"
 TOKEN="${SANSHAIN_TOKEN:-}"
+
+if [ -z "$TOKEN" ] && [ -n "$ADMIN_PASSWORD" ]; then
+  echo ">>> Logging in to obtain token..."
+  LOGIN_RESPONSE=$(curl -s -X POST "$BASE_URL/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"username\":\"$ADMIN_USER\", \"password\":\"$ADMIN_PASSWORD\"}")
+  TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r .token)
+  if [ "$TOKEN" = "null" ]; then
+    echo "    Login failed. Proceeding without token (dev_mode must be enabled)."
+    TOKEN=""
+  else
+    echo "    Login successful."
+  fi
+fi
 
 AUTH_HEADER=""
 if [ -n "$TOKEN" ]; then
@@ -90,17 +106,17 @@ require_endpoint() {
 }
 
 require_bundle() {
-  local client="$1" branch="$2"; shift 2
-  echo ">>> REQUIRE-BUNDLE  $client @ $branch"
-  # remaining args are "svc:path:method" triples
+  local client="$1" branch="$2" svc="$3"; shift 3
+  echo ">>> REQUIRE-BUNDLE  $client @ $branch (service: $svc)"
+  # remaining args are "path:method" pairs
   local endpoints="[]"
-  for triple in "$@"; do
-    IFS=: read -r s p m <<< "$triple"
-    endpoints=$(echo "$endpoints" | jq --arg s "$s" --arg p "$p" --arg m "$m" \
-      '. + [{servicename:$s, path:$p, method:$m}]')
+  for pair in "$@"; do
+    IFS=: read -r p m <<< "$pair"
+    endpoints=$(echo "$endpoints" | jq --arg p "$p" --arg m "$m" \
+      '. + [{path:$p, method:$m}]')
   done
-  PAYLOAD=$(jq -n --arg c "$client" --arg b "$branch" --argjson e "$endpoints" \
-    '{clientname:$c, branch:$b, endpoints:$e}')
+  PAYLOAD=$(jq -n --arg c "$client" --arg s "$svc" --arg b "$branch" --argjson e "$endpoints" \
+    '{clientname:$c, servicename:$s, branch:$b, endpoints:$e}')
   RESPONSE=$(curl -s -w "\n%{http_code}" \
     -X POST "$BASE_URL/require-bundle" \
     -H "Content-Type: application/json" \
@@ -841,7 +857,7 @@ section "9. Endpoint version history"
 echo ">>> Fetching version history for user-service GET /users on main..."
 RESPONSE=$(curl -s -w "\n%{http_code}" \
   -G "$BASE_URL/endpoint-versions" \
-  --data-urlencode "servicename=user-service" \
+  --data-urlencode "service=user-service" \
   --data-urlencode "branch=main" \
   --data-urlencode "path=/users" \
   --data-urlencode "method=GET" \
@@ -860,10 +876,12 @@ fi
 section "10. Require-bundle (multi-endpoint fetch)"
 # --------------------------------------------------------------------------
 
-require_bundle "web-frontend" "main" \
-  "user-service:/users:GET" \
-  "order-service:/orders:GET" \
-  "payment-service:/payments/{id}:GET"
+require_bundle "web-frontend" "main" "user-service" \
+  "/users:GET"
+require_bundle "web-frontend" "main" "order-service" \
+  "/orders:GET"
+require_bundle "web-frontend" "main" "payment-service" \
+  "/payments/{id}:GET"
 
 # --------------------------------------------------------------------------
 section "11. Dry-run mode"
@@ -897,7 +915,7 @@ section "12. Dependency report"
 # --------------------------------------------------------------------------
 
 echo ">>> Fetching dependency report (JSON)..."
-RESPONSE=$(curl -s -w "\n%{http_code}" "$BASE_URL/report" \
+RESPONSE=$(curl -s -w "\n%{http_code}" "$BASE_URL/report?branch=main" \
   ${AUTH_HEADER:+-H "$AUTH_HEADER"})
 BODY=$(echo "$RESPONSE" | sed '$d')
 STATUS=$(echo "$RESPONSE" | tail -1)
@@ -907,7 +925,7 @@ echo "    HTTP $STATUS — $SERVICES services, $CLIENTS clients"
 
 echo ""
 echo ">>> Fetching dependency report (Markdown)..."
-RESPONSE=$(curl -s -w "\n%{http_code}" "$BASE_URL/report/markdown" \
+RESPONSE=$(curl -s -w "\n%{http_code}" "$BASE_URL/report/markdown?branch=main" \
   ${AUTH_HEADER:+-H "$AUTH_HEADER"})
 BODY=$(echo "$RESPONSE" | sed '$d')
 STATUS=$(echo "$RESPONSE" | tail -1)

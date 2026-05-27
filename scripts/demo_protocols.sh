@@ -13,7 +13,23 @@ set -euo pipefail
 # ============================================================================
 
 BASE_URL="${SANSHAIN_URL:-http://localhost:3000}"
+ADMIN_USER="${SANSHAIN_USER:-root}"
+ADMIN_PASSWORD="${SANSHAIN_PASSWORD:-}"
 TOKEN="${SANSHAIN_TOKEN:-}"
+
+if [ -z "$TOKEN" ] && [ -n "$ADMIN_PASSWORD" ]; then
+  echo ">>> Logging in to obtain token..."
+  LOGIN_RESPONSE=$(curl -s -X POST "$BASE_URL/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"username\":\"$ADMIN_USER\", \"password\":\"$ADMIN_PASSWORD\"}")
+  TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r .token)
+  if [ "$TOKEN" = "null" ]; then
+    echo "    Login failed. Proceeding without token (dev_mode must be enabled)."
+    TOKEN=""
+  else
+    echo "    Login successful."
+  fi
+fi
 
 AUTH_HEADER=""
 if [ -n "$TOKEN" ]; then
@@ -137,7 +153,7 @@ info:
   version: 1.0.0
 channels:
   user-signups:
-    subscribe:
+    publish:
       summary: Receive user signup events
       message:
         payload:
@@ -191,7 +207,7 @@ section "2. Register Dependencies (Cross-Protocol)"
 
 # User Service (gRPC) requires notifications from Event Bus (AsyncAPI)
 echo "  User Service publishes to user-signups topic..."
-require_asyncapi "user-service" "event-bus" "main" "user-signups" "SUB"
+require_asyncapi "user-service" "event-bus" "main" "user-signups" "PUB"
 
 # API Gateway (REST) calls User Service (gRPC)
 echo "  API Gateway calls User Service via gRPC..."
@@ -206,7 +222,7 @@ require_asyncapi "order-service" "event-bus" "main" "order-events" "PUB"
 
 # Analytics Service consumes all events
 echo "  Analytics Service consumes all events from Event Bus..."
-require_asyncapi "analytics-service" "event-bus" "main" "user-signups" "SUB"
+require_asyncapi "analytics-service" "event-bus" "main" "user-signups" "PUB"
 require_asyncapi "analytics-service" "event-bus" "main" "order-events" "PUB"
 
 section "3. Verify Reports"

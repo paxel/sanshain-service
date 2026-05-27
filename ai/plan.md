@@ -4,7 +4,10 @@
 
 The following major milestones have been delivered and are fully functional:
 
-- **Version 1.2.0 (Released)**: Added a favicon to the web interface using the service logo. Bumped minor version across all project files (`Cargo.toml`, `api.yaml`, `README.md`, etc.). Created `skill_creator` to enforce AI skill conformity, added `verify_release` for full-stack quality checks, and moved skills to `.junie/skills/` for CLI visibility.
+- **Version 1.2.0 (Released)**: Added a favicon to the web interface using the service logo. Bumped minor version across all project files (`Cargo.toml`, `api.yaml`, `README.md`, etc.). Created `skill_creator` to enforce AI skill conformity, added `verify_release` for full-stack quality checks, and moved skills to `.junie/skills/` for CLI visibility. Fixed demo scripts for data filling.
+  - Fix authentication in demo scripts. ✓
+  - Fix `require-bundle` in `demo.sh`. ✓
+  - Standardize `BASE_URL` and parameters. ✓
 
 - **Version 1.1.0 (Released)**: Promoted service to `1.1.0` to reflect accumulated improvements since `1.0.1`. Added graph fallback for feature branches (ghost nodes), public protected branches endpoint, and auto-skip for new services. Introduced `force` mode for `provide` endpoints and a shared contract diff viewer.
 
