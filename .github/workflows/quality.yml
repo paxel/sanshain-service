@@ -33,6 +33,7 @@ jobs:
           cargo build
           cargo run &
           PID=$!
+          trap "kill $PID || true" EXIT
           # Wait for service to be ready
           READY=0
           for i in {1..60}; do
@@ -49,7 +50,6 @@ jobs:
             exit 1
           fi
           ./scripts/itest.sh http://localhost:3000 root_password
-          kill $PID
         env:
           INITIAL_ADMIN_PASSWORD: root_password
       - name: Install tools
@@ -70,6 +70,10 @@ jobs:
       - run: npx prettier --check static/js/
   ui-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      NEEDRESTART_MODE: a
     steps:
       - uses: actions/checkout@v4
       - name: Free up space
@@ -96,6 +100,7 @@ jobs:
           cargo build
           cargo run &
           PID=$!
+          trap "kill $PID || true" EXIT
           # Wait for service to be ready
           READY=0
           for i in {1..60}; do
@@ -112,6 +117,5 @@ jobs:
             exit 1
           fi
           npm run test:ui
-          kill $PID
         env:
           INITIAL_ADMIN_PASSWORD: root_password
