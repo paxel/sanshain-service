@@ -4,11 +4,13 @@
 
 The following major milestones have been delivered and are fully functional:
 
-- **Version 1.2.0 (Released)**: Added a favicon to the web interface using the service logo. Bumped minor version across all project files (`Cargo.toml`, `api.yaml`, `README.md`, etc.) and moved previous version 1.1.0 to `OLDER_CHANGES.md`. Created `skill_creator` to enforce AI skill conformity, added `verify_release` for full-stack quality checks, and moved skills to `.junie/skills/` for CLI visibility. Fixed demo scripts for data filling. Fixed circular dependency line style in graph.
+- **Version 1.2.0 (Released)**: Added a favicon to the web interface using the service logo. Bumped minor version across all project files (`Cargo.toml`, `api.yaml`, `README.md`, etc.) and moved previous version 1.1.0 to `OLDER_CHANGES.md`. Created `skill_creator` to enforce AI skill conformity, added `verify_release` for full-stack quality checks, and moved skills to `.junie/skills/` for CLI visibility. Fixed demo scripts for data filling. Fixed circular dependency line style in graph. Resolved 6-hour UI test hang by adding `playwright.config.js` with global timeouts and fixing a dangerous `dialog` listener.
   - Fix authentication in demo scripts. ✓
   - Fix `require-bundle` in `demo.sh`. ✓
   - Standardize `BASE_URL` and parameters. ✓
   - Fix circular dependency lines (remove unintentional dashing). ✓
+  - Fix UI test hang (global timeouts + dialog dismissal). ✓
+  - Repository cleanup (remove temp files, update .gitignore). ✓
 
 - **Version 1.1.0 (Released)**: Promoted service to `1.1.0` to reflect accumulated improvements since `1.0.1`. Added graph fallback for feature branches (ghost nodes), public protected branches endpoint, and auto-skip for new services. Introduced `force` mode for `provide` endpoints and a shared contract diff viewer.
 

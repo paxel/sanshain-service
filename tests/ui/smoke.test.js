@@ -1,10 +1,8 @@
 import { test, expect } from '@playwright/test';
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
-
 test.describe('Sanshain UI Smoke Test', () => {
   test('Landing page loads and has correct title', async ({ page }) => {
-    await page.goto(BASE_URL);
+    await page.goto('/');
     await expect(page).toHaveTitle(/Sanshain/);
     
     // Check for critical logo
@@ -18,17 +16,16 @@ test.describe('Sanshain UI Smoke Test', () => {
 
   test('Login and Admin settings persistence', async ({ page }) => {
     // Clear storage before starting to avoid stale session or banner issues
-    await page.goto(BASE_URL);
+    await page.goto('/');
     await page.evaluate(() => {
       sessionStorage.clear();
       localStorage.clear();
     });
 
-    // Handle reload banner if it appears despite clearing storage
+    // Handle ANY unexpected dialogs by dismissing them to prevent hangs
     page.on('dialog', async dialog => {
-      if (dialog.message().includes('reload')) {
-        await dialog.dismiss();
-      }
+      console.log(`[UI Test] Auto-dismissing dialog: ${dialog.message()}`);
+      await dialog.dismiss();
     });
     
     // Explicitly check for and dismiss the reload banner if it's a DOM element
@@ -39,7 +36,7 @@ test.describe('Sanshain UI Smoke Test', () => {
       }
     };
 
-    await page.goto(`${BASE_URL}/account.html`);
+    await page.goto('/account.html');
     await dismissReloadBanner();
     
     // Login - Use specific selectors to avoid ambiguity with the "Sign In" tab
@@ -61,7 +58,7 @@ test.describe('Sanshain UI Smoke Test', () => {
     await expect(page.locator('#banner-username')).toContainText('root');
     
     // Navigate to Admin
-    await page.goto(`${BASE_URL}/admin.html`);
+    await page.goto('/admin.html');
     await dismissReloadBanner();
     await page.waitForSelector('#admin-dashboard');
     

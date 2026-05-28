@@ -9,11 +9,12 @@ yarn-debug.log*
 yarn-error.log*
 .playwright-mcp/
 test-results/
+playwright-report/
 
 # SQLite
-sanshain.db
-sanshain.db-shm
-sanshain.db-wal
+*.db
+*.db-shm
+*.db-wal
 
 # IDEs (JetBrains)
 .idea/workspace.xml
@@ -33,3 +34,7 @@ sanshain.db-wal
 # OS
 .DS_Store
 Thumbs.db
+
+# Coverage and Logs
+cobertura.xml
+verify_service.log
