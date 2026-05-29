@@ -5,10 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [1.2.0] - 2026-05-28
+## [1.2.0] - 2026-05-29
 
 ### Fixed
-- **CI Stability**: Improved GitHub Actions robustness by adding `timeout-minutes` to the `ui-tests` job and setting `DEBIAN_FRONTEND=noninteractive` to prevent hangs during browser dependency installation. Added `trap` to ensure background services are properly terminated on failure.
+- **CI Stability**: Fixed a persistent hang during Playwright installation in GitHub Actions by purging `needrestart`, which was causing interactive prompts on Ubuntu 24.04 runners. Added verbose diagnostics to the installation process. Added `trap` to ensure background services are properly terminated on failure.
 - **Repository Cleanup**: Removed untracked temporary files (`demo_test.db`, `playwright-report/`) and removed `verify_service.log` from version control.
 - **UI Tests Timeout**: Resolved a critical issue where UI tests could hang for up to 6 hours in CI due to an incomplete `dialog` event listener in Playwright. Added a robust `playwright.config.js` with a 10-minute global timeout and automatic dialog dismissal to prevent future hangs.
 - **Demo Scripts**: Restored functionality of `demo.sh`, `demo2.sh`, `demo3.sh`, and `demo_protocols.sh`.
