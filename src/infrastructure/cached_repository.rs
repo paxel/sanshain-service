@@ -465,10 +465,10 @@ impl SpecRepository for CachedSpecRepository {
             .await?;
         if res && !self.is_disabled() {
             // Invalidate caches
-            if let Ok(Some(service_id)) = self.find_service(service_name).await {
-                if let Ok(Some(branch_id)) = self.find_branch(service_id, branch_name).await {
-                    self.branch_endpoints_cache.invalidate(&branch_id).await;
-                }
+            if let Ok(Some(service_id)) = self.find_service(service_name).await
+                && let Ok(Some(branch_id)) = self.find_branch(service_id, branch_name).await
+            {
+                self.branch_endpoints_cache.invalidate(&branch_id).await;
             }
             self.report_cache.invalidate(&branch_name.to_string()).await;
         }

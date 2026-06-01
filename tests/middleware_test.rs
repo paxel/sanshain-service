@@ -34,7 +34,10 @@ fn get_test_prometheus_handle() -> metrics_exporter_prometheus::PrometheusHandle
 fn test_state(repo: SqliteSpecRepository) -> AppState {
     let (spec_updated_tx, _) = tokio::sync::broadcast::channel(16);
     let mut tokens = HashMap::new();
-    tokens.insert(TEST_CSRF_TOKEN.to_string(), Utc::now() + chrono::Duration::hours(1));
+    tokens.insert(
+        TEST_CSRF_TOKEN.to_string(),
+        Utc::now() + chrono::Duration::hours(1),
+    );
     AppState {
         repo: CachedSpecRepository::new(DatabaseRepo::Sqlite(repo), 64),
         db_url: "sqlite::memory:".into(),

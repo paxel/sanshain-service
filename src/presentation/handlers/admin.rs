@@ -292,10 +292,11 @@ pub async fn set_auth_config(
 
     services::set_auth_mode(&state.repo, &mode).await?;
     if let Some(mut ldap) = payload.ldap_config {
-        if let Some(ref pass) = ldap.bind_password && pass == "****" {
-            if let Ok(Some(old_config)) = services::get_ldap_config(&state.repo).await {
-                ldap.bind_password = old_config.bind_password;
-            }
+        if let Some(ref pass) = ldap.bind_password
+            && pass == "****"
+            && let Ok(Some(old_config)) = services::get_ldap_config(&state.repo).await
+        {
+            ldap.bind_password = old_config.bind_password;
         }
         services::set_ldap_config(&state.repo, &ldap).await?;
     }
