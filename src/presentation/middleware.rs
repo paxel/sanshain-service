@@ -224,9 +224,6 @@ pub async fn validate_csrf(
         .and_then(|h| h.to_str().ok());
 
     if let Some(token) = csrf_header {
-        if token == "test-csrf-token" {
-            return Ok(next.run(req).await);
-        }
         let tokens = state.csrf_tokens.read().await;
         if let Some(expiry) = tokens.get(token)
             && *expiry > chrono::Utc::now()
