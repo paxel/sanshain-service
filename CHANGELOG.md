@@ -18,7 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - **OpenAPI Splitting Determinism**: Ensured that OpenAPI splitting is bit-for-bit deterministic by using ordered collections and explicit sorting of components, preventing false-positive change detection.
-- **CI Stability**: Fixed a persistent hang during Playwright installation in GitHub Actions by purging `needrestart`, which was causing interactive prompts on Ubuntu 24.04 runners. Added verbose diagnostics to the installation process. Added `trap` to ensure background services are properly terminated on failure.
+- **CI Stability & Caching**: Fixed a persistent hang and random cancellations during Playwright installation in GitHub Actions by purging `needrestart`, adding GHA caching for Playwright browsers, and removing the slow, I/O-intensive `Free up space` step across all GHA workflows to prevent disk I/O saturation. Added verbose diagnostics to the installation process. Added `trap` to ensure background services are properly terminated on failure.
+- **Release Trigger Fix**: Fixed a critical bug where the release workflow (`release.yml`) failed to trigger on new tag pushes because the pattern was incorrectly specified as a Regular Expression (`'v[0-9]+.[0-9]+.[0-9]+'`) instead of a valid GHA Glob pattern (`'v[0-9]*.[0-9]*.[0-9]*'`).
 - **Repository Cleanup**: Removed untracked temporary files (`demo_test.db`, `playwright-report/`) and removed `verify_service.log` from version control.
 - **UI Tests Timeout**: Resolved a critical issue where UI tests could hang for up to 6 hours in CI due to an incomplete `dialog` event listener in Playwright. Added a robust `playwright.config.js` with a 10-minute global timeout and automatic dialog dismissal to prevent future hangs.
 - **Demo Scripts**: Restored functionality of `demo.sh`, `demo2.sh`, `demo3.sh`, and `demo_protocols.sh`.

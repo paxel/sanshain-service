@@ -15,7 +15,7 @@ The following major milestones have been delivered and are fully functional:
   - Fix circular dependency lines (remove unintentional dashing). ✓
   - Fix UI test hang (global timeouts + dialog dismissal). ✓
   - Repository cleanup (remove temp files, update .gitignore). ✓
-  - Harden CI stability (purged `needrestart` + verbose install diagnostics + service cleanup). ✓
+  - Harden CI stability (purged `needrestart` + verbose install diagnostics + service cleanup + cached Playwright + removed heavy Free up space GHA steps + corrected release regex tag trigger). ✓
 
 - **Version 1.1.0 (Released)**: Promoted service to `1.1.0` to reflect accumulated improvements since `1.0.1`. Added graph fallback for feature branches (ghost nodes), public protected branches endpoint, and auto-skip for new services. Introduced `force` mode for `provide` endpoints and a shared contract diff viewer.
 

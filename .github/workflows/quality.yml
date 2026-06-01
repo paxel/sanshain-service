@@ -12,13 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Free up space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -77,13 +70,6 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
     steps:
       - uses: actions/checkout@v4
-      - name: Free up space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
       - uses: actions/setup-node@v4
         with:
           node-version: lts/*
@@ -92,15 +78,28 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Install npm dependencies
         run: npm ci
+      - name: Cache Playwright Browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
       - name: Install Playwright and Dependencies
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get purge -y needrestart
           echo "Disk space before installation:"
           df -h /
-          # Using DEBUG=pw:install to get more info if it hangs
           DEBUG=pw:install npx playwright install --with-deps chromium
           echo "Disk space after installation:"
           df -h /
+      - name: Install Playwright System Dependencies Only (Cache Hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: |
+          sudo apt-get purge -y needrestart
+          npx playwright install-deps chromium
       - name: Run UI Tests
         run: |
           export INITIAL_ADMIN_PASSWORD=root_password
