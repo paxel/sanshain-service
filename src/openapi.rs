@@ -4,7 +4,7 @@ use serde::Serialize;
 use serde_json;
 use serde_yaml_ng;
 use similar::TextDiff;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::LazyLock;
 
 static RE_SLASHES: LazyLock<Regex> =
@@ -84,6 +84,18 @@ pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
                 &component_graph,
             );
 
+            if let Some(ref mut components) = single_endpoint_openapi.components {
+                components.schemas.sort_keys();
+                components.responses.sort_keys();
+                components.parameters.sort_keys();
+                components.examples.sort_keys();
+                components.request_bodies.sort_keys();
+                components.headers.sort_keys();
+                components.security_schemes.sort_keys();
+                components.links.sort_keys();
+                components.callbacks.sort_keys();
+            }
+
             let endpoint_yaml = serde_yaml_ng::to_string(&single_endpoint_openapi)
                 .map_err(|e| format!("Failed to serialize endpoint YAML: {}", e))?;
 
@@ -100,7 +112,7 @@ pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
 }
 
 /// Build a dependency graph of components.
-fn build_component_graph(components: &Option<Components>) -> HashMap<String, HashSet<String>> {
+fn build_component_graph(components: &Option<Components>) -> HashMap<String, BTreeSet<String>> {
     let mut graph = HashMap::new();
     let c = match components {
         Some(c) => c,
@@ -141,7 +153,7 @@ fn build_component_graph(components: &Option<Components>) -> HashMap<String, Has
 fn extract_used_components_optimized(
     partial_spec: &OpenAPI,
     all_components: &Option<Components>,
-    graph: &HashMap<String, HashSet<String>>,
+    graph: &HashMap<String, BTreeSet<String>>,
 ) -> Option<Components> {
     let all_components = match all_components {
         Some(c) => c,
@@ -149,7 +161,7 @@ fn extract_used_components_optimized(
     };
 
     let mut to_visit: Vec<String> = collect_refs(&partial_spec.paths).into_iter().collect();
-    let mut visited: HashSet<String> = HashSet::new();
+    let mut visited: BTreeSet<String> = BTreeSet::new();
 
     while let Some(ref_key) = to_visit.pop() {
         if !visited.insert(ref_key.clone()) {
@@ -242,15 +254,15 @@ fn extract_used_components_optimized(
 }
 
 /// Extract all `$ref` strings from a serializable object without YAML round-tripping.
-fn collect_refs(value: &impl Serialize) -> HashSet<String> {
-    let mut refs = HashSet::new();
+fn collect_refs(value: &impl Serialize) -> BTreeSet<String> {
+    let mut refs = BTreeSet::new();
     if let Ok(json_value) = serde_json::to_value(value) {
         collect_refs_recursive(&json_value, &mut refs);
     }
     refs
 }
 
-fn collect_refs_recursive(value: &serde_json::Value, refs: &mut HashSet<String>) {
+fn collect_refs_recursive(value: &serde_json::Value, refs: &mut BTreeSet<String>) {
     match value {
         serde_json::Value::Object(map) => {
             if let Some(stripped) = map
@@ -1079,6 +1091,89 @@ components:
         assert_eq!(
             order_a, order_b,
             "Merge output must be identical regardless of input order"
+        );
+    }
+
+    #[test]
+    fn test_split_openapi_determinism() {
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /test:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C'
+components:
+  schemas:
+    A:
+      type: string
+    B:
+      type: string
+    C:
+      allOf:
+        - $ref: '#/components/schemas/A'
+        - $ref: '#/components/schemas/B'
+"#;
+        let result1 = split_openapi(yaml).unwrap();
+
+        for _ in 0..10 {
+            let result2 = split_openapi(yaml).unwrap();
+            assert_eq!(
+                result1[0].yaml_content, result2[0].yaml_content,
+                "Split output must be bit-for-bit identical across runs"
+            );
+        }
+    }
+
+    #[test]
+    fn test_split_openapi_sorts_components() {
+        // Input has Z, then A. Output should have A, then Z.
+        let yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /test:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  z:
+                    $ref: '#/components/schemas/Z'
+                  a:
+                    $ref: '#/components/schemas/A'
+components:
+  schemas:
+    Z:
+      type: string
+    A:
+      type: string
+"#;
+        let result = split_openapi(yaml).unwrap();
+        let content = result[0].yaml_content.clone();
+
+        // Find positions of "A:" and "Z:" in the output YAML.
+        let pos_a = content.find("A:").expect("A not found");
+        let pos_z = content.find("Z:").expect("Z not found");
+
+        assert!(
+            pos_a < pos_z,
+            "A should come before Z in the output YAML:\n{}",
+            content
         );
     }
 }
