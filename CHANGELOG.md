@@ -35,6 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Skill Conformity**: Updated `.junie/skills/version-management/SKILL.md` to conform to the official AI SKILL definitions (YAML frontmatter and standard sections).
 - **Version Bump**: Bumped minor version to `1.2.0`.
 - **Login Efficiency**: `auth_login` no longer loads all users to determine admin status; the `login` service now returns the authenticated user directly.
+- **Configurable Static Directory**: Allowed overriding the static assets directory via the `STATIC_DIR` environment variable, defaulting to `"static"`.
 
 ### Security
 - **Removed CSRF Test Backdoor**: Removed a hardcoded `X-CSRF-Token: test-csrf-token` bypass that was shipped in production CSRF middleware and allowed any caller to skip CSRF validation. Tests now register a real, non-expired token through the normal validation path.
@@ -42,6 +43,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Session Tokens Hashed at Rest**: Session tokens are now stored as SHA-256 hashes (matching API-token handling), so a database read no longer yields usable live sessions.
 - **CSRF Bearer Fallback Hardened**: The CSRF exemption for API clients now requires a proper `Authorization: Bearer ` prefix instead of accepting any `Authorization` header value.
 - **Unsafe Default Warnings**: The server now logs loud `SECURITY WARNING` messages at startup when `dev_mode` is enabled (unauthenticated API access) or when binding to all interfaces (`0.0.0.0`).
+- **Hiding Password Hashes**: Prevented password hashes from being serialized and exposed in `/auth/me` and `/admin/users` responses by adding `#[serde(skip_serializing, default)]` on `User::password_hash`.
+- **LDAP Bind Password Protection**: Prevented admin config updates from overwriting the stored LDAP bind password with `"****"` masking string.
+- **Telemetry Mutex Poisoning**: Replaced silent swallowing of mutex locks with robust poison recovery (`.unwrap_or_else(|e| e.into_inner())`) on log buffers to prevent telemetry from silently stopping on panics.
+- **Destructive Endpoint Audit Logs**: Added explicit audit logging with authenticated user context for all `/admin/nuke/*` endpoints.
 
 ---
 

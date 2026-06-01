@@ -291,7 +291,12 @@ pub async fn set_auth_config(
     }
 
     services::set_auth_mode(&state.repo, &mode).await?;
-    if let Some(ldap) = payload.ldap_config {
+    if let Some(mut ldap) = payload.ldap_config {
+        if let Some(ref pass) = ldap.bind_password && pass == "****" {
+            if let Ok(Some(old_config)) = services::get_ldap_config(&state.repo).await {
+                ldap.bind_password = old_config.bind_password;
+            }
+        }
         services::set_ldap_config(&state.repo, &ldap).await?;
     }
     Ok(StatusCode::OK)
@@ -401,34 +406,70 @@ pub struct NukeConfirmPayload {
 
 pub async fn admin_nuke_services(
     State(state): State<AppState>,
+    axum::Extension(user): axum::Extension<crate::domain::models::User>,
     Json(payload): Json<NukeConfirmPayload>,
 ) -> Result<impl IntoResponse, AppError> {
     if payload.confirmation != "DELETE ALL SERVICES" {
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
+    tracing::warn!(
+        "AUDIT: User '{}' (ID: {}) initiated DESTRUCTION of ALL SERVICES",
+        user.username,
+        user.id
+    );
     let res = services::delete_all_services(&state.repo).await?;
+    tracing::warn!(
+        "AUDIT: User '{}' (ID: {}) successfully deleted {} services",
+        user.username,
+        user.id,
+        res
+    );
     Ok(Json(json!({ "deleted": res })))
 }
 
 pub async fn admin_nuke_clients(
     State(state): State<AppState>,
+    axum::Extension(user): axum::Extension<crate::domain::models::User>,
     Json(payload): Json<NukeConfirmPayload>,
 ) -> Result<impl IntoResponse, AppError> {
     if payload.confirmation != "DELETE ALL CLIENTS" {
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
+    tracing::warn!(
+        "AUDIT: User '{}' (ID: {}) initiated DESTRUCTION of ALL CLIENTS",
+        user.username,
+        user.id
+    );
     let res = services::delete_all_clients(&state.repo).await?;
+    tracing::warn!(
+        "AUDIT: User '{}' (ID: {}) successfully deleted {} clients",
+        user.username,
+        user.id,
+        res
+    );
     Ok(Json(json!({ "deleted": res })))
 }
 
 pub async fn admin_nuke_users(
     State(state): State<AppState>,
+    axum::Extension(user): axum::Extension<crate::domain::models::User>,
     Json(payload): Json<NukeConfirmPayload>,
 ) -> Result<impl IntoResponse, AppError> {
     if payload.confirmation != "DELETE ALL USERS" {
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
+    tracing::warn!(
+        "AUDIT: User '{}' (ID: {}) initiated DESTRUCTION of ALL NON-ADMIN USERS",
+        user.username,
+        user.id
+    );
     let res = services::delete_all_non_admin_users(&state.repo).await?;
+    tracing::warn!(
+        "AUDIT: User '{}' (ID: {}) successfully deleted {} non-admin users",
+        user.username,
+        user.id,
+        res
+    );
     Ok(Json(json!({ "deleted": res })))
 }
 
@@ -440,19 +481,43 @@ pub async fn admin_nuke_database(
     if payload.confirmation != "NUKE DATABASE" {
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
+    tracing::warn!(
+        "AUDIT: User '{}' (ID: {}) initiated NUKE DATABASE (FULL RESET)",
+        user.username,
+        user.id
+    );
     services::nuke_database(&state.repo, Some(user.id)).await?;
+    tracing::warn!(
+        "AUDIT: User '{}' (ID: {}) successfully nuked database",
+        user.username,
+        user.id
+    );
     Ok(StatusCode::OK)
 }
 
 pub async fn admin_nuke_branch(
     State(state): State<AppState>,
     Path(branch): Path<String>,
+    axum::Extension(user): axum::Extension<crate::domain::models::User>,
     Json(payload): Json<NukeConfirmPayload>,
 ) -> Result<impl IntoResponse, AppError> {
     if payload.confirmation != format!("DELETE BRANCH {}", branch) {
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
+    tracing::warn!(
+        "AUDIT: User '{}' (ID: {}) initiated DESTRUCTION of BRANCH '{}'",
+        user.username,
+        user.id,
+        branch
+    );
     let res = services::delete_branch_all_services(&state.repo, &branch).await?;
+    tracing::warn!(
+        "AUDIT: User '{}' (ID: {}) successfully deleted {} services on branch '{}'",
+        user.username,
+        user.id,
+        res,
+        branch
+    );
     Ok(Json(json!({ "deleted": res })))
 }
 

@@ -195,12 +195,11 @@ where
             _ => (&self.debug_buffer, 100),
         };
 
-        if let Ok(mut buf) = buf_to_use.lock() {
-            if buf.len() >= max_size {
-                buf.pop_front();
-            }
-            buf.push_back(entry);
+        let mut buf = buf_to_use.lock().unwrap_or_else(|e| e.into_inner());
+        if buf.len() >= max_size {
+            buf.pop_front();
         }
+        buf.push_back(entry);
     }
 }
 

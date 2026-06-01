@@ -132,7 +132,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/LICENSE", get(pages::license_text))
         .route("/version", get(|State(s): State<AppState>| async move { axum::Json(serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "instance_id": s.instance_id})) }))
 
-        .fallback_service(ServeDir::new("static"))
+        .fallback_service(ServeDir::new(std::env::var("STATIC_DIR").unwrap_or_else(|_| "static".to_string())))
         .layer(from_fn_with_state(state.clone(), validate_csrf))
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .layer(tower_http::compression::CompressionLayer::new())
