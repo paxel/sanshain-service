@@ -16,6 +16,7 @@ The following major milestones have been delivered and are fully functional:
   - Fix UI test hang (global timeouts + dialog dismissal). ✓
   - Repository cleanup (remove temp files, update .gitignore). ✓
   - Harden CI stability (purged `needrestart` + verbose install diagnostics + service cleanup + cached Playwright + removed heavy Free up space GHA steps + corrected release regex tag trigger). ✓
+  - Stabilize Playwright CI diagnosis by splitting OS dependency installation from Chromium archive extraction, bounding extraction with a timeout, rotating diagnostic cache keys, and comparing Node/runner variants instead of relying on moving `lts/*`/`ubuntu-latest` targets. ✓
 
 - **Version 1.1.0 (Released)**: Promoted service to `1.1.0` to reflect accumulated improvements since `1.0.1`. Added graph fallback for feature branches (ghost nodes), public protected branches endpoint, and auto-skip for new services. Introduced `force` mode for `provide` endpoints and a shared contract diff viewer.
 
