@@ -55,7 +55,7 @@ pub async fn login(
     repo: &impl SpecRepository,
     username: &str,
     password: &str,
-) -> Result<Session, AppError> {
+) -> Result<(Session, User), AppError> {
     let user = repo
         .find_user(username)
         .await?
@@ -71,7 +71,7 @@ pub async fn login(
 
     let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
     let session = repo.create_session(user.id, &expires_at).await?;
-    Ok(session)
+    Ok((session, user))
 }
 
 pub async fn change_password(
@@ -357,8 +357,9 @@ mod tests {
         let repo = MockRepo::new();
         let hash = hash_password("pass").unwrap();
         repo.create_user("alice", &hash, false, true).await.unwrap();
-        let session = login(&repo, "alice", "pass").await.unwrap();
+        let (session, user) = login(&repo, "alice", "pass").await.unwrap();
         assert!(!session.token.is_empty());
+        assert_eq!(user.username, "alice");
     }
 
     #[tokio::test]

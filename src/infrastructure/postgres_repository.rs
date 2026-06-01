@@ -4,6 +4,15 @@ use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::str::FromStr;
 
+/// Hashes a session token with SHA-256 so that only the hash is stored at rest.
+/// The raw token is returned to the client; lookups hash the incoming token.
+fn hash_session_token(token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
 struct ApiTokenRow {
     id: String,
     user_id: i64,
@@ -1375,10 +1384,11 @@ impl SpecRepository for PostgresSpecRepository {
         token: &str,
         expires_at: &str,
     ) -> Result<Session, RepositoryError> {
+        let token_hash = hash_session_token(token);
         sqlx::query(
             "INSERT INTO sessions (token, user_id, expires_at) VALUES ($1, $2, $3::timestamp)",
         )
-        .bind(token)
+        .bind(&token_hash)
         .bind(user_id)
         .bind(expires_at)
         .execute(&self.pool)
@@ -1404,7 +1414,7 @@ impl SpecRepository for PostgresSpecRepository {
             WHERE s.token = $1 AND s.expires_at > NOW()
             "#
         )
-        .bind(token)
+        .bind(hash_session_token(token))
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -1430,7 +1440,7 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn delete_session(&self, token: &str) -> Result<(), RepositoryError> {
         sqlx::query("DELETE FROM sessions WHERE token = $1")
-            .bind(token)
+            .bind(hash_session_token(token))
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;

@@ -65,7 +65,7 @@ async fn app_with_seed() -> (axum::Router, SqliteSpecRepository, String) {
         std::env::set_var("INITIAL_ADMIN_PASSWORD", "root_password");
     }
     services::ensure_initial_admin(&repo).await.unwrap();
-    let token = services::login(&repo, "root", "root_password")
+    let (session, _user) = services::login(&repo, "root", "root_password")
         .await
         .unwrap();
 
@@ -91,7 +91,7 @@ paths:
     .unwrap();
 
     let app = create_app(test_state(repo.clone()));
-    (app, repo, token.token)
+    (app, repo, session.token)
 }
 
 #[tokio::test]

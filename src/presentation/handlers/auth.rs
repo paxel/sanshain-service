@@ -25,12 +25,8 @@ pub async fn auth_login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let session = services::login(&state.repo, &payload.username, &payload.password).await?;
-    let user = services::list_users(&state.repo)
-        .await?
-        .into_iter()
-        .find(|u| u.id == session.user_id)
-        .ok_or_else(|| AppError::Internal("User not found after login".to_string()))?;
+    let (session, user) =
+        services::login(&state.repo, &payload.username, &payload.password).await?;
 
     Ok(Json(LoginResponse {
         token: session.token,

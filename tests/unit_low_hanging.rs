@@ -167,8 +167,9 @@ async fn login_ok() {
     let repo = MockRepo::new();
     let hash = auth_service::hash_password("p").unwrap();
     let id = add_user(&repo, "u", &hash, true, false);
-    let session = auth_service::login(&repo, "u", "p").await.unwrap();
+    let (session, user) = auth_service::login(&repo, "u", "p").await.unwrap();
     assert_eq!(session.user_id, id);
+    assert_eq!(user.id, id);
 }
 
 // 17. change_password without token (no session rotated)

@@ -169,6 +169,18 @@ pub async fn main() {
         std::process::exit(1);
     }
 
+    // Loudly warn if authentication is effectively disabled. Dev mode lets any
+    // caller reach protected endpoints without a token and must never be left
+    // enabled in production.
+    if services::get_dev_mode(&repo).await.unwrap_or(false) {
+        tracing::warn!(
+            "SECURITY WARNING: dev_mode is ENABLED - API endpoints accept unauthenticated requests. Disable it in production."
+        );
+        eprintln!(
+            "SECURITY WARNING: dev_mode is ENABLED - API endpoints accept unauthenticated requests. Disable it in production."
+        );
+    }
+
     let instance_id =
         std::env::var("INSTANCE_ID").unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
     tracing::info!("Instance ID: {}", instance_id);
@@ -254,6 +266,16 @@ pub async fn main() {
     let app = create_app(state).layer(prometheus_layer);
 
     let bind_address = std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0:3000".into());
+    if bind_address.starts_with("0.0.0.0") || bind_address.starts_with("[::]") {
+        tracing::warn!(
+            "SECURITY WARNING: binding to all interfaces ({}). Set BIND_ADDRESS=127.0.0.1:3000 to restrict access to localhost.",
+            bind_address
+        );
+        eprintln!(
+            "SECURITY WARNING: binding to all interfaces ({}). Set BIND_ADDRESS=127.0.0.1:3000 to restrict access to localhost.",
+            bind_address
+        );
+    }
     let addr: std::net::SocketAddr = match bind_address.parse() {
         Ok(a) => a,
         Err(e) => {

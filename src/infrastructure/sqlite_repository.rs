@@ -2,6 +2,15 @@ use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
 use std::str::FromStr;
 
+/// Hashes a session token with SHA-256 so that only the hash is stored at rest.
+/// The raw token is returned to the client; lookups hash the incoming token.
+fn hash_session_token(token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
 use crate::domain::models::*;
 use crate::domain::ports::{RecordDependencyParams, RepositoryError, SpecRepository};
 
@@ -1439,8 +1448,9 @@ impl SpecRepository for SqliteSpecRepository {
         token: &str,
         expires_at: &str,
     ) -> Result<Session, RepositoryError> {
+        let token_hash = hash_session_token(token);
         sqlx::query("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)")
-            .bind(token)
+            .bind(&token_hash)
             .bind(user_id)
             .bind(expires_at)
             .execute(&self.pool)
@@ -1466,7 +1476,7 @@ impl SpecRepository for SqliteSpecRepository {
             WHERE s.token = ? AND s.expires_at > datetime('now')
             "#
         )
-        .bind(token)
+        .bind(hash_session_token(token))
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -1492,7 +1502,7 @@ impl SpecRepository for SqliteSpecRepository {
 
     async fn delete_session(&self, token: &str) -> Result<(), RepositoryError> {
         sqlx::query("DELETE FROM sessions WHERE token = ?")
-            .bind(token)
+            .bind(hash_session_token(token))
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;

@@ -8,6 +8,7 @@ The following major milestones have been delivered and are fully functional:
   - **Reset History Feature**: Added a new admin feature to reset version history for a branch. This prunes all old versions of endpoints, renumbers the latest version to 1, and resets the branch-level version counter, while preserving existing endpoints and client dependencies.
   - **Admin API**: New endpoint `POST /admin/services/{name}/branches/{branch}/reset-history` to trigger the history reset.
   - **OpenAPI Splitting Determinism**: Ensured that OpenAPI splitting is bit-for-bit deterministic by using ordered collections and explicit sorting of components, preventing false-positive change detection.
+  - **Security Hardening**: Removed the shipped CSRF test backdoor; hashed session tokens at rest (SHA-256); required a `Bearer ` prefix for the CSRF API exemption; added loud startup `SECURITY WARNING`s for `dev_mode` and `0.0.0.0` binds; and removed the `auth_login` all-users over-fetch by returning the user from `login`. Added the `secure-csrf` skill.
   - Fix authentication in demo scripts. ✓
   - Fix `require-bundle` in `demo.sh`. ✓
   - Standardize `BASE_URL` and parameters. ✓

@@ -33,10 +33,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - **Skill Conformity**: Updated `.junie/skills/version-management/SKILL.md` to conform to the official AI SKILL definitions (YAML frontmatter and standard sections).
 - **Version Bump**: Bumped minor version to `1.2.0`.
+- **Login Efficiency**: `auth_login` no longer loads all users to determine admin status; the `login` service now returns the authenticated user directly.
 
 ### Security
 - **Removed CSRF Test Backdoor**: Removed a hardcoded `X-CSRF-Token: test-csrf-token` bypass that was shipped in production CSRF middleware and allowed any caller to skip CSRF validation. Tests now register a real, non-expired token through the normal validation path.
 - **Secure CSRF Skill**: Added `.junie/skills/secure-csrf` to prevent test-only bypasses or hardcoded secrets from leaking into production security checks.
+- **Session Tokens Hashed at Rest**: Session tokens are now stored as SHA-256 hashes (matching API-token handling), so a database read no longer yields usable live sessions.
+- **CSRF Bearer Fallback Hardened**: The CSRF exemption for API clients now requires a proper `Authorization: Bearer ` prefix instead of accepting any `Authorization` header value.
+- **Unsafe Default Warnings**: The server now logs loud `SECURITY WARNING` messages at startup when `dev_mode` is enabled (unauthenticated API access) or when binding to all interfaces (`0.0.0.0`).
 
 ---
 

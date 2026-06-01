@@ -232,12 +232,18 @@ pub async fn validate_csrf(
         }
     }
 
-    // Fallback for non-browser API calls (e.g. if they have a Bearer token)
-    let auth_header = req
+    // Fallback for non-browser API clients that authenticate with a Bearer token.
+    // CSRF only protects against ambient-credential (cookie) requests forged by a
+    // browser; a cross-site request cannot set a custom `Authorization: Bearer`
+    // header, so requiring the `Bearer ` prefix here is a safe exemption. The token
+    // itself is still validated by the per-route auth middleware.
+    let has_bearer = req
         .headers()
         .get(header::AUTHORIZATION)
-        .and_then(|h| h.to_str().ok());
-    if auth_header.is_some() {
+        .and_then(|h| h.to_str().ok())
+        .map(|v| v.starts_with("Bearer "))
+        .unwrap_or(false);
+    if has_bearer {
         return Ok(next.run(req).await);
     }
 
