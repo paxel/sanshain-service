@@ -31,6 +31,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Skill Visibility**: Moved skills from `.agents/` to `.junie/skills/` so they are correctly discovered and displayed by the Junie CLI.
 - **Skill Creator**: Updated validation script and instructions to use `.junie/skills/` as the primary skill location.
 
+### Removed
+- **Playwright CI Tests**: Removed Playwright UI smoke tests from CI to avoid browser-install timeouts; local UI test scripts remain available.
+
 ### Changed
 - **Skill Conformity**: Updated `.junie/skills/version-management/SKILL.md` to conform to the official AI SKILL definitions (YAML frontmatter and standard sections).
 - **Version Bump**: Bumped minor version to `1.2.0`.
