@@ -4,7 +4,10 @@
 
 The following major milestones have been delivered and are fully functional:
 
-- **Version 1.2.0 (Released)**: Added a favicon to the web interface using the service logo. Bumped minor version across all project files (`Cargo.toml`, `api.yaml`, `README.md`, etc.) and moved previous version 1.1.0 to `OLDER_CHANGES.md`. Created `skill_creator` to enforce AI skill conformity, added `verify_release` for full-stack quality checks, and moved skills to `.junie/skills/` for CLI visibility. Fixed demo scripts for data filling. Fixed circular dependency line style in graph. Resolved 6-hour UI test hang by adding `playwright.config.js` with global timeouts and fixing a dangerous `dialog` listener. Hardened CI robustness by purging `needrestart` to prevent interactive hangs during Playwright installation and adding verbose diagnostics.
+- **Version 1.2.0 (Current)**: Added a favicon to the web interface using the service logo. Bumped minor version across all project files (`Cargo.toml`, `api.yaml`, `README.md`, etc.) and moved previous version 1.1.0 to `OLDER_CHANGES.md`. Created `skill_creator` to enforce AI skill conformity, added `verify_release` for full-stack quality checks, and moved skills to `.junie/skills/` for CLI visibility. Fixed demo scripts for data filling. Fixed circular dependency line style in graph. Resolved 6-hour UI test hang by adding `playwright.config.js` with global timeouts and fixing a dangerous `dialog` listener. Hardened CI robustness by purging `needrestart` to prevent interactive hangs during Playwright installation and adding verbose diagnostics.
+  - **Reset History Feature**: Added a new admin feature to reset version history for a branch. This prunes all old versions of endpoints, renumbers the latest version to 1, and resets the branch-level version counter, while preserving existing endpoints and client dependencies.
+  - **Admin API**: New endpoint `POST /admin/services/{name}/branches/{branch}/reset-history` to trigger the history reset.
+  - **OpenAPI Splitting Determinism**: Ensured that OpenAPI splitting is bit-for-bit deterministic by using ordered collections and explicit sorting of components, preventing false-positive change detection.
   - Fix authentication in demo scripts. ✓
   - Fix `require-bundle` in `demo.sh`. ✓
   - Standardize `BASE_URL` and parameters. ✓

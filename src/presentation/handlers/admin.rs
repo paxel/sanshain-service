@@ -183,6 +183,20 @@ pub async fn admin_delete_branch(
     }
 }
 
+pub async fn admin_reset_branch_history(
+    State(state): State<AppState>,
+    Path((name, branch)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    if services::reset_branch_history(&state.repo, &name, &branch).await? {
+        Ok(StatusCode::OK)
+    } else {
+        Err(AppError::NotFound(format!(
+            "Branch {} for service {} not found",
+            branch, name
+        )))
+    }
+}
+
 pub async fn admin_delete_client(
     State(state): State<AppState>,
     Path(name): Path<String>,

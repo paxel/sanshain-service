@@ -196,6 +196,14 @@ impl SpecRepository for MockRepo {
         Ok(())
     }
 
+    async fn reset_branch_history(
+        &self,
+        _service_name: &str,
+        _branch_name: &str,
+    ) -> Result<bool, RepositoryError> {
+        Ok(true)
+    }
+
     async fn ensure_client(&self, name: &str) -> Result<i64, RepositoryError> {
         let mut clients = self.clients.lock().unwrap();
         if let Some(&id) = clients.get(name) {

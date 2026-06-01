@@ -300,6 +300,80 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(())
     }
 
+    async fn reset_branch_history(
+        &self,
+        service_name: &str,
+        branch_name: &str,
+    ) -> Result<bool, RepositoryError> {
+        let service_id = self
+            .find_service(service_name)
+            .await?
+            .ok_or(RepositoryError::NotFound)?;
+        let branch_id = self
+            .find_branch(service_id, branch_name)
+            .await?
+            .ok_or(RepositoryError::NotFound)?;
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        // 1. Delete all versions except the latest for each endpoint in the branch
+        sqlx::query(
+            r#"
+            DELETE FROM endpoint_versions
+            WHERE id IN (
+                SELECT ev.id
+                FROM endpoint_versions ev
+                JOIN endpoints e ON ev.endpoint_id = e.id
+                WHERE e.branch_id = ?
+                AND ev.version < (
+                    SELECT MAX(version)
+                    FROM endpoint_versions
+                    WHERE endpoint_id = ev.endpoint_id
+                )
+            )
+        "#,
+        )
+        .bind(branch_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        // 2. Renumber the remaining version to 1 and clear diff
+        sqlx::query(
+            r#"
+            UPDATE endpoint_versions
+            SET version = 1, diff_from_previous = NULL
+            WHERE endpoint_id IN (
+                SELECT id FROM endpoints WHERE branch_id = ?
+            )
+        "#,
+        )
+        .bind(branch_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        // 3. Reset branch-level version counter
+        sqlx::query(
+            "UPDATE service_spec_versions SET version = 1 WHERE service_id = ? AND branch_id = ?",
+        )
+        .bind(service_id)
+        .bind(branch_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(true)
+    }
+
     async fn ensure_client(&self, name: &str) -> Result<i64, RepositoryError> {
         sqlx::query("INSERT OR IGNORE INTO clients (name) VALUES (?)")
             .bind(name)

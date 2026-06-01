@@ -113,6 +113,13 @@ pub trait SpecRepository: Send + Sync {
         endpoint: &EndpointRecord,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
+    /// Prune all old versions of endpoints and reset the branch version to 1.
+    fn reset_branch_history(
+        &self,
+        service_name: &str,
+        branch_name: &str,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
     /// Ensure a client exists and return its ID.
     fn ensure_client(
         &self,

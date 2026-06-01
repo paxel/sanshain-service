@@ -53,6 +53,14 @@ pub async fn delete_branch(
     Ok(repo.delete_branch(service_name, branch_name).await?)
 }
 
+pub async fn reset_branch_history(
+    repo: &impl SpecRepository,
+    service_name: &str,
+    branch_name: &str,
+) -> Result<bool, AppError> {
+    Ok(repo.reset_branch_history(service_name, branch_name).await?)
+}
+
 pub async fn delete_branch_all_services(
     repo: &impl SpecRepository,
     branch_name: &str,

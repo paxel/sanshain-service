@@ -93,6 +93,14 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, insert_endpoint(branch_id, endpoint))
     }
 
+    async fn reset_branch_history(
+        &self,
+        service_name: &str,
+        branch_name: &str,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(self, reset_branch_history(service_name, branch_name))
+    }
+
     async fn ensure_client(&self, name: &str) -> Result<i64, RepositoryError> {
         delegate!(self, ensure_client(name))
     }

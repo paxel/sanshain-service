@@ -77,6 +77,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/services/{name}", delete(admin::admin_delete_service).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/services/{name}/branches", get(admin::admin_list_branches).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/services/{name}/branches/{branch}", delete(admin::admin_delete_branch).layer(from_fn_with_state(state.clone(), admin_auth)))
+        .route("/admin/services/{name}/branches/{branch}/reset-history", post(admin::admin_reset_branch_history).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/services/{name}/branches/{branch}/endpoints", get(admin::admin_list_service_endpoints).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/clients", get(admin::admin_list_clients).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/clients/{name}", delete(admin::admin_delete_client).layer(from_fn_with_state(state.clone(), admin_auth)))

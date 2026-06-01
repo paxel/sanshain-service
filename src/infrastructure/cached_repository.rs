@@ -454,6 +454,27 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
+    async fn reset_branch_history(
+        &self,
+        service_name: &str,
+        branch_name: &str,
+    ) -> Result<bool, RepositoryError> {
+        let res = self
+            .inner
+            .reset_branch_history(service_name, branch_name)
+            .await?;
+        if res && !self.is_disabled() {
+            // Invalidate caches
+            if let Ok(Some(service_id)) = self.find_service(service_name).await {
+                if let Ok(Some(branch_id)) = self.find_branch(service_id, branch_name).await {
+                    self.branch_endpoints_cache.invalidate(&branch_id).await;
+                }
+            }
+            self.report_cache.invalidate(&branch_name.to_string()).await;
+        }
+        Ok(res)
+    }
+
     async fn ensure_client(&self, name: &str) -> Result<i64, RepositoryError> {
         let id = self.inner.ensure_client(name).await?;
         if !self.is_disabled() {
