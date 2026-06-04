@@ -43,6 +43,7 @@ pub async fn provide_spec(
             extra_tags: &[],
             base_version,
             force,
+            username: None,
         },
     )
     .await
@@ -67,6 +68,7 @@ pub async fn provide_spec_dry_run(
             extra_tags: &[],
             base_version: None,
             force,
+            username: None,
         },
     )
     .await
@@ -94,6 +96,34 @@ pub async fn provide_spec_with_tags(
             extra_tags: tags,
             base_version,
             force,
+            username: None,
+        },
+    )
+    .await
+}
+
+pub async fn provide_spec_with_actor(
+    repo: &impl SpecRepository,
+    servicename: &str,
+    branch: &str,
+    api_type: ApiType,
+    content: &str,
+    base_version: Option<i32>,
+    force: bool,
+    username: Option<&str>,
+) -> Result<ProvideResponse, AppError> {
+    provide_spec_inner(
+        repo,
+        ProvideInternalParams {
+            servicename,
+            branch,
+            api_type,
+            content,
+            dry_run: false,
+            extra_tags: &[],
+            base_version,
+            force,
+            username,
         },
     )
     .await
@@ -108,6 +138,7 @@ struct ProvideInternalParams<'a> {
     pub extra_tags: &'a [String],
     pub base_version: Option<i32>,
     pub force: bool,
+    pub username: Option<&'a str>,
 }
 
 fn parse_spec_endpoints(
@@ -215,6 +246,7 @@ async fn provide_spec_inner(
         extra_tags,
         base_version,
         force,
+        username,
     } = params;
 
     tracing::debug!(
@@ -521,7 +553,7 @@ async fn provide_spec_inner(
         });
     }
 
-    repo.apply_spec_changes(bid, changes, is_protected).await?;
+    repo.apply_spec_changes(bid, changes, is_protected, username, Some(branch)).await?;
     let new_version = repo.increment_spec_version(sid, bid, &content_hash).await?;
 
     Ok(ProvideResponse {

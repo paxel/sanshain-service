@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="/images/sonne.png">
+    <title>Sanshain - YAML Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/js/common.js"></script>
+    <script src="/js/discovery.js"></script>
+    <style>
+        .scrolling-container {
+            max-height: calc(100vh - 260px);
+        }
+        .blame-line:hover {
+            background-color: rgb(241 245 249);
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+    <div id="app-loader">
+        <div class="cat-container">
+            <svg class="cat-svg" viewBox="0 0 100 60">
+                <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
+                <path d="M80,50 C95,50 95,30 85,30" fill="none" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" />
+                <path d="M25,25 L20,10 L35,22 Z" />
+                <path d="M45,22 L60,10 L55,25 Z" />
+                <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+                <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+                <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
+            </svg>
+            <div class="zzz-container">
+                <span class="zzz">z</span>
+                <span class="zzz">z</span>
+                <span class="zzz">z</span>
+            </div>
+        </div>
+        <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
+    </div>
+<header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
+    <div class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div class="flex items-center justify-between gap-4 md:justify-start">
+            <a href="/" class="flex items-center space-x-3">
+                <img src="/images/sonne.png" alt="Sanshain Logo" width="66" height="36" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
+                <div class="text-2xl font-bold tracking-tight">Sanshain <span class="text-indigo-200">(サンシャイン)</span></div>
+            </a>
+            <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
+        </div>
+        <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
+            <a href="/services.html" class="text-white hover:text-indigo-100 transition-colors">Services</a>
+            <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
+            <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
+            <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors">Observability</a>
+            <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
+        </nav>
+        <div class="flex items-center justify-end gap-4 text-sm">
+            <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+            <a id="banner-username" href="/account.html" class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"></a>
+            <button id="banner-logout" type="button" onclick="sanshainLogout()" class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500">Logout</button>
+            <a id="banner-signin" href="/account.html" class="hidden text-indigo-100 transition-colors hover:text-white">Sign In</a>
+        </div>
+    </div>
+</header>
+
+<main class="flex-1 flex flex-col p-6 max-w-7xl w-full mx-auto">
+    <!-- Breadcrumbs / Info -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+        <div>
+            <div class="text-sm text-slate-500 flex items-center gap-2 mb-1">
+                <a href="/services.html" class="hover:underline text-indigo-600 font-medium">Services</a>
+                <span>&mdash;</span>
+                <span id="breadcrumb-service" class="font-semibold text-slate-700">Service</span>
+                <span>&mdash;</span>
+                <span id="breadcrumb-branch" class="text-slate-600 font-medium">branch</span>
+            </div>
+            <h1 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                <span id="endpoint-method" class="px-2.5 py-0.5 rounded text-sm font-semibold uppercase bg-indigo-100 text-indigo-800">GET</span>
+                <span id="endpoint-path" class="font-mono text-slate-700">/path</span>
+            </h1>
+        </div>
+        <div class="flex items-center gap-3">
+            <a href="/services.html" class="px-4 py-2 border border-slate-200 text-slate-600 bg-white rounded-lg hover:bg-slate-50 transition-colors text-sm font-medium flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+                Back to Services
+            </a>
+        </div>
+    </div>
+
+    <!-- Main Workspace Split layout -->
+    <div class="flex-grow grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
+        <!-- Left Sidebar: Version History & Comparison -->
+        <div class="lg:col-span-1 bg-white border border-slate-200 rounded-2xl p-5 flex flex-col shadow-sm max-h-[80vh] overflow-y-auto">
+            <h2 class="text-md font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                Version History
+            </h2>
+            <div id="versions-list-container" class="space-y-3 flex-grow overflow-y-auto pr-1">
+                <!-- Loaded versions dynamically -->
+            </div>
+
+            <!-- Comparison Selector -->
+            <div class="border-t border-slate-100 pt-4 mt-4">
+                <h3 class="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                    <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                    Compare / Diff
+                </h3>
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">From Version</label>
+                        <select id="diff-from" class="w-full border border-slate-300 rounded-lg p-2 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">To Version</label>
+                        <select id="diff-to" class="w-full border border-slate-300 rounded-lg p-2 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        </select>
+                    </div>
+                    <button id="compare-btn" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm rounded-lg shadow transition-colors flex items-center justify-center gap-2">
+                        View Diff View
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Main View Panel -->
+        <div class="lg:col-span-3 bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col overflow-hidden max-h-[80vh]">
+            <!-- Action Toolbar -->
+            <div class="p-4 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-4">
+                <div class="flex items-center gap-2 bg-slate-200/60 p-1 rounded-lg">
+                    <button id="view-yaml-btn" class="px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all bg-white text-slate-800 shadow-sm">
+                        YAML Spec
+                    </button>
+                    <button id="view-diff-btn" class="px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all text-slate-600 hover:text-slate-800">
+                        Unified Patch
+                    </button>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <!-- Blame Toggle -->
+                    <label id="blame-toggle-container" class="inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="blame-toggle" class="sr-only peer">
+                        <div class="relative w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                        <span class="ms-2 text-xs font-bold text-slate-600">Blame ON</span>
+                    </label>
+
+                    <div class="h-4 w-[1px] bg-slate-300"></div>
+
+                    <!-- Action buttons -->
+                    <button id="copy-btn" class="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 flex items-center gap-1.5 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                        Copy
+                    </button>
+                    <button id="download-btn" class="px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-1.5 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                        Download
+                    </button>
+                </div>
+            </div>
+
+            <!-- Viewer Area (completely scrollable) -->
+            <div id="viewer-container" class="flex-grow overflow-auto scrolling-container bg-slate-900 text-slate-100 font-mono text-xs p-4 leading-relaxed whitespace-pre select-text">
+                <!-- Content injected dynamically -->
+            </div>
+        </div>
+    </div>
+</main>
+
+<script>
+    let globalVersions = [];
+    let activeVersion = null;
+    let isDiffMode = false;
+    let isBlameOn = false;
+
+    // Retrieve endpoint identity from query params
+    const params = new URLSearchParams(window.location.search);
+    const serviceName = params.get('service');
+    const branchName = params.get('branch');
+    const endpointPath = params.get('path');
+    const endpointMethod = params.get('method');
+    const apiType = params.get('api_type') || 'openapi';
+    let queryVersion = params.get('version') ? parseInt(params.get('version')) : null;
+    let queryCompareVersion = params.get('compare_version') ? parseInt(params.get('compare_version')) : null;
+
+    // DOM bindings
+    const breadcrumbService = document.getElementById('breadcrumb-service');
+    const breadcrumbBranch = document.getElementById('breadcrumb-branch');
+    const endpointMethodEl = document.getElementById('endpoint-method');
+    const endpointPathEl = document.getElementById('endpoint-path');
+
+    const versionsListContainer = document.getElementById('versions-list-container');
+    const diffFromSelect = document.getElementById('diff-from');
+    const diffToSelect = document.getElementById('diff-to');
+    const compareBtn = document.getElementById('compare-btn');
+
+    const viewYamlBtn = document.getElementById('view-yaml-btn');
+    const viewDiffBtn = document.getElementById('view-diff-btn');
+    const blameToggle = document.getElementById('blame-toggle');
+    const blameToggleContainer = document.getElementById('blame-toggle-container');
+    const copyBtn = document.getElementById('copy-btn');
+    const downloadBtn = document.getElementById('download-btn');
+    const viewerContainer = document.getElementById('viewer-container');
+
+    // Populate Breadcrumbs & Title
+    if (serviceName && branchName && endpointPath && endpointMethod) {
+        breadcrumbService.textContent = serviceName;
+        breadcrumbBranch.textContent = branchName;
+        endpointMethodEl.textContent = endpointMethod;
+        endpointPathEl.textContent = endpointPath;
+        // Method badge colors based on method
+        const colors = {
+            'GET': 'bg-green-100 text-green-800',
+            'POST': 'bg-blue-100 text-indigo-800',
+            'PUT': 'bg-amber-100 text-amber-800',
+            'DELETE': 'bg-red-100 text-red-800',
+            'PATCH': 'bg-purple-100 text-purple-800',
+        };
+        const mClass = colors[endpointMethod.toUpperCase()] || 'bg-slate-100 text-slate-800';
+        endpointMethodEl.className = `px-2.5 py-0.5 rounded text-sm font-semibold uppercase ${mClass}`;
+    } else {
+        alert("Missing endpoint identity parameters.");
+        window.location.href = "/services.html";
+    }
+
+    // Auth load
+    checkDiscoveryAuth(async () => {
+        await renderBanner();
+        await loadEndpointVersions();
+    });
+
+    async function loadEndpointVersions() {
+        try {
+            const res = await fetchJSON(`/admin/endpoint-versions?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
+            if (!res || res.length === 0) {
+                viewerContainer.innerHTML = `<div class="text-slate-400 italic">No version history found for this endpoint.</div>`;
+                return;
+            }
+
+            globalVersions = [...res].sort((a, b) => a.version - b.version);
+
+            // Populate selectors for diffing
+            diffFromSelect.innerHTML = globalVersions.map(v => `<option value="${v.version}">v${v.version} (${v.created_at.slice(0, 16)})</option>`).join('');
+            diffToSelect.innerHTML = globalVersions.map(v => `<option value="${v.version}">v${v.version} (${v.created_at.slice(0, 16)})</option>`).join('');
+
+            // Select default values
+            if (queryVersion) {
+                activeVersion = globalVersions.find(v => v.version === queryVersion) || globalVersions[globalVersions.length - 1];
+            } else {
+                activeVersion = globalVersions[globalVersions.length - 1];
+            }
+
+            if (queryCompareVersion) {
+                diffFromSelect.value = queryCompareVersion;
+                diffToSelect.value = activeVersion.version;
+                isDiffMode = true;
+            }
+
+            renderVersionsSidebar();
+            renderActiveView();
+        } catch (e) {
+            console.error(e);
+            viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load versions: ${e.message}</div>`;
+        }
+    }
+
+    function renderVersionsSidebar() {
+        versionsListContainer.innerHTML = [...globalVersions].reverse().map(v => {
+            const isActive = !isDiffMode && activeVersion && activeVersion.version === v.version;
+            const username = v.username || 'DevMode/Anonymous';
+            const branch = v.source_branch || branchName;
+            return `
+                <div onclick="selectVersion(${v.version})" class="cursor-pointer border rounded-xl p-3.5 transition-all bg-white hover:border-indigo-300 ${isActive ? 'border-indigo-600 bg-indigo-50/20 ring-2 ring-indigo-600/10' : 'border-slate-200' }">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="text-sm font-bold text-slate-800">Version ${v.version}</span>
+                        <span class="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.5 rounded-full uppercase">${branch}</span>
+                    </div>
+                    <div class="text-xs text-slate-500 space-y-0.5">
+                        <div class="flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                            <span>${username}</span>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                            <span>${v.created_at.slice(0, 16).replace('T', ' ')}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function selectVersion(vNum) {
+        isDiffMode = false;
+        activeVersion = globalVersions.find(v => v.version === vNum);
+        updateUrlParams();
+        renderVersionsSidebar();
+        renderActiveView();
+    }
+
+    function renderActiveView() {
+        updateToolbarState();
+
+        if (isDiffMode) {
+            renderDiffView();
+        } else {
+            renderYamlView();
+        }
+    }
+
+    function updateToolbarState() {
+        if (isDiffMode) {
+            viewYamlBtn.className = "px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all text-slate-600 hover:text-slate-800";
+            viewDiffBtn.className = "px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all bg-white text-slate-800 shadow-sm";
+            blameToggleContainer.classList.add('hidden');
+        } else {
+            viewYamlBtn.className = "px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all bg-white text-slate-800 shadow-sm";
+            viewDiffBtn.className = "px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all text-slate-600 hover:text-slate-800";
+            blameToggleContainer.classList.remove('hidden');
+            blameToggle.checked = isBlameOn;
+        }
+
+        // Disable diff tab if only 1 version exists
+        if (globalVersions.length < 2) {
+            viewDiffBtn.disabled = true;
+            viewDiffBtn.title = "Requires at least 2 versions to diff";
+            viewDiffBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        } else {
+            viewDiffBtn.disabled = false;
+            viewDiffBtn.title = "";
+            viewDiffBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+    }
+
+    function renderYamlView() {
+        if (!activeVersion) return;
+        const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const lines = activeVersion.yaml_content.split('\n');
+
+        if (isBlameOn) {
+            const blameList = computeBlame(globalVersions, activeVersion.version);
+            let html = `<div class="grid grid-cols-1 border border-slate-800 rounded-lg overflow-hidden bg-slate-950 font-mono text-xs select-text">`;
+            for (let i = 0; i < lines.length; i++) {
+                const blame = blameList[i] || { version: 1, username: 'anonymous', date: activeVersion.created_at };
+                const uStr = blame.username.length > 12 ? blame.username.slice(0, 10) + '..' : blame.username;
+                const vStr = `v${blame.version}`;
+                const dateStr = blame.date.slice(0, 10);
+                
+                html += `
+                    <div class="blame-line flex items-stretch hover:bg-slate-900 border-b border-slate-900/50">
+                        <div class="w-44 shrink-0 bg-slate-900 text-slate-400 px-3 py-0.5 border-r border-slate-800 text-[11px] flex items-center justify-between select-none">
+                            <span class="font-bold text-indigo-400 shrink-0 mr-1">${vStr}</span>
+                            <span class="truncate max-w-[70px]" title="${blame.username}">${uStr}</span>
+                            <span class="opacity-70 text-[10px] font-light shrink-0 ml-1">${dateStr}</span>
+                        </div>
+                        <div class="w-12 shrink-0 bg-slate-900/40 text-slate-500 text-right pr-2.5 py-0.5 border-r border-slate-800 select-none">${i + 1}</div>
+                        <div class="flex-grow pl-3 py-0.5 text-slate-200 overflow-x-auto whitespace-pre">${esc(lines[i])}</div>
+                    </div>
+                `;
+            }
+            html += `</div>`;
+            viewerContainer.innerHTML = html;
+        } else {
+            let html = `<div class="flex items-start bg-slate-950 p-4 border border-slate-800 rounded-lg overflow-x-auto select-text">`;
+            // Line numbers column
+            html += `<div class="w-12 shrink-0 text-slate-500 text-right pr-3 border-r border-slate-800 select-none">`;
+            for (let i = 1; i <= lines.length; i++) {
+                html += `<div>${i}</div>`;
+            }
+            html += `</div>`;
+            // Content column
+            html += `<div class="pl-4 text-slate-200 flex-grow">`;
+            for (const line of lines) {
+                html += `<div>${esc(line)}</div>`;
+            }
+            html += `</div></div>`;
+            viewerContainer.innerHTML = html;
+        }
+    }
+
+    function renderDiffView() {
+        const fromVNum = parseInt(diffFromSelect.value);
+        const toVNum = parseInt(diffToSelect.value);
+
+        const fromV = globalVersions.find(v => v.version === fromVNum);
+        const toV = globalVersions.find(v => v.version === toVNum);
+
+        if (!fromV || !toV) return;
+
+        const diffLines = simpleDiff(fromV.yaml_content, toV.yaml_content);
+        const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+        let html = `<div class="border border-slate-800 rounded-lg overflow-hidden bg-slate-950 font-mono text-xs select-text">`;
+        html += `<div class="bg-slate-900 px-4 py-2 border-b border-slate-800 text-slate-400 select-none">`;
+        html += `Comparing <span class="text-indigo-400 font-bold">v${fromVNum}</span> &rarr; <span class="text-indigo-400 font-bold">v${toVNum}</span>`;
+        html += `</div>`;
+        html += `<div class="p-4 overflow-x-auto">`;
+
+        for (const item of diffLines) {
+            if (item.type === 'add') {
+                html += `<div class="bg-green-950/40 text-green-300 border-l-4 border-green-500 pl-2 py-0.5"><span class="select-none font-bold mr-2 text-green-500">+</span>${esc(item.line)}</div>`;
+            } else if (item.type === 'del') {
+                html += `<div class="bg-red-950/40 text-red-300 border-l-4 border-red-500 pl-2 py-0.5"><span class="select-none font-bold mr-2 text-red-500">-</span>${esc(item.line)}</div>`;
+            } else {
+                html += `<div class="text-slate-300 pl-2 py-0.5"><span class="select-none opacity-40 mr-2">&nbsp;</span>${esc(item.line)}</div>`;
+            }
+        }
+
+        html += `</div></div>`;
+        viewerContainer.innerHTML = html;
+    }
+
+    // Tab buttons event listeners
+    viewYamlBtn.onclick = () => {
+        isDiffMode = false;
+        updateUrlParams();
+        renderActiveView();
+    };
+
+    viewDiffBtn.onclick = () => {
+        if (globalVersions.length < 2) return;
+        isDiffMode = true;
+        // set compare versions to standard values if they aren't configured
+        if (parseInt(diffFromSelect.value) === parseInt(diffToSelect.value)) {
+            diffFromSelect.value = globalVersions[0].version;
+            diffToSelect.value = globalVersions[globalVersions.length - 1].version;
+        }
+        updateUrlParams();
+        renderActiveView();
+    };
+
+    blameToggle.onchange = (e) => {
+        isBlameOn = e.target.checked;
+        renderActiveView();
+    };
+
+    compareBtn.onclick = () => {
+        isDiffMode = true;
+        updateUrlParams();
+        renderActiveView();
+    };
+
+    // Copy Content to Clipboard
+    copyBtn.onclick = async () => {
+        let textToCopy = "";
+        if (isDiffMode) {
+            const fromVNum = parseInt(diffFromSelect.value);
+            const toVNum = parseInt(diffToSelect.value);
+            const fromV = globalVersions.find(v => v.version === fromVNum);
+            const toV = globalVersions.find(v => v.version === toVNum);
+            if (fromV && toV) {
+                textToCopy = formatUnifiedDiff(fromV.yaml_content.split('\n'), toV.yaml_content.split('\n'), `${serviceName}.yaml`);
+            }
+        } else if (activeVersion) {
+            textToCopy = activeVersion.yaml_content;
+        }
+
+        if (textToCopy) {
+            try {
+                await navigator.clipboard.writeText(textToCopy);
+                showToast("Copied to clipboard!");
+            } catch (err) {
+                // fallback
+                const textarea = document.createElement("textarea");
+                textarea.value = textToCopy;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand("copy");
+                document.body.removeChild(textarea);
+                showToast("Copied to clipboard!");
+            }
+        }
+    };
+
+    // Download / Export as file
+    downloadBtn.onclick = () => {
+        let contentStr = "";
+        let filename = `${serviceName}.yaml`;
+
+        if (isDiffMode) {
+            const fromVNum = parseInt(diffFromSelect.value);
+            const toVNum = parseInt(diffToSelect.value);
+            const fromV = globalVersions.find(v => v.version === fromVNum);
+            const toV = globalVersions.find(v => v.version === toVNum);
+            if (fromV && toV) {
+                contentStr = formatUnifiedDiff(fromV.yaml_content.split('\n'), toV.yaml_content.split('\n'), `${serviceName}.yaml`);
+                filename = `${serviceName}_v${fromVNum}_to_v${toVNum}.patch`;
+            }
+        } else if (activeVersion) {
+            contentStr = activeVersion.yaml_content;
+            filename = `${serviceName}_v${activeVersion.version}.yaml`;
+        }
+
+        if (contentStr) {
+            const blob = new Blob([contentStr], { type: isDiffMode ? "text/plain" : "application/x-yaml" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    };
+
+    // Blame algorithm helper
+    function computeBlame(versions, targetVersionNum) {
+        const sorted = [...versions].sort((a, b) => a.version - b.version);
+        const targetIdx = sorted.findIndex(v => v.version === targetVersionNum);
+        const history = sorted.slice(0, targetIdx + 1);
+
+        if (history.length === 0) return [];
+
+        let currentLines = history[0].yaml_content.split('\n');
+        let blameList = currentLines.map(line => ({
+            version: history[0].version,
+            username: history[0].username || 'anonymous',
+            date: history[0].created_at
+        }));
+
+        for (let i = 1; i < history.length; i++) {
+            const nextLines = history[i].yaml_content.split('\n');
+            const nextBlame = new Array(nextLines.length);
+
+            const diff = simpleDiff(currentLines.join('\n'), history[i].yaml_content);
+
+            let oldIdx = 0;
+            let newIdx = 0;
+
+            for (const item of diff) {
+                if (item.type === 'ctx') {
+                    nextBlame[newIdx] = blameList[oldIdx];
+                    oldIdx++;
+                    newIdx++;
+                } else if (item.type === 'add') {
+                    nextBlame[newIdx] = {
+                        version: history[i].version,
+                        username: history[i].username || 'anonymous',
+                        date: history[i].created_at
+                    };
+                    newIdx++;
+                } else if (item.type === 'del') {
+                    oldIdx++;
+                }
+            }
+
+            currentLines = nextLines;
+            blameList = nextBlame;
+        }
+
+        return blameList;
+    }
+
+    // Git-like Unified Diff Formatter
+    function formatUnifiedDiff(fromLines, toLines, filename) {
+        const diff = simpleDiff(fromLines.join('\n'), toLines.join('\n'));
+        let patch = `diff --git a/${filename} b/${filename}\n`;
+        patch += `--- a/${filename}\n+++ b/${filename}\n`;
+
+        const taggedDiff = [];
+        let oldLineNum = 1;
+        let newLineNum = 1;
+
+        for (const item of diff) {
+            if (item.type === 'ctx') {
+                taggedDiff.push({ ...item, oldLineNum, newLineNum });
+                oldLineNum++;
+                newLineNum++;
+            } else if (item.type === 'add') {
+                taggedDiff.push({ ...item, newLineNum });
+                newLineNum++;
+            } else if (item.type === 'del') {
+                taggedDiff.push({ ...item, oldLineNum });
+                oldLineNum++;
+            }
+        }
+
+        const contextRadius = 3;
+        const modifiedIndices = [];
+        for (let i = 0; i < taggedDiff.length; i++) {
+            if (taggedDiff[i].type === 'add' || taggedDiff[i].type === 'del') {
+                modifiedIndices.push(i);
+            }
+        }
+
+        if (modifiedIndices.length === 0) {
+            return patch; // No changes
+        }
+
+        const hunkBlocks = [];
+        let start = Math.max(0, modifiedIndices[0] - contextRadius);
+        let end = Math.min(taggedDiff.length - 1, modifiedIndices[0] + contextRadius);
+
+        for (let i = 1; i < modifiedIndices.length; i++) {
+            const idx = modifiedIndices[i];
+            const nextStart = Math.max(0, idx - contextRadius);
+            const nextEnd = Math.min(taggedDiff.length - 1, idx + contextRadius);
+
+            if (nextStart <= end + 1) {
+                end = nextEnd;
+            } else {
+                hunkBlocks.push({ start, end });
+                start = nextStart;
+                end = nextEnd;
+            }
+        }
+        hunkBlocks.push({ start, end });
+
+        for (const block of hunkBlocks) {
+            const hunkLines = taggedDiff.slice(block.start, block.end + 1);
+
+            let oldStart = 0;
+            let oldLength = 0;
+            let newStart = 0;
+            let newLength = 0;
+
+            const firstOldLine = hunkLines.find(l => l.oldLineNum !== undefined);
+            const firstNewLine = hunkLines.find(l => l.newLineNum !== undefined);
+
+            if (firstOldLine) oldStart = firstOldLine.oldLineNum;
+            if (firstNewLine) newStart = firstNewLine.newLineNum;
+
+            for (const line of hunkLines) {
+                if (line.type === 'ctx') {
+                    oldLength++;
+                    newLength++;
+                } else if (line.type === 'add') {
+                    newLength++;
+                } else if (line.type === 'del') {
+                    oldLength++;
+                }
+            }
+
+            patch += `@@ -${oldStart},${oldLength} +${newStart},${newLength} @@\n`;
+            for (const line of hunkLines) {
+                if (line.type === 'ctx') {
+                    patch += `  ${line.line}\n`;
+                } else if (line.type === 'add') {
+                    patch += `+${line.line}\n`;
+                } else if (line.type === 'del') {
+                    patch += `-${line.line}\n`;
+                }
+            }
+        }
+
+        return patch;
+    }
+
+    function updateUrlParams() {
+        const urlParams = new URLSearchParams();
+        urlParams.set('service', serviceName);
+        urlParams.set('branch', branchName);
+        urlParams.set('path', endpointPath);
+        urlParams.set('method', endpointMethod);
+        urlParams.set('api_type', apiType);
+
+        if (isDiffMode) {
+            urlParams.set('compare_version', diffFromSelect.value);
+            urlParams.set('version', diffToSelect.value);
+        } else if (activeVersion) {
+            urlParams.set('version', activeVersion.version);
+        }
+
+        history.pushState({}, '', `${window.location.pathname}?${urlParams.toString()}`);
+    }
+
+    function showToast(message) {
+        const toast = document.createElement("div");
+        toast.className = "fixed bottom-5 right-5 bg-slate-800 text-white px-4 py-2 rounded-lg shadow-lg z-50 text-sm font-medium transition-opacity";
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => {
+            toast.style.opacity = "0";
+            setTimeout(() => toast.remove(), 300);
+        }, 2000);
+    }
+</script>
+
+<footer class="text-center text-sm text-slate-500 py-6 mt-auto">
+    <img src="/images/sonne.png" alt="Sanshain" width="59" height="32" class="mx-auto mb-2 h-8 w-auto opacity-70">
+    <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
+    <div class="mt-2 flex items-center justify-center gap-4">
+        <a href="https://github.com/paxel/sanshain-service" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800">GitHub</a>
+        <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
+    </div>
+</footer>
+</body>
+</html>

@@ -319,7 +319,7 @@ pub struct ServiceSummary {
     pub branches: Vec<String>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EndpointVersion {
     pub id: i64,
     pub endpoint_id: i64,
@@ -327,6 +327,8 @@ pub struct EndpointVersion {
     pub yaml_content: String,
     pub diff_from_previous: Option<String>,
     pub created_at: String,
+    pub username: Option<String>,
+    pub source_branch: Option<String>,
 }
 
 #[derive(Debug, Clone)]

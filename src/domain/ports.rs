@@ -473,6 +473,8 @@ pub trait SpecRepository: Send + Sync {
         branch_id: i64,
         changes: Vec<SpecChange>,
         is_protected: bool,
+        username: Option<&str>,
+        source_branch: Option<&str>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     // --- Service Tags ---

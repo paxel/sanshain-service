@@ -43,6 +43,12 @@ pub async fn provide(
     user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<ProvideRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    let actor = if let Some(axum::Extension(ref u)) = user {
+        redact_username(&u.username)
+    } else {
+        "DevMode/Anonymous".to_string()
+    };
+
     let res = if payload.dry_run {
         services::provide_spec_dry_run(
             &state.repo,
@@ -54,7 +60,7 @@ pub async fn provide(
         )
         .await?
     } else {
-        services::provide_spec(
+        services::provide_spec_with_actor(
             &state.repo,
             &payload.servicename,
             &payload.branch,
@@ -62,6 +68,7 @@ pub async fn provide(
             &payload.openapi_yaml,
             payload.base_version,
             payload.force,
+            Some(&actor),
         )
         .await?
     };
@@ -98,7 +105,13 @@ pub async fn provide_asyncapi(
     user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<ProvideAsyncApiRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::provide_spec(
+    let actor = if let Some(axum::Extension(ref u)) = user {
+        redact_username(&u.username)
+    } else {
+        "DevMode/Anonymous".to_string()
+    };
+
+    let res = services::provide_spec_with_actor(
         &state.repo,
         &payload.servicename,
         &payload.branch,
@@ -106,6 +119,7 @@ pub async fn provide_asyncapi(
         &payload.asyncapi_yaml,
         payload.base_version,
         payload.force,
+        Some(&actor),
     )
     .await?;
     let _ = state.spec_updated_tx.send(());
@@ -137,7 +151,13 @@ pub async fn provide_proto(
     user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<ProvideProtoRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::provide_spec(
+    let actor = if let Some(axum::Extension(ref u)) = user {
+        redact_username(&u.username)
+    } else {
+        "DevMode/Anonymous".to_string()
+    };
+
+    let res = services::provide_spec_with_actor(
         &state.repo,
         &payload.servicename,
         &payload.branch,
@@ -145,6 +165,7 @@ pub async fn provide_proto(
         &payload.proto_content,
         payload.base_version,
         payload.force,
+        Some(&actor),
     )
     .await?;
     let _ = state.spec_updated_tx.send(());

@@ -93,31 +93,6 @@
     </div>
 </main>
 
-<div id="modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
-        <div class="p-6 border-b border-slate-100 flex justify-between items-center">
-            <h3 id="modal-title" class="text-2xl font-bold text-slate-800">YAML Details</h3>
-            <button onclick="closeModal()" class="text-slate-500 hover:text-slate-600 transition-colors">
-                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                          d="M6 18L18 6M6 6l12 12"></path>
-                </svg>
-            </button>
-        </div>
-        <div id="modal-content" class="p-6 overflow-y-auto flex-grow bg-slate-50">
-        </div>
-        <div class="p-4 border-t border-slate-100 flex justify-end gap-3 bg-white rounded-b-2xl">
-            <a id="md-report-btn" href="#" style="display:none"
-               class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors flex items-center">
-                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                </svg>
-                Markdown Report
-            </a>
-        </div>
-    </div>
-</div>
 
 <script>
     let allClients = [];
@@ -279,12 +254,8 @@
                 card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card' + (ep.yaml_content ? ' cursor-pointer' : '');
                 if (ep.yaml_content) {
                     card.onclick = () => {
-                        history.pushState(
-                            { name: clientName, branch, path: ep.path, method: ep.method },
-                            '',
-                            `?name=${encodeURIComponent(clientName)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}`
-                        );
-                        showClientYaml(clientName, branch, ep);
+                        const api_type = ep.api_type || 'openapi';
+                        window.location.href = `/yaml.html?service=${encodeURIComponent(ep.service)}&branch=${encodeURIComponent(ep.branch || branch)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${encodeURIComponent(api_type)}`;
                     };
                 }
                 card.innerHTML = `
@@ -316,34 +287,8 @@
         }
     }
 
-    function showClientYaml(clientName, branch, ep) {
-        document.getElementById('modal').classList.remove('hidden');
-        document.getElementById('modal-title').innerText = `${ep.method} ${ep.path} — ${ep.service} (${branch})`;
-        document.getElementById('md-report-btn').style.display = 'none';
-        const content = document.getElementById('modal-content');
-        renderPaginatedYaml(content, ep.yaml_content, `${ep.service}_${ep.method}_${ep.path.replace(/\//g, '_')}.yaml`);
-    }
-
-    function closeModal() {
-        document.getElementById('modal').classList.add('hidden');
-        const reportBtn = document.getElementById('md-report-btn');
-        if (reportBtn) reportBtn.style.display = '';
-
-        // Clean up URL parameters on close
-        const params = new URLSearchParams(window.location.search);
-        const name = params.get('name');
-        const branch = params.get('branch');
-        if (name && branch) {
-            history.pushState({ name, branch }, '', `?name=${encodeURIComponent(name)}&branch=${encodeURIComponent(branch)}`);
-        } else if (name) {
-            history.pushState({ name }, '', `?name=${encodeURIComponent(name)}`);
-        } else {
-            history.pushState({}, '', window.location.pathname);
-        }
-    }
-
     function navigateToServiceEndpoint(serviceName, branch, path, method) {
-        window.location.href = `/services.html?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}`;
+        window.location.href = `/yaml.html?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}`;
     }
 
     document.getElementById('client-search').addEventListener('input', function() {
@@ -367,16 +312,13 @@
             const endpoints = await fetchJSON(`/admin/clients/${encodeURIComponent(name)}/branches/${encodeURIComponent(branch)}/endpoints`);
             const ep = (endpoints || []).find(e => e.path === path && e.method === method);
             if (ep && ep.yaml_content) {
-                showClientYaml(name, branch, ep);
+                window.location.href = `/yaml.html?service=${encodeURIComponent(ep.service)}&branch=${encodeURIComponent(ep.branch || branch)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${encodeURIComponent(ep.api_type || 'openapi')}`;
             }
         } else if (name && branch) {
-            document.getElementById('modal').classList.add('hidden');
             await showClientEndpoints(name, branch);
         } else if (name) {
-            document.getElementById('modal').classList.add('hidden');
             await showClientBranches(name);
         } else {
-            document.getElementById('modal').classList.add('hidden');
             await showClients();
         }
     }

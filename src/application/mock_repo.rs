@@ -639,6 +639,8 @@ impl SpecRepository for MockRepo {
         branch_id: i64,
         changes: Vec<SpecChange>,
         is_protected: bool,
+        _username: Option<&str>,
+        _source_branch: Option<&str>,
     ) -> Result<(), RepositoryError> {
         let mut endpoints = self.endpoints.lock().unwrap();
         let mut deleted = self.deleted_endpoints.lock().unwrap();

@@ -1108,9 +1108,11 @@ impl SpecRepository for CachedSpecRepository {
         branch_id: i64,
         changes: Vec<SpecChange>,
         is_protected: bool,
+        username: Option<&str>,
+        source_branch: Option<&str>,
     ) -> Result<(), RepositoryError> {
         self.inner
-            .apply_spec_changes(branch_id, changes, is_protected)
+            .apply_spec_changes(branch_id, changes, is_protected, username, source_branch)
             .await?;
         if !self.is_disabled() {
             self.branch_endpoints_cache.invalidate(&branch_id).await;

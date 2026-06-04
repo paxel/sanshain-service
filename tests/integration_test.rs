@@ -4887,3 +4887,136 @@ async fn test_audit_logs_and_security() {
     assert!(csv_str.contains("REGISTER_USER"));
     assert!(csv_str.contains("SET_DEV_MODE"));
 }
+
+#[tokio::test]
+async fn test_endpoint_version_metadata() {
+    let (app, repo) = setup_app().await;
+    services::ensure_initial_admin(&repo).await.unwrap();
+    services::set_auth_mode(&repo, &AuthMode::Dev)
+        .await
+        .unwrap();
+
+    // 1. Protect the branch 'main'
+    use sanshain_service::domain::ports::SpecRepository;
+    repo.add_protected_branch("main").await.unwrap();
+
+    // 2. Upload initial spec using /provide (unauthenticated because in DevMode/Anonymous)
+    let spec1 = r#"
+openapi: 3.0.0
+info:
+  title: Test Service
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "servicename": "UserService",
+                        "branch": "main",
+                        "openapi_yaml": spec1
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // 3. Setup with admin token to upload second spec under authenticated admin
+    // Let's create an admin session
+    let session = repo
+        .create_session(1, "2099-12-31T23:59:59")
+        .await
+        .unwrap();
+    let token = session.token;
+
+    // Change auth mode to Local to require auth
+    services::set_auth_mode(&repo, &AuthMode::Local)
+        .await
+        .unwrap();
+
+    // Upload an updated spec as 'admin'
+    let spec2 = r#"
+openapi: 3.0.0
+info:
+  title: Test Service
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      description: Get all users
+      responses:
+        '200':
+          description: OK
+"#;
+
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "servicename": "UserService",
+                        "branch": "main",
+                        "openapi_yaml": spec2
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // 4. Query /admin/endpoint-versions to verify metadata exists
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/endpoint-versions?servicename=UserService&branch=main&api_type=openapi&path=/users&method=GET")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let versions: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(versions.is_array());
+    let arr = versions.as_array().unwrap();
+    assert_eq!(arr.len(), 2);
+
+    // Version 1 was created anonymously in Dev mode (should fall back to "DevMode/Anonymous" or "anonymous" username)
+    assert_eq!(arr[0]["version"], 1);
+    assert!(arr[0]["username"] == "DevMode/Anonymous" || arr[0]["username"] == "anonymous" || arr[0]["username"].is_null());
+    assert_eq!(arr[0]["source_branch"], "main");
+
+    // Version 2 was created by admin (redacted to r**t)
+    assert_eq!(arr[1]["version"], 2);
+    assert_eq!(arr[1]["username"], "r**t");
+    assert_eq!(arr[1]["source_branch"], "main");
+}

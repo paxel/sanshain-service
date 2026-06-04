@@ -95,31 +95,6 @@
     </div>
 </main>
 
-<div id="modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
-        <div class="p-6 border-b border-slate-100 flex justify-between items-center">
-            <h3 id="modal-title" class="text-2xl font-bold text-slate-800">Branch Details</h3>
-            <button onclick="closeModal()" class="text-slate-500 hover:text-slate-600 transition-colors">
-                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                          d="M6 18L18 6M6 6l12 12"></path>
-                </svg>
-            </button>
-        </div>
-        <div id="modal-content" class="p-6 overflow-y-auto flex-grow bg-slate-50">
-        </div>
-        <div class="p-4 border-t border-slate-100 flex justify-end gap-3 bg-white rounded-b-2xl">
-            <a id="md-report-btn" href="#"
-               class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors flex items-center">
-                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                </svg>
-                Markdown Report
-            </a>
-        </div>
-    </div>
-</div>
 
 <script>
     async function loadServices() {
@@ -331,12 +306,7 @@
                 card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
                 card.onclick = () => {
                     const api_type = ep.api_type || 'REST';
-                    history.pushState(
-                        { service: serviceName, branch: branchName, path: ep.path, method: ep.method, api_type },
-                        '',
-                        `?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${encodeURIComponent(api_type)}`
-                    );
-                    showServiceEndpointYaml(serviceName, branchName, ep);
+                    window.location.href = `/yaml.html?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${encodeURIComponent(api_type)}`;
                 };
                 card.innerHTML = `
                     <div class="flex items-center justify-between">
@@ -367,87 +337,6 @@
         }
     }
 
-    async function showServiceEndpointYaml(serviceName, branchName, ep) {
-        document.getElementById('modal').classList.remove('hidden');
-        document.getElementById('modal-title').innerText = `${ep.method} ${ep.path} — ${serviceName} (${branchName})`;
-        document.getElementById('md-report-btn').href = `/report-viewer.html?src=${encodeURIComponent('/report/markdown?branch=' + encodeURIComponent(branchName))}&title=${encodeURIComponent('Full Dependency Report')}&branch=${encodeURIComponent(branchName)}`;
-        document.getElementById('md-report-btn').style.display = '';
-        const content = document.getElementById('modal-content');
-        content.innerHTML = '<div class="text-center py-10 text-slate-500">Loading...</div>';
-
-        let yamlText = null;
-        let versions = [];
-        let contractInfo = null;
-
-        const headers = {};
-        const token = localStorage.getItem('sanshain_token');
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-        const apiType = (ep.api_type || 'openapi').toLowerCase();
-
-        try {
-            const res = await fetch(`/admin/endpoint-yaml?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${apiType}`, {headers});
-            if (!res.ok) throw new Error(`${res.status}`);
-            yamlText = await res.text();
-        } catch (err) {
-            content.innerHTML = `<div class="text-slate-500 text-center py-10">YAML preview not available (${err.message})</div>`;
-            return;
-        }
-
-        try {
-            versions = await fetchJSON(`/admin/endpoint-versions?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${apiType}`);
-        } catch (_) { versions = []; }
-
-        try {
-            const scRes = await fetch(`/admin/shared-contract?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${apiType}`, {headers});
-            if (scRes.ok) contractInfo = await scRes.json();
-        } catch (_) { contractInfo = null; }
-
-        const filename = `${serviceName}_${ep.method}_${ep.path.replace(/\//g, '_')}.yaml`;
-
-        if (!versions || versions.length === 0) {
-            if (!contractInfo) {
-                renderPaginatedYaml(content, yamlText, filename);
-                return;
-            }
-        }
-
-        const tabs = [];
-        tabs.push({id: 'yaml', label: 'Current YAML'});
-        if (versions && versions.length > 0) tabs.push({id: 'versions', label: `Version History (${versions.length})`});
-        if (contractInfo) tabs.push({id: 'contract', label: 'Shared Contract'});
-
-        if (tabs.length === 1) {
-            renderPaginatedYaml(content, yamlText, filename);
-            return;
-        }
-
-        const tabBar = tabs.map((t, i) =>
-            `<button id="tab-${t.id}" class="px-4 py-2 text-sm font-medium border-b-2 ${i === 0 ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}">${t.label}</button>`
-        ).join('');
-        const tabPanes = tabs.map((t, i) =>
-            `<div id="tab-${t.id}-content" class="${i > 0 ? 'hidden' : ''}"></div>`
-        ).join('');
-
-        content.innerHTML = `<div class="flex border-b border-slate-200 mb-4">${tabBar}</div>${tabPanes}`;
-
-        const tabEls = tabs.map(t => document.getElementById(`tab-${t.id}`));
-        const paneEls = tabs.map(t => document.getElementById(`tab-${t.id}-content`));
-
-        function activateTab(idx) {
-            tabEls.forEach((el, i) => {
-                el.classList.toggle('border-indigo-600', i === idx);
-                el.classList.toggle('text-indigo-600', i === idx);
-                el.classList.toggle('border-transparent', i !== idx);
-                el.classList.toggle('text-slate-500', i !== idx);
-            });
-            paneEls.forEach((el, i) => el.classList.toggle('hidden', i !== idx));
-        }
-        tabEls.forEach((el, i) => el.onclick = () => activateTab(i));
-
-        renderPaginatedYaml(document.getElementById('tab-yaml-content'), yamlText, filename);
-        if (versions && versions.length > 0) renderVersionHistory(document.getElementById('tab-versions-content'), versions);
-        if (contractInfo) renderSharedContract(document.getElementById('tab-contract-content'), contractInfo);
-    }
 
     function toggleClientPopover(badge) {
         document.querySelectorAll('.client-popover').forEach(p => p.remove());
@@ -471,24 +360,6 @@
         window.location.href = `/clients.html?name=${encodeURIComponent(clientName)}`;
     }
 
-    function closeModal() {
-        document.getElementById('modal').classList.add('hidden');
-        const reportBtn = document.getElementById('md-report-btn');
-        if (reportBtn) reportBtn.style.display = '';
-
-        // Clean up URL parameters on close
-        const params = new URLSearchParams(window.location.search);
-        const service = params.get('service');
-        const branch = params.get('branch');
-        if (service && branch) {
-            history.pushState({ service, branch }, '', `?service=${encodeURIComponent(service)}&branch=${encodeURIComponent(branch)}`);
-        } else if (service) {
-            history.pushState({ service }, '', `?service=${encodeURIComponent(service)}`);
-        } else {
-            history.pushState({}, '', window.location.pathname);
-        }
-    }
-
     async function handleDeepLink() {
         const params = new URLSearchParams(window.location.search);
         const service = params.get('service');
@@ -498,16 +369,12 @@
         const api_type = params.get('api_type') || 'REST';
 
         if (service && branch && path && method) {
-            await showServiceBranchEndpoints(service, branch);
-            await showServiceEndpointYaml(service, branch, { path, method, api_type });
+            window.location.href = `/yaml.html?service=${encodeURIComponent(service)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}&api_type=${encodeURIComponent(api_type)}`;
         } else if (service && branch) {
-            document.getElementById('modal').classList.add('hidden');
             await showServiceBranchEndpoints(service, branch);
         } else if (service) {
-            document.getElementById('modal').classList.add('hidden');
             await showServiceBranches(service);
         } else {
-            document.getElementById('modal').classList.add('hidden');
             await loadServices();
         }
     }

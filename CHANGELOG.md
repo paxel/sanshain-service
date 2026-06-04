@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.3.0] - 2026-06-04
 
 ### Added
+- **Linkable Top-Layer YAML Viewer**: Introduced a dedicated `/yaml.html` page featuring a completely scrollable YAML viewport, sidebar-driven version list and compare panel, and full deep-linking support for direct URL sharing of specific versions or unified patch diffs.
+- **Interactive Blame Attribution**: Built a lightweight client-side blame algorithm displaying line-by-line history metadata (version number, author, branch, and timestamp) in real-time.
+- **Unified Patch-Set Diff and Export**: Created a Git-style unified diff formatter merging differences into hunks. Enabled downloading the active YAML version or downloading the active diff as a standard `.patch` file.
+- **Separate Metadata Schema**: Added a new database-level schema `endpoint_version_metadata` in SQLite and PostgreSQL to securely track uploading actor's name and source branch without altering the core schemas or impacting database performance.
 - **Frontend Deep-Linking and History Support**: Implemented comprehensive client-side deep-linking and browser history support for `services.html`, `clients.html`, `graph.html`, and `reports.html`. Users can now copy URLs directly from their browser's address bar to share specific views (services/clients lists, branches, selected endpoints, diagram configurations, focus tags, protocol filters, and reports). Clicking cards or options dynamically updates the address bar via the HTML5 History API without page reloads, and the browser's Back and Forward controls work seamlessly across all pages.
 - **Persistent Database Audit Log**: Implemented a database-backed audit logging system for both SQLite and PostgreSQL. All successful database mutating operations (spec uploads, client token creation/revocation, user registration/approval/deletion, settings updates, and admin database resets) are now securely recorded.
 - **Audit Masking and Security**: Built safe, automated username masking (e.g., `root` -> `r**t`) and absolute data sanitization, ensuring raw passwords, secrets, or API keys are never persisted. Exposed secure JSON and CSV retrieval endpoints requiring proper authentication.
@@ -17,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **OFF / Maintenance Option**: Added "OFF / Maintenance" option to the unified 4-switch Authentication configuration selector on the admin dashboard.
 
 ### Changed
+- **Discovery Endpoint Click Experience**: Replaced the modal-based preview container in `services.html` and `clients.html` to directly route users to `/yaml.html`.
 - **Admin Dashboard Simplification**: Removed the redundant Developer Mode toggle section card and its obsolete JS functions (`loadDevMode`, `updateDevModeUI`, `toggleDevMode`, and `devModeEnabled`), consolidating all configuration into the single Authentication 4-switch selector.
 - **Secure Default State**: Fresh installations now default to the secure "OFF / Maintenance" mode rather than "Dev Mode".
 

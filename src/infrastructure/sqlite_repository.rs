@@ -1745,8 +1745,8 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
         endpoint_id: i64,
     ) -> Result<Vec<EndpointVersion>, RepositoryError> {
-        let rows: Vec<(i64, i64, i32, String, Option<String>, String)> = sqlx::query_as(
-            "SELECT id, endpoint_id, version, yaml_content, diff_from_previous, created_at FROM endpoint_versions WHERE endpoint_id = ? ORDER BY version ASC"
+        let rows: Vec<(i64, i64, i32, String, Option<String>, String, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT ev.id, ev.endpoint_id, ev.version, ev.yaml_content, ev.diff_from_previous, ev.created_at, m.username, m.source_branch FROM endpoint_versions ev LEFT JOIN endpoint_version_metadata m ON ev.id = m.endpoint_version_id WHERE ev.endpoint_id = ? ORDER BY ev.version ASC"
         )
         .bind(endpoint_id)
         .fetch_all(&self.pool)
@@ -1756,7 +1756,7 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(id, endpoint_id, version, yaml_content, diff_from_previous, created_at)| {
+                |(id, endpoint_id, version, yaml_content, diff_from_previous, created_at, username, source_branch)| {
                     EndpointVersion {
                         id,
                         endpoint_id,
@@ -1764,6 +1764,8 @@ impl SpecRepository for SqliteSpecRepository {
                         yaml_content,
                         diff_from_previous,
                         created_at,
+                        username,
+                        source_branch,
                     }
                 },
             )
@@ -1775,6 +1777,8 @@ impl SpecRepository for SqliteSpecRepository {
         branch_id: i64,
         changes: Vec<SpecChange>,
         is_protected: bool,
+        username: Option<&str>,
+        source_branch: Option<&str>,
     ) -> Result<(), RepositoryError> {
         tracing::debug!(
             "Applying {} spec changes to branch {}",
@@ -1819,10 +1823,20 @@ impl SpecRepository for SqliteSpecRepository {
                             .await
                             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-                        sqlx::query("INSERT INTO endpoint_versions (endpoint_id, version, yaml_content, diff_from_previous, created_at) VALUES (?, 1, ?, NULL, ?)")
+                        let insert_res = sqlx::query("INSERT INTO endpoint_versions (endpoint_id, version, yaml_content, diff_from_previous, created_at) VALUES (?, 1, ?, NULL, ?)")
                             .bind(row.0)
                             .bind(&yaml_content)
                             .bind(&now)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+                        let version_id = insert_res.last_insert_rowid();
+
+                        sqlx::query("INSERT INTO endpoint_version_metadata (endpoint_version_id, username, source_branch) VALUES (?, ?, ?)")
+                            .bind(version_id)
+                            .bind(username)
+                            .bind(source_branch)
                             .execute(&mut *tx)
                             .await
                             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -1857,12 +1871,22 @@ impl SpecRepository for SqliteSpecRepository {
 
                         let diff = crate::openapi::generate_diff(&old_yaml, &yaml_content);
 
-                        sqlx::query("INSERT INTO endpoint_versions (endpoint_id, version, yaml_content, diff_from_previous, created_at) VALUES (?, ?, ?, ?, ?)")
+                        let insert_res = sqlx::query("INSERT INTO endpoint_versions (endpoint_id, version, yaml_content, diff_from_previous, created_at) VALUES (?, ?, ?, ?, ?)")
                             .bind(endpoint_id)
                             .bind(version_row.0 + 1)
                             .bind(&yaml_content)
                             .bind(diff)
                             .bind(&now)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+                        let version_id = insert_res.last_insert_rowid();
+
+                        sqlx::query("INSERT INTO endpoint_version_metadata (endpoint_version_id, username, source_branch) VALUES (?, ?, ?)")
+                            .bind(version_id)
+                            .bind(username)
+                            .bind(source_branch)
                             .execute(&mut *tx)
                             .await
                             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
