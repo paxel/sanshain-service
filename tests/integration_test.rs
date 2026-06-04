@@ -77,7 +77,9 @@ async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
 async fn setup_app_dev_mode() -> axum::Router {
     let (app, repo) = setup_app().await;
     services::ensure_initial_admin(&repo).await.unwrap();
-    services::set_auth_mode(&repo, &AuthMode::Dev).await.unwrap();
+    services::set_auth_mode(&repo, &AuthMode::Dev)
+        .await
+        .unwrap();
     app
 }
 
@@ -100,7 +102,9 @@ async fn setup_app_with_admin() -> (axum::Router, String) {
         .await
         .unwrap();
 
-    services::set_auth_mode(&repo, &AuthMode::Local).await.unwrap();
+    services::set_auth_mode(&repo, &AuthMode::Local)
+        .await
+        .unwrap();
 
     let app = create_app(test_app_state(repo));
     (app, session.token)
@@ -1320,7 +1324,9 @@ async fn test_admin_auth_requires_session() {
 #[tokio::test]
 async fn test_api_locked_without_dev_mode() {
     let (app, repo) = setup_app().await;
-    services::set_auth_mode(&repo, &AuthMode::Local).await.unwrap();
+    services::set_auth_mode(&repo, &AuthMode::Local)
+        .await
+        .unwrap();
 
     // API endpoints should be locked (dev_mode=false by default)
     let response: Response = app
@@ -4841,7 +4847,12 @@ async fn test_audit_logs_and_security() {
     let reg_log = arr.iter().find(|l| l["action"] == "REGISTER_USER").unwrap();
     assert_eq!(reg_log["username"], "DevMode/Anonymous");
     assert!(reg_log["details"].as_str().unwrap().contains("u*****3")); // redacted user123
-    assert!(!reg_log["details"].as_str().unwrap().contains("super-secret-password"));
+    assert!(
+        !reg_log["details"]
+            .as_str()
+            .unwrap()
+            .contains("super-secret-password")
+    );
 
     // Verify dev mode setting log is registered with redacted actor username (admin -> a***n)
     let dev_log = arr.iter().find(|l| l["action"] == "SET_DEV_MODE").unwrap();

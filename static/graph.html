@@ -310,6 +310,7 @@
                 console.warn('Could not load protected branches for target dropdown:', e);
             }
 
+            restoreGraphFiltersFromUrl();
             await loadGraph();
         } catch (err) {
             console.error('Failed to show graph:', err);
@@ -322,8 +323,14 @@
         }
     }
 
-    document.getElementById('graph-branch-select').addEventListener('change', () => loadGraph());
-    document.getElementById('graph-target-select').addEventListener('change', () => loadGraph());
+    document.getElementById('graph-branch-select').addEventListener('change', () => {
+        updateGraphUrl(true);
+        loadGraph();
+    });
+    document.getElementById('graph-target-select').addEventListener('change', () => {
+        updateGraphUrl(true);
+        loadGraph();
+    });
 
     async function loadGraph() {
         showLoader();
@@ -380,6 +387,8 @@
                 hideLoader();
                 return;
             }
+
+            updateGraphUrl(false);
 
             await new Promise(r => setTimeout(r, 10));
             redrawGraph();
@@ -639,6 +648,89 @@
             });
         });
     })();
+
+    function updateGraphUrl(push = false) {
+        const branch = document.getElementById('graph-branch-select').value;
+        const target = document.getElementById('graph-target-select').value;
+        const focus = window.graphFocusTags.join(',');
+        
+        const hiddenProtocols = [];
+        if (!window.graphProtocolFilters.openapi) hiddenProtocols.push('openapi');
+        if (!window.graphProtocolFilters.asyncapi) hiddenProtocols.push('asyncapi');
+        if (!window.graphProtocolFilters.proto) hiddenProtocols.push('proto');
+        const hide_protocols = hiddenProtocols.join(',');
+
+        const params = new URLSearchParams();
+        if (branch) params.set('branch', branch);
+        if (target) params.set('target', target);
+        if (focus) params.set('focus', focus);
+        if (hide_protocols) params.set('hide_protocols', hide_protocols);
+
+        const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
+        const state = { branch, target, focus: window.graphFocusTags, hide_protocols: hiddenProtocols };
+        
+        if (push) {
+            history.pushState(state, '', newUrl);
+        } else {
+            history.replaceState(state, '', newUrl);
+        }
+    }
+    window.updateGraphUrl = updateGraphUrl;
+
+    function restoreGraphFiltersFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        
+        const branchSelect = document.getElementById('graph-branch-select');
+        const targetSelect = document.getElementById('graph-target-select');
+        
+        const branch = params.get('branch');
+        const target = params.get('target');
+        
+        if (branchSelect && branch) {
+            branchSelect.value = branch;
+        }
+        if (targetSelect) {
+            if (target !== null) {
+                targetSelect.value = target;
+            } else {
+                targetSelect.value = '';
+            }
+        }
+        
+        const focus = params.get('focus');
+        if (focus) {
+            window.graphFocusTags = focus.split(',').filter(Boolean);
+        } else {
+            window.graphFocusTags = [];
+        }
+        renderFocusTags();
+        
+        const hide_protocols = params.get('hide_protocols');
+        const hiddenSet = new Set(hide_protocols ? hide_protocols.split(',').filter(Boolean) : []);
+        
+        window.graphProtocolFilters = {
+            openapi: !hiddenSet.has('openapi'),
+            asyncapi: !hiddenSet.has('asyncapi'),
+            proto: !hiddenSet.has('proto')
+        };
+        
+        ['openapi', 'asyncapi', 'proto'].forEach(p => {
+            const btn = document.getElementById(`filter-${p}`);
+            if (btn) {
+                if (window.graphProtocolFilters[p]) {
+                    btn.className = "px-2.5 py-1.5 bg-indigo-600 text-white font-medium";
+                } else {
+                    btn.className = "px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium";
+                }
+            }
+        });
+    }
+
+    // Handle back/forward navigation
+    window.addEventListener('popstate', async () => {
+        restoreGraphFiltersFromUrl();
+        await loadGraph();
+    });
 
     checkDiscoveryAuth(() => showGraph());
 </script>

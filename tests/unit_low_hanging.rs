@@ -63,7 +63,10 @@ fn auth_mode_as_str() {
 fn auth_mode_from_str_ok() {
     assert_eq!("disabled".parse::<AuthMode>().unwrap(), AuthMode::Disabled);
     assert_eq!("off".parse::<AuthMode>().unwrap(), AuthMode::Disabled);
-    assert_eq!("maintenance".parse::<AuthMode>().unwrap(), AuthMode::Disabled);
+    assert_eq!(
+        "maintenance".parse::<AuthMode>().unwrap(),
+        AuthMode::Disabled
+    );
     assert_eq!("dev".parse::<AuthMode>().unwrap(), AuthMode::Dev);
     assert_eq!("local".parse::<AuthMode>().unwrap(), AuthMode::Local);
     assert_eq!("ldap".parse::<AuthMode>().unwrap(), AuthMode::Ldap);

@@ -2027,7 +2027,7 @@ impl SpecRepository for SqliteSpecRepository {
     ) -> Result<(), RepositoryError> {
         let timestamp = chrono::Utc::now().to_rfc3339();
         sqlx::query(
-            "INSERT INTO audit_logs (timestamp, username, action, details) VALUES (?, ?, ?, ?)"
+            "INSERT INTO audit_logs (timestamp, username, action, details) VALUES (?, ?, ?, ?)",
         )
         .bind(timestamp)
         .bind(username)

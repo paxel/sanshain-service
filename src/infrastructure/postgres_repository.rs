@@ -1957,7 +1957,7 @@ impl SpecRepository for PostgresSpecRepository {
     ) -> Result<(), RepositoryError> {
         let timestamp = chrono::Utc::now().to_rfc3339();
         sqlx::query(
-            "INSERT INTO audit_logs (timestamp, username, action, details) VALUES ($1, $2, $3, $4)"
+            "INSERT INTO audit_logs (timestamp, username, action, details) VALUES ($1, $2, $3, $4)",
         )
         .bind(timestamp)
         .bind(username)

@@ -42,7 +42,10 @@ fn api_type_from_str_unknown_err() {
 fn auth_mode_from_and_as_str() {
     assert_eq!(AuthMode::from_str("disabled").unwrap().as_str(), "disabled");
     assert_eq!(AuthMode::from_str("off").unwrap().as_str(), "disabled");
-    assert_eq!(AuthMode::from_str("maintenance").unwrap().as_str(), "disabled");
+    assert_eq!(
+        AuthMode::from_str("maintenance").unwrap().as_str(),
+        "disabled"
+    );
     assert_eq!(AuthMode::from_str("dev").unwrap().as_str(), "dev");
     assert_eq!(AuthMode::from_str("local").unwrap().as_str(), "local");
     assert_eq!(AuthMode::from_str("ldap").unwrap().as_str(), "ldap");

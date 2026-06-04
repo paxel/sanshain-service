@@ -126,6 +126,7 @@ function addFocusTag(name) {
   if (window.graphFocusTags.includes(trimmed)) return;
   window.graphFocusTags.push(trimmed);
   renderFocusTags();
+  if (window.updateGraphUrl) window.updateGraphUrl(true);
   redrawGraph();
 }
 window.addFocusTag = addFocusTag;
@@ -133,6 +134,7 @@ window.addFocusTag = addFocusTag;
 function removeFocusTag(name) {
   window.graphFocusTags = window.graphFocusTags.filter((t) => t !== name);
   renderFocusTags();
+  if (window.updateGraphUrl) window.updateGraphUrl(true);
   redrawGraph();
 }
 window.removeFocusTag = removeFocusTag;
@@ -172,6 +174,7 @@ function toggleProtocolFilter(protocol) {
       btn.className = "px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium";
     }
   }
+  if (window.updateGraphUrl) window.updateGraphUrl(true);
   redrawGraph();
 }
 window.toggleProtocolFilter = toggleProtocolFilter;

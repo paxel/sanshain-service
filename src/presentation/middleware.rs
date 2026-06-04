@@ -73,11 +73,14 @@ pub async fn api_auth(
     req: Request,
     next: Next,
 ) -> Result<axum::response::Response, axum::response::Response> {
-    if let Ok(crate::domain::models::AuthMode::Disabled) = services::get_auth_mode(&state.repo).await {
+    if let Ok(crate::domain::models::AuthMode::Disabled) =
+        services::get_auth_mode(&state.repo).await
+    {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
             "Service is in Maintenance Mode / Disabled",
-        ).into_response());
+        )
+            .into_response());
     }
 
     let auth_header = req

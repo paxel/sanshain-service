@@ -1,6 +1,6 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
-use crate::domain::models::{ApiType, AuthMode, LdapConfig, AuditLogEntry, redact_username};
+use crate::domain::models::{ApiType, AuditLogEntry, AuthMode, LdapConfig, redact_username};
 use crate::domain::ports::SpecRepository;
 use axum::{
     Json,
@@ -242,7 +242,10 @@ pub async fn admin_reset_branch_history(
             &state.repo,
             user,
             "RESET_BRANCH_HISTORY",
-            &format!("Reset branch history of branch '{}' of service '{}'", branch, name),
+            &format!(
+                "Reset branch history of branch '{}' of service '{}'",
+                branch, name
+            ),
         )
         .await?;
         Ok(StatusCode::OK)
@@ -394,7 +397,10 @@ pub async fn set_auth_config(
         &state.repo,
         user,
         "UPDATE_SETTINGS",
-        &format!("Updated auth mode to '{}' and LDAP configurations", payload.auth_mode),
+        &format!(
+            "Updated auth mode to '{}' and LDAP configurations",
+            payload.auth_mode
+        ),
     )
     .await?;
     Ok(StatusCode::OK)
@@ -494,7 +500,10 @@ pub async fn trigger_dependency_cleanup(
         &state.repo,
         user,
         "DEPENDENCY_CLEANUP",
-        &format!("Triggered dependency cleanup, deleted {} stale dependencies", res),
+        &format!(
+            "Triggered dependency cleanup, deleted {} stale dependencies",
+            res
+        ),
     )
     .await?;
     Ok(Json(json!({ "deleted": res })))
@@ -513,7 +522,11 @@ pub async fn admin_approve_user(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
     let target_username = if let Ok(users) = services::list_users(&state.repo).await {
-        users.iter().find(|u| u.id == id).map(|u| redact_username(&u.username)).unwrap_or_else(|| format!("User ID {}", id))
+        users
+            .iter()
+            .find(|u| u.id == id)
+            .map(|u| redact_username(&u.username))
+            .unwrap_or_else(|| format!("User ID {}", id))
     } else {
         format!("User ID {}", id)
     };
@@ -538,7 +551,11 @@ pub async fn admin_delete_user_handler(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
     let target_username = if let Ok(users) = services::list_users(&state.repo).await {
-        users.iter().find(|u| u.id == id).map(|u| redact_username(&u.username)).unwrap_or_else(|| format!("User ID {}", id))
+        users
+            .iter()
+            .find(|u| u.id == id)
+            .map(|u| redact_username(&u.username))
+            .unwrap_or_else(|| format!("User ID {}", id))
     } else {
         format!("User ID {}", id)
     };
@@ -653,7 +670,10 @@ pub async fn admin_nuke_branch(
         &state.repo,
         user,
         "NUKE_DATABASE",
-        &format!("Nuked branch '{}', deleted {} services on branch", branch, res),
+        &format!(
+            "Nuked branch '{}', deleted {} services on branch",
+            branch, res
+        ),
     )
     .await?;
     Ok(Json(json!({ "deleted": res })))
@@ -848,7 +868,10 @@ pub async fn export_audit_logs_csv(
     }
     let headers = [
         (axum::http::header::CONTENT_TYPE, "text/csv"),
-        (axum::http::header::CONTENT_DISPOSITION, "attachment; filename=\"audit_logs.csv\""),
+        (
+            axum::http::header::CONTENT_DISPOSITION,
+            "attachment; filename=\"audit_logs.csv\"",
+        ),
     ];
     Ok((headers, csv))
 }

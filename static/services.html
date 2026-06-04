@@ -141,6 +141,16 @@
         }
     }
 
+    function goBackToServices() {
+        history.pushState({}, '', window.location.pathname);
+        loadServices();
+    }
+
+    function goBackToBranches(serviceName) {
+        history.pushState({ service: serviceName }, '', `?service=${encodeURIComponent(serviceName)}`);
+        showServiceBranches(serviceName);
+    }
+
     function renderServiceList(services) {
         const list = document.getElementById('services-list');
         const breadcrumb = document.getElementById('service-breadcrumb');
@@ -167,7 +177,10 @@
             const branches = svc.branches || [];
             const card = document.createElement('div');
             card.className = 'bg-white p-5 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
-            card.onclick = () => showServiceBranches(name);
+            card.onclick = () => {
+                history.pushState({ service: name }, '', `?service=${encodeURIComponent(name)}`);
+                showServiceBranches(name);
+            };
             card.innerHTML = `
                 <div class="flex items-center justify-between">
                     <div class="flex items-center">
@@ -207,7 +220,7 @@
         const breadcrumb = document.getElementById('service-breadcrumb');
         breadcrumb.classList.remove('hidden');
         breadcrumb.innerHTML = `
-            <button onclick="loadServices()" class="hover:text-indigo-600 font-medium">Services</button>
+            <button onclick="goBackToServices()" class="hover:text-indigo-600 font-medium">Services</button>
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
             <span class="text-slate-800 font-semibold">${serviceName}</span>`;
 
@@ -222,7 +235,10 @@
         for (const branch of branches) {
             const card = document.createElement('div');
             card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
-            card.onclick = () => showServiceBranchEndpoints(serviceName, branch);
+            card.onclick = () => {
+                history.pushState({ service: serviceName, branch: branch }, '', `?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branch)}`);
+                showServiceBranchEndpoints(serviceName, branch);
+            };
             card.innerHTML = `
                 <div class="flex items-center justify-between">
                     <div class="flex items-center">
@@ -247,9 +263,9 @@
         const breadcrumb = document.getElementById('service-breadcrumb');
         breadcrumb.classList.remove('hidden');
         breadcrumb.innerHTML = `
-            <button onclick="loadServices()" class="hover:text-indigo-600 font-medium">Services</button>
+            <button onclick="goBackToServices()" class="hover:text-indigo-600 font-medium">Services</button>
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-            <button onclick="showServiceBranches('${serviceName}')" class="hover:text-indigo-600 font-medium">${serviceName}</button>
+            <button onclick="goBackToBranches('${serviceName.replace(/'/g, "\\'")}')" class="hover:text-indigo-600 font-medium">${serviceName}</button>
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
             <span class="text-slate-800 font-semibold">${branchName}</span>`;
 
@@ -313,7 +329,15 @@
                 const clients = clientsMap[key] ? [...clientsMap[key]] : [];
                 const card = document.createElement('div');
                 card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
-                card.onclick = () => showServiceEndpointYaml(serviceName, branchName, ep);
+                card.onclick = () => {
+                    const api_type = ep.api_type || 'REST';
+                    history.pushState(
+                        { service: serviceName, branch: branchName, path: ep.path, method: ep.method, api_type },
+                        '',
+                        `?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${encodeURIComponent(api_type)}`
+                    );
+                    showServiceEndpointYaml(serviceName, branchName, ep);
+                };
                 card.innerHTML = `
                     <div class="flex items-center justify-between">
                         <div class="flex items-center">
@@ -447,25 +471,57 @@
         window.location.href = `/clients.html?name=${encodeURIComponent(clientName)}`;
     }
 
-    // Handle deep-link: ?service=...&branch=...
-    (function handleDeepLink() {
+    function closeModal() {
+        document.getElementById('modal').classList.add('hidden');
+        const reportBtn = document.getElementById('md-report-btn');
+        if (reportBtn) reportBtn.style.display = '';
+
+        // Clean up URL parameters on close
         const params = new URLSearchParams(window.location.search);
         const service = params.get('service');
         const branch = params.get('branch');
         if (service && branch) {
-            checkDiscoveryAuth(async () => {
-                await loadAllServiceBranches();
-                showServiceBranchEndpoints(service, branch);
-            });
+            history.pushState({ service, branch }, '', `?service=${encodeURIComponent(service)}&branch=${encodeURIComponent(branch)}`);
         } else if (service) {
-            checkDiscoveryAuth(async () => {
-                await loadAllServiceBranches();
-                showServiceBranches(service);
-            });
+            history.pushState({ service }, '', `?service=${encodeURIComponent(service)}`);
         } else {
-            checkDiscoveryAuth(() => loadServices());
+            history.pushState({}, '', window.location.pathname);
         }
-    })();
+    }
+
+    async function handleDeepLink() {
+        const params = new URLSearchParams(window.location.search);
+        const service = params.get('service');
+        const branch = params.get('branch');
+        const path = params.get('path');
+        const method = params.get('method');
+        const api_type = params.get('api_type') || 'REST';
+
+        if (service && branch && path && method) {
+            await showServiceBranchEndpoints(service, branch);
+            await showServiceEndpointYaml(service, branch, { path, method, api_type });
+        } else if (service && branch) {
+            document.getElementById('modal').classList.add('hidden');
+            await showServiceBranchEndpoints(service, branch);
+        } else if (service) {
+            document.getElementById('modal').classList.add('hidden');
+            await showServiceBranches(service);
+        } else {
+            document.getElementById('modal').classList.add('hidden');
+            await loadServices();
+        }
+    }
+
+    // Initial load
+    checkDiscoveryAuth(async () => {
+        await loadAllServiceBranches();
+        await handleDeepLink();
+    });
+
+    // Handle back/forward navigation
+    window.addEventListener('popstate', () => {
+        handleDeepLink();
+    });
 </script>
     <footer class="text-center text-sm text-slate-500 py-6 mt-auto">
         <img src="/images/sonne.png" alt="Sanshain" width="59" height="32" class="mx-auto mb-2 h-8 w-auto opacity-70">

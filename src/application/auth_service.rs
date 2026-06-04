@@ -212,7 +212,11 @@ pub async fn set_auth_mode(repo: &impl SpecRepository, mode: &AuthMode) -> Resul
     let val = mode.as_str();
     repo.set_setting("auth_mode", val).await?;
 
-    let dev_mode_val = if matches!(mode, AuthMode::Dev) { "true" } else { "false" };
+    let dev_mode_val = if matches!(mode, AuthMode::Dev) {
+        "true"
+    } else {
+        "false"
+    };
     repo.set_setting("dev_mode", dev_mode_val).await?;
     Ok(())
 }

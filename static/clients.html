@@ -139,6 +139,16 @@
         }
     }
 
+    function goBackToClients() {
+        history.pushState({}, '', window.location.pathname);
+        showClients();
+    }
+
+    function goBackToClientBranches(clientName) {
+        history.pushState({ name: clientName }, '', `?name=${encodeURIComponent(clientName)}`);
+        showClientBranches(clientName);
+    }
+
     function renderClientList(clients) {
         const list = document.getElementById('clients-list');
         if (!clients || clients.length === 0) {
@@ -158,7 +168,10 @@
         for (const name of clients) {
             const card = document.createElement('div');
             card.className = 'bg-white p-5 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
-            card.onclick = () => showClientBranches(name);
+            card.onclick = () => {
+                history.pushState({ name }, '', `?name=${encodeURIComponent(name)}`);
+                showClientBranches(name);
+            };
             card.innerHTML = `
                 <div class="flex items-center justify-between">
                     <div class="flex items-center">
@@ -189,7 +202,7 @@
             const breadcrumb = document.createElement('div');
             breadcrumb.className = 'flex items-center text-sm text-slate-500 mb-4';
             breadcrumb.innerHTML = `
-                <button onclick="showClients()" class="hover:text-teal-600 font-medium">Clients</button>
+                <button onclick="goBackToClients()" class="hover:text-teal-600 font-medium">Clients</button>
                 <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
                 <span class="text-slate-800 font-semibold">${clientName}</span>`;
             list.appendChild(breadcrumb);
@@ -206,7 +219,10 @@
             for (const branch of branches) {
                 const card = document.createElement('div');
                 card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
-                card.onclick = () => showClientEndpoints(clientName, branch);
+                card.onclick = () => {
+                    history.pushState({ name: clientName, branch }, '', `?name=${encodeURIComponent(clientName)}&branch=${encodeURIComponent(branch)}`);
+                    showClientEndpoints(clientName, branch);
+                };
                 card.innerHTML = `
                     <div class="flex items-center justify-between">
                         <div class="flex items-center">
@@ -242,9 +258,9 @@
             const breadcrumb = document.createElement('div');
             breadcrumb.className = 'flex items-center text-sm text-slate-500 mb-4';
             breadcrumb.innerHTML = `
-                <button onclick="showClients()" class="hover:text-teal-600 font-medium">Clients</button>
+                <button onclick="goBackToClients()" class="hover:text-teal-600 font-medium">Clients</button>
                 <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                <button onclick="showClientBranches('${clientName}')" class="hover:text-teal-600 font-medium">${clientName}</button>
+                <button onclick="goBackToClientBranches('${clientName.replace(/'/g, "\\'")}')" class="hover:text-teal-600 font-medium">${clientName}</button>
                 <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
                 <span class="text-slate-800 font-semibold">${branch}</span>`;
             list.appendChild(breadcrumb);
@@ -262,7 +278,14 @@
                 const card = document.createElement('div');
                 card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card' + (ep.yaml_content ? ' cursor-pointer' : '');
                 if (ep.yaml_content) {
-                    card.onclick = () => showClientYaml(clientName, branch, ep);
+                    card.onclick = () => {
+                        history.pushState(
+                            { name: clientName, branch, path: ep.path, method: ep.method },
+                            '',
+                            `?name=${encodeURIComponent(clientName)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}`
+                        );
+                        showClientYaml(clientName, branch, ep);
+                    };
                 }
                 card.innerHTML = `
                     <div class="flex items-center justify-between">
@@ -301,8 +324,26 @@
         renderPaginatedYaml(content, ep.yaml_content, `${ep.service}_${ep.method}_${ep.path.replace(/\//g, '_')}.yaml`);
     }
 
+    function closeModal() {
+        document.getElementById('modal').classList.add('hidden');
+        const reportBtn = document.getElementById('md-report-btn');
+        if (reportBtn) reportBtn.style.display = '';
+
+        // Clean up URL parameters on close
+        const params = new URLSearchParams(window.location.search);
+        const name = params.get('name');
+        const branch = params.get('branch');
+        if (name && branch) {
+            history.pushState({ name, branch }, '', `?name=${encodeURIComponent(name)}&branch=${encodeURIComponent(branch)}`);
+        } else if (name) {
+            history.pushState({ name }, '', `?name=${encodeURIComponent(name)}`);
+        } else {
+            history.pushState({}, '', window.location.pathname);
+        }
+    }
+
     function navigateToServiceEndpoint(serviceName, branch, path, method) {
-        window.location.href = `/services.html?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branch)}`;
+        window.location.href = `/services.html?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}`;
     }
 
     document.getElementById('client-search').addEventListener('input', function() {
@@ -314,19 +355,41 @@
         renderClientList(allClients.filter(name => name.toLowerCase().includes(q)));
     });
 
-    // Handle deep-link: ?name=...
-    (function handleDeepLink() {
+    async function handleDeepLink() {
         const params = new URLSearchParams(window.location.search);
-        const clientName = params.get('name');
-        if (clientName) {
-            checkDiscoveryAuth(async () => {
-                await showClients();
-                showClientBranches(clientName);
-            });
+        const name = params.get('name');
+        const branch = params.get('branch');
+        const path = params.get('path');
+        const method = params.get('method');
+
+        if (name && branch && path && method) {
+            await showClientEndpoints(name, branch);
+            const endpoints = await fetchJSON(`/admin/clients/${encodeURIComponent(name)}/branches/${encodeURIComponent(branch)}/endpoints`);
+            const ep = (endpoints || []).find(e => e.path === path && e.method === method);
+            if (ep && ep.yaml_content) {
+                showClientYaml(name, branch, ep);
+            }
+        } else if (name && branch) {
+            document.getElementById('modal').classList.add('hidden');
+            await showClientEndpoints(name, branch);
+        } else if (name) {
+            document.getElementById('modal').classList.add('hidden');
+            await showClientBranches(name);
         } else {
-            checkDiscoveryAuth(() => showClients());
+            document.getElementById('modal').classList.add('hidden');
+            await showClients();
         }
-    })();
+    }
+
+    // Initial load
+    checkDiscoveryAuth(async () => {
+        await handleDeepLink();
+    });
+
+    // Handle back/forward navigation
+    window.addEventListener('popstate', () => {
+        handleDeepLink();
+    });
 </script>
     <footer class="text-center text-sm text-slate-500 py-6 mt-auto">
         <img src="/images/sonne.png" alt="Sanshain" width="59" height="32" class="mx-auto mb-2 h-8 w-auto opacity-70">

@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.3.0] - 2026-06-04
 
 ### Added
+- **Frontend Deep-Linking and History Support**: Implemented comprehensive client-side deep-linking and browser history support for `services.html`, `clients.html`, `graph.html`, and `reports.html`. Users can now copy URLs directly from their browser's address bar to share specific views (services/clients lists, branches, selected endpoints, diagram configurations, focus tags, protocol filters, and reports). Clicking cards or options dynamically updates the address bar via the HTML5 History API without page reloads, and the browser's Back and Forward controls work seamlessly across all pages.
 - **Persistent Database Audit Log**: Implemented a database-backed audit logging system for both SQLite and PostgreSQL. All successful database mutating operations (spec uploads, client token creation/revocation, user registration/approval/deletion, settings updates, and admin database resets) are now securely recorded.
 - **Audit Masking and Security**: Built safe, automated username masking (e.g., `root` -> `r**t`) and absolute data sanitization, ensuring raw passwords, secrets, or API keys are never persisted. Exposed secure JSON and CSV retrieval endpoints requiring proper authentication.
 - **Observability Audit Log Table**: Integrated a live-updating, auto-refreshing Database Audit Log table in the System Observability dashboard along with single-click CSV export functionality.
