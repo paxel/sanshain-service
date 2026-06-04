@@ -72,7 +72,14 @@ pub async fn api_auth(
     State(state): State<AppState>,
     req: Request,
     next: Next,
-) -> Result<impl IntoResponse, StatusCode> {
+) -> Result<axum::response::Response, axum::response::Response> {
+    if let Ok(crate::domain::models::AuthMode::Disabled) = services::get_auth_mode(&state.repo).await {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Service is in Maintenance Mode / Disabled",
+        ).into_response());
+    }
+
     let auth_header = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -94,14 +101,14 @@ pub async fn api_auth(
         }
 
         // Token was provided but invalid
-        return Err(StatusCode::UNAUTHORIZED);
+        return Err(StatusCode::UNAUTHORIZED.into_response());
     }
 
     if services::get_dev_mode(&state.repo).await.unwrap_or(false) {
         return Ok(next.run(req).await);
     }
 
-    Err(StatusCode::FORBIDDEN)
+    Err(StatusCode::FORBIDDEN.into_response())
 }
 
 pub struct LogVisitor<'a> {

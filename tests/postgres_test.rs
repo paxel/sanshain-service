@@ -8,6 +8,7 @@ use sanshain_service::application::services;
 use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
 use sanshain_service::infrastructure::database::DatabaseRepo;
 use sanshain_service::infrastructure::postgres_repository::PostgresSpecRepository;
+use sanshain_service::domain::models::AuthMode;
 use sanshain_service::{AppState, create_app};
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
@@ -77,7 +78,7 @@ async fn test_postgres_full_flow_with_testcontainers() {
     // 3. Setup app
     let app = create_app(test_app_state(repo.clone(), db_url));
     services::ensure_initial_admin(&repo).await.unwrap();
-    services::set_dev_mode(&repo, true).await.unwrap();
+    services::set_auth_mode(&repo, &AuthMode::Dev).await.unwrap();
 
     // 4. Run simple flow (Provide -> Require)
     let openapi_yaml = r#"

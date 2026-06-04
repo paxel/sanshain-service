@@ -52,6 +52,7 @@ fn api_type_from_str_err() {
 // 4. AuthMode::as_str
 #[test]
 fn auth_mode_as_str() {
+    assert_eq!(AuthMode::Disabled.as_str(), "disabled");
     assert_eq!(AuthMode::Dev.as_str(), "dev");
     assert_eq!(AuthMode::Local.as_str(), "local");
     assert_eq!(AuthMode::Ldap.as_str(), "ldap");
@@ -60,6 +61,9 @@ fn auth_mode_as_str() {
 // 5. AuthMode FromStr ok
 #[test]
 fn auth_mode_from_str_ok() {
+    assert_eq!("disabled".parse::<AuthMode>().unwrap(), AuthMode::Disabled);
+    assert_eq!("off".parse::<AuthMode>().unwrap(), AuthMode::Disabled);
+    assert_eq!("maintenance".parse::<AuthMode>().unwrap(), AuthMode::Disabled);
     assert_eq!("dev".parse::<AuthMode>().unwrap(), AuthMode::Dev);
     assert_eq!("local".parse::<AuthMode>().unwrap(), AuthMode::Local);
     assert_eq!("ldap".parse::<AuthMode>().unwrap(), AuthMode::Ldap);

@@ -67,6 +67,7 @@ impl std::str::FromStr for ApiType {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AuthMode {
+    Disabled,
     Dev,
     Local,
     Ldap,
@@ -75,6 +76,7 @@ pub enum AuthMode {
 impl AuthMode {
     pub fn as_str(&self) -> &'static str {
         match self {
+            AuthMode::Disabled => "disabled",
             AuthMode::Dev => "dev",
             AuthMode::Local => "local",
             AuthMode::Ldap => "ldap",
@@ -87,6 +89,7 @@ impl std::str::FromStr for AuthMode {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "disabled" | "off" | "maintenance" => Ok(AuthMode::Disabled),
             "dev" => Ok(AuthMode::Dev),
             "local" => Ok(AuthMode::Local),
             "ldap" => Ok(AuthMode::Ldap),

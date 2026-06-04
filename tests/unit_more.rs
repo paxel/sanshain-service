@@ -2,12 +2,12 @@ use sanshain_service::application::auth_service;
 use sanshain_service::application::mock_repo::MockRepo;
 use sanshain_service::domain::models::*;
 
-// 1. get_auth_mode default is Dev
+// 1. get_auth_mode default is Disabled
 #[tokio::test]
-async fn auth_mode_default_dev() {
+async fn auth_mode_default_disabled() {
     let repo = MockRepo::new();
     let mode = auth_service::get_auth_mode(&repo).await.unwrap();
-    assert!(matches!(mode, AuthMode::Dev));
+    assert!(matches!(mode, AuthMode::Disabled));
 }
 
 // 2. set_auth_mode to Local and verify

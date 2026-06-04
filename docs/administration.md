@@ -23,12 +23,7 @@ The **Observability** tab provides real-time insights into the system's health:
 
 ## Developer Mode
 
-The **Developer Mode** toggle controls whether the public API endpoints (`/provide`, `/require`, `/report`) are accessible without authentication.
-
-- **Off (default)** — every request must carry a valid session cookie or `Authorization: Bearer` token.
-- **On** — all non-admin endpoints are open to anonymous callers. Useful for local development and quick testing.
-
-Toggle the switch and the change takes effect immediately — no restart required.
+Developer Mode is configured via the unified **Authentication** section of the admin dashboard. Selecting **Dev Mode** allows public API endpoints (`/provide`, `/require`, `/report`) to be accessible without any authentication. This is useful for local development and quick testing, but should not be used in production.
 
 ## Protected Branches
 
@@ -59,12 +54,13 @@ When **Local User Registration** is enabled, anyone can create an account via th
 
 This is intended for development and internal use. For production environments, consider using LDAP authentication (see below).
 
-## Authentication Mode (LDAP)
+## Authentication Mode (OFF / Maintenance, Dev, Local, LDAP)
 
 The **Authentication** section on the admin dashboard lets you choose how users authenticate:
 
 | Mode | Description |
 |------|-------------|
+| **OFF / Maintenance** | Default on new installations. Restricts all anonymous and token-based interaction with provide/require API endpoints, returning 503 Service Unavailable. |
 | **Dev Mode** | No authentication required for public API endpoints. |
 | **Local Users** | Built-in user management with Argon2 password hashing. |
 | **LDAP** | Delegate authentication to an external LDAP / Active Directory server. |

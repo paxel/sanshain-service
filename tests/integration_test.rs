@@ -5,7 +5,7 @@ use axum::{
 };
 use chrono::Utc;
 use sanshain_service::application::services;
-use sanshain_service::domain::models::ProvideResponse;
+use sanshain_service::domain::models::{AuthMode, ProvideResponse};
 use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
 use sanshain_service::infrastructure::database::DatabaseRepo;
 use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
@@ -77,7 +77,7 @@ async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
 async fn setup_app_dev_mode() -> axum::Router {
     let (app, repo) = setup_app().await;
     services::ensure_initial_admin(&repo).await.unwrap();
-    services::set_dev_mode(&repo, true).await.unwrap();
+    services::set_auth_mode(&repo, &AuthMode::Dev).await.unwrap();
     app
 }
 
@@ -99,6 +99,8 @@ async fn setup_app_with_admin() -> (axum::Router, String) {
         .create_session(user.id, "2099-12-31T23:59:59")
         .await
         .unwrap();
+
+    services::set_auth_mode(&repo, &AuthMode::Local).await.unwrap();
 
     let app = create_app(test_app_state(repo));
     (app, session.token)
@@ -1317,7 +1319,8 @@ async fn test_admin_auth_requires_session() {
 
 #[tokio::test]
 async fn test_api_locked_without_dev_mode() {
-    let (app, _) = setup_app().await;
+    let (app, repo) = setup_app().await;
+    services::set_auth_mode(&repo, &AuthMode::Local).await.unwrap();
 
     // API endpoints should be locked (dev_mode=false by default)
     let response: Response = app
@@ -2352,7 +2355,49 @@ async fn test_api_token_crud_and_bearer_auth() {
 async fn test_auth_config_api() {
     let (app, token) = setup_app_with_admin().await;
 
-    // GET auth-config — default should be "dev"
+    // GET auth-config — default should be "local" (configured by setup_app_with_admin)
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/auth-config")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
+    let data: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(data["auth_mode"], "local");
+
+    // PUT auth-config — switch to dev
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/admin/auth-config")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "auth_mode": "dev"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify it changed to dev
     let response: Response = app
         .clone()
         .oneshot(
@@ -2526,6 +2571,59 @@ async fn test_auth_config_api() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_disabled_mode_endpoints_return_503() {
+    let (app, _) = setup_app().await;
+
+    // By default, the app is in "disabled" mode, so calling /provide should return 503 Service Unavailable
+    let provide_payload = json!({
+        "servicename": "test-service",
+        "branch": "main",
+        "openapi_yaml": "openapi: 3.0.0\ninfo:\n  title: Test\n  version: 1.0.0\npaths:\n  /:\n    get:\n      responses:\n        '200':\n          description: OK"
+    });
+
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&provide_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    assert_eq!(text, "Service is in Maintenance Mode / Disabled");
+
+    // Also /require should return 503
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require?clientname=client-a&servicename=test-service&branch=main&path=/&method=GET")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    assert_eq!(text, "Service is in Maintenance Mode / Disabled");
 }
 
 #[tokio::test]

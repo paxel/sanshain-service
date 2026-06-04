@@ -198,22 +198,22 @@ pub async fn get_auth_mode(repo: &impl SpecRepository) -> Result<AuthMode, AppEr
     let val = repo
         .get_setting("auth_mode")
         .await?
-        .unwrap_or("dev".to_string());
+        .unwrap_or("disabled".to_string());
     match val.as_str() {
+        "disabled" | "off" | "maintenance" => Ok(AuthMode::Disabled),
         "ldap" => Ok(AuthMode::Ldap),
         "local" => Ok(AuthMode::Local),
         "dev" => Ok(AuthMode::Dev),
-        _ => Ok(AuthMode::Dev),
+        _ => Ok(AuthMode::Disabled),
     }
 }
 
 pub async fn set_auth_mode(repo: &impl SpecRepository, mode: &AuthMode) -> Result<(), AppError> {
-    let val = match mode {
-        AuthMode::Local => "local",
-        AuthMode::Ldap => "ldap",
-        AuthMode::Dev => "dev",
-    };
+    let val = mode.as_str();
     repo.set_setting("auth_mode", val).await?;
+
+    let dev_mode_val = if matches!(mode, AuthMode::Dev) { "true" } else { "false" };
+    repo.set_setting("dev_mode", dev_mode_val).await?;
     Ok(())
 }
 
