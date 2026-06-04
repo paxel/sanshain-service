@@ -113,6 +113,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/observability/logs", get(admin::get_observability_logs).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/observability/debug-config", get(admin::get_debug_config).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/observability/debug-config-update", post(admin::set_debug_config).layer(from_fn_with_state(state.clone(), admin_auth)))
+        .route("/admin/observability/audit-logs", get(admin::get_observability_audit_logs).layer(from_fn_with_state(state.clone(), authenticated_auth)))
+        .route("/admin/observability/audit-logs/export", get(admin::export_audit_logs_csv).layer(from_fn_with_state(state.clone(), authenticated_auth)))
 
         // Auth (Mixed prefix)
         .route("/auth/login", post(auth::auth_login))

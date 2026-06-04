@@ -4716,3 +4716,163 @@ paths:
     assert_eq!(info["owner_service"], "sc-svc");
     assert_ne!(info["source_yaml"], info["current_yaml"]);
 }
+
+#[tokio::test]
+async fn test_audit_logs_and_security() {
+    let (app, token) = setup_app_with_admin().await;
+
+    // 1. Unauthenticated requests should fail with 401
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/observability/audit-logs")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/observability/audit-logs/export")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    // 1.5 Enable local user registration first
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/settings/local-users")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "enabled": true
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // 2. Perform register action (should be logged with redacted username, no password)
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/register")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "username": "user123",
+                        "password": "super-secret-password"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    // 3. Perform a settings action (dev mode change)
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/settings/dev-mode")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "enabled": true
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // 4. Authenticated request for audit logs should succeed
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/observability/audit-logs")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let logs: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(logs.is_array());
+    let arr = logs.as_array().unwrap();
+    assert!(!arr.is_empty());
+
+    // Verify the register user audit log has redacted actor/target, and NO raw password is in logs
+    let reg_log = arr.iter().find(|l| l["action"] == "REGISTER_USER").unwrap();
+    assert_eq!(reg_log["username"], "DevMode/Anonymous");
+    assert!(reg_log["details"].as_str().unwrap().contains("u*****3")); // redacted user123
+    assert!(!reg_log["details"].as_str().unwrap().contains("super-secret-password"));
+
+    // Verify dev mode setting log is registered with redacted actor username (admin -> a***n)
+    let dev_log = arr.iter().find(|l| l["action"] == "SET_DEV_MODE").unwrap();
+    assert_eq!(dev_log["username"], "a***n");
+    assert_eq!(dev_log["details"], "Set dev-mode to true");
+
+    // 5. Authenticated CSV export request should succeed
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/observability/audit-logs/export")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers().get("content-type").unwrap(), "text/csv");
+    assert_eq!(
+        response.headers().get("content-disposition").unwrap(),
+        "attachment; filename=\"audit_logs.csv\""
+    );
+
+    let body_csv = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let csv_str = String::from_utf8(body_csv.to_vec()).unwrap();
+    assert!(csv_str.starts_with("id,timestamp,username,action,details\n"));
+    assert!(csv_str.contains("REGISTER_USER"));
+    assert!(csv_str.contains("SET_DEV_MODE"));
+}

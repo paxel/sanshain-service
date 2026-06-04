@@ -506,4 +506,20 @@ pub trait SpecRepository: Send + Sync {
         &self,
         contract: SharedContract,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    // --- Audit Logs ---
+
+    /// Insert an audit log record
+    fn insert_audit_log(
+        &self,
+        username: &str,
+        action: &str,
+        details: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Get the recent audit log records, ordered by timestamp DESC
+    fn get_recent_audit_logs(
+        &self,
+        limit: u32,
+    ) -> impl Future<Output = Result<Vec<AuditLogEntry>, RepositoryError>> + Send;
 }

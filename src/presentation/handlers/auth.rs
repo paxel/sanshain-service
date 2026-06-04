@@ -1,8 +1,24 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
-use crate::domain::models::User;
+use crate::domain::models::{User, redact_username};
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use serde::{Deserialize, Serialize};
+
+async fn record_audit_log(
+    repo: &impl crate::domain::ports::SpecRepository,
+    user: Option<&User>,
+    action: &str,
+    details: &str,
+) -> Result<(), AppError> {
+    let actor = if let Some(u) = user {
+        redact_username(&u.username)
+    } else {
+        "DevMode/Anonymous".to_string()
+    };
+    repo.insert_audit_log(&actor, action, details)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))
+}
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
@@ -80,12 +96,21 @@ pub async fn auth_change_password(
     .await?;
 
     match session {
-        Some(session) => Ok((
-            StatusCode::OK,
-            Json(ChangePasswordResponse {
-                token: session.token,
-            }),
-        )),
+        Some(session) => {
+            record_audit_log(
+                &state.repo,
+                Some(&user),
+                "CHANGE_PASSWORD",
+                "Successfully changed user password",
+            )
+            .await?;
+            Ok((
+                StatusCode::OK,
+                Json(ChangePasswordResponse {
+                    token: session.token,
+                }),
+            ))
+        }
         None => Err(AppError::Internal(
             "Password updated without an authenticated session token".to_string(),
         )),
@@ -97,6 +122,13 @@ pub async fn auth_register(
     Json(payload): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     services::register_user(&state.repo, &payload.username, &payload.password).await?;
+    record_audit_log(
+        &state.repo,
+        None,
+        "REGISTER_USER",
+        &format!("Registered user '{}'", redact_username(&payload.username)),
+    )
+    .await?;
     Ok(StatusCode::CREATED)
 }
 
@@ -150,6 +182,13 @@ pub async fn create_token(
     let (id, token) =
         services::create_api_token(&state.repo, user.id, &payload.name, payload.expires_in_days)
             .await?;
+    record_audit_log(
+        &state.repo,
+        Some(&user),
+        "CREATE_TOKEN",
+        &format!("Created API token '{}' with ID '{}'", payload.name, id),
+    )
+    .await?;
     Ok(Json(CreateTokenResponse {
         id,
         name: payload.name.clone(),
@@ -163,5 +202,12 @@ pub async fn revoke_token(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
     services::revoke_api_token(&state.repo, &id, user.id).await?;
+    record_audit_log(
+        &state.repo,
+        Some(&user),
+        "REVOKE_TOKEN",
+        &format!("Revoked API token with ID '{}'", id),
+    )
+    .await?;
     Ok(StatusCode::OK)
 }

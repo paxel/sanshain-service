@@ -1,6 +1,7 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
-use crate::domain::models::{ApiType, AuthMode, LdapConfig};
+use crate::domain::models::{ApiType, AuthMode, LdapConfig, AuditLogEntry, redact_username};
+use crate::domain::ports::SpecRepository;
 use axum::{
     Json,
     extract::{Path, Query, State},
@@ -10,6 +11,22 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 use std::str::FromStr;
+
+async fn record_audit_log(
+    repo: &impl crate::domain::ports::SpecRepository,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    action: &str,
+    details: &str,
+) -> Result<(), AppError> {
+    let actor = if let Some(axum::Extension(u)) = user {
+        redact_username(&u.username)
+    } else {
+        "DevMode/Anonymous".to_string()
+    };
+    repo.insert_audit_log(&actor, action, details)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))
+}
 
 pub async fn admin_list_services(
     State(state): State<AppState>,
@@ -138,17 +155,33 @@ pub struct AddProtectedBranchRequest {
 
 pub async fn add_protected_branch(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<AddProtectedBranchRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     services::add_protected_branch(&state.repo, &payload.pattern).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        "ADD_PROTECTED_BRANCH",
+        &format!("Protected branch pattern '{}' added", payload.pattern),
+    )
+    .await?;
     Ok(StatusCode::CREATED)
 }
 
 pub async fn delete_protected_branch(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Path(pattern): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
     if services::remove_protected_branch(&state.repo, &pattern).await? {
+        record_audit_log(
+            &state.repo,
+            user,
+            "DELETE_PROTECTED_BRANCH",
+            &format!("Protected branch pattern '{}' deleted", pattern),
+        )
+        .await?;
         Ok(StatusCode::OK)
     } else {
         Err(AppError::NotFound(format!(
@@ -160,9 +193,17 @@ pub async fn delete_protected_branch(
 
 pub async fn admin_delete_service(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
     if services::delete_service(&state.repo, &name).await? {
+        record_audit_log(
+            &state.repo,
+            user,
+            "DELETE_SERVICE",
+            &format!("Deleted service '{}'", name),
+        )
+        .await?;
         Ok(StatusCode::OK)
     } else {
         Err(AppError::NotFound(format!("Service not found: {}", name)))
@@ -171,9 +212,17 @@ pub async fn admin_delete_service(
 
 pub async fn admin_delete_branch(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Path((name, branch)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     if services::delete_branch(&state.repo, &name, &branch).await? {
+        record_audit_log(
+            &state.repo,
+            user,
+            "DELETE_BRANCH",
+            &format!("Deleted branch '{}' of service '{}'", branch, name),
+        )
+        .await?;
         Ok(StatusCode::OK)
     } else {
         Err(AppError::NotFound(format!(
@@ -185,9 +234,17 @@ pub async fn admin_delete_branch(
 
 pub async fn admin_reset_branch_history(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Path((name, branch)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     if services::reset_branch_history(&state.repo, &name, &branch).await? {
+        record_audit_log(
+            &state.repo,
+            user,
+            "RESET_BRANCH_HISTORY",
+            &format!("Reset branch history of branch '{}' of service '{}'", branch, name),
+        )
+        .await?;
         Ok(StatusCode::OK)
     } else {
         Err(AppError::NotFound(format!(
@@ -199,9 +256,17 @@ pub async fn admin_reset_branch_history(
 
 pub async fn admin_delete_client(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
     if services::delete_client(&state.repo, &name).await? {
+        record_audit_log(
+            &state.repo,
+            user,
+            "DELETE_CLIENT",
+            &format!("Deleted client '{}'", name),
+        )
+        .await?;
         Ok(StatusCode::OK)
     } else {
         Err(AppError::NotFound(format!("Client not found: {}", name)))
@@ -220,9 +285,17 @@ pub struct EnabledRequest {
 
 pub async fn set_dev_mode(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<EnabledRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     services::set_dev_mode(&state.repo, payload.enabled).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        "SET_DEV_MODE",
+        &format!("Set dev-mode to {}", payload.enabled),
+    )
+    .await?;
     Ok(StatusCode::OK)
 }
 
@@ -233,9 +306,17 @@ pub async fn get_local_users(State(state): State<AppState>) -> Result<impl IntoR
 
 pub async fn set_local_users(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<EnabledRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     services::set_local_users_enabled(&state.repo, payload.enabled).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        "SET_LOCAL_USERS",
+        &format!("Set local-users to {}", payload.enabled),
+    )
+    .await?;
     Ok(StatusCode::OK)
 }
 
@@ -248,9 +329,17 @@ pub async fn get_auto_approve_users(
 
 pub async fn set_auto_approve_users(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<EnabledRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     services::set_auto_approve_users(&state.repo, payload.enabled).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        "SET_AUTO_APPROVE",
+        &format!("Set auto-approve-users to {}", payload.enabled),
+    )
+    .await?;
     Ok(StatusCode::OK)
 }
 
@@ -279,6 +368,7 @@ pub struct AuthConfigRequest {
 
 pub async fn set_auth_config(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<AuthConfigRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let mode = AuthMode::from_str(&payload.auth_mode)
@@ -300,6 +390,13 @@ pub async fn set_auth_config(
         }
         services::set_ldap_config(&state.repo, &ldap).await?;
     }
+    record_audit_log(
+        &state.repo,
+        user,
+        "UPDATE_SETTINGS",
+        &format!("Updated auth mode to '{}' and LDAP configurations", payload.auth_mode),
+    )
+    .await?;
     Ok(StatusCode::OK)
 }
 
@@ -326,6 +423,7 @@ pub struct MaxAgeDaysPayload {
 
 pub async fn set_branch_max_age(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<MaxAgeDaysPayload>,
 ) -> Result<impl IntoResponse, AppError> {
     if payload.days == 0 {
@@ -334,13 +432,28 @@ pub async fn set_branch_max_age(
         ));
     }
     services::set_branch_max_age_days(&state.repo, payload.days).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        "UPDATE_SETTINGS",
+        &format!("Set branch max age to {} days", payload.days),
+    )
+    .await?;
     Ok(StatusCode::OK)
 }
 
 pub async fn trigger_branch_cleanup(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
 ) -> Result<impl IntoResponse, AppError> {
     let res = services::cleanup_stale_branches(&state.repo).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        "BRANCH_CLEANUP",
+        &format!("Triggered branch cleanup, deleted {} stale branches", res),
+    )
+    .await?;
     Ok(Json(json!({ "deleted": res })))
 }
 
@@ -353,6 +466,7 @@ pub async fn get_dependency_max_age(
 
 pub async fn set_dependency_max_age(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<MaxAgeDaysPayload>,
 ) -> Result<impl IntoResponse, AppError> {
     if payload.days == 0 {
@@ -361,13 +475,28 @@ pub async fn set_dependency_max_age(
         ));
     }
     services::set_dependency_max_age_days(&state.repo, payload.days).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        "UPDATE_SETTINGS",
+        &format!("Set dependency max age to {} days", payload.days),
+    )
+    .await?;
     Ok(StatusCode::OK)
 }
 
 pub async fn trigger_dependency_cleanup(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
 ) -> Result<impl IntoResponse, AppError> {
     let res = services::cleanup_stale_dependencies(&state.repo).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        "DEPENDENCY_CLEANUP",
+        &format!("Triggered dependency cleanup, deleted {} stale dependencies", res),
+    )
+    .await?;
     Ok(Json(json!({ "deleted": res })))
 }
 
@@ -380,9 +509,23 @@ pub async fn admin_list_users(
 
 pub async fn admin_approve_user(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
+    let target_username = if let Ok(users) = services::list_users(&state.repo).await {
+        users.iter().find(|u| u.id == id).map(|u| redact_username(&u.username)).unwrap_or_else(|| format!("User ID {}", id))
+    } else {
+        format!("User ID {}", id)
+    };
+
     if services::approve_user(&state.repo, id).await? {
+        record_audit_log(
+            &state.repo,
+            user,
+            "APPROVE_USER",
+            &format!("Approved user '{}'", target_username),
+        )
+        .await?;
         Ok(StatusCode::OK)
     } else {
         Err(AppError::NotFound(format!("User with ID {} not found", id)))
@@ -391,9 +534,23 @@ pub async fn admin_approve_user(
 
 pub async fn admin_delete_user_handler(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
+    let target_username = if let Ok(users) = services::list_users(&state.repo).await {
+        users.iter().find(|u| u.id == id).map(|u| redact_username(&u.username)).unwrap_or_else(|| format!("User ID {}", id))
+    } else {
+        format!("User ID {}", id)
+    };
+
     if services::admin_delete_user(&state.repo, id).await? {
+        record_audit_log(
+            &state.repo,
+            user,
+            "DELETE_USER",
+            &format!("Deleted user '{}'", target_username),
+        )
+        .await?;
         Ok(StatusCode::OK)
     } else {
         Err(AppError::NotFound(format!("User with ID {} not found", id)))
@@ -407,118 +564,98 @@ pub struct NukeConfirmPayload {
 
 pub async fn admin_nuke_services(
     State(state): State<AppState>,
-    axum::Extension(user): axum::Extension<crate::domain::models::User>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<NukeConfirmPayload>,
 ) -> Result<impl IntoResponse, AppError> {
     if payload.confirmation != "DELETE ALL SERVICES" {
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
-    tracing::warn!(
-        "AUDIT: User '{}' (ID: {}) initiated DESTRUCTION of ALL SERVICES",
-        user.username,
-        user.id
-    );
     let res = services::delete_all_services(&state.repo).await?;
-    tracing::warn!(
-        "AUDIT: User '{}' (ID: {}) successfully deleted {} services",
-        user.username,
-        user.id,
-        res
-    );
+    record_audit_log(
+        &state.repo,
+        user,
+        "NUKE_DATABASE",
+        &format!("Nuked all services, deleted {} services", res),
+    )
+    .await?;
     Ok(Json(json!({ "deleted": res })))
 }
 
 pub async fn admin_nuke_clients(
     State(state): State<AppState>,
-    axum::Extension(user): axum::Extension<crate::domain::models::User>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<NukeConfirmPayload>,
 ) -> Result<impl IntoResponse, AppError> {
     if payload.confirmation != "DELETE ALL CLIENTS" {
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
-    tracing::warn!(
-        "AUDIT: User '{}' (ID: {}) initiated DESTRUCTION of ALL CLIENTS",
-        user.username,
-        user.id
-    );
     let res = services::delete_all_clients(&state.repo).await?;
-    tracing::warn!(
-        "AUDIT: User '{}' (ID: {}) successfully deleted {} clients",
-        user.username,
-        user.id,
-        res
-    );
+    record_audit_log(
+        &state.repo,
+        user,
+        "NUKE_DATABASE",
+        &format!("Nuked all clients, deleted {} clients", res),
+    )
+    .await?;
     Ok(Json(json!({ "deleted": res })))
 }
 
 pub async fn admin_nuke_users(
     State(state): State<AppState>,
-    axum::Extension(user): axum::Extension<crate::domain::models::User>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<NukeConfirmPayload>,
 ) -> Result<impl IntoResponse, AppError> {
     if payload.confirmation != "DELETE ALL USERS" {
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
-    tracing::warn!(
-        "AUDIT: User '{}' (ID: {}) initiated DESTRUCTION of ALL NON-ADMIN USERS",
-        user.username,
-        user.id
-    );
     let res = services::delete_all_non_admin_users(&state.repo).await?;
-    tracing::warn!(
-        "AUDIT: User '{}' (ID: {}) successfully deleted {} non-admin users",
-        user.username,
-        user.id,
-        res
-    );
+    record_audit_log(
+        &state.repo,
+        user,
+        "NUKE_DATABASE",
+        &format!("Nuked all non-admin users, deleted {} users", res),
+    )
+    .await?;
     Ok(Json(json!({ "deleted": res })))
 }
 
 pub async fn admin_nuke_database(
     State(state): State<AppState>,
-    axum::Extension(user): axum::Extension<crate::domain::models::User>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<NukeConfirmPayload>,
 ) -> Result<impl IntoResponse, AppError> {
     if payload.confirmation != "NUKE DATABASE" {
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
-    tracing::warn!(
-        "AUDIT: User '{}' (ID: {}) initiated NUKE DATABASE (FULL RESET)",
-        user.username,
-        user.id
-    );
-    services::nuke_database(&state.repo, Some(user.id)).await?;
-    tracing::warn!(
-        "AUDIT: User '{}' (ID: {}) successfully nuked database",
-        user.username,
-        user.id
-    );
+    let user_id = user.as_ref().map(|axum::Extension(u)| u.id);
+    services::nuke_database(&state.repo, user_id).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        "NUKE_DATABASE",
+        "Nuked complete database (Full reset)",
+    )
+    .await?;
     Ok(StatusCode::OK)
 }
 
 pub async fn admin_nuke_branch(
     State(state): State<AppState>,
     Path(branch): Path<String>,
-    axum::Extension(user): axum::Extension<crate::domain::models::User>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<NukeConfirmPayload>,
 ) -> Result<impl IntoResponse, AppError> {
     if payload.confirmation != format!("DELETE BRANCH {}", branch) {
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
-    tracing::warn!(
-        "AUDIT: User '{}' (ID: {}) initiated DESTRUCTION of BRANCH '{}'",
-        user.username,
-        user.id,
-        branch
-    );
     let res = services::delete_branch_all_services(&state.repo, &branch).await?;
-    tracing::warn!(
-        "AUDIT: User '{}' (ID: {}) successfully deleted {} services on branch '{}'",
-        user.username,
-        user.id,
-        res,
-        branch
-    );
+    record_audit_log(
+        &state.repo,
+        user,
+        "NUKE_DATABASE",
+        &format!("Nuked branch '{}', deleted {} services on branch", branch, res),
+    )
+    .await?;
     Ok(Json(json!({ "deleted": res })))
 }
 
@@ -607,11 +744,13 @@ pub async fn get_debug_config(
 
 pub async fn set_debug_config(
     State(state): State<AppState>,
-    axum::Extension(user): axum::Extension<crate::domain::models::User>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(config): Json<crate::domain::models::DebugConfig>,
 ) -> Result<impl IntoResponse, AppError> {
-    if !user.is_admin {
-        return Err(AppError::Forbidden);
+    if let Some(axum::Extension(ref u)) = user {
+        if !u.is_admin {
+            return Err(AppError::Forbidden);
+        }
     }
     state.business_logic_debug.store(
         config.business_logic_debug,
@@ -621,6 +760,16 @@ pub async fn set_debug_config(
         config.admin_user_debug,
         std::sync::atomic::Ordering::Relaxed,
     );
+    record_audit_log(
+        &state.repo,
+        user,
+        "UPDATE_SETTINGS",
+        &format!(
+            "Updated debug config: business_logic_debug={}, admin_user_debug={}",
+            config.business_logic_debug, config.admin_user_debug
+        ),
+    )
+    .await?;
     Ok(StatusCode::OK)
 }
 
@@ -646,14 +795,60 @@ pub struct CacheConfigPayload {
 
 pub async fn set_cache_config(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<CacheConfigPayload>,
 ) -> Result<impl IntoResponse, AppError> {
     state.repo.rebuild_caches(payload.memory_mb);
+    record_audit_log(
+        &state.repo,
+        user,
+        "UPDATE_SETTINGS",
+        &format!("Updated cache memory limit to {} MB", payload.memory_mb),
+    )
+    .await?;
     Ok(Json(json!({ "memory_mb": payload.memory_mb })))
 }
 
-pub async fn clear_cache(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+pub async fn clear_cache(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+) -> Result<impl IntoResponse, AppError> {
     let limit = state.repo.cache_stats().await.memory_limit_mb;
     state.repo.rebuild_caches(limit);
+    record_audit_log(
+        &state.repo,
+        user,
+        "CLEAR_CACHE",
+        "Cleared service and branch caches",
+    )
+    .await?;
     Ok(Json(json!({ "cleared": true })))
+}
+
+pub async fn get_observability_audit_logs(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let logs: Vec<AuditLogEntry> = state.repo.get_recent_audit_logs(30).await?;
+    Ok(Json(logs))
+}
+
+pub async fn export_audit_logs_csv(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let logs: Vec<AuditLogEntry> = state.repo.get_recent_audit_logs(1000).await?;
+    let mut csv = String::from("id,timestamp,username,action,details\n");
+    for log in logs {
+        let esc_user = log.username.replace('"', "\"\"");
+        let esc_action = log.action.replace('"', "\"\"");
+        let esc_details = log.details.replace('"', "\"\"");
+        csv.push_str(&format!(
+            "{},\"{}\",\"{}\",\"{}\",\"{}\"\n",
+            log.id, log.timestamp, esc_user, esc_action, esc_details
+        ));
+    }
+    let headers = [
+        (axum::http::header::CONTENT_TYPE, "text/csv"),
+        (axum::http::header::CONTENT_DISPOSITION, "attachment; filename=\"audit_logs.csv\""),
+    ];
+    Ok((headers, csv))
 }

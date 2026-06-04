@@ -1948,4 +1948,49 @@ impl SpecRepository for PostgresSpecRepository {
 
         Ok(())
     }
+
+    async fn insert_audit_log(
+        &self,
+        username: &str,
+        action: &str,
+        details: &str,
+    ) -> Result<(), RepositoryError> {
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO audit_logs (timestamp, username, action, details) VALUES ($1, $2, $3, $4)"
+        )
+        .bind(timestamp)
+        .bind(username)
+        .bind(action)
+        .bind(details)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(())
+    }
+
+    async fn get_recent_audit_logs(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
+        let rows: Vec<(i64, String, String, String, String)> = sqlx::query_as(
+            "SELECT id, timestamp, username, action, details FROM audit_logs ORDER BY id DESC LIMIT $1"
+        )
+        .bind(limit as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(id, timestamp, username, action, details)| AuditLogEntry {
+                id,
+                timestamp,
+                username,
+                action,
+                details,
+            })
+            .collect())
+    }
 }

@@ -486,4 +486,20 @@ impl SpecRepository for DatabaseRepo {
     ) -> Result<(), RepositoryError> {
         delegate!(self, upsert_shared_contract(contract))
     }
+
+    async fn insert_audit_log(
+        &self,
+        username: &str,
+        action: &str,
+        details: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, insert_audit_log(username, action, details))
+    }
+
+    async fn get_recent_audit_logs(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
+        delegate!(self, get_recent_audit_logs(limit))
+    }
 }

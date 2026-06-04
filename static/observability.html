@@ -162,6 +162,39 @@
                 <div class="text-slate-500 italic">No logs captured yet.</div>
             </div>
         </div>
+
+        <!-- Database Audit Log Section -->
+        <div class="border-t border-slate-100 pt-6 mt-8">
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <h3 class="text-sm font-semibold text-slate-800 uppercase tracking-tight">Database Audit Log</h3>
+                    <p class="text-xs text-slate-500 mt-1">Last 30 successful database mutating operations and admin settings changes.</p>
+                </div>
+                <div>
+                    <button onclick="exportAuditLogs()" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition-colors border border-indigo-700 shadow-sm flex items-center gap-1">
+                        📥 Export CSV
+                    </button>
+                </div>
+            </div>
+            <div class="overflow-x-auto rounded-lg border border-slate-200">
+                <table class="min-w-full divide-y divide-slate-200 text-left text-xs text-slate-600">
+                    <thead class="bg-slate-50 text-slate-500 font-semibold uppercase tracking-wider">
+                        <tr>
+                            <th class="p-3">ID</th>
+                            <th class="p-3">Timestamp</th>
+                            <th class="p-3">Actor</th>
+                            <th class="p-3">Action</th>
+                            <th class="p-3">Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="audit-log-body" class="divide-y divide-slate-100 bg-white">
+                        <tr>
+                            <td colspan="5" class="p-4 text-center text-slate-400 italic">No audit logs loaded.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </section>
 </main>
 
@@ -217,6 +250,7 @@
         loadStats();
         loadDebugConfig();
         loadLogs();
+        loadAuditLogs();
     }
 
     async function loadStats() {
@@ -365,7 +399,70 @@
     setInterval(() => {
         loadStats();
         loadLogs();
+        loadAuditLogs();
     }, 5000);
+
+    async function loadAuditLogs() {
+        try {
+            const res = await apiCall('/admin/observability/audit-logs');
+            if (res.ok) {
+                const logs = await res.json();
+                renderAuditLogs(logs);
+            }
+        } catch (_) {}
+    }
+
+    function renderAuditLogs(logs) {
+        const body = document.getElementById('audit-log-body');
+        if (!logs || logs.length === 0) {
+            body.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-400 italic">No audit logs found.</td></tr>';
+            return;
+        }
+
+        body.innerHTML = logs.map(log => {
+            let actionBadgeColor = 'bg-slate-100 text-slate-700';
+            if (log.action === 'NUKE_DATABASE') {
+                actionBadgeColor = 'bg-red-100 text-red-700';
+            } else if (log.action === 'PROVIDE_SPEC') {
+                actionBadgeColor = 'bg-green-100 text-green-700';
+            } else if (log.action === 'UPDATE_SETTINGS' || log.action === 'SET_DEV_MODE' || log.action === 'SET_LOCAL_USERS' || log.action === 'SET_AUTO_APPROVE') {
+                actionBadgeColor = 'bg-amber-100 text-amber-700';
+            } else if (log.action === 'APPROVE_USER' || log.action === 'REGISTER_USER' || log.action === 'DELETE_USER') {
+                actionBadgeColor = 'bg-indigo-100 text-indigo-700';
+            }
+
+            return `
+                <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="p-3 text-slate-400 font-mono">${log.id}</td>
+                    <td class="p-3 text-slate-500 font-mono whitespace-nowrap">${log.timestamp.substring(0, 19).replace('T', ' ')}</td>
+                    <td class="p-3 font-semibold text-slate-700">${escapeHtml(log.username)}</td>
+                    <td class="p-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${actionBadgeColor}">${escapeHtml(log.action)}</span></td>
+                    <td class="p-3 text-slate-600">${escapeHtml(log.details)}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    async function exportAuditLogs() {
+        try {
+            const res = await apiCall('/admin/observability/audit-logs/export');
+            if (res.ok) {
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'audit_logs.csv';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+            } else {
+                alert('Failed to export audit logs. Unauthorized or server error.');
+            }
+        } catch (e) {
+            alert('Error exporting audit logs: ' + e);
+        }
+    }
 
     checkSession();
 </script>

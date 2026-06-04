@@ -1,6 +1,6 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
-use crate::domain::models::ApiType;
+use crate::domain::models::{ApiType, redact_username};
 use axum::{
     Json,
     extract::{Query, State},
@@ -9,6 +9,22 @@ use axum::{
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+
+async fn record_audit_log(
+    repo: &impl crate::domain::ports::SpecRepository,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    action: &str,
+    details: &str,
+) -> Result<(), AppError> {
+    let actor = if let Some(axum::Extension(u)) = user {
+        redact_username(&u.username)
+    } else {
+        "DevMode/Anonymous".to_string()
+    };
+    repo.insert_audit_log(&actor, action, details)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))
+}
 
 #[derive(Deserialize)]
 pub struct ProvideRequest {
@@ -24,6 +40,7 @@ pub struct ProvideRequest {
 
 pub async fn provide(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<ProvideRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let res = if payload.dry_run {
@@ -51,6 +68,16 @@ pub async fn provide(
 
     if !payload.dry_run {
         let _ = state.spec_updated_tx.send(());
+        record_audit_log(
+            &state.repo,
+            user,
+            "PROVIDE_SPEC",
+            &format!(
+                "Uploaded OpenApi spec for service '{}' on branch '{}' (version {}, content hash {})",
+                payload.servicename, payload.branch, res.version, res.content_hash
+            ),
+        )
+        .await?;
     }
 
     Ok((StatusCode::ACCEPTED, Json(res)))
@@ -68,6 +95,7 @@ pub struct ProvideAsyncApiRequest {
 
 pub async fn provide_asyncapi(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<ProvideAsyncApiRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let res = services::provide_spec(
@@ -81,6 +109,16 @@ pub async fn provide_asyncapi(
     )
     .await?;
     let _ = state.spec_updated_tx.send(());
+    record_audit_log(
+        &state.repo,
+        user,
+        "PROVIDE_SPEC",
+        &format!(
+            "Uploaded AsyncApi spec for service '{}' on branch '{}' (version {}, content hash {})",
+            payload.servicename, payload.branch, res.version, res.content_hash
+        ),
+    )
+    .await?;
     Ok((StatusCode::ACCEPTED, Json(res)))
 }
 
@@ -96,6 +134,7 @@ pub struct ProvideProtoRequest {
 
 pub async fn provide_proto(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<ProvideProtoRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let res = services::provide_spec(
@@ -109,6 +148,16 @@ pub async fn provide_proto(
     )
     .await?;
     let _ = state.spec_updated_tx.send(());
+    record_audit_log(
+        &state.repo,
+        user,
+        "PROVIDE_SPEC",
+        &format!(
+            "Uploaded Proto spec for service '{}' on branch '{}' (version {}, content hash {})",
+            payload.servicename, payload.branch, res.version, res.content_hash
+        ),
+    )
+    .await?;
     Ok((StatusCode::ACCEPTED, Json(res)))
 }
 

@@ -20,6 +20,7 @@ pub struct MockRepo {
     pub service_tags: Mutex<HashMap<i64, Vec<String>>>,
     pub shared_contracts: Mutex<HashMap<SharedContractKey, SharedContract>>,
     pub spec_versions: Mutex<HashMap<(i64, i64), (i32, String)>>,
+    pub audit_logs: Mutex<Vec<AuditLogEntry>>,
 }
 
 type SharedContractKey = (String, i64, ApiType, String, String);
@@ -51,6 +52,7 @@ impl MockRepo {
             service_tags: Mutex::new(HashMap::new()),
             shared_contracts: Mutex::new(HashMap::new()),
             spec_versions: Mutex::new(HashMap::new()),
+            audit_logs: Mutex::new(Vec::new()),
         }
     }
 
@@ -745,5 +747,35 @@ impl SpecRepository for MockRepo {
         );
         contracts.insert(key, contract);
         Ok(())
+    }
+
+    async fn insert_audit_log(
+        &self,
+        username: &str,
+        action: &str,
+        details: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut logs = self.audit_logs.lock().unwrap();
+        let id = self.next_id();
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        logs.push(AuditLogEntry {
+            id,
+            timestamp,
+            username: username.to_string(),
+            action: action.to_string(),
+            details: details.to_string(),
+        });
+        Ok(())
+    }
+
+    async fn get_recent_audit_logs(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
+        let logs = self.audit_logs.lock().unwrap();
+        let mut cloned = logs.clone();
+        cloned.reverse(); // id DESC order (newest first)
+        cloned.truncate(limit as usize);
+        Ok(cloned)
     }
 }
