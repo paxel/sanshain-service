@@ -368,16 +368,24 @@ function escapeAttr(str) {
 
 // --- Confirm modal ---
 // Requires a #confirm-modal, #confirm-message, #confirm-yes in the page.
-function confirmAction(message, onConfirm) {
+function confirmAction(message, onConfirm, title = "Confirm Action", buttonText = "Confirm") {
+  const modal = document.getElementById("confirm-modal");
+  if (!modal) return;
+  const titleEl = modal.querySelector("h3");
+  if (titleEl) titleEl.textContent = title;
+  const yesBtn = document.getElementById("confirm-yes");
+  if (yesBtn) {
+    yesBtn.textContent = buttonText;
+    yesBtn.onclick = () => {
+      closeConfirmModal();
+      onConfirm();
+    };
+  }
   document.getElementById("confirm-message").innerHTML = message;
-  document.getElementById("confirm-modal").classList.remove("hidden");
-  document.getElementById("confirm-yes").onclick = () => {
-    closeConfirmModal();
-    onConfirm();
-  };
+  modal.classList.remove("hidden");
 }
 // Alias used by admin page
-const confirmDelete = confirmAction;
+const confirmDelete = (message, onConfirm) => confirmAction(message, onConfirm, "Confirm Deletion", "Delete");
 
 function closeConfirmModal() {
   document.getElementById("confirm-modal").classList.add("hidden");

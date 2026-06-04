@@ -134,7 +134,16 @@ Available actions:
 
 The **Services** section lists all services that have provided at least one OpenAPI specification. Each entry shows the service name.
 
-- **Delete** — removes the service and **cascades** to all its branches, endpoints, and related client dependencies. A confirmation dialog appears before deletion.
+You can expand any service using the ▶ button to view its active branches. Each branch supports the following actions:
+
+- **Reset History** — prunes all old, inactive endpoint versions for the selected branch, renumbers the latest active version of each endpoint to `1`, and resets the branch's version counter. Existing endpoints and client dependencies are fully preserved, ensuring zero disruption for active clients.
+- **Delete** — removes the selected branch and all its associated endpoints.
+
+At the service level, you can perform:
+
+- **Delete** — removes the service and **cascades** to all its branches, endpoints, and related client dependencies.
+
+A confirmation dialog appears before executing any deletion or reset operation.
 
 For a detailed view of a service's branches and endpoints, use the [Service Overview](/service.html) page instead.
 

@@ -898,8 +898,12 @@
                 container.innerHTML = branches.map(b => `
                     <div class="flex justify-between items-center bg-white px-3 py-1.5 rounded border border-slate-100 fade-in">
                         <span class="text-sm font-mono text-slate-600">${escapeHtml(b)}</span>
-                        <button onclick="confirmDelete('Delete branch <strong>${escapeHtml(b)}</strong> from <strong>${escapeHtml(serviceName)}</strong>?', () => deleteBranch('${escapeAttr(serviceName)}', '${escapeAttr(b)}'))"
-                            class="text-red-400 hover:text-red-600 text-xs">Delete</button>
+                        <div class="flex space-x-2">
+                            <button onclick="resetBranchHistory('${escapeAttr(serviceName)}', '${escapeAttr(b)}')"
+                                class="text-amber-600 hover:text-amber-800 text-xs font-medium">Reset History</button>
+                            <button onclick="confirmDelete('Delete branch <strong>${escapeHtml(b)}</strong> from <strong>${escapeHtml(serviceName)}</strong>?', () => deleteBranch('${escapeAttr(serviceName)}', '${escapeAttr(b)}'))"
+                                class="text-red-400 hover:text-red-600 text-xs">Delete</button>
+                        </div>
                     </div>
                 `).join('');
             } catch (_) {
@@ -919,6 +923,27 @@
                 await apiCall(`/admin/services/${encodeURIComponent(service)}/branches/${encodeURIComponent(branch)}`, { method: 'DELETE' });
                 loadServices();
             } catch (_) {}
+        }
+
+        async function resetBranchHistory(service, branch) {
+            confirmAction(
+                `Are you sure you want to reset version history for branch <strong>${escapeHtml(branch)}</strong> of service <strong>${escapeHtml(service)}</strong>?<br><br>` +
+                `This will prune all old endpoint versions, renumber the latest version to 1, and reset the version counter, while preserving existing endpoints and client dependencies.`,
+                async () => {
+                    try {
+                        const res = await apiCall(`/admin/services/${encodeURIComponent(service)}/branches/${encodeURIComponent(branch)}/reset-history`, { method: 'POST' });
+                        if (res.ok) {
+                            alert(`✓ History reset successfully for branch "${branch}" of service "${service}"`);
+                        } else {
+                            alert(`Failed to reset history: HTTP ${res.status}`);
+                        }
+                    } catch (e) {
+                        alert(`Error: ${e.message}`);
+                    }
+                },
+                "Confirm Reset History",
+                "Reset History"
+            );
         }
 
         // --- Clients ---

@@ -62,24 +62,24 @@ test.describe('Sanshain UI Smoke Test', () => {
     await dismissReloadBanner();
     await page.waitForSelector('#admin-dashboard');
     
-    // Toggle Developer Mode
-    const devModeToggle = page.locator('#dev-mode-toggle');
-    const initialState = await devModeToggle.getAttribute('class');
+    // Toggle Local Users Registration
+    const localUsersToggle = page.locator('#local-users-toggle');
+    const initialState = await localUsersToggle.getAttribute('class');
     const isInitiallyOn = initialState.includes('bg-indigo-600');
     
-    await devModeToggle.click();
+    await localUsersToggle.click();
     await page.waitForTimeout(1000); // Wait for API call and UI update
     
     // Refresh to verify persistence
     await page.reload();
     await page.waitForSelector('#admin-dashboard');
-    const newState = await page.locator('#dev-mode-toggle').getAttribute('class');
+    const newState = await page.locator('#local-users-toggle').getAttribute('class');
     const isNowOn = newState.includes('bg-indigo-600');
     
     expect(isNowOn).not.toBe(isInitiallyOn);
     
     // Restore state
-    await page.locator('#dev-mode-toggle').click();
+    await page.locator('#local-users-toggle').click();
     await page.waitForTimeout(500);
   });
 });
