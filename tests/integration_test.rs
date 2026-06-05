@@ -4938,10 +4938,7 @@ paths:
 
     // 3. Setup with admin token to upload second spec under authenticated admin
     // Let's create an admin session
-    let session = repo
-        .create_session(1, "2099-12-31T23:59:59")
-        .await
-        .unwrap();
+    let session = repo.create_session(1, "2099-12-31T23:59:59").await.unwrap();
     let token = session.token;
 
     // Change auth mode to Local to require auth
@@ -5012,7 +5009,11 @@ paths:
 
     // Version 1 was created anonymously in Dev mode (should fall back to "DevMode/Anonymous" or "anonymous" username)
     assert_eq!(arr[0]["version"], 1);
-    assert!(arr[0]["username"] == "DevMode/Anonymous" || arr[0]["username"] == "anonymous" || arr[0]["username"].is_null());
+    assert!(
+        arr[0]["username"] == "DevMode/Anonymous"
+            || arr[0]["username"] == "anonymous"
+            || arr[0]["username"].is_null()
+    );
     assert_eq!(arr[0]["source_branch"], "main");
 
     // Version 2 was created by admin (redacted to r**t)

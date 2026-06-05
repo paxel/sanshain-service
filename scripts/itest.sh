@@ -153,6 +153,10 @@ else
     exit 1
 fi
 
+# Set auth mode to dev for integration tests to allow /provide and /require
+call_api PUT "/admin/auth-config" '{"auth_mode":"dev","ldap_config":null}'
+assert_status 200 "Set auth mode to 'dev' for integration testing"
+
 # 3. Provider API
 header "Provider API Tests"
 

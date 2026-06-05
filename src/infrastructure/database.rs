@@ -453,7 +453,10 @@ impl SpecRepository for DatabaseRepo {
         username: Option<&str>,
         source_branch: Option<&str>,
     ) -> Result<(), RepositoryError> {
-        delegate!(self, apply_spec_changes(branch_id, changes, is_protected, username, source_branch))
+        delegate!(
+            self,
+            apply_spec_changes(branch_id, changes, is_protected, username, source_branch)
+        )
     }
 
     async fn add_service_tags(

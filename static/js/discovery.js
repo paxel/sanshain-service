@@ -44,15 +44,15 @@ async function toggleFavorite(event, itemType, itemName, currentIsFavorite) {
   const token = localStorage.getItem("sanshain_token");
   const headers = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
-  
+
   const method = currentIsFavorite ? "DELETE" : "POST";
   try {
     const res = await fetch(`/auth/favorites/${itemType}/${encodeURIComponent(itemName)}`, {
       method,
-      headers
+      headers,
     });
     if (!res.ok) throw new Error(`Failed to toggle favorite: ${res.status}`);
-    
+
     // Update local cache
     const list = itemType === "service" ? userFavorites.services : userFavorites.clients;
     if (currentIsFavorite) {
@@ -61,7 +61,7 @@ async function toggleFavorite(event, itemType, itemName, currentIsFavorite) {
     } else {
       if (!list.includes(itemName)) list.push(itemName);
     }
-    
+
     // Refresh page/lists
     if (window.loadData) {
       await window.loadData();

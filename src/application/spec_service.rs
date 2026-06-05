@@ -102,6 +102,7 @@ pub async fn provide_spec_with_tags(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn provide_spec_with_actor(
     repo: &impl SpecRepository,
     servicename: &str,
@@ -553,7 +554,8 @@ async fn provide_spec_inner(
         });
     }
 
-    repo.apply_spec_changes(bid, changes, is_protected, username, Some(branch)).await?;
+    repo.apply_spec_changes(bid, changes, is_protected, username, Some(branch))
+        .await?;
     let new_version = repo.increment_spec_version(sid, bid, &content_hash).await?;
 
     Ok(ProvideResponse {

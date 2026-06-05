@@ -1191,7 +1191,9 @@ impl SpecRepository for CachedSpecRepository {
         item_type: &str,
         item_name: &str,
     ) -> Result<(), RepositoryError> {
-        self.inner.add_user_favorite(user_id, item_type, item_name).await
+        self.inner
+            .add_user_favorite(user_id, item_type, item_name)
+            .await
     }
 
     async fn remove_user_favorite(
@@ -1200,7 +1202,9 @@ impl SpecRepository for CachedSpecRepository {
         item_type: &str,
         item_name: &str,
     ) -> Result<(), RepositoryError> {
-        self.inner.remove_user_favorite(user_id, item_type, item_name).await
+        self.inner
+            .remove_user_favorite(user_id, item_type, item_name)
+            .await
     }
 }
 

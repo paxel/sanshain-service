@@ -95,7 +95,7 @@ pub async fn list_services_detailed(
                 svc.is_favorite = true;
             }
         }
-        services.sort_by(|a, b| b.is_favorite.cmp(&a.is_favorite));
+        services.sort_by_key(|b| std::cmp::Reverse(b.is_favorite));
     }
     Ok(services)
 }
@@ -226,9 +226,12 @@ pub async fn add_user_favorite(
     item_name: &str,
 ) -> Result<(), AppError> {
     if item_type != "service" && item_type != "client" {
-        return Err(AppError::BadRequest("Invalid item type. Must be 'service' or 'client'".to_string()));
+        return Err(AppError::BadRequest(
+            "Invalid item type. Must be 'service' or 'client'".to_string(),
+        ));
     }
-    repo.add_user_favorite(user_id, item_type, item_name).await?;
+    repo.add_user_favorite(user_id, item_type, item_name)
+        .await?;
     Ok(())
 }
 
@@ -239,9 +242,12 @@ pub async fn remove_user_favorite(
     item_name: &str,
 ) -> Result<(), AppError> {
     if item_type != "service" && item_type != "client" {
-        return Err(AppError::BadRequest("Invalid item type. Must be 'service' or 'client'".to_string()));
+        return Err(AppError::BadRequest(
+            "Invalid item type. Must be 'service' or 'client'".to_string(),
+        ));
     }
-    repo.remove_user_favorite(user_id, item_type, item_name).await?;
+    repo.remove_user_favorite(user_id, item_type, item_name)
+        .await?;
     Ok(())
 }
 
@@ -324,7 +330,7 @@ mod tests {
         let s_a = repo.ensure_service("svc-a").await.unwrap();
         let s_b = repo.ensure_service("svc-b").await.unwrap();
         let s_c = repo.ensure_service("svc-c").await.unwrap();
-        
+
         repo.ensure_branch(s_a, "main").await.unwrap();
         repo.ensure_branch(s_b, "main").await.unwrap();
         repo.ensure_branch(s_c, "main").await.unwrap();
@@ -343,8 +349,12 @@ mod tests {
         assert_eq!(clients[1], "client-b");
         assert_eq!(clients[2], "client-c");
 
-        add_user_favorite(&repo, 42, "service", "svc-b").await.unwrap();
-        add_user_favorite(&repo, 42, "client", "client-c").await.unwrap();
+        add_user_favorite(&repo, 42, "service", "svc-b")
+            .await
+            .unwrap();
+        add_user_favorite(&repo, 42, "client", "client-c")
+            .await
+            .unwrap();
 
         let svcs_fav = list_services_detailed(&repo, Some(42)).await.unwrap();
         assert_eq!(svcs_fav[0].name, "svc-b");
@@ -359,7 +369,9 @@ mod tests {
         assert_eq!(clients_fav[1], "client-a");
         assert_eq!(clients_fav[2], "client-b");
 
-        remove_user_favorite(&repo, 42, "service", "svc-b").await.unwrap();
+        remove_user_favorite(&repo, 42, "service", "svc-b")
+            .await
+            .unwrap();
         let svcs_removed = list_services_detailed(&repo, Some(42)).await.unwrap();
         assert_eq!(svcs_removed[0].name, "svc-a");
     }

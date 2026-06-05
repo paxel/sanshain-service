@@ -62,7 +62,9 @@ async fn generate_report_populates_tags() {
 #[tokio::test]
 async fn list_services_detailed_empty() {
     let repo = MockRepo::new();
-    let list = admin_service::list_services_detailed(&repo, None).await.unwrap();
+    let list = admin_service::list_services_detailed(&repo, None)
+        .await
+        .unwrap();
     assert!(list.is_empty());
 }
 
@@ -97,7 +99,12 @@ async fn list_branches_for_service() {
 #[tokio::test]
 async fn list_clients_seed() {
     let repo = MockRepo::new();
-    assert!(admin_service::list_clients(&repo, None).await.unwrap().is_empty());
+    assert!(
+        admin_service::list_clients(&repo, None)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     repo.ensure_client("c1").await.unwrap();
     let list = admin_service::list_clients(&repo, None).await.unwrap();
     assert!(list.contains(&"c1".into()));

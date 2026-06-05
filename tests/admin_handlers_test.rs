@@ -175,7 +175,8 @@ async fn test_favorites_api_endpoints() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
-    let favs: sanshain_service::domain::models::UserFavoritesResponse = serde_json::from_slice(&body).unwrap();
+    let favs: sanshain_service::domain::models::UserFavoritesResponse =
+        serde_json::from_slice(&body).unwrap();
     assert!(favs.services.is_empty());
     assert!(favs.clients.is_empty());
 
@@ -223,7 +224,8 @@ async fn test_favorites_api_endpoints() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
-    let favs: sanshain_service::domain::models::UserFavoritesResponse = serde_json::from_slice(&body).unwrap();
+    let favs: sanshain_service::domain::models::UserFavoritesResponse =
+        serde_json::from_slice(&body).unwrap();
     assert_eq!(favs.services, vec!["demo-svc".to_string()]);
 
     // 5. Remove the favorite service
@@ -255,6 +257,7 @@ async fn test_favorites_api_endpoints() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
-    let favs: sanshain_service::domain::models::UserFavoritesResponse = serde_json::from_slice(&body).unwrap();
+    let favs: sanshain_service::domain::models::UserFavoritesResponse =
+        serde_json::from_slice(&body).unwrap();
     assert!(favs.services.is_empty());
 }

@@ -828,7 +828,10 @@ impl SpecRepository for MockRepo {
         item_name: &str,
     ) -> Result<(), RepositoryError> {
         let mut favorites = self.user_favorites.lock().unwrap();
-        if !favorites.iter().any(|(uid, t, name)| *uid == user_id && t == item_type && name == item_name) {
+        if !favorites
+            .iter()
+            .any(|(uid, t, name)| *uid == user_id && t == item_type && name == item_name)
+        {
             favorites.push((user_id, item_type.to_string(), item_name.to_string()));
         }
         Ok(())
@@ -841,7 +844,8 @@ impl SpecRepository for MockRepo {
         item_name: &str,
     ) -> Result<(), RepositoryError> {
         let mut favorites = self.user_favorites.lock().unwrap();
-        favorites.retain(|(uid, t, name)| !(*uid == user_id && t == item_type && name == item_name));
+        favorites
+            .retain(|(uid, t, name)| !(*uid == user_id && t == item_type && name == item_name));
         Ok(())
     }
 }

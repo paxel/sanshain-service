@@ -1672,6 +1672,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(row.map(|(v,)| v).unwrap_or(0))
     }
 
+    #[allow(clippy::type_complexity)]
     async fn get_endpoint_versions(
         &self,
         endpoint_id: i64,
@@ -1687,7 +1688,16 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(id, endpoint_id, version, yaml_content, diff_from_previous, created_at, username, source_branch)| {
+                |(
+                    id,
+                    endpoint_id,
+                    version,
+                    yaml_content,
+                    diff_from_previous,
+                    created_at,
+                    username,
+                    source_branch,
+                )| {
                     EndpointVersion {
                         id,
                         endpoint_id,
@@ -2062,7 +2072,7 @@ impl SpecRepository for PostgresSpecRepository {
         item_name: &str,
     ) -> Result<(), RepositoryError> {
         sqlx::query(
-            "DELETE FROM user_favorites WHERE user_id = $1 AND item_type = $2 AND item_name = $3"
+            "DELETE FROM user_favorites WHERE user_id = $1 AND item_type = $2 AND item_name = $3",
         )
         .bind(user_id)
         .bind(item_type)

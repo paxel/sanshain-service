@@ -268,7 +268,12 @@ async fn admin_list_services_clients_empty() {
             .unwrap()
             .is_empty()
     );
-    assert!(admin_service::list_clients(&repo, None).await.unwrap().is_empty());
+    assert!(
+        admin_service::list_clients(&repo, None)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 // 22. admin: delete non-existing service/client returns false

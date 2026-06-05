@@ -385,7 +385,8 @@ function confirmAction(message, onConfirm, title = "Confirm Action", buttonText 
   modal.classList.remove("hidden");
 }
 // Alias used by admin page
-const confirmDelete = (message, onConfirm) => confirmAction(message, onConfirm, "Confirm Deletion", "Delete");
+const confirmDelete = (message, onConfirm) =>
+  confirmAction(message, onConfirm, "Confirm Deletion", "Delete");
 
 function closeConfirmModal() {
   document.getElementById("confirm-modal").classList.add("hidden");

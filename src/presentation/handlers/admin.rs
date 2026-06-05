@@ -766,6 +766,7 @@ pub async fn get_debug_config(
     }))
 }
 
+#[allow(clippy::collapsible_if)]
 pub async fn set_debug_config(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
