@@ -367,7 +367,7 @@ mod tests {
     #[tokio::test]
     async fn test_register_user_success() {
         let repo = MockRepo::new();
-        repo.set_setting("local_users_enabled", "true")
+        repo.set_setting("auth_mode", "local")
             .await
             .unwrap();
         register_user(&repo, "newuser", "pass123").await.unwrap();
@@ -378,7 +378,7 @@ mod tests {
     #[tokio::test]
     async fn test_register_user_duplicate() {
         let repo = MockRepo::new();
-        repo.set_setting("local_users_enabled", "true")
+        repo.set_setting("auth_mode", "local")
             .await
             .unwrap();
         register_user(&repo, "dup", "pass").await.unwrap();

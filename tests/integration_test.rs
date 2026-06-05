@@ -83,8 +83,8 @@ async fn setup_app_dev_mode() -> axum::Router {
     app
 }
 
-/// Setup app with initial admin, return app + admin token
-async fn setup_app_with_admin() -> (axum::Router, String) {
+/// Setup app with initial admin, return app + admin token + repo
+async fn setup_app_with_admin() -> (axum::Router, String, SqliteSpecRepository) {
     let pool = SqlitePoolOptions::new()
         .connect("sqlite::memory:")
         .await
@@ -106,8 +106,8 @@ async fn setup_app_with_admin() -> (axum::Router, String) {
         .await
         .unwrap();
 
-    let app = create_app(test_app_state(repo));
-    (app, session.token)
+    let app = create_app(test_app_state(repo.clone()));
+    (app, session.token, repo)
 }
 
 #[tokio::test]
@@ -901,7 +901,7 @@ components:
 
 #[tokio::test]
 async fn test_protected_branches_api() {
-    let (app, token) = setup_app_with_admin().await;
+    let (app, token, _) = setup_app_with_admin().await;
 
     // 1. List default protected branches
     let response: Response = app
@@ -1074,7 +1074,7 @@ paths:
 
 #[tokio::test]
 async fn test_admin_data_management() {
-    let (app, token) = setup_app_with_admin().await;
+    let (app, token, _) = setup_app_with_admin().await;
 
     // Enable dev mode so API endpoints work without per-request auth
     let response = app
@@ -1345,7 +1345,7 @@ async fn test_api_locked_without_dev_mode() {
 
 #[tokio::test]
 async fn test_auth_login_and_session() {
-    let (app, token) = setup_app_with_admin().await;
+    let (app, token, _) = setup_app_with_admin().await;
 
     // Login with correct credentials
     let response: Response = app
@@ -1438,7 +1438,7 @@ async fn test_auth_login_and_session() {
 
 #[tokio::test]
 async fn test_auth_change_password_route_updates_credentials() {
-    let (app, token) = setup_app_with_admin().await;
+    let (app, token, _) = setup_app_with_admin().await;
 
     let response: Response = app
         .clone()
@@ -1514,6 +1514,10 @@ async fn test_root_change_password_keeps_session_and_allows_relogin() {
     use sanshain_service::domain::ports::SpecRepository;
     let session = repo
         .create_session(user.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap();
+
+    services::set_auth_mode(&repo, &AuthMode::Local)
         .await
         .unwrap();
 
@@ -1618,7 +1622,7 @@ async fn test_root_change_password_keeps_session_and_allows_relogin() {
 
 #[tokio::test]
 async fn test_auto_approve_setting_controls_new_user_approval() {
-    let (app, admin_token) = setup_app_with_admin().await;
+    let (app, admin_token, _) = setup_app_with_admin().await;
 
     let enable_local_users: Response = app
         .clone()
@@ -1774,7 +1778,7 @@ async fn test_auto_approve_setting_controls_new_user_approval() {
 
 #[tokio::test]
 async fn test_role_based_access_control() {
-    let (app, admin_token) = setup_app_with_admin().await;
+    let (app, admin_token, _) = setup_app_with_admin().await;
 
     // Enable local users
     let response = app
@@ -1972,7 +1976,7 @@ async fn test_role_based_access_control() {
 
 #[tokio::test]
 async fn test_dev_mode_toggle() {
-    let (app, token) = setup_app_with_admin().await;
+    let (app, token, _) = setup_app_with_admin().await;
 
     // API should be locked by default
     let response: Response = app
@@ -2024,9 +2028,13 @@ async fn test_dev_mode_toggle() {
 
 #[tokio::test]
 async fn test_user_registration_and_approval() {
-    let (app, token) = setup_app_with_admin().await;
+    let (app, token, repo) = setup_app_with_admin().await;
 
     // Registration should fail when local users disabled (default)
+    services::set_auth_mode(&repo, &AuthMode::Disabled)
+        .await
+        .unwrap();
+
     let response: Response = app
         .clone()
         .oneshot(
@@ -2217,7 +2225,7 @@ async fn test_user_registration_and_approval() {
 
 #[tokio::test]
 async fn test_api_token_crud_and_bearer_auth() {
-    let (app, token) = setup_app_with_admin().await;
+    let (app, token, _) = setup_app_with_admin().await;
 
     // Create an API token
     let response: Response = app
@@ -2359,7 +2367,7 @@ async fn test_api_token_crud_and_bearer_auth() {
 
 #[tokio::test]
 async fn test_auth_config_api() {
-    let (app, token) = setup_app_with_admin().await;
+    let (app, token, _) = setup_app_with_admin().await;
 
     // GET auth-config — default should be "local" (configured by setup_app_with_admin)
     let response: Response = app
@@ -2798,7 +2806,7 @@ paths:
 
 #[tokio::test]
 async fn test_branch_max_age_api() {
-    let (app, admin_token) = setup_app_with_admin().await;
+    let (app, admin_token, _) = setup_app_with_admin().await;
 
     // GET default max-age
     let response: Response = app
@@ -2912,7 +2920,7 @@ async fn test_branch_max_age_api() {
 
 #[tokio::test]
 async fn test_dependency_max_age_api() {
-    let (app, admin_token) = setup_app_with_admin().await;
+    let (app, admin_token, _) = setup_app_with_admin().await;
 
     // GET default max-age
     let response: Response = app
@@ -3014,7 +3022,7 @@ async fn test_dependency_max_age_api() {
 
 #[tokio::test]
 async fn test_require_does_not_create_phantom_service() {
-    let (app, admin_token) = setup_app_with_admin().await;
+    let (app, admin_token, _) = setup_app_with_admin().await;
 
     // A client requires an endpoint from a service that was never provided
     let _require_payload = json!({
@@ -3063,7 +3071,7 @@ async fn test_require_does_not_create_phantom_service() {
 
 #[tokio::test]
 async fn test_delete_service_does_not_create_phantom_client() {
-    let (app, admin_token) = setup_app_with_admin().await;
+    let (app, admin_token, _) = setup_app_with_admin().await;
 
     // Upload a spec so the service exists
     let yaml = "openapi: '3.0.0'\ninfo:\n  title: Svc\n  version: '1.0'\npaths:\n  /health:\n    get:\n      operationId: getHealth\n      responses:\n        '200':\n          description: OK\n";
@@ -3371,7 +3379,7 @@ paths:
 
 #[tokio::test]
 async fn test_require_dry_run_does_not_create_dependency() {
-    let (app, admin_token) = setup_app_with_admin().await;
+    let (app, admin_token, _) = setup_app_with_admin().await;
 
     let yaml = r#"
 openapi: 3.0.0
@@ -3440,7 +3448,7 @@ paths:
 
 #[tokio::test]
 async fn test_multiple_provides() {
-    let (app, admin_token) = setup_app_with_admin().await;
+    let (app, admin_token, _) = setup_app_with_admin().await;
 
     // 1. Provide OpenAPI
     let openapi_payload = json!({
@@ -3546,7 +3554,7 @@ async fn test_multiple_provides() {
 
 #[tokio::test]
 async fn test_client_with_missing_endpoint_appears_in_list() {
-    let (app, admin_token) = setup_app_with_admin().await;
+    let (app, admin_token, _) = setup_app_with_admin().await;
 
     // Provide a spec with only /users
     let yaml = "openapi: '3.0.0'\ninfo:\n  title: Svc\n  version: '1.0'\npaths:\n  /users:\n    get:\n      operationId: getUsers\n      responses:\n        '200':\n          description: OK\n";
@@ -3635,7 +3643,7 @@ async fn test_client_with_missing_endpoint_appears_in_list() {
 
 #[tokio::test]
 async fn test_no_duplicate_null_endpoint_dependencies() {
-    let (app, admin_token) = setup_app_with_admin().await;
+    let (app, admin_token, _) = setup_app_with_admin().await;
 
     // Provide a spec
     let yaml = "openapi: '3.0.0'\ninfo:\n  title: Svc\n  version: '1.0'\npaths:\n  /users:\n    get:\n      operationId: getUsers\n      responses:\n        '200':\n          description: OK\n";
@@ -3709,7 +3717,7 @@ async fn test_no_duplicate_null_endpoint_dependencies() {
 
 #[tokio::test]
 async fn test_nuke_endpoints() {
-    let (app, admin_token) = setup_app_with_admin().await;
+    let (app, admin_token, _) = setup_app_with_admin().await;
 
     // Provide a service
     let yaml = "openapi: '3.0.0'\ninfo:\n  title: Svc\n  version: '1.0'\npaths:\n  /items:\n    get:\n      operationId: getItems\n      responses:\n        '200':\n          description: OK\n";
@@ -4109,7 +4117,7 @@ async fn test_problem_3_optimistic_concurrency_integration() {
 /// This catches regressions where a new admin route forgets `admin_auth`.
 #[tokio::test]
 async fn test_all_admin_endpoints_require_admin_token() {
-    let (app, admin_token) = setup_app_with_admin().await;
+    let (app, admin_token, _) = setup_app_with_admin().await;
 
     // --- Setup: create a staff user and get their token ---
     // Enable local users
@@ -4545,7 +4553,7 @@ async fn test_protected_branches_public_endpoint() {
 
 #[tokio::test]
 async fn test_shared_contract_api() {
-    let (app, token) = setup_app_with_admin().await;
+    let (app, token, _) = setup_app_with_admin().await;
 
     // Enable dev mode so provide/require work without per-request auth
     let response: Response = app
@@ -4724,7 +4732,7 @@ paths:
 
 #[tokio::test]
 async fn test_audit_logs_and_security() {
-    let (app, token) = setup_app_with_admin().await;
+    let (app, token, _) = setup_app_with_admin().await;
 
     // 1. Unauthenticated requests should fail with 401
     let response: Response = app

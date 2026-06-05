@@ -140,7 +140,7 @@ async fn admin_delete_user_not_found() {
 #[tokio::test]
 async fn register_user_forbidden_when_disabled() {
     let repo = MockRepo::new();
-    auth_service::set_local_users_enabled(&repo, false)
+    auth_service::set_auth_mode(&repo, &AuthMode::Disabled)
         .await
         .unwrap();
     let res = auth_service::register_user(&repo, "u", "p").await;
@@ -151,7 +151,7 @@ async fn register_user_forbidden_when_disabled() {
 #[tokio::test]
 async fn register_user_ok_when_enabled_autoapprove() {
     let repo = MockRepo::new();
-    auth_service::set_local_users_enabled(&repo, true)
+    auth_service::set_auth_mode(&repo, &AuthMode::Local)
         .await
         .unwrap();
     auth_service::set_auto_approve_users(&repo, true)

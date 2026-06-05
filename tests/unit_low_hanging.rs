@@ -109,16 +109,15 @@ async fn get_set_dev_mode() {
     assert!(auth_service::get_dev_mode(&repo).await.unwrap());
 }
 
-// 11. local users enabled default false
+// 11. auth mode default and set
 #[tokio::test]
-async fn local_users_enabled_default_and_set() {
+async fn auth_mode_default_and_set() {
     let repo = MockRepo::new();
-    // default is true per implementation
-    assert!(auth_service::get_local_users_enabled(&repo).await.unwrap());
-    auth_service::set_local_users_enabled(&repo, false)
+    assert!(matches!(auth_service::get_auth_mode(&repo).await.unwrap(), AuthMode::Disabled));
+    auth_service::set_auth_mode(&repo, &AuthMode::Local)
         .await
         .unwrap();
-    assert!(!auth_service::get_local_users_enabled(&repo).await.unwrap());
+    assert!(matches!(auth_service::get_auth_mode(&repo).await.unwrap(), AuthMode::Local));
 }
 
 // 12. auto approve users default false then true

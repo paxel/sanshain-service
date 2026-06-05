@@ -18,21 +18,21 @@ async fn dev_mode_set_true() {
     assert!(auth::get_dev_mode(&repo).await.unwrap());
 }
 
-// 3. local users enabled default true
+// 3. get_auth_mode default is Disabled
 #[tokio::test]
-async fn local_users_enabled_default_true() {
+async fn auth_mode_default_disabled() {
     let repo = MockRepo::new();
-    assert!(auth::get_local_users_enabled(&repo).await.unwrap());
+    let mode = auth::get_auth_mode(&repo).await.unwrap();
+    assert!(matches!(mode, AuthMode::Disabled));
 }
 
-// 4. toggle local users enabled
+// 4. set_auth_mode to Local and verify
 #[tokio::test]
-async fn local_users_toggle() {
+async fn set_auth_mode_local() {
     let repo = MockRepo::new();
-    auth::set_local_users_enabled(&repo, false).await.unwrap();
-    assert!(!auth::get_local_users_enabled(&repo).await.unwrap());
-    auth::set_local_users_enabled(&repo, true).await.unwrap();
-    assert!(auth::get_local_users_enabled(&repo).await.unwrap());
+    auth::set_auth_mode(&repo, &AuthMode::Local).await.unwrap();
+    let mode = auth::get_auth_mode(&repo).await.unwrap();
+    assert!(matches!(mode, AuthMode::Local));
 }
 
 // 5. auto-approve default false, set true
@@ -117,7 +117,7 @@ async fn ldap_config_roundtrip_tls() {
 async fn register_user_conflict() {
     let repo = MockRepo::new();
     // enable and no auto-approve just for path
-    auth::set_local_users_enabled(&repo, true).await.unwrap();
+    auth::set_auth_mode(&repo, &AuthMode::Local).await.unwrap();
     let hash = auth::hash_password("pw").unwrap();
     repo.create_user("bob", &hash, false, true).await.unwrap();
     let res = auth::register_user(&repo, "bob", "pw").await;
