@@ -62,24 +62,20 @@ test.describe('Sanshain UI Smoke Test', () => {
     await dismissReloadBanner();
     await page.waitForSelector('#admin-dashboard');
     
-    // Toggle Local Users Registration
-    const localUsersToggle = page.locator('#local-users-toggle');
-    const initialState = await localUsersToggle.getAttribute('class');
-    const isInitiallyOn = initialState.includes('bg-indigo-600');
-    
-    await localUsersToggle.click();
-    await page.waitForTimeout(1000); // Wait for API call and UI update
+    // Toggle Auth Mode (from Local to Dev)
+    const devModeRadio = page.locator('input[name="auth-mode"][value="dev"]');
+    await devModeRadio.click();
+    await page.waitForTimeout(1000); // Wait for API call
     
     // Refresh to verify persistence
     await page.reload();
     await page.waitForSelector('#admin-dashboard');
-    const newState = await page.locator('#local-users-toggle').getAttribute('class');
-    const isNowOn = newState.includes('bg-indigo-600');
+    const isDevChecked = await page.locator('input[name="auth-mode"][value="dev"]').isChecked();
     
-    expect(isNowOn).not.toBe(isInitiallyOn);
+    expect(isDevChecked).toBe(true);
     
-    // Restore state
-    await page.locator('#local-users-toggle').click();
+    // Restore Local mode
+    await page.locator('input[name="auth-mode"][value="local"]').click();
     await page.waitForTimeout(500);
   });
 });

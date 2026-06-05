@@ -128,7 +128,7 @@ pub async fn register_user(
     username: &str,
     password: &str,
 ) -> Result<(), AppError> {
-    if !get_local_users_enabled(repo).await? {
+    if get_auth_mode(repo).await? != AuthMode::Local {
         return Err(AppError::Forbidden);
     }
     if repo.find_user(username).await?.is_some() {
@@ -155,26 +155,6 @@ pub async fn approve_user(repo: &impl SpecRepository, user_id: i64) -> Result<bo
 
 pub async fn admin_delete_user(repo: &impl SpecRepository, user_id: i64) -> Result<bool, AppError> {
     Ok(repo.delete_user(user_id).await?)
-}
-
-pub async fn get_local_users_enabled(repo: &impl SpecRepository) -> Result<bool, AppError> {
-    let val = repo
-        .get_setting("local_users_enabled")
-        .await?
-        .unwrap_or("true".to_string());
-    Ok(val == "true")
-}
-
-pub async fn set_local_users_enabled(
-    repo: &impl SpecRepository,
-    enabled: bool,
-) -> Result<(), AppError> {
-    repo.set_setting(
-        "local_users_enabled",
-        if enabled { "true" } else { "false" },
-    )
-    .await?;
-    Ok(())
 }
 
 pub async fn get_auto_approve_users(repo: &impl SpecRepository) -> Result<bool, AppError> {

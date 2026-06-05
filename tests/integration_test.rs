@@ -1624,13 +1624,13 @@ async fn test_auto_approve_setting_controls_new_user_approval() {
         .clone()
         .oneshot(
             Request::builder()
-                .method("POST")
-                .uri("/admin/settings/local-users")
+                .method("PUT")
+                .uri("/admin/auth-config")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
-                    serde_json::to_vec(&json!({ "enabled": true })).unwrap(),
+                    serde_json::to_vec(&json!({ "auth_mode": "local", "ldap_config": null })).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -1781,13 +1781,13 @@ async fn test_role_based_access_control() {
         .clone()
         .oneshot(
             Request::builder()
-                .method("POST")
-                .uri("/admin/settings/local-users")
+                .method("PUT")
+                .uri("/admin/auth-config")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"enabled": true})).unwrap(),
+                    serde_json::to_vec(&json!({"auth_mode": "local", "ldap_config": null})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2053,13 +2053,13 @@ async fn test_user_registration_and_approval() {
         .clone()
         .oneshot(
             Request::builder()
-                .method("POST")
-                .uri("/admin/settings/local-users")
+                .method("PUT")
+                .uri("/admin/auth-config")
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"enabled": true})).unwrap(),
+                    serde_json::to_vec(&json!({"auth_mode": "local", "ldap_config": null})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -4117,13 +4117,13 @@ async fn test_all_admin_endpoints_require_admin_token() {
         .clone()
         .oneshot(
             Request::builder()
-                .method("POST")
-                .uri("/admin/settings/local-users")
+                .method("PUT")
+                .uri("/admin/auth-config")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"enabled": true})).unwrap(),
+                    serde_json::to_vec(&json!({"auth_mode": "local", "ldap_config": null})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -4213,9 +4213,9 @@ async fn test_all_admin_endpoints_require_admin_token() {
             Some(json!({"enabled": false})),
         ),
         (
-            "POST",
-            "/admin/settings/local-users",
-            Some(json!({"enabled": false})),
+            "PUT",
+            "/admin/auth-config",
+            Some(json!({"auth_mode": "disabled", "ldap_config": null})),
         ),
         (
             "POST",
@@ -4314,7 +4314,6 @@ async fn test_all_admin_endpoints_require_admin_token() {
     let admin_get_endpoints: Vec<&str> = vec![
         "/admin/protected-branches",
         "/admin/settings/dev-mode",
-        "/admin/settings/local-users",
         "/admin/settings/auto-approve",
         "/admin/auth-config",
         "/admin/settings/branch-max-age",
@@ -4759,14 +4758,15 @@ async fn test_audit_logs_and_security() {
         .clone()
         .oneshot(
             Request::builder()
-                .method("POST")
-                .uri("/admin/settings/local-users")
+                .method("PUT")
+                .uri("/admin/auth-config")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "enabled": true
+                        "auth_mode": "local",
+                        "ldap_config": null
                     }))
                     .unwrap(),
                 ))

@@ -1,6 +1,7 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
 use crate::domain::models::{User, redact_username};
+use crate::domain::ports::SpecRepository;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 
@@ -41,13 +42,51 @@ pub async fn auth_login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let (session, user) =
-        services::login(&state.repo, &payload.username, &payload.password).await?;
+    let mode = services::get_auth_mode(&state.repo).await?;
 
-    Ok(Json(LoginResponse {
-        token: session.token,
-        is_admin: user.is_admin,
-    }))
+    match mode {
+        crate::domain::models::AuthMode::Disabled => Err(AppError::Forbidden),
+        crate::domain::models::AuthMode::Ldap => {
+            if let Ok(Some(config)) = services::get_ldap_config(&state.repo).await {
+                let provider = crate::infrastructure::ldap_provider::LdapAuthProvider::new(config);
+                // Try LDAP login
+                if let Ok(session) = services::login_with_provider(
+                    &state.repo,
+                    &provider,
+                    &payload.username,
+                    &payload.password,
+                )
+                .await
+                {
+                    let user = state
+                        .repo
+                        .find_user(&payload.username)
+                        .await?
+                        .ok_or(AppError::Internal("Shadow user missing".to_string()))?;
+                    return Ok(Json(LoginResponse {
+                        token: session.token,
+                        is_admin: user.is_admin,
+                    }));
+                }
+            }
+            // Fallback to local login for root or if LDAP fails
+            let (session, user) =
+                services::login(&state.repo, &payload.username, &payload.password).await?;
+            Ok(Json(LoginResponse {
+                token: session.token,
+                is_admin: user.is_admin,
+            }))
+        }
+        crate::domain::models::AuthMode::Local | crate::domain::models::AuthMode::Dev => {
+            let (session, user) =
+                services::login(&state.repo, &payload.username, &payload.password).await?;
+
+            Ok(Json(LoginResponse {
+                token: session.token,
+                is_admin: user.is_admin,
+            }))
+        }
+    }
 }
 
 pub async fn auth_logout(

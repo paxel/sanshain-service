@@ -138,35 +138,6 @@ paths:
         "200":
           description: Status updated
 
-  /admin/settings/local-users:
-    get:
-      summary: Get local users enabled status
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Local users status
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  local_users_enabled:
-                    type: boolean
-    post:
-      summary: Set local users enabled status
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EnabledPayload"
-      responses:
-        "200":
-          description: Status updated
-
   /admin/settings/auto-approve:
     get:
       summary: Get auto-approve status

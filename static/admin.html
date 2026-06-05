@@ -183,20 +183,6 @@
                 </div>
             </section>
 
-            <!-- Local Users Toggle -->
-            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                <div class="flex justify-between items-center">
-                    <div>
-                        <h2 class="text-lg font-semibold text-slate-800">Local User Registration</h2>
-                        <p class="text-sm text-slate-500 mt-1">When enabled, users can self-register via <code class="bg-slate-100 px-1 rounded">/auth/register</code>. New users require admin approval.</p>
-                    </div>
-                    <button id="local-users-toggle" onclick="toggleLocalUsers()"
-                        class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 bg-slate-200">
-                        <span id="local-users-dot" class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1"></span>
-                    </button>
-                </div>
-            </section>
-
             <!-- Auto Approve Users Toggle -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="flex justify-between items-center">
@@ -486,7 +472,6 @@
             loadProtectedBranches();
             loadServices();
             loadClients();
-            loadLocalUsers();
             loadAutoApproveUsers();
             loadUsers();
             loadAuthConfig();
@@ -699,19 +684,7 @@
         }
 
         // --- Local Users Toggle ---
-        let localUsersEnabled = false;
         let autoApproveUsersEnabled = false;
-
-        async function loadLocalUsers() {
-            try {
-                const res = await apiCall('/admin/settings/local-users');
-                if (res.ok) {
-                    const data = await res.json();
-                    localUsersEnabled = data.local_users_enabled;
-                    updateLocalUsersUI();
-                }
-            } catch (_) {}
-        }
 
         async function loadAutoApproveUsers() {
             try {
@@ -722,22 +695,6 @@
                     updateAutoApproveUsersUI();
                 }
             } catch (_) {}
-        }
-
-        function updateLocalUsersUI() {
-            const toggle = document.getElementById('local-users-toggle');
-            const dot = document.getElementById('local-users-dot');
-            if (localUsersEnabled) {
-                toggle.classList.remove('bg-slate-200');
-                toggle.classList.add('bg-indigo-600');
-                dot.classList.remove('translate-x-1');
-                dot.classList.add('translate-x-6');
-            } else {
-                toggle.classList.remove('bg-indigo-600');
-                toggle.classList.add('bg-slate-200');
-                dot.classList.remove('translate-x-6');
-                dot.classList.add('translate-x-1');
-            }
         }
 
         function updateAutoApproveUsersUI() {
@@ -754,19 +711,6 @@
                 dot.classList.remove('translate-x-6');
                 dot.classList.add('translate-x-1');
             }
-        }
-
-        async function toggleLocalUsers() {
-            try {
-                const res = await apiCall('/admin/settings/local-users', {
-                    method: 'POST',
-                    body: { enabled: !localUsersEnabled },
-                });
-                if (res.ok) {
-                    localUsersEnabled = !localUsersEnabled;
-                    updateLocalUsersUI();
-                }
-            } catch (_) {}
         }
 
         async function toggleAutoApproveUsers() {
@@ -1043,7 +987,6 @@
             try {
                 const res = await apiCall('/admin/auth-config', { method: 'PUT', body });
                 if (res.ok) {
-                    loadLocalUsers();
                     alert('Authentication settings saved.');
                 } else {
                     alert('Failed to save: ' + res.status);

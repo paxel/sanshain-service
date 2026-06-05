@@ -306,27 +306,6 @@ pub async fn set_dev_mode(
     Ok(StatusCode::OK)
 }
 
-pub async fn get_local_users(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    let res = services::get_local_users_enabled(&state.repo).await?;
-    Ok(Json(json!({ "local_users_enabled": res })))
-}
-
-pub async fn set_local_users(
-    State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    Json(payload): Json<EnabledRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    services::set_local_users_enabled(&state.repo, payload.enabled).await?;
-    record_audit_log(
-        &state.repo,
-        user,
-        "SET_LOCAL_USERS",
-        &format!("Set local-users to {}", payload.enabled),
-    )
-    .await?;
-    Ok(StatusCode::OK)
-}
-
 pub async fn get_auto_approve_users(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {

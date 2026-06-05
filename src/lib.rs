@@ -87,7 +87,6 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/endpoint-versions", get(admin::admin_get_endpoint_versions).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/shared-contract", get(admin::admin_get_shared_contract).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/settings/dev-mode", get(admin::get_dev_mode).post(admin::set_dev_mode).layer(from_fn_with_state(state.clone(), admin_auth)))
-        .route("/admin/settings/local-users", get(admin::get_local_users).post(admin::set_local_users).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/settings/auto-approve", get(admin::get_auto_approve_users).post(admin::set_auto_approve_users).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/auth-config", get(admin::get_auth_config).put(admin::set_auth_config).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/auth-config/test", post(admin::test_auth_config).layer(from_fn_with_state(state.clone(), admin_auth)))
