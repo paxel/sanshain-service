@@ -504,4 +504,30 @@ impl SpecRepository for DatabaseRepo {
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
         delegate!(self, get_recent_audit_logs(limit))
     }
+
+    async fn get_user_favorites(
+        &self,
+        user_id: i64,
+        item_type: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
+        delegate!(self, get_user_favorites(user_id, item_type))
+    }
+
+    async fn add_user_favorite(
+        &self,
+        user_id: i64,
+        item_type: &str,
+        item_name: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, add_user_favorite(user_id, item_type, item_name))
+    }
+
+    async fn remove_user_favorite(
+        &self,
+        user_id: i64,
+        item_type: &str,
+        item_name: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, remove_user_favorite(user_id, item_type, item_name))
+    }
 }

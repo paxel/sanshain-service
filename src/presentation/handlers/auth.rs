@@ -211,3 +211,29 @@ pub async fn revoke_token(
     .await?;
     Ok(StatusCode::OK)
 }
+
+pub async fn get_favorites(
+    State(state): State<AppState>,
+    axum::Extension(user): axum::Extension<User>,
+) -> Result<impl IntoResponse, AppError> {
+    let res = services::get_user_favorites(&state.repo, user.id).await?;
+    Ok(Json(res))
+}
+
+pub async fn add_favorite(
+    State(state): State<AppState>,
+    axum::Extension(user): axum::Extension<User>,
+    axum::extract::Path((item_type, item_name)): axum::extract::Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    services::add_user_favorite(&state.repo, user.id, &item_type, &item_name).await?;
+    Ok(StatusCode::OK)
+}
+
+pub async fn remove_favorite(
+    State(state): State<AppState>,
+    axum::Extension(user): axum::Extension<User>,
+    axum::extract::Path((item_type, item_name)): axum::extract::Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    services::remove_user_favorite(&state.repo, user.id, &item_type, &item_name).await?;
+    Ok(StatusCode::OK)
+}

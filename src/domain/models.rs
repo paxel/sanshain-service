@@ -317,6 +317,14 @@ pub struct ServiceSummary {
     pub name: String,
     pub fallback_branch: Option<String>,
     pub branches: Vec<String>,
+    #[serde(default)]
+    pub is_favorite: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct UserFavoritesResponse {
+    pub services: Vec<String>,
+    pub clients: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

@@ -155,3 +155,106 @@ async fn admin_lists_and_cache_endpoints_work() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn test_favorites_api_endpoints() {
+    let (app, _repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+
+    // 1. Get initial favorites (should be empty lists)
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/auth/favorites")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
+    let favs: sanshain_service::domain::models::UserFavoritesResponse = serde_json::from_slice(&body).unwrap();
+    assert!(favs.services.is_empty());
+    assert!(favs.clients.is_empty());
+
+    // 2. Add a favorite service
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/favorites/service/demo-svc")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // 3. Add an invalid item type (should fail)
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/favorites/invalid_type/demo-svc")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // 4. Get favorites again (should contain demo-svc)
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/auth/favorites")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
+    let favs: sanshain_service::domain::models::UserFavoritesResponse = serde_json::from_slice(&body).unwrap();
+    assert_eq!(favs.services, vec!["demo-svc".to_string()]);
+
+    // 5. Remove the favorite service
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/auth/favorites/service/demo-svc")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // 6. Get favorites again (should be empty again)
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/auth/favorites")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
+    let favs: sanshain_service::domain::models::UserFavoritesResponse = serde_json::from_slice(&body).unwrap();
+    assert!(favs.services.is_empty());
+}

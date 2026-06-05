@@ -524,4 +524,29 @@ pub trait SpecRepository: Send + Sync {
         &self,
         limit: u32,
     ) -> impl Future<Output = Result<Vec<AuditLogEntry>, RepositoryError>> + Send;
+
+    // --- User Favorites ---
+
+    /// Get user favorites by item type ('service' or 'client')
+    fn get_user_favorites(
+        &self,
+        user_id: i64,
+        item_type: &str,
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    /// Add a user favorite
+    fn add_user_favorite(
+        &self,
+        user_id: i64,
+        item_type: &str,
+        item_name: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Remove a user favorite
+    fn remove_user_favorite(
+        &self,
+        user_id: i64,
+        item_type: &str,
+        item_name: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }

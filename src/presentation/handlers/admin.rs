@@ -30,8 +30,10 @@ async fn record_audit_log(
 
 pub async fn admin_list_services(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_services_detailed(&state.repo).await?;
+    let user_id = user.map(|axum::Extension(u)| u.id);
+    let res = services::list_services_detailed(&state.repo, user_id).await?;
     Ok(Json(res))
 }
 
@@ -45,8 +47,10 @@ pub async fn admin_list_branches(
 
 pub async fn admin_list_clients(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_clients(&state.repo).await?;
+    let user_id = user.map(|axum::Extension(u)| u.id);
+    let res = services::list_clients(&state.repo, user_id).await?;
     Ok(Json(res))
 }
 

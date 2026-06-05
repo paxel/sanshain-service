@@ -5,6 +5,7 @@
 
 let allServices = [];
 let allServiceBranches = {}; // cache: serviceName -> branches[]
+let userFavorites = { services: [], clients: [] };
 const YAML_PAGE_SIZE = 80; // lines per page for YAML viewer
 
 async function fetchJSON(url) {
@@ -22,6 +23,54 @@ async function loadAllServiceBranches() {
   allServiceBranches = {};
   for (const svc of allServices) {
     allServiceBranches[svc.name] = svc.branches || [];
+  }
+}
+
+async function loadUserFavorites() {
+  try {
+    const favorites = await fetchJSON("/auth/favorites");
+    userFavorites = favorites || { services: [], clients: [] };
+  } catch (err) {
+    console.error("Failed to load user favorites:", err);
+    userFavorites = { services: [], clients: [] };
+  }
+}
+
+async function toggleFavorite(event, itemType, itemName, currentIsFavorite) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  const token = localStorage.getItem("sanshain_token");
+  const headers = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  
+  const method = currentIsFavorite ? "DELETE" : "POST";
+  try {
+    const res = await fetch(`/auth/favorites/${itemType}/${encodeURIComponent(itemName)}`, {
+      method,
+      headers
+    });
+    if (!res.ok) throw new Error(`Failed to toggle favorite: ${res.status}`);
+    
+    // Update local cache
+    const list = itemType === "service" ? userFavorites.services : userFavorites.clients;
+    if (currentIsFavorite) {
+      const idx = list.indexOf(itemName);
+      if (idx !== -1) list.splice(idx, 1);
+    } else {
+      if (!list.includes(itemName)) list.push(itemName);
+    }
+    
+    // Refresh page/lists
+    if (window.loadData) {
+      await window.loadData();
+    } else if (window.location.reload) {
+      window.location.reload();
+    }
+  } catch (err) {
+    console.error("Error toggling favorite:", err);
+    alert("Could not update favorite. Please try again.");
   }
 }
 

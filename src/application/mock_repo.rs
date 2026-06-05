@@ -21,6 +21,7 @@ pub struct MockRepo {
     pub shared_contracts: Mutex<HashMap<SharedContractKey, SharedContract>>,
     pub spec_versions: Mutex<HashMap<(i64, i64), (i32, String)>>,
     pub audit_logs: Mutex<Vec<AuditLogEntry>>,
+    pub user_favorites: Mutex<Vec<(i64, String, String)>>,
 }
 
 type SharedContractKey = (String, i64, ApiType, String, String);
@@ -53,6 +54,7 @@ impl MockRepo {
             shared_contracts: Mutex::new(HashMap::new()),
             spec_versions: Mutex::new(HashMap::new()),
             audit_logs: Mutex::new(Vec::new()),
+            user_favorites: Mutex::new(Vec::new()),
         }
     }
 
@@ -386,7 +388,28 @@ impl SpecRepository for MockRepo {
     }
 
     async fn list_services_detailed(&self) -> Result<Vec<ServiceSummary>, RepositoryError> {
-        Ok(Vec::new())
+        let services = self.services.lock().unwrap();
+        let branches = self.branches.lock().unwrap();
+        let fallback_branches = self.fallback_branches.lock().unwrap();
+
+        let mut result = Vec::new();
+        for (name, id) in services.iter() {
+            let mut svc_branches = Vec::new();
+            for ((bid, bname), _) in branches.iter() {
+                if *bid == *id {
+                    svc_branches.push(bname.clone());
+                }
+            }
+            svc_branches.sort();
+            result.push(ServiceSummary {
+                name: name.clone(),
+                fallback_branch: fallback_branches.get(name).cloned(),
+                branches: svc_branches,
+                is_favorite: false,
+            });
+        }
+        result.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(result)
     }
 
     async fn set_fallback_branch(
@@ -424,7 +447,9 @@ impl SpecRepository for MockRepo {
     }
 
     async fn list_clients(&self) -> Result<Vec<String>, RepositoryError> {
-        Ok(self.clients.lock().unwrap().keys().cloned().collect())
+        let mut clients: Vec<String> = self.clients.lock().unwrap().keys().cloned().collect();
+        clients.sort();
+        Ok(clients)
     }
 
     async fn list_client_branches(
@@ -779,5 +804,44 @@ impl SpecRepository for MockRepo {
         cloned.reverse(); // id DESC order (newest first)
         cloned.truncate(limit as usize);
         Ok(cloned)
+    }
+
+    async fn get_user_favorites(
+        &self,
+        user_id: i64,
+        item_type: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let favorites = self.user_favorites.lock().unwrap();
+        let mut result: Vec<String> = favorites
+            .iter()
+            .filter(|(uid, t, _)| *uid == user_id && t == item_type)
+            .map(|(_, _, name)| name.clone())
+            .collect();
+        result.sort();
+        Ok(result)
+    }
+
+    async fn add_user_favorite(
+        &self,
+        user_id: i64,
+        item_type: &str,
+        item_name: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut favorites = self.user_favorites.lock().unwrap();
+        if !favorites.iter().any(|(uid, t, name)| *uid == user_id && t == item_type && name == item_name) {
+            favorites.push((user_id, item_type.to_string(), item_name.to_string()));
+        }
+        Ok(())
+    }
+
+    async fn remove_user_favorite(
+        &self,
+        user_id: i64,
+        item_type: &str,
+        item_name: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut favorites = self.user_favorites.lock().unwrap();
+        favorites.retain(|(uid, t, name)| !(*uid == user_id && t == item_type && name == item_name));
+        Ok(())
     }
 }

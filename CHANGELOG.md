@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.3.0] - 2026-06-04
 
 ### Added
+- **Interactive User Favorites (Services & Clients)**: Implemented personalized favorites for services and clients. Users can mark/toggle any service or client as a favorite using an interactive star toggle icon. Marked items are dynamically pinned to the top of list views in alphabetical order, while preserving the standard alphabetical ordering for all other non-favorite items.
+- **Favorites Management REST API**: Added secure API endpoints to retrieve user favorites (`GET /auth/favorites`) and manage favorites (`POST` and `DELETE /auth/favorites/{item_type}/{item_name}`), fully protected by JWT-based session authentication.
+- **Database Support and Schema Migrations**: Created and integrated SQLite and PostgreSQL migration scripts for the new `user_favorites` table with complete cascade-deletion behaviors.
 - **Linkable Top-Layer YAML Viewer**: Introduced a dedicated `/yaml.html` page featuring a completely scrollable YAML viewport, sidebar-driven version list and compare panel, and full deep-linking support for direct URL sharing of specific versions or unified patch diffs.
 - **Interactive Blame Attribution**: Built a lightweight client-side blame algorithm displaying line-by-line history metadata (version number, author, branch, and timestamp) in real-time.
 - **Unified Patch-Set Diff and Export**: Created a Git-style unified diff formatter merging differences into hunks. Enabled downloading the active YAML version or downloading the active diff as a standard `.patch` file.

@@ -1192,6 +1192,7 @@ impl SpecRepository for SqliteSpecRepository {
                     name,
                     fallback_branch,
                     branches,
+                    is_favorite: false,
                 }
             })
             .collect())
@@ -2086,5 +2087,60 @@ impl SpecRepository for SqliteSpecRepository {
                 details,
             })
             .collect())
+    }
+
+    async fn get_user_favorites(
+        &self,
+        user_id: i64,
+        item_type: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT item_name FROM user_favorites WHERE user_id = ? AND item_type = ? ORDER BY item_name"
+        )
+        .bind(user_id)
+        .bind(item_type)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn add_user_favorite(
+        &self,
+        user_id: i64,
+        item_type: &str,
+        item_name: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT OR IGNORE INTO user_favorites (user_id, item_type, item_name) VALUES (?, ?, ?)"
+        )
+        .bind(user_id)
+        .bind(item_type)
+        .bind(item_name)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(())
+    }
+
+    async fn remove_user_favorite(
+        &self,
+        user_id: i64,
+        item_type: &str,
+        item_name: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "DELETE FROM user_favorites WHERE user_id = ? AND item_type = ? AND item_name = ?"
+        )
+        .bind(user_id)
+        .bind(item_type)
+        .bind(item_name)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(())
     }
 }

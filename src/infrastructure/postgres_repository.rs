@@ -1131,6 +1131,7 @@ impl SpecRepository for PostgresSpecRepository {
                 name,
                 fallback_branch,
                 branches: branches.unwrap_or_default(),
+                is_favorite: false,
             })
             .collect())
     }
@@ -2016,5 +2017,60 @@ impl SpecRepository for PostgresSpecRepository {
                 details,
             })
             .collect())
+    }
+
+    async fn get_user_favorites(
+        &self,
+        user_id: i64,
+        item_type: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT item_name FROM user_favorites WHERE user_id = $1 AND item_type = $2 ORDER BY item_name"
+        )
+        .bind(user_id)
+        .bind(item_type)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn add_user_favorite(
+        &self,
+        user_id: i64,
+        item_type: &str,
+        item_name: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT INTO user_favorites (user_id, item_type, item_name) VALUES ($1, $2, $3) ON CONFLICT(user_id, item_type, item_name) DO NOTHING"
+        )
+        .bind(user_id)
+        .bind(item_type)
+        .bind(item_name)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(())
+    }
+
+    async fn remove_user_favorite(
+        &self,
+        user_id: i64,
+        item_type: &str,
+        item_name: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "DELETE FROM user_favorites WHERE user_id = $1 AND item_type = $2 AND item_name = $3"
+        )
+        .bind(user_id)
+        .bind(item_type)
+        .bind(item_name)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(())
     }
 }

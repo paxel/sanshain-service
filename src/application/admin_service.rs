@@ -85,8 +85,19 @@ pub async fn list_services(repo: &impl SpecRepository) -> Result<Vec<String>, Ap
 
 pub async fn list_services_detailed(
     repo: &impl SpecRepository,
+    user_id: Option<i64>,
 ) -> Result<Vec<ServiceSummary>, AppError> {
-    Ok(repo.list_services_detailed().await?)
+    let mut services = repo.list_services_detailed().await?;
+    if let Some(uid) = user_id {
+        let favorites = repo.get_user_favorites(uid, "service").await?;
+        for svc in &mut services {
+            if favorites.contains(&svc.name) {
+                svc.is_favorite = true;
+            }
+        }
+        services.sort_by(|a, b| b.is_favorite.cmp(&a.is_favorite));
+    }
+    Ok(services)
 }
 
 pub async fn set_fallback_branch(
@@ -116,8 +127,20 @@ pub async fn list_all_branches(repo: &impl SpecRepository) -> Result<Vec<String>
     Ok(repo.list_all_branches().await?)
 }
 
-pub async fn list_clients(repo: &impl SpecRepository) -> Result<Vec<String>, AppError> {
-    Ok(repo.list_clients().await?)
+pub async fn list_clients(
+    repo: &impl SpecRepository,
+    user_id: Option<i64>,
+) -> Result<Vec<String>, AppError> {
+    let mut clients = repo.list_clients().await?;
+    if let Some(uid) = user_id {
+        let favorites = repo.get_user_favorites(uid, "client").await?;
+        clients.sort_by(|a, b| {
+            let a_fav = favorites.contains(a);
+            let b_fav = favorites.contains(b);
+            b_fav.cmp(&a_fav)
+        });
+    }
+    Ok(clients)
 }
 
 pub async fn list_client_branches(
@@ -185,6 +208,41 @@ pub async fn cleanup_stale_dependencies(repo: &impl SpecRepository) -> Result<u6
     }
     let cutoff = Utc::now() - chrono::Duration::days(days as i64);
     Ok(repo.delete_stale_dependencies(&cutoff.to_rfc3339()).await?)
+}
+
+pub async fn get_user_favorites(
+    repo: &impl SpecRepository,
+    user_id: i64,
+) -> Result<UserFavoritesResponse, AppError> {
+    let services = repo.get_user_favorites(user_id, "service").await?;
+    let clients = repo.get_user_favorites(user_id, "client").await?;
+    Ok(UserFavoritesResponse { services, clients })
+}
+
+pub async fn add_user_favorite(
+    repo: &impl SpecRepository,
+    user_id: i64,
+    item_type: &str,
+    item_name: &str,
+) -> Result<(), AppError> {
+    if item_type != "service" && item_type != "client" {
+        return Err(AppError::BadRequest("Invalid item type. Must be 'service' or 'client'".to_string()));
+    }
+    repo.add_user_favorite(user_id, item_type, item_name).await?;
+    Ok(())
+}
+
+pub async fn remove_user_favorite(
+    repo: &impl SpecRepository,
+    user_id: i64,
+    item_type: &str,
+    item_name: &str,
+) -> Result<(), AppError> {
+    if item_type != "service" && item_type != "client" {
+        return Err(AppError::BadRequest("Invalid item type. Must be 'service' or 'client'".to_string()));
+    }
+    repo.remove_user_favorite(user_id, item_type, item_name).await?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -258,5 +316,51 @@ mod tests {
         let repo = MockRepo::new();
         let count = cleanup_stale_dependencies(&repo).await.unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_favorites_sorting() {
+        let repo = MockRepo::new();
+        let s_a = repo.ensure_service("svc-a").await.unwrap();
+        let s_b = repo.ensure_service("svc-b").await.unwrap();
+        let s_c = repo.ensure_service("svc-c").await.unwrap();
+        
+        repo.ensure_branch(s_a, "main").await.unwrap();
+        repo.ensure_branch(s_b, "main").await.unwrap();
+        repo.ensure_branch(s_c, "main").await.unwrap();
+
+        repo.ensure_client("client-a").await.unwrap();
+        repo.ensure_client("client-b").await.unwrap();
+        repo.ensure_client("client-c").await.unwrap();
+
+        let svcs = list_services_detailed(&repo, None).await.unwrap();
+        assert_eq!(svcs[0].name, "svc-a");
+        assert_eq!(svcs[1].name, "svc-b");
+        assert_eq!(svcs[2].name, "svc-c");
+
+        let clients = list_clients(&repo, None).await.unwrap();
+        assert_eq!(clients[0], "client-a");
+        assert_eq!(clients[1], "client-b");
+        assert_eq!(clients[2], "client-c");
+
+        add_user_favorite(&repo, 42, "service", "svc-b").await.unwrap();
+        add_user_favorite(&repo, 42, "client", "client-c").await.unwrap();
+
+        let svcs_fav = list_services_detailed(&repo, Some(42)).await.unwrap();
+        assert_eq!(svcs_fav[0].name, "svc-b");
+        assert!(svcs_fav[0].is_favorite);
+        assert_eq!(svcs_fav[1].name, "svc-a");
+        assert!(!svcs_fav[1].is_favorite);
+        assert_eq!(svcs_fav[2].name, "svc-c");
+        assert!(!svcs_fav[2].is_favorite);
+
+        let clients_fav = list_clients(&repo, Some(42)).await.unwrap();
+        assert_eq!(clients_fav[0], "client-c");
+        assert_eq!(clients_fav[1], "client-a");
+        assert_eq!(clients_fav[2], "client-b");
+
+        remove_user_favorite(&repo, 42, "service", "svc-b").await.unwrap();
+        let svcs_removed = list_services_detailed(&repo, Some(42)).await.unwrap();
+        assert_eq!(svcs_removed[0].name, "svc-a");
     }
 }
