@@ -40,6 +40,9 @@ pub async fn ensure_initial_admin(repo: &impl SpecRepository) -> Result<(), AppE
             std::env::var("INITIAL_ADMIN_PASSWORD").unwrap_or_else(|_| generate_random_password());
         let hash = hash_password(&password)?;
         repo.create_user(&username, &hash, true, true).await?;
+        if repo.get_setting("auth_mode").await?.is_none() {
+            repo.set_setting("auth_mode", "local").await?;
+        }
         eprintln!(
             "[INITIAL SETUP] Admin user created. Username: {}, Password: {}",
             username, password
@@ -367,9 +370,7 @@ mod tests {
     #[tokio::test]
     async fn test_register_user_success() {
         let repo = MockRepo::new();
-        repo.set_setting("auth_mode", "local")
-            .await
-            .unwrap();
+        repo.set_setting("auth_mode", "local").await.unwrap();
         register_user(&repo, "newuser", "pass123").await.unwrap();
         let user = repo.find_user("newuser").await.unwrap().unwrap();
         assert_eq!(user.username, "newuser");
@@ -378,9 +379,7 @@ mod tests {
     #[tokio::test]
     async fn test_register_user_duplicate() {
         let repo = MockRepo::new();
-        repo.set_setting("auth_mode", "local")
-            .await
-            .unwrap();
+        repo.set_setting("auth_mode", "local").await.unwrap();
         register_user(&repo, "dup", "pass").await.unwrap();
         let err = register_user(&repo, "dup", "pass").await.unwrap_err();
         assert!(matches!(err, AppError::Conflict(_)));

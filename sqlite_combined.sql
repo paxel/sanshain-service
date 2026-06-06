@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 INSERT OR IGNORE INTO settings (key, value) VALUES ('dev_mode', 'false');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('local_users_enabled', 'false');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('auth_mode', 'local');
 
 -- API tokens for programmatic access
 CREATE TABLE IF NOT EXISTS api_tokens (
