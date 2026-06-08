@@ -34,7 +34,7 @@ success "Cargo audit passed."
 log "Running Cargo Geiger (unsafe code check)..."
 # Temporary workaround for cargo-geiger looking for non-existent compat_test.rs
 touch tests/compat_test.rs
-cargo geiger --brief || log "Warning: Cargo geiger reported some issues."
+CARGO_TARGET_DIR=target/geiger cargo geiger --brief || log "Warning: Cargo geiger reported some issues."
 rm tests/compat_test.rs
 success "Cargo geiger finished."
 

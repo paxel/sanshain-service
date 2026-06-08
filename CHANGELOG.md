@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.3.0] - 2026-06-04
 
 ### Added
+- **Branch Dropdown Selector Sorting**: Enhanced the user experience on the dependency graph and report views by sorting all branch selection dropdowns. Protected branches are displayed first, followed by non-protected (feature) branches sorted by their last modified date (descending, newest updated first), falling back to alphabetical sorting when modification dates match. Added a database query, repository port `list_branches_with_metadata`, and secure `/branches/metadata` REST API endpoint to retrieve branch last-modified timestamps.
 - **Interactive User Favorites (Services & Clients)**: Implemented personalized favorites for services and clients. Users can mark/toggle any service or client as a favorite using an interactive star toggle icon. Marked items are dynamically pinned to the top of list views in alphabetical order, while preserving the standard alphabetical ordering for all other non-favorite items.
 - **Favorites Management REST API**: Added secure API endpoints to retrieve user favorites (`GET /auth/favorites`) and manage favorites (`POST` and `DELETE /auth/favorites/{item_type}/{item_name}`), fully protected by JWT-based session authentication.
 - **Database Support and Schema Migrations**: Created and integrated SQLite and PostgreSQL migration scripts for the new `user_favorites` table with complete cascade-deletion behaviors.

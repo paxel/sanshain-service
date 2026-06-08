@@ -397,6 +397,13 @@ pub async fn list_protected_branches_public(
     Ok(Json(res))
 }
 
+pub async fn list_branches_metadata(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let res = services::list_branches_with_metadata(&state.repo).await?;
+    Ok(Json(res))
+}
+
 #[derive(Deserialize)]
 pub struct VersionsQuery {
     pub service: String,

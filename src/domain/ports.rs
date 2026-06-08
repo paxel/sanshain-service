@@ -549,4 +549,9 @@ pub trait SpecRepository: Send + Sync {
         item_type: &str,
         item_name: &str,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// List all branches with their last modified timestamp metadata
+    fn list_branches_with_metadata(
+        &self,
+    ) -> impl Future<Output = Result<Vec<BranchMetadata>, RepositoryError>> + Send;
 }

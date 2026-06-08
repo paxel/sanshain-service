@@ -22,6 +22,7 @@ pub struct MockRepo {
     pub spec_versions: Mutex<HashMap<(i64, i64), (i32, String)>>,
     pub audit_logs: Mutex<Vec<AuditLogEntry>>,
     pub user_favorites: Mutex<Vec<(i64, String, String)>>,
+    pub branch_timestamps: Mutex<HashMap<String, String>>,
 }
 
 type SharedContractKey = (String, i64, ApiType, String, String);
@@ -55,6 +56,7 @@ impl MockRepo {
             spec_versions: Mutex::new(HashMap::new()),
             audit_logs: Mutex::new(Vec::new()),
             user_favorites: Mutex::new(Vec::new()),
+            branch_timestamps: Mutex::new(HashMap::new()),
         }
     }
 
@@ -847,5 +849,25 @@ impl SpecRepository for MockRepo {
         favorites
             .retain(|(uid, t, name)| !(*uid == user_id && t == item_type && name == item_name));
         Ok(())
+    }
+
+    async fn list_branches_with_metadata(&self) -> Result<Vec<BranchMetadata>, RepositoryError> {
+        let branches = self.branches.lock().unwrap();
+        let timestamps = self.branch_timestamps.lock().unwrap();
+        let mut result = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for ((_, bname), _) in branches.iter() {
+            if seen.insert(bname.clone()) {
+                let last_modified = timestamps
+                    .get(bname)
+                    .cloned()
+                    .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+                result.push(BranchMetadata {
+                    name: bname.clone(),
+                    last_modified,
+                });
+            }
+        }
+        Ok(result)
     }
 }

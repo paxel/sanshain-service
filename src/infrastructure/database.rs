@@ -533,4 +533,8 @@ impl SpecRepository for DatabaseRepo {
     ) -> Result<(), RepositoryError> {
         delegate!(self, remove_user_favorite(user_id, item_type, item_name))
     }
+
+    async fn list_branches_with_metadata(&self) -> Result<Vec<BranchMetadata>, RepositoryError> {
+        delegate!(self, list_branches_with_metadata())
+    }
 }

@@ -36,6 +36,52 @@ async function loadUserFavorites() {
   }
 }
 
+let allBranchesMetadata = [];
+
+async function loadBranchesMetadata() {
+  try {
+    allBranchesMetadata = await fetchJSON("/branches/metadata");
+  } catch (err) {
+    console.error("Failed to load branches metadata:", err);
+    allBranchesMetadata = [];
+  }
+}
+
+function isBranchProtected(branchName, protectedPatterns) {
+  if (!protectedPatterns || !Array.isArray(protectedPatterns)) return false;
+  return protectedPatterns.some((pattern) => {
+    if (pattern === branchName) return true;
+    const regexStr =
+      "^" + pattern.replace(/[-\/\\^$+?.()|[\]{}]/g, "\\$&").replace(/\*/g, ".*") + "$";
+    const regex = new RegExp(regexStr);
+    return regex.test(branchName);
+  });
+}
+
+function sortBranchNames(branchNames, protectedBranches) {
+  const list = Array.from(branchNames);
+  const lastModifiedMap = {};
+  for (const b of allBranchesMetadata) {
+    lastModifiedMap[b.name] = b.last_modified;
+  }
+
+  return list.sort((a, b) => {
+    const aProt = isBranchProtected(a, protectedBranches);
+    const bProt = isBranchProtected(b, protectedBranches);
+
+    if (aProt && !bProt) return -1;
+    if (!aProt && bProt) return 1;
+
+    const aTime = lastModifiedMap[a] || "1970-01-01T00:00:00Z";
+    const bTime = lastModifiedMap[b] || "1970-01-01T00:00:00Z";
+
+    if (aTime !== bTime) {
+      return bTime.localeCompare(aTime); // descending (newest first)
+    }
+    return a.localeCompare(b);
+  });
+}
+
 async function toggleFavorite(event, itemType, itemName, currentIsFavorite) {
   if (event) {
     event.stopPropagation();

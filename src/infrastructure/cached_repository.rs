@@ -1206,6 +1206,10 @@ impl SpecRepository for CachedSpecRepository {
             .remove_user_favorite(user_id, item_type, item_name)
             .await
     }
+
+    async fn list_branches_with_metadata(&self) -> Result<Vec<BranchMetadata>, RepositoryError> {
+        self.inner.list_branches_with_metadata().await
+    }
 }
 
 #[cfg(test)]

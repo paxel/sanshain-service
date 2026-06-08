@@ -322,6 +322,12 @@ pub struct ServiceSummary {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct BranchMetadata {
+    pub name: String,
+    pub last_modified: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UserFavoritesResponse {
     pub services: Vec<String>,
     pub clients: Vec<String>,

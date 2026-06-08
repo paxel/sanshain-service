@@ -261,17 +261,28 @@
     async function showGraph() {
         try {
             await loadAllServiceBranches();
+            let protectedBranches = [];
+            try {
+                protectedBranches = await fetchJSON('/branches/protected');
+            } catch (e) {
+                console.warn('Could not load protected branches:', e);
+            }
+            await loadBranchesMetadata();
+
             const branchSelect = document.getElementById('graph-branch-select');
             const allBranchNames = new Set();
             for (const branches of Object.values(allServiceBranches)) {
                 for (const b of branches) allBranchNames.add(typeof b === 'string' ? b : b.name);
             }
+
+            const sortedBranches = sortBranchNames([...allBranchNames], protectedBranches);
+
             if (allBranchNames.size === 0) {
                 branchSelect.innerHTML = '<option value="">No branches found</option>';
             } else {
                 const prev = branchSelect.value;
                 branchSelect.innerHTML = '';
-                for (const name of [...allBranchNames].sort()) {
+                for (const name of sortedBranches) {
                     const opt = document.createElement('option');
                     opt.value = name;
                     opt.textContent = name;
@@ -281,33 +292,20 @@
                 else if (allBranchNames.has('main')) branchSelect.value = 'main';
             }
 
-            // Populate target branch dropdown from protected branches
+            // Populate target branch dropdown
             const targetSelect = document.getElementById('graph-target-select');
-            try {
-                const protectedBranches = await fetchJSON('/branches/protected');
-                targetSelect.innerHTML = '<option value="">None</option>';
-                for (const pb of protectedBranches) {
-                    const opt = document.createElement('option');
-                    opt.value = pb;
-                    opt.textContent = pb;
-                    targetSelect.appendChild(opt);
-                }
-                // Also add all known branches as options (after protected ones)
-                for (const name of [...allBranchNames].sort()) {
-                    if (!protectedBranches.includes(name)) {
-                        const opt = document.createElement('option');
-                        opt.value = name;
-                        opt.textContent = name;
-                        targetSelect.appendChild(opt);
-                    }
-                }
-                // Default to first protected branch if current branch is not protected
-                const currentBranch = branchSelect.value;
-                if (protectedBranches.length > 0 && !protectedBranches.includes(currentBranch)) {
-                    targetSelect.value = protectedBranches[0];
-                }
-            } catch (e) {
-                console.warn('Could not load protected branches for target dropdown:', e);
+            targetSelect.innerHTML = '<option value="">None</option>';
+            for (const name of sortedBranches) {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name;
+                targetSelect.appendChild(opt);
+            }
+
+            // Default to first protected branch if current branch is not protected
+            const currentBranch = branchSelect.value;
+            if (protectedBranches.length > 0 && !protectedBranches.includes(currentBranch)) {
+                targetSelect.value = protectedBranches[0];
             }
 
             restoreGraphFiltersFromUrl();

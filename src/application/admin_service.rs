@@ -127,6 +127,12 @@ pub async fn list_all_branches(repo: &impl SpecRepository) -> Result<Vec<String>
     Ok(repo.list_all_branches().await?)
 }
 
+pub async fn list_branches_with_metadata(
+    repo: &impl SpecRepository,
+) -> Result<Vec<BranchMetadata>, AppError> {
+    Ok(repo.list_branches_with_metadata().await?)
+}
+
 pub async fn list_clients(
     repo: &impl SpecRepository,
     user_id: Option<i64>,

@@ -83,18 +83,28 @@
 
         try {
             await loadAllServiceBranches();
+            let protectedBranches = [];
+            try {
+                protectedBranches = await fetchJSON('/branches/protected');
+            } catch (e) {
+                console.warn('Could not load protected branches:', e);
+            }
+            await loadBranchesMetadata();
+
             const branchSelect = document.getElementById('report-branch-select');
             const allBranchNames = new Set();
             for (const branches of Object.values(allServiceBranches)) {
                 for (const b of branches) allBranchNames.add(typeof b === 'string' ? b : b.name);
             }
 
+            const sortedBranches = sortBranchNames([...allBranchNames], protectedBranches);
+
             if (allBranchNames.size === 0) {
                 branchSelect.innerHTML = '<option value="">No branches found</option>';
             } else {
                 const prev = branchSelect.value;
                 branchSelect.innerHTML = '';
-                for (const name of [...allBranchNames].sort()) {
+                for (const name of sortedBranches) {
                     const opt = document.createElement('option');
                     opt.value = name;
                     opt.textContent = name;

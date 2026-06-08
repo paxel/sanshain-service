@@ -2153,4 +2153,21 @@ impl SpecRepository for SqliteSpecRepository {
 
         Ok(())
     }
+
+    async fn list_branches_with_metadata(&self) -> Result<Vec<BranchMetadata>, RepositoryError> {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT name, MAX(updated_at) as last_modified FROM branches GROUP BY name",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(name, last_modified)| BranchMetadata {
+                name,
+                last_modified,
+            })
+            .collect())
+    }
 }

@@ -68,6 +68,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/report/isolation", get(api::report_isolation).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/report/merged", get(api::report_merged).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/branches/protected", get(api::list_protected_branches_public).layer(from_fn_with_state(state.clone(), api_auth)))
+        .route("/branches/metadata", get(api::list_branches_metadata).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/endpoint-versions", get(api::endpoint_versions).layer(from_fn_with_state(state.clone(), api_auth)))
 
         // Admin (Flat list to avoid double nesting issues)

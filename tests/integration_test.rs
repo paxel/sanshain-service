@@ -6,6 +6,7 @@ use axum::{
 use chrono::Utc;
 use sanshain_service::application::services;
 use sanshain_service::domain::models::{AuthMode, ProvideResponse};
+use sanshain_service::domain::ports::SpecRepository;
 use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
 use sanshain_service::infrastructure::database::DatabaseRepo;
 use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
@@ -2592,7 +2593,8 @@ async fn test_auth_config_api() {
 
 #[tokio::test]
 async fn test_disabled_mode_endpoints_return_503() {
-    let (app, _) = setup_app().await;
+    let (app, repo) = setup_app().await;
+    repo.set_setting("auth_mode", "disabled").await.unwrap();
 
     // By default, the app is in "disabled" mode, so calling /provide should return 503 Service Unavailable
     let provide_payload = json!({
@@ -5032,4 +5034,44 @@ paths:
     assert_eq!(arr[1]["version"], 2);
     assert_eq!(arr[1]["username"], "r**t");
     assert_eq!(arr[1]["source_branch"], "main");
+}
+
+#[tokio::test]
+async fn test_branches_metadata_endpoint() {
+    let (app, token, repo) = setup_app_with_admin().await;
+
+    // Populate branches with metadata using repo
+    let s_id = repo.ensure_service("test-service").await.unwrap();
+    repo.ensure_branch(s_id, "branch-1").await.unwrap();
+    repo.ensure_branch(s_id, "branch-2").await.unwrap();
+
+    // Query /branches/metadata (authenticated)
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/branches/metadata")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
+    let res: Value = serde_json::from_slice(&body).unwrap();
+    assert!(res.is_array());
+    let arr = res.as_array().unwrap();
+    assert_eq!(arr.len(), 2);
+
+    let names: Vec<String> = arr
+        .iter()
+        .map(|item| item["name"].as_str().unwrap().to_string())
+        .collect();
+    assert!(names.contains(&"branch-1".to_string()));
+    assert!(names.contains(&"branch-2".to_string()));
 }
