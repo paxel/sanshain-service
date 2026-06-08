@@ -1634,7 +1634,8 @@ async fn test_auto_approve_setting_controls_new_user_approval() {
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
-                    serde_json::to_vec(&json!({ "auth_mode": "local", "ldap_config": null })).unwrap(),
+                    serde_json::to_vec(&json!({ "auth_mode": "local", "ldap_config": null }))
+                        .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -1791,7 +1792,8 @@ async fn test_role_based_access_control() {
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"auth_mode": "local", "ldap_config": null})).unwrap(),
+                    serde_json::to_vec(&json!({"auth_mode": "local", "ldap_config": null}))
+                        .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2067,7 +2069,8 @@ async fn test_user_registration_and_approval() {
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"auth_mode": "local", "ldap_config": null})).unwrap(),
+                    serde_json::to_vec(&json!({"auth_mode": "local", "ldap_config": null}))
+                        .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -4131,7 +4134,8 @@ async fn test_all_admin_endpoints_require_admin_token() {
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"auth_mode": "local", "ldap_config": null})).unwrap(),
+                    serde_json::to_vec(&json!({"auth_mode": "local", "ldap_config": null}))
+                        .unwrap(),
                 ))
                 .unwrap(),
         )

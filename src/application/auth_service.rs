@@ -367,9 +367,7 @@ mod tests {
     #[tokio::test]
     async fn test_register_user_success() {
         let repo = MockRepo::new();
-        repo.set_setting("auth_mode", "local")
-            .await
-            .unwrap();
+        repo.set_setting("auth_mode", "local").await.unwrap();
         register_user(&repo, "newuser", "pass123").await.unwrap();
         let user = repo.find_user("newuser").await.unwrap().unwrap();
         assert_eq!(user.username, "newuser");
@@ -378,9 +376,7 @@ mod tests {
     #[tokio::test]
     async fn test_register_user_duplicate() {
         let repo = MockRepo::new();
-        repo.set_setting("auth_mode", "local")
-            .await
-            .unwrap();
+        repo.set_setting("auth_mode", "local").await.unwrap();
         register_user(&repo, "dup", "pass").await.unwrap();
         let err = register_user(&repo, "dup", "pass").await.unwrap_err();
         assert!(matches!(err, AppError::Conflict(_)));
