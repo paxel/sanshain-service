@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 INSERT INTO settings (key, value) VALUES ('dev_mode', 'false') ON CONFLICT DO NOTHING;
 INSERT INTO settings (key, value) VALUES ('local_users_enabled', 'false') ON CONFLICT DO NOTHING;
+INSERT INTO settings (key, value) VALUES ('auth_mode', 'local') ON CONFLICT DO NOTHING;
 INSERT INTO settings (key, value) VALUES ('branch_max_age_days', '30') ON CONFLICT DO NOTHING;
 
 -- API tokens for programmatic access

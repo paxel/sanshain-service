@@ -40,6 +40,9 @@ pub async fn ensure_initial_admin(repo: &impl SpecRepository) -> Result<(), AppE
             std::env::var("INITIAL_ADMIN_PASSWORD").unwrap_or_else(|_| generate_random_password());
         let hash = hash_password(&password)?;
         repo.create_user(&username, &hash, true, true).await?;
+        if repo.get_setting("auth_mode").await?.is_none() {
+            repo.set_setting("auth_mode", "local").await?;
+        }
         eprintln!(
             "[INITIAL SETUP] Admin user created. Username: {}, Password: {}",
             username, password
