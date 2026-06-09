@@ -59,7 +59,7 @@ This project uses the **Agent Skills** standard (`.agents/skills/`). Before perf
 ### Test Quality
 - Assert actual values, not just `is_ok()`.
 - Avoid randomness in tests (use fixed seeds).
-- Target coverage: `cargo tarpaulin --out Xml --skip-clean`.
+- Target coverage: `cargo tarpaulin --out Xml`.
 
 ## Key Files
 - `Cargo.toml`: Main manifest.
