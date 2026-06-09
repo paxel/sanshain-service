@@ -43,3 +43,7 @@
 - [ ] **Eye Candy & Polish**
   - Allow users to choose custom icons/symbols for services.
   - Group related services into logical clusters/domains in the visual graph.
+
+### Database Migration Integrity
+- [x] **Automated Checksums Integration Test**
+  - Implement automated SHA-256 checksum validation tests for both SQLite and PostgreSQL migration scripts to prevent accidental modifications of applied schemas.
