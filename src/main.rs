@@ -13,6 +13,7 @@ use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
 use sanshain_service::infrastructure::database::DatabaseRepo;
 use sanshain_service::infrastructure::postgres_repository::PostgresSpecRepository;
 use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
+use sanshain_service::infrastructure::telemetry;
 use sanshain_service::{AppState, LogCaptureLayer, create_app};
 
 #[tokio::main]
@@ -58,7 +59,10 @@ pub async fn main() {
         .unwrap_or_else(|_| "sanshain_service=debug,tower_http=debug".into());
     let capture_filter = tracing_subscriber::EnvFilter::new(capture_log_filter);
 
-    let registry = tracing_subscriber::registry().with(capture_layer.with_filter(capture_filter));
+    let (otel_layer, otel_provider) = telemetry::init_tracer();
+    let registry = tracing_subscriber::registry()
+        .with(capture_layer.with_filter(capture_filter))
+        .with(otel_layer);
 
     if std::env::var("LOG_FORMAT").unwrap_or_default() == "json" {
         registry
@@ -310,6 +314,8 @@ pub async fn main() {
         eprintln!("ERROR: Server error: {}", e);
         std::process::exit(1);
     }
+
+    telemetry::shutdown_telemetry(otel_provider);
 }
 
 async fn shutdown_signal() {

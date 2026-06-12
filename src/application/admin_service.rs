@@ -1,5 +1,6 @@
 use crate::domain::models::*;
 use crate::domain::ports::SpecRepository;
+use tracing::instrument;
 use chrono::Utc;
 
 pub async fn list_protected_branches(repo: &impl SpecRepository) -> Result<Vec<String>, AppError> {
@@ -83,6 +84,7 @@ pub async fn list_services(repo: &impl SpecRepository) -> Result<Vec<String>, Ap
     Ok(repo.list_services().await?)
 }
 
+#[instrument(skip_all)]
 pub async fn list_services_detailed(
     repo: &impl SpecRepository,
     user_id: Option<i64>,
@@ -181,6 +183,7 @@ pub async fn set_branch_max_age_days(
     Ok(())
 }
 
+#[instrument(skip_all)]
 pub async fn cleanup_stale_branches(repo: &impl SpecRepository) -> Result<u64, AppError> {
     let days = get_branch_max_age_days(repo).await?;
     if days == 0 {
@@ -207,6 +210,7 @@ pub async fn set_dependency_max_age_days(
     Ok(())
 }
 
+#[instrument(skip_all)]
 pub async fn cleanup_stale_dependencies(repo: &impl SpecRepository) -> Result<u64, AppError> {
     let days = get_dependency_max_age_days(repo).await?;
     if days == 0 {

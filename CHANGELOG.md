@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [1.4.0] 
+## [1.4.0] - 2026-06-12
+
+### Added
+- **OpenTelemetry Tracing**: Integrated OpenTelemetry (OTEL) for distributed tracing using OTLP/gRPC.
+- **Instrumentation**: Added tracing instrumentation to application services and database repositories.
 
 ### Changed
 - **Version Bump**: Bumped the version to `1.4.0`.

@@ -32,6 +32,11 @@ metrics-exporter-prometheus = "0.18"
 sysinfo = "0.38"
 moka = { version = "0.12", features = ["future"] }
 thiserror = "2"
+opentelemetry = { version = "0.32", features = ["trace", "metrics", "logs"] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic"] }
+tracing-opentelemetry = "0.33"
+opentelemetry-semantic-conventions = "0.32"
 
 [dev-dependencies]
 flate2 = "1"

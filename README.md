@@ -421,6 +421,7 @@ In the service overview UI, use the **branch switcher** to flip between `main` (
 | `INSTANCE_ID` | *random UUID* | Unique ID for this service instance. |
 | `CACHE_MEMORY_MB` | `256` | In-memory cache size in MB. Set to `0` to disable caching entirely. Configurable at runtime via admin UI. |
 | `LOG_FORMAT` | `text` | Log output format (`text` or `json`). |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP/gRPC collector endpoint for distributed tracing. |
 | `RUST_LOG` | `sanshain_service=info,tower_http=info` | Log level filter (e.g., `sanshain_service=debug,tower_http=debug` for verbose output). |
 
 ### Running the service

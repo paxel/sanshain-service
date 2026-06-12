@@ -4,6 +4,8 @@ use crate::openapi;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
+use tracing::instrument;
+
 pub struct RequireEndpointParams<'a> {
     pub clientname: &'a str,
     pub servicename: &'a str,
@@ -23,6 +25,7 @@ pub struct RequireBundleParams<'a> {
     pub timeout_secs: Option<u64>,
 }
 
+#[instrument(skip_all)]
 pub async fn provide_spec(
     repo: &impl SpecRepository,
     servicename: &str,
@@ -234,6 +237,7 @@ async fn has_protected_branch_endpoints(
     Ok(false)
 }
 
+#[instrument(skip_all)]
 async fn provide_spec_inner(
     repo: &impl SpecRepository,
     params: ProvideInternalParams<'_>,
@@ -601,6 +605,7 @@ pub async fn get_endpoint_yaml(
     })
 }
 
+#[instrument(skip_all)]
 pub async fn list_service_endpoints(
     repo: &impl SpecRepository,
     servicename: &str,
@@ -690,6 +695,7 @@ pub async fn require_endpoint_dry_run(
     require_endpoint_inner(repo, notifier, params, true).await
 }
 
+#[instrument(skip_all)]
 async fn require_endpoint_inner(
     repo: &impl SpecRepository,
     mut notifier: Option<tokio::sync::broadcast::Receiver<()>>,
@@ -798,6 +804,7 @@ pub async fn require_bundle_dry_run(
     require_bundle_inner(repo, notifier, params, true).await
 }
 
+#[instrument(skip_all)]
 async fn require_bundle_inner(
     repo: &impl SpecRepository,
     mut notifier: Option<tokio::sync::broadcast::Receiver<()>>,

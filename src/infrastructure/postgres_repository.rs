@@ -1,6 +1,7 @@
 use crate::domain::models::*;
 use crate::domain::ports::{RecordDependencyParams, RepositoryError, SpecRepository};
 use sqlx::{PgPool, Row};
+use tracing::instrument;
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -139,6 +140,7 @@ impl SpecRepository for PostgresSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))
     }
 
+    #[instrument(skip_all)]
     async fn increment_spec_version(
         &self,
         service_id: i64,
@@ -425,6 +427,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(row)
     }
 
+    #[instrument(skip_all)]
     async fn find_endpoints_bulk(
         &self,
         service_id: i64,
@@ -532,6 +535,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn record_dependencies_bulk(
         &self,
         params: Vec<RecordDependencyParams<'_>>,
@@ -715,6 +719,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(row.0 > 0)
     }
 
+    #[instrument(skip_all)]
     async fn get_report(&self, branch: &str) -> Result<DependencyReport, RepositoryError> {
         let mut conn = self
             .pool
@@ -1713,6 +1718,7 @@ impl SpecRepository for PostgresSpecRepository {
             .collect())
     }
 
+    #[instrument(skip_all)]
     async fn apply_spec_changes(
         &self,
         branch_id: i64,

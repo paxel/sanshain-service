@@ -8,6 +8,8 @@ use rand::distr::{Alphanumeric, SampleString};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use tracing::instrument;
+
 pub fn hash_password(password: &str) -> Result<String, AppError> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
@@ -54,6 +56,7 @@ pub async fn ensure_initial_admin(repo: &impl SpecRepository) -> Result<(), AppE
     Ok(())
 }
 
+#[instrument(skip_all)]
 pub async fn login(
     repo: &impl SpecRepository,
     username: &str,
@@ -114,6 +117,7 @@ pub async fn set_dev_mode(repo: &impl SpecRepository, enabled: bool) -> Result<(
     Ok(())
 }
 
+#[instrument(skip_all)]
 pub async fn validate_session(
     repo: &impl SpecRepository,
     token: &str,
@@ -126,6 +130,7 @@ pub async fn logout(repo: &impl SpecRepository, token: &str) -> Result<(), AppEr
     Ok(())
 }
 
+#[instrument(skip_all)]
 pub async fn register_user(
     repo: &impl SpecRepository,
     username: &str,
@@ -258,6 +263,7 @@ pub async fn login_with_provider(
     Ok(session)
 }
 
+#[instrument(skip_all)]
 pub async fn create_api_token(
     repo: &impl SpecRepository,
     user_id: i64,
@@ -294,6 +300,7 @@ pub async fn revoke_api_token(
     Ok(repo.delete_api_token(token_id, user_id).await?)
 }
 
+#[instrument(skip_all)]
 pub async fn validate_api_token(
     repo: &impl SpecRepository,
     raw_token: &str,

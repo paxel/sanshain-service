@@ -3,8 +3,10 @@ use std::str::FromStr;
 
 use crate::domain::models::*;
 use crate::domain::ports::SpecRepository;
+use tracing::instrument;
 use crate::openapi;
 
+#[instrument(skip_all)]
 pub async fn generate_report(
     repo: &impl SpecRepository,
     branch: &str,
@@ -14,6 +16,7 @@ pub async fn generate_report(
     Ok(report)
 }
 
+#[instrument(skip_all)]
 pub async fn generate_merged_report(
     repo: &impl SpecRepository,
     branch: &str,
