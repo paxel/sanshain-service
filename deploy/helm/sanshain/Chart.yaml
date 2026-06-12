@@ -1,0 +1,6 @@
+apiVersion: v2
+name: sanshain
+description: A Helm chart for Sanshain Service
+type: application
+version: 1.4.0
+appVersion: "1.4.0"

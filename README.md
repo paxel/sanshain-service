@@ -463,9 +463,11 @@ cargo test
 ```
 
 ## Documentation
-See the [`docs/`](docs/) directory for detailed hands-on user guides (getting started, usage, administration, CI integration).
+See the [`docs/`](docs/) directory for detailed hands-on user guides (getting started, deployment, usage, administration, CI integration).
 
-For an in-depth look at the architecture, security internals, and implementation details of every subsystem, see the [Developer Guide](docs/developer-guide.md).
+- [Getting Started](docs/getting-started.md)
+- [Deployment (Kubernetes & Helm)](docs/deployment.md)
+- [Developer Guide](docs/developer-guide.md)
 
 ## Changelog
 See [CHANGELOG.md](CHANGELOG.md) for a detailed history of changes.

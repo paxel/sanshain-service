@@ -14,9 +14,13 @@ spec:
       labels:
         app: sanshain
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
       - name: sanshain
-        image: ghcr.io/sanshain/sanshain-service:latest
+        image: ghcr.io/sanshain/sanshain-service:v1.4.0
         ports:
         - containerPort: 3000
         envFrom:
@@ -24,6 +28,9 @@ spec:
             name: sanshain-config
         - secretRef:
             name: sanshain-secrets
+        volumeMounts:
+        - name: data
+          mountPath: /data
         resources:
           requests:
             cpu: "100m"
@@ -43,3 +50,7 @@ spec:
             port: 3000
           initialDelaySeconds: 5
           periodSeconds: 10
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: sanshain-data

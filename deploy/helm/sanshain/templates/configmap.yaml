@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sanshain.fullname" . }}-config
+  labels:
+    {{- include "sanshain.labels" . | nindent 4 }}
+data:
+  BIND_ADDRESS: {{ .Values.config.bindAddress | quote }}
+  RUST_LOG: {{ .Values.config.rustLog | quote }}
+  MAX_POSTGRES_CONNECTIONS: {{ .Values.config.maxPostgresConnections | quote }}
+  MAX_SQLITE_CONNECTIONS: {{ .Values.config.maxSqliteConnections | quote }}
+  SQLITE_BUSY_TIMEOUT_MS: {{ .Values.config.sqliteBusyTimeoutMs | quote }}
+  CLEANUP_INTERVAL_SECS: {{ .Values.config.cleanupIntervalSecs | quote }}
+  CSRF_MAX_AGE_HOURS: {{ .Values.config.csrfMaxAgeHours | quote }}
+  LOG_BUFFER_SIZE: {{ .Values.config.logBufferSize | quote }}
+  SPEC_UPDATED_CHANNEL_SIZE: {{ .Values.config.specUpdatedChannelSize | quote }}
+  CAPTURE_LOG_FILTER: {{ .Values.config.captureLogFilter | quote }}
+  PROMETHEUS_ENDPOINT: {{ .Values.config.prometheusEndpoint | quote }}
+  STATIC_DIR: {{ .Values.config.staticDir | quote }}
+  LOGIN_SESSION_DURATION_HOURS: {{ .Values.config.loginSessionDurationHours | quote }}
+  INITIAL_ADMIN_USERNAME: {{ .Values.config.initialAdminUsername | quote }}
