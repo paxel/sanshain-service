@@ -1,20 +1,6 @@
 # Sanshain Service — Implementation Plan
 
-### Deployment
-- [ ] **Kubernetes Manifests**
-  - Provision standard, production-ready manifests including `Deployment` (with replica configuration, health checks, resource limits), `Service` (ClusterIP/NodePort), `Ingress` (routing rules for Axum endpoints and static assets), `ConfigMap` (app settings, databases URLs, features), and `Secret` (database credentials, JWT secret keys, LDAP bind password).
-- [ ] **Helm Chart**
-  - Create a standard Helm chart to facilitate packaged Kubernetes deployments, allowing customized configuration management, templating for environment-specific values, and simplified installation/upgrades.
-- [ ] **Reverse Proxy TLS Configuration & Documentation**
-  - Configure and document a robust reverse proxy setup (e.g., NGINX, Caddy, or Traefik) that handles TLS termination, secure HTTPS redirection, and proper header forwarding (e.g., `X-Forwarded-For`, `X-Real-IP`).
-
-### Observability (Advanced)
-- [ ] **OpenTelemetry Tracing**
-  - Integrate OpenTelemetry tracing to track and monitor request flows, end-to-end performance, and service/database call latencies across service boundaries.
-
 ### Custom Dependency Graph Visualization (Polish)
-- [ ] **Edge Bundling / Merging**
-  - Implement edge bundling/merging at endpoint entry and exit points in the interactive dependency graph to reduce visual clutter and overlapping lines on highly interconnected graphs.
 - [ ] **Export as PNG**
   - Add native support in the UI for exporting and downloading the rendered dependency graph as a high-resolution PNG image (expanding on the existing SVG export feature).
 
@@ -43,7 +29,3 @@
 - [ ] **Eye Candy & Polish**
   - Allow users to choose custom icons/symbols for services.
   - Group related services into logical clusters/domains in the visual graph.
-
-### Database Migration Integrity
-- [x] **Automated Checksums Integration Test**
-  - Implement automated SHA-256 checksum validation tests for both SQLite and PostgreSQL migration scripts to prevent accidental modifications of applied schemas.
