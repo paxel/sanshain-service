@@ -5,7 +5,7 @@
 
 set -e
 
-SKILLS_DIR=".junie/skills"
+SKILLS_DIR=".agents/skills"
 FAILED=0
 
 echo "Validating skills in $SKILLS_DIR..."
