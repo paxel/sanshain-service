@@ -1099,6 +1099,89 @@ function getCustomGraphSVG(svgElement) {
   return svgElement.outerHTML;
 }
 
+/**
+ * Exports the current graph to a PNG image.
+ */
+function exportToPng(currentGraphMode) {
+  let svg;
+  if (currentGraphMode === "custom") {
+    svg = document.getElementById("custom-graph");
+  } else {
+    const mermaidDiv = document.getElementById("mermaid-graph");
+    svg = mermaidDiv ? mermaidDiv.querySelector("svg") : null;
+  }
+  if (!svg) return;
+  if (currentGraphMode === "custom" && !svg.firstChild) return;
+
+  const branch = document.getElementById("graph-branch-select").value || "graph";
+  const filename = `dependency_graph_${branch}.png`;
+
+  // Scale factor for high resolution
+  const factor = 2.0;
+
+  // Clone the SVG to avoid modifying the live one
+  const svgClone = svg.cloneNode(true);
+  
+  let width, height;
+  
+  if (currentGraphMode === "custom") {
+      // For custom graph, we want to export the whole graph content, not just visible area
+      const mainG = svg.querySelector("g");
+      if (!mainG) return;
+      
+      const bbox = mainG.getBBox();
+      width = bbox.width + 80; // Add some margin
+      height = bbox.height + 80;
+      
+      // Reset transform in clone
+      const cloneG = svgClone.querySelector("g");
+      cloneG.setAttribute("transform", `translate(${-bbox.x + 40}, ${-bbox.y + 40})`);
+      
+      svgClone.setAttribute("width", width);
+      svgClone.setAttribute("height", height);
+      svgClone.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  } else {
+      // For Mermaid, use its own viewBox/dimensions
+      if (svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width) {
+          width = svg.viewBox.baseVal.width;
+          height = svg.viewBox.baseVal.height;
+      } else {
+          width = svg.clientWidth || 800;
+          height = svg.clientHeight || 600;
+      }
+      svgClone.setAttribute("width", width);
+      svgClone.setAttribute("height", height);
+  }
+
+  const svgData = new XMLSerializer().serializeToString(svgClone);
+  const canvas = document.createElement("canvas");
+  canvas.width = width * factor;
+  canvas.height = height * factor;
+  const ctx = canvas.getContext("2d");
+  
+  // Fill background white
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const img = new Image();
+  const blob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  img.onload = () => {
+    ctx.drawImage(img, 0, 0, width * factor, height * factor);
+    const pngUrl = canvas.toDataURL("image/png");
+    const a = document.createElement("a");
+    a.href = pngUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+  img.src = url;
+}
+window.exportToPng = exportToPng;
+
 // ── Debounced resize handler ────────────────────────────────────────
 let _graphResizeTimer = null;
 window.addEventListener("resize", () => {
