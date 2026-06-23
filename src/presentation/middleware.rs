@@ -88,7 +88,11 @@ pub async fn api_auth(
         .get(header::AUTHORIZATION)
         .and_then(|h| h.to_str().ok());
 
-    if let Some(token) = auth_header {
+    let query_token = axum::extract::Query::<std::collections::HashMap<String, String>>::try_from_uri(req.uri())
+        .ok()
+        .and_then(|q| q.get("token").cloned());
+
+    if let Some(token) = auth_header.or(query_token.as_deref()) {
         let token = token.strip_prefix("Bearer ").unwrap_or(token);
 
         if let Ok(Some((user, _))) = services::validate_session(&state.repo, token).await {

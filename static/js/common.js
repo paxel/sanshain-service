@@ -76,11 +76,31 @@ async function renderBanner(user = null) {
 
     const data = await res.json();
     updateBannerAuth(data);
+    initSSEUpdates();
     return data;
   } catch (_) {
     updateBannerAuth(null);
     return null;
   }
+}
+
+function initSSEUpdates() {
+  if (!sanshainToken || window._sseInitialized) return;
+  window._sseInitialized = true;
+  
+  const source = new EventSource(`/api/sse/updates?token=${sanshainToken}`);
+  source.onmessage = (event) => {
+    if (event.data === "updated") {
+      console.log("Specs updated, triggering UI refresh event...");
+      window.dispatchEvent(new CustomEvent('sanshain-update'));
+    }
+  };
+  source.onerror = (err) => {
+    console.error("SSE error:", err);
+    source.close();
+    window._sseInitialized = false;
+    setTimeout(initSSEUpdates, 10000);
+  };
 }
 
 async function sanshainLogout(options = {}) {

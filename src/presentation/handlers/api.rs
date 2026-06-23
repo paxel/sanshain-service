@@ -5,10 +5,12 @@ use axum::{
     Json,
     extract::{Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
-    response::IntoResponse,
+    response::{IntoResponse, sse::{Event, Sse}},
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use tokio_stream::Stream;
+use std::convert::Infallible;
 
 async fn record_audit_log(
     repo: &impl crate::domain::ports::SpecRepository,
@@ -427,4 +429,28 @@ pub async fn endpoint_versions(
     )
     .await?;
     Ok(Json(res))
+}
+
+pub async fn sse_updates(
+    State(state): State<AppState>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let mut receiver = state.spec_updated_tx.subscribe();
+
+    let stream = async_stream::stream! {
+        loop {
+            match receiver.recv().await {
+                Ok(_) => {
+                    yield Ok(Event::default().data("updated"));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    break;
+                }
+            }
+        }
+    };
+
+    Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
 }
