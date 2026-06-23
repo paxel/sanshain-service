@@ -325,8 +325,8 @@ function renderCustomGraph(report, svgElement, direction) {
     if (!adjMap.has(from)) adjMap.set(from, []);
     if (!adjMap.get(from).includes(to)) adjMap.get(from).push(to);
     const key = `${from}-->${to}`;
-    if (!edgeLabels.has(key)) edgeLabels.set(key, new Set());
-    edgeLabels.get(key).add(`${d.method} ${d.path}`);
+    if (!edgeLabels.has(key)) edgeLabels.set(key, []);
+    edgeLabels.get(key).push(d);
     if (!edgeSources.has(key)) edgeSources.set(key, new Set());
     if (d.source) edgeSources.get(key).add(d.source);
   });
@@ -382,7 +382,7 @@ function renderCustomGraph(report, svgElement, direction) {
       asyncClients.add(d.service);
     }
   });
-  if (asyncClients.size > 0) {
+    if (asyncClients.size > 0) {
     allNodes.add(KAFKA_NODE);
     serviceNodes.add(KAFKA_NODE);
     // Ensure service_tags includes messaging tag for the virtual node
@@ -393,8 +393,8 @@ function renderCustomGraph(report, svgElement, direction) {
       if (!adjMap.has(svc)) adjMap.set(svc, []);
       if (!adjMap.get(svc).includes(KAFKA_NODE)) adjMap.get(svc).push(KAFKA_NODE);
       const key = `${svc}-->${KAFKA_NODE}`;
-      if (!edgeLabels.has(key)) edgeLabels.set(key, new Set());
-      edgeLabels.get(key).add("register");
+      if (!edgeLabels.has(key)) edgeLabels.set(key, []);
+      edgeLabels.get(key).push({ method: "PUB/SUB", path: "register", api_type: "AsyncAPI" });
       // Mark these edges as messaging-register (grey dashed, no arrows)
       messagingRegisterEdges.add(key);
       clientNodes.add(svc);
@@ -932,39 +932,169 @@ function renderCustomGraph(report, svgElement, direction) {
   }
 
   // ── Tooltip ──────────────────────────────────────────────────────
+  let tooltipHideTimer = null;
   let tooltip = document.getElementById("graph-tooltip");
   if (!tooltip) {
     tooltip = document.createElement("div");
     tooltip.id = "graph-tooltip";
-    tooltip.style.cssText =
-      "position:fixed;pointer-events:none;background:#1e293b;color:#f1f5f9;padding:6px 10px;border-radius:6px;font-size:12px;font-family:ui-monospace,monospace;line-height:1.5;z-index:1000;display:none;max-width:350px;white-space:pre-line;box-shadow:0 4px 12px rgba(0,0,0,0.3)";
+    tooltip.className = "fixed pointer-events-auto bg-slate-900/95 text-slate-100 p-3 rounded-xl text-xs font-sans leading-relaxed z-[1000] hidden max-w-sm shadow-2xl border border-slate-700/50 backdrop-blur-md transition-opacity duration-200";
     document.body.appendChild(tooltip);
+    
+    tooltip.onmouseenter = () => {
+      if (tooltipHideTimer) {
+        clearTimeout(tooltipHideTimer);
+        tooltipHideTimer = null;
+      }
+    };
+    tooltip.onmouseleave = hideTooltip;
   }
 
   function showTooltip(e, from, to) {
+    if (tooltipHideTimer) {
+      clearTimeout(tooltipHideTimer);
+      tooltipHideTimer = null;
+    }
     const key = `${from}-->${to}`;
-    const labels = edgeLabels.get(key);
-    if (!labels || labels.size === 0) return;
-    const lines = [...labels].sort().map((l) => _graphEscapeHtml(l));
-    tooltip.innerHTML =
-      `<div style="font-weight:600;margin-bottom:2px;color:#a5b4fc">${_graphEscapeHtml(from)} → ${_graphEscapeHtml(to)}</div>` +
-      lines.join("\n");
+    const endpoints = edgeLabels.get(key);
+    if (!endpoints || endpoints.length === 0) return;
+
+    const branch = document.getElementById('graph-branch-select')?.value || lastGraphReport?.branch || 'main';
+
+    tooltip.innerHTML = `
+      <div class="mb-2 pb-1 border-b border-slate-700/50">
+        <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Dependency</div>
+        <div class="font-bold text-indigo-300 truncate">${_graphEscapeHtml(from)} <span class="text-slate-500 mx-0.5">→</span> ${_graphEscapeHtml(to)}</div>
+      </div>
+      <div class="space-y-1.5 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
+        ${endpoints.sort((a,b) => (a.path+a.method).localeCompare(b.path+b.method)).map(d => {
+          const method = d.method || 'GET';
+          const path = d.path || '/';
+          const type = d.api_type || 'OpenAPI';
+          const isVirtual = path === 'register';
+          
+          if (isVirtual) {
+             return `<div class="text-slate-400 italic text-[11px] py-1 border-b border-slate-800/50 last:border-0">${_graphEscapeHtml(method)} ${_graphEscapeHtml(path)}</div>`;
+          }
+
+          const url = `/yaml.html?service=${encodeURIComponent(to)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}&api_type=${encodeURIComponent(type)}`;
+          
+          let methodClass = "text-indigo-400";
+          if (method === "POST" || method === "PUB") methodClass = "text-emerald-400";
+          if (method === "DELETE") methodClass = "text-rose-400";
+          if (method === "PUT") methodClass = "text-amber-400";
+
+          return `
+            <a href="${url}" class="group block p-1.5 rounded bg-white/5 hover:bg-indigo-500/20 border border-transparent hover:border-indigo-500/30 transition-all">
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-mono text-[11px] ${methodClass} font-bold">${_graphEscapeHtml(method)}</span>
+                <span class="text-[10px] text-slate-500 group-hover:text-indigo-300 transition-colors">${_graphEscapeHtml(type)}</span>
+              </div>
+              <div class="font-mono text-[11px] text-slate-300 truncate group-hover:text-white transition-colors" title="${_graphEscapeHtml(path)}">${_graphEscapeHtml(path)}</div>
+            </a>
+          `;
+        }).join('')}
+      </div>
+    `;
     tooltip.style.display = "block";
-    tooltip.style.left = e.clientX + 12 + "px";
-    tooltip.style.top = e.clientY + 12 + "px";
+    tooltip.style.opacity = "0";
+    
+    // Position
+    let x = e.clientX + 12;
+    let y = e.clientY + 12;
+    
+    tooltip.style.left = x + "px";
+    tooltip.style.top = y + "px";
+    
+    // Check for viewport overflow
+    const rect = tooltip.getBoundingClientRect();
+    if (x + rect.width > window.innerWidth - 20) {
+      x = e.clientX - rect.width - 12;
+    }
+    if (y + rect.height > window.innerHeight - 20) {
+      y = e.clientY - rect.height - 12;
+    }
+    
+    tooltip.style.left = Math.max(10, x) + "px";
+    tooltip.style.top = Math.max(10, y) + "px";
+    tooltip.style.opacity = "1";
+  }
+
+  function showNodeTooltip(e, name) {
+    if (tooltipHideTimer) {
+      clearTimeout(tooltipHideTimer);
+      tooltipHideTimer = null;
+    }
+    
+    const tags = (report?.service_tags?.[name] || []);
+    const source = (report?.node_sources?.[name]);
+    const branch = document.getElementById('graph-branch-select')?.value || report?.branch || 'main';
+    
+    let sourceHtml = '';
+    if (source === 'Branch') sourceHtml = '<span class="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[10px]">Current Branch</span>';
+    else if (source === 'Target') sourceHtml = '<span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px]">Target Branch</span>';
+    else if (source === 'Both') sourceHtml = '<span class="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 text-[10px]">Shared</span>';
+
+    tooltip.innerHTML = `
+      <div class="mb-3 pb-2 border-b border-slate-700/50">
+        <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Service Node</div>
+        <div class="font-bold text-lg text-white truncate mb-1">${_graphEscapeHtml(name)}</div>
+        <div class="flex flex-wrap gap-1.5 mt-2">
+          ${sourceHtml}
+          ${tags.map(t => `<span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[10px]">${_graphEscapeHtml(t)}</span>`).join('')}
+        </div>
+      </div>
+      <div class="space-y-3">
+        <div class="grid grid-cols-2 gap-2">
+          <div class="bg-white/5 p-2 rounded border border-white/5">
+            <div class="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Branch</div>
+            <div class="text-xs text-slate-300 truncate">${_graphEscapeHtml(branch)}</div>
+          </div>
+          <div class="bg-white/5 p-2 rounded border border-white/5">
+            <div class="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Endpoints</div>
+            <div class="text-xs text-slate-300">${deps.filter(d => d.service === name).length} Consumed</div>
+          </div>
+        </div>
+        <a href="/services.html?service=${encodeURIComponent(name)}&branch=${encodeURIComponent(branch)}" class="flex items-center justify-center gap-2 w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-all shadow-lg shadow-indigo-500/20">
+          <span>View Service Details</span>
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+        </a>
+      </div>
+    `;
+    
+    tooltip.style.display = "block";
+    tooltip.style.opacity = "0";
+    
+    // Position
+    let x = e.clientX + 12;
+    let y = e.clientY + 12;
+    tooltip.style.left = x + "px";
+    tooltip.style.top = y + "px";
+    
+    const rect = tooltip.getBoundingClientRect();
+    if (x + rect.width > window.innerWidth - 20) x = e.clientX - rect.width - 12;
+    if (y + rect.height > window.innerHeight - 20) y = e.clientY - rect.height - 12;
+    
+    tooltip.style.left = Math.max(10, x) + "px";
+    tooltip.style.top = Math.max(10, y) + "px";
+    tooltip.style.opacity = "1";
   }
 
   function hideTooltip() {
-    tooltip.style.display = "none";
+    if (tooltipHideTimer) clearTimeout(tooltipHideTimer);
+    tooltipHideTimer = setTimeout(() => {
+      tooltip.style.display = "none";
+    }, 200);
   }
 
   // Edge hover
   mainG.querySelectorAll(".edge-hit, .graph-edge").forEach((el) => {
     el.addEventListener("mouseenter", (e) => showTooltip(e, el.dataset.from, el.dataset.to));
-    el.addEventListener("mousemove", (e) => {
-      tooltip.style.left = e.clientX + 12 + "px";
-      tooltip.style.top = e.clientY + 12 + "px";
-    });
+    el.addEventListener("mouseleave", hideTooltip);
+  });
+
+  // Node hover
+  mainG.querySelectorAll(".graph-node").forEach((el) => {
+    el.addEventListener("mouseenter", (e) => showNodeTooltip(e, el.dataset.name));
     el.addEventListener("mouseleave", hideTooltip);
   });
 
@@ -1096,7 +1226,11 @@ function renderCustomGraph(report, svgElement, direction) {
  * Returns the SVG markup string for copy/download.
  */
 function getCustomGraphSVG(svgElement) {
-  return svgElement.outerHTML;
+  const clone = svgElement.cloneNode(true);
+  if (!clone.getAttribute("xmlns")) {
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  }
+  return clone.outerHTML;
 }
 
 /**
@@ -1116,11 +1250,11 @@ function exportToPng(currentGraphMode) {
   const branch = document.getElementById("graph-branch-select").value || "graph";
   const filename = `dependency_graph_${branch}.png`;
 
-  // Scale factor for high resolution
-  const factor = 2.0;
-
   // Clone the SVG to avoid modifying the live one
   const svgClone = svg.cloneNode(true);
+  if (!svgClone.getAttribute("xmlns")) {
+    svgClone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  }
   
   let width, height;
   
@@ -1152,6 +1286,24 @@ function exportToPng(currentGraphMode) {
       svgClone.setAttribute("width", width);
       svgClone.setAttribute("height", height);
   }
+
+  // Dynamic scale factor for high resolution (extra huge for detailed export)
+  // We target ~10000 pixels on the longest side for maximum readability, 
+  // but cap it to avoid browser canvas limits (usually 16k-32k).
+  const targetLongSide = 10000;
+  const maxSafeDim = 16384;
+  let factor = targetLongSide / Math.max(width, height);
+  
+  // Ensure we don't scale down below 3.0x (minimum high-res) 
+  // and don't scale up above 10.0x (prevent pixelation if tiny)
+  factor = Math.max(3.0, Math.min(10.0, factor));
+  
+  // Final safety check for absolute dimensions
+  if (width * factor > maxSafeDim) factor = maxSafeDim / width;
+  if (height * factor > maxSafeDim) factor = Math.min(factor, maxSafeDim / height);
+  
+  // Ensure factor is at least 1.0 (never scale down)
+  factor = Math.max(1.0, factor);
 
   const svgData = new XMLSerializer().serializeToString(svgClone);
   const canvas = document.createElement("canvas");

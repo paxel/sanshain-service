@@ -1,9 +1,9 @@
 # Sanshain Service — Implementation Plan
 
 ### Custom Dependency Graph Visualization (Polish)
-- [ ] **Export as PNG**
+- [x] **Export as PNG**
   - Add native support in the UI for exporting and downloading the rendered dependency graph as a high-resolution PNG image.
-- [ ] **Interactive Graph Popups**
+- [x] **Interactive Graph Popups**
   - Implement custom HTML tooltips on nodes and edges with detailed service/client/endpoint information and direct links to specifications.
 
 ### Web Frontend (Advanced)
