@@ -2,18 +2,25 @@
 
 ### Custom Dependency Graph Visualization (Polish)
 - [ ] **Export as PNG**
-  - Add native support in the UI for exporting and downloading the rendered dependency graph as a high-resolution PNG image (expanding on the existing SVG export feature).
+  - Add native support in the UI for exporting and downloading the rendered dependency graph as a high-resolution PNG image.
+- [ ] **Interactive Graph Popups**
+  - Implement custom HTML tooltips on nodes and edges with detailed service/client/endpoint information and direct links to specifications.
 
 ### Web Frontend (Advanced)
 - [ ] **Server-Sent Events (SSE) for Live Updates**
-  - Implement Server-Sent Events for the `/require` long-polling endpoint, enabling live, push-based dependency and spec updates in the client UI without constant HTTP polling.
+  - Implement SSE to broadcast spec update notifications to the UI, enabling real-time graph and report refreshes.
+- [ ] **Audit View & Change History**
+  - Create a dedicated Audit page showing a timeline of specification updates, including diffs and author metadata per branch.
 - [ ] **WebSocket Support**
-  - Explore WebSocket-based bidirectional communication to support real-time interactive collaboration features in the future.
+  - Explore WebSocket-based bidirectional communication for future real-time collaboration features.
 
-### AsyncAPI Semantics & Sync Concurrency
-- [ ] **Problem 7: Semantic Versioning (SemVer) for Specs**
-  - **Context**: Currently, Sanshain uses simple monotonic integers for specification versions.
-  - **Goal**: Support user-provided semantic versioning (SemVer) or introduce automatic detection of `MAJOR`/`MINOR`/`PATCH` changes based on backward-compatibility analysis.
+### OpenAPI Semantics & Contract Enforcement
+- [ ] **Enhanced Breaking Change Detection**
+  - Detect removed paths/operations and new required fields in request bodies as breaking changes to prevent accidental breakages on protected branches.
+- [ ] **Deprecation Support & Client Warnings**
+  - Automatically detect `deprecated: true` from OpenAPI specs and inject `X-Sanshain-Deprecated` headers in `/require` responses. Show visual warnings in the UI.
+- [ ] **Semantic Versioning (SemVer) for Specs**
+  - Support SemVer (MAJOR/MINOR/PATCH) for specification versions, with automatic incrementing based on change impact analysis.
 
 ### Going Big (Enterprise & Advanced Scale)
 - [ ] **Top-Layer System Switch**
