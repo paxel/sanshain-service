@@ -187,7 +187,7 @@ pub trait SpecRepository: Send + Sync {
         &self,
     ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
-    /// Update an existing endpoint's YAML content.
+    /// Update an existing endpoint's YAML content and deprecated status.
     fn update_endpoint(
         &self,
         branch_id: i64,
@@ -195,6 +195,7 @@ pub trait SpecRepository: Send + Sync {
         path: &str,
         method: &str,
         yaml_content: &str,
+        deprecated: bool,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Soft-delete an endpoint (mark as deleted). Used on protected branches to preserve history.

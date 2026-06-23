@@ -77,6 +77,7 @@ pub async fn generate_merged_report(
             path: dep.path.clone(),
             method: dep.method.clone(),
             source,
+            deprecated: dep.deprecated,
         });
     }
 
@@ -97,6 +98,7 @@ pub async fn generate_merged_report(
                 path: dep.path.clone(),
                 method: dep.method.clone(),
                 source: NodeSource::Target,
+                deprecated: dep.deprecated,
             });
         }
     }

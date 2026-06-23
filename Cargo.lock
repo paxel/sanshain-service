@@ -2972,6 +2972,7 @@ version = "1.4.0"
 dependencies = [
  "argon2",
  "askama",
+ "async-stream",
  "axum",
  "axum-prometheus",
  "chrono",
@@ -3000,6 +3001,7 @@ dependencies = [
  "testcontainers-modules",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "tower",
  "tower-http",
  "tracing",
@@ -3812,6 +3814,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

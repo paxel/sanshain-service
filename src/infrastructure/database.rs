@@ -173,10 +173,11 @@ impl SpecRepository for DatabaseRepo {
         path: &str,
         method: &str,
         yaml_content: &str,
+        deprecated: bool,
     ) -> Result<(), RepositoryError> {
         delegate!(
             self,
-            update_endpoint(branch_id, api_type, path, method, yaml_content)
+            update_endpoint(branch_id, api_type, path, method, yaml_content, deprecated)
         )
     }
 

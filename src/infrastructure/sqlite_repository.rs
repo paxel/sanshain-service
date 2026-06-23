@@ -256,9 +256,9 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
         branch_id: i64,
     ) -> Result<Vec<EndpointRecord>, RepositoryError> {
-        let rows: Vec<(i64, String, String, String, String, String, bool)> = sqlx::query_as(
+        let rows: Vec<(i64, String, String, String, String, String, bool, bool)> = sqlx::query_as(
             "SELECT e.id, e.api_type, e.path, e.normalized_path, e.method, e.yaml_content, \
-             COALESCE(sc.source_yaml != sc.current_yaml, 0) as has_changes \
+             COALESCE(sc.source_yaml != sc.current_yaml, 0) as has_changes, e.deprecated \
              FROM endpoints e \
              JOIN branches b ON e.branch_id = b.id \
              LEFT JOIN shared_contracts sc ON \
@@ -277,7 +277,7 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(id, api_type, path, normalized_path, method, yaml_content, has_changes)| {
+                |(id, api_type, path, normalized_path, method, yaml_content, has_changes, deprecated)| {
                     EndpointRecord {
                         id: Some(id),
                         api_type: ApiType::from_str(&api_type).unwrap_or_default(),
@@ -286,6 +286,7 @@ impl SpecRepository for SqliteSpecRepository {
                         method,
                         yaml_content,
                         has_changes,
+                        deprecated,
                     }
                 },
             )
@@ -297,13 +298,14 @@ impl SpecRepository for SqliteSpecRepository {
         branch_id: i64,
         endpoint: &EndpointRecord,
     ) -> Result<(), RepositoryError> {
-        sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content) VALUES (?, ?, ?, ?, ?, ?)")
+        sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deprecated) VALUES (?, ?, ?, ?, ?, ?, ?)")
             .bind(branch_id)
             .bind(endpoint.api_type.as_str())
             .bind(&endpoint.path)
             .bind(&endpoint.normalized_path)
             .bind(&endpoint.method)
             .bind(&endpoint.yaml_content)
+            .bind(endpoint.deprecated)
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -657,9 +659,11 @@ impl SpecRepository for SqliteSpecRepository {
         path: &str,
         method: &str,
         yaml_content: &str,
+        deprecated: bool,
     ) -> Result<(), RepositoryError> {
-        sqlx::query("UPDATE endpoints SET yaml_content = ? WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ?")
+        sqlx::query("UPDATE endpoints SET yaml_content = ?, deprecated = ? WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ?")
             .bind(yaml_content)
+            .bind(deprecated)
             .bind(branch_id)
             .bind(api_type.as_str())
             .bind(path)
@@ -735,9 +739,9 @@ impl SpecRepository for SqliteSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         // Dependency graph
-        let dependency_rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
+        let dependency_rows: Vec<(String, String, String, String, String, bool)> = sqlx::query_as(
             r#"
-            SELECT c.name, d.api_type, s.name, d.requested_path, d.requested_method
+            SELECT c.name, d.api_type, s.name, d.requested_path, d.requested_method, COALESCE(e.deprecated, FALSE)
             FROM dependencies d
             JOIN clients c ON d.client_id = c.id
             JOIN services s ON d.requested_service_id = s.id
@@ -754,19 +758,20 @@ impl SpecRepository for SqliteSpecRepository {
 
         let dependency_graph = dependency_rows
             .into_iter()
-            .map(|(client, api_type, service, path, method)| DependencyInfo {
+            .map(|(client, api_type, service, path, method, deprecated)| DependencyInfo {
                 api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                 client,
                 service,
                 path,
                 method,
+                deprecated,
             })
             .collect();
 
         // Unused endpoints
-        let unused_rows: Vec<(String, String, String, String)> = sqlx::query_as(
+        let unused_rows: Vec<(String, String, String, String, bool)> = sqlx::query_as(
             r#"
-            SELECT s.name, e.api_type, e.path, e.method
+            SELECT s.name, e.api_type, e.path, e.method, e.deprecated
             FROM endpoints e
             JOIN branches b ON e.branch_id = b.id
             JOIN services s ON b.service_id = s.id
@@ -784,11 +789,12 @@ impl SpecRepository for SqliteSpecRepository {
 
         let unused_endpoints = unused_rows
             .into_iter()
-            .map(|(service, api_type, path, method)| EndpointInfo {
+            .map(|(service, api_type, path, method, deprecated)| EndpointInfo {
                 api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                 service,
                 path,
                 method,
+                deprecated,
             })
             .collect();
 
@@ -1817,15 +1823,17 @@ impl SpecRepository for SqliteSpecRepository {
                     normalized_path,
                     method,
                     yaml_content,
+                    deprecated,
                 } => {
                     tracing::debug!("Inserting {:?} endpoint: {} {}", api_type, method, path);
-                    sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted) VALUES (?, ?, ?, ?, ?, ?, 0)")
+                    sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted, deprecated) VALUES (?, ?, ?, ?, ?, ?, 0, ?)")
                         .bind(branch_id)
                         .bind(api_type.as_str())
                         .bind(&path)
                         .bind(&normalized_path)
                         .bind(&method)
                         .bind(&yaml_content)
+                        .bind(deprecated)
                         .execute(&mut *tx)
                         .await
                         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -1865,6 +1873,7 @@ impl SpecRepository for SqliteSpecRepository {
                     normalized_path,
                     method,
                     yaml_content,
+                    deprecated,
                 } => {
                     tracing::debug!("Updating {:?} endpoint: {} {}", api_type, method, path);
                     if is_protected {
@@ -1909,9 +1918,10 @@ impl SpecRepository for SqliteSpecRepository {
                             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
                     }
 
-                    sqlx::query("UPDATE endpoints SET yaml_content = ?, normalized_path = ?, deleted = 0 WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ?")
+                    sqlx::query("UPDATE endpoints SET yaml_content = ?, normalized_path = ?, deprecated = ? WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ?")
                         .bind(&yaml_content)
                         .bind(&normalized_path)
+                        .bind(deprecated)
                         .bind(branch_id)
                         .bind(api_type.as_str())
                         .bind(&path)

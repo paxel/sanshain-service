@@ -679,9 +679,10 @@ impl SpecRepository for CachedSpecRepository {
         path: &str,
         method: &str,
         yaml_content: &str,
+        deprecated: bool,
     ) -> Result<(), RepositoryError> {
         self.inner
-            .update_endpoint(branch_id, api_type, path, method, yaml_content)
+            .update_endpoint(branch_id, api_type, path, method, yaml_content, deprecated)
             .await?;
         if !self.is_disabled() {
             self.branch_endpoints_cache.invalidate(&branch_id).await;

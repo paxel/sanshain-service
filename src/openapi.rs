@@ -17,6 +17,7 @@ pub struct EndpointSpec {
     pub normalized_path: String,
     pub method: String,
     pub yaml_content: String,
+    pub deprecated: bool,
 }
 
 pub fn normalize_path(path: &str) -> String {
@@ -104,6 +105,7 @@ pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
                 normalized_path: normalize_path(path),
                 method: method.to_uppercase(),
                 yaml_content: endpoint_yaml,
+                deprecated: operation.deprecated,
             });
         }
     }

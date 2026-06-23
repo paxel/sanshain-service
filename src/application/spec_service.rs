@@ -196,6 +196,7 @@ fn parse_spec_endpoints(
                     path: s.channel,
                     method: s.operation,
                     yaml_content: s.yaml_content,
+                    deprecated: false,
                 })
                 .collect())
         }
@@ -216,6 +217,7 @@ fn parse_spec_endpoints(
                 path: s.service,
                 method: s.method,
                 yaml_content: s.content,
+                deprecated: false,
             })
             .collect()),
     }
@@ -485,6 +487,7 @@ async fn provide_spec_inner(
                     normalized_path: endpoint.normalized_path,
                     method: endpoint.method,
                     yaml_content: endpoint.yaml_content,
+                    deprecated: endpoint.deprecated,
                 });
                 updates += 1;
             }
@@ -505,6 +508,7 @@ async fn provide_spec_inner(
                 normalized_path: endpoint.normalized_path,
                 method: endpoint.method,
                 yaml_content: endpoint.yaml_content,
+                deprecated: endpoint.deprecated,
             });
             inserts += 1;
         }

@@ -299,6 +299,7 @@ impl SpecRepository for MockRepo {
         _path: &str,
         _method: &str,
         _yaml: &str,
+        _deprecated: bool,
     ) -> Result<(), RepositoryError> {
         Ok(())
     }
@@ -681,6 +682,7 @@ impl SpecRepository for MockRepo {
                     normalized_path,
                     method,
                     yaml_content,
+                    deprecated,
                 } => {
                     list.push(EndpointRecord {
                         id: Some(self.next_id()),
@@ -690,6 +692,7 @@ impl SpecRepository for MockRepo {
                         method,
                         yaml_content,
                         has_changes: false,
+                        deprecated,
                     });
                 }
                 SpecChange::Update {
@@ -698,6 +701,7 @@ impl SpecRepository for MockRepo {
                     normalized_path,
                     method,
                     yaml_content,
+                    deprecated,
                 } => {
                     if let Some(ep) = list.iter_mut().find(|e| {
                         e.api_type == api_type
@@ -706,6 +710,7 @@ impl SpecRepository for MockRepo {
                     }) {
                         ep.path = path;
                         ep.yaml_content = yaml_content;
+                        ep.deprecated = deprecated;
                     }
                 }
                 SpecChange::Delete {

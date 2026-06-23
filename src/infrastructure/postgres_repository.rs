@@ -253,9 +253,9 @@ impl SpecRepository for PostgresSpecRepository {
         &self,
         branch_id: i64,
     ) -> Result<Vec<EndpointRecord>, RepositoryError> {
-        let rows: Vec<(i64, String, String, String, String, String, bool)> = sqlx::query_as(
+        let rows: Vec<(i64, String, String, String, String, String, bool, bool)> = sqlx::query_as(
             "SELECT e.id, e.api_type, e.path, e.normalized_path, e.method, e.yaml_content, \
-             COALESCE(sc.source_yaml != sc.current_yaml, FALSE) as has_changes \
+             COALESCE(sc.source_yaml != sc.current_yaml, FALSE) as has_changes, e.deprecated \
              FROM endpoints e \
              JOIN branches b ON e.branch_id = b.id \
              LEFT JOIN shared_contracts sc ON \
@@ -274,7 +274,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(id, api_type, path, normalized_path, method, yaml_content, has_changes)| {
+                |(id, api_type, path, normalized_path, method, yaml_content, has_changes, deprecated)| {
                     EndpointRecord {
                         id: Some(id),
                         api_type: ApiType::from_str(&api_type).unwrap_or_default(),
@@ -283,6 +283,7 @@ impl SpecRepository for PostgresSpecRepository {
                         method,
                         yaml_content,
                         has_changes,
+                        deprecated,
                     }
                 },
             )
@@ -294,13 +295,14 @@ impl SpecRepository for PostgresSpecRepository {
         branch_id: i64,
         endpoint: &EndpointRecord,
     ) -> Result<(), RepositoryError> {
-        sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content) VALUES ($1, $2, $3, $4, $5, $6)")
+        sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deprecated) VALUES ($1, $2, $3, $4, $5, $6, $7)")
             .bind(branch_id)
             .bind(endpoint.api_type.as_str())
             .bind(&endpoint.path)
             .bind(&endpoint.normalized_path)
             .bind(&endpoint.method)
             .bind(&endpoint.yaml_content)
+            .bind(endpoint.deprecated)
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -650,9 +652,11 @@ impl SpecRepository for PostgresSpecRepository {
         path: &str,
         method: &str,
         yaml_content: &str,
+        deprecated: bool,
     ) -> Result<(), RepositoryError> {
-        sqlx::query("UPDATE endpoints SET yaml_content = $1 WHERE branch_id = $2 AND api_type = $3 AND path = $4 AND method = $5")
+        sqlx::query("UPDATE endpoints SET yaml_content = $1, deprecated = $2 WHERE branch_id = $3 AND api_type = $4 AND path = $5 AND method = $6")
             .bind(yaml_content)
+            .bind(deprecated)
             .bind(branch_id)
             .bind(api_type.as_str())
             .bind(path)
@@ -727,9 +731,9 @@ impl SpecRepository for PostgresSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        let dependency_rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
+        let dependency_rows: Vec<(String, String, String, String, String, bool)> = sqlx::query_as(
             r#"
-            SELECT c.name, d.api_type, s.name, d.requested_path, d.requested_method
+            SELECT c.name, d.api_type, s.name, d.requested_path, d.requested_method, COALESCE(e.deprecated, FALSE)
             FROM dependencies d
             JOIN clients c ON d.client_id = c.id
             JOIN services s ON d.requested_service_id = s.id
@@ -746,18 +750,19 @@ impl SpecRepository for PostgresSpecRepository {
 
         let dependency_graph = dependency_rows
             .into_iter()
-            .map(|(client, api_type, service, path, method)| DependencyInfo {
+            .map(|(client, api_type, service, path, method, deprecated)| DependencyInfo {
                 api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                 client,
                 service,
                 path,
                 method,
+                deprecated,
             })
             .collect();
 
-        let unused_rows: Vec<(String, String, String, String)> = sqlx::query_as(
+        let unused_rows: Vec<(String, String, String, String, bool)> = sqlx::query_as(
             r#"
-            SELECT s.name, e.api_type, e.path, e.method
+            SELECT s.name, e.api_type, e.path, e.method, e.deprecated
             FROM endpoints e
             JOIN branches b ON e.branch_id = b.id
             JOIN services s ON b.service_id = s.id
@@ -775,11 +780,12 @@ impl SpecRepository for PostgresSpecRepository {
 
         let unused_endpoints = unused_rows
             .into_iter()
-            .map(|(service, api_type, path, method)| EndpointInfo {
+            .map(|(service, api_type, path, method, deprecated)| EndpointInfo {
                 api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                 service,
                 path,
                 method,
+                deprecated,
             })
             .collect();
 
@@ -1747,15 +1753,17 @@ impl SpecRepository for PostgresSpecRepository {
                     normalized_path,
                     method,
                     yaml_content,
+                    deprecated,
                 } => {
                     tracing::debug!("Inserting {:?} endpoint: {} {}", api_type, method, path);
-                    sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted) VALUES ($1, $2, $3, $4, $5, $6, false)")
+                    sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted, deprecated) VALUES ($1, $2, $3, $4, $5, $6, false, $7)")
                         .bind(branch_id)
                         .bind(api_type.as_str())
                         .bind(&path)
                         .bind(&normalized_path)
                         .bind(&method)
                         .bind(&yaml_content)
+                        .bind(deprecated)
                         .execute(&mut *tx)
                         .await
                         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -1795,6 +1803,7 @@ impl SpecRepository for PostgresSpecRepository {
                     normalized_path,
                     method,
                     yaml_content,
+                    deprecated,
                 } => {
                     tracing::debug!("Updating {:?} endpoint: {} {}", api_type, method, path);
                     if is_protected {
@@ -1839,9 +1848,10 @@ impl SpecRepository for PostgresSpecRepository {
                             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
                     }
 
-                    sqlx::query("UPDATE endpoints SET yaml_content = $1, normalized_path = $2, deleted = false WHERE branch_id = $3 AND api_type = $4 AND path = $5 AND method = $6")
+                    sqlx::query("UPDATE endpoints SET yaml_content = $1, normalized_path = $2, deprecated = $3 WHERE branch_id = $4 AND api_type = $5 AND path = $6 AND method = $7")
                         .bind(&yaml_content)
                         .bind(&normalized_path)
+                        .bind(deprecated)
                         .bind(branch_id)
                         .bind(api_type.as_str())
                         .bind(&path)

@@ -204,6 +204,8 @@ pub struct EndpointRecord {
     pub yaml_content: String,
     #[serde(default)]
     pub has_changes: bool,
+    #[serde(default)]
+    pub deprecated: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -241,6 +243,8 @@ pub struct MergedDependencyInfo {
     pub path: String,
     pub method: String,
     pub source: NodeSource,
+    #[serde(default)]
+    pub deprecated: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -280,6 +284,8 @@ pub struct EndpointInfo {
     pub service: String,
     pub path: String,
     pub method: String,
+    #[serde(default)]
+    pub deprecated: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -298,6 +304,8 @@ pub struct DependencyInfo {
     pub service: String,
     pub path: String,
     pub method: String,
+    #[serde(default)]
+    pub deprecated: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -353,6 +361,7 @@ pub enum SpecChange {
         normalized_path: String,
         method: String,
         yaml_content: String,
+        deprecated: bool,
     },
     Update {
         api_type: ApiType,
@@ -360,6 +369,7 @@ pub enum SpecChange {
         normalized_path: String,
         method: String,
         yaml_content: String,
+        deprecated: bool,
     },
     Delete {
         api_type: ApiType,
