@@ -1,8 +1,8 @@
 use opentelemetry::KeyValue;
 use opentelemetry::trace::TracerProvider as _;
-use opentelemetry_otlp::{WithExportConfig};
+use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::Resource;
-use opentelemetry_sdk::trace::{SdkTracerProvider, Sampler};
+use opentelemetry_sdk::trace::{Sampler, SdkTracerProvider};
 use opentelemetry_semantic_conventions as semconv;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::registry::LookupSpan;
@@ -11,7 +11,10 @@ use tracing_subscriber::registry::LookupSpan;
 ///
 /// This function sets up the OTLP exporter via gRPC and configures
 /// the global tracer provider and W3C propagator.
-pub fn init_tracer<S>() -> (OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>, SdkTracerProvider)
+pub fn init_tracer<S>() -> (
+    OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>,
+    SdkTracerProvider,
+)
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span>,
 {
@@ -21,7 +24,10 @@ where
     let resource = Resource::builder()
         .with_attributes(vec![
             KeyValue::new(semconv::resource::SERVICE_NAME, env!("CARGO_PKG_NAME")),
-            KeyValue::new(semconv::resource::SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
+            KeyValue::new(
+                semconv::resource::SERVICE_VERSION,
+                env!("CARGO_PKG_VERSION"),
+            ),
         ])
         .build();
 
@@ -38,12 +44,14 @@ where
         .build();
 
     opentelemetry::global::set_tracer_provider(provider.clone());
-    
+
     // Set global propagator for W3C context propagation
-    opentelemetry::global::set_text_map_propagator(opentelemetry_sdk::propagation::TraceContextPropagator::new());
+    opentelemetry::global::set_text_map_propagator(
+        opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+    );
 
     let layer = tracing_opentelemetry::layer().with_tracer(provider.tracer("sanshain_service"));
-    
+
     (layer, provider)
 }
 

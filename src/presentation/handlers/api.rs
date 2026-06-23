@@ -5,12 +5,15 @@ use axum::{
     Json,
     extract::{Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
-    response::{IntoResponse, sse::{Event, Sse}},
+    response::{
+        IntoResponse,
+        sse::{Event, Sse},
+    },
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use tokio_stream::Stream;
 use std::convert::Infallible;
+use tokio_stream::Stream;
 
 async fn record_audit_log(
     repo: &impl crate::domain::ports::SpecRepository,

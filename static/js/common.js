@@ -87,12 +87,12 @@ async function renderBanner(user = null) {
 function initSSEUpdates() {
   if (!sanshainToken || window._sseInitialized) return;
   window._sseInitialized = true;
-  
+
   const source = new EventSource(`/api/sse/updates?token=${sanshainToken}`);
   source.onmessage = (event) => {
     if (event.data === "updated") {
       console.log("Specs updated, triggering UI refresh event...");
-      window.dispatchEvent(new CustomEvent('sanshain-update'));
+      window.dispatchEvent(new CustomEvent("sanshain-update"));
     }
   };
   source.onerror = (err) => {

@@ -382,7 +382,7 @@ function renderCustomGraph(report, svgElement, direction) {
       asyncClients.add(d.service);
     }
   });
-    if (asyncClients.size > 0) {
+  if (asyncClients.size > 0) {
     allNodes.add(KAFKA_NODE);
     serviceNodes.add(KAFKA_NODE);
     // Ensure service_tags includes messaging tag for the virtual node
@@ -937,9 +937,10 @@ function renderCustomGraph(report, svgElement, direction) {
   if (!tooltip) {
     tooltip = document.createElement("div");
     tooltip.id = "graph-tooltip";
-    tooltip.className = "fixed pointer-events-auto bg-slate-900/95 text-slate-100 p-3 rounded-xl text-xs font-sans leading-relaxed z-[1000] hidden max-w-sm shadow-2xl border border-slate-700/50 backdrop-blur-md transition-opacity duration-200";
+    tooltip.className =
+      "fixed pointer-events-auto bg-slate-900/95 text-slate-100 p-3 rounded-xl text-xs font-sans leading-relaxed z-[1000] hidden max-w-sm shadow-2xl border border-slate-700/50 backdrop-blur-md transition-opacity duration-200";
     document.body.appendChild(tooltip);
-    
+
     tooltip.onmouseenter = () => {
       if (tooltipHideTimer) {
         clearTimeout(tooltipHideTimer);
@@ -958,7 +959,8 @@ function renderCustomGraph(report, svgElement, direction) {
     const endpoints = edgeLabels.get(key);
     if (!endpoints || endpoints.length === 0) return;
 
-    const branch = document.getElementById('graph-branch-select')?.value || lastGraphReport?.branch || 'main';
+    const branch =
+      document.getElementById("graph-branch-select")?.value || lastGraphReport?.branch || "main";
 
     tooltip.innerHTML = `
       <div class="mb-2 pb-1 border-b border-slate-700/50">
@@ -966,24 +968,26 @@ function renderCustomGraph(report, svgElement, direction) {
         <div class="font-bold text-indigo-300 truncate">${_graphEscapeHtml(from)} <span class="text-slate-500 mx-0.5">→</span> ${_graphEscapeHtml(to)}</div>
       </div>
       <div class="space-y-1.5 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
-        ${endpoints.sort((a,b) => (a.path+a.method).localeCompare(b.path+b.method)).map(d => {
-          const method = d.method || 'GET';
-          const path = d.path || '/';
-          const type = d.api_type || 'OpenAPI';
-          const isVirtual = path === 'register';
-          
-          if (isVirtual) {
-             return `<div class="text-slate-400 italic text-[11px] py-1 border-b border-slate-800/50 last:border-0">${_graphEscapeHtml(method)} ${_graphEscapeHtml(path)}</div>`;
-          }
+        ${endpoints
+          .sort((a, b) => (a.path + a.method).localeCompare(b.path + b.method))
+          .map((d) => {
+            const method = d.method || "GET";
+            const path = d.path || "/";
+            const type = d.api_type || "OpenAPI";
+            const isVirtual = path === "register";
 
-          const url = `/yaml.html?service=${encodeURIComponent(to)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}&api_type=${encodeURIComponent(type)}`;
-          
-          let methodClass = "text-indigo-400";
-          if (method === "POST" || method === "PUB") methodClass = "text-emerald-400";
-          if (method === "DELETE") methodClass = "text-rose-400";
-          if (method === "PUT") methodClass = "text-amber-400";
+            if (isVirtual) {
+              return `<div class="text-slate-400 italic text-[11px] py-1 border-b border-slate-800/50 last:border-0">${_graphEscapeHtml(method)} ${_graphEscapeHtml(path)}</div>`;
+            }
 
-          return `
+            const url = `/yaml.html?service=${encodeURIComponent(to)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}&api_type=${encodeURIComponent(type)}`;
+
+            let methodClass = "text-indigo-400";
+            if (method === "POST" || method === "PUB") methodClass = "text-emerald-400";
+            if (method === "DELETE") methodClass = "text-rose-400";
+            if (method === "PUT") methodClass = "text-amber-400";
+
+            return `
             <a href="${url}" class="group block p-1.5 rounded bg-white/5 hover:bg-indigo-500/20 border border-transparent hover:border-indigo-500/30 transition-all">
               <div class="flex items-center justify-between gap-2">
                 <span class="font-mono text-[11px] ${methodClass} font-bold">${_graphEscapeHtml(method)}</span>
@@ -992,19 +996,20 @@ function renderCustomGraph(report, svgElement, direction) {
               <div class="font-mono text-[11px] text-slate-300 truncate group-hover:text-white transition-colors" title="${_graphEscapeHtml(path)}">${_graphEscapeHtml(path)}</div>
             </a>
           `;
-        }).join('')}
+          })
+          .join("")}
       </div>
     `;
     tooltip.style.display = "block";
     tooltip.style.opacity = "0";
-    
+
     // Position
     let x = e.clientX + 12;
     let y = e.clientY + 12;
-    
+
     tooltip.style.left = x + "px";
     tooltip.style.top = y + "px";
-    
+
     // Check for viewport overflow
     const rect = tooltip.getBoundingClientRect();
     if (x + rect.width > window.innerWidth - 20) {
@@ -1013,7 +1018,7 @@ function renderCustomGraph(report, svgElement, direction) {
     if (y + rect.height > window.innerHeight - 20) {
       y = e.clientY - rect.height - 12;
     }
-    
+
     tooltip.style.left = Math.max(10, x) + "px";
     tooltip.style.top = Math.max(10, y) + "px";
     tooltip.style.opacity = "1";
@@ -1024,15 +1029,22 @@ function renderCustomGraph(report, svgElement, direction) {
       clearTimeout(tooltipHideTimer);
       tooltipHideTimer = null;
     }
-    
-    const tags = (report?.service_tags?.[name] || []);
-    const source = (report?.node_sources?.[name]);
-    const branch = document.getElementById('graph-branch-select')?.value || report?.branch || 'main';
-    
-    let sourceHtml = '';
-    if (source === 'Branch') sourceHtml = '<span class="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[10px]">Current Branch</span>';
-    else if (source === 'Target') sourceHtml = '<span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px]">Target Branch</span>';
-    else if (source === 'Both') sourceHtml = '<span class="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 text-[10px]">Shared</span>';
+
+    const tags = report?.service_tags?.[name] || [];
+    const source = report?.node_sources?.[name];
+    const branch =
+      document.getElementById("graph-branch-select")?.value || report?.branch || "main";
+
+    let sourceHtml = "";
+    if (source === "Branch")
+      sourceHtml =
+        '<span class="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[10px]">Current Branch</span>';
+    else if (source === "Target")
+      sourceHtml =
+        '<span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px]">Target Branch</span>';
+    else if (source === "Both")
+      sourceHtml =
+        '<span class="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 text-[10px]">Shared</span>';
 
     tooltip.innerHTML = `
       <div class="mb-3 pb-2 border-b border-slate-700/50">
@@ -1040,7 +1052,7 @@ function renderCustomGraph(report, svgElement, direction) {
         <div class="font-bold text-lg text-white truncate mb-1">${_graphEscapeHtml(name)}</div>
         <div class="flex flex-wrap gap-1.5 mt-2">
           ${sourceHtml}
-          ${tags.map(t => `<span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[10px]">${_graphEscapeHtml(t)}</span>`).join('')}
+          ${tags.map((t) => `<span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[10px]">${_graphEscapeHtml(t)}</span>`).join("")}
         </div>
       </div>
       <div class="space-y-3">
@@ -1051,7 +1063,7 @@ function renderCustomGraph(report, svgElement, direction) {
           </div>
           <div class="bg-white/5 p-2 rounded border border-white/5">
             <div class="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Endpoints</div>
-            <div class="text-xs text-slate-300">${deps.filter(d => d.service === name).length} Consumed</div>
+            <div class="text-xs text-slate-300">${deps.filter((d) => d.service === name).length} Consumed</div>
           </div>
         </div>
         <a href="/services.html?service=${encodeURIComponent(name)}&branch=${encodeURIComponent(branch)}" class="flex items-center justify-center gap-2 w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-all shadow-lg shadow-indigo-500/20">
@@ -1060,20 +1072,20 @@ function renderCustomGraph(report, svgElement, direction) {
         </a>
       </div>
     `;
-    
+
     tooltip.style.display = "block";
     tooltip.style.opacity = "0";
-    
+
     // Position
     let x = e.clientX + 12;
     let y = e.clientY + 12;
     tooltip.style.left = x + "px";
     tooltip.style.top = y + "px";
-    
+
     const rect = tooltip.getBoundingClientRect();
     if (x + rect.width > window.innerWidth - 20) x = e.clientX - rect.width - 12;
     if (y + rect.height > window.innerHeight - 20) y = e.clientY - rect.height - 12;
-    
+
     tooltip.style.left = Math.max(10, x) + "px";
     tooltip.style.top = Math.max(10, y) + "px";
     tooltip.style.opacity = "1";
@@ -1255,53 +1267,53 @@ function exportToPng(currentGraphMode) {
   if (!svgClone.getAttribute("xmlns")) {
     svgClone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   }
-  
+
   let width, height;
-  
+
   if (currentGraphMode === "custom") {
-      // For custom graph, we want to export the whole graph content, not just visible area
-      const mainG = svg.querySelector("g");
-      if (!mainG) return;
-      
-      const bbox = mainG.getBBox();
-      width = bbox.width + 80; // Add some margin
-      height = bbox.height + 80;
-      
-      // Reset transform in clone
-      const cloneG = svgClone.querySelector("g");
-      cloneG.setAttribute("transform", `translate(${-bbox.x + 40}, ${-bbox.y + 40})`);
-      
-      svgClone.setAttribute("width", width);
-      svgClone.setAttribute("height", height);
-      svgClone.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    // For custom graph, we want to export the whole graph content, not just visible area
+    const mainG = svg.querySelector("g");
+    if (!mainG) return;
+
+    const bbox = mainG.getBBox();
+    width = bbox.width + 80; // Add some margin
+    height = bbox.height + 80;
+
+    // Reset transform in clone
+    const cloneG = svgClone.querySelector("g");
+    cloneG.setAttribute("transform", `translate(${-bbox.x + 40}, ${-bbox.y + 40})`);
+
+    svgClone.setAttribute("width", width);
+    svgClone.setAttribute("height", height);
+    svgClone.setAttribute("viewBox", `0 0 ${width} ${height}`);
   } else {
-      // For Mermaid, use its own viewBox/dimensions
-      if (svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width) {
-          width = svg.viewBox.baseVal.width;
-          height = svg.viewBox.baseVal.height;
-      } else {
-          width = svg.clientWidth || 800;
-          height = svg.clientHeight || 600;
-      }
-      svgClone.setAttribute("width", width);
-      svgClone.setAttribute("height", height);
+    // For Mermaid, use its own viewBox/dimensions
+    if (svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width) {
+      width = svg.viewBox.baseVal.width;
+      height = svg.viewBox.baseVal.height;
+    } else {
+      width = svg.clientWidth || 800;
+      height = svg.clientHeight || 600;
+    }
+    svgClone.setAttribute("width", width);
+    svgClone.setAttribute("height", height);
   }
 
   // Dynamic scale factor for high resolution (extra huge for detailed export)
-  // We target ~10000 pixels on the longest side for maximum readability, 
+  // We target ~10000 pixels on the longest side for maximum readability,
   // but cap it to avoid browser canvas limits (usually 16k-32k).
   const targetLongSide = 10000;
   const maxSafeDim = 16384;
   let factor = targetLongSide / Math.max(width, height);
-  
-  // Ensure we don't scale down below 3.0x (minimum high-res) 
+
+  // Ensure we don't scale down below 3.0x (minimum high-res)
   // and don't scale up above 10.0x (prevent pixelation if tiny)
   factor = Math.max(3.0, Math.min(10.0, factor));
-  
+
   // Final safety check for absolute dimensions
   if (width * factor > maxSafeDim) factor = maxSafeDim / width;
   if (height * factor > maxSafeDim) factor = Math.min(factor, maxSafeDim / height);
-  
+
   // Ensure factor is at least 1.0 (never scale down)
   factor = Math.max(1.0, factor);
 
@@ -1310,7 +1322,7 @@ function exportToPng(currentGraphMode) {
   canvas.width = width * factor;
   canvas.height = height * factor;
   const ctx = canvas.getContext("2d");
-  
+
   // Fill background white
   ctx.fillStyle = "white";
   ctx.fillRect(0, 0, canvas.width, canvas.height);

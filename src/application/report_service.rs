@@ -3,8 +3,8 @@ use std::str::FromStr;
 
 use crate::domain::models::*;
 use crate::domain::ports::SpecRepository;
-use tracing::instrument;
 use crate::openapi;
+use tracing::instrument;
 
 #[instrument(skip_all)]
 pub async fn generate_report(
@@ -324,6 +324,7 @@ mod tests {
             api_type,
             path: "/test".to_string(),
             method: "GET".to_string(),
+            deprecated: false,
         }
     }
 

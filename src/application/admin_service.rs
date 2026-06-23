@@ -1,7 +1,7 @@
 use crate::domain::models::*;
 use crate::domain::ports::SpecRepository;
-use tracing::instrument;
 use chrono::Utc;
+use tracing::instrument;
 
 pub async fn list_protected_branches(repo: &impl SpecRepository) -> Result<Vec<String>, AppError> {
     Ok(repo.list_protected_branches().await?)

@@ -1,7 +1,10 @@
 use sqlx::{Row, SqlitePool};
-use tracing::instrument;
 use std::collections::HashMap;
 use std::str::FromStr;
+use tracing::instrument;
+
+type EndpointRow = (i64, String, String, String, String, String, bool, bool);
+type EndpointMap = HashMap<(String, String), (i64, String)>;
 
 /// Hashes a session token with SHA-256 so that only the hash is stored at rest.
 /// The raw token is returned to the client; lookups hash the incoming token.
@@ -256,7 +259,7 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
         branch_id: i64,
     ) -> Result<Vec<EndpointRecord>, RepositoryError> {
-        let rows: Vec<(i64, String, String, String, String, String, bool, bool)> = sqlx::query_as(
+        let rows: Vec<EndpointRow> = sqlx::query_as(
             "SELECT e.id, e.api_type, e.path, e.normalized_path, e.method, e.yaml_content, \
              COALESCE(sc.source_yaml != sc.current_yaml, 0) as has_changes, e.deprecated \
              FROM endpoints e \
@@ -277,7 +280,16 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(id, api_type, path, normalized_path, method, yaml_content, has_changes, deprecated)| {
+                |(
+                    id,
+                    api_type,
+                    path,
+                    normalized_path,
+                    method,
+                    yaml_content,
+                    has_changes,
+                    deprecated,
+                )| {
                     EndpointRecord {
                         id: Some(id),
                         api_type: ApiType::from_str(&api_type).unwrap_or_default(),
@@ -439,7 +451,7 @@ impl SpecRepository for SqliteSpecRepository {
         branch_name: &str,
         api_type: ApiType,
         endpoints: &[(String, String)],
-    ) -> Result<HashMap<(String, String), (i64, String)>, RepositoryError> {
+    ) -> Result<EndpointMap, RepositoryError> {
         let mut result = HashMap::new();
         if endpoints.is_empty() {
             return Ok(result);
@@ -758,14 +770,16 @@ impl SpecRepository for SqliteSpecRepository {
 
         let dependency_graph = dependency_rows
             .into_iter()
-            .map(|(client, api_type, service, path, method, deprecated)| DependencyInfo {
-                api_type: ApiType::from_str(&api_type).unwrap_or_default(),
-                client,
-                service,
-                path,
-                method,
-                deprecated,
-            })
+            .map(
+                |(client, api_type, service, path, method, deprecated)| DependencyInfo {
+                    api_type: ApiType::from_str(&api_type).unwrap_or_default(),
+                    client,
+                    service,
+                    path,
+                    method,
+                    deprecated,
+                },
+            )
             .collect();
 
         // Unused endpoints
@@ -789,13 +803,15 @@ impl SpecRepository for SqliteSpecRepository {
 
         let unused_endpoints = unused_rows
             .into_iter()
-            .map(|(service, api_type, path, method, deprecated)| EndpointInfo {
-                api_type: ApiType::from_str(&api_type).unwrap_or_default(),
-                service,
-                path,
-                method,
-                deprecated,
-            })
+            .map(
+                |(service, api_type, path, method, deprecated)| EndpointInfo {
+                    api_type: ApiType::from_str(&api_type).unwrap_or_default(),
+                    service,
+                    path,
+                    method,
+                    deprecated,
+                },
+            )
             .collect();
 
         // Missing endpoints
