@@ -16,6 +16,8 @@ pub enum AppError {
     Forbidden,
     #[error("Internal Error: {0}")]
     Internal(String),
+    #[error("Breaking Change: {0}")]
+    BreakingChange(String),
 }
 
 impl From<crate::domain::ports::RepositoryError> for AppError {
@@ -351,6 +353,16 @@ pub struct EndpointVersion {
     pub created_at: String,
     pub username: Option<String>,
     pub source_branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_type: Option<ApiType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
 }
 
 #[derive(Debug, Clone)]

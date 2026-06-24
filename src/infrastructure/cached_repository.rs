@@ -1104,6 +1104,13 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.get_endpoint_versions(endpoint_id).await
     }
 
+    async fn get_global_endpoint_versions(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
+        self.inner.get_global_endpoint_versions(limit).await
+    }
+
     async fn apply_spec_changes(
         &self,
         branch_id: i64,

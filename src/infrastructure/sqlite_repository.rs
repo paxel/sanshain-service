@@ -1774,7 +1774,16 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
         endpoint_id: i64,
     ) -> Result<Vec<EndpointVersion>, RepositoryError> {
-        let rows: Vec<(i64, i64, i32, String, Option<String>, String, Option<String>, Option<String>)> = sqlx::query_as(
+        let rows: Vec<(
+            i64,
+            i64,
+            i32,
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            Option<String>,
+        )> = sqlx::query_as(
             "SELECT ev.id, ev.endpoint_id, ev.version, ev.yaml_content, ev.diff_from_previous, ev.created_at, m.username, m.source_branch FROM endpoint_versions ev LEFT JOIN endpoint_version_metadata m ON ev.id = m.endpoint_version_id WHERE ev.endpoint_id = ? ORDER BY ev.version ASC"
         )
         .bind(endpoint_id)
@@ -1804,6 +1813,86 @@ impl SpecRepository for SqliteSpecRepository {
                         created_at,
                         username,
                         source_branch,
+                        service_name: None,
+                        branch_name: None,
+                        api_type: None,
+                        path: None,
+                        method: None,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    #[allow(clippy::type_complexity)]
+    async fn get_global_endpoint_versions(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
+        let rows: Vec<(
+            i64,
+            i64,
+            i32,
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            Option<String>,
+            String,
+            String,
+            String,
+            String,
+            String,
+        )> = sqlx::query_as(
+            "SELECT 
+                ev.id, ev.endpoint_id, ev.version, ev.yaml_content, ev.diff_from_previous, ev.created_at, 
+                m.username, m.source_branch,
+                s.name as service_name, b.name as branch_name, e.api_type, e.path, e.method
+             FROM endpoint_versions ev 
+             LEFT JOIN endpoint_version_metadata m ON ev.id = m.endpoint_version_id 
+             JOIN endpoints e ON ev.endpoint_id = e.id
+             JOIN branches b ON e.branch_id = b.id
+             JOIN services s ON b.service_id = s.id
+             ORDER BY ev.created_at DESC, ev.id DESC
+             LIMIT ?"
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    id,
+                    endpoint_id,
+                    version,
+                    yaml_content,
+                    diff_from_previous,
+                    created_at,
+                    username,
+                    source_branch,
+                    service_name,
+                    branch_name,
+                    api_type_str,
+                    path,
+                    method,
+                )| {
+                    EndpointVersion {
+                        id,
+                        endpoint_id,
+                        version,
+                        yaml_content,
+                        diff_from_previous,
+                        created_at,
+                        username,
+                        source_branch,
+                        service_name: Some(service_name),
+                        branch_name: Some(branch_name),
+                        api_type: ApiType::from_str(&api_type_str).ok(),
+                        path: Some(path),
+                        method: Some(method),
                     }
                 },
             )

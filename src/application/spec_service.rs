@@ -363,7 +363,7 @@ async fn provide_spec_inner(
                         branch,
                         reason
                     );
-                    return Err(AppError::Conflict(format!(
+                    return Err(AppError::BreakingChange(format!(
                         "Breaking changes detected on protected branch '{}' of service '{}': {}",
                         branch, servicename, reason
                     )));
@@ -459,7 +459,7 @@ async fn provide_spec_inner(
                                 } else {
                                     "current owner's"
                                 };
-                                return Err(AppError::Conflict(format!(
+                                return Err(AppError::BreakingChange(format!(
                                     "Breaking change for shared endpoint {} {} on branch '{}' (compared to {} version): {}",
                                     endpoint.method, endpoint.path, branch, owner_desc, reason
                                 )));
@@ -519,6 +519,14 @@ async fn provide_spec_inner(
         if old_api_type != api_type {
             continue;
         }
+
+        if is_protected && !dry_run {
+            return Err(AppError::BreakingChange(format!(
+                "Removing endpoint {} {} is a breaking change on a protected branch",
+                method, path
+            )));
+        }
+
         if !is_protected
             && !dry_run
             && let Some(mut entry) = repo
@@ -641,6 +649,13 @@ pub async fn get_endpoint_version_history(
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
     Ok(repo.get_endpoint_versions(endpoint_id).await?)
+}
+
+pub async fn get_audit_timeline(
+    repo: &impl SpecRepository,
+    limit: u32,
+) -> Result<Vec<EndpointVersion>, AppError> {
+    Ok(repo.get_global_endpoint_versions(limit).await?)
 }
 
 pub async fn get_shared_contract_info(

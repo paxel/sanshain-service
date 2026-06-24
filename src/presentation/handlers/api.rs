@@ -434,6 +434,20 @@ pub async fn endpoint_versions(
     Ok(Json(res))
 }
 
+#[derive(Deserialize)]
+pub struct AuditTimelineQuery {
+    pub limit: Option<u32>,
+}
+
+pub async fn audit_timeline(
+    State(state): State<AppState>,
+    Query(query): Query<AuditTimelineQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let limit = query.limit.unwrap_or(50);
+    let res = services::get_audit_timeline(&state.repo, limit).await?;
+    Ok(Json(res))
+}
+
 pub async fn sse_updates(
     State(state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {

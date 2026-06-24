@@ -468,6 +468,12 @@ pub trait SpecRepository: Send + Sync {
         endpoint_id: i64,
     ) -> impl Future<Output = Result<Vec<EndpointVersion>, RepositoryError>> + Send;
 
+    /// Get a global timeline of endpoint versions across all services and branches.
+    fn get_global_endpoint_versions(
+        &self,
+        limit: u32,
+    ) -> impl Future<Output = Result<Vec<EndpointVersion>, RepositoryError>> + Send;
+
     /// Apply a set of specification changes (insert, update, delete) atomically.
     fn apply_spec_changes(
         &self,

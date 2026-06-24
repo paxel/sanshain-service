@@ -446,6 +446,13 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, get_endpoint_versions(endpoint_id))
     }
 
+    async fn get_global_endpoint_versions(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
+        delegate!(self, get_global_endpoint_versions(limit))
+    }
+
     async fn apply_spec_changes(
         &self,
         branch_id: i64,

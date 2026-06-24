@@ -662,6 +662,13 @@ impl SpecRepository for MockRepo {
         Ok(Vec::new())
     }
 
+    async fn get_global_endpoint_versions(
+        &self,
+        _limit: u32,
+    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
+        Ok(Vec::new())
+    }
+
     async fn apply_spec_changes(
         &self,
         branch_id: i64,

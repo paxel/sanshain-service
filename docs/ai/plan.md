@@ -7,15 +7,15 @@
   - Implement custom HTML tooltips on nodes and edges with detailed service/client/endpoint information and direct links to specifications.
 
 ### Web Frontend (Advanced)
-- [ ] **Server-Sent Events (SSE) for Live Updates**
+- [x] **Server-Sent Events (SSE) for Live Updates**
   - Implement SSE to broadcast spec update notifications to the UI, enabling real-time graph and report refreshes.
-- [ ] **Audit View & Change History**
+- [x] **Audit View & Change History**
   - Create a dedicated Audit page showing a timeline of specification updates, including diffs and author metadata per branch.
 - [ ] **WebSocket Support**
   - Explore WebSocket-based bidirectional communication for future real-time collaboration features.
 
 ### OpenAPI Semantics & Contract Enforcement
-- [ ] **Enhanced Breaking Change Detection**
+- [x] **Enhanced Breaking Change Detection**
   - Detect removed paths/operations and new required fields in request bodies as breaking changes to prevent accidental breakages on protected branches.
 - [ ] **Deprecation Support & Client Warnings**
   - Automatically detect `deprecated: true` from OpenAPI specs and inject `X-Sanshain-Deprecated` headers in `/require` responses. Show visual warnings in the UI.
