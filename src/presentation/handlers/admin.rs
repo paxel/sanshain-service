@@ -201,6 +201,7 @@ pub async fn admin_delete_service(
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
     if services::delete_service(&state.repo, &name).await? {
+        let _ = state.spec_updated_tx.send(());
         record_audit_log(
             &state.repo,
             user,
@@ -220,6 +221,7 @@ pub async fn admin_delete_branch(
     Path((name, branch)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     if services::delete_branch(&state.repo, &name, &branch).await? {
+        let _ = state.spec_updated_tx.send(());
         record_audit_log(
             &state.repo,
             user,
@@ -571,6 +573,7 @@ pub async fn admin_nuke_services(
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
     let res = services::delete_all_services(&state.repo).await?;
+    let _ = state.spec_updated_tx.send(());
     record_audit_log(
         &state.repo,
         user,
@@ -590,6 +593,7 @@ pub async fn admin_nuke_clients(
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
     let res = services::delete_all_clients(&state.repo).await?;
+    let _ = state.spec_updated_tx.send(());
     record_audit_log(
         &state.repo,
         user,
@@ -609,6 +613,7 @@ pub async fn admin_nuke_users(
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
     let res = services::delete_all_non_admin_users(&state.repo).await?;
+    let _ = state.spec_updated_tx.send(());
     record_audit_log(
         &state.repo,
         user,
@@ -629,6 +634,7 @@ pub async fn admin_nuke_database(
     }
     let user_id = user.as_ref().map(|axum::Extension(u)| u.id);
     services::nuke_database(&state.repo, user_id).await?;
+    let _ = state.spec_updated_tx.send(());
     record_audit_log(
         &state.repo,
         user,
@@ -649,6 +655,7 @@ pub async fn admin_nuke_branch(
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
     let res = services::delete_branch_all_services(&state.repo, &branch).await?;
+    let _ = state.spec_updated_tx.send(());
     record_audit_log(
         &state.repo,
         user,

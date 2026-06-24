@@ -51,6 +51,7 @@
             <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
             <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
             <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
+            <a href="/audit.html" class="text-white hover:text-indigo-100 transition-colors">Audit</a>
             <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors">Observability</a>
             <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
@@ -674,6 +675,11 @@
             setTimeout(() => toast.remove(), 300);
         }, 2000);
     }
+
+    window.addEventListener('sanshain-update', () => {
+        console.log('Live update received, refreshing versions...');
+        loadEndpointVersions();
+    });
 </script>
 
 <footer class="text-center text-sm text-slate-500 py-6 mt-auto">

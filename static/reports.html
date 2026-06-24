@@ -43,6 +43,7 @@
             <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
             <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
             <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
+            <a href="/audit.html" class="text-white hover:text-indigo-100 transition-colors">Audit</a>
             <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors">Observability</a>
             <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
@@ -199,6 +200,11 @@
             branchSelect.value = branch || '';
         }
         loadReports();
+    });
+
+    window.addEventListener('sanshain-update', () => {
+        console.log('Live update received, refreshing reports...');
+        showReports();
     });
 
     checkDiscoveryAuth(() => showReports());
