@@ -144,7 +144,7 @@ async fn test_reset_branch_history_repository() {
     let versions_reset = repo.get_endpoint_versions(endpoint_id).await.unwrap();
     assert_eq!(versions_reset.len(), 1);
     assert_eq!(versions_reset[0].version, 1);
-    assert_eq!(versions_reset[0].yaml_content.contains("OK UPDATED"), true);
+    assert!(versions_reset[0].yaml_content.contains("OK UPDATED"));
     assert_eq!(versions_reset[0].diff_from_previous, None);
 
     // Dependency should still exist

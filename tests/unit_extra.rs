@@ -10,6 +10,7 @@ fn dep(client: &str, service: &str, api_type: ApiType, path: &str, method: &str)
         api_type,
         path: path.into(),
         method: method.into(),
+        deprecated: false,
     }
 }
 
