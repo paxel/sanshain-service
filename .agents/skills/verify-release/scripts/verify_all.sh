@@ -24,7 +24,7 @@ cargo fmt --check || failure "Rust formatting check failed. Run 'cargo fmt' to f
 success "Rust formatting is correct."
 
 log "Running Rust Clippy (linting)..."
-cargo clippy -- -D warnings || failure "Clippy found issues. Please fix them."
+cargo clippy --tests -- -D warnings || failure "Clippy found issues. Please fix them."
 success "Clippy passed with zero warnings."
 
 log "Running Cargo Audit (vulnerability check)..."
@@ -38,9 +38,9 @@ CARGO_TARGET_DIR=target/geiger cargo geiger --brief || log "Warning: Cargo geige
 rm tests/compat_test.rs
 success "Cargo geiger finished."
 
-log "Running Rust unit tests..."
-cargo test --lib || failure "Rust unit tests failed."
-success "Rust unit tests passed."
+log "Running all Rust tests..."
+cargo test || failure "Rust tests failed."
+success "All Rust tests passed."
 
 # ---------------------------------------------------------------------------
 # 2. JavaScript Quality Checks
