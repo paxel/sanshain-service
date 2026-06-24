@@ -111,6 +111,17 @@ pub async fn set_fallback_branch(
     Ok(())
 }
 
+pub async fn update_service_metadata(
+    repo: &impl SpecRepository,
+    service_name: &str,
+    icon: Option<&str>,
+    domain: Option<&str>,
+) -> Result<(), AppError> {
+    repo.update_service_metadata(service_name, icon, domain)
+        .await?;
+    Ok(())
+}
+
 pub async fn get_fallback_branch(
     repo: &impl SpecRepository,
     service_name: &str,

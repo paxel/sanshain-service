@@ -148,6 +148,10 @@
                     <div class="h-4 w-[1px] bg-slate-300"></div>
 
                     <!-- Action buttons -->
+                    <button id="edit-btn" class="hidden px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-indigo-600 flex items-center gap-1.5 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                        Edit
+                    </button>
                     <button id="copy-btn" class="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 flex items-center gap-1.5 transition-colors">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
                         Copy
@@ -196,6 +200,7 @@
 
     const viewYamlBtn = document.getElementById('view-yaml-btn');
     const viewDiffBtn = document.getElementById('view-diff-btn');
+    const editBtn = document.getElementById('edit-btn');
     const blameToggle = document.getElementById('blame-toggle');
     const blameToggleContainer = document.getElementById('blame-toggle-container');
     const copyBtn = document.getElementById('copy-btn');
@@ -224,8 +229,11 @@
     }
 
     // Auth load
-    checkDiscoveryAuth(async () => {
+    checkDiscoveryAuth(async (user) => {
         await renderBanner();
+        if (user && user.is_admin) {
+            editBtn.classList.remove('hidden');
+        }
         await loadEndpointVersions();
     });
 
@@ -411,6 +419,10 @@
     }
 
     // Tab buttons event listeners
+    editBtn.onclick = () => {
+        window.location.href = `/edit.html?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}&api_type=${encodeURIComponent(apiType)}`;
+    };
+
     viewYamlBtn.onclick = () => {
         isDiffMode = false;
         updateUrlParams();

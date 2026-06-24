@@ -645,6 +645,30 @@ pub async fn admin_nuke_database(
     Ok(StatusCode::OK)
 }
 
+pub async fn export_audit_logs_csv(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let logs: Vec<AuditLogEntry> = state.repo.get_recent_audit_logs(1000).await?;
+    let mut csv = String::from("id,timestamp,username,action,details\n");
+    for log in logs {
+        let esc_user = log.username.replace('"', "\"\"");
+        let esc_action = log.action.replace('"', "\"\"");
+        let esc_details = log.details.replace('"', "\"\"");
+        csv.push_str(&format!(
+            "{},\"{}\",\"{}\",\"{}\",\"{}\"\n",
+            log.id, log.timestamp, esc_user, esc_action, esc_details
+        ));
+    }
+    let headers = [
+        (axum::http::header::CONTENT_TYPE, "text/csv"),
+        (
+            axum::http::header::CONTENT_DISPOSITION,
+            "attachment; filename=\"audit_logs.csv\"",
+        ),
+    ];
+    Ok((headers, csv))
+}
+
 pub async fn admin_nuke_branch(
     State(state): State<AppState>,
     Path(branch): Path<String>,
@@ -667,6 +691,39 @@ pub async fn admin_nuke_branch(
     )
     .await?;
     Ok(Json(json!({ "deleted": res })))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateServiceMetadataRequest {
+    pub name: String,
+    pub icon: Option<String>,
+    pub domain: Option<String>,
+}
+
+pub async fn admin_update_service_metadata(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Json(payload): Json<UpdateServiceMetadataRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    services::update_service_metadata(
+        &state.repo,
+        &payload.name,
+        payload.icon.as_deref(),
+        payload.domain.as_deref(),
+    )
+    .await?;
+
+    let _ = state.spec_updated_tx.send(());
+
+    record_audit_log(
+        &state.repo,
+        user,
+        "UPDATE_SERVICE_METADATA",
+        &format!("Updated metadata for service '{}'", payload.name),
+    )
+    .await?;
+
+    Ok(StatusCode::OK)
 }
 
 pub async fn get_observability_stats(
@@ -843,26 +900,53 @@ pub async fn get_observability_audit_logs(
     Ok(Json(logs))
 }
 
-pub async fn export_audit_logs_csv(
+#[derive(Deserialize)]
+pub struct UpdateEndpointRequest {
+    pub servicename: String,
+    pub branch: String,
+    pub api_type: ApiType,
+    pub path: String,
+    pub method: String,
+    pub yaml: String,
+    pub deprecated: bool,
+    pub external: bool,
+}
+
+pub async fn admin_update_endpoint(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Json(payload): Json<UpdateEndpointRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let logs: Vec<AuditLogEntry> = state.repo.get_recent_audit_logs(1000).await?;
-    let mut csv = String::from("id,timestamp,username,action,details\n");
-    for log in logs {
-        let esc_user = log.username.replace('"', "\"\"");
-        let esc_action = log.action.replace('"', "\"\"");
-        let esc_details = log.details.replace('"', "\"\"");
-        csv.push_str(&format!(
-            "{},\"{}\",\"{}\",\"{}\",\"{}\"\n",
-            log.id, log.timestamp, esc_user, esc_action, esc_details
-        ));
-    }
-    let headers = [
-        (axum::http::header::CONTENT_TYPE, "text/csv"),
-        (
-            axum::http::header::CONTENT_DISPOSITION,
-            "attachment; filename=\"audit_logs.csv\"",
+    services::update_endpoint_manual(
+        &state.repo,
+        services::RequireEndpointParams {
+            clientname: "_admin",
+            servicename: &payload.servicename,
+            branch: &payload.branch,
+            api_type: payload.api_type,
+            path: &payload.path,
+            method: &payload.method,
+            timeout_secs: None,
+        },
+        payload.api_type,
+        payload.yaml,
+        payload.deprecated,
+        payload.external,
+    )
+    .await?;
+
+    let _ = state.spec_updated_tx.send(());
+
+    record_audit_log(
+        &state.repo,
+        user,
+        "MANUAL_UPDATE_ENDPOINT",
+        &format!(
+            "Manually updated endpoint {} {} in {} ({})",
+            payload.method, payload.path, payload.servicename, payload.branch
         ),
-    ];
-    Ok((headers, csv))
+    )
+    .await?;
+
+    Ok(StatusCode::OK)
 }

@@ -112,7 +112,7 @@ impl SpecRepository for DatabaseRepo {
         api_type: ApiType,
         path: &str,
         method: &str,
-    ) -> Result<Option<(i64, String)>, RepositoryError> {
+    ) -> Result<Option<(i64, String, bool, bool)>, RepositoryError> {
         delegate!(
             self,
             find_endpoint(service_id, branch_name, api_type, path, method)
@@ -125,7 +125,7 @@ impl SpecRepository for DatabaseRepo {
         branch_name: &str,
         api_type: ApiType,
         endpoints: &[(String, String)],
-    ) -> Result<HashMap<(String, String), (i64, String)>, RepositoryError> {
+    ) -> Result<HashMap<(String, String), (i64, String, bool, bool)>, RepositoryError> {
         delegate!(
             self,
             find_endpoints_bulk(service_id, branch_name, api_type, endpoints)
@@ -174,10 +174,19 @@ impl SpecRepository for DatabaseRepo {
         method: &str,
         yaml_content: &str,
         deprecated: bool,
+        external: bool,
     ) -> Result<(), RepositoryError> {
         delegate!(
             self,
-            update_endpoint(branch_id, api_type, path, method, yaml_content, deprecated)
+            update_endpoint(
+                branch_id,
+                api_type,
+                path,
+                method,
+                yaml_content,
+                deprecated,
+                external
+            )
         )
     }
 
@@ -263,6 +272,15 @@ impl SpecRepository for DatabaseRepo {
         branch: Option<&str>,
     ) -> Result<(), RepositoryError> {
         delegate!(self, set_fallback_branch(service_name, branch))
+    }
+
+    async fn update_service_metadata(
+        &self,
+        service_name: &str,
+        icon: Option<&str>,
+        domain: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, update_service_metadata(service_name, icon, domain))
     }
 
     async fn get_fallback_branch(

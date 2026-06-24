@@ -21,7 +21,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - **Enhanced Breaking Change Detection**: Improved compatibility checks to detect removed paths, removed operations, and new required fields in request bodies as breaking changes on protected branches.
 - **Refactor Error Handling**: Introduced a dedicated `BreakingChange` error variant to provide clearer feedback for contract violations.
-- **Version Bump**: Bumped the version to `1.4.0`.
 
 ---
 

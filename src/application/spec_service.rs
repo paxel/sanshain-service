@@ -488,6 +488,7 @@ async fn provide_spec_inner(
                     method: endpoint.method,
                     yaml_content: endpoint.yaml_content,
                     deprecated: endpoint.deprecated,
+                    external: false,
                 });
                 updates += 1;
             }
@@ -509,6 +510,7 @@ async fn provide_spec_inner(
                 method: endpoint.method,
                 yaml_content: endpoint.yaml_content,
                 deprecated: endpoint.deprecated,
+                external: false,
             });
             inserts += 1;
         }
@@ -609,7 +611,7 @@ pub async fn get_endpoint_yaml(
         &method_to_use,
     )
     .await?;
-    endpoint.map(|(_, yaml)| yaml).ok_or_else(|| {
+    endpoint.map(|(_, yaml, _, _)| yaml).ok_or_else(|| {
         AppError::NotFound(format!(
             "Endpoint not found: {} {} (service: {}, branch: {})",
             method_to_use, path, servicename, branch
@@ -698,11 +700,17 @@ pub async fn get_shared_contract_info(
     }
 }
 
+pub struct RequireResponse {
+    pub yaml: String,
+    pub deprecated: bool,
+    pub external: bool,
+}
+
 pub async fn require_endpoint(
     repo: &impl SpecRepository,
     notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     params: RequireEndpointParams<'_>,
-) -> Result<String, AppError> {
+) -> Result<RequireResponse, AppError> {
     require_endpoint_inner(repo, notifier, params, false).await
 }
 
@@ -710,7 +718,7 @@ pub async fn require_endpoint_dry_run(
     repo: &impl SpecRepository,
     notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     params: RequireEndpointParams<'_>,
-) -> Result<String, AppError> {
+) -> Result<RequireResponse, AppError> {
     require_endpoint_inner(repo, notifier, params, true).await
 }
 
@@ -720,7 +728,7 @@ async fn require_endpoint_inner(
     mut notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     params: RequireEndpointParams<'_>,
     dry_run: bool,
-) -> Result<String, AppError> {
+) -> Result<RequireResponse, AppError> {
     let client_id = if dry_run {
         0
     } else {
@@ -756,7 +764,7 @@ async fn require_endpoint_inner(
         )
         .await?;
 
-        if let Some((id, yaml)) = endpoint {
+        if let Some((id, yaml, deprecated, external)) = endpoint {
             if !dry_run {
                 repo.record_dependency(RecordDependencyParams {
                     client_id,
@@ -769,7 +777,11 @@ async fn require_endpoint_inner(
                 })
                 .await?;
             }
-            return Ok(yaml);
+            return Ok(RequireResponse {
+                yaml,
+                deprecated,
+                external,
+            });
         }
 
         if let Some(dl) = deadline {
@@ -811,16 +823,39 @@ pub async fn require_bundle(
     repo: &impl SpecRepository,
     notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     params: RequireBundleParams<'_>,
-) -> Result<String, AppError> {
+) -> Result<RequireResponse, AppError> {
     require_bundle_inner(repo, notifier, params, false).await
 }
 
-pub async fn require_bundle_dry_run(
+pub async fn update_endpoint_manual(
     repo: &impl SpecRepository,
-    notifier: Option<tokio::sync::broadcast::Receiver<()>>,
-    params: RequireBundleParams<'_>,
-) -> Result<String, AppError> {
-    require_bundle_inner(repo, notifier, params, true).await
+    params: RequireEndpointParams<'_>,
+    api_type: ApiType,
+    yaml: String,
+    deprecated: bool,
+    external: bool,
+) -> Result<(), AppError> {
+    let service_id = repo
+        .find_service(params.servicename)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Service not found".to_string()))?;
+    let branch_id = repo
+        .find_branch(service_id, params.branch)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Branch not found".to_string()))?;
+
+    repo.update_endpoint(
+        branch_id,
+        api_type,
+        params.path,
+        params.method,
+        &yaml,
+        deprecated,
+        external,
+    )
+    .await?;
+
+    Ok(())
 }
 
 #[instrument(skip_all)]
@@ -829,7 +864,7 @@ async fn require_bundle_inner(
     mut notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     params: RequireBundleParams<'_>,
     dry_run: bool,
-) -> Result<String, AppError> {
+) -> Result<RequireResponse, AppError> {
     if params.endpoints.is_empty() {
         return Err(AppError::BadRequest("No endpoints requested".to_string()));
     }
@@ -884,8 +919,10 @@ async fn require_bundle_inner(
         if found_endpoints.len() == params.endpoints.len() {
             let mut yamls = Vec::new();
             let mut bulk_params = Vec::new();
+            let mut any_deprecated = false;
+            let mut any_external = false;
             for (path, method) in &sorted_endpoints {
-                let (id, yaml) = found_endpoints
+                let (id, yaml, deprecated, external) = found_endpoints
                     .get(&(path.clone(), method.clone()))
                     .ok_or_else(|| {
                         AppError::Internal(format!(
@@ -894,6 +931,12 @@ async fn require_bundle_inner(
                         ))
                     })?;
                 yamls.push(yaml.clone());
+                if *deprecated {
+                    any_deprecated = true;
+                }
+                if *external {
+                    any_external = true;
+                }
                 bulk_params.push(RecordDependencyParams {
                     client_id,
                     endpoint_id: Some(*id),
@@ -907,12 +950,17 @@ async fn require_bundle_inner(
             if !dry_run {
                 repo.record_dependencies_bulk(bulk_params).await?;
             }
-            return match params.api_type {
+            let merged_yaml = match params.api_type {
                 ApiType::OpenApi => {
-                    openapi::merge_endpoint_yamls(&yamls).map_err(AppError::Internal)
+                    openapi::merge_endpoint_yamls(&yamls).map_err(AppError::Internal)?
                 }
-                _ => Ok(yamls.join("\n---\n")),
+                _ => yamls.join("\n---\n"),
             };
+            return Ok(RequireResponse {
+                yaml: merged_yaml,
+                deprecated: any_deprecated,
+                external: any_external,
+            });
         }
 
         if let Some(dl) = deadline {
@@ -953,7 +1001,7 @@ async fn find_endpoint_with_fallback(
     api_type: ApiType,
     path: &str,
     method_to_use: &str,
-) -> Result<Option<(i64, String)>, RepositoryError> {
+) -> Result<Option<(i64, String, bool, bool)>, RepositoryError> {
     let endpoint = repo
         .find_endpoint(service_id, branch, api_type, path, method_to_use)
         .await?;

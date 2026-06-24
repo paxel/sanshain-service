@@ -76,7 +76,12 @@ async function renderBanner(user = null) {
 
     const data = await res.json();
     updateBannerAuth(data);
-    initSSEUpdates();
+    const useWS = localStorage.getItem("sanshain_use_ws") === "true";
+    if (useWS) {
+      initWSUpdates();
+    } else {
+      initSSEUpdates();
+    }
     return data;
   } catch (_) {
     updateBannerAuth(null);
@@ -91,7 +96,7 @@ function initSSEUpdates() {
   const source = new EventSource(`/api/sse/updates?token=${sanshainToken}`);
   source.onmessage = (event) => {
     if (event.data === "updated") {
-      console.log("Specs updated, triggering UI refresh event...");
+      console.log("Specs updated (SSE), triggering UI refresh event...");
       window.dispatchEvent(new CustomEvent("sanshain-update"));
     }
   };
@@ -100,6 +105,33 @@ function initSSEUpdates() {
     source.close();
     window._sseInitialized = false;
     setTimeout(initSSEUpdates, 10000);
+  };
+}
+
+function initWSUpdates() {
+  if (!sanshainToken || window._wsInitialized) return;
+  window._wsInitialized = true;
+
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const wsUrl = `${protocol}//${window.location.host}/api/ws/updates?token=${sanshainToken}`;
+  const socket = new WebSocket(wsUrl);
+
+  socket.onmessage = (event) => {
+    if (event.data === "updated") {
+      console.log("Specs updated (WS), triggering UI refresh event...");
+      window.dispatchEvent(new CustomEvent("sanshain-update"));
+    }
+  };
+
+  socket.onclose = () => {
+    console.warn("WebSocket closed, retrying in 10s...");
+    window._wsInitialized = false;
+    setTimeout(initWSUpdates, 10000);
+  };
+
+  socket.onerror = (err) => {
+    console.error("WebSocket error:", err);
+    socket.close();
   };
 }
 

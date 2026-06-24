@@ -1,7 +1,9 @@
 -- Core tables
 CREATE TABLE IF NOT EXISTS services (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE
+    name TEXT NOT NULL UNIQUE,
+    icon TEXT,
+    domain TEXT
 );
 CREATE TABLE IF NOT EXISTS branches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,6 +97,8 @@ INSERT OR IGNORE INTO settings (key, value) VALUES ('branch_max_age_days', '30')
 -- On protected branches, removed endpoints are marked deleted rather than hard-deleted,
 -- so that re-introducing them later is detected as a contract violation.
 ALTER TABLE endpoints ADD COLUMN deleted BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE endpoints ADD COLUMN deprecated BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE endpoints ADD COLUMN external BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE dependencies ADD COLUMN last_seen_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00';
 -- Endpoint version history for tracking changes on protected branches
 CREATE TABLE IF NOT EXISTS endpoint_versions (
@@ -135,13 +139,15 @@ CREATE TABLE endpoints_new (
     method TEXT NOT NULL,
     yaml_content TEXT NOT NULL,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    deprecated BOOLEAN NOT NULL DEFAULT FALSE,
+    external BOOLEAN NOT NULL DEFAULT FALSE,
     UNIQUE(branch_id, api_type, path, method),
     FOREIGN KEY(branch_id) REFERENCES branches(id)
 );
 
 -- Copy data from old endpoints table
-INSERT INTO endpoints_new (id, branch_id, path, normalized_path, method, yaml_content, deleted)
-SELECT id, branch_id, path, normalized_path, method, yaml_content, deleted FROM endpoints;
+INSERT INTO endpoints_new (id, branch_id, path, normalized_path, method, yaml_content, deleted, deprecated, external)
+SELECT id, branch_id, path, normalized_path, method, yaml_content, deleted, deprecated, FALSE FROM endpoints;
 
 -- 2. Copy dependencies to a temporary table while the old schema still exists.
 CREATE TEMPORARY TABLE dependencies_old AS

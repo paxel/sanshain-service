@@ -209,7 +209,7 @@ pub async fn generate_merged_report(
                 .find_endpoint(sid, target, api_type, path, method)
                 .await;
 
-            if let (Ok(Some((_, branch_yaml))), Ok(Some((_, target_yaml)))) = (branch_ep, target_ep)
+            if let (Ok(Some((_, branch_yaml, _, _))), Ok(Some((_, target_yaml, _, _)))) = (branch_ep, target_ep)
                 && branch_yaml != target_yaml
                 && let Err(reason) =
                     openapi::check_backward_compatibility(&target_yaml, &branch_yaml)

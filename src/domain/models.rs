@@ -208,6 +208,8 @@ pub struct EndpointRecord {
     pub has_changes: bool,
     #[serde(default)]
     pub deprecated: bool,
+    #[serde(default)]
+    pub external: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -320,6 +322,10 @@ pub struct ClientEndpointInfo {
     pub yaml_content: Option<String>,
     #[serde(default)]
     pub has_changes: bool,
+    #[serde(default)]
+    pub deprecated: bool,
+    #[serde(default)]
+    pub external: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -327,8 +333,9 @@ pub struct ServiceSummary {
     pub name: String,
     pub fallback_branch: Option<String>,
     pub branches: Vec<String>,
-    #[serde(default)]
     pub is_favorite: bool,
+    pub icon: Option<String>,
+    pub domain: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -374,6 +381,7 @@ pub enum SpecChange {
         method: String,
         yaml_content: String,
         deprecated: bool,
+        external: bool,
     },
     Update {
         api_type: ApiType,
@@ -382,6 +390,7 @@ pub enum SpecChange {
         method: String,
         yaml_content: String,
         deprecated: bool,
+        external: bool,
     },
     Delete {
         api_type: ApiType,

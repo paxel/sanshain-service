@@ -185,15 +185,16 @@ function _graphEscapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function _measureNode(name) {
+function _measureNode(name, hasIcon) {
   const fontSize = 16;
   const charW = 9; // estimated average char width for 16px bold sans
   const idealCharsPerLine = 16;
   const maxLines = 3;
+  const iconPadding = hasIcon ? 30 : 0;
 
   if (name.length <= idealCharsPerLine) {
     return {
-      width: Math.max(100, Math.ceil(name.length * charW) + 40),
+      width: Math.max(100, Math.ceil(name.length * charW) + 40 + iconPadding),
       height: 48,
       lines: [name],
     };
@@ -227,7 +228,7 @@ function _measureNode(name) {
 
   const maxLineLen = Math.max(...lines.map((l) => l.length));
   return {
-    width: Math.max(100, Math.ceil(maxLineLen * charW) + 40),
+    width: Math.max(100, Math.ceil(maxLineLen * charW) + 40 + iconPadding),
     height: lines.length * 20 + 24,
     lines: lines,
   };
@@ -419,7 +420,7 @@ function renderCustomGraph(report, svgElement, direction) {
   }
 
   // ── Dagre layout ─────────────────────────────────────────────────
-  const g = new dagre.graphlib.Graph();
+  const g = new dagre.graphlib.Graph({ compound: true });
   g.setGraph({
     rankdir: dir,
     // In LR mode the along-rank separation is vertical; nodes are only
@@ -436,10 +437,30 @@ function renderCustomGraph(report, svgElement, direction) {
   g.setDefaultEdgeLabel(() => ({}));
 
   const nodeMetrics = new Map();
+  const serviceMetaMap = new Map();
+  if (report.services_detailed) {
+    report.services_detailed.forEach((s) => serviceMetaMap.set(s.name, s));
+  }
+
+  const domains = new Set();
   for (const node of allNodes) {
-    const m = _measureNode(node);
+    const meta = serviceMetaMap.get(node);
+    if (meta && meta.domain) domains.add(meta.domain);
+  }
+
+  // Set domain clusters
+  domains.forEach((domain) => {
+    g.setNode(`domain:${domain}`, { label: domain, clusterLabelPos: "top" });
+  });
+
+  for (const node of allNodes) {
+    const meta = serviceMetaMap.get(node);
+    const m = _measureNode(node, !!(meta && meta.icon));
     nodeMetrics.set(node, m);
     g.setNode(node, { label: node, width: m.width, height: m.height });
+    if (meta && meta.domain) {
+      g.setParent(node, `domain:${meta.domain}`);
+    }
   }
 
   const nodeRole = new Map();
@@ -618,6 +639,35 @@ function renderCustomGraph(report, svgElement, direction) {
   const mainG = document.createElementNS("http://www.w3.org/2000/svg", "g");
   mainG.setAttribute("class", "graph-main");
   svgElement.appendChild(mainG);
+
+  // ── Render clusters ──────────────────────────────────────────────
+  g.nodes().forEach((v) => {
+    const node = g.node(v);
+    if (v.startsWith("domain:")) {
+      const cluster = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      cluster.setAttribute("x", node.x - node.width / 2);
+      cluster.setAttribute("y", node.y - node.height / 2);
+      cluster.setAttribute("width", node.width);
+      cluster.setAttribute("height", node.height);
+      cluster.setAttribute("rx", "12");
+      cluster.setAttribute("ry", "12");
+      cluster.setAttribute("fill", "rgba(99, 102, 241, 0.03)");
+      cluster.setAttribute("stroke", "rgba(99, 102, 241, 0.15)");
+      cluster.setAttribute("stroke-width", "1.5");
+      cluster.setAttribute("stroke-dasharray", "4 4");
+      mainG.appendChild(cluster);
+
+      const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      label.setAttribute("x", node.x - node.width / 2 + 10);
+      label.setAttribute("y", node.y - node.height / 2 + 15);
+      label.setAttribute("fill", "rgba(99, 102, 241, 0.5)");
+      label.setAttribute("font-size", "10");
+      label.setAttribute("font-weight", "bold");
+      label.setAttribute("text-transform", "uppercase");
+      label.textContent = node.label;
+      mainG.appendChild(label);
+    }
+  });
 
   // ── Render edges ─────────────────────────────────────────────────
   const edgeElements = new Map(); // "from-->to" -> { path, hitArea }
@@ -904,11 +954,26 @@ function renderCustomGraph(report, svgElement, direction) {
     }
 
     const m = nodeMetrics.get(node);
+    const meta = serviceMetaMap.get(node);
     const lineH = 20;
     const totalTextH = m.lines.length * lineH;
+    const hasIcon = !!(meta && meta.icon);
+    const textXOffset = hasIcon ? 15 : 0;
+
+    if (hasIcon) {
+      const iconText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      iconText.setAttribute("x", nd.x - m.width / 2 + 20);
+      iconText.setAttribute("y", nd.y);
+      iconText.setAttribute("text-anchor", "middle");
+      iconText.setAttribute("dominant-baseline", "central");
+      iconText.setAttribute("font-size", "20");
+      iconText.textContent = meta.icon;
+      group.appendChild(iconText);
+    }
+
     m.lines.forEach((line, i) => {
       const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      text.setAttribute("x", nd.x);
+      text.setAttribute("x", nd.x + textXOffset);
       text.setAttribute("y", nd.y - totalTextH / 2 + i * lineH + lineH / 2);
       text.setAttribute("text-anchor", "middle");
       text.setAttribute("dominant-baseline", "central");
@@ -987,10 +1052,21 @@ function renderCustomGraph(report, svgElement, direction) {
             if (method === "DELETE") methodClass = "text-rose-400";
             if (method === "PUT") methodClass = "text-amber-400";
 
+            const deprecatedBadge = d.deprecated
+              ? '<span class="px-1 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[9px] font-bold ml-1">DEPRECATED</span>'
+              : "";
+            const externalBadge = d.external
+              ? '<span class="px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold ml-1">EXTERNAL</span>'
+              : "";
+
             return `
             <a href="${url}" class="group block p-1.5 rounded bg-white/5 hover:bg-indigo-500/20 border border-transparent hover:border-indigo-500/30 transition-all">
               <div class="flex items-center justify-between gap-2">
-                <span class="font-mono text-[11px] ${methodClass} font-bold">${_graphEscapeHtml(method)}</span>
+                <div class="flex items-center gap-1">
+                  <span class="font-mono text-[11px] ${methodClass} font-bold">${_graphEscapeHtml(method)}</span>
+                  ${deprecatedBadge}
+                  ${externalBadge}
+                </div>
                 <span class="text-[10px] text-slate-500 group-hover:text-indigo-300 transition-colors">${_graphEscapeHtml(type)}</span>
               </div>
               <div class="font-mono text-[11px] text-slate-300 truncate group-hover:text-white transition-colors" title="${_graphEscapeHtml(path)}">${_graphEscapeHtml(path)}</div>

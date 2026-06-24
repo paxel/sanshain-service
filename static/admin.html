@@ -294,6 +294,22 @@
                 <div id="users-list" class="space-y-2"></div>
             </section>
 
+            <!-- Manual Service Addition -->
+            <section class="bg-white rounded-xl border border-indigo-300 shadow-sm p-6">
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold text-indigo-700">Add Manual / External Service</h2>
+                    <p class="text-sm text-slate-500 mt-1">Register a new service manually. You can then add endpoints and specs to it.</p>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <input type="text" id="manual-service-name" placeholder="e.g. external-api"
+                        class="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        autocomplete="off">
+                    <button onclick="addManualService()"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm transition-colors font-medium whitespace-nowrap">Add Service</button>
+                </div>
+                <div id="manual-service-result" class="mt-3 hidden text-sm"></div>
+            </section>
+
             <!-- Services -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="flex justify-between items-center mb-4">
@@ -405,7 +421,7 @@
 
     <!-- Nuke Confirmation Modal -->
     <div id="nuke-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border-2 border-red-400">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-md p-6 border-2 border-red-400">
             <h3 class="text-lg font-bold text-red-700 mb-2">☠️ Confirm Destructive Action</h3>
             <p id="nuke-message" class="text-sm text-slate-600 mb-4"></p>
             <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
@@ -418,6 +434,31 @@
                 <button id="nuke-yes" class="flex-1 bg-red-700 text-white py-2 rounded-lg hover:bg-red-800 transition-colors font-bold disabled:opacity-50 disabled:cursor-not-allowed" disabled>💀 Confirm</button>
                 <button onclick="closeNukeModal()" class="flex-1 bg-slate-100 text-slate-700 py-2 rounded-lg hover:bg-slate-200 transition-colors font-medium">Cancel</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Metadata Modal -->
+    <div id="metadata-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+            <h3 class="text-lg font-bold text-slate-800 mb-4">Service Metadata: <span id="metadata-service-name"></span></h3>
+            <form id="metadata-form" class="space-y-4">
+                <input type="hidden" id="metadata-svc-hidden">
+                <div>
+                    <label class="block text-sm font-medium text-slate-600 mb-1">Emoji Icon</label>
+                    <input type="text" id="metadata-icon" placeholder="e.g. 📦, 🚀, 👤"
+                        class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-600 mb-1">Domain / Group</label>
+                    <input type="text" id="metadata-domain" placeholder="e.g. Core, Auth, Billing"
+                        class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <p class="text-[10px] text-slate-400 mt-1">Services with the same domain are clustered in the graph.</p>
+                </div>
+                <div class="flex space-x-3">
+                    <button type="submit" class="flex-1 bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium">Save</button>
+                    <button type="button" onclick="closeMetadataModal()" class="flex-1 bg-slate-100 text-slate-700 py-2 rounded-lg hover:bg-slate-200 transition-colors font-medium">Cancel</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -773,6 +814,43 @@
             } catch (_) {}
         }
 
+        // --- Manual Service Addition ---
+        async function addManualService() {
+            const name = document.getElementById('manual-service-name').value.trim();
+            if (!name) return;
+            const resultEl = document.getElementById('manual-service-result');
+            try {
+                // Using provide endpoint with a dummy spec to create the service
+                const res = await apiCall('/provide', {
+                    method: 'POST',
+                    body: {
+                        servicename: name,
+                        branch: 'main',
+                        api_type: 'openapi',
+                        path: '/_manual_init',
+                        method: 'GET',
+                        yaml: 'openapi: 3.0.0\ninfo:\n  title: Manual Service\n  version: 1.0.0\npaths:\n  /_manual_init:\n    get:\n      responses:\n        "200":\n          description: OK'
+                    },
+                });
+                if (res.ok) {
+                    resultEl.classList.remove('hidden');
+                    resultEl.className = 'mt-3 text-sm text-green-600';
+                    resultEl.textContent = `✓ Service "${name}" created successfully`;
+                    document.getElementById('manual-service-name').value = '';
+                    loadServices();
+                } else {
+                    const err = await res.text();
+                    resultEl.classList.remove('hidden');
+                    resultEl.className = 'mt-3 text-sm text-red-600';
+                    resultEl.textContent = 'Failed to create service: ' + err;
+                }
+            } catch (e) {
+                resultEl.classList.remove('hidden');
+                resultEl.className = 'mt-3 text-sm text-red-600';
+                resultEl.textContent = 'Error: ' + e.message;
+            }
+        }
+
         // --- Services ---
         let allServices = [];
 
@@ -812,9 +890,14 @@
                         <div class="flex items-center space-x-3">
                             <button onclick="toggleBranches(this, '${escapeAttr(svc)}')" class="text-slate-500 hover:text-slate-600 text-sm">▶</button>
                             <span class="font-medium text-slate-800">${escapeHtml(svc)}</span>
+                            ${svcObj.domain ? `<span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100 font-bold uppercase">${escapeHtml(svcObj.domain)}</span>` : ''}
                         </div>
-                        <button onclick="confirmDelete('Delete service <strong>${escapeHtml(svc)}</strong> and all its data?', () => deleteService('${escapeAttr(svc)}'))"
-                            class="text-red-500 hover:text-red-700 text-sm">Delete</button>
+                        <div class="flex items-center space-x-3">
+                            <button onclick="openMetadataModal('${escapeAttr(svc)}', '${escapeAttr(svcObj.icon || '')}', '${escapeAttr(svcObj.domain || '')}')"
+                                class="text-indigo-600 hover:text-indigo-800 text-sm">Metadata</button>
+                            <button onclick="confirmDelete('Delete service <strong>${escapeHtml(svc)}</strong> and all its data?', () => deleteService('${escapeAttr(svc)}'))"
+                                class="text-red-500 hover:text-red-700 text-sm">Delete</button>
+                        </div>
                     </div>
                     <div class="branches-container hidden mt-3 ml-8 space-y-1"></div>
                 `;
@@ -1144,6 +1227,41 @@
             if (!res.ok) throw new Error('HTTP ' + res.status);
             loadAll();
         }
+
+        // --- Metadata Modal ---
+        function openMetadataModal(svc, icon, domain) {
+            document.getElementById('metadata-service-name').textContent = svc;
+            document.getElementById('metadata-svc-hidden').value = svc;
+            document.getElementById('metadata-icon').value = icon || '';
+            document.getElementById('metadata-domain').value = domain || '';
+            document.getElementById('metadata-modal').classList.remove('hidden');
+        }
+
+        function closeMetadataModal() {
+            document.getElementById('metadata-modal').classList.add('hidden');
+        }
+
+        document.getElementById('metadata-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('metadata-svc-hidden').value;
+            const icon = document.getElementById('metadata-icon').value.trim() || null;
+            const domain = document.getElementById('metadata-domain').value.trim() || null;
+
+            try {
+                const res = await apiCall('/admin/services/metadata', {
+                    method: 'POST',
+                    body: { name, icon, domain }
+                });
+                if (res.ok) {
+                    closeMetadataModal();
+                    loadServices();
+                } else {
+                    alert('Failed to save metadata: ' + res.status);
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        });
 
         // --- Init ---
         fetchCsrfToken().then(() => checkSession());

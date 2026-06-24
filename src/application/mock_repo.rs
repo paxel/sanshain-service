@@ -241,7 +241,7 @@ impl SpecRepository for MockRepo {
         _api_type: ApiType,
         _path: &str,
         _method: &str,
-    ) -> Result<Option<(i64, String)>, RepositoryError> {
+    ) -> Result<Option<(i64, String, bool, bool)>, RepositoryError> {
         Ok(None)
     }
 
@@ -300,6 +300,7 @@ impl SpecRepository for MockRepo {
         _method: &str,
         _yaml: &str,
         _deprecated: bool,
+        _external: bool,
     ) -> Result<(), RepositoryError> {
         Ok(())
     }
@@ -409,6 +410,8 @@ impl SpecRepository for MockRepo {
                 fallback_branch: fallback_branches.get(name).cloned(),
                 branches: svc_branches,
                 is_favorite: false,
+                icon: None,
+                domain: None,
             });
         }
         result.sort_by(|a, b| a.name.cmp(&b.name));
@@ -426,6 +429,15 @@ impl SpecRepository for MockRepo {
         } else {
             fb.remove(service_name);
         }
+        Ok(())
+    }
+
+    async fn update_service_metadata(
+        &self,
+        _service_name: &str,
+        _icon: Option<&str>,
+        _domain: Option<&str>,
+    ) -> Result<(), RepositoryError> {
         Ok(())
     }
 
@@ -690,6 +702,7 @@ impl SpecRepository for MockRepo {
                     method,
                     yaml_content,
                     deprecated,
+                    external,
                 } => {
                     list.push(EndpointRecord {
                         id: Some(self.next_id()),
@@ -700,6 +713,7 @@ impl SpecRepository for MockRepo {
                         yaml_content,
                         has_changes: false,
                         deprecated,
+                        external,
                     });
                 }
                 SpecChange::Update {
@@ -709,6 +723,7 @@ impl SpecRepository for MockRepo {
                     method,
                     yaml_content,
                     deprecated,
+                    external,
                 } => {
                     if let Some(ep) = list.iter_mut().find(|e| {
                         e.api_type == api_type
@@ -718,6 +733,7 @@ impl SpecRepository for MockRepo {
                         ep.path = path;
                         ep.yaml_content = yaml_content;
                         ep.deprecated = deprecated;
+                        ep.external = external;
                     }
                 }
                 SpecChange::Delete {

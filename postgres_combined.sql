@@ -1,7 +1,9 @@
 -- Core tables
 CREATE TABLE IF NOT EXISTS services (
     id BIGSERIAL PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
+    name TEXT NOT NULL UNIQUE,
+    icon TEXT,
+    domain TEXT
 );
 CREATE TABLE IF NOT EXISTS branches (
     id BIGSERIAL PRIMARY KEY,
@@ -95,6 +97,8 @@ INSERT INTO settings (key, value) VALUES ('branch_max_age_days', '30') ON CONFLI
 -- On protected branches, removed endpoints are marked deleted rather than hard-deleted,
 -- so that re-introducing them later is detected as a contract violation.
 ALTER TABLE endpoints ADD COLUMN deleted BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE endpoints ADD COLUMN deprecated BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE endpoints ADD COLUMN external BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE dependencies ADD COLUMN last_seen_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00';
 -- Endpoint version history for tracking changes on protected branches
 CREATE TABLE IF NOT EXISTS endpoint_versions (

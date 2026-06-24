@@ -3,7 +3,7 @@ use crate::application::services::{self, AppError};
 use crate::domain::models::{ApiType, redact_username};
 use axum::{
     Json,
-    extract::{Query, State},
+    extract::{Query, State, ws::{WebSocketUpgrade, WebSocket, Message}},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{
         IntoResponse,
@@ -225,14 +225,17 @@ pub async fn require(
             .await?
     };
 
-    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.as_bytes())));
+    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
     if headers.get("if-none-match") == Some(&HeaderValue::from_str(&etag).unwrap()) {
         return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
     }
 
     let mut headers = HeaderMap::new();
     headers.insert("ETag", HeaderValue::from_str(&etag).unwrap());
-    Ok((headers, res).into_response())
+    if res.deprecated {
+        headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
+    }
+    Ok((headers, res.yaml).into_response())
 }
 
 pub async fn require_asyncapi(
@@ -255,14 +258,17 @@ pub async fn require_asyncapi(
     )
     .await?;
 
-    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.as_bytes())));
+    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
     if headers.get("if-none-match") == Some(&HeaderValue::from_str(&etag).unwrap()) {
         return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
     }
 
     let mut headers = HeaderMap::new();
     headers.insert("ETag", HeaderValue::from_str(&etag).unwrap());
-    Ok((headers, res).into_response())
+    if res.deprecated {
+        headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
+    }
+    Ok((headers, res.yaml).into_response())
 }
 
 pub async fn require_proto(
@@ -285,14 +291,17 @@ pub async fn require_proto(
     )
     .await?;
 
-    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.as_bytes())));
+    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
     if headers.get("if-none-match") == Some(&HeaderValue::from_str(&etag).unwrap()) {
         return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
     }
 
     let mut headers = HeaderMap::new();
     headers.insert("ETag", HeaderValue::from_str(&etag).unwrap());
-    Ok((headers, res).into_response())
+    if res.deprecated {
+        headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
+    }
+    Ok((headers, res.yaml).into_response())
 }
 
 #[derive(Deserialize)]
@@ -336,14 +345,17 @@ pub async fn require_bundle(
     )
     .await?;
 
-    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.as_bytes())));
+    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
     if headers.get("if-none-match") == Some(&HeaderValue::from_str(&etag).unwrap()) {
         return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
     }
 
     let mut headers = HeaderMap::new();
     headers.insert("ETag", HeaderValue::from_str(&etag).unwrap());
-    Ok((headers, res).into_response())
+    if res.deprecated {
+        headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
+    }
+    Ok((headers, res.yaml).into_response())
 }
 
 #[derive(Deserialize)]
@@ -470,4 +482,31 @@ pub async fn sse_updates(
     };
 
     Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
+}
+
+pub async fn ws_updates(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    ws.on_upgrade(|socket| handle_socket(socket, state))
+}
+
+async fn handle_socket(mut socket: WebSocket, state: AppState) {
+    let mut rx = state.spec_updated_tx.subscribe();
+
+    loop {
+        tokio::select! {
+            _ = rx.recv() => {
+                if socket.send(Message::Text("updated".into())).await.is_err() {
+                    break;
+                }
+            }
+            msg = socket.recv() => {
+                match msg {
+                    Some(Ok(Message::Close(_))) | None => break,
+                    _ => {}
+                }
+            }
+        }
+    }
 }

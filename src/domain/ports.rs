@@ -48,7 +48,7 @@ pub struct RecordDependencyParams<'a> {
     pub method: &'a str,
 }
 
-pub type EndpointDetails = (i64, String);
+pub type EndpointDetails = (i64, String, bool, bool);
 pub type EndpointMap = HashMap<(String, String), EndpointDetails>;
 
 pub trait SpecRepository: Send + Sync {
@@ -126,7 +126,7 @@ pub trait SpecRepository: Send + Sync {
         name: &str,
     ) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
 
-    /// Find an endpoint by service, branch, path, and method. Returns (endpoint_id, yaml_content).
+    /// Find an endpoint by service, branch, path, and method. Returns (endpoint_id, yaml_content, deprecated, external).
     fn find_endpoint(
         &self,
         service_id: i64,
@@ -134,7 +134,7 @@ pub trait SpecRepository: Send + Sync {
         api_type: ApiType,
         path: &str,
         method: &str,
-    ) -> impl Future<Output = Result<Option<(i64, String)>, RepositoryError>> + Send;
+    ) -> impl Future<Output = Result<Option<(i64, String, bool, bool)>, RepositoryError>> + Send;
 
     /// Find multiple endpoints by service, branch, path, and method.
     /// Returns a map of (path, method) to (endpoint_id, yaml_content).
@@ -187,7 +187,7 @@ pub trait SpecRepository: Send + Sync {
         &self,
     ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
-    /// Update an existing endpoint's YAML content and deprecated status.
+    /// Update an existing endpoint's YAML content and deprecated/external status.
     fn update_endpoint(
         &self,
         branch_id: i64,
@@ -196,6 +196,7 @@ pub trait SpecRepository: Send + Sync {
         method: &str,
         yaml_content: &str,
         deprecated: bool,
+        external: bool,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Soft-delete an endpoint (mark as deleted). Used on protected branches to preserve history.
@@ -274,6 +275,14 @@ pub trait SpecRepository: Send + Sync {
         &self,
         service_name: &str,
         branch: Option<&str>,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Update service metadata (icon, domain).
+    fn update_service_metadata(
+        &self,
+        service_name: &str,
+        icon: Option<&str>,
+        domain: Option<&str>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Get the fallback branch for a service.

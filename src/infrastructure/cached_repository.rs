@@ -13,7 +13,7 @@ type EndpointKey = (i64, String, String, String, String); // (service_id, branch
 pub struct CachedSpecRepository {
     inner: Box<DatabaseRepo>,
     // Endpoint data (60% of budget)
-    endpoint_cache: Cache<EndpointKey, Arc<(i64, String)>>,
+    endpoint_cache: Cache<EndpointKey, Arc<(i64, String, bool, bool)>>,
     branch_endpoints_cache: Cache<i64, Arc<Vec<EndpointRecord>>>,
     // Reports (20%)
     report_cache: Cache<String, Arc<DependencyReport>>,
@@ -39,7 +39,7 @@ fn mb_to_bytes(mb: u64) -> u64 {
 }
 
 struct RepoCaches {
-    endpoint_cache: Cache<EndpointKey, Arc<(i64, String)>>,
+    endpoint_cache: Cache<EndpointKey, Arc<(i64, String, bool, bool)>>,
     branch_endpoints_cache: Cache<i64, Arc<Vec<EndpointRecord>>>,
     report_cache: Cache<String, Arc<DependencyReport>>,
     services_cache: Cache<String, Arc<Vec<ServiceSummary>>>,
@@ -86,7 +86,7 @@ impl CachedSpecRepository {
         // Endpoint data caches (60%)
         let endpoint_cache = Cache::builder()
             .max_capacity(endpoint_budget / 2)
-            .weigher(|_k: &EndpointKey, v: &Arc<(i64, String)>| (v.1.len() + 80) as u32)
+            .weigher(|_k: &EndpointKey, v: &Arc<(i64, String, bool, bool)>| (v.1.len() + 80) as u32)
             .build();
 
         let branch_endpoints_cache = Cache::builder()
@@ -128,7 +128,9 @@ impl CachedSpecRepository {
                         s.name.len()
                             + s.fallback_branch.as_ref().map_or(0, |b| b.len())
                             + s.branches.iter().map(|b| b.len() + 24).sum::<usize>()
-                            + 80
+                            + s.icon.as_ref().map_or(0, |i| i.len())
+                            + s.domain.as_ref().map_or(0, |d| d.len())
+                            + 100
                     })
                     .sum();
                 (size + 24) as u32
@@ -490,7 +492,7 @@ impl SpecRepository for CachedSpecRepository {
         api_type: ApiType,
         path: &str,
         method: &str,
-    ) -> Result<Option<(i64, String)>, RepositoryError> {
+    ) -> Result<Option<(i64, String, bool, bool)>, RepositoryError> {
         if !self.is_disabled() {
             let key = (
                 service_id,
@@ -501,7 +503,7 @@ impl SpecRepository for CachedSpecRepository {
             );
             if let Some(cached) = self.endpoint_cache.get(&key).await {
                 self.record_hit();
-                return Ok(Some((cached.0, cached.1.clone())));
+                return Ok(Some((cached.0, cached.1.clone(), cached.2, cached.3)));
             }
         }
         self.record_miss();
@@ -551,7 +553,10 @@ impl SpecRepository for CachedSpecRepository {
             );
             if let Some(cached) = self.endpoint_cache.get(&key).await {
                 self.record_hit();
-                result.insert((path.clone(), method.clone()), (cached.0, cached.1.clone()));
+                result.insert(
+                    (path.clone(), method.clone()),
+                    (cached.0, cached.1.clone(), cached.2, cached.3),
+                );
             } else {
                 misses.push((path.clone(), method.clone()));
             }
@@ -680,9 +685,18 @@ impl SpecRepository for CachedSpecRepository {
         method: &str,
         yaml_content: &str,
         deprecated: bool,
+        external: bool,
     ) -> Result<(), RepositoryError> {
         self.inner
-            .update_endpoint(branch_id, api_type, path, method, yaml_content, deprecated)
+            .update_endpoint(
+                branch_id,
+                api_type,
+                path,
+                method,
+                yaml_content,
+                deprecated,
+                external,
+            )
             .await?;
         if !self.is_disabled() {
             self.branch_endpoints_cache.invalidate(&branch_id).await;
@@ -857,6 +871,21 @@ impl SpecRepository for CachedSpecRepository {
             self.fallback_branch_cache
                 .invalidate(&service_name.to_string())
                 .await;
+            self.services_cache.invalidate_all();
+        }
+        Ok(())
+    }
+
+    async fn update_service_metadata(
+        &self,
+        service_name: &str,
+        icon: Option<&str>,
+        domain: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .update_service_metadata(service_name, icon, domain)
+            .await?;
+        if !self.is_disabled() {
             self.services_cache.invalidate_all();
         }
         Ok(())
