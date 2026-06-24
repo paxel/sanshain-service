@@ -411,24 +411,80 @@ pub fn check_backward_compatibility(old_yaml: &str, new_yaml: &str) -> Result<()
 pub fn check_openapi_compatible(old: &OpenAPI, new: &OpenAPI) -> Result<(), String> {
     let old_schemas = collect_schema_map(old);
     let new_schemas = collect_schema_map(new);
+    let new_request_schemas = collect_request_schemas(new);
 
     // Check each existing schema for breaking changes
     for (name, old_schema) in &old_schemas {
         if let Some(new_schema) = new_schemas.get(name) {
-            check_schema_compatible(name, old_schema, new_schema)?;
+            let is_request = new_request_schemas.contains(name);
+            check_schema_compatible(name, old_schema, new_schema, is_request)?;
         }
     }
 
-    // Check that no existing response status codes were removed from paths that still exist
+    // Check that no existing paths/methods or status codes were removed
     for (path, old_item) in &old.paths.paths {
-        if let ReferenceOr::Item(old_pi) = old_item
-            && let Some(ReferenceOr::Item(new_pi)) = new.paths.paths.get(path)
-        {
-            check_operations_compatible(path, old_pi, new_pi)?;
+        if let ReferenceOr::Item(old_pi) = old_item {
+            match new.paths.paths.get(path) {
+                Some(ReferenceOr::Item(new_pi)) => {
+                    check_operations_compatible(path, old_pi, new_pi)?;
+                }
+                _ => {
+                    return Err(format!("Path '{}' was removed", path));
+                }
+            }
         }
     }
 
     Ok(())
+}
+
+fn collect_request_schemas(spec: &OpenAPI) -> HashSet<String> {
+    let mut request_schemas = HashSet::new();
+
+    // Find all schemas used in request bodies
+    for path_item_ref in spec.paths.paths.values() {
+        if let ReferenceOr::Item(pi) = path_item_ref {
+            for (_, op) in get_methods(pi) {
+                if let Some(rb_ref) = &op.request_body {
+                    let refs = collect_refs(rb_ref);
+                    for r in refs {
+                        if let Some(name) = r.strip_prefix("schemas/") {
+                            request_schemas.insert(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Transitive closure to find all schemas reachable from request bodies
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let mut new_schemas = Vec::new();
+        for name in &request_schemas {
+            if let Some(components) = &spec.components
+                && let Some(ReferenceOr::Item(s)) = components.schemas.get(name)
+            {
+                let refs = collect_refs(s);
+                for r in refs {
+                    if let Some(sub_name) = r.strip_prefix("schemas/")
+                        && !request_schemas.contains(sub_name)
+                    {
+                        new_schemas.push(sub_name.to_string());
+                    }
+                }
+            }
+        }
+        if !new_schemas.is_empty() {
+            for s in new_schemas {
+                request_schemas.insert(s);
+            }
+            changed = true;
+        }
+    }
+
+    request_schemas
 }
 
 /// Collect all named schemas from an OpenAPI spec into a flat map.
@@ -449,6 +505,7 @@ fn check_schema_compatible(
     name: &str,
     old: &openapiv3::Schema,
     new: &openapiv3::Schema,
+    is_request: bool,
 ) -> Result<(), String> {
     let old_props = extract_object_properties(old);
     let new_props = extract_object_properties(new);
@@ -467,23 +524,13 @@ fn check_schema_compatible(
             }
         }
 
-        // Check no existing required fields were removed from required list
-        for req in &old_required {
-            if !new_required.contains(req) {
-                // A field going from required to optional is actually not breaking for consumers,
-                // but we flag it for awareness. Actually this is fine — skip this check.
-                // The truly breaking thing is adding new required fields that old clients don't send.
-            }
-        }
-
-        // Check that newly required fields didn't exist as optional before
-        // (adding a brand new required field is breaking for request bodies)
+        // Check for new required fields in request schemas
         for req in &new_required {
-            if !old_required.contains(req) && !old_props.contains_key(req.as_str()) {
-                // New required field that didn't exist before — this is breaking for request schemas
-                // But we can't easily distinguish request vs response schemas here,
-                // so we allow it (response schemas with new required fields are fine).
-                // The key protection is: don't remove fields, don't change types.
+            if is_request && !old_required.contains(req) {
+                return Err(format!(
+                    "New required field '{}' was added to request schema '{}'",
+                    req, name
+                ));
             }
         }
 
@@ -1176,6 +1223,149 @@ components:
             pos_a < pos_z,
             "A should come before Z in the output YAML:\n{}",
             content
+        );
+    }
+
+    #[test]
+    fn test_breaking_change_removed_path() {
+        let old_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        let new_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths: {}
+"#;
+        let result = check_backward_compatibility(old_yaml, new_yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Path '/users' was removed"));
+    }
+
+    #[test]
+    fn test_breaking_change_new_required_request_field() {
+        let old_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+      responses:
+        '201':
+          description: Created
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
+"#;
+        let new_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+      responses:
+        '201':
+          description: Created
+components:
+  schemas:
+    User:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+"#;
+        let result = check_backward_compatibility(old_yaml, new_yaml);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("New required field 'name' was added to request schema 'User'"));
+    }
+
+    #[test]
+    fn test_non_breaking_change_new_required_response_field() {
+        let old_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
+"#;
+        let new_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+components:
+  schemas:
+    User:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+"#;
+        let result = check_backward_compatibility(old_yaml, new_yaml);
+        assert!(
+            result.is_ok(),
+            "Adding required field to response schema should NOT be breaking, but got: {:?}",
+            result
         );
     }
 }

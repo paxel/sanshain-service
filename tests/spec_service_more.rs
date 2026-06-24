@@ -253,8 +253,8 @@ async fn protected_branch_rejects_breaking_change() {
     .await
     .unwrap_err();
     match err {
-        AppError::Conflict(msg) => assert!(msg.contains("Breaking changes detected")),
-        other => panic!("expected Conflict, got {:?}", other),
+        AppError::BreakingChange(msg) => assert!(msg.contains("Breaking changes detected")),
+        other => panic!("expected BreakingChange, got {:?}", other),
     }
 }
 

@@ -86,7 +86,7 @@ async fn protected_branch_rejects_breaking_change() {
     )
     .await
     .unwrap_err();
-    assert!(matches!(err, AppError::Conflict(_)));
+    assert!(matches!(err, AppError::BreakingChange(_)));
 }
 
 #[tokio::test]
