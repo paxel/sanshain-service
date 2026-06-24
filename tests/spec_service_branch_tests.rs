@@ -1,6 +1,6 @@
 use sanshain_service::application::mock_repo::MockRepo;
 use sanshain_service::application::spec_service;
-use sanshain_service::domain::models::{ApiType, AppError};
+use sanshain_service::domain::models::{ApiType, AppError, SemVer};
 
 fn openapi_ok() -> String {
     r#"
@@ -104,7 +104,7 @@ async fn unprotected_branch_allows_update_and_increments_version() {
     )
     .await
     .expect("first provide on dev");
-    assert_eq!(r1.version, 1);
+    assert_eq!(r1.version, SemVer::new(1, 0, 0));
 
     // A second identical update should NOT bump version again (no-op)
     let r2 = spec_service::provide_spec(
@@ -182,7 +182,7 @@ async fn protected_branch_allows_compatible_change() {
     )
     .await
     .expect("seed on main");
-    assert_eq!(r1.version, 1);
+    assert_eq!(r1.version, SemVer::new(1, 0, 0));
 
     // Adding an extra response is backward-compatible, should be accepted on protected branch
     let r2 = spec_service::provide_spec(
@@ -213,7 +213,7 @@ async fn base_version_conflict_is_reported() {
     )
     .await
     .expect("seed dev2");
-    assert_eq!(r1.version, 1);
+    assert_eq!(r1.version, SemVer::new(1, 0, 0));
 
     // Provide again but claim base_version 0 (outdated) — should be a conflict
     let err = spec_service::provide_spec(
@@ -222,7 +222,7 @@ async fn base_version_conflict_is_reported() {
         "dev2",
         ApiType::OpenApi,
         &openapi_ok(),
-        Some(0),
+        Some("0.0.0".to_string()),
         false,
     )
     .await

@@ -32,7 +32,7 @@ pub async fn provide_spec(
     branch: &str,
     api_type: ApiType,
     content: &str,
-    base_version: Option<i32>,
+    base_version: Option<String>,
     force: bool,
 ) -> Result<ProvideResponse, AppError> {
     provide_spec_inner(
@@ -85,7 +85,7 @@ pub async fn provide_spec_with_tags(
     api_type: ApiType,
     content: &str,
     tags: &[String],
-    base_version: Option<i32>,
+    base_version: Option<String>,
     force: bool,
 ) -> Result<ProvideResponse, AppError> {
     provide_spec_inner(
@@ -112,7 +112,7 @@ pub async fn provide_spec_with_actor(
     branch: &str,
     api_type: ApiType,
     content: &str,
-    base_version: Option<i32>,
+    base_version: Option<String>,
     force: bool,
     username: Option<&str>,
 ) -> Result<ProvideResponse, AppError> {
@@ -140,7 +140,7 @@ struct ProvideInternalParams<'a> {
     pub content: &'a str,
     pub dry_run: bool,
     pub extra_tags: &'a [String],
-    pub base_version: Option<i32>,
+    pub base_version: Option<String>,
     pub force: bool,
     pub username: Option<&'a str>,
 }
@@ -314,19 +314,22 @@ async fn provide_spec_inner(
     let (current_version, last_hash) = if sid != 0 && bid != 0 {
         match repo.get_spec_version(sid, bid).await? {
             Some((v, h)) => (v, h),
-            None => (0, String::new()),
+            None => (SemVer::default(), String::new()),
         }
     } else {
-        (0, String::new())
+        (SemVer::default(), String::new())
     };
 
-    if let Some(base_v) = base_version
-        && base_v != current_version
-    {
-        return Err(AppError::Conflict(format!(
-            "Outdated spec version: your base version is {}, but current version is {}. Pull latest changes.",
-            base_v, current_version
-        )));
+    if let Some(base_v_str) = base_version {
+        let base_v = base_v_str
+            .parse::<SemVer>()
+            .map_err(|e| AppError::BadRequest(format!("Invalid base_version: {}", e)))?;
+        if base_v != current_version {
+            return Err(AppError::Conflict(format!(
+                "Outdated spec version: your base version is {}, but current version is {}. Pull latest changes.",
+                base_v, current_version
+            )));
+        }
     }
 
     let is_protected = repo.is_branch_protected(branch).await?;
@@ -337,46 +340,43 @@ async fn provide_spec_inner(
         ));
     }
 
-    if is_protected && api_type == ApiType::OpenApi {
-        let existing = repo.get_endpoints_for_branch(bid).await?;
-        if !existing.is_empty() {
-            let existing_yamls: Vec<String> = existing
-                .into_iter()
-                .filter(|e| e.api_type == ApiType::OpenApi)
-                .map(|e| e.yaml_content)
-                .collect();
+    let existing = repo.get_endpoints_for_branch(bid).await?;
+    let existing_yamls: Vec<String> = existing
+        .iter()
+        .filter(|e| e.api_type == ApiType::OpenApi)
+        .map(|e| e.yaml_content.clone())
+        .collect();
 
-            if !existing_yamls.is_empty() {
-                let old_full_yaml =
-                    openapi::merge_endpoint_yamls(&existing_yamls).map_err(|e| {
-                        AppError::Internal(format!(
-                            "Failed to merge existing endpoints for compatibility check: {}",
-                            e
-                        ))
-                    })?;
+    let old_full_yaml = if !existing_yamls.is_empty() {
+        Some(openapi::merge_endpoint_yamls(&existing_yamls).map_err(|e| {
+            AppError::Internal(format!(
+                "Failed to merge existing endpoints for impact analysis: {}",
+                e
+            ))
+        })?)
+    } else {
+        None
+    };
 
-                if let Err(reason) = openapi::check_backward_compatibility(&old_full_yaml, content)
-                {
-                    tracing::warn!(
-                        "Rejected update for service '{}' branch '{}': breaking changes: {}",
-                        servicename,
-                        branch,
-                        reason
-                    );
-                    return Err(AppError::BreakingChange(format!(
-                        "Breaking changes detected on protected branch '{}' of service '{}': {}",
-                        branch, servicename, reason
-                    )));
-                }
-                tracing::info!(
-                    "Spec update is backward-compatible for protected branch '{}'",
-                    branch
-                );
-            }
+    if let (Some(old_yaml), true) = (&old_full_yaml, is_protected && api_type == ApiType::OpenApi) {
+        if let Err(reason) = openapi::check_backward_compatibility(old_yaml, content) {
+            tracing::warn!(
+                "Rejected update for service '{}' branch '{}': breaking changes: {}",
+                servicename,
+                branch,
+                reason
+            );
+            return Err(AppError::BreakingChange(format!(
+                "Breaking changes detected on protected branch '{}' of service '{}': {}",
+                branch, servicename, reason
+            )));
         }
+        tracing::info!(
+            "Spec update is backward-compatible for protected branch '{}'",
+            branch
+        );
     }
 
-    let existing = repo.get_endpoints_for_branch(bid).await?;
     let mut existing_map: HashMap<(ApiType, String, String), (String, String)> = existing
         .into_iter()
         .map(|e| {
@@ -574,7 +574,22 @@ async fn provide_spec_inner(
 
     repo.apply_spec_changes(bid, changes, is_protected, username, Some(branch))
         .await?;
-    let new_version = repo.increment_spec_version(sid, bid, &content_hash).await?;
+
+    let impact = if let Some(old_yaml) = old_full_yaml {
+        openapi::analyze_impact(&old_yaml, content)
+    } else if !last_hash.is_empty() {
+        if content_hash != last_hash {
+            Impact::Patch
+        } else {
+            Impact::None
+        }
+    } else {
+        Impact::None
+    };
+
+    let new_version = repo
+        .increment_spec_version(sid, bid, &content_hash, impact)
+        .await?;
 
     Ok(ProvideResponse {
         version: new_version,
@@ -700,6 +715,7 @@ pub async fn get_shared_contract_info(
     }
 }
 
+#[derive(Debug)]
 pub struct RequireResponse {
     pub yaml: String,
     pub deprecated: bool,
@@ -825,6 +841,14 @@ pub async fn require_bundle(
     params: RequireBundleParams<'_>,
 ) -> Result<RequireResponse, AppError> {
     require_bundle_inner(repo, notifier, params, false).await
+}
+
+pub async fn require_bundle_dry_run(
+    repo: &impl SpecRepository,
+    notifier: Option<tokio::sync::broadcast::Receiver<()>>,
+    params: RequireBundleParams<'_>,
+) -> Result<RequireResponse, AppError> {
+    require_bundle_inner(repo, notifier, params, true).await
 }
 
 pub async fn update_endpoint_manual(
@@ -1152,16 +1176,17 @@ paths:
         )
         .await
         .unwrap();
-        assert_eq!(resp.version, 1);
+        assert_eq!(resp.version, SemVer::new(1, 0, 0));
         assert_eq!(resp.changes.inserts, 1);
         assert_eq!(resp.changes.updates, 0);
         assert_eq!(resp.changes.deletes, 0);
     }
 
     #[tokio::test]
-    async fn test_provide_spec_update() {
+    async fn test_provide_spec_semver_increment() {
         let repo = MockRepo::new();
-        provide_spec(
+        // 1. Initial version
+        let r1 = provide_spec(
             &repo,
             "svc",
             "main",
@@ -1172,7 +1197,25 @@ paths:
         )
         .await
         .unwrap();
-        let resp = provide_spec(
+        assert_eq!(r1.version, SemVer::new(1, 0, 0));
+
+        // 2. Patch version (minor change like description)
+        let patch_spec = SIMPLE_OPENAPI.replace("summary: Hello", "summary: Hello Patch");
+        let r2 = provide_spec(
+            &repo,
+            "svc",
+            "main",
+            ApiType::OpenApi,
+            &patch_spec,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(r2.version, SemVer::new(1, 0, 1));
+
+        // 3. Minor version (addition)
+        let r3 = provide_spec(
             &repo,
             "svc",
             "main",
@@ -1183,8 +1226,39 @@ paths:
         )
         .await
         .unwrap();
-        assert_eq!(resp.version, 2);
-        assert!(resp.changes.inserts > 0 || resp.changes.updates > 0);
+        assert_eq!(r3.version, SemVer::new(1, 1, 0));
+
+        // 4. Major version (breaking change)
+        let breaking_spec = SIMPLE_OPENAPI.replace("/hello:", "/hi:");
+        let r4 = provide_spec(
+            &repo,
+            "svc",
+            "feat-breaking", // Use non-protected branch for breaking change
+            ApiType::OpenApi,
+            &breaking_spec,
+            None,
+            true, // force because it's breaking
+        )
+        .await
+        .unwrap();
+        // Since it's a new branch, it starts at 1.0.0? 
+        // No, if it's a new branch, it should start at 1.0.0.
+        
+        // Wait, if I want to test MAJOR increment, I should do it on the same branch.
+        // So I'll unprotect the branch first.
+        repo.remove_protected_branch("main").await.unwrap();
+        let r4 = provide_spec(
+            &repo,
+            "svc",
+            "main",
+            ApiType::OpenApi,
+            &breaking_spec,
+            None,
+            true,
+        )
+        .await
+        .unwrap();
+        assert_eq!(r4.version, SemVer::new(2, 0, 0));
     }
 
     #[tokio::test]

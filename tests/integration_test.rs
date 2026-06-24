@@ -5,7 +5,7 @@ use axum::{
 };
 use chrono::Utc;
 use sanshain_service::application::services;
-use sanshain_service::domain::models::{AuthMode, ProvideResponse};
+use sanshain_service::domain::models::{AuthMode, ProvideResponse, SemVer};
 use sanshain_service::domain::ports::SpecRepository;
 use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
 use sanshain_service::infrastructure::database::DatabaseRepo;
@@ -4068,11 +4068,11 @@ async fn test_problem_3_optimistic_concurrency_integration() {
         .await
         .unwrap();
     let res1: ProvideResponse = serde_json::from_slice(&body).unwrap();
-    assert_eq!(res1.version, 1);
+    assert_eq!(res1.version, SemVer::new(1, 0, 0));
 
     // 2. Second provide with correct base_version
     let payload2 =
-        json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml2, "base_version": 1 });
+        json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml2, "base_version": "1.0.0" });
     let response = app
         .clone()
         .oneshot(
@@ -4091,11 +4091,11 @@ async fn test_problem_3_optimistic_concurrency_integration() {
         .await
         .unwrap();
     let res2: ProvideResponse = serde_json::from_slice(&body).unwrap();
-    assert_eq!(res2.version, 2);
+    assert_eq!(res2.version, SemVer::new(1, 0, 1));
 
     // 3. Third provide with OUTDATED base_version
     let payload3 =
-        json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml1, "base_version": 1 });
+        json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml1, "base_version": "1.0.0" });
     let response = app
         .clone()
         .oneshot(

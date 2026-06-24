@@ -101,7 +101,7 @@ async fn test_reset_branch_history_repository() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(v, 2);
+    assert_eq!(v, SemVer::new(1, 0, 1)); // Two patch versions
 
     let endpoints = repo.get_endpoints_for_branch(branch_id).await.unwrap();
     assert_eq!(endpoints.len(), 1);
@@ -138,7 +138,7 @@ async fn test_reset_branch_history_repository() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(v_reset, 1);
+    assert_eq!(v_reset, SemVer::new(1, 0, 0));
 
     // Endpoint should have only 1 version, and it should be version 1
     let versions_reset = repo.get_endpoint_versions(endpoint_id).await.unwrap();
@@ -218,5 +218,5 @@ async fn test_admin_reset_history_api() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(v, 1);
+    assert_eq!(v, SemVer::new(1, 0, 0));
 }

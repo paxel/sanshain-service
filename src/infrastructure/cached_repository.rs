@@ -335,7 +335,7 @@ impl SpecRepository for CachedSpecRepository {
         &self,
         service_id: i64,
         branch_id: i64,
-    ) -> Result<Option<(i32, String)>, RepositoryError> {
+    ) -> Result<Option<(SemVer, String)>, RepositoryError> {
         self.inner.get_spec_version(service_id, branch_id).await
     }
 
@@ -344,9 +344,10 @@ impl SpecRepository for CachedSpecRepository {
         service_id: i64,
         branch_id: i64,
         content_hash: &str,
-    ) -> Result<i32, RepositoryError> {
+        impact: Impact,
+    ) -> Result<SemVer, RepositoryError> {
         self.inner
-            .increment_spec_version(service_id, branch_id, content_hash)
+            .increment_spec_version(service_id, branch_id, content_hash, impact)
             .await
     }
 

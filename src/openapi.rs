@@ -1,3 +1,4 @@
+use crate::domain::models::Impact;
 use openapiv3::{Components, OpenAPI, PathItem, ReferenceOr, SchemaKind, Type as OaType};
 use regex::Regex;
 use serde::Serialize;
@@ -405,6 +406,94 @@ pub fn check_backward_compatibility(old_yaml: &str, new_yaml: &str) -> Result<()
         .map_err(|e| format!("Failed to parse new YAML: {}", e))?;
 
     check_openapi_compatible(&old, &new)
+}
+
+/// Analyze the impact of a specification change to determine the SemVer increment.
+pub fn analyze_impact(old_yaml: &str, new_yaml: &str) -> Impact {
+    let old: OpenAPI = match serde_yaml_ng::from_str(old_yaml) {
+        Ok(o) => o,
+        Err(_) => return Impact::Major,
+    };
+    let new: OpenAPI = match serde_yaml_ng::from_str(new_yaml) {
+        Ok(n) => n,
+        Err(_) => return Impact::Major,
+    };
+
+    if check_openapi_compatible(&old, &new).is_err() {
+        return Impact::Major;
+    }
+
+    if has_additions(&old, &new) {
+        return Impact::Minor;
+    }
+
+    if old_yaml != new_yaml {
+        return Impact::Patch;
+    }
+
+    Impact::None
+}
+
+fn has_additions(old: &OpenAPI, new: &OpenAPI) -> bool {
+    // New paths
+    for path in new.paths.paths.keys() {
+        if !old.paths.paths.contains_key(path) {
+            return true;
+        }
+    }
+
+    // New methods or responses
+    for (path, new_item_ref) in &new.paths.paths {
+        if let (Some(old_item_ref), ReferenceOr::Item(new_item)) =
+            (old.paths.paths.get(path), new_item_ref)
+        {
+            if let ReferenceOr::Item(old_item) = old_item_ref {
+                let old_methods = get_methods(old_item);
+                let new_methods = get_methods(new_item);
+
+                let old_method_names: HashSet<_> = old_methods.iter().map(|(m, _)| m).collect();
+                for (method, new_op) in &new_methods {
+                    if !old_method_names.contains(method) {
+                        return true;
+                    }
+
+                    // New response in existing method
+                    let old_op = old_methods.iter().find(|(m, _)| m == method).unwrap().1;
+                    for status in new_op.responses.responses.keys() {
+                        if !old_op.responses.responses.contains_key(status) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // New schemas
+    let old_schemas = collect_schema_map(old);
+    let new_schemas = collect_schema_map(new);
+    for name in new_schemas.keys() {
+        if !old_schemas.contains_key(name) {
+            return true;
+        }
+    }
+
+    // New fields in existing schemas
+    for (name, old_schema) in &old_schemas {
+        if let Some(new_schema) = new_schemas.get(name) {
+            let old_props = extract_object_properties(old_schema);
+            let new_props = extract_object_properties(new_schema);
+            if let (Some(old_props), Some(new_props)) = (old_props, new_props) {
+                for prop_name in new_props.keys() {
+                    if !old_props.contains_key(prop_name) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    false
 }
 
 /// Check if a new OpenAPI spec is backward-compatible with an old one.

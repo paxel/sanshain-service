@@ -100,9 +100,92 @@ impl std::str::FromStr for AuthMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub struct SemVer {
+    pub major: u32,
+    pub minor: u32,
+    pub patch: u32,
+}
+
+impl serde::Serialize for SemVer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for SemVer {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+impl SemVer {
+    pub fn new(major: u32, minor: u32, patch: u32) -> Self {
+        Self {
+            major,
+            minor,
+            patch,
+        }
+    }
+
+    pub fn initial() -> Self {
+        Self::new(1, 0, 0)
+    }
+
+    pub fn increment(&self, impact: Impact) -> Self {
+        match impact {
+            Impact::Major => Self::new(self.major + 1, 0, 0),
+            Impact::Minor => Self::new(self.major, self.minor + 1, 0),
+            Impact::Patch => Self::new(self.major, self.minor, self.patch + 1),
+            Impact::None => *self,
+        }
+    }
+}
+
+impl std::fmt::Display for SemVer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+
+impl std::str::FromStr for SemVer {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split('.').collect();
+        if parts.len() != 3 {
+            return Err(format!("Invalid SemVer: {}", s));
+        }
+        let major = parts[0].parse().map_err(|e| format!("Invalid major: {}", e))?;
+        let minor = parts[1].parse().map_err(|e| format!("Invalid minor: {}", e))?;
+        let patch = parts[2].parse().map_err(|e| format!("Invalid patch: {}", e))?;
+        Ok(SemVer {
+            major,
+            minor,
+            patch,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Impact {
+    #[default]
+    None,
+    Patch,
+    Minor,
+    Major,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProvideResponse {
-    pub version: i32,
+    pub version: SemVer,
     pub content_hash: String,
     pub changes: ProvideChanges,
 }

@@ -36,7 +36,7 @@ pub struct ProvideRequest {
     pub servicename: String,
     pub branch: String,
     pub openapi_yaml: String,
-    pub base_version: Option<i32>,
+    pub base_version: Option<String>,
     #[serde(default)]
     pub dry_run: bool,
     #[serde(default)]
@@ -100,7 +100,7 @@ pub struct ProvideAsyncApiRequest {
     pub servicename: String,
     pub branch: String,
     pub asyncapi_yaml: String,
-    pub base_version: Option<i32>,
+    pub base_version: Option<String>,
     #[serde(default)]
     pub force: bool,
 }
@@ -146,7 +146,7 @@ pub struct ProvideProtoRequest {
     pub servicename: String,
     pub branch: String,
     pub proto_content: String,
-    pub base_version: Option<i32>,
+    pub base_version: Option<String>,
     #[serde(default)]
     pub force: bool,
 }

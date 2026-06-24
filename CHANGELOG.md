@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.4.0] - 2026-06-24
 
 ### Added
+- **Semantic Versioning (SemVer) for Specs**: Support for MAJOR.MINOR.PATCH versions for overall specification versions.
+- **Automatic Version Incrementing**: Automatic calculation of version bumps based on change impact (MAJOR for breaking changes, MINOR for additions, PATCH for non-functional changes).
 - **OpenTelemetry Tracing**: Integrated OpenTelemetry (OTEL) for distributed tracing using OTLP/gRPC.
 - **Instrumentation**: Added tracing instrumentation to application services and database repositories.
 - **Interactive Graph Popups**: Enhanced the dependency graph with interactive tooltips for nodes and edges.

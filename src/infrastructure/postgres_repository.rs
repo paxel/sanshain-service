@@ -133,13 +133,15 @@ impl SpecRepository for PostgresSpecRepository {
         &self,
         service_id: i64,
         branch_id: i64,
-    ) -> Result<Option<(i32, String)>, RepositoryError> {
-        sqlx::query_as::<sqlx::Postgres, (i32, String)>("SELECT version, content_hash FROM service_spec_versions WHERE service_id = $1 AND branch_id = $2")
+    ) -> Result<Option<(SemVer, String)>, RepositoryError> {
+        let row: Option<(i32, i32, i32, String)> = sqlx::query_as("SELECT major, minor, patch, content_hash FROM service_spec_versions WHERE service_id = $1 AND branch_id = $2")
             .bind(service_id)
             .bind(branch_id)
             .fetch_optional(&self.pool)
             .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(row.map(|(ma, mi, pa, h)| (SemVer::new(ma as u32, mi as u32, pa as u32), h)))
     }
 
     #[instrument(skip_all)]
@@ -148,25 +150,36 @@ impl SpecRepository for PostgresSpecRepository {
         service_id: i64,
         branch_id: i64,
         content_hash: &str,
-    ) -> Result<i32, RepositoryError> {
-        let row = sqlx::query("
-            INSERT INTO service_spec_versions (service_id, branch_id, version, content_hash, updated_at)
-            VALUES ($1, $2, 1, $3, CURRENT_TIMESTAMP)
+        impact: Impact,
+    ) -> Result<SemVer, RepositoryError> {
+        let current = self.get_spec_version(service_id, branch_id).await?;
+        let next = match current {
+            Some((v, _)) => v.increment(impact),
+            None => SemVer::initial(),
+        };
+
+        sqlx::query("
+            INSERT INTO service_spec_versions (service_id, branch_id, major, minor, patch, version, content_hash, updated_at)
+            VALUES ($1, $2, $3, $4, $5, 1, $6, CURRENT_TIMESTAMP)
             ON CONFLICT(service_id, branch_id) DO UPDATE SET
+                major = EXCLUDED.major,
+                minor = EXCLUDED.minor,
+                patch = EXCLUDED.patch,
                 version = service_spec_versions.version + 1,
                 content_hash = EXCLUDED.content_hash,
                 updated_at = EXCLUDED.updated_at
-            RETURNING version
         ")
         .bind(service_id)
         .bind(branch_id)
+        .bind(next.major as i32)
+        .bind(next.minor as i32)
+        .bind(next.patch as i32)
         .bind(content_hash)
-        .fetch_one(&self.pool)
+        .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        row.try_get::<i32, _>(0)
-            .map_err(|e| RepositoryError::Internal(e.to_string()))
+        Ok(next)
     }
 
     async fn find_service(&self, name: &str) -> Result<Option<i64>, RepositoryError> {
@@ -383,7 +396,7 @@ impl SpecRepository for PostgresSpecRepository {
 
         // 3. Reset branch-level version counter
         sqlx::query(
-            "UPDATE service_spec_versions SET version = 1 WHERE service_id = $1 AND branch_id = $2",
+            "UPDATE service_spec_versions SET version = 1, major = 1, minor = 0, patch = 0 WHERE service_id = $1 AND branch_id = $2",
         )
         .bind(service_id)
         .bind(branch_id)

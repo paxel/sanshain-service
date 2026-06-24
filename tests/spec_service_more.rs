@@ -84,7 +84,7 @@ async fn provide_with_tags_persists_and_auto_tag() {
     )
     .await
     .unwrap();
-    assert_eq!(resp.version, 1);
+    assert_eq!(resp.version, SemVer::new(1, 0, 0));
 
     // Verify tags stored in MockRepo internal map (MockRepo does not expose get_all_service_tags)
     let sid = repo.ensure_service("orders").await.unwrap();
@@ -181,10 +181,10 @@ async fn provide_spec_proto_base_version_conflict() {
     let r1 = spec_service::provide_spec(&repo, "svc", "main", ApiType::Proto, PROTO, None, false)
         .await
         .unwrap();
-    assert_eq!(r1.version, 1);
+    assert_eq!(r1.version, SemVer::new(1, 0, 0));
     // Second call with stale base_version should conflict
     let err =
-        spec_service::provide_spec(&repo, "svc", "main", ApiType::Proto, PROTO, Some(0), false)
+        spec_service::provide_spec(&repo, "svc", "main", ApiType::Proto, PROTO, Some("0.0.0".to_string()), false)
             .await
             .unwrap_err();
     match err {
@@ -301,5 +301,5 @@ async fn provide_spec_on_unprotected_hits_shared_contract_path() {
     )
     .await
     .unwrap();
-    assert_eq!(resp.version, 1);
+    assert_eq!(resp.version, SemVer::new(1, 0, 0));
 }

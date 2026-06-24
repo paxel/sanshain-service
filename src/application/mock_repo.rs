@@ -19,7 +19,7 @@ pub struct MockRepo {
     pub endpoint_versions: Mutex<Vec<EndpointVersion>>,
     pub service_tags: Mutex<HashMap<i64, Vec<String>>>,
     pub shared_contracts: Mutex<HashMap<SharedContractKey, SharedContract>>,
-    pub spec_versions: Mutex<HashMap<(i64, i64), (i32, String)>>,
+    pub spec_versions: Mutex<HashMap<(i64, i64), (SemVer, String)>>,
     pub audit_logs: Mutex<Vec<AuditLogEntry>>,
     pub user_favorites: Mutex<Vec<(i64, String, String)>>,
     pub branch_timestamps: Mutex<HashMap<String, String>>,
@@ -73,7 +73,7 @@ impl SpecRepository for MockRepo {
         &self,
         service_id: i64,
         branch_id: i64,
-    ) -> Result<Option<(i32, String)>, RepositoryError> {
+    ) -> Result<Option<(SemVer, String)>, RepositoryError> {
         let versions = self.spec_versions.lock().unwrap();
         Ok(versions.get(&(service_id, branch_id)).cloned())
     }
@@ -83,12 +83,17 @@ impl SpecRepository for MockRepo {
         service_id: i64,
         branch_id: i64,
         content_hash: &str,
-    ) -> Result<i32, RepositoryError> {
+        impact: Impact,
+    ) -> Result<SemVer, RepositoryError> {
         let mut versions = self.spec_versions.lock().unwrap();
         let (version, _) = versions
             .entry((service_id, branch_id))
-            .or_insert((0, String::new()));
-        *version += 1;
+            .or_insert((SemVer::default(), String::new()));
+        *version = if version.major == 0 {
+            SemVer::initial()
+        } else {
+            version.increment(impact)
+        };
         let current_version = *version;
         versions.insert(
             (service_id, branch_id),

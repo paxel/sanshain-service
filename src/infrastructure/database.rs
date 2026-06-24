@@ -35,7 +35,7 @@ impl SpecRepository for DatabaseRepo {
         &self,
         service_id: i64,
         branch_id: i64,
-    ) -> Result<Option<(i32, String)>, RepositoryError> {
+    ) -> Result<Option<(SemVer, String)>, RepositoryError> {
         delegate!(self, get_spec_version(service_id, branch_id))
     }
 
@@ -44,10 +44,11 @@ impl SpecRepository for DatabaseRepo {
         service_id: i64,
         branch_id: i64,
         content_hash: &str,
-    ) -> Result<i32, RepositoryError> {
+        impact: Impact,
+    ) -> Result<SemVer, RepositoryError> {
         delegate!(
             self,
-            increment_spec_version(service_id, branch_id, content_hash)
+            increment_spec_version(service_id, branch_id, content_hash, impact)
         )
     }
 

@@ -57,7 +57,7 @@ pub trait SpecRepository: Send + Sync {
         &self,
         service_id: i64,
         branch_id: i64,
-    ) -> impl Future<Output = Result<Option<(i32, String)>, RepositoryError>> + Send;
+    ) -> impl Future<Output = Result<Option<(SemVer, String)>, RepositoryError>> + Send;
 
     /// Update or increment the spec version and content hash for a service/branch.
     /// Returns the new version.
@@ -66,7 +66,8 @@ pub trait SpecRepository: Send + Sync {
         service_id: i64,
         branch_id: i64,
         content_hash: &str,
-    ) -> impl Future<Output = Result<i32, RepositoryError>> + Send;
+        impact: Impact,
+    ) -> impl Future<Output = Result<SemVer, RepositoryError>> + Send;
 
     /// Ensure a service exists and return its ID.
     fn ensure_service(

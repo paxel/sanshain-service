@@ -341,7 +341,7 @@ paths:
             .await
             .unwrap();
     assert_eq!(resp.changes.inserts, 1);
-    assert_eq!(resp.version, 0); // dry-run leaves version 0 in mock
+    assert_eq!(resp.version, SemVer::default()); // dry-run leaves version 0 in mock
 }
 
 // 26. spec_service: provide_spec_with_tags applies tags
