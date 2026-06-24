@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Side-by-Side Diff Viewer**: Integrated `diff2html` for interactive visualization of specification changes in the Audit view.
 
 ### Changed
+- **Documentation Restructuring**: Moved detailed API, Configuration, and Benchmark information from the root README.md to dedicated files in the `docs/` directory for better readability and maintainability.
 - **Enhanced Breaking Change Detection**: Improved compatibility checks to detect removed paths, removed operations, and new required fields in request bodies as breaking changes on protected branches.
 - **Refactor Error Handling**: Introduced a dedicated `BreakingChange` error variant to provide clearer feedback for contract violations.
 

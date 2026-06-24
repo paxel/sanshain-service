@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Sanshain UI Smoke Test', () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+
   test('Landing page loads and has correct title', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveTitle(/Sanshain/);
@@ -40,9 +42,12 @@ test.describe('Sanshain UI Smoke Test', () => {
     await dismissReloadBanner();
     
     // Login - Use specific selectors to avoid ambiguity with the "Sign In" tab
+    if (!adminPassword) {
+      throw new Error('INITIAL_ADMIN_PASSWORD environment variable is required for tests');
+    }
     await page.waitForSelector('#login-username', { state: 'visible' });
     await page.fill('input[id="login-username"]', 'root');
-    await page.fill('input[id="login-password"]', 'root_password');
+    await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
     
     // Wait for redirect or UI change with better error info

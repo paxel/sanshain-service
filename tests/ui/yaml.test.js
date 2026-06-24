@@ -2,14 +2,16 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Sanshain YAML Viewer UI Tests', () => {
   test('YAML viewer page loaded with correct elements', async ({ page }) => {
-    // Navigate to yaml.html with some dummy query parameters
-    await page.goto('/yaml.html?service=TestService&branch=main&path=/users&method=GET');
+    // Use a real service from demo.sh
+    await page.goto('/yaml.html?service=user-service&branch=main&path=/users&method=GET');
     
     // Header should be visible
     await expect(page.locator('header#site-banner')).toBeVisible();
     
     // Breadcrumbs should contain service name and branch
-    await expect(page.locator('#breadcrumb-service')).toContainText('TestService');
+    const breadcrumbService = page.locator('#breadcrumb-service');
+    await expect(breadcrumbService).toBeVisible({ timeout: 10000 });
+    await expect(breadcrumbService).toContainText('user-service');
     await expect(page.locator('#breadcrumb-branch')).toContainText('main');
     
     // Endpoint header details should be present

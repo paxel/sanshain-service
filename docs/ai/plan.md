@@ -1,8 +1,12 @@
 # Sanshain Service — Implementation Plan
 
-### OpenAPI Semantics & Contract Enforcement
-- [x] **Semantic Versioning (SemVer) for Specs**
-  - Support SemVer (MAJOR/MINOR/PATCH) for specification versions, with automatic incrementing based on change impact analysis.
+### Documentation & Release Preparation
+- [x] **Preparation for 1.4.0 Release**
+  - [x] Restructure documentation (move detailed API/Config/Benchmarks to `docs/`).
+  - [x] Implement automated UI screenshot capture system.
+  - [x] Extend integration tests (Audit, Diff, API Tokens).
+  - [x] Harden security (remove hardcoded test passwords).
+  - [x] Finalize documentation with new screenshots.
 
 ### Going Big (Enterprise & Advanced Scale)
 - [ ] **Top-Layer System Switch**

@@ -63,54 +63,52 @@ If the endpoint is not found on a feature branch, Sanshain automatically falls b
 
 ## Browsing the Web UI
 
-### Landing Page (`/`)
+#### Landing Page (`/`)
 
 The landing page shows the service version and links to all sections.
 
-![Landing page](images/Screenshot_20260421_230705.png)
+![Landing page](images/landing.png)
 
-### Service Overview (`/service.html`)
+#### Services (`/services.html`)
 
 Lists all registered services and their branches. Click a service to drill into its branches and endpoints.
 
-![Service list](images/Screenshot_20260421_231009.png)
+![Service list](images/services.png)
 
 Each branch view shows the total number of endpoints, how many are used by at least one client, and how many are unused. Click an endpoint to see which clients depend on it.
 
-![Branch detail with endpoint usage](images/Screenshot_20260421_231032.png)
-
 The YAML viewer includes **Copy** and **Download** buttons for easy export of endpoint specifications.
 
-#### Version History & Diff Viewer
+#### Dependency Graph (`/graph.html`)
 
-For endpoints on protected branches, the modal shows a **Version History** tab listing all recorded versions. You can:
+The **Graph** section visualizes the dependency relationships between services and clients on the selected branch. Version 1.4.0 introduces a custom high-performance SVG renderer with interactive tooltips and sub-graph highlighting.
 
-- View the full YAML at any version.
-- See the diff from the previous version (color-coded: green for additions, red for deletions).
-- Compare any two arbitrary versions using the version comparison tool.
-
-![Version history and diff viewer](images/Screenshot_20260421_231720.png)
-
-### Dependency Graph
-
-The **Graph** tab visualises the dependency relationships between services and clients on the selected branch.
-
-![Dependency graph](images/Screenshot_20260421_231733.png)
+![Dependency graph](images/graph.png)
 
 - **Green** nodes are clients only.
 - **Purple** nodes are services only.
 - **Orange** nodes act as both client and service.
 - **Red** edges indicate circular dependencies.
 
-Toggle **Detailed view** to show individual endpoint paths on the edges.
+Click a node or edge to see detailed metadata and direct links to the involved specifications.
 
-Use the **Copy** button to copy the generated Mermaid code to the clipboard, or **Download** to save it as a `.mmd` file.
+![Graph Details](images/graph_details.png)
+
+Toggle **Mermaid** or **Detailed view** to switch between different visualization styles.
+
+#### Audit Timeline (`/audit.html`)
+
+New in 1.4.0, the **Audit** page provides a global chronological log of all specification updates across the system. This allows administrators to track who changed what and when.
+
+![Audit Timeline](images/audit.png)
+
+Every entry includes a **View Changes** button that opens a side-by-side diff viewer, making it easy to see exactly what was modified in a specification update.
+
+![Diff Viewer](images/diff.png)
 
 ### Stale Data Detection
 
 When the server is restarted or updated, a yellow banner appears at the top of the page offering a one-click reload. This ensures you always see the latest data without manually clearing the browser cache.
-
-![Stale data detection banner](images/Screenshot_20260421_231827.png)
 
 ### Dark / Light Mode
 
@@ -128,7 +126,7 @@ The dependency report for a branch lists:
 
 The **Reports** section provides system-wide compliance and isolation reports, organized by branch.
 
-![Isolation Report](images/Screenshot_20260421_231804.png)
+![Isolation Report](images/reports.png)
 
 - **Service Isolation Report**: Lists all outbound network connections per service in markdown tables with Target, Protocol, and Port columns. AsyncAPI connections are shown as routing through the central message service (KAFKA).
 - **Markdown Report**: A full text-based report of dependencies and unused endpoints.

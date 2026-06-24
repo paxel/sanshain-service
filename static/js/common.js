@@ -387,6 +387,9 @@ async function fetchCsrfToken() {
 // If body is an object, serialises as JSON.
 // On 401, clears session and calls onSessionExpired() if defined.
 async function apiCall(url, options = {}) {
+  // Refresh token from localStorage in case it was updated by another script/context
+  sanshainToken = localStorage.getItem("sanshain_token");
+  
   const headers = { ...options.headers };
   if (sanshainToken) headers["Authorization"] = `Bearer ${sanshainToken}`;
   if (options.body && typeof options.body === "object") {
@@ -495,6 +498,7 @@ function showReloadBanner() {
 }
 
 // Run staleness check on every page load
+sanshainToken = localStorage.getItem("sanshain_token");
 checkStaleness();
 loadVersionBadge("version-badge");
 

@@ -17,7 +17,13 @@ set -euo pipefail
 
 BASE_URL="${1:-${SANSHAIN_URL:-http://localhost:3000}}"
 ADMIN_USER="root"
-ADMIN_PASSWORD="${2:-${INITIAL_ADMIN_PASSWORD:-root_password}}"
+
+if [ -z "${2:-}" ] && [ -z "${INITIAL_ADMIN_PASSWORD:-}" ]; then
+    log_failure "No admin password provided. Please set INITIAL_ADMIN_PASSWORD or pass it as the second argument."
+    exit 1
+fi
+
+ADMIN_PASSWORD="${2:-${INITIAL_ADMIN_PASSWORD:-}}"
 TOKEN=""
 
 # Colors for output

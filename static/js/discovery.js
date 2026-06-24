@@ -386,25 +386,38 @@ function renderVersionHistory(container, versions) {
 
 async function checkDiscoveryAuth(onSuccess) {
   const token = localStorage.getItem("sanshain_token");
-  if (!token) {
-    window.location.href = "/account.html";
-    return;
+  
+  // If we have a token, we always try to use it
+  if (token) {
+      try {
+        const res = await fetch("/auth/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+            const user = await res.json();
+            renderBanner(user);
+            if (onSuccess) await onSuccess();
+            return;
+        }
+      } catch (err) {
+        console.error("Auth check failed:", err);
+      }
   }
+  
+  // Fallback: check if dev mode is enabled
   try {
-    const res = await fetch("/auth/me", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) {
-      window.location.href = "/account.html";
-      return;
-    }
-    const user = await res.json();
-    renderBanner(user);
-    if (onSuccess) await onSuccess();
-  } catch (err) {
-    console.error("Auth check failed:", err);
-    window.location.href = "/account.html";
-  }
+      const devRes = await fetch("/admin/settings/dev-mode");
+      if (devRes.ok) {
+          const devData = await devRes.json();
+          if (devData.enabled) {
+              renderBanner(null);
+              if (onSuccess) await onSuccess();
+              return;
+          }
+      }
+  } catch (e) {}
+
+  window.location.href = "/account.html";
 }
 
 function renderSharedContract(container, contractInfo) {
