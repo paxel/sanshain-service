@@ -11,6 +11,7 @@ export default [
         ...globals.browser,
         // External libraries loaded via <script> tags
         dagre: "readonly",
+        Diff2Html: "readonly",
         // Cross-file globals (common.js exports used by other files)
         renderBanner: "readonly",
         sanshainLogout: "readonly",
@@ -20,6 +21,10 @@ export default [
         confirmDelete: "readonly",
         togglePasswordVisibility: "readonly",
         onSessionExpired: "readonly",
+        showLoader: "readonly",
+        hideLoader: "readonly",
+        apiCall: "readonly",
+        getSanshainToken: "readonly",
         // discovery.js globals
         loadAllServiceBranches: "readonly",
         getMethodColor: "readonly",

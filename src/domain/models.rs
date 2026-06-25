@@ -162,9 +162,15 @@ impl std::str::FromStr for SemVer {
         if parts.len() != 3 {
             return Err(format!("Invalid SemVer: {}", s));
         }
-        let major = parts[0].parse().map_err(|e| format!("Invalid major: {}", e))?;
-        let minor = parts[1].parse().map_err(|e| format!("Invalid minor: {}", e))?;
-        let patch = parts[2].parse().map_err(|e| format!("Invalid patch: {}", e))?;
+        let major = parts[0]
+            .parse()
+            .map_err(|e| format!("Invalid major: {}", e))?;
+        let minor = parts[1]
+            .parse()
+            .map_err(|e| format!("Invalid minor: {}", e))?;
+        let patch = parts[2]
+            .parse()
+            .map_err(|e| format!("Invalid patch: {}", e))?;
         Ok(SemVer {
             major,
             minor,

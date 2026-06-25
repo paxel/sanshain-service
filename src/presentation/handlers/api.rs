@@ -3,7 +3,10 @@ use crate::application::services::{self, AppError};
 use crate::domain::models::{ApiType, redact_username};
 use axum::{
     Json,
-    extract::{Query, State, ws::{WebSocketUpgrade, WebSocket, Message}},
+    extract::{
+        Query, State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{
         IntoResponse,
@@ -484,10 +487,7 @@ pub async fn sse_updates(
     Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
 }
 
-pub async fn ws_updates(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+pub async fn ws_updates(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(|socket| handle_socket(socket, state))
 }
 

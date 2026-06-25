@@ -3,7 +3,17 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use tracing::instrument;
 
-type EndpointRow = (i64, String, String, String, String, String, bool, bool, bool);
+type EndpointRow = (
+    i64,
+    String,
+    String,
+    String,
+    String,
+    String,
+    bool,
+    bool,
+    bool,
+);
 
 /// Hashes a session token with SHA-256 so that only the hash is stored at rest.
 /// The raw token is returned to the client; lookups hash the incoming token.
@@ -15,7 +25,9 @@ fn hash_session_token(token: &str) -> String {
 }
 
 use crate::domain::models::*;
-use crate::domain::ports::{EndpointMap, RecordDependencyParams, RepositoryError, SpecRepository};
+use crate::domain::ports::{
+    EndpointMap, RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
+};
 
 struct ApiTokenRow {
     id: String,
@@ -1206,8 +1218,15 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
+    #[allow(clippy::type_complexity)]
     async fn list_services_detailed(&self) -> Result<Vec<ServiceSummary>, RepositoryError> {
-        let rows: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        let rows: Vec<(
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = sqlx::query_as(
             r#"
             SELECT s.name, s.fallback_branch, GROUP_CONCAT(b.name) as branches, s.icon, s.domain
             FROM services s
@@ -1334,7 +1353,17 @@ impl SpecRepository for SqliteSpecRepository {
         client_name: &str,
         branch: &str,
     ) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
-        type ClientEndpointRow = (String, String, String, String, String, Option<String>, bool, bool, bool);
+        type ClientEndpointRow = (
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            bool,
+            bool,
+            bool,
+        );
         let rows: Vec<ClientEndpointRow> = sqlx::query_as(
             "SELECT d.api_type, s.name, d.requested_branch_name, d.requested_path, d.requested_method, e.yaml_content, \
              COALESCE(sc.source_yaml != sc.current_yaml, 0) as has_changes, COALESCE(e.deprecated, 0), COALESCE(e.external, 0) \
@@ -1359,7 +1388,17 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(api_type, service, branch, path, method, yaml_content, has_changes, deprecated, external)| {
+                |(
+                    api_type,
+                    service,
+                    branch,
+                    path,
+                    method,
+                    yaml_content,
+                    has_changes,
+                    deprecated,
+                    external,
+                )| {
                     ClientEndpointInfo {
                         api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                         service,
@@ -1814,80 +1853,24 @@ impl SpecRepository for SqliteSpecRepository {
             String,
             Option<String>,
             Option<String>,
-        )> = sqlx::query_as(
-            "SELECT ev.id, ev.endpoint_id, ev.version, ev.yaml_content, ev.diff_from_previous, ev.created_at, m.username, m.source_branch FROM endpoint_versions ev LEFT JOIN endpoint_version_metadata m ON ev.id = m.endpoint_version_id WHERE ev.endpoint_id = ? ORDER BY ev.version ASC"
-        )
-        .bind(endpoint_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        Ok(rows
-            .into_iter()
-            .map(
-                |(
-                    id,
-                    endpoint_id,
-                    version,
-                    yaml_content,
-                    diff_from_previous,
-                    created_at,
-                    username,
-                    source_branch,
-                )| {
-                    EndpointVersion {
-                        id,
-                        endpoint_id,
-                        version,
-                        yaml_content,
-                        diff_from_previous,
-                        created_at,
-                        username,
-                        source_branch,
-                        service_name: None,
-                        branch_name: None,
-                        api_type: None,
-                        path: None,
-                        method: None,
-                    }
-                },
-            )
-            .collect())
-    }
-
-    #[allow(clippy::type_complexity)]
-    async fn get_global_endpoint_versions(
-        &self,
-        limit: u32,
-    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
-        let rows: Vec<(
-            i64,
-            i64,
-            i32,
-            String,
-            Option<String>,
-            String,
-            Option<String>,
-            Option<String>,
             String,
             String,
             String,
             String,
             String,
         )> = sqlx::query_as(
-            "SELECT 
-                ev.id, ev.endpoint_id, ev.version, ev.yaml_content, ev.diff_from_previous, ev.created_at, 
-                m.username, m.source_branch,
-                s.name as service_name, b.name as branch_name, e.api_type, e.path, e.method
+            "SELECT ev.id, ev.endpoint_id, ev.version, ev.yaml_content, ev.diff_from_previous, ev.created_at, 
+                   m.username, m.source_branch,
+                   s.name as service_name, b.name as branch_name, e.api_type, e.path, e.method
              FROM endpoint_versions ev 
              LEFT JOIN endpoint_version_metadata m ON ev.id = m.endpoint_version_id 
              JOIN endpoints e ON ev.endpoint_id = e.id
              JOIN branches b ON e.branch_id = b.id
              JOIN services s ON b.service_id = s.id
-             ORDER BY ev.created_at DESC, ev.id DESC
-             LIMIT ?"
+             WHERE ev.endpoint_id = ? 
+             ORDER BY ev.version ASC"
         )
-        .bind(limit)
+        .bind(endpoint_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -1927,6 +1910,51 @@ impl SpecRepository for SqliteSpecRepository {
                     }
                 },
             )
+            .collect())
+    }
+
+    async fn get_global_endpoint_versions(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT 
+                ev.id, ev.endpoint_id, ev.version, ev.yaml_content, ev.diff_from_previous, ev.created_at, 
+                m.username, m.source_branch,
+                s.name as service_name, b.name as branch_name, e.api_type, e.path, e.method
+             FROM endpoint_versions ev 
+             LEFT JOIN endpoint_version_metadata m ON ev.id = m.endpoint_version_id 
+             JOIN endpoints e ON ev.endpoint_id = e.id
+             JOIN branches b ON e.branch_id = b.id
+             JOIN services s ON b.service_id = s.id
+             ORDER BY ev.created_at DESC, ev.id DESC
+             LIMIT ?"
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        use sqlx::Row;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                EndpointVersion {
+                    id: r.get(0),
+                    endpoint_id: r.get(1),
+                    version: r.get(2),
+                    yaml_content: r.get(3),
+                    diff_from_previous: r.get(4),
+                    created_at: r.get(5),
+                    username: r.get(6),
+                    source_branch: r.get(7),
+                    service_name: Some(r.get(8)),
+                    branch_name: Some(r.get(9)),
+                    api_type: ApiType::from_str(r.get::<String, _>(10).as_str()).ok(),
+                    path: Some(r.get(11)),
+                    method: Some(r.get(12)),
+                }
+            })
             .collect())
     }
 

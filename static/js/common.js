@@ -399,7 +399,7 @@ async function fetchCsrfToken() {
 async function apiCall(url, options = {}) {
   // Refresh token from localStorage/cookie in case it was updated by another script/context
   sanshainToken = getSanshainToken();
-  
+
   const headers = { ...options.headers };
   if (sanshainToken) headers["Authorization"] = `Bearer ${sanshainToken}`;
   if (options.body && typeof options.body === "object") {
@@ -557,7 +557,7 @@ window.hideLoader = function () {
     l.classList.add("hidden");
     l.style.opacity = "0";
     if (window.SANSHAIN_FAST_SCREENSHOT) {
-        l.style.display = "none";
+      l.style.display = "none";
     }
   }
 };

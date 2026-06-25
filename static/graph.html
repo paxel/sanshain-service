@@ -775,7 +775,9 @@
         await loadGraph();
     });
 
-    checkDiscoveryAuth(() => showGraph());
+    document.addEventListener('DOMContentLoaded', () => {
+        checkDiscoveryAuth(() => showGraph());
+    });
 </script>
     <footer class="text-center text-sm text-slate-500 py-6 mt-auto">
         <img src="/images/sonne.png" alt="Sanshain" width="59" height="32" class="mx-auto mb-2 h-8 w-auto opacity-70">

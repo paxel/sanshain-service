@@ -118,9 +118,11 @@ On first start, Sanshain prints the initial root credentials to the console outp
 
 Copy the password, then open the URL shown in the log message to access the admin dashboard. Log in with username **root** and the generated password.
 
-![Admin login screen](images/Screenshot_20260421_230832.png)
+![Admin login screen](images/login.png)
 
 After a successful login, you will see the admin dashboard:
+
+![Admin dashboard overview](images/admin_overview.png)
 
 ## Change the Root Password
 

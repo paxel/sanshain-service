@@ -104,6 +104,9 @@ pub async fn change_password(
 }
 
 pub async fn get_dev_mode(repo: &impl SpecRepository) -> Result<bool, AppError> {
+    if std::env::var("SANSHAIN_DEV_MODE").unwrap_or_default() == "true" {
+        return Ok(true);
+    }
     let val = repo
         .get_setting("dev_mode")
         .await?

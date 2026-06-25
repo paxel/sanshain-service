@@ -1,5 +1,7 @@
 use crate::domain::models::*;
-use crate::domain::ports::{EndpointMap, RecordDependencyParams, RepositoryError, SpecRepository};
+use crate::domain::ports::{
+    EndpointMap, RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
+};
 use std::collections::HashMap;
 use std::sync::Mutex;
 

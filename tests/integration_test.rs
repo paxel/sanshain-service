@@ -4071,8 +4071,7 @@ async fn test_problem_3_optimistic_concurrency_integration() {
     assert_eq!(res1.version, SemVer::new(1, 0, 0));
 
     // 2. Second provide with correct base_version
-    let payload2 =
-        json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml2, "base_version": "1.0.0" });
+    let payload2 = json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml2, "base_version": "1.0.0" });
     let response = app
         .clone()
         .oneshot(
@@ -4094,8 +4093,7 @@ async fn test_problem_3_optimistic_concurrency_integration() {
     assert_eq!(res2.version, SemVer::new(1, 0, 1));
 
     // 3. Third provide with OUTDATED base_version
-    let payload3 =
-        json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml1, "base_version": "1.0.0" });
+    let payload3 = json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml1, "base_version": "1.0.0" });
     let response = app
         .clone()
         .oneshot(

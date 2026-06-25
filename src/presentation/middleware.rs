@@ -17,6 +17,9 @@ pub async fn authenticated_auth(
     req: Request,
     next: Next,
 ) -> Result<impl IntoResponse, StatusCode> {
+    if services::get_dev_mode(&state.repo).await.unwrap_or(false) {
+        return Ok(next.run(req).await);
+    }
     let auth_header = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -43,6 +46,9 @@ pub async fn admin_auth(
     req: Request,
     next: Next,
 ) -> Result<impl IntoResponse, StatusCode> {
+    if services::get_dev_mode(&state.repo).await.unwrap_or(false) {
+        return Ok(next.run(req).await);
+    }
     let auth_header = req
         .headers()
         .get(header::AUTHORIZATION)

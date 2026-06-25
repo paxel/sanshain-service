@@ -59,7 +59,14 @@ pub async fn main() {
         .unwrap_or_else(|_| "sanshain_service=debug,tower_http=debug".into());
     let capture_filter = tracing_subscriber::EnvFilter::new(capture_log_filter);
 
-    let (otel_layer, otel_provider) = telemetry::init_tracer();
+    let otel_enabled = std::env::var("OTEL_ENABLED").unwrap_or_default() == "true";
+    let (otel_layer, otel_provider) = if otel_enabled {
+        let (layer, provider) = telemetry::init_tracer();
+        (Some(layer), Some(provider))
+    } else {
+        (None, None)
+    };
+
     let registry = tracing_subscriber::registry()
         .with(capture_layer.with_filter(capture_filter))
         .with(otel_layer);
@@ -315,7 +322,9 @@ pub async fn main() {
         std::process::exit(1);
     }
 
-    telemetry::shutdown_telemetry(otel_provider);
+    if let Some(provider) = otel_provider {
+        telemetry::shutdown_telemetry(provider);
+    }
 }
 
 async fn shutdown_signal() {

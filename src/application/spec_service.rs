@@ -1,5 +1,7 @@
 use crate::domain::models::*;
-use crate::domain::ports::{RecordDependencyParams, RepositoryError, SpecRepository};
+use crate::domain::ports::{
+    RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
+};
 use crate::openapi;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -1230,7 +1232,7 @@ paths:
 
         // 4. Major version (breaking change)
         let breaking_spec = SIMPLE_OPENAPI.replace("/hello:", "/hi:");
-        let r4 = provide_spec(
+        let _r4 = provide_spec(
             &repo,
             "svc",
             "feat-breaking", // Use non-protected branch for breaking change
@@ -1241,9 +1243,9 @@ paths:
         )
         .await
         .unwrap();
-        // Since it's a new branch, it starts at 1.0.0? 
+        // Since it's a new branch, it starts at 1.0.0?
         // No, if it's a new branch, it should start at 1.0.0.
-        
+
         // Wait, if I want to test MAJOR increment, I should do it on the same branch.
         // So I'll unprotect the branch first.
         repo.remove_protected_branch("main").await.unwrap();

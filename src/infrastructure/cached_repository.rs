@@ -4,7 +4,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use moka::future::Cache;
 
 use crate::domain::models::*;
-use crate::domain::ports::{EndpointMap, RecordDependencyParams, RepositoryError, SpecRepository};
+use crate::domain::ports::{
+    EndpointMap, RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
+};
 use crate::infrastructure::database::DatabaseRepo;
 
 type EndpointKey = (i64, String, String, String, String); // (service_id, branch, api_type, norm_path, method)

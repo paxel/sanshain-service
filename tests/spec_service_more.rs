@@ -183,10 +183,17 @@ async fn provide_spec_proto_base_version_conflict() {
         .unwrap();
     assert_eq!(r1.version, SemVer::new(1, 0, 0));
     // Second call with stale base_version should conflict
-    let err =
-        spec_service::provide_spec(&repo, "svc", "main", ApiType::Proto, PROTO, Some("0.0.0".to_string()), false)
-            .await
-            .unwrap_err();
+    let err = spec_service::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::Proto,
+        PROTO,
+        Some("0.0.0".to_string()),
+        false,
+    )
+    .await
+    .unwrap_err();
     match err {
         AppError::Conflict(msg) => assert!(msg.contains("Outdated spec version")),
         other => panic!("expected Conflict, got {:?}", other),

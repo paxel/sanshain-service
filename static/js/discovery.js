@@ -382,36 +382,45 @@ function renderVersionHistory(container, versions) {
 }
 
 async function checkDiscoveryAuth(onSuccess) {
+  if (window.SANSHAIN_FAST_SCREENSHOT) {
+    console.log("Fast screenshot mode: bypassing auth check");
+    if (onSuccess) await onSuccess();
+    return;
+  }
   const token = getSanshainToken();
-  
+
   // If we have a token, we always try to use it
   if (token) {
-      try {
-        const res = await apiCall("/auth/me");
-        if (res.ok) {
-            const user = await res.json();
-            renderBanner(user);
-            if (onSuccess) await onSuccess();
-            return;
-        }
-      } catch (err) {
-        console.error("Auth check failed:", err);
+    try {
+      const res = await apiCall("/auth/me");
+      if (res.ok) {
+        const user = await res.json();
+        renderBanner(user);
+        if (onSuccess) await onSuccess();
+        return;
       }
+    } catch (err) {
+      console.error("Auth check failed:", err);
+    }
   }
-  
+
   // Fallback: check if dev mode is enabled
   try {
-      const devRes = await fetch("/admin/settings/dev-mode");
-      if (devRes.ok) {
-          const devData = await devRes.json();
-          if (devData.enabled) {
-              renderBanner(null);
-              if (onSuccess) await onSuccess();
-              return;
-          }
+    const devRes = await fetch("/admin/settings/dev-mode");
+    if (devRes.ok) {
+      const devData = await devRes.json();
+      if (devData.enabled) {
+        renderBanner(null);
+        if (onSuccess) await onSuccess();
+        return;
       }
+    }
   } catch (e) {}
 
+  if (window.SANSHAIN_FAST_SCREENSHOT) {
+    console.log("Fast screenshot mode: skipping auth redirect");
+    return;
+  }
   window.location.href = "/account.html";
 }
 

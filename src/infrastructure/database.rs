@@ -1,5 +1,7 @@
 use crate::domain::models::*;
-use crate::domain::ports::{RecordDependencyParams, RepositoryError, SpecRepository};
+use crate::domain::ports::{
+    RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
+};
 use crate::infrastructure::postgres_repository::PostgresSpecRepository;
 use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
 use std::collections::HashMap;
@@ -169,26 +171,9 @@ impl SpecRepository for DatabaseRepo {
 
     async fn update_endpoint(
         &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-        yaml_content: &str,
-        deprecated: bool,
-        external: bool,
+        params: UpdateEndpointParams<'_>,
     ) -> Result<(), RepositoryError> {
-        delegate!(
-            self,
-            update_endpoint(
-                branch_id,
-                api_type,
-                path,
-                method,
-                yaml_content,
-                deprecated,
-                external
-            )
-        )
+        delegate!(self, update_endpoint(params))
     }
 
     async fn soft_delete_endpoint(

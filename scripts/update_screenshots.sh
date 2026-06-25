@@ -8,13 +8,22 @@ PORT=3000
 
 echo "Starting Sanshain Service Release Screenshot Capture..."
 
-# Cleanup old database
+# Ensure directories exist
+mkdir -p docs/images
+mkdir -p test-results
+
+# Cleanup old database and stale processes
 rm -f sanshain.db
+pkill sanshain_service || true
+sleep 1
 
 # Start service in background
 # Pre-build to avoid race conditions and slow starts
-cargo build
-target/debug/sanshain_service &
+cargo build --release
+export OTEL_ENABLED="false"
+export SANSHAIN_DEV_MODE="true"
+export RUST_LOG="debug,sanshain_service=debug,tower_http=debug"
+stdbuf -oL target/release/sanshain_service > service.log 2>&1 &
 SVC_PID=$!
 
 # Ensure cleanup on exit

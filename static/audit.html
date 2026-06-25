@@ -108,7 +108,9 @@
 
 <script src="/js/audit.js"></script>
 <script>
-    checkDiscoveryAuth(() => loadTimeline());
+    document.addEventListener('DOMContentLoaded', () => {
+        checkDiscoveryAuth(() => loadTimeline());
+    });
     window.addEventListener('sanshain-update', () => loadTimeline());
 </script>
 </body>

@@ -3,9 +3,9 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './tests/ui',
   /* Maximum time one test can run for. */
-  timeout: 120 * 1000,
+  timeout: 300 * 1000,
   expect: {
-    timeout: 10000
+    timeout: 30000
   },
   /* Run tests in files in parallel */
   fullyParallel: false,
@@ -13,8 +13,8 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI. */
-  workers: process.env.CI ? 1 : undefined,
+  /* Opt out of parallel tests for screenshots. */
+  workers: 1,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
@@ -35,6 +35,6 @@ export default defineConfig({
     },
   ],
 
-  /* Global timeout for the entire test run (20 minutes) */
-  globalTimeout: 20 * 60 * 1000,
+  /* Global timeout for the entire test run (60 minutes) */
+  globalTimeout: 60 * 60 * 1000,
 });

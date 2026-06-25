@@ -306,13 +306,13 @@ assert_status 202 "Second provide"
 V2=$(echo "$LAST_BODY" | jq -r .version)
 
 # Step 3: Outdated base_version
-PAYLOAD_OUTDATED=$(jq -n --arg svc "$CONCURRENCY_SVC" --arg branch "main" --arg yaml "$OPENAPI_SPEC" --argjson v "$V1" \
+PAYLOAD_OUTDATED=$(jq -n --arg svc "$CONCURRENCY_SVC" --arg branch "main" --arg yaml "$OPENAPI_SPEC" --arg v "$V1" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml, base_version:$v}')
 call_api POST "/provide" "$PAYLOAD_OUTDATED"
 assert_status 409 "Reject outdated base_version ($V1 vs $V2)"
 
 # Step 4: Correct base_version
-PAYLOAD_CORRECT=$(jq -n --arg svc "$CONCURRENCY_SVC" --arg branch "main" --arg yaml "$OPENAPI_SPEC" --argjson v "$V2" \
+PAYLOAD_CORRECT=$(jq -n --arg svc "$CONCURRENCY_SVC" --arg branch "main" --arg yaml "$OPENAPI_SPEC" --arg v "$V2" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml, base_version:$v}')
 call_api POST "/provide" "$PAYLOAD_CORRECT"
 assert_status 202 "Accept correct base_version ($V2)"

@@ -70,6 +70,9 @@ test.describe('Sanshain UI Smoke Test', () => {
     // Toggle Auth Mode (from Local to Dev)
     const devModeRadio = page.locator('input[name="auth-mode"][value="dev"]');
     await devModeRadio.click();
+    
+    // Click Save button
+    await page.locator('button:has-text("Save Authentication Settings")').click();
     await page.waitForTimeout(1000); // Wait for API call
     
     // Refresh to verify persistence
@@ -81,6 +84,7 @@ test.describe('Sanshain UI Smoke Test', () => {
     
     // Restore Local mode
     await page.locator('input[name="auth-mode"][value="local"]').click();
+    await page.locator('button:has-text("Save Authentication Settings")').click();
     await page.waitForTimeout(500);
   });
 });

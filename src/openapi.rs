@@ -1393,9 +1393,11 @@ components:
 "#;
         let result = check_backward_compatibility(old_yaml, new_yaml);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("New required field 'name' was added to request schema 'User'"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("New required field 'name' was added to request schema 'User'")
+        );
     }
 
     #[test]
