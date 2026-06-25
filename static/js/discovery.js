@@ -9,10 +9,7 @@ let userFavorites = { services: [], clients: [] };
 const YAML_PAGE_SIZE = 80; // lines per page for YAML viewer
 
 async function fetchJSON(url) {
-  const headers = {};
-  const token = localStorage.getItem("sanshain_token");
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  const res = await fetch(url, { headers });
+  const res = await apiCall(url);
   if (!res.ok) throw new Error(`Fetch error: ${res.status}`);
   return res.json();
 }
@@ -385,14 +382,12 @@ function renderVersionHistory(container, versions) {
 }
 
 async function checkDiscoveryAuth(onSuccess) {
-  const token = localStorage.getItem("sanshain_token");
+  const token = getSanshainToken();
   
   // If we have a token, we always try to use it
   if (token) {
       try {
-        const res = await fetch("/auth/me", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await apiCall("/auth/me");
         if (res.ok) {
             const user = await res.json();
             renderBanner(user);

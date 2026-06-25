@@ -423,14 +423,10 @@ function renderCustomGraph(report, svgElement, direction) {
   const g = new dagre.graphlib.Graph({ compound: true });
   g.setGraph({
     rankdir: dir,
-    // In LR mode the along-rank separation is vertical; nodes are only
-    // ~40px tall so they'd overlap with the default 50px. Give them room.
-    nodesep: isLR ? 80 : 50,
-    // LR no longer does brick staggering along X, so ranksep can stay
-    // tight — just enough gap between rank columns of 160px nodes to
-    // leave room for the Bezier edge curvature between layers.
-    ranksep: isLR ? 110 : 180,
-    edgesep: 50,
+    // Increased spacing for better clarity
+    nodesep: isLR ? 100 : 120,
+    ranksep: isLR ? 150 : 250,
+    edgesep: 80,
     marginx: 40,
     marginy: 60,
   });

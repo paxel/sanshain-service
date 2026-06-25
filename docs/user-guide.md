@@ -73,7 +73,7 @@ The landing page shows the service version and links to all sections.
 
 Lists all registered services and their branches. Click a service to drill into its branches and endpoints.
 
-![Service list](images/services.png)
+![Service list](images/services_list.png)
 
 Each branch view shows the total number of endpoints, how many are used by at least one client, and how many are unused. Click an endpoint to see which clients depend on it.
 
@@ -104,7 +104,7 @@ New in 1.4.0, the **Audit** page provides a global chronological log of all spec
 
 Every entry includes a **View Changes** button that opens a side-by-side diff viewer, making it easy to see exactly what was modified in a specification update.
 
-![Diff Viewer](images/diff.png)
+![Diff Viewer](images/audit_diff.png)
 
 ### Stale Data Detection
 

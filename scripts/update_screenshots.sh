@@ -54,10 +54,37 @@ curl -s -X POST http://localhost:$PORT/admin/settings/dev-mode \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"enabled":true}'
+sleep 2
 
 echo "Populating rich data via demo scripts..."
+# Unset token to force demo scripts to login themselves using the password
+unset SANSHAIN_TOKEN
+export SANSHAIN_USER=root
+export SANSHAIN_PASSWORD=$INITIAL_ADMIN_PASSWORD
+# Skip basic demo, go straight to complex ones
 ./scripts/demo2.sh
 ./scripts/demo_protocols.sh
+
+echo "Applying service metadata for better graph visualization..."
+# config-service -> Infrastructure
+curl -s -X POST http://localhost:$PORT/admin/services/metadata \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"config-service", "icon":"⚙️", "domain":"Infrastructure"}'
+
+# auth-service -> Core
+curl -s -X POST http://localhost:$PORT/admin/services/metadata \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"auth-service", "icon":"🔑", "domain":"Core"}'
+
+# ml-inference -> AI
+curl -s -X POST http://localhost:$PORT/admin/services/metadata \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"ml-inference", "icon":"🧠", "domain":"AI"}'
+
+# etl-orchestrator -> Data
+curl -s -X POST http://localhost:$PORT/admin/services/metadata \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"etl-orchestrator", "icon":"🏗️", "domain":"Data"}'
 
 echo "Running Playwright screenshot tests..."
 # Ensure screenshots directory exists

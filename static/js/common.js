@@ -1,6 +1,15 @@
 // Sanshain — shared JS utilities
 // Used by admin, account, service, and dashboard pages.
-let sanshainToken = localStorage.getItem("sanshain_token");
+function getCookie(name) {
+  const m = document.cookie.match(new RegExp("(?:^|;\\s*)" + name + "=([^;]*)"));
+  return m ? m[1] : null;
+}
+
+function getSanshainToken() {
+  return localStorage.getItem("sanshain_token") || getCookie("sanshain_token");
+}
+
+let sanshainToken = getSanshainToken();
 
 function setBannerVersion(version) {
   const text = version ? `v${version}` : "";
@@ -63,6 +72,7 @@ async function renderBanner(user = null) {
       return user;
     }
 
+    sanshainToken = getSanshainToken();
     if (!sanshainToken) {
       updateBannerAuth(null);
       return null;
@@ -387,8 +397,8 @@ async function fetchCsrfToken() {
 // If body is an object, serialises as JSON.
 // On 401, clears session and calls onSessionExpired() if defined.
 async function apiCall(url, options = {}) {
-  // Refresh token from localStorage in case it was updated by another script/context
-  sanshainToken = localStorage.getItem("sanshain_token");
+  // Refresh token from localStorage/cookie in case it was updated by another script/context
+  sanshainToken = getSanshainToken();
   
   const headers = { ...options.headers };
   if (sanshainToken) headers["Authorization"] = `Bearer ${sanshainToken}`;
@@ -498,7 +508,7 @@ function showReloadBanner() {
 }
 
 // Run staleness check on every page load
-sanshainToken = localStorage.getItem("sanshain_token");
+sanshainToken = getSanshainToken();
 checkStaleness();
 loadVersionBadge("version-badge");
 
@@ -546,6 +556,9 @@ window.hideLoader = function () {
   if (l) {
     l.classList.add("hidden");
     l.style.opacity = "0";
+    if (window.SANSHAIN_FAST_SCREENSHOT) {
+        l.style.display = "none";
+    }
   }
 };
 

@@ -3,10 +3,11 @@
 ### Documentation & Release Preparation
 - [x] **Preparation for 1.4.0 Release**
   - [x] Restructure documentation (move detailed API/Config/Benchmarks to `docs/`).
-  - [x] Implement automated UI screenshot capture system.
+  - [x] Implement automated UI screenshot capture system (Playwright + Demo scripts).
   - [x] Extend integration tests (Audit, Diff, API Tokens).
   - [x] Harden security (remove hardcoded test passwords).
-  - [x] Finalize documentation with new screenshots.
+  - [x] Finalize documentation with new screenshots and dark mode coverage.
+  - [x] Fix UI race conditions and error handling for robust testing.
 
 ### Going Big (Enterprise & Advanced Scale)
 - [ ] **Top-Layer System Switch**
