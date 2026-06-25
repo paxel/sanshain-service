@@ -2175,15 +2175,23 @@ impl SpecRepository for PostgresSpecRepository {
         username: &str,
         action: &str,
         details: &str,
+        service: Option<&str>,
+        branch: Option<&str>,
+        action_type: Option<&str>,
+        diff: Option<&str>,
     ) -> Result<(), RepositoryError> {
         let timestamp = chrono::Utc::now().to_rfc3339();
         sqlx::query(
-            "INSERT INTO audit_logs (timestamp, username, action, details) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO audit_logs (timestamp, username, action, details, service, branch, action_type, diff) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         )
         .bind(timestamp)
         .bind(username)
         .bind(action)
         .bind(details)
+        .bind(service)
+        .bind(branch)
+        .bind(action_type)
+        .bind(diff)
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -2191,12 +2199,57 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(())
     }
 
+    async fn get_audit_logs(
+        &self,
+        filter: AuditLogFilter,
+    ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
+        let mut sql = String::from("SELECT id, timestamp, username, action, details, service, branch, action_type, diff FROM audit_logs WHERE 1=1");
+        let mut param_idx = 1;
+
+        if filter.from_date.is_some() { sql.push_str(&format!(" AND timestamp >= ${}", param_idx)); param_idx += 1; }
+        if filter.to_date.is_some() { sql.push_str(&format!(" AND timestamp <= ${}", param_idx)); param_idx += 1; }
+        if filter.action_type.is_some() { sql.push_str(&format!(" AND action_type = ${}", param_idx)); param_idx += 1; }
+        if filter.service_wildcard.is_some() { sql.push_str(&format!(" AND service LIKE ${}", param_idx)); param_idx += 1; }
+        if filter.branch_wildcard.is_some() { sql.push_str(&format!(" AND branch LIKE ${}", param_idx)); param_idx += 1; }
+        
+        sql.push_str(&format!(" ORDER BY id DESC LIMIT ${}", param_idx));
+
+        let mut query = sqlx::query_as::<_, (i64, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>)>(&sql);
+        
+        if let Some(ref val) = filter.from_date { query = query.bind(val); }
+        if let Some(ref val) = filter.to_date { query = query.bind(val); }
+        if let Some(ref val) = filter.action_type { query = query.bind(val); }
+        if let Some(ref val) = filter.service_wildcard { query = query.bind(val); }
+        if let Some(ref val) = filter.branch_wildcard { query = query.bind(val); }
+        query = query.bind(filter.limit as i64);
+
+        let rows = query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(id, timestamp, username, action, details, service, branch, action_type, diff)| AuditLogEntry {
+                id,
+                timestamp,
+                username,
+                action,
+                details,
+                service,
+                branch,
+                action_type,
+                diff,
+            })
+            .collect())
+    }
+
     async fn get_recent_audit_logs(
         &self,
         limit: u32,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
-        let rows: Vec<(i64, String, String, String, String)> = sqlx::query_as(
-            "SELECT id, timestamp, username, action, details FROM audit_logs ORDER BY id DESC LIMIT $1"
+        let rows: Vec<(i64, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT id, timestamp, username, action, details, service, branch, action_type, diff FROM audit_logs ORDER BY id DESC LIMIT $1"
         )
         .bind(limit as i64)
         .fetch_all(&self.pool)
@@ -2205,12 +2258,16 @@ impl SpecRepository for PostgresSpecRepository {
 
         Ok(rows
             .into_iter()
-            .map(|(id, timestamp, username, action, details)| AuditLogEntry {
+            .map(|(id, timestamp, username, action, details, service, branch, action_type, diff)| AuditLogEntry {
                 id,
                 timestamp,
                 username,
                 action,
                 details,
+                service,
+                branch,
+                action_type,
+                diff,
             })
             .collect())
     }

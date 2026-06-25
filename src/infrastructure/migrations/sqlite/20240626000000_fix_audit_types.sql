@@ -1,0 +1,4 @@
+-- Backfill missing action_type for older audit log entries
+UPDATE audit_logs SET action_type = 'WRITE' WHERE (action_type IS NULL OR action_type = '') AND (action = 'PROVIDE_SPEC' OR action = 'PROVIDE_ASYNCAPI' OR action = 'PROVIDE_PROTO');
+UPDATE audit_logs SET action_type = 'READ' WHERE (action_type IS NULL OR action_type = '') AND (action = 'REQUIRE_SPEC' OR action = 'REQUIRE_ASYNCAPI' OR action = 'REQUIRE_PROTO' OR action = 'REPORT' OR action = 'REPORT_MARKDOWN' OR action = 'REPORT_ISOLATION' OR action = 'REPORT_MERGED');
+UPDATE audit_logs SET action_type = 'ADMIN' WHERE (action_type IS NULL OR action_type = '') AND (action LIKE 'ADMIN_%' OR action = 'NUKE_DATABASE' OR action = 'CLEANUP_BRANCHES' OR action = 'CLEANUP_DEPENDENCIES' OR action = 'SET_AUTO_APPROVE' OR action = 'UPDATE_SETTINGS' OR action = 'APPROVE_USER' OR action = 'DELETE_USER' OR action = 'ADD_PROTECTED_BRANCH' OR action = 'DELETE_PROTECTED_BRANCH');

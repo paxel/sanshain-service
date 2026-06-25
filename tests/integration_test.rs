@@ -4866,7 +4866,7 @@ async fn test_audit_logs_and_security() {
             .contains("super-secret-password")
     );
 
-    // Verify dev mode setting log is registered with redacted actor username (admin -> a***n)
+    // Verify dev mode setting log is registered with full actor username (admin)
     let dev_log = arr.iter().find(|l| l["action"] == "SET_DEV_MODE").unwrap();
     assert_eq!(dev_log["username"], "admin");
     assert_eq!(dev_log["details"], "Set dev-mode to true");
@@ -4895,7 +4895,7 @@ async fn test_audit_logs_and_security() {
         .await
         .unwrap();
     let csv_str = String::from_utf8(body_csv.to_vec()).unwrap();
-    assert!(csv_str.starts_with("id,timestamp,username,action,details\n"));
+    assert!(csv_str.starts_with("id,timestamp,username,action,details,service,branch,action_type\n"));
     assert!(csv_str.contains("REGISTER_USER"));
     assert!(csv_str.contains("SET_DEV_MODE"));
 }
@@ -5029,7 +5029,7 @@ paths:
     );
     assert_eq!(arr[0]["source_branch"], "main");
 
-    // Version 2 was created by admin (redacted to r**t)
+    // Version 2 was created by admin (full name root)
     assert_eq!(arr[1]["version"], 2);
     assert_eq!(arr[1]["username"], "root");
     assert_eq!(arr[1]["source_branch"], "main");

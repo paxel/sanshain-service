@@ -1,12 +1,27 @@
+let timelineData = [];
+
 async function loadTimeline() {
   showLoader();
   try {
-    const res = await apiCall("/api/audit/timeline?limit=50");
+    const from = document.getElementById("filter-from").value;
+    const to = document.getElementById("filter-to").value;
+    const type = document.getElementById("filter-type").value;
+    const service = document.getElementById("filter-service").value.trim();
+    const branch = document.getElementById("filter-branch").value.trim();
+
+    let url = "/api/audit/timeline?limit=100";
+    if (from) url += `&from_date=${from}`;
+    if (to) url += `&to_date=${to}`;
+    if (type) url += `&action_type=${type}`;
+    if (service) url += `&service=${encodeURIComponent(service)}`;
+    if (branch) url += `&branch=${encodeURIComponent(branch)}`;
+
+    const res = await apiCall(url);
     if (!res.ok) {
       throw new Error("Failed to fetch timeline");
     }
-    const data = await res.json();
-    renderTimeline(data);
+    timelineData = await res.json();
+    renderTimeline(timelineData);
   } catch (err) {
     console.error(err);
     document.getElementById("audit-timeline").innerHTML =
@@ -16,72 +31,81 @@ async function loadTimeline() {
   }
 }
 
-function renderTimeline(versions) {
+function renderTimeline(logs) {
   const container = document.getElementById("audit-timeline");
-  if (versions.length === 0) {
+  if (logs.length === 0) {
     container.innerHTML =
-      '<div class="text-center py-20 text-slate-400">No specification updates found.</div>';
+      '<div class="text-center py-20 text-slate-400">No matching audit logs found.</div>';
     return;
   }
 
-  container.innerHTML = versions
-    .map((v, index) => {
-      const date = new Date(v.created_at);
-      const dateStr = date.toLocaleString();
-      const apiTypeIcon = v.api_type === "openapi" ? "🌐" : v.api_type === "asyncapi" ? "⚡" : "🔌";
+  container.innerHTML = logs
+    .map((log) => {
+      const date = new Date(log.timestamp);
+      const shortDate = date.toLocaleString([], {
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      let actionColor = "bg-slate-100 text-slate-600";
+      if (log.action_type === "WRITE") actionColor = "bg-green-100 text-green-700";
+      else if (log.action_type === "READ") actionColor = "bg-blue-100 text-blue-700";
+      else if (log.action_type === "ADMIN") actionColor = "bg-amber-100 text-amber-700";
+      else if (log.action === "PROVIDE_SPEC" || log.action === "PROVIDE_ASYNCAPI" || log.action === "PROVIDE_PROTO") actionColor = "bg-green-100 text-green-700";
+      else if (log.action === "REQUIRE_SPEC" || log.action === "REQUIRE_ASYNCAPI" || log.action === "REQUIRE_PROTO") actionColor = "bg-blue-100 text-blue-700";
 
       return `
             <div class="timeline-item">
-                <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div class="p-4 sm:p-6">
-                        <div class="flex flex-wrap items-start justify-between gap-4 mb-4">
-                            <div>
-                                <div class="flex items-center gap-2 mb-1">
-                                    <span class="font-bold text-lg text-slate-800">${escapeHtml(v.service_name)}</span>
-                                    <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs font-mono">${escapeHtml(v.branch_name)}</span>
-                                </div>
-                                <div class="text-sm text-slate-500 flex items-center gap-2">
-                                    ${apiTypeIcon} <span class="font-medium">${escapeHtml(v.method)}</span> ${escapeHtml(v.path)}
-                                </div>
+                <div class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="p-3 flex flex-wrap items-center justify-between gap-4">
+                        <div class="flex items-center flex-wrap gap-x-4 gap-y-2 flex-1">
+                            <span class="text-[11px] font-mono text-slate-400 min-w-[100px]">${shortDate}</span>
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${actionColor}">${escapeHtml(log.action)}</span>
+                            <span class="font-semibold text-sm text-slate-800">${escapeHtml(log.username)}</span>
+                            <div class="flex items-center gap-2">
+                                ${
+                                  log.service
+                                    ? `<span class="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded text-[10px] font-bold border border-indigo-100">${escapeHtml(log.service)}</span>`
+                                    : ""
+                                }
+                                ${
+                                  log.branch
+                                    ? `<span class="px-2 py-0.5 bg-slate-50 text-slate-600 rounded text-[10px] font-mono border border-slate-100">${escapeHtml(log.branch)}</span>`
+                                    : ""
+                                }
                             </div>
-                            <div class="text-right">
-                                <div class="text-sm font-medium text-slate-700">${dateStr}</div>
-                                <div class="text-xs text-slate-400">Version ${v.version} ${v.username ? `by ${escapeHtml(v.username)}` : ""}</div>
-                            </div>
+                            <span class="text-sm text-slate-500 line-clamp-1 flex-1 min-w-[200px]" title="${escapeHtml(log.details)}">${escapeHtml(log.details)}</span>
                         </div>
                         
                         ${
-                          v.diff_from_previous
+                          log.diff
                             ? `
-                            <div class="mt-4">
-                                <button onclick="toggleDiff(${v.id})" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium flex items-center gap-1">
-                                    <svg id="diff-icon-${v.id}" class="w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                                    </svg>
-                                    View Changes
-                                </button>
-                                <div id="diff-container-${v.id}" class="hidden mt-4 border border-slate-100 rounded-lg overflow-hidden bg-slate-50">
-                                    <div id="diff-content-${v.id}" class="diff-view"></div>
-                                </div>
-                            </div>
+                            <button onclick="toggleDiff(${log.id})" class="text-indigo-600 hover:text-indigo-800 text-xs font-semibold flex items-center gap-1 whitespace-nowrap">
+                                <svg id="diff-icon-${log.id}" class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                </svg>
+                                Changes
+                            </button>
                         `
-                            : `
-                            <div class="mt-4 text-xs text-slate-400 italic">Initial version or no diff available.</div>
-                        `
+                            : ""
                         }
                     </div>
+                    ${
+                      log.diff
+                        ? `
+                        <div id="diff-container-${log.id}" class="hidden border-t border-slate-100 bg-slate-50">
+                            <div id="diff-content-${log.id}" class="diff-view text-xs"></div>
+                        </div>
+                    `
+                        : ""
+                    }
                 </div>
             </div>
         `;
     })
     .join("");
-
-  // Pre-parse diffs if they are small or just initialize them
-  versions.forEach((v) => {
-    if (v.diff_from_previous) {
-      // We'll render on demand to keep initial load fast
-    }
-  });
 }
 
 function toggleDiff(id) {
@@ -94,8 +118,6 @@ function toggleDiff(id) {
   if (isHidden) {
     container.classList.remove("hidden");
     icon.style.transform = "rotate(180deg)";
-
-    // Render diff if not already rendered
     if (content.innerHTML === "") {
       renderDiffContent(id);
     }
@@ -105,41 +127,14 @@ function toggleDiff(id) {
   }
 }
 
-async function renderDiffContent(id) {
-  // Find the version in our data (we could also fetch it again if needed, but it's in the timeline)
-  // Actually, we need the diff text.
-  // I'll re-fetch the specific version history if I don't have it, but for now I'll assume it's in the data.
-  // Wait, I need a way to access the data from the toggleDiff function.
-  // I'll store the fetched data globally for simplicity in this demo.
-}
-
-// Update loadTimeline to store data
-let timelineData = [];
-const originalLoadTimeline = loadTimeline;
-loadTimeline = async function () {
-  showLoader();
-  try {
-    const res = await apiCall("/api/audit/timeline?limit=50");
-    if (!res.ok) throw new Error("Failed to fetch timeline");
-    timelineData = await res.json();
-    renderTimeline(timelineData);
-  } catch (err) {
-    console.error(err);
-    document.getElementById("audit-timeline").innerHTML =
-      `<div class="text-center py-20 text-red-500">Error loading timeline: ${escapeHtml(err.message)}</div>`;
-  } finally {
-    hideLoader();
-  }
-};
-
 function renderDiffContent(id) {
-  const version = timelineData.find((v) => v.id === id);
-  if (!version || !version.diff_from_previous) return;
+  const log = timelineData.find((v) => v.id === id);
+  if (!log || !log.diff) return;
 
   const diffContent = document.getElementById(`diff-content-${id}`);
 
   try {
-    const diffHtml = Diff2Html.html(version.diff_from_previous, {
+    const diffHtml = Diff2Html.html(log.diff, {
       drawFileList: false,
       matching: "lines",
       outputFormat: "side-by-side",
@@ -150,4 +145,26 @@ function renderDiffContent(id) {
     console.error("Diff rendering failed:", err);
     diffContent.innerHTML = '<div class="p-4 text-red-500 text-sm">Failed to render diff.</div>';
   }
+}
+
+function resetFilters() {
+  document.getElementById("audit-filters").reset();
+  loadTimeline();
+}
+
+// Attach filter form handler
+function initAuditFilters() {
+  const filterForm = document.getElementById("audit-filters");
+  if (filterForm) {
+    filterForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      loadTimeline();
+    });
+  }
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initAuditFilters);
+} else {
+  initAuditFilters();
 }

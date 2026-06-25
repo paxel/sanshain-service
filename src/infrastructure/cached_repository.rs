@@ -1191,8 +1191,21 @@ impl SpecRepository for CachedSpecRepository {
         username: &str,
         action: &str,
         details: &str,
+        service: Option<&str>,
+        branch: Option<&str>,
+        action_type: Option<&str>,
+        diff: Option<&str>,
     ) -> Result<(), RepositoryError> {
-        self.inner.insert_audit_log(username, action, details).await
+        self.inner
+            .insert_audit_log(username, action, details, service, branch, action_type, diff)
+            .await
+    }
+
+    async fn get_audit_logs(
+        &self,
+        filter: AuditLogFilter,
+    ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
+        self.inner.get_audit_logs(filter).await
     }
 
     async fn get_recent_audit_logs(

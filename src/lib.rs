@@ -148,6 +148,18 @@ pub fn create_app(state: AppState) -> Router {
             .make_span_with(tower_http::trace::DefaultMakeSpan::new().level(tracing::Level::INFO))
             .on_response(tower_http::trace::DefaultOnResponse::new().level(tracing::Level::INFO)))
         .layer(from_fn_with_state(state.clone(), validate_csrf))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store, no-cache, must-revalidate, proxy-revalidate"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::PRAGMA,
+            HeaderValue::from_static("no-cache"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::EXPIRES,
+            HeaderValue::from_static("0"),
+        ))
         .layer(SetResponseHeaderLayer::if_not_present(
             header::X_CONTENT_TYPE_OPTIONS,
             HeaderValue::from_static("nosniff"),

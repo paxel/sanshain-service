@@ -541,6 +541,7 @@ pub trait SpecRepository: Send + Sync {
         service: Option<&str>,
         branch: Option<&str>,
         action_type: Option<&str>,
+        diff: Option<&str>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Get audit log records with filtering

@@ -543,30 +543,23 @@ pub struct AuditLogEntry {
     pub service: Option<String>,
     pub branch: Option<String>,
     pub action_type: Option<String>,
+    pub diff: Option<String>,
 }
 
-pub fn redact_username(username: &str) -> String {
-    if username.is_empty() {
-        "anonymous".to_string()
-    } else {
-        username.to_string()
-    }
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AuditLogFilter {
+    pub from_date: Option<String>,
+    pub to_date: Option<String>,
+    pub action_type: Option<String>,
+    pub service_wildcard: Option<String>,
+    pub branch_wildcard: Option<String>,
+    pub limit: u32,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::str::FromStr;
-
-    #[test]
-    fn test_redact_username() {
-        assert_eq!(redact_username(""), "anonymous");
-        assert_eq!(redact_username("a"), "a");
-        assert_eq!(redact_username("ab"), "ab");
-        assert_eq!(redact_username("abc"), "abc");
-        assert_eq!(redact_username("root"), "root");
-        assert_eq!(redact_username("administrator"), "administrator");
-    }
 
     #[test]
     fn api_type_accepts_canonical_names_and_legacy_aliases() {

@@ -2243,15 +2243,23 @@ impl SpecRepository for SqliteSpecRepository {
         username: &str,
         action: &str,
         details: &str,
+        service: Option<&str>,
+        branch: Option<&str>,
+        action_type: Option<&str>,
+        diff: Option<&str>,
     ) -> Result<(), RepositoryError> {
         let timestamp = chrono::Utc::now().to_rfc3339();
         sqlx::query(
-            "INSERT INTO audit_logs (timestamp, username, action, details) VALUES (?, ?, ?, ?)",
+            "INSERT INTO audit_logs (timestamp, username, action, details, service, branch, action_type, diff) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(timestamp)
         .bind(username)
         .bind(action)
         .bind(details)
+        .bind(service)
+        .bind(branch)
+        .bind(action_type)
+        .bind(diff)
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -2259,12 +2267,56 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(())
     }
 
+    async fn get_audit_logs(
+        &self,
+        filter: AuditLogFilter,
+    ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
+        let mut sql = String::from("SELECT id, timestamp, username, action, details, service, branch, action_type, diff FROM audit_logs WHERE 1=1");
+        
+        if filter.from_date.is_some() { sql.push_str(" AND timestamp >= ?"); }
+        if filter.to_date.is_some() { sql.push_str(" AND timestamp <= ?"); }
+        if filter.action_type.is_some() { sql.push_str(" AND action_type = ?"); }
+        if filter.service_wildcard.is_some() { sql.push_str(" AND service LIKE ?"); }
+        if filter.branch_wildcard.is_some() { sql.push_str(" AND branch LIKE ?"); }
+        
+        sql.push_str(" ORDER BY id DESC LIMIT ?");
+
+        let mut query = sqlx::query_as::<_, (i64, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>)>(&sql);
+        
+        if let Some(ref val) = filter.from_date { query = query.bind(val); }
+        if let Some(ref val) = filter.to_date { query = query.bind(val); }
+        if let Some(ref val) = filter.action_type { query = query.bind(val); }
+        if let Some(ref val) = filter.service_wildcard { query = query.bind(val); }
+        if let Some(ref val) = filter.branch_wildcard { query = query.bind(val); }
+        query = query.bind(filter.limit);
+
+        let rows = query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(id, timestamp, username, action, details, service, branch, action_type, diff)| AuditLogEntry {
+                id,
+                timestamp,
+                username,
+                action,
+                details,
+                service,
+                branch,
+                action_type,
+                diff,
+            })
+            .collect())
+    }
+
     async fn get_recent_audit_logs(
         &self,
         limit: u32,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
-        let rows: Vec<(i64, String, String, String, String)> = sqlx::query_as(
-            "SELECT id, timestamp, username, action, details FROM audit_logs ORDER BY id DESC LIMIT ?"
+        let rows: Vec<(i64, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT id, timestamp, username, action, details, service, branch, action_type, diff FROM audit_logs ORDER BY id DESC LIMIT ?"
         )
         .bind(limit)
         .fetch_all(&self.pool)
@@ -2273,12 +2325,16 @@ impl SpecRepository for SqliteSpecRepository {
 
         Ok(rows
             .into_iter()
-            .map(|(id, timestamp, username, action, details)| AuditLogEntry {
+            .map(|(id, timestamp, username, action, details, service, branch, action_type, diff)| AuditLogEntry {
                 id,
                 timestamp,
                 username,
                 action,
                 details,
+                service,
+                branch,
+                action_type,
+                diff,
             })
             .collect())
     }

@@ -1,6 +1,6 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
-use crate::domain::models::{User, redact_username};
+use crate::domain::models::User;
 use crate::domain::ports::SpecRepository;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use serde::{Deserialize, Serialize};
@@ -10,13 +10,17 @@ async fn record_audit_log(
     user: Option<&User>,
     action: &str,
     details: &str,
+    service: Option<&str>,
+    branch: Option<&str>,
+    action_type: Option<&str>,
+    diff: Option<&str>,
 ) -> Result<(), AppError> {
     let actor = if let Some(u) = user {
-        redact_username(&u.username)
+        u.username.clone()
     } else {
         "DevMode/Anonymous".to_string()
     };
-    repo.insert_audit_log(&actor, action, details)
+    repo.insert_audit_log(&actor, action, details, service, branch, action_type, diff)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))
 }
@@ -141,6 +145,10 @@ pub async fn auth_change_password(
                 Some(&user),
                 "CHANGE_PASSWORD",
                 "Successfully changed user password",
+                None,
+                None,
+                Some("ADMIN"),
+                None,
             )
             .await?;
             Ok((
@@ -165,7 +173,11 @@ pub async fn auth_register(
         &state.repo,
         None,
         "REGISTER_USER",
-        &format!("Registered user '{}'", redact_username(&payload.username)),
+        &format!("Registered user '{}'", payload.username),
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(StatusCode::CREATED)
@@ -226,6 +238,10 @@ pub async fn create_token(
         Some(&user),
         "CREATE_TOKEN",
         &format!("Created API token '{}' with ID '{}'", payload.name, id),
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(Json(CreateTokenResponse {
@@ -246,6 +262,10 @@ pub async fn revoke_token(
         Some(&user),
         "REVOKE_TOKEN",
         &format!("Revoked API token with ID '{}'", id),
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(StatusCode::OK)

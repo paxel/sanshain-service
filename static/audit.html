@@ -87,12 +87,47 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                 </svg>
             </span>
-            Specification Audit Timeline
+            System Audit Log
         </h2>
-        <p class="text-slate-500 mt-2">Historical log of all specification updates across the system.</p>
+        <p class="text-slate-500 mt-2">Historical log of all system activities and specification updates.</p>
     </div>
 
-    <div id="audit-timeline" class="space-y-8">
+    <!-- Filter Bar -->
+    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-8">
+        <form id="audit-filters" onsubmit="loadTimeline(); return false;" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">From Date</label>
+                <input type="date" id="filter-from" class="w-full rounded-lg border-slate-200 text-sm focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">To Date</label>
+                <input type="date" id="filter-to" class="w-full rounded-lg border-slate-200 text-sm focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Type</label>
+                <select id="filter-type" class="w-full rounded-lg border-slate-200 text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    <option value="">All Types</option>
+                    <option value="READ">Read (Discovery)</option>
+                    <option value="WRITE">Write (Changes)</option>
+                    <option value="ADMIN">Admin (System)</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Service (wildcard %)</label>
+                <input type="text" id="filter-service" placeholder="e.g. auth-%" class="w-full rounded-lg border-slate-200 text-sm focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Branch (wildcard %)</label>
+                <input type="text" id="filter-branch" placeholder="e.g. feat-%" class="w-full rounded-lg border-slate-200 text-sm focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+            <div class="flex gap-2">
+                <button type="submit" class="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors">Filter</button>
+                <button type="button" onclick="resetFilters()" class="bg-slate-100 text-slate-600 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-slate-200 transition-colors">Reset</button>
+            </div>
+        </form>
+    </div>
+
+    <div id="audit-timeline" class="space-y-2">
         <!-- Timeline items will be rendered here -->
         <div class="text-center py-20 text-slate-400">Loading timeline...</div>
     </div>
@@ -109,9 +144,14 @@
 
 <script src="/js/audit.js"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', () => {
+    function initAudit() {
         checkDiscoveryAuth(() => loadTimeline());
-    });
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initAudit);
+    } else {
+        initAudit();
+    }
     window.addEventListener('sanshain-update', () => loadTimeline());
 </script>
 </body>

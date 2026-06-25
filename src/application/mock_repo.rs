@@ -812,6 +812,10 @@ impl SpecRepository for MockRepo {
         username: &str,
         action: &str,
         details: &str,
+        service: Option<&str>,
+        branch: Option<&str>,
+        action_type: Option<&str>,
+        diff: Option<&str>,
     ) -> Result<(), RepositoryError> {
         let mut logs = self.audit_logs.lock().unwrap();
         let id = self.next_id();
@@ -822,8 +826,23 @@ impl SpecRepository for MockRepo {
             username: username.to_string(),
             action: action.to_string(),
             details: details.to_string(),
+            service: service.map(|s| s.to_string()),
+            branch: branch.map(|b| b.to_string()),
+            action_type: action_type.map(|t| t.to_string()),
+            diff: diff.map(|d| d.to_string()),
         });
         Ok(())
+    }
+
+    async fn get_audit_logs(
+        &self,
+        _filter: AuditLogFilter,
+    ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
+        let logs = self.audit_logs.lock().unwrap();
+        let mut cloned = logs.clone();
+        cloned.reverse(); // id DESC order (newest first)
+        // Simplified mock filtering could be added here if needed for tests
+        Ok(cloned)
     }
 
     async fn get_recent_audit_logs(

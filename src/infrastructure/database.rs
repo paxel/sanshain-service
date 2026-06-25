@@ -509,8 +509,19 @@ impl SpecRepository for DatabaseRepo {
         username: &str,
         action: &str,
         details: &str,
+        service: Option<&str>,
+        branch: Option<&str>,
+        action_type: Option<&str>,
+        diff: Option<&str>,
     ) -> Result<(), RepositoryError> {
-        delegate!(self, insert_audit_log(username, action, details))
+        delegate!(self, insert_audit_log(username, action, details, service, branch, action_type, diff))
+    }
+
+    async fn get_audit_logs(
+        &self,
+        filter: AuditLogFilter,
+    ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
+        delegate!(self, get_audit_logs(filter))
     }
 
     async fn get_recent_audit_logs(

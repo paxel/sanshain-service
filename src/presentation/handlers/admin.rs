@@ -1,6 +1,6 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
-use crate::domain::models::{ApiType, AuditLogEntry, AuthMode, LdapConfig, redact_username};
+use crate::domain::models::{ApiType, AuditLogEntry, AuthMode, LdapConfig};
 use crate::domain::ports::SpecRepository;
 use axum::{
     Json,
@@ -17,13 +17,17 @@ async fn record_audit_log(
     user: Option<axum::Extension<crate::domain::models::User>>,
     action: &str,
     details: &str,
+    service: Option<&str>,
+    branch: Option<&str>,
+    action_type: Option<&str>,
+    diff: Option<&str>,
 ) -> Result<(), AppError> {
     let actor = if let Some(axum::Extension(u)) = user {
-        redact_username(&u.username)
+        u.username.clone()
     } else {
         "DevMode/Anonymous".to_string()
     };
-    repo.insert_audit_log(&actor, action, details)
+    repo.insert_audit_log(&actor, action, details, service, branch, action_type, diff)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))
 }
@@ -168,6 +172,10 @@ pub async fn add_protected_branch(
         user,
         "ADD_PROTECTED_BRANCH",
         &format!("Protected branch pattern '{}' added", payload.pattern),
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(StatusCode::CREATED)
@@ -184,6 +192,10 @@ pub async fn delete_protected_branch(
             user,
             "DELETE_PROTECTED_BRANCH",
             &format!("Protected branch pattern '{}' deleted", pattern),
+            None,
+            None,
+            Some("ADMIN"),
+            None,
         )
         .await?;
         Ok(StatusCode::OK)
@@ -207,6 +219,10 @@ pub async fn admin_delete_service(
             user,
             "DELETE_SERVICE",
             &format!("Deleted service '{}'", name),
+            Some(&name),
+            None,
+            Some("WRITE"),
+            None,
         )
         .await?;
         Ok(StatusCode::OK)
@@ -227,6 +243,10 @@ pub async fn admin_delete_branch(
             user,
             "DELETE_BRANCH",
             &format!("Deleted branch '{}' of service '{}'", branch, name),
+            Some(&name),
+            Some(&branch),
+            Some("WRITE"),
+            None,
         )
         .await?;
         Ok(StatusCode::OK)
@@ -252,6 +272,10 @@ pub async fn admin_reset_branch_history(
                 "Reset branch history of branch '{}' of service '{}'",
                 branch, name
             ),
+            Some(&name),
+            Some(&branch),
+            Some("WRITE"),
+            None,
         )
         .await?;
         Ok(StatusCode::OK)
@@ -274,6 +298,10 @@ pub async fn admin_delete_client(
             user,
             "DELETE_CLIENT",
             &format!("Deleted client '{}'", name),
+            None,
+            None,
+            Some("WRITE"),
+            None,
         )
         .await?;
         Ok(StatusCode::OK)
@@ -303,6 +331,10 @@ pub async fn set_dev_mode(
         user,
         "SET_DEV_MODE",
         &format!("Set dev-mode to {}", payload.enabled),
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(StatusCode::OK)
@@ -326,6 +358,10 @@ pub async fn set_auto_approve_users(
         user,
         "SET_AUTO_APPROVE",
         &format!("Set auto-approve-users to {}", payload.enabled),
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(StatusCode::OK)
@@ -386,6 +422,10 @@ pub async fn set_auth_config(
             "Updated auth mode to '{}' and LDAP configurations",
             payload.auth_mode
         ),
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(StatusCode::OK)
@@ -428,6 +468,10 @@ pub async fn set_branch_max_age(
         user,
         "UPDATE_SETTINGS",
         &format!("Set branch max age to {} days", payload.days),
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(StatusCode::OK)
@@ -443,6 +487,10 @@ pub async fn trigger_branch_cleanup(
         user,
         "BRANCH_CLEANUP",
         &format!("Triggered branch cleanup, deleted {} stale branches", res),
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(Json(json!({ "deleted": res })))
@@ -471,6 +519,10 @@ pub async fn set_dependency_max_age(
         user,
         "UPDATE_SETTINGS",
         &format!("Set dependency max age to {} days", payload.days),
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(StatusCode::OK)
@@ -489,6 +541,10 @@ pub async fn trigger_dependency_cleanup(
             "Triggered dependency cleanup, deleted {} stale dependencies",
             res
         ),
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(Json(json!({ "deleted": res })))
@@ -510,7 +566,7 @@ pub async fn admin_approve_user(
         users
             .iter()
             .find(|u| u.id == id)
-            .map(|u| redact_username(&u.username))
+            .map(|u| u.username.clone())
             .unwrap_or_else(|| format!("User ID {}", id))
     } else {
         format!("User ID {}", id)
@@ -522,6 +578,10 @@ pub async fn admin_approve_user(
             user,
             "APPROVE_USER",
             &format!("Approved user '{}'", target_username),
+            None,
+            None,
+            Some("ADMIN"),
+            None,
         )
         .await?;
         Ok(StatusCode::OK)
@@ -539,7 +599,7 @@ pub async fn admin_delete_user_handler(
         users
             .iter()
             .find(|u| u.id == id)
-            .map(|u| redact_username(&u.username))
+            .map(|u| u.username.clone())
             .unwrap_or_else(|| format!("User ID {}", id))
     } else {
         format!("User ID {}", id)
@@ -551,6 +611,10 @@ pub async fn admin_delete_user_handler(
             user,
             "DELETE_USER",
             &format!("Deleted user '{}'", target_username),
+            None,
+            None,
+            Some("ADMIN"),
+            None,
         )
         .await?;
         Ok(StatusCode::OK)
@@ -579,6 +643,10 @@ pub async fn admin_nuke_services(
         user,
         "NUKE_DATABASE",
         &format!("Nuked all services, deleted {} services", res),
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(Json(json!({ "deleted": res })))
@@ -599,6 +667,10 @@ pub async fn admin_nuke_clients(
         user,
         "NUKE_DATABASE",
         &format!("Nuked all clients, deleted {} clients", res),
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(Json(json!({ "deleted": res })))
@@ -619,6 +691,10 @@ pub async fn admin_nuke_users(
         user,
         "NUKE_DATABASE",
         &format!("Nuked all non-admin users, deleted {} users", res),
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(Json(json!({ "deleted": res })))
@@ -640,6 +716,10 @@ pub async fn admin_nuke_database(
         user,
         "NUKE_DATABASE",
         "Nuked complete database (Full reset)",
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(StatusCode::OK)
@@ -649,14 +729,21 @@ pub async fn export_audit_logs_csv(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
     let logs: Vec<AuditLogEntry> = state.repo.get_recent_audit_logs(1000).await?;
-    let mut csv = String::from("id,timestamp,username,action,details\n");
+    let mut csv = String::from("id,timestamp,username,action,details,service,branch,action_type\n");
     for log in logs {
         let esc_user = log.username.replace('"', "\"\"");
         let esc_action = log.action.replace('"', "\"\"");
         let esc_details = log.details.replace('"', "\"\"");
         csv.push_str(&format!(
-            "{},\"{}\",\"{}\",\"{}\",\"{}\"\n",
-            log.id, log.timestamp, esc_user, esc_action, esc_details
+            "{},\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\"\n",
+            log.id,
+            log.timestamp,
+            esc_user,
+            esc_action,
+            esc_details,
+            log.service.as_deref().unwrap_or(""),
+            log.branch.as_deref().unwrap_or(""),
+            log.action_type.as_deref().unwrap_or("")
         ));
     }
     let headers = [
@@ -688,6 +775,10 @@ pub async fn admin_nuke_branch(
             "Nuked branch '{}', deleted {} services on branch",
             branch, res
         ),
+        None,
+        Some(&branch),
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(Json(json!({ "deleted": res })))
@@ -720,6 +811,10 @@ pub async fn admin_update_service_metadata(
         user,
         "UPDATE_SERVICE_METADATA",
         &format!("Updated metadata for service '{}'", payload.name),
+        Some(&payload.name),
+        None,
+        Some("WRITE"),
+        None,
     )
     .await?;
 
@@ -836,6 +931,10 @@ pub async fn set_debug_config(
             "Updated debug config: business_logic_debug={}, admin_user_debug={}",
             config.business_logic_debug, config.admin_user_debug
         ),
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(StatusCode::OK)
@@ -872,6 +971,10 @@ pub async fn set_cache_config(
         user,
         "UPDATE_SETTINGS",
         &format!("Updated cache memory limit to {} MB", payload.memory_mb),
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(Json(json!({ "memory_mb": payload.memory_mb })))
@@ -888,6 +991,10 @@ pub async fn clear_cache(
         user,
         "CLEAR_CACHE",
         "Cleared service and branch caches",
+        None,
+        None,
+        Some("ADMIN"),
+        None,
     )
     .await?;
     Ok(Json(json!({ "cleared": true })))
@@ -945,6 +1052,10 @@ pub async fn admin_update_endpoint(
             "Manually updated endpoint {} {} in {} ({})",
             payload.method, payload.path, payload.servicename, payload.branch
         ),
+        Some(&payload.servicename),
+        Some(&payload.branch),
+        Some("WRITE"),
+        None,
     )
     .await?;
 
