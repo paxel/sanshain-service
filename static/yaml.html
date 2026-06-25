@@ -266,8 +266,10 @@
 
             renderVersionsSidebar();
             renderActiveView();
+            hideLoader();
         } catch (e) {
             console.error(e);
+            hideLoader();
             viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load versions: ${e.message}</div>`;
         }
     }

@@ -538,7 +538,16 @@ pub trait SpecRepository: Send + Sync {
         username: &str,
         action: &str,
         details: &str,
+        service: Option<&str>,
+        branch: Option<&str>,
+        action_type: Option<&str>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Get audit log records with filtering
+    fn get_audit_logs(
+        &self,
+        filter: AuditLogFilter,
+    ) -> impl Future<Output = Result<Vec<AuditLogEntry>, RepositoryError>> + Send;
 
     /// Get the recent audit log records, ordered by timestamp DESC
     fn get_recent_audit_logs(

@@ -18,6 +18,14 @@ pub async fn authenticated_auth(
     next: Next,
 ) -> Result<impl IntoResponse, StatusCode> {
     if services::get_dev_mode(&state.repo).await.unwrap_or(false) {
+        let mut req = req;
+        req.extensions_mut().insert(crate::domain::models::User {
+            id: 0,
+            username: "dev_user".to_string(),
+            password_hash: "".to_string(),
+            is_admin: true,
+            approved: true,
+        });
         return Ok(next.run(req).await);
     }
     let auth_header = req
@@ -47,6 +55,14 @@ pub async fn admin_auth(
     next: Next,
 ) -> Result<impl IntoResponse, StatusCode> {
     if services::get_dev_mode(&state.repo).await.unwrap_or(false) {
+        let mut req = req;
+        req.extensions_mut().insert(crate::domain::models::User {
+            id: 0,
+            username: "dev_user".to_string(),
+            password_hash: "".to_string(),
+            is_admin: true,
+            approved: true,
+        });
         return Ok(next.run(req).await);
     }
     let auth_header = req
@@ -119,6 +135,14 @@ pub async fn api_auth(
     }
 
     if services::get_dev_mode(&state.repo).await.unwrap_or(false) {
+        let mut req = req;
+        req.extensions_mut().insert(crate::domain::models::User {
+            id: 0,
+            username: "dev_user".to_string(),
+            password_hash: "".to_string(),
+            is_admin: true,
+            approved: true,
+        });
         return Ok(next.run(req).await);
     }
 
@@ -230,6 +254,10 @@ pub async fn validate_csrf(
     next: Next,
 ) -> Result<impl IntoResponse, StatusCode> {
     if req.method() == axum::http::Method::GET || req.method() == axum::http::Method::HEAD {
+        return Ok(next.run(req).await);
+    }
+
+    if services::get_dev_mode(&state.repo).await.unwrap_or(false) {
         return Ok(next.run(req).await);
     }
 

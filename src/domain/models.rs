@@ -540,19 +540,16 @@ pub struct AuditLogEntry {
     pub username: String,
     pub action: String,
     pub details: String,
+    pub service: Option<String>,
+    pub branch: Option<String>,
+    pub action_type: Option<String>,
 }
 
 pub fn redact_username(username: &str) -> String {
-    let chars: Vec<char> = username.chars().collect();
-    if chars.is_empty() {
+    if username.is_empty() {
         "anonymous".to_string()
-    } else if chars.len() <= 2 {
-        format!("{}*", chars[0])
     } else {
-        let first = chars[0];
-        let last = chars[chars.len() - 1];
-        let stars = "*".repeat(chars.len() - 2);
-        format!("{}{}{}", first, stars, last)
+        username.to_string()
     }
 }
 
@@ -564,11 +561,11 @@ mod tests {
     #[test]
     fn test_redact_username() {
         assert_eq!(redact_username(""), "anonymous");
-        assert_eq!(redact_username("a"), "a*");
-        assert_eq!(redact_username("ab"), "a*");
-        assert_eq!(redact_username("abc"), "a*c");
-        assert_eq!(redact_username("root"), "r**t");
-        assert_eq!(redact_username("administrator"), "a***********r");
+        assert_eq!(redact_username("a"), "a");
+        assert_eq!(redact_username("ab"), "ab");
+        assert_eq!(redact_username("abc"), "abc");
+        assert_eq!(redact_username("root"), "root");
+        assert_eq!(redact_username("administrator"), "administrator");
     }
 
     #[test]

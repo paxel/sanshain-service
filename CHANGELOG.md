@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [1.4.0] - 2026-06-24
+## [1.4.0] - 2026-06-25
 
 ### Added
 - **Semantic Versioning (SemVer) for Specs**: Support for MAJOR.MINOR.PATCH versions for overall specification versions.
@@ -19,6 +19,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Live Updates (SSE)**: Integrated Server-Sent Events to provide real-time updates across all dashboard pages when specifications are changed or deleted.
 - **Audit Timeline**: Created a dedicated Audit page featuring a global chronological timeline of all specification updates.
 - **Side-by-Side Diff Viewer**: Integrated `diff2html` for interactive visualization of specification changes in the Audit view.
+
+### Fixed
+- **Dependency Graph Links**: Resolved an issue where clicking service nodes in the graph used an incorrect data attribute, resulting in broken "undefined" links.
+- **Loading Screen Stalling**: Fixed a bug where the YAML viewer and other pages would remain stuck on a static loading screen due to missing `hideLoader()` calls.
+- **Username Anonymization**: Removed username masking from audit logs and change history, ensuring full accountability for specification changes.
 
 ### Changed
 - **Documentation Restructuring**: Moved detailed API, Configuration, and Benchmark information from the root README.md to dedicated files in the `docs/` directory for better readability and maintainability.

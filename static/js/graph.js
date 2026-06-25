@@ -1178,7 +1178,7 @@ function renderCustomGraph(report, svgElement, direction) {
 
   // Node hover
   mainG.querySelectorAll(".graph-node").forEach((el) => {
-    el.addEventListener("mouseenter", (e) => showNodeTooltip(e, el.dataset.name));
+    el.addEventListener("mouseenter", (e) => showNodeTooltip(e, el.dataset.node));
     el.addEventListener("mouseleave", hideTooltip);
   });
 

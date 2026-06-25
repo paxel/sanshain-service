@@ -2,6 +2,9 @@
 
 ### Documentation & Release Preparation
 - [x] **Preparation for 1.4.0 Release**
+  - [x] Fix broken links in dependency graph (dataset attribute bug).
+  - [x] Resolve static loading screen issue (missing `hideLoader` calls).
+  - [x] Disable username anonymization in audit logs and change history.
   - [x] Restructure documentation (move detailed API/Config/Benchmarks to `docs/`).
   - [x] Implement automated UI screenshot capture system (Playwright + Demo scripts).
   - [x] Extend integration tests (Audit, Diff, API Tokens).
