@@ -674,22 +674,16 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn update_endpoint(
         &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-        yaml_content: &str,
-        deprecated: bool,
-        external: bool,
+        params: UpdateEndpointParams<'_>,
     ) -> Result<(), RepositoryError> {
         sqlx::query("UPDATE endpoints SET yaml_content = $1, deprecated = $2, external = $3, deleted = FALSE WHERE branch_id = $4 AND api_type = $5 AND path = $6 AND method = $7")
-            .bind(yaml_content)
-            .bind(deprecated)
-            .bind(external)
-            .bind(branch_id)
-            .bind(api_type.as_str())
-            .bind(path)
-            .bind(method)
+            .bind(params.yaml_content)
+            .bind(params.deprecated)
+            .bind(params.external)
+            .bind(params.branch_id)
+            .bind(params.api_type.as_str())
+            .bind(params.path)
+            .bind(params.method)
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;

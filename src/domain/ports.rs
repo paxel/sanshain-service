@@ -51,6 +51,16 @@ pub struct RecordDependencyParams<'a> {
 pub type EndpointDetails = (i64, String, bool, bool);
 pub type EndpointMap = HashMap<(String, String), EndpointDetails>;
 
+pub struct UpdateEndpointParams<'a> {
+    pub branch_id: i64,
+    pub api_type: ApiType,
+    pub path: &'a str,
+    pub method: &'a str,
+    pub yaml_content: &'a str,
+    pub deprecated: bool,
+    pub external: bool,
+}
+
 pub trait SpecRepository: Send + Sync {
     /// Get the current spec version and content hash for a service/branch.
     fn get_spec_version(
@@ -191,13 +201,7 @@ pub trait SpecRepository: Send + Sync {
     /// Update an existing endpoint's YAML content and deprecated/external status.
     fn update_endpoint(
         &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-        yaml_content: &str,
-        deprecated: bool,
-        external: bool,
+        params: UpdateEndpointParams<'_>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Soft-delete an endpoint (mark as deleted). Used on protected branches to preserve history.

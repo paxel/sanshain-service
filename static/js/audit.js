@@ -10,7 +10,7 @@ async function loadTimeline() {
   } catch (err) {
     console.error(err);
     document.getElementById("audit-timeline").innerHTML =
-      `<div class="text-center py-20 text-red-500">Error loading timeline: ${err.message}</div>`;
+      `<div class="text-center py-20 text-red-500">Error loading timeline: ${escapeHtml(err.message)}</div>`;
   } finally {
     hideLoader();
   }
@@ -126,7 +126,7 @@ loadTimeline = async function () {
   } catch (err) {
     console.error(err);
     document.getElementById("audit-timeline").innerHTML =
-      `<div class="text-center py-20 text-red-500">Error loading timeline: ${err.message}</div>`;
+      `<div class="text-center py-20 text-red-500">Error loading timeline: ${escapeHtml(err.message)}</div>`;
   } finally {
     hideLoader();
   }

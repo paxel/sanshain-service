@@ -299,13 +299,7 @@ impl SpecRepository for MockRepo {
 
     async fn update_endpoint(
         &self,
-        _branch_id: i64,
-        _api_type: ApiType,
-        _path: &str,
-        _method: &str,
-        _yaml: &str,
-        _deprecated: bool,
-        _external: bool,
+        _params: UpdateEndpointParams<'_>,
     ) -> Result<(), RepositoryError> {
         Ok(())
     }

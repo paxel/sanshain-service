@@ -681,22 +681,16 @@ impl SpecRepository for SqliteSpecRepository {
 
     async fn update_endpoint(
         &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-        yaml_content: &str,
-        deprecated: bool,
-        external: bool,
+        params: UpdateEndpointParams<'_>,
     ) -> Result<(), RepositoryError> {
         sqlx::query("UPDATE endpoints SET yaml_content = ?, deprecated = ?, external = ?, deleted = FALSE WHERE branch_id = ? AND api_type = ? AND path = ? AND method = ?")
-            .bind(yaml_content)
-            .bind(deprecated)
-            .bind(external)
-            .bind(branch_id)
-            .bind(api_type.as_str())
-            .bind(path)
-            .bind(method)
+            .bind(params.yaml_content)
+            .bind(params.deprecated)
+            .bind(params.external)
+            .bind(params.branch_id)
+            .bind(params.api_type.as_str())
+            .bind(params.path)
+            .bind(params.method)
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;

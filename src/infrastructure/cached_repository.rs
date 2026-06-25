@@ -680,25 +680,10 @@ impl SpecRepository for CachedSpecRepository {
 
     async fn update_endpoint(
         &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-        yaml_content: &str,
-        deprecated: bool,
-        external: bool,
+        params: UpdateEndpointParams<'_>,
     ) -> Result<(), RepositoryError> {
-        self.inner
-            .update_endpoint(
-                branch_id,
-                api_type,
-                path,
-                method,
-                yaml_content,
-                deprecated,
-                external,
-            )
-            .await?;
+        let branch_id = params.branch_id;
+        self.inner.update_endpoint(params).await?;
         if !self.is_disabled() {
             self.branch_endpoints_cache.invalidate(&branch_id).await;
             self.endpoint_cache.invalidate_all();

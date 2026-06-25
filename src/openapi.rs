@@ -444,25 +444,23 @@ fn has_additions(old: &OpenAPI, new: &OpenAPI) -> bool {
 
     // New methods or responses
     for (path, new_item_ref) in &new.paths.paths {
-        if let (Some(old_item_ref), ReferenceOr::Item(new_item)) =
+        if let (Some(ReferenceOr::Item(old_item)), ReferenceOr::Item(new_item)) =
             (old.paths.paths.get(path), new_item_ref)
         {
-            if let ReferenceOr::Item(old_item) = old_item_ref {
-                let old_methods = get_methods(old_item);
-                let new_methods = get_methods(new_item);
+            let old_methods = get_methods(old_item);
+            let new_methods = get_methods(new_item);
 
-                let old_method_names: HashSet<_> = old_methods.iter().map(|(m, _)| m).collect();
-                for (method, new_op) in &new_methods {
-                    if !old_method_names.contains(method) {
+            let old_method_names: HashSet<_> = old_methods.iter().map(|(m, _)| m).collect();
+            for (method, new_op) in &new_methods {
+                if !old_method_names.contains(method) {
+                    return true;
+                }
+
+                // New response in existing method
+                let old_op = old_methods.iter().find(|(m, _)| m == method).unwrap().1;
+                for status in new_op.responses.responses.keys() {
+                    if !old_op.responses.responses.contains_key(status) {
                         return true;
-                    }
-
-                    // New response in existing method
-                    let old_op = old_methods.iter().find(|(m, _)| m == method).unwrap().1;
-                    for status in new_op.responses.responses.keys() {
-                        if !old_op.responses.responses.contains_key(status) {
-                            return true;
-                        }
                     }
                 }
             }

@@ -868,15 +868,15 @@ pub async fn update_endpoint_manual(
         .await?
         .ok_or_else(|| AppError::NotFound("Branch not found".to_string()))?;
 
-    repo.update_endpoint(
+    repo.update_endpoint(UpdateEndpointParams {
         branch_id,
         api_type,
-        params.path,
-        params.method,
-        &yaml,
+        path: params.path,
+        method: params.method,
+        yaml_content: &yaml,
         deprecated,
         external,
-    )
+    })
     .await?;
 
     Ok(())
