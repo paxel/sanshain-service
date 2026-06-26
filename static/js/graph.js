@@ -570,6 +570,37 @@ function renderCustomGraph(report, svgElement, direction) {
     nd[F] += nodeFOffsets.get(node) || 0;
   }
 
+  // Re-calculate cluster bounds after compaction
+  g.nodes().forEach((v) => {
+    if (v.startsWith("domain:")) {
+      const clusterNode = g.node(v);
+      const children = g.children(v);
+      if (children && children.length > 0) {
+        let cMinX = Infinity,
+          cMinY = Infinity,
+          cMaxX = -Infinity,
+          cMaxY = -Infinity;
+        children.forEach((childId) => {
+          const child = g.node(childId);
+          if (!child) return;
+          const chw = child.width / 2;
+          const chh = child.height / 2;
+          cMinX = Math.min(cMinX, child.x - chw);
+          cMaxX = Math.max(cMaxX, child.x + chw);
+          cMinY = Math.min(cMinY, child.y - chh);
+          cMaxY = Math.max(cMaxY, child.y + chh);
+        });
+        if (cMinX !== Infinity) {
+          const clusterPadding = 40;
+          clusterNode.width = cMaxX - cMinX + clusterPadding * 2;
+          clusterNode.height = cMaxY - cMinY + clusterPadding * 2;
+          clusterNode.x = (cMinX + cMaxX) / 2;
+          clusterNode.y = (cMinY + cMaxY) / 2;
+        }
+      }
+    }
+  });
+
   // Recompute edge endpoints from final node positions. Anchor on the
   // rank-axis border of each node (top/bottom for TB, left/right for LR).
   g.edges().forEach((e) => {
@@ -596,9 +627,34 @@ function renderCustomGraph(report, svgElement, direction) {
     edgeData.points = [p0, p1];
   });
 
-  const graphInfo = g.graph();
-  const svgW = graphInfo.width + 40;
-  const svgH = graphInfo.height + 40;
+  // Calculate the actual bounding box of all nodes and clusters after compaction
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  g.nodes().forEach((v) => {
+    const node = g.node(v);
+    if (!node || node.width === undefined) return;
+    const hw = node.width / 2;
+    const hh = node.height / 2;
+    minX = Math.min(minX, node.x - hw);
+    maxX = Math.max(maxX, node.x + hw);
+    minY = Math.min(minY, node.y - hh);
+    maxY = Math.max(maxY, node.y + hh);
+  });
+
+  // Fallback if empty
+  if (minX === Infinity) {
+    minX = 0;
+    minY = 0;
+    maxX = 800;
+    maxY = 600;
+  }
+
+  const contentW = maxX - minX;
+  const contentH = maxY - minY;
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
 
   // Viewport-sized canvas: fill available window height
   const availableH = window.innerHeight - svgElement.getBoundingClientRect().top - 40;
@@ -1229,18 +1285,18 @@ function renderCustomGraph(report, svgElement, direction) {
     startY = 0;
 
   function fitToView() {
-    // Use the actual rendered bounding box for accurate fit
-    // Reset transform first so getBBox returns unscaled coordinates
-    mainG.setAttribute("transform", "translate(0,0) scale(1)");
-    const bbox = mainG.getBBox();
-    const contentW = bbox.width || svgW;
-    const contentH = bbox.height || svgH;
-    const contentX = bbox.x || 0;
-    const contentY = bbox.y || 0;
-    const pad = 4; // pixels of padding from edges
-    scale = Math.min((vw - pad * 2) / contentW, (vh - pad * 2) / contentH);
-    panX = (vw - contentW * scale) / 2 - contentX * scale;
-    panY = (vh - contentH * scale) / 2 - contentY * scale;
+    const curVw = svgElement.viewBox.baseVal.width || vw;
+    const curVh = svgElement.viewBox.baseVal.height || vh;
+    const pad = 40; // use a reasonable padding
+    scale = Math.min((curVw - pad * 2) / contentW, (curVh - pad * 2) / contentH);
+
+    // Limit max scale to avoid pixelated nodes on tiny graphs
+    if (scale > 1.2) scale = 1.2;
+
+    // Pan to center the content
+    panX = curVw / 2 - centerX * scale;
+    panY = curVh / 2 - centerY * scale;
+
     updateTransform();
   }
 

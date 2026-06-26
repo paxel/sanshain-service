@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Log Viewer Copy & Download**: Added copy-to-clipboard and download-as-text-file buttons to the Observability log viewer, with a toggleable auto-scroll control and a fallback for non-HTTPS contexts.
 
 ### Fixed
+- **Graph Fit-to-View**: Fixed scaling and centering of the dependency graph by correctly calculating actual bounding box after layout compaction.
 - **Favorites in Dev Mode**: Fixed FOREIGN KEY constraint error when marking services/clients as favorites in dev mode by ensuring the dev user exists in the database.
 - **Log Spam**: Reduced `tower_http` trace logging from INFO to DEBUG/WARN to eliminate repetitive "finished processing request" messages from stdout.
 
