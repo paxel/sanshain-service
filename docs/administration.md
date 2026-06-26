@@ -1,6 +1,15 @@
 # Administration
 
-This guide covers the admin dashboard at `/admin.html` and the day-to-day tasks an administrator performs.
+This guide covers the admin dashboard at `/admin.html` and administrative tasks.
+
+### TL;DR
+- **Access**: Sign in at `/admin.html`. First-time login uses a random password from logs.
+- **Auth**: Configure **LDAP**, **Local Users**, or **Dev Mode** in the Authentication section.
+- **Protection**: Manage **Protected Branch Patterns** to prevent breaking changes on `main` or `release/*`.
+- **Cleanup**: Delete or reset history for services and clients in the management tabs.
+- **Tokens**: Users create their own API tokens at `/account.html`.
+
+---
 
 ## Accessing the Dashboard
 

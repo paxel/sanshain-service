@@ -6,7 +6,7 @@ This document defines the standard `sanshain.yaml` configuration file format use
 
 A `sanshain.yaml` file lives in the root of a project and declares:
 
-1. **Connection settings** — Sanshain server URL, timeouts, compression.
+1. **Connection settings** — Sanshain server URL (optional in file), timeouts, compression.
 2. **Provide(s)** — Which API spec(s) this project publishes (OpenAPI, AsyncAPI, and/or Proto).
 3. **Requires** — Which endpoints/channels from other services this project depends on.
 
@@ -14,10 +14,11 @@ Client plugins read this file and translate it into the appropriate `/provide`, 
 
 ## Full Example
 
-This example shows a "Gateway Service" that provides an OpenAPI spec and consumes APIs using three different protocols: OpenAPI (REST), AsyncAPI (Messaging), and Proto (gRPC).
+This example shows a "Gateway Service" that provides an OpenAPI spec and consumes APIs using three different protocols: OpenAPI (REST), AsyncAPI (Messaging), and Proto (gRPC). 
+
+> **Pro-Tip**: `sanshainUrl` is omitted here as it's better provided via environment variables in corporate environments.
 
 ```yaml
-sanshainUrl: https://sanshain.example.com
 serviceName: gateway-service
 timeout: 120
 compression: true
@@ -61,10 +62,24 @@ requires:
 
 | Field         | Type    | Required | Default | Description                                                                 |
 |---------------|---------|----------|---------|-----------------------------------------------------------------------------|
-| `sanshainUrl` | string  | **yes**  | —       | Base URL of the Sanshain Service instance.                                  |
+| `sanshainUrl` | string  | no       | —       | Base URL of the Sanshain Service instance. Recommended to provide via ENV.   |
 | `serviceName` | string  | **yes**  | —       | Name identifying this project (both for providing and requiring APIs).      |
 | `timeout`     | integer | no       | `30`    | Default timeout in seconds for require/require-bundle calls (long-polling). |
 | `compression` | boolean | no       | `false` | Whether to request gzip-compressed responses.                               |
+
+## Environment Overrides & Best Practices
+
+In a corporate environment, you should avoid hardcoding the `sanshainUrl` in `sanshain.yaml` to maintain flexibility across different environments (local, dev, prod) and to avoid rewriting git history if the service moves.
+
+All official plugins support providing the URL via:
+
+1. **Environment Variable**: `SANSHAIN_URL` (e.g., `export SANSHAIN_URL=https://sanshain.corp.com`).
+2. **Build Tool Settings**:
+   - **Maven**: `<sanshain.url>` property in `pom.xml` or `settings.xml`.
+   - **Gradle**: `sanshain.url` in `gradle.properties`.
+3. **CLI Flag**: `--url` or `-u` depending on the client.
+
+If `sanshainUrl` is present in `sanshain.yaml`, it will be used as a default but can be overridden by the methods above.
 
 ### `provide` / `provides` Section
 

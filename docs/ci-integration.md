@@ -171,6 +171,8 @@ These messages are designed to be shown directly in CI logs so developers can qu
 
 ## GitHub Actions Example
 
+Use `vars.SANSHAIN_URL` for the URL and `secrets.SANSHAIN_TOKEN` for the token. This allows you to update the service URL for all projects by changing a single Organization or Repository variable.
+
 ```yaml
 name: Contract Validation
 on: pull_request
@@ -196,19 +198,31 @@ jobs:
 
 ## Maven / Gradle Integration
 
-Store the API token in your build tool's credentials store:
+Store the API token and URL in your build tool's credentials or properties store:
 
 **Maven `settings.xml`:**
 ```xml
-<server>
-  <id>sanshain</id>
-  <username>ignored</username>
-  <password>san_xxxxxxxxxxxx</password>
-</server>
+<profiles>
+  <profile>
+    <id>sanshain-config</id>
+    <properties>
+      <sanshain.url>https://sanshain.corp.com</sanshain.url>
+    </properties>
+  </profile>
+</profiles>
+
+<servers>
+  <server>
+    <id>sanshain</id>
+    <username>ignored</username>
+    <password>san_xxxxxxxxxxxx</password>
+  </server>
+</servers>
 ```
 
 **Gradle `gradle.properties`:**
 ```properties
+sanshain.url=https://sanshain.corp.com
 sanshainToken=san_xxxxxxxxxxxx
 ```
 
