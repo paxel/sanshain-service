@@ -1439,6 +1439,17 @@ function exportToPng(currentGraphMode) {
   // Ensure factor is at least 1.0 (never scale down)
   factor = Math.max(1.0, factor);
 
+  // For Mermaid, we need to strip interactive elements that might taint the canvas
+  // (like links or external resource references in foreignObject)
+  if (currentGraphMode !== "custom") {
+    svgClone.querySelectorAll("a").forEach((a) => {
+      // Replace <a> with a <g> or just remove href
+      a.removeAttribute("href");
+      a.removeAttribute("xlink:href");
+      a.style.cursor = "default";
+    });
+  }
+
   const svgData = new XMLSerializer().serializeToString(svgClone);
   const canvas = document.createElement("canvas");
   canvas.width = width * factor;
@@ -1450,18 +1461,31 @@ function exportToPng(currentGraphMode) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   const img = new Image();
+  // Using a data URL instead of a Blob URL can sometimes help with tainted canvas issues
+  // in some browsers, but let's stick to blob if it works, and just add error handling.
   const blob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
   const url = URL.createObjectURL(blob);
 
   img.onload = () => {
-    ctx.drawImage(img, 0, 0, width * factor, height * factor);
-    const pngUrl = canvas.toDataURL("image/png");
-    const a = document.createElement("a");
-    a.href = pngUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    try {
+      ctx.drawImage(img, 0, 0, width * factor, height * factor);
+      const pngUrl = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = pngUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error("Failed to export PNG:", err);
+      alert("Failed to export PNG. This usually happens because of browser security restrictions with Mermaid graphs. Try using the default 'Graph' mode for export.");
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  };
+  img.onerror = (err) => {
+    console.error("Failed to load SVG for PNG export:", err);
+    alert("Failed to load graph for export.");
     URL.revokeObjectURL(url);
   };
   img.src = url;
