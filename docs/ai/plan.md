@@ -15,6 +15,9 @@
   - Updated `sanshain.yaml` reference to mark `sanshainUrl` as optional and recommend environment-based configuration.
   - Revamped AI Migration guide and prompts to include enterprise best practices (no hardcoding, secret management).
   - Created a dedicated `docs/corporate-best-practices.md` guide for enterprise users.
+- [x] **Markdown Table Alignment**
+  - Created a Junie Skill `markdown-table-formatter` for consistent Markdown table formatting.
+  - Applied the alignment to all existing documentation files (`GEMINI.md`, `docs/*.md`).
 
 ### Going Big (Enterprise & Advanced Scale)
 - [ ] **Top-Layer System Switch**

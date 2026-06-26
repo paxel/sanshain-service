@@ -57,13 +57,13 @@ The final step is removing the old code and specification.
 
 ## Summary Table
 
-| Change Type | Branch | Result | Action |
-| :--- | :--- | :--- | :--- |
-| **Additive** | Any | Accepted | None |
-| **Breaking** | Feature | Accepted | Test with opt-in clients |
-| **Breaking** | Protected | **Rejected (409)** | Use Path Versioning |
-| **Deprecation** | Protected | Accepted | Monitor Dependency Graph |
-| **Deletion** | Protected | Accepted* | *Only safe if client count is 0 |
+| Change Type     | Branch    | Result             | Action                         |
+|-----------------|-----------|--------------------|--------------------------------|
+| **Additive**    | Any       | Accepted           | None                           |
+| **Breaking**    | Feature   | Accepted           | Test with opt-in clients       |
+| **Breaking**    | Protected | **Rejected (409)** | Use Path Versioning            |
+| **Deprecation** | Protected | Accepted           | Monitor Dependency Graph       |
+| **Deletion**    | Protected | Accepted*          | *Only safe if client count is 0 |
 
 ---
 

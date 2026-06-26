@@ -67,26 +67,26 @@ This is intended for development and internal use. For production environments, 
 
 The **Authentication** section on the admin dashboard lets you choose how users authenticate:
 
-| Mode | Description |
-|------|-------------|
+| Mode                  | Description                                                                                                                                              |
+|-----------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **OFF / Maintenance** | Default on new installations. Restricts all anonymous and token-based interaction with provide/require API endpoints, returning 503 Service Unavailable. |
-| **Dev Mode** | No authentication required for public API endpoints. |
-| **Local Users** | Built-in user management with Argon2 password hashing. |
-| **LDAP** | Delegate authentication to an external LDAP / Active Directory server. |
+| **Dev Mode**          | No authentication required for public API endpoints.                                                                                                     |
+| **Local Users**       | Built-in user management with Argon2 password hashing.                                                                                                  |
+| **LDAP**              | Delegate authentication to an external LDAP / Active Directory server.                                                                                   |
 
 ### Configuring LDAP
 
 1. Select the **LDAP** radio button in the Authentication section.
 2. Fill in the LDAP configuration form:
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| **Server URL** | LDAP server address. Use `ldaps://` for TLS. | `ldap://ldap.example.com:389` |
-| **Bind DN** | Service account DN used to search for users. | `cn=readonly,dc=example,dc=com` |
-| **Bind Password** | Password for the service account. | *(stored encrypted, shown as `****`)* |
-| **Base DN** | Search base for user lookups. | `dc=example,dc=com` |
-| **User Filter** | LDAP filter to find users. `{username}` is replaced with the login name. | `(uid={username})` |
-| **Admin Group DN** | Users who are members of this group get admin privileges. Leave empty to disable. | `cn=admins,ou=groups,dc=example,dc=com` |
+| Field              | Description                                                                                | Example                                 |
+|--------------------|--------------------------------------------------------------------------------------------|-----------------------------------------|
+| **Server URL**     | LDAP server address. Use `ldaps://` for TLS.                                               | `ldap://ldap.example.com:389`           |
+| **Bind DN**        | Service account DN used to search for users.                                               | `cn=readonly,dc=example,dc=com`         |
+| **Bind Password**  | Password for the service account.                                                          | *(stored encrypted, shown as `****`)*    |
+| **Base DN**        | Search base for user lookups.                                                              | `dc=example,dc=com`                     |
+| **User Filter**    | LDAP filter to find users. `{username}` is replaced with the login name.                   | `(uid={username})`                      |
+| **Admin Group DN** | Users who are members of this group get admin privileges. Leave empty to disable.          | `cn=admins,ou=groups,dc=example,dc=com` |
 
 3. Click **Test Connection** to verify that Sanshain can reach the LDAP server and bind with the service account.
 4. Click **Save Authentication Settings** to apply.
@@ -172,9 +172,9 @@ Enter your current password and a new password, then click **Update Password**. 
 
 Sanshain supports two database backends: **SQLite** (default) and **PostgreSQL**. The backend is selected automatically based on the `DATABASE_URL` environment variable:
 
-| URL prefix | Backend |
-|---|---|
-| `sqlite:` or not set | SQLite |
+| URL prefix                       | Backend    |
+|----------------------------------|------------|
+| `sqlite:` or not set             | SQLite     |
 | `postgres://` or `postgresql://` | PostgreSQL |
 
 The current database backend and a masked connection URL are visible in the admin dashboard under **Database Configuration**. This section is read-only — to switch backends, change the `DATABASE_URL` environment variable and restart the service.

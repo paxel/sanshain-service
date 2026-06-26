@@ -161,10 +161,10 @@ PR opened → dry_run require (validate) → merge → require (record + generat
 
 All error responses include actionable information in the response body:
 
-| Status | Example Message |
-|--------|----------------|
-| `409 Conflict` | `DTO changed for GET /users on protected branch 'main' of service 'UserService'` |
-| `404 Not Found` | `Endpoint not found: GET /users on service 'UserService' branch 'main'` |
+| Status                   | Example Message                                                                           |
+|--------------------------|-------------------------------------------------------------------------------------------|
+| `409 Conflict`           | `DTO changed for GET /users on protected branch 'main' of service 'UserService'`          |
+| `404 Not Found`          | `Endpoint not found: GET /users on service 'UserService' branch 'main'`                   |
 | `404 Not Found` (bundle) | `Missing endpoints on service 'UserService' branch 'main': GET /users, DELETE /users/{id}` |
 
 These messages are designed to be shown directly in CI logs so developers can quickly identify and fix contract issues.

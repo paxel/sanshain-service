@@ -77,15 +77,15 @@ For more complex deployments or automated distribution, a Helm chart is provided
 
 See `deploy/helm/sanshain/values.yaml` for a complete list of parameters. Key options include:
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `replicaCount` | Number of pods to run | `1` |
-| `image.tag` | Image tag to deploy | (Chart `appVersion`) |
-| `ingress.enabled` | Enable Ingress resource | `false` |
-| `persistence.enabled` | Enable persistent storage for SQLite | `true` |
-| `persistence.size` | Size of the persistent volume | `1Gi` |
-| `config.initialAdminUsername` | Initial admin username | `root` |
-| `secrets.initialAdminPassword` | Initial admin password (if empty, random password is logged) | `""` |
+| Parameter                      | Description                                                  | Default              |
+|--------------------------------|--------------------------------------------------------------|----------------------|
+| `replicaCount`                 | Number of pods to run                                        | `1`                  |
+| `image.tag`                    | Image tag to deploy                                          | (Chart `appVersion`) |
+| `ingress.enabled`              | Enable Ingress resource                                      | `false`              |
+| `persistence.enabled`          | Enable persistent storage for SQLite                         | `true`               |
+| `persistence.size`             | Size of the persistent volume                                | `1Gi`                |
+| `config.initialAdminUsername`  | Initial admin username                                       | `root`               |
+| `secrets.initialAdminPassword` | Initial admin password (if empty, random password is logged) | `""`                 |
 
 ### Uninstallation
 

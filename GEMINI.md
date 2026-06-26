@@ -39,13 +39,14 @@ The project strictly follows a layered architecture. Maintain these boundaries:
 ## Specialized Procedures (AI Skills)
 This project uses the **Agent Skills** standard (`.agents/skills/`). Before performing the following tasks, read the corresponding `SKILL.md`:
 
-| Task | Skill | Path |
-|---|---|---|
-| **Update Changelog** | `changelog-updater` | `.agents/skills/changelog-updater/SKILL.md` |
-| **Handle CSRF/Auth** | `secure-csrf` | `.agents/skills/secure-csrf/SKILL.md` |
-| **Verify Release** | `verify-release` | `.agents/skills/verify-release/SKILL.md` |
-| **Version Bumping** | `version-management` | `.agents/skills/version-management/SKILL.md` |
-| **Create Skills** | `skill-creator` | `.agents/skills/skill-creator/SKILL.md` |
+| Task                      | Skill                      | Path                                               |
+|---------------------------|----------------------------|----------------------------------------------------|
+| **Update Changelog**      | `changelog-updater`        | `.agents/skills/changelog-updater/SKILL.md`         |
+| **Handle CSRF/Auth**      | `secure-csrf`              | `.agents/skills/secure-csrf/SKILL.md`               |
+| **Verify Release**        | `verify-release`           | `.agents/skills/verify-release/SKILL.md`             |
+| **Version Bumping**       | `version-management`       | `.agents/skills/version-management/SKILL.md`         |
+| **Create Skills**         | `skill-creator`            | `.agents/skills/skill-creator/SKILL.md`             |
+| **Markdown Table Format** | `markdown-table-formatter` | `.agents/skills/markdown-table-formatter/SKILL.md` |
 
 ## Building & Testing
 

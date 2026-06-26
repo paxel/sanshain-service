@@ -188,11 +188,11 @@ graph TD
 
 The system supports three authentication modes, stored as a setting in the database:
 
-| Mode | Behavior |
-|------|----------|
-| `Dev` | No authentication required. All requests are allowed. For development only. |
-| `Local` | Built-in user management. Argon2id password hashing. Admin approval required for new users. |
-| `Ldap` | Delegates authentication to an external LDAP/AD server. Shadow accounts created locally. |
+| Mode    | Behavior                                                                                       |
+|---------|------------------------------------------------------------------------------------------------|
+| `Dev`   | No authentication required. All requests are allowed. For development only.                     |
+| `Local` | Built-in user management. Argon2id password hashing. Admin approval required for new users.     |
+| `Ldap`  | Delegates authentication to an external LDAP/AD server. Shadow accounts created locally.          |
 
 ### Session-Based Auth
 
@@ -303,14 +303,14 @@ flowchart TD
 
 All admin endpoints require an authenticated session with `is_admin = true`:
 
-| Endpoint | Purpose |
-|----------|---------|
-| `GET/POST /api/admin/protected-branches` | Manage protected branches |
-| `DELETE /api/admin/services/:name` | Delete service (cascade) |
-| `GET/POST /api/admin/users` | List/approve users |
-| `GET/PUT /api/admin/auth-config` | Auth mode & LDAP config |
-| `POST /api/admin/auth-config/test` | Test LDAP connectivity |
-| `PUT /api/admin/settings` | Dev-mode, local-users toggles |
+| Endpoint                                | Purpose                      |
+|-----------------------------------------|------------------------------|
+| `GET/POST /api/admin/protected-branches` | Manage protected branches    |
+| `DELETE /api/admin/services/:name`       | Delete service (cascade)     |
+| `GET/POST /api/admin/users`             | List/approve users           |
+| `GET/PUT /api/admin/auth-config`         | Auth mode & LDAP config      |
+| `POST /api/admin/auth-config/test`      | Test LDAP connectivity       |
+| `PUT /api/admin/settings`                | Dev-mode, local-users toggles |
 
 ---
 
@@ -320,9 +320,9 @@ All admin endpoints require an authenticated session with `is_admin = true`:
 
 The `Repository` port trait is implemented by two adapters:
 
-| Adapter | File | Use Case |
-|---------|------|----------|
-| `SqliteRepository` | `sqlite_repository.rs` | Default, zero-config, single-file DB |
+| Adapter             | File                    | Use Case                               |
+|---------------------|-------------------------|----------------------------------------|
+| `SqliteRepository`   | `sqlite_repository.rs`   | Default, zero-config, single-file DB   |
 | `PostgresRepository` | `postgres_repository.rs` | Production, multi-instance deployments |
 
 Selection is via the `DATABASE_URL` environment variable:
@@ -367,11 +367,11 @@ All database access goes through this trait. The application layer never touches
 
 Every response includes hardened HTTP headers:
 
-| Header | Value | Purpose |
-|--------|-------|---------|
+| Header                    | Value                                                                                    | Purpose                           |
+|---------------------------|------------------------------------------------------------------------------------------|-----------------------------------|
 | `Content-Security-Policy` | `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'` | Prevents XSS via injected scripts |
-| `X-Content-Type-Options` | `nosniff` | Prevents MIME-type sniffing |
-| `X-Frame-Options` | `DENY` | Prevents clickjacking |
+| `X-Content-Type-Options`  | `nosniff`                                                                                | Prevents MIME-type sniffing       |
+| `X-Frame-Options`         | `DENY`                                                                                   | Prevents clickjacking             |
 
 These are applied as middleware in the Axum router.
 
@@ -398,11 +398,11 @@ The service uses `tracing` + `tower-http::TraceLayer`:
 
 Located alongside the code they test (Rust convention):
 
-| Module | Tests | What's Covered |
-|--------|-------|----------------|
-| `openapi.rs` | 5 | Splitting single/multiple endpoints, invalid YAML, components inclusion, empty paths |
-| `services.rs` | ~20 | Provide/require logic, auth mode dispatch, LDAP config validation, token hashing, markdown rendering |
-| `models.rs` | ~5 | LdapConfig validation, AuthMode serialization |
+| Module        | Tests | What's Covered                                                                                |
+|---------------|-------|-----------------------------------------------------------------------------------------------|
+| `openapi.rs`  | 5     | Splitting single/multiple endpoints, invalid YAML, components inclusion, empty paths          |
+| `services.rs` | ~20   | Provide/require logic, auth mode dispatch, LDAP config validation, token hashing, markdown rendering |
+| `models.rs`   | ~5    | LdapConfig validation, AuthMode serialization                                                 |
 
 Domain and application tests use a **mock repository** implementing the `Repository` trait in-memory. LDAP tests use a mock `AuthProvider`.
 
@@ -410,19 +410,19 @@ Domain and application tests use a **mock repository** implementing the `Reposit
 
 Located in `tests/integration_test.rs`. These spin up a real Axum server with an in-memory SQLite database:
 
-| Test | What's Covered |
-|------|----------------|
-| `test_provide_and_require` | Full provide → require → verify YAML round-trip |
-| `test_feature_branch_fallback` | Require from feature branch falls back to default |
-| `test_protected_branch_immutability` | Cannot overwrite version on protected branch |
-| `test_report_endpoints` | JSON and markdown report generation |
-| `test_auth_config_api` | Auth mode and LDAP config CRUD |
-| `test_require_does_not_create_phantom_service` | Phantom service prevention |
-| `test_delete_service_does_not_create_phantom_client` | Phantom client prevention |
-| `test_require_missing_endpoint_returns_descriptive_error` | Descriptive 404 error messages |
-| `test_provide_conflict_returns_descriptive_error` | Descriptive 409 error messages |
-| `test_provide_dry_run_does_not_store_data` | Dry-run provide validation |
-| `test_require_dry_run_does_not_create_dependency` | Dry-run require validation |
+| Test                                                      | What's Covered                                   |
+|-----------------------------------------------------------|--------------------------------------------------|
+| `test_provide_and_require`                                | Full provide → require → verify YAML round-trip  |
+| `test_feature_branch_fallback`                            | Require from feature branch falls back to default |
+| `test_protected_branch_immutability`                      | Cannot overwrite version on protected branch     |
+| `test_report_endpoints`                                   | JSON and markdown report generation              |
+| `test_auth_config_api`                                    | Auth mode and LDAP config CRUD                   |
+| `test_require_does_not_create_phantom_service`            | Phantom service prevention                       |
+| `test_delete_service_does_not_create_phantom_client`      | Phantom client prevention                        |
+| `test_require_missing_endpoint_returns_descriptive_error` | Descriptive 404 error messages                   |
+| `test_provide_conflict_returns_descriptive_error`         | Descriptive 409 error messages                   |
+| `test_provide_dry_run_does_not_store_data`                | Dry-run provide validation                       |
+| `test_require_dry_run_does_not_create_dependency`         | Dry-run require validation                       |
 | ... | 26 tests total |
 
 ### Running Tests
@@ -457,13 +457,13 @@ docker run -p 3000:3000 -v data:/data sanshain-service
 
 ## Dependency Choices
 
-| Crate | Purpose | Why This One |
-|-------|---------|-------------|
-| `axum` | HTTP framework | Tokio-native, tower middleware, ergonomic extractors |
-| `sqlx` | Database | Compile-time query checking, async, multi-DB |
-| `argon2` | Password hashing | OWASP recommended, pure Rust |
-| `ldap3` | LDAP client | Only maintained async LDAP crate for Rust |
-| `openapiv3` | OpenAPI parsing | Type-safe OpenAPI 3.x model |
-| `askama` | Templating | Compile-time templates, XSS-safe by default |
-| `tower-http` | Middleware | CORS, tracing, compression — composable |
-| `rustls` | TLS (for LDAP) | Pure Rust, no OpenSSL system dependency |
+| Crate        | Purpose          | Why This One                                         |
+|--------------|------------------|------------------------------------------------------|
+| `axum`       | HTTP framework   | Tokio-native, tower middleware, ergonomic extractors |
+| `sqlx`       | Database         | Compile-time query checking, async, multi-DB         |
+| `argon2`     | Password hashing | OWASP recommended, pure Rust                         |
+| `ldap3`      | LDAP client      | Only maintained async LDAP crate for Rust            |
+| `openapiv3`  | OpenAPI parsing  | Type-safe OpenAPI 3.x model                          |
+| `askama`     | Templating       | Compile-time templates, XSS-safe by default          |
+| `tower-http` | Middleware       | CORS, tracing, compression — composable              |
+| `rustls`     | TLS (for LDAP)   | Pure Rust, no OpenSSL system dependency              |

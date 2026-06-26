@@ -172,11 +172,11 @@ Sanshain supports **both AsyncAPI 2.x and 3.x** specifications. The version is a
 
 However, there is an important difference in how **channel identifiers** are resolved:
 
-| | AsyncAPI 2.x | AsyncAPI 3.x |
-|---|---|---|
-| **Operations** | `channels.*.publish` / `channels.*.subscribe` | `operations.*.action: send` / `operations.*.action: receive` |
-| **Internal mapping** | `publish` → `PUB`, `subscribe` → `SUB` | `send` → `PUB`, `receive` → `SUB` |
-| **Channel identifier** | The channel key (e.g., `user-created`) | The channel `address` field (e.g., `user/signedup`) |
+|                      | AsyncAPI 2.x                                 | AsyncAPI 3.x                                                 |
+|----------------------|----------------------------------------------|--------------------------------------------------------------|
+| **Operations**       | `channels.*.publish` / `channels.*.subscribe` | `operations.*.action: send` / `operations.*.action: receive` |
+| **Internal mapping** | `publish` → `PUB`, `subscribe` → `SUB`       | `send` → `PUB`, `receive` → `SUB`                            |
+| **Channel identifier** | The channel key (e.g., `user-created`)     | The channel `address` field (e.g., `user/signedup`)          |
 
 **Key restriction when upgrading from v2 to v3:**
 
@@ -235,12 +235,12 @@ When a service **provides** a spec file, Sanshain splits it into individual endp
 
 The table below summarizes what Sanshain extracts from each spec type and what you must write in `sanshain.yaml` to match:
 
-| Protocol | Spec provides → Sanshain stores | `sanshain.yaml` `path` | `sanshain.yaml` `method` |
-|---|---|---|---|
-| OpenAPI | Each `paths.*` entry + HTTP verb | The OpenAPI path (e.g., `/api/v1/users/{id}`) | The HTTP verb in uppercase (`GET`, `POST`, `PUT`, `DELETE`, `PATCH`) |
-| AsyncAPI 2.x | Each `channels.*` key + `publish`/`subscribe` | The channel key (e.g., `orders.created`) | `PUB` or `SUB` |
-| AsyncAPI 3.x | Each `operations.*` entry → resolved channel `address` + `send`/`receive` | The channel **address** (e.g., `orders.created`) | `PUB` or `SUB` |
-| Proto | Each `service` + `rpc` method | The fully qualified service name (e.g., `inventory.v1.InventoryService`) | The exact RPC method name (e.g., `GetProduct`) — **case-sensitive** |
+| Protocol     | Spec provides → Sanshain stores                                  | `sanshain.yaml` `path`                                                  | `sanshain.yaml` `method`                                            |
+|--------------|-------------------------------------------------------------------|-------------------------------------------------------------------------|---------------------------------------------------------------------|
+| OpenAPI      | Each `paths.*` entry + HTTP verb                                  | The OpenAPI path (e.g., `/api/v1/users/{id}`)                           | The HTTP verb in uppercase (`GET`, `POST`, `PUT`, `DELETE`, `PATCH`) |
+| AsyncAPI 2.x | Each `channels.*` key + `publish`/`subscribe`                     | The channel key (e.g., `orders.created`)                                | `PUB` or `SUB`                                                      |
+| AsyncAPI 3.x | Each `operations.*` entry → resolved channel `address` + `send`/`receive` | The channel **address** (e.g., `orders.created`)                        | `PUB` or `SUB`                                                      |
+| Proto        | Each `service` + `rpc` method                                     | The fully qualified service name (e.g., `inventory.v1.InventoryService`) | The exact RPC method name (e.g., `GetProduct`) — **case-sensitive**  |
 
 ### OpenAPI Matching — Detailed Example
 
@@ -291,11 +291,11 @@ components:
 
 Sanshain splits this into **3 endpoints**:
 
-| Stored `path` | Stored `method` |
-|---|---|
-| `/api/v1/users` | `GET` |
-| `/api/v1/users` | `POST` |
-| `/api/v1/users/{id}` | `GET` |
+| Stored `path`        | Stored `method` |
+|----------------------|-----------------|
+| `/api/v1/users`      | `GET`           |
+| `/api/v1/users`      | `POST`          |
+| `/api/v1/users/{id}` | `GET`           |
 
 To require the "get user by ID" and "create user" endpoints, write:
 
@@ -350,9 +350,9 @@ channels:
 Sanshain splits this into **2 endpoints**:
 
 | Stored `path` (channel) | Stored `method` |
-|---|---|
-| `orders.created` | `PUB` |
-| `orders.cancelled` | `SUB` |
+|-------------------------|-----------------|
+| `orders.created`        | `PUB`           |
+| `orders.cancelled`      | `SUB`           |
 
 To subscribe to new order events, write:
 
@@ -411,11 +411,11 @@ message UpdateStockResponse {
 
 Sanshain splits this into **3 endpoints**:
 
-| Stored `path` (service) | Stored `method` (RPC) |
-|---|---|
-| `inventory.v1.InventoryService` | `GetProduct` |
-| `inventory.v1.InventoryService` | `ListProducts` |
-| `inventory.v1.InventoryService` | `UpdateStock` |
+| Stored `path` (service)           | Stored `method` (RPC) |
+|-----------------------------------|-----------------------|
+| `inventory.v1.InventoryService`   | `GetProduct`          |
+| `inventory.v1.InventoryService`   | `ListProducts`        |
+| `inventory.v1.InventoryService`   | `UpdateStock`         |
 
 To require `GetProduct` and `ListProducts`, write:
 
@@ -437,11 +437,11 @@ The client receives a `.proto` file containing only the `InventoryService` defin
 
 ### Quick Reference: What Goes Where
 
-| I want to… | `apiType` | `method` value | `path` value |
-|---|---|---|---|
-| Call a REST endpoint | `openapi` | `GET`, `POST`, `PUT`, `DELETE`, `PATCH` | The OpenAPI path (e.g., `/api/v1/orders`) |
-| Subscribe to a message channel | `asyncapi` | `PUB` or `SUB` | The channel name/address (e.g., `orders.created`) |
-| Call a gRPC method | `proto` | The RPC method name (e.g., `GetProduct`) | The fully qualified service (e.g., `inventory.v1.InventoryService`) |
+| I want to…                      | `apiType`  | `method` value                           | `path` value                                                   |
+|---------------------------------|------------|------------------------------------------|----------------------------------------------------------------|
+| Call a REST endpoint            | `openapi`  | `GET`, `POST`, `PUT`, `DELETE`, `PATCH`  | The OpenAPI path (e.g., `/api/v1/orders`)                      |
+| Subscribe to a message channel | `asyncapi` | `PUB` or `SUB`                           | The channel name/address (e.g., `orders.created`)              |
+| Call a gRPC method              | `proto`    | The RPC method name (e.g., `GetProduct`) | The fully qualified service (e.g., `inventory.v1.InventoryService`) |
 
 ## How Plugins Use This
 
