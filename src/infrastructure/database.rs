@@ -514,7 +514,18 @@ impl SpecRepository for DatabaseRepo {
         action_type: Option<&str>,
         diff: Option<&str>,
     ) -> Result<(), RepositoryError> {
-        delegate!(self, insert_audit_log(username, action, details, service, branch, action_type, diff))
+        delegate!(
+            self,
+            insert_audit_log(
+                username,
+                action,
+                details,
+                service,
+                branch,
+                action_type,
+                diff
+            )
+        )
     }
 
     async fn get_audit_logs(

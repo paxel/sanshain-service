@@ -1870,22 +1870,20 @@ impl SpecRepository for PostgresSpecRepository {
         use sqlx::Row;
         Ok(rows
             .into_iter()
-            .map(|r| {
-                EndpointVersion {
-                    id: r.get(0),
-                    endpoint_id: r.get(1),
-                    version: r.get(2),
-                    yaml_content: r.get(3),
-                    diff_from_previous: r.get(4),
-                    created_at: r.get(5),
-                    username: r.get(6),
-                    source_branch: r.get(7),
-                    service_name: Some(r.get(8)),
-                    branch_name: Some(r.get(9)),
-                    api_type: ApiType::from_str(r.get::<String, _>(10).as_str()).ok(),
-                    path: Some(r.get(11)),
-                    method: Some(r.get(12)),
-                }
+            .map(|r| EndpointVersion {
+                id: r.get(0),
+                endpoint_id: r.get(1),
+                version: r.get(2),
+                yaml_content: r.get(3),
+                diff_from_previous: r.get(4),
+                created_at: r.get(5),
+                username: r.get(6),
+                source_branch: r.get(7),
+                service_name: Some(r.get(8)),
+                branch_name: Some(r.get(9)),
+                api_type: ApiType::from_str(r.get::<String, _>(10).as_str()).ok(),
+                path: Some(r.get(11)),
+                method: Some(r.get(12)),
             })
             .collect())
     }
@@ -2203,24 +2201,64 @@ impl SpecRepository for PostgresSpecRepository {
         &self,
         filter: AuditLogFilter,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
-        let mut sql = String::from("SELECT id, timestamp, username, action, details, service, branch, action_type, diff FROM audit_logs WHERE 1=1");
+        let mut sql = String::from(
+            "SELECT id, timestamp, username, action, details, service, branch, action_type, diff FROM audit_logs WHERE 1=1",
+        );
         let mut param_idx = 1;
 
-        if filter.from_date.is_some() { sql.push_str(&format!(" AND timestamp >= ${}", param_idx)); param_idx += 1; }
-        if filter.to_date.is_some() { sql.push_str(&format!(" AND timestamp <= ${}", param_idx)); param_idx += 1; }
-        if filter.action_type.is_some() { sql.push_str(&format!(" AND action_type = ${}", param_idx)); param_idx += 1; }
-        if filter.service_wildcard.is_some() { sql.push_str(&format!(" AND service LIKE ${}", param_idx)); param_idx += 1; }
-        if filter.branch_wildcard.is_some() { sql.push_str(&format!(" AND branch LIKE ${}", param_idx)); param_idx += 1; }
-        
+        if filter.from_date.is_some() {
+            sql.push_str(&format!(" AND timestamp >= ${}", param_idx));
+            param_idx += 1;
+        }
+        if filter.to_date.is_some() {
+            sql.push_str(&format!(" AND timestamp <= ${}", param_idx));
+            param_idx += 1;
+        }
+        if filter.action_type.is_some() {
+            sql.push_str(&format!(" AND action_type = ${}", param_idx));
+            param_idx += 1;
+        }
+        if filter.service_wildcard.is_some() {
+            sql.push_str(&format!(" AND service LIKE ${}", param_idx));
+            param_idx += 1;
+        }
+        if filter.branch_wildcard.is_some() {
+            sql.push_str(&format!(" AND branch LIKE ${}", param_idx));
+            param_idx += 1;
+        }
+
         sql.push_str(&format!(" ORDER BY id DESC LIMIT ${}", param_idx));
 
-        let mut query = sqlx::query_as::<_, (i64, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>)>(&sql);
-        
-        if let Some(ref val) = filter.from_date { query = query.bind(val); }
-        if let Some(ref val) = filter.to_date { query = query.bind(val); }
-        if let Some(ref val) = filter.action_type { query = query.bind(val); }
-        if let Some(ref val) = filter.service_wildcard { query = query.bind(val); }
-        if let Some(ref val) = filter.branch_wildcard { query = query.bind(val); }
+        let mut query = sqlx::query_as::<
+            _,
+            (
+                i64,
+                String,
+                String,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            ),
+        >(&sql);
+
+        if let Some(ref val) = filter.from_date {
+            query = query.bind(val);
+        }
+        if let Some(ref val) = filter.to_date {
+            query = query.bind(val);
+        }
+        if let Some(ref val) = filter.action_type {
+            query = query.bind(val);
+        }
+        if let Some(ref val) = filter.service_wildcard {
+            query = query.bind(val);
+        }
+        if let Some(ref val) = filter.branch_wildcard {
+            query = query.bind(val);
+        }
         query = query.bind(filter.limit as i64);
 
         let rows = query
@@ -2230,17 +2268,21 @@ impl SpecRepository for PostgresSpecRepository {
 
         Ok(rows
             .into_iter()
-            .map(|(id, timestamp, username, action, details, service, branch, action_type, diff)| AuditLogEntry {
-                id,
-                timestamp,
-                username,
-                action,
-                details,
-                service,
-                branch,
-                action_type,
-                diff,
-            })
+            .map(
+                |(id, timestamp, username, action, details, service, branch, action_type, diff)| {
+                    AuditLogEntry {
+                        id,
+                        timestamp,
+                        username,
+                        action,
+                        details,
+                        service,
+                        branch,
+                        action_type,
+                        diff,
+                    }
+                },
+            )
             .collect())
     }
 
@@ -2248,6 +2290,7 @@ impl SpecRepository for PostgresSpecRepository {
         &self,
         limit: u32,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
+        #[allow(clippy::type_complexity)]
         let rows: Vec<(i64, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
             "SELECT id, timestamp, username, action, details, service, branch, action_type, diff FROM audit_logs ORDER BY id DESC LIMIT $1"
         )
@@ -2258,17 +2301,21 @@ impl SpecRepository for PostgresSpecRepository {
 
         Ok(rows
             .into_iter()
-            .map(|(id, timestamp, username, action, details, service, branch, action_type, diff)| AuditLogEntry {
-                id,
-                timestamp,
-                username,
-                action,
-                details,
-                service,
-                branch,
-                action_type,
-                diff,
-            })
+            .map(
+                |(id, timestamp, username, action, details, service, branch, action_type, diff)| {
+                    AuditLogEntry {
+                        id,
+                        timestamp,
+                        username,
+                        action,
+                        details,
+                        service,
+                        branch,
+                        action_type,
+                        diff,
+                    }
+                },
+            )
             .collect())
     }
 

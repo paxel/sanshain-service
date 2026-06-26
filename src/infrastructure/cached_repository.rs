@@ -1197,7 +1197,15 @@ impl SpecRepository for CachedSpecRepository {
         diff: Option<&str>,
     ) -> Result<(), RepositoryError> {
         self.inner
-            .insert_audit_log(username, action, details, service, branch, action_type, diff)
+            .insert_audit_log(
+                username,
+                action,
+                details,
+                service,
+                branch,
+                action_type,
+                diff,
+            )
             .await
     }
 

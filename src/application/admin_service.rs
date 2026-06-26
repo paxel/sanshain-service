@@ -177,7 +177,6 @@ pub async fn list_client_endpoints(
     Ok(repo.list_client_endpoints(client_name, branch).await?)
 }
 
-
 pub async fn get_branch_max_age_days(repo: &impl SpecRepository) -> Result<u64, AppError> {
     let val = repo
         .get_setting("branch_max_age_days")

@@ -12,6 +12,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::str::FromStr;
 
+#[allow(clippy::too_many_arguments)]
 async fn record_audit_log(
     repo: &impl crate::domain::ports::SpecRepository,
     user: Option<axum::Extension<crate::domain::models::User>>,

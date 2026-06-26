@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [1.4.0] - 2026-06-25
+## [1.4.0] - 2026-06-26
 
 ### Added
 - **Audit Log with Filtering & Timeline**: Created a dedicated Audit page with a unified chronological timeline, powerful search capabilities (date range, action type, wildcard support), compact 1-2 line per entry layout, and side-by-side diff viewing via `diff2html`.

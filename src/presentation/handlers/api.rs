@@ -19,6 +19,7 @@ use sha2::{Digest, Sha256};
 use std::convert::Infallible;
 use tokio_stream::Stream;
 
+#[allow(clippy::too_many_arguments)]
 async fn record_audit_log(
     repo: &impl crate::domain::ports::SpecRepository,
     user: Option<axum::Extension<crate::domain::models::User>>,
@@ -245,9 +246,13 @@ pub async fn require(
         )
         .await?
     } else {
-        let res = services::require_endpoint(&state.repo, Some(state.spec_updated_tx.subscribe()), params)
-            .await?;
-        
+        let res = services::require_endpoint(
+            &state.repo,
+            Some(state.spec_updated_tx.subscribe()),
+            params,
+        )
+        .await?;
+
         let _ = record_audit_log(
             &state.repo,
             user,
@@ -260,8 +265,9 @@ pub async fn require(
             Some(&query.branch),
             Some("READ"),
             None,
-        ).await;
-        
+        )
+        .await;
+
         res
     };
 
@@ -311,7 +317,8 @@ pub async fn require_asyncapi(
         Some(&query.branch),
         Some("READ"),
         None,
-    ).await;
+    )
+    .await;
 
     let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
     if headers.get("if-none-match") == Some(&HeaderValue::from_str(&etag).unwrap()) {
@@ -359,7 +366,8 @@ pub async fn require_proto(
         Some(&query.branch),
         Some("READ"),
         None,
-    ).await;
+    )
+    .await;
 
     let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
     if headers.get("if-none-match") == Some(&HeaderValue::from_str(&etag).unwrap()) {
@@ -422,13 +430,17 @@ pub async fn require_bundle(
         "REQUIRE_SPEC",
         &format!(
             "Client '{}' requested bundle for service '{}' on branch '{}' ({} endpoints)",
-            payload.clientname, payload.servicename, payload.branch, endpoints.len()
+            payload.clientname,
+            payload.servicename,
+            payload.branch,
+            endpoints.len()
         ),
         Some(&payload.servicename),
         Some(&payload.branch),
         Some("READ"),
         None,
-    ).await;
+    )
+    .await;
 
     let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
     if headers.get("if-none-match") == Some(&HeaderValue::from_str(&etag).unwrap()) {
@@ -463,7 +475,8 @@ pub async fn report(
         Some(&query.branch),
         Some("READ"),
         None,
-    ).await;
+    )
+    .await;
     Ok(Json(res))
 }
 
@@ -482,7 +495,8 @@ pub async fn report_markdown(
         Some(&query.branch),
         Some("READ"),
         None,
-    ).await;
+    )
+    .await;
     Ok((
         [(
             axum::http::header::CONTENT_TYPE,
@@ -507,7 +521,8 @@ pub async fn report_isolation(
         Some(&query.branch),
         Some("READ"),
         None,
-    ).await;
+    )
+    .await;
     Ok(services::render_isolation_report(&res))
 }
 
@@ -527,12 +542,16 @@ pub async fn report_merged(
         &state.repo,
         user,
         "REPORT",
-        &format!("Generated merged report for branch '{}' -> '{}'", query.branch, query.target),
+        &format!(
+            "Generated merged report for branch '{}' -> '{}'",
+            query.branch, query.target
+        ),
         None,
         Some(&query.branch),
         Some("READ"),
         None,
-    ).await;
+    )
+    .await;
     Ok(Json(res))
 }
 

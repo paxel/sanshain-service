@@ -4895,7 +4895,9 @@ async fn test_audit_logs_and_security() {
         .await
         .unwrap();
     let csv_str = String::from_utf8(body_csv.to_vec()).unwrap();
-    assert!(csv_str.starts_with("id,timestamp,username,action,details,service,branch,action_type\n"));
+    assert!(
+        csv_str.starts_with("id,timestamp,username,action,details,service,branch,action_type\n")
+    );
     assert!(csv_str.contains("REGISTER_USER"));
     assert!(csv_str.contains("SET_DEV_MODE"));
 }

@@ -1938,22 +1938,20 @@ impl SpecRepository for SqliteSpecRepository {
         use sqlx::Row;
         Ok(rows
             .into_iter()
-            .map(|r| {
-                EndpointVersion {
-                    id: r.get(0),
-                    endpoint_id: r.get(1),
-                    version: r.get(2),
-                    yaml_content: r.get(3),
-                    diff_from_previous: r.get(4),
-                    created_at: r.get(5),
-                    username: r.get(6),
-                    source_branch: r.get(7),
-                    service_name: Some(r.get(8)),
-                    branch_name: Some(r.get(9)),
-                    api_type: ApiType::from_str(r.get::<String, _>(10).as_str()).ok(),
-                    path: Some(r.get(11)),
-                    method: Some(r.get(12)),
-                }
+            .map(|r| EndpointVersion {
+                id: r.get(0),
+                endpoint_id: r.get(1),
+                version: r.get(2),
+                yaml_content: r.get(3),
+                diff_from_previous: r.get(4),
+                created_at: r.get(5),
+                username: r.get(6),
+                source_branch: r.get(7),
+                service_name: Some(r.get(8)),
+                branch_name: Some(r.get(9)),
+                api_type: ApiType::from_str(r.get::<String, _>(10).as_str()).ok(),
+                path: Some(r.get(11)),
+                method: Some(r.get(12)),
             })
             .collect())
     }
@@ -2271,23 +2269,58 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
         filter: AuditLogFilter,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
-        let mut sql = String::from("SELECT id, timestamp, username, action, details, service, branch, action_type, diff FROM audit_logs WHERE 1=1");
-        
-        if filter.from_date.is_some() { sql.push_str(" AND timestamp >= ?"); }
-        if filter.to_date.is_some() { sql.push_str(" AND timestamp <= ?"); }
-        if filter.action_type.is_some() { sql.push_str(" AND action_type = ?"); }
-        if filter.service_wildcard.is_some() { sql.push_str(" AND service LIKE ?"); }
-        if filter.branch_wildcard.is_some() { sql.push_str(" AND branch LIKE ?"); }
-        
+        let mut sql = String::from(
+            "SELECT id, timestamp, username, action, details, service, branch, action_type, diff FROM audit_logs WHERE 1=1",
+        );
+
+        if filter.from_date.is_some() {
+            sql.push_str(" AND timestamp >= ?");
+        }
+        if filter.to_date.is_some() {
+            sql.push_str(" AND timestamp <= ?");
+        }
+        if filter.action_type.is_some() {
+            sql.push_str(" AND action_type = ?");
+        }
+        if filter.service_wildcard.is_some() {
+            sql.push_str(" AND service LIKE ?");
+        }
+        if filter.branch_wildcard.is_some() {
+            sql.push_str(" AND branch LIKE ?");
+        }
+
         sql.push_str(" ORDER BY id DESC LIMIT ?");
 
-        let mut query = sqlx::query_as::<_, (i64, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>)>(&sql);
-        
-        if let Some(ref val) = filter.from_date { query = query.bind(val); }
-        if let Some(ref val) = filter.to_date { query = query.bind(val); }
-        if let Some(ref val) = filter.action_type { query = query.bind(val); }
-        if let Some(ref val) = filter.service_wildcard { query = query.bind(val); }
-        if let Some(ref val) = filter.branch_wildcard { query = query.bind(val); }
+        let mut query = sqlx::query_as::<
+            _,
+            (
+                i64,
+                String,
+                String,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            ),
+        >(&sql);
+
+        if let Some(ref val) = filter.from_date {
+            query = query.bind(val);
+        }
+        if let Some(ref val) = filter.to_date {
+            query = query.bind(val);
+        }
+        if let Some(ref val) = filter.action_type {
+            query = query.bind(val);
+        }
+        if let Some(ref val) = filter.service_wildcard {
+            query = query.bind(val);
+        }
+        if let Some(ref val) = filter.branch_wildcard {
+            query = query.bind(val);
+        }
         query = query.bind(filter.limit);
 
         let rows = query
@@ -2297,17 +2330,21 @@ impl SpecRepository for SqliteSpecRepository {
 
         Ok(rows
             .into_iter()
-            .map(|(id, timestamp, username, action, details, service, branch, action_type, diff)| AuditLogEntry {
-                id,
-                timestamp,
-                username,
-                action,
-                details,
-                service,
-                branch,
-                action_type,
-                diff,
-            })
+            .map(
+                |(id, timestamp, username, action, details, service, branch, action_type, diff)| {
+                    AuditLogEntry {
+                        id,
+                        timestamp,
+                        username,
+                        action,
+                        details,
+                        service,
+                        branch,
+                        action_type,
+                        diff,
+                    }
+                },
+            )
             .collect())
     }
 
@@ -2315,6 +2352,7 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
         limit: u32,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
+        #[allow(clippy::type_complexity)]
         let rows: Vec<(i64, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
             "SELECT id, timestamp, username, action, details, service, branch, action_type, diff FROM audit_logs ORDER BY id DESC LIMIT ?"
         )
@@ -2325,17 +2363,21 @@ impl SpecRepository for SqliteSpecRepository {
 
         Ok(rows
             .into_iter()
-            .map(|(id, timestamp, username, action, details, service, branch, action_type, diff)| AuditLogEntry {
-                id,
-                timestamp,
-                username,
-                action,
-                details,
-                service,
-                branch,
-                action_type,
-                diff,
-            })
+            .map(
+                |(id, timestamp, username, action, details, service, branch, action_type, diff)| {
+                    AuditLogEntry {
+                        id,
+                        timestamp,
+                        username,
+                        action,
+                        details,
+                        service,
+                        branch,
+                        action_type,
+                        diff,
+                    }
+                },
+            )
             .collect())
     }
 

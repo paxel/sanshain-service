@@ -533,6 +533,7 @@ pub trait SpecRepository: Send + Sync {
     // --- Audit Logs ---
 
     /// Insert an audit log record
+    #[allow(clippy::too_many_arguments)]
     fn insert_audit_log(
         &self,
         username: &str,
