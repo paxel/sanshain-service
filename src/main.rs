@@ -51,7 +51,7 @@ pub async fn main() {
 
     use tracing_subscriber::Layer;
     let stdout_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "sanshain_service=info,tower_http=info".into());
+        .unwrap_or_else(|_| "sanshain_service=info,tower_http=warn".into());
 
     // We want the capture layer to see DEBUG logs so they can be toggled at runtime,
     // but we keep stdout at INFO by default to avoid noise.
@@ -183,14 +183,23 @@ pub async fn main() {
     // Loudly warn if authentication is effectively disabled. Dev mode lets any
     // caller reach protected endpoints without a token and must never be left
     // enabled in production.
-    if services::get_dev_mode(&repo).await.unwrap_or(false) {
+    let dev_user = if services::get_dev_mode(&repo).await.unwrap_or(false) {
         tracing::warn!(
             "SECURITY WARNING: dev_mode is ENABLED - API endpoints accept unauthenticated requests. Disable it in production."
         );
         eprintln!(
             "SECURITY WARNING: dev_mode is ENABLED - API endpoints accept unauthenticated requests. Disable it in production."
         );
-    }
+        match services::ensure_dev_user(&repo).await {
+            Ok(user) => Some(user),
+            Err(e) => {
+                tracing::warn!("Could not ensure dev_user in database: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     let instance_id =
         std::env::var("INSTANCE_ID").unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
@@ -210,6 +219,7 @@ pub async fn main() {
     let state = AppState {
         repo,
         db_url: db_connection_str,
+        dev_user,
         csrf_tokens: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
         instance_id,
         spec_updated_tx,

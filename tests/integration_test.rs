@@ -44,6 +44,7 @@ fn test_app_state(repo: SqliteSpecRepository) -> AppState {
     AppState {
         repo: CachedSpecRepository::new(DatabaseRepo::Sqlite(repo), 256),
         db_url: "sqlite::memory:".to_string(),
+        dev_user: None,
         csrf_tokens: Arc::new(RwLock::new(tokens)),
         instance_id: "test".to_string(),
         spec_updated_tx,
@@ -76,12 +77,22 @@ async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
 
 /// Setup app with initial admin and dev mode enabled (for tests that don't care about auth)
 async fn setup_app_dev_mode() -> axum::Router {
-    let (app, repo) = setup_app().await;
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
     services::ensure_initial_admin(&repo).await.unwrap();
     services::set_auth_mode(&repo, &AuthMode::Dev)
         .await
         .unwrap();
-    app
+    let dev_user = services::ensure_dev_user(&repo).await.ok();
+
+    let mut state = test_app_state(repo);
+    state.dev_user = dev_user;
+    create_app(state)
 }
 
 /// Setup app with initial admin, return app + admin token + repo
@@ -4904,11 +4915,20 @@ async fn test_audit_logs_and_security() {
 
 #[tokio::test]
 async fn test_endpoint_version_metadata() {
-    let (app, repo) = setup_app().await;
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
     services::ensure_initial_admin(&repo).await.unwrap();
     services::set_auth_mode(&repo, &AuthMode::Dev)
         .await
         .unwrap();
+    let dev_user = services::ensure_dev_user(&repo).await.ok();
+    let mut state = test_app_state(repo.clone());
+    state.dev_user = dev_user;
+    let app = create_app(state);
 
     // 1. Protect the branch 'main'
     use sanshain_service::domain::ports::SpecRepository;

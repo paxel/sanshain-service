@@ -120,6 +120,15 @@ pub async fn set_dev_mode(repo: &impl SpecRepository, enabled: bool) -> Result<(
     Ok(())
 }
 
+pub async fn ensure_dev_user(repo: &impl SpecRepository) -> Result<User, AppError> {
+    if let Some(user) = repo.find_user("dev_user").await? {
+        return Ok(user);
+    }
+    let hash = hash_password("dev_user_internal")?;
+    let user = repo.create_user("dev_user", &hash, true, true).await?;
+    Ok(user)
+}
+
 #[instrument(skip_all)]
 pub async fn validate_session(
     repo: &impl SpecRepository,

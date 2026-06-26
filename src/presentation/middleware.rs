@@ -12,20 +12,23 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+async fn resolve_dev_user(state: &AppState) -> Option<crate::domain::models::User> {
+    if let Some(u) = &state.dev_user {
+        return Some(u.clone());
+    }
+    services::ensure_dev_user(&state.repo).await.ok()
+}
+
 pub async fn authenticated_auth(
     State(state): State<AppState>,
     req: Request,
     next: Next,
 ) -> Result<impl IntoResponse, StatusCode> {
-    if services::get_dev_mode(&state.repo).await.unwrap_or(false) {
+    if services::get_dev_mode(&state.repo).await.unwrap_or(false)
+        && let Some(dev_user) = resolve_dev_user(&state).await
+    {
         let mut req = req;
-        req.extensions_mut().insert(crate::domain::models::User {
-            id: 0,
-            username: "dev_user".to_string(),
-            password_hash: "".to_string(),
-            is_admin: true,
-            approved: true,
-        });
+        req.extensions_mut().insert(dev_user);
         return Ok(next.run(req).await);
     }
     let auth_header = req
@@ -54,15 +57,11 @@ pub async fn admin_auth(
     req: Request,
     next: Next,
 ) -> Result<impl IntoResponse, StatusCode> {
-    if services::get_dev_mode(&state.repo).await.unwrap_or(false) {
+    if services::get_dev_mode(&state.repo).await.unwrap_or(false)
+        && let Some(dev_user) = resolve_dev_user(&state).await
+    {
         let mut req = req;
-        req.extensions_mut().insert(crate::domain::models::User {
-            id: 0,
-            username: "dev_user".to_string(),
-            password_hash: "".to_string(),
-            is_admin: true,
-            approved: true,
-        });
+        req.extensions_mut().insert(dev_user);
         return Ok(next.run(req).await);
     }
     let auth_header = req
@@ -134,15 +133,11 @@ pub async fn api_auth(
         return Err(StatusCode::UNAUTHORIZED.into_response());
     }
 
-    if services::get_dev_mode(&state.repo).await.unwrap_or(false) {
+    if services::get_dev_mode(&state.repo).await.unwrap_or(false)
+        && let Some(dev_user) = resolve_dev_user(&state).await
+    {
         let mut req = req;
-        req.extensions_mut().insert(crate::domain::models::User {
-            id: 0,
-            username: "dev_user".to_string(),
-            password_hash: "".to_string(),
-            is_admin: true,
-            approved: true,
-        });
+        req.extensions_mut().insert(dev_user);
         return Ok(next.run(req).await);
     }
 

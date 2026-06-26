@@ -41,6 +41,7 @@ fn test_state(repo: SqliteSpecRepository) -> AppState {
     AppState {
         repo: CachedSpecRepository::new(DatabaseRepo::Sqlite(repo), 64),
         db_url: "sqlite::memory:".into(),
+        dev_user: None,
         csrf_tokens: Arc::new(RwLock::new(tokens)),
         instance_id: "test".into(),
         spec_updated_tx,

@@ -33,6 +33,7 @@ pub use presentation::middleware::{
 pub struct AppState {
     pub repo: CachedSpecRepository,
     pub db_url: String,
+    pub dev_user: Option<domain::models::User>,
     pub csrf_tokens: Arc<RwLock<HashMap<String, DateTime<Utc>>>>,
     pub instance_id: String,
     pub spec_updated_tx: tokio::sync::broadcast::Sender<()>,
@@ -145,8 +146,8 @@ pub fn create_app(state: AppState) -> Router {
         .layer(tower_http::compression::CompressionLayer::new())
         .layer(tower_http::decompression::RequestDecompressionLayer::new())
         .layer(tower_http::trace::TraceLayer::new_for_http()
-            .make_span_with(tower_http::trace::DefaultMakeSpan::new().level(tracing::Level::INFO))
-            .on_response(tower_http::trace::DefaultOnResponse::new().level(tracing::Level::INFO)))
+            .make_span_with(tower_http::trace::DefaultMakeSpan::new().level(tracing::Level::DEBUG))
+            .on_response(tower_http::trace::DefaultOnResponse::new().level(tracing::Level::DEBUG)))
         .layer(from_fn_with_state(state.clone(), validate_csrf))
         .layer(SetResponseHeaderLayer::overriding(
             header::CACHE_CONTROL,

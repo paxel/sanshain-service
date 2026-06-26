@@ -38,6 +38,7 @@ fn test_app_state(repo: PostgresSpecRepository, db_url: String) -> AppState {
     AppState {
         repo: CachedSpecRepository::new(DatabaseRepo::Postgres(repo), 256),
         db_url,
+        dev_user: None,
         csrf_tokens: Arc::new(RwLock::new(tokens)),
         instance_id: "test-postgres".to_string(),
         spec_updated_tx,
@@ -76,11 +77,14 @@ async fn test_postgres_full_flow_with_testcontainers() {
         .expect("Failed to run PostgreSQL migrations");
 
     // 3. Setup app
-    let app = create_app(test_app_state(repo.clone(), db_url));
     services::ensure_initial_admin(&repo).await.unwrap();
     services::set_auth_mode(&repo, &AuthMode::Dev)
         .await
         .unwrap();
+    let dev_user = services::ensure_dev_user(&repo).await.ok();
+    let mut state = test_app_state(repo.clone(), db_url);
+    state.dev_user = dev_user;
+    let app = create_app(state);
 
     // 4. Run simple flow (Provide -> Require)
     let openapi_yaml = r#"

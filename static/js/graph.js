@@ -1243,15 +1243,31 @@ function renderCustomGraph(report, svgElement, direction) {
   window._graphEdgeElements = edgeElements;
 
   // ── Zoom & Pan ───────────────────────────────────────────────────
-  // Fit-to-view initial scale and centering
-  let scale = Math.min(vw / svgW, vh / svgH) * 0.9;
-  let panX = (vw - svgW * scale) / 2;
-  let panY = (vh - svgH * scale) / 2;
+  let scale = 1;
+  let panX = 0;
+  let panY = 0;
   let isPanning = false,
     startX = 0,
     startY = 0;
 
-  updateTransform();
+  function fitToView() {
+    // Use the actual rendered bounding box for accurate fit
+    // Reset transform first so getBBox returns unscaled coordinates
+    mainG.setAttribute("transform", "translate(0,0) scale(1)");
+    const bbox = mainG.getBBox();
+    const contentW = bbox.width || svgW;
+    const contentH = bbox.height || svgH;
+    const contentX = bbox.x || 0;
+    const contentY = bbox.y || 0;
+    const pad = 4; // pixels of padding from edges
+    scale = Math.min((vw - pad * 2) / contentW, (vh - pad * 2) / contentH);
+    panX = (vw - contentW * scale) / 2 - contentX * scale;
+    panY = (vh - contentH * scale) / 2 - contentY * scale;
+    updateTransform();
+  }
+
+  window.graphFitToView = fitToView;
+  fitToView();
 
   function updateTransform() {
     mainG.setAttribute("transform", `translate(${panX},${panY}) scale(${scale})`);

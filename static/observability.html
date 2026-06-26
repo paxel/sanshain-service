@@ -150,13 +150,18 @@
         <div class="border-t border-slate-100 pt-6">
             <div class="flex justify-between items-center mb-4">
                 <h3 class="text-sm font-semibold text-slate-800 uppercase tracking-tight">Live Log Buffer (Multi-Level)</h3>
-                <div class="flex space-x-2">
+                <div class="flex space-x-2 items-center">
                     <select id="log-filter" onchange="renderLogs()" class="text-xs border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none">
                         <option value="ALL">All Levels</option>
                         <option value="INFO">Info & Up</option>
                         <option value="WARN">Warn & Up</option>
                         <option value="ERROR">Errors Only</option>
                     </select>
+                    <button onclick="copyLogs()" title="Copy logs to clipboard" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded border border-slate-200 transition-colors">📋 Copy</button>
+                    <button onclick="downloadLogs()" title="Download logs as text file" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded border border-slate-200 transition-colors">📥 Download</button>
+                    <label class="flex items-center gap-1 text-xs text-slate-500 cursor-pointer select-none" title="Auto-scroll to latest log entries">
+                        <input type="checkbox" id="log-autoscroll" checked class="accent-indigo-600"> Auto-scroll
+                    </label>
                 </div>
             </div>
             <div id="log-container" class="bg-slate-900 rounded-lg p-4 font-mono text-[10px] leading-relaxed overflow-y-auto max-h-[400px] text-slate-300">
@@ -391,9 +396,65 @@
             return `<div class="mb-1"><span class="text-slate-500">[${l.timestamp.substring(11, 19)}]</span> <span class="${color} font-bold">${l.level.padEnd(5)}</span> <span class="text-indigo-400">${escapeHtml(l.target)}</span>: ${escapeHtml(l.message)}</div>`;
         }).join('');
 
-        if (filter === 'ALL' || filter === 'INFO') {
+        const autoScroll = document.getElementById('log-autoscroll');
+        if (autoScroll && autoScroll.checked) {
             container.scrollTop = container.scrollHeight;
         }
+    }
+
+    function getLogsAsText() {
+        const filter = document.getElementById('log-filter').value;
+        let errors = [...currentLogs.errors];
+        let warnings = [...currentLogs.warnings];
+        let infos = [...currentLogs.infos];
+        let debugs = [...currentLogs.debugs];
+        if (filter === 'INFO') { debugs = []; }
+        else if (filter === 'WARN') { debugs = []; infos = []; }
+        else if (filter === 'ERROR') { debugs = []; infos = []; warnings = []; }
+        const allLogs = [...errors, ...warnings, ...infos, ...debugs].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+        return allLogs.map(l => `[${l.timestamp.substring(11, 19)}] ${l.level.padEnd(5)} ${l.target}: ${l.message}`).join('\n');
+    }
+
+    function copyLogs() {
+        const text = getLogsAsText();
+        if (!text) { return; }
+        const btn = event.target.closest('button');
+        const orig = btn.textContent;
+        function onSuccess() {
+            btn.textContent = '✓ Copied';
+            setTimeout(() => { btn.textContent = orig; }, 1500);
+        }
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(onSuccess).catch(() => { fallbackCopy(text, onSuccess); });
+        } else {
+            fallbackCopy(text, onSuccess);
+        }
+    }
+
+    function fallbackCopy(text, onSuccess) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); onSuccess(); }
+        catch (_) { alert('Failed to copy logs to clipboard.'); }
+        finally { ta.remove(); }
+    }
+
+    function downloadLogs() {
+        const text = getLogsAsText();
+        if (!text) { return; }
+        const blob = new Blob([text], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `sanshain-logs-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
     }
 
     // Auto-refresh every 5s
