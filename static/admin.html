@@ -820,16 +820,13 @@
             if (!name) return;
             const resultEl = document.getElementById('manual-service-result');
             try {
-                // Using provide endpoint with a dummy spec to create the service
+                // Using provide endpoint with a minimal spec to create the service
                 const res = await apiCall('/provide', {
                     method: 'POST',
                     body: {
                         servicename: name,
                         branch: 'main',
-                        api_type: 'openapi',
-                        path: '/_manual_init',
-                        method: 'GET',
-                        yaml: 'openapi: 3.0.0\ninfo:\n  title: Manual Service\n  version: 1.0.0\npaths:\n  /_manual_init:\n    get:\n      responses:\n        "200":\n          description: OK'
+                        openapi_yaml: 'openapi: 3.0.0\ninfo:\n  title: Manual Service\n  version: 1.0.0\npaths:\n  /_manual_init:\n    get:\n      responses:\n        "200":\n          description: OK'
                     },
                 });
                 if (res.ok) {
