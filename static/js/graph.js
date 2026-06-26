@@ -1103,41 +1103,18 @@ function renderCustomGraph(report, svgElement, direction) {
     }
 
     const tags = report?.service_tags?.[name] || [];
-    const source = report?.node_sources?.[name];
     const branch =
       document.getElementById("graph-branch-select")?.value || report?.branch || "main";
-
-    let sourceHtml = "";
-    if (source === "Branch")
-      sourceHtml =
-        '<span class="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[10px]">Current Branch</span>';
-    else if (source === "Target")
-      sourceHtml =
-        '<span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px]">Target Branch</span>';
-    else if (source === "Both")
-      sourceHtml =
-        '<span class="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 text-[10px]">Shared</span>';
 
     tooltip.innerHTML = `
       <div class="mb-3 pb-2 border-b border-slate-700/50">
         <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Service Node</div>
         <div class="font-bold text-lg text-white truncate mb-1">${_graphEscapeHtml(name)}</div>
         <div class="flex flex-wrap gap-1.5 mt-2">
-          ${sourceHtml}
           ${tags.map((t) => `<span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[10px]">${_graphEscapeHtml(t)}</span>`).join("")}
         </div>
       </div>
       <div class="space-y-3">
-        <div class="grid grid-cols-2 gap-2">
-          <div class="bg-white/5 p-2 rounded border border-white/5">
-            <div class="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Branch</div>
-            <div class="text-xs text-slate-300 truncate">${_graphEscapeHtml(branch)}</div>
-          </div>
-          <div class="bg-white/5 p-2 rounded border border-white/5">
-            <div class="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Endpoints</div>
-            <div class="text-xs text-slate-300">${deps.filter((d) => d.service === name).length} Consumed</div>
-          </div>
-        </div>
         <a href="/services.html?service=${encodeURIComponent(name)}&branch=${encodeURIComponent(branch)}" class="flex items-center justify-center gap-2 w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-all shadow-lg shadow-indigo-500/20">
           <span>View Service Details</span>
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
