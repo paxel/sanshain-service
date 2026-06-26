@@ -53,8 +53,18 @@ function renderTimeline(logs) {
       if (log.action_type === "WRITE") actionColor = "bg-green-100 text-green-700";
       else if (log.action_type === "READ") actionColor = "bg-blue-100 text-blue-700";
       else if (log.action_type === "ADMIN") actionColor = "bg-amber-100 text-amber-700";
-      else if (log.action === "PROVIDE_SPEC" || log.action === "PROVIDE_ASYNCAPI" || log.action === "PROVIDE_PROTO") actionColor = "bg-green-100 text-green-700";
-      else if (log.action === "REQUIRE_SPEC" || log.action === "REQUIRE_ASYNCAPI" || log.action === "REQUIRE_PROTO") actionColor = "bg-blue-100 text-blue-700";
+      else if (
+        log.action === "PROVIDE_SPEC" ||
+        log.action === "PROVIDE_ASYNCAPI" ||
+        log.action === "PROVIDE_PROTO"
+      )
+        actionColor = "bg-green-100 text-green-700";
+      else if (
+        log.action === "REQUIRE_SPEC" ||
+        log.action === "REQUIRE_ASYNCAPI" ||
+        log.action === "REQUIRE_PROTO"
+      )
+        actionColor = "bg-blue-100 text-blue-700";
 
       return `
             <div class="timeline-item">

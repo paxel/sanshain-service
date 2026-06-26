@@ -1478,7 +1478,9 @@ function exportToPng(currentGraphMode) {
       document.body.removeChild(a);
     } catch (err) {
       console.error("Failed to export PNG:", err);
-      alert("Failed to export PNG. This usually happens because of browser security restrictions with Mermaid graphs. Try using the default 'Graph' mode for export.");
+      alert(
+        "Failed to export PNG. This usually happens because of browser security restrictions with Mermaid graphs. Try using the default 'Graph' mode for export.",
+      );
     } finally {
       URL.revokeObjectURL(url);
     }

@@ -507,7 +507,7 @@ call_api POST "/admin/settings/dev-mode" "{\"enabled\":$INITIAL_DEV_MODE}"
 # List Users
 call_api GET "/admin/users"
 assert_status 200 "List users"
-assert_json ".[0].username" "$ADMIN_USER" "Root user found in user list"
+assert_json "map(select(.username == \"$ADMIN_USER\"))[0].username" "$ADMIN_USER" "Root user found in user list"
 
 # Nuke branch (Dry run with invalid confirmation first)
 call_api POST "/admin/nuke/branch/main" '{"confirmation":"WRONG"}'

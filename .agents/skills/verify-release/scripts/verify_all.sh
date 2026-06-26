@@ -100,6 +100,23 @@ log "Service is ready. Running bash integration tests (itest.sh)..."
 ./scripts/itest.sh http://127.0.0.1:3001 root_password || failure "itest.sh failed."
 success "Integration tests (itest.sh) passed."
 
+log "Restarting service for Playwright tests to ensure clean state..."
+kill "$SERVICE_PID" 2>/dev/null || true
+sleep 2
+rm -f verify_test.db verify_test.db-shm verify_test.db-wal
+cargo run > verify_service.log 2>&1 &
+SERVICE_PID=$!
+
+log "Waiting for service to be ready again..."
+RETRY_COUNT=0
+while ! curl -s http://127.0.0.1:3001/health > /dev/null; do
+    sleep 1
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+        failure "Service failed to restart on $BIND_ADDRESS. See verify_service.log for details."
+    fi
+done
+
 log "Running Playwright UI smoke tests..."
 npx playwright test tests/ui/smoke.test.js || failure "Playwright UI tests failed."
 success "Playwright UI tests passed."

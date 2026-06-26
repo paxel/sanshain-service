@@ -76,7 +76,7 @@ cargo test
 
 ## License
 
-Sanshain is released under the MIT License. See [LICENSE](LICENSE) for details.
+Sanshain is released under the Apache-2.0 License. See [LICENSE](LICENSE) for details.
 
 ## Changelog
 
