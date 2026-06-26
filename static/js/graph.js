@@ -1001,15 +1001,16 @@ function renderCustomGraph(report, svgElement, direction) {
     tooltip.className =
       "fixed pointer-events-auto bg-slate-900/95 text-slate-100 p-3 rounded-xl text-xs font-sans leading-relaxed z-[1000] hidden max-w-sm shadow-2xl border border-slate-700/50 backdrop-blur-md transition-opacity duration-200";
     document.body.appendChild(tooltip);
-
-    tooltip.onmouseenter = () => {
-      if (tooltipHideTimer) {
-        clearTimeout(tooltipHideTimer);
-        tooltipHideTimer = null;
-      }
-    };
-    tooltip.onmouseleave = hideTooltip;
   }
+
+  // Re-bind tooltip mouse handlers every render so they reference the current closure
+  tooltip.onmouseenter = () => {
+    if (tooltipHideTimer) {
+      clearTimeout(tooltipHideTimer);
+      tooltipHideTimer = null;
+    }
+  };
+  tooltip.onmouseleave = () => hideTooltip();
 
   function showTooltip(e, from, to) {
     if (tooltipHideTimer) {
@@ -1075,9 +1076,9 @@ function renderCustomGraph(report, svgElement, direction) {
     tooltip.style.display = "block";
     tooltip.style.opacity = "0";
 
-    // Position
-    let x = e.clientX + 12;
-    let y = e.clientY + 12;
+    // Position — overlap cursor by 2px so mouse can reach tooltip without gap
+    let x = e.clientX + 8;
+    let y = e.clientY + 8;
 
     tooltip.style.left = x + "px";
     tooltip.style.top = y + "px";
@@ -1085,10 +1086,10 @@ function renderCustomGraph(report, svgElement, direction) {
     // Check for viewport overflow
     const rect = tooltip.getBoundingClientRect();
     if (x + rect.width > window.innerWidth - 20) {
-      x = e.clientX - rect.width - 12;
+      x = e.clientX - rect.width - 4;
     }
     if (y + rect.height > window.innerHeight - 20) {
-      y = e.clientY - rect.height - 12;
+      y = e.clientY - rect.height - 4;
     }
 
     tooltip.style.left = Math.max(10, x) + "px";
@@ -1125,15 +1126,15 @@ function renderCustomGraph(report, svgElement, direction) {
     tooltip.style.display = "block";
     tooltip.style.opacity = "0";
 
-    // Position
-    let x = e.clientX + 12;
-    let y = e.clientY + 12;
+    // Position — overlap cursor by 2px so mouse can reach tooltip without gap
+    let x = e.clientX + 8;
+    let y = e.clientY + 8;
     tooltip.style.left = x + "px";
     tooltip.style.top = y + "px";
 
     const rect = tooltip.getBoundingClientRect();
-    if (x + rect.width > window.innerWidth - 20) x = e.clientX - rect.width - 12;
-    if (y + rect.height > window.innerHeight - 20) y = e.clientY - rect.height - 12;
+    if (x + rect.width > window.innerWidth - 20) x = e.clientX - rect.width - 4;
+    if (y + rect.height > window.innerHeight - 20) y = e.clientY - rect.height - 4;
 
     tooltip.style.left = Math.max(10, x) + "px";
     tooltip.style.top = Math.max(10, y) + "px";
@@ -1144,7 +1145,7 @@ function renderCustomGraph(report, svgElement, direction) {
     if (tooltipHideTimer) clearTimeout(tooltipHideTimer);
     tooltipHideTimer = setTimeout(() => {
       tooltip.style.display = "none";
-    }, 200);
+    }, 300);
   }
 
   // Edge hover
