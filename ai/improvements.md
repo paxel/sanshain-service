@@ -1,0 +1,444 @@
+# Sanshain Service Improvement Backlog
+
+This document is a handoff for follow-up implementation agents. It lists concrete service risks, missing features, bugs, and quality improvements found during a source review. Keep every change small, tested, and aligned with the current DDD/hexagonal layout:
+
+- Domain contracts and models stay in `src/domain/`.
+- Use-case logic stays in `src/application/`.
+- Database and external adapters stay in `src/infrastructure/`.
+- Axum handlers and middleware stay thin in `src/presentation/` and `src/main.rs`.
+
+Do not “fix everything” in one pull request. Pick one item, add tests, implement the minimum safe change, run the relevant verification, update `CHANGELOG.md` only when the change is user-facing, and update `docs/ai/plan.md` when task status changes.
+
+## Priority legend
+
+- **P0**: security or data-loss risk; do first.
+- **P1**: documented feature gap, correctness issue, or production hardening.
+- **P2**: quality, maintainability, performance, or developer-experience improvement.
+
+## P0 — Security and production safety
+
+### 1. Make dev mode impossible to leave enabled accidentally
+
+**Problem:** `services::get_dev_mode()` enables dev mode when `SANSHAIN_DEV_MODE=true` or the persisted `dev_mode` setting is `true`. `validate_csrf()` and auth middleware paths then allow protected requests without normal credentials. Startup logs warn loudly, but a bad environment variable or persisted setting can still expose all APIs.
+
+**Impact:** A production instance can become unauthenticated by configuration drift.
+
+**Relevant areas:**
+
+- `src/application/auth_service.rs` (`get_dev_mode`, `set_auth_mode`, `ensure_dev_user`)
+- `src/presentation/middleware.rs` (`validate_csrf`, auth middleware)
+- `src/main.rs` startup warning and bind handling
+- `docs/administration.md`, `docs/troubleshooting.md`
+
+**Implementation instructions:**
+
+1. Add an explicit production safety gate, for example `ALLOW_INSECURE_DEV_MODE=true`, that is required in addition to `SANSHAIN_DEV_MODE=true` or persisted `dev_mode=true`.
+2. Fail closed by default: if dev mode is requested without the safety gate, return an error at startup or force dev mode off and log a clear error.
+3. Keep test-only helpers behind `#[cfg(test)]`; do not add magic token/user bypasses in production code.
+4. Document the exact local-only workflow for enabling dev mode.
+
+**Validation:**
+
+- Add tests proving dev mode is denied without the safety gate and allowed only with it.
+- Add middleware tests proving protected endpoints still reject unauthenticated requests when dev mode is not fully enabled.
+- Run `cargo test` and `cargo clippy -- -D warnings`.
+
+### 2. Stop accepting API tokens in query strings
+
+**Problem:** API token authentication supports bearer tokens, but any route or helper that accepts tokens from a query parameter risks leaking credentials through logs, browser history, proxies, referrers, and screenshots.
+
+**Impact:** Long-lived API tokens can be unintentionally exposed.
+
+**Relevant areas:**
+
+- `src/presentation/middleware.rs`
+- API handlers that parse `token`, `api_token`, or equivalent query parameters
+- `docs/api-usage.md`
+- Integration tests under `tests/`
+
+**Implementation instructions:**
+
+1. Require `Authorization: Bearer san_...` for API token authentication.
+2. If backward compatibility is needed, implement a short deprecation window with a warning header and a changelog entry; otherwise remove query-token support immediately.
+3. Make error messages generic (`401 Unauthorized`) and do not echo supplied token values.
+4. Update docs and examples to use headers only.
+
+**Validation:**
+
+- Add integration tests: bearer token succeeds, missing token fails, query token fails.
+- Search docs for query-token examples and replace them.
+- Run `cargo test`.
+
+### 3. Avoid logging submitted API specifications on parse errors
+
+**Problem:** `parse_spec_endpoints()` logs full submitted OpenAPI, AsyncAPI, and proto content when parsing fails.
+
+**Impact:** Specs can contain internal URLs, examples, schemas with sample secrets, or unreleased contract details. Parse errors can leak that data to logs and the admin log viewer.
+
+**Relevant areas:**
+
+- `src/application/spec_service.rs` (`parse_spec_endpoints`)
+- `src/presentation/middleware.rs` (`LogCaptureLayer`)
+- Admin log UI and documentation
+
+**Implementation instructions:**
+
+1. Remove full `content` from warning logs.
+2. Log only safe metadata: service name, branch, API type, content length, hash prefix, and parser error.
+3. If detailed diagnostics are needed, return them to the authenticated caller without storing the full spec in logs.
+4. Consider adding log redaction for known sensitive field names before entries reach `LogCaptureLayer`.
+
+**Validation:**
+
+- Add a test that submits invalid content containing a fake secret and confirms captured/logged messages do not contain the secret.
+- Run `cargo test`.
+
+### 4. Harden API token storage and comparison
+
+**Problem:** API tokens are generated with high entropy but stored as raw `SHA-256` hashes. Plain hashes are fast to brute-force if the database leaks, and normal equality comparisons may not be constant-time.
+
+**Impact:** A database leak gives attackers a cheaper offline token-cracking target than necessary.
+
+**Relevant areas:**
+
+- `src/application/auth_service.rs` (`create_api_token`, `validate_api_token`)
+- Repository token lookup methods in `src/domain/ports.rs` and `src/infrastructure/*repository.rs`
+- Token migrations
+
+**Implementation instructions:**
+
+1. Prefer storing an HMAC-SHA-256 of the raw token using a server-side secret (`API_TOKEN_PEPPER`) rather than a plain hash.
+2. Keep a `token_hash_version` column so old hashes can be migrated gradually.
+3. Compare candidate hashes with a constant-time equality helper where feasible.
+4. On successful validation of an old token, rehash it into the new format if the raw token is available.
+
+**Validation:**
+
+- Unit-test new token creation, validation, revocation, expiry, and old-hash compatibility.
+- Integration-test authenticated API calls with new tokens.
+- Run both SQLite and Postgres migration tests if available.
+
+## P1 — Correctness and missing feature gaps
+
+### 5. Implement compatibility checks for AsyncAPI and proto
+
+**Problem:** `check_compatibility()` returns `Ok(())` for all non-OpenAPI API types. README/docs advertise multi-protocol support and protected-branch safety, but breaking-change detection is effectively OpenAPI-only.
+
+**Impact:** AsyncAPI and gRPC/proto providers can break consumers on protected branches without being rejected.
+
+**Relevant areas:**
+
+- `src/application/spec_service.rs` (`check_compatibility`, protected branch flow)
+- `src/asyncapi.rs`
+- `src/proto.rs`
+- `docs/api-lifecycle.md`, `docs/README.md`, `README.md`
+
+**Implementation instructions:**
+
+1. Define a minimal compatibility policy before coding:
+   - AsyncAPI: removing channels/operations is breaking; changing message payload schemas incompatibly is breaking; adding new channels is non-breaking.
+   - Proto: removing services/methods/messages/fields is breaking; changing field numbers or wire types is breaking; adding optional fields/methods is usually non-breaking.
+2. Add parser-level helpers that produce comparable structures instead of string-only checks.
+3. Wire the helpers into `check_compatibility()` and protected branch enforcement.
+4. If full compatibility is too large, document unsupported cases and fail conservatively for risky changes.
+
+**Validation:**
+
+- Add unit tests for removed AsyncAPI channels, changed payload schemas, removed proto methods, changed proto field numbers, and safe additions.
+- Add protected-branch integration tests for all three API types.
+- Run `cargo test`.
+
+### 6. Store and serve AsyncAPI subscribe operations instead of dropping them
+
+**Problem:** `parse_spec_endpoints()` skips AsyncAPI `SUB` operations and stores only `PUB` operations, with a warning that subscribe channels must be declared as requires elsewhere.
+
+**Impact:** The advertised AsyncAPI registry is incomplete and dependency graph data can miss important consumer/provider relationships.
+
+**Relevant areas:**
+
+- `src/application/spec_service.rs` (`parse_spec_endpoints`, require/provide flows)
+- `src/asyncapi.rs`
+- Domain endpoint model fields for path/method/API type
+- API docs and client examples
+
+**Implementation instructions:**
+
+1. Decide how to represent AsyncAPI directions consistently (`PUB`, `SUB`, or actual `publish`/`subscribe`).
+2. Store both operation directions with stable normalized keys.
+3. Update require/bundle logic so consumers can request the direction they need.
+4. Update graph/reporting code so publish/subscribe relationships are visible.
+
+**Validation:**
+
+- Unit-test splitting an AsyncAPI document with both publish and subscribe operations.
+- Integration-test provide, list endpoints, require endpoint, and graph/report output.
+- Run `cargo test`.
+
+### 7. Reconcile README claims with implemented functionality
+
+**Problem:** The README advertises broad features such as client plugins, live graph, auditing, contract safety, and multi-protocol support. Some are present but basic; others depend on external repositories or are partial inside this service.
+
+**Impact:** Users and follow-up agents may trust behavior that is incomplete or implemented only for one protocol.
+
+**Relevant areas:**
+
+- `README.md`
+- `docs/*.md`
+- `src/application/spec_service.rs`
+- `src/presentation/*`
+
+**Implementation instructions:**
+
+1. Create a feature matrix covering OpenAPI, AsyncAPI, and Proto for provide, require, splitting, compatibility checks, graph, audit, and clients.
+2. Mark partial behavior explicitly instead of implying complete parity.
+3. Link external client repositories as ecosystem integrations, not service-internal features.
+4. Add “known limitations” sections for compatibility and AsyncAPI subscribe handling until fixed.
+
+**Validation:**
+
+- Documentation-only review is enough unless code changes are made.
+- Ensure links are valid and examples match actual API behavior.
+
+### 8. Add request-size limits and parser resource limits
+
+**Problem:** Spec upload/splitting endpoints parse user-provided YAML/proto content. Large or deeply nested documents can consume CPU/memory.
+
+**Impact:** A client can degrade service availability with oversized specs or pathological input.
+
+**Relevant areas:**
+
+- Axum route setup and middleware in `src/presentation/` / `src/lib.rs`
+- `src/openapi.rs`, `src/asyncapi.rs`, `src/proto.rs`
+- Configuration docs
+
+**Implementation instructions:**
+
+1. Add a configurable maximum request body size, with a safe default.
+2. Add parser-level guardrails where libraries expose recursion/depth/size controls.
+3. Return `413 Payload Too Large` for body limit failures and `400 Bad Request` for parser-limit failures.
+4. Document `MAX_SPEC_BODY_BYTES` or equivalent.
+
+**Validation:**
+
+- Integration-test payload just under and over the limit.
+- Unit-test parser failure handling for intentionally excessive nesting if practical.
+- Run `cargo test`.
+
+### 9. Tighten browser security headers and remove inline-script dependency
+
+**Problem:** The CSP allows inline scripts/styles and CDN script/style sources. That is convenient for static pages but weakens XSS protection.
+
+**Impact:** Any HTML injection or compromised CDN path gets more dangerous.
+
+**Relevant areas:**
+
+- `src/presentation/middleware.rs` security headers
+- `static/*.html`, `static/*.js`, `static/*.css`
+- Admin dashboard pages
+
+**Implementation instructions:**
+
+1. Move inline scripts and styles into static files.
+2. Prefer vendored static assets over runtime CDN dependencies for admin pages.
+3. Replace `'unsafe-inline'` with nonces or hashes if inline code cannot be removed.
+4. Add `frame-ancestors 'none'` and review all existing directives.
+
+**Validation:**
+
+- Add or update a test that asserts the CSP header does not contain `'unsafe-inline'` after migration.
+- Manually load admin pages or run existing Playwright/UI tests if available.
+
+## P1 — Data integrity and operational reliability
+
+### 10. Make spec updates transactional
+
+**Problem:** `provide_spec_inner()` performs multiple repository operations: ensure service/branch, tag updates, shared contract updates, endpoint inserts/updates/deletes, version updates, audit entries, and notifications. If one operation fails midway, the database can be left partially updated.
+
+**Impact:** Consumers can see inconsistent endpoint/version/audit state after failures.
+
+**Relevant areas:**
+
+- `src/application/spec_service.rs` (`provide_spec_inner`)
+- `src/domain/ports.rs` repository trait
+- `src/infrastructure/sqlite_repository.rs`
+- `src/infrastructure/postgres_repository.rs`
+
+**Implementation instructions:**
+
+1. Add a transaction abstraction to the repository port or create explicit service-level transaction methods.
+2. Keep the application layer free of raw `sqlx` types; expose a domain/application transaction interface.
+3. Commit only after all endpoint, version, shared-contract, and audit writes succeed.
+4. Emit notifications only after commit.
+
+**Validation:**
+
+- Add a repository test with an injected failure after some writes and assert no partial state persists.
+- Run tests for both SQLite and Postgres adapters if available.
+
+### 11. Fix log buffer sizing to honor `LOG_BUFFER_SIZE`
+
+**Problem:** `main.rs` reads `LOG_BUFFER_SIZE` and initializes buffers with that capacity, but `LogCaptureLayer::on_event()` uses a hard-coded `max_size` of `100` for every level.
+
+**Impact:** Configuration is misleading; operators cannot increase or decrease captured log retention as documented/intended.
+
+**Relevant areas:**
+
+- `src/main.rs`
+- `src/presentation/middleware.rs` (`LogCaptureLayer`)
+
+**Implementation instructions:**
+
+1. Add a `max_size: usize` field to `LogCaptureLayer` or per-level sizes if needed.
+2. Pass `log_buffer_size` from `main.rs` into the layer.
+3. Use that value in `on_event()` instead of `100`.
+4. Reject or clamp `0` if an empty buffer would break the admin logs UI.
+
+**Validation:**
+
+- Unit-test the layer with a small buffer size and assert old entries are evicted at that size.
+- Run `cargo test`.
+
+### 12. Add cleanup for expired sessions and API tokens
+
+**Problem:** There is periodic cleanup for stale branches, dependencies, and in-memory CSRF tokens, but expired sessions/API tokens can remain in persistent storage unless repository validation deletes them elsewhere.
+
+**Impact:** Tables grow over time, admin views become noisy, and old auth data remains available for forensic leakage.
+
+**Relevant areas:**
+
+- `src/main.rs` cleanup task
+- Auth repository methods in `src/domain/ports.rs`
+- `src/infrastructure/*repository.rs`
+- Admin token/session views if any
+
+**Implementation instructions:**
+
+1. Add repository methods `delete_expired_sessions(now)` and `delete_expired_api_tokens(now)`.
+2. Call them from the existing cleanup task.
+3. Ensure validation still rejects expired credentials even before cleanup runs.
+4. Log counts only, not token/session values.
+
+**Validation:**
+
+- Repository tests for expired and non-expired records.
+- Integration test proving expired token/session is rejected.
+- Run `cargo test`.
+
+### 13. Improve startup configuration validation
+
+**Problem:** Several environment values are parsed with fallbacks. Invalid values silently become defaults in some cases, while invalid database/bind values fail loudly.
+
+**Impact:** Operators can think a setting is active when the service ignored it.
+
+**Relevant areas:**
+
+- `src/main.rs` environment parsing
+- `docs/administration.md`, `docs/troubleshooting.md`
+
+**Implementation instructions:**
+
+1. Centralize configuration parsing into a typed config struct.
+2. Fail startup on invalid numeric/bool values instead of silently defaulting.
+3. Log the effective non-secret configuration at startup.
+4. Never log secrets such as database passwords, LDAP bind credentials, or token peppers.
+
+**Validation:**
+
+- Unit-test config parsing for valid, missing, and invalid values.
+- Run `cargo test`.
+
+## P2 — Maintainability and quality
+
+### 14. Split large service modules into focused use cases
+
+**Problem:** `src/application/spec_service.rs` is large and mixes provide, require, bundle, compatibility, versioning, tests, and shared-contract logic.
+
+**Impact:** Future agents are more likely to introduce regressions because related behavior is hard to isolate.
+
+**Relevant areas:**
+
+- `src/application/spec_service.rs`
+- Existing tests inside that module
+
+**Implementation instructions:**
+
+1. Extract modules such as `provide_service`, `require_service`, `compatibility_service`, and `shared_contract_service` under `src/application/`.
+2. Keep public re-exports compatible through `src/application/services.rs` to avoid a broad handler rewrite.
+3. Move tests next to the extracted logic.
+4. Do not change behavior during the split; make this a refactor-only PR.
+
+**Validation:**
+
+- Run the full existing Rust test suite before and after the refactor.
+- Run `cargo fmt` and `cargo clippy -- -D warnings`.
+
+### 15. Add API-level tests for every documented endpoint group
+
+**Problem:** Unit coverage exists for several application helpers, but API-level behavior can drift from docs when handlers, middleware, and services interact.
+
+**Impact:** Regressions in auth, CSRF, payload handling, and response formats may reach users.
+
+**Relevant areas:**
+
+- `tests/`
+- `src/presentation/handlers.rs`
+- `docs/api-usage.md`
+
+**Implementation instructions:**
+
+1. Build a test matrix from `docs/api-usage.md`.
+2. Cover auth required/forbidden/success cases for each protected group.
+3. Include negative tests for invalid API type, missing service/branch/path, invalid YAML, stale `base_version`, and protected-branch breaking change.
+4. Use real auth/session/token paths in tests; do not add production bypasses.
+
+**Validation:**
+
+- Run all integration tests plus `cargo test`.
+
+### 16. Add an architecture boundary check
+
+**Problem:** The project relies on humans and guidelines to maintain DDD boundaries. A future change can accidentally import infrastructure types into domain/application code.
+
+**Impact:** Architecture erosion makes the service harder to test and port.
+
+**Relevant areas:**
+
+- `src/domain/`
+- `src/application/`
+- CI scripts or `justfile`
+
+**Implementation instructions:**
+
+1. Add a lightweight script or test that fails if `src/domain` imports Axum, SQLx, LDAP, tracing subscriber, or infrastructure modules.
+2. Add a similar check preventing `src/application` from importing `src/infrastructure` or raw SQLx types.
+3. Wire the check into the normal verification command.
+
+**Validation:**
+
+- Add one intentional fixture or unit assertion if possible.
+- Run the script and `cargo test`.
+
+## Suggested implementation order
+
+1. Dev-mode production safety.
+2. Remove query-string API tokens.
+3. Stop logging submitted specs on parse errors.
+4. Request-size limits.
+5. Non-OpenAPI compatibility checks.
+6. Transactional spec updates.
+7. AsyncAPI subscribe support.
+8. CSP/static asset hardening.
+9. Operational cleanups and configuration validation.
+10. Module split and architecture checks.
+
+## Verification baseline for implementation agents
+
+For code changes, use this default checklist unless the specific item says otherwise:
+
+1. Add or update unit tests for domain/application logic.
+2. Add or update integration tests in `tests/` for API-level behavior.
+3. Run `cargo fmt`.
+4. Run `cargo clippy -- -D warnings`.
+5. Run `cargo test`.
+6. If UI/static behavior changed, run the relevant JS/UI checks from the project docs or `package.json`.
+7. Update `README.md`, `docs/*.md`, and `CHANGELOG.md` only when the implemented change affects users.
