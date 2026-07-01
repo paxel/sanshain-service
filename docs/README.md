@@ -19,7 +19,7 @@ Detailed guides for users, administrators, and developers.
 - [**API Lifecycle**](api-lifecycle.md) — Handling breaking changes and versioning.
 - [**API Usage**](api-usage.md) — Authentication and detailed endpoint reference.
 - [**Troubleshooting**](troubleshooting.md) — Solutions to common issues.
-- [**Corporate Best Practices**](corporate-best-practices.md) — Recommendations for enterprise usage.
+- [**Corporate Best Practices**](corporate-best-practices.md) — Recommendations for enterprise usage and [Maven-specific patterns](../../SanshainMaven/docs/corporate-usage.md).
 
 ### Integration & Configuration
 - [**CI Integration**](ci-integration.md) — Automating contract validation in pipelines.

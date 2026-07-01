@@ -18,7 +18,7 @@ Hardcoding the Sanshain Service URL in every project's `sanshain.yaml` creates a
 **Best Practice**:
 - Leave `sanshainUrl` out of the `sanshain.yaml` file.
 - Provide the URL via the `SANSHAIN_URL` environment variable in your CI/CD platform (e.g., GitHub Org Variables, GitLab Group Variables).
-- For local development, developers can set the variable in their shell profile or use build tool settings (like `~/.m2/settings.xml` for Maven).
+- For local development, developers can set the variable in their shell profile or use build tool settings (like [**`settings.xml`**](../../SanshainMaven/docs/corporate-usage.md#using-settingsxml-recommended) for Maven).
 
 ## 2. Secure Authentication
 
