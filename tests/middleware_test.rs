@@ -59,6 +59,9 @@ fn test_state(repo: SqliteSpecRepository) -> AppState {
     }
 }
 
+// `cfg(test)` is always true in this crate; the attribute marks the helper as
+// test code for clippy's `allow-unwrap-in-tests`.
+#[cfg(test)]
 async fn app_with_csrf() -> Router {
     let pool = SqlitePoolOptions::new()
         .connect("sqlite::memory:")

@@ -61,8 +61,15 @@ pub async fn main() {
 
     let otel_enabled = std::env::var("OTEL_ENABLED").unwrap_or_default() == "true";
     let (otel_layer, otel_provider) = if otel_enabled {
-        let (layer, provider) = telemetry::init_tracer();
-        (Some(layer), Some(provider))
+        match telemetry::init_tracer() {
+            Ok((layer, provider)) => (Some(layer), Some(provider)),
+            Err(e) => {
+                // The tracing subscriber is not initialized yet, so stderr is
+                // the only reliable channel here.
+                eprintln!("ERROR: Failed to initialize OpenTelemetry tracing: {}", e);
+                std::process::exit(1);
+            }
+        }
     } else {
         (None, None)
     };

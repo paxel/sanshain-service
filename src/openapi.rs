@@ -1,17 +1,10 @@
 use crate::domain::models::Impact;
 use openapiv3::{Components, OpenAPI, PathItem, ReferenceOr, SchemaKind, Type as OaType};
-use regex::Regex;
 use serde::Serialize;
 use serde_json;
 use serde_yaml_ng;
 use similar::TextDiff;
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::sync::LazyLock;
-
-static RE_SLASHES: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"/+").expect("failed to compile slash regex"));
-static RE_VARS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\{[^}]+\}").expect("failed to compile var regex"));
 
 pub struct EndpointSpec {
     pub path: String,
@@ -25,11 +18,11 @@ pub fn normalize_path(path: &str) -> String {
     let path = path.trim();
 
     // Collapse multiple slashes
-    let mut path = RE_SLASHES.replace_all(path, "/").to_string();
+    let mut path = collapse_slashes(path);
 
     // Replace variable placeholders with {}
     // Placeholders are usually {name} or {name:pattern}
-    path = RE_VARS.replace_all(&path, "{}").to_string();
+    path = blank_path_variables(&path);
 
     // Trim trailing slash if it's not the only character
     if path.len() > 1 && path.ends_with('/') {
@@ -37,6 +30,46 @@ pub fn normalize_path(path: &str) -> String {
     }
 
     path
+}
+
+fn collapse_slashes(path: &str) -> String {
+    let mut collapsed = String::with_capacity(path.len());
+    let mut previous_was_slash = false;
+    for ch in path.chars() {
+        if ch == '/' {
+            if !previous_was_slash {
+                collapsed.push('/');
+            }
+            previous_was_slash = true;
+        } else {
+            collapsed.push(ch);
+            previous_was_slash = false;
+        }
+    }
+    collapsed
+}
+
+fn blank_path_variables(path: &str) -> String {
+    let mut blanked = String::with_capacity(path.len());
+    let mut rest = path;
+    while let Some(open) = rest.find('{') {
+        blanked.push_str(&rest[..open]);
+        let after_open = &rest[open + 1..];
+        match after_open.find('}') {
+            // A placeholder needs at least one character between the braces;
+            // bare `{}` and unclosed `{` are kept verbatim.
+            Some(close) if close > 0 => {
+                blanked.push_str("{}");
+                rest = &after_open[close + 1..];
+            }
+            _ => {
+                blanked.push('{');
+                rest = after_open;
+            }
+        }
+    }
+    blanked.push_str(rest);
+    blanked
 }
 
 pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
@@ -768,6 +801,10 @@ mod tests {
         assert_eq!(normalize_path("/api/{id}/{action}"), "/api/{}/{}");
         assert_eq!(normalize_path("/api/{id:pattern}"), "/api/{}");
         assert_eq!(normalize_path("/api/{uId}/"), "/api/{}");
+        assert_eq!(normalize_path("/api/{}"), "/api/{}");
+        assert_eq!(normalize_path("/api/{unclosed"), "/api/{unclosed");
+        assert_eq!(normalize_path("/api/{a{b}/x"), "/api/{}/x");
+        assert_eq!(normalize_path("/api/{ü}"), "/api/{}");
     }
 
     #[test]

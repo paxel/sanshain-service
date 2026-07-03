@@ -18,33 +18,7 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 ## P0+ — Enforcement guardrails against AI regressions (do before everything else)
 
-This codebase is 100% AI-generated and will stay that way. A source review (2026-07-03) showed that rules existing only as prose in instruction files get violated over time (example: "`unwrap()` is strictly forbidden" — yet 73 production `unwrap()` calls existed at review time), while the one machine-enforced rule (the self-checking `all_admin_routes_have_auth_middleware` test in `src/lib.rs`) has held across all generations. Every project rule must therefore be enforced by lints, tests, or CI — not by instructions. These items are numbered E3–E10 (E1, feature-gating `MockRepo` out of release builds, and E2, removing the remaining production `unwrap()` calls, are done — see the 1.5.0 CHANGELOG; they outrank items 1–18 below). All remaining items are independent.
-
-### E3. Enforce the no-panic policy with deny-lints
-
-**Problem:** `cargo clippy -- -D warnings` does NOT check for `unwrap()` — `clippy::unwrap_used` is opt-in and was never enabled. The written rule has no teeth. Production code is already `unwrap()`-free as of E1/E2; this item locks that in so regressions cannot reappear.
-
-**Implementation instructions:**
-
-1. Add to `Cargo.toml`:
-   ```toml
-   [lints.clippy]
-   unwrap_used = "deny"
-   expect_used = "deny"
-   panic = "deny"
-   todo = "deny"
-   unimplemented = "deny"
-   dbg_macro = "deny"
-   ```
-2. Create `clippy.toml` in the repo root so the ~167 test-code unwraps stay legal:
-   ```toml
-   allow-unwrap-in-tests = true
-   allow-expect-in-tests = true
-   allow-panic-in-tests = true
-   ```
-3. Run `cargo clippy --all-targets -- -D warnings` and fix any remaining findings (there should be none in production code — E1/E2 already removed them; if lints still fire inside `#[tokio::test]` functions, wrap the enclosing module in `#[cfg(test)]`).
-
-**Validation:** `cargo clippy --all-targets -- -D warnings` is clean; deliberately adding an `unwrap()` to a handler makes it fail.
+This codebase is 100% AI-generated and will stay that way. A source review (2026-07-03) showed that rules existing only as prose in instruction files get violated over time (example: "`unwrap()` is strictly forbidden" — yet 73 production `unwrap()` calls existed at review time), while the one machine-enforced rule (the self-checking `all_admin_routes_have_auth_middleware` test in `src/lib.rs`) has held across all generations. Every project rule must therefore be enforced by lints, tests, or CI — not by instructions. These items are numbered E4–E10 (E1, feature-gating `MockRepo` out of release builds, E2, removing the remaining production `unwrap()` calls, and E3, denying `unwrap`/`expect`/`panic`/`todo`/`unimplemented`/`dbg!` via the `[lints.clippy]` table in `Cargo.toml` plus test exemptions in `clippy.toml`, are done — see the 1.5.0 CHANGELOG; they outrank items 1–18 below). All remaining items are independent.
 
 ### E4. Pin the Rust toolchain
 
@@ -650,7 +624,7 @@ This codebase is 100% AI-generated and will stay that way. A source review (2026
 
 ## Suggested implementation order
 
-0. Enforcement guardrails E3–E8 first (all independent; E9 is a manual owner step; E10 may be deferred). E1 (feature-gate `MockRepo`) and E2 (remove production `unwrap()` calls) are already done.
+0. Enforcement guardrails E4–E8 first (all independent; E9 is a manual owner step; E10 may be deferred). E1 (feature-gate `MockRepo`), E2 (remove production `unwrap()` calls), and E3 (no-panic deny-lints) are already done.
 1. Dev-mode production safety.
 2. Remove query-string API tokens.
 3. Stop logging submitted specs on parse errors.

@@ -4,6 +4,9 @@ use sanshain_service::domain::models::*;
 use sanshain_service::domain::ports::SpecRepository;
 
 // Helper to quickly create a user and store in repo
+// `cfg(test)` is always true in this crate; the attribute marks the helper as
+// test code for clippy's `allow-unwrap-in-tests`.
+#[cfg(test)]
 fn add_user(
     repo: &MockRepo,
     username: &str,

@@ -2,13 +2,11 @@ use regex::Regex;
 use std::ops::Range;
 use std::sync::LazyLock;
 
-static RE_RPC: LazyLock<Regex> = LazyLock::new(|| {
+static RE_RPC: LazyLock<Result<Regex, regex::Error>> = LazyLock::new(|| {
     Regex::new(r"(?m)^\s*rpc\s+(\w+)\s*\(([^)]+)\)\s*returns\s*\(([^)]+)\)\s*(?:\{[^}]*\}|;)")
-        .expect("failed to compile rpc regex")
 });
-static RE_SERVICE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\bservice\s+([A-Za-z_]\w*)\s*\{").expect("failed to compile service regex")
-});
+static RE_SERVICE: LazyLock<Result<Regex, regex::Error>> =
+    LazyLock::new(|| Regex::new(r"\bservice\s+([A-Za-z_]\w*)\s*\{"));
 
 struct ServiceBlock {
     name: String,
@@ -23,11 +21,16 @@ pub struct ProtoSpec {
 }
 
 pub fn split_proto(content: &str) -> Result<Vec<ProtoSpec>, String> {
-    let mut specs = Vec::new();
-    let services = extract_service_blocks(content);
-    let common_base = remove_service_blocks(content, &services);
+    let re_rpc = RE_RPC
+        .as_ref()
+        .map_err(|e| format!("Failed to compile rpc regex: {}", e))?;
+    let re_service = RE_SERVICE
+        .as_ref()
+        .map_err(|e| format!("Failed to compile service regex: {}", e))?;
 
-    let re_rpc = &*RE_RPC;
+    let mut specs = Vec::new();
+    let services = extract_service_blocks(re_service, content);
+    let common_base = remove_service_blocks(content, &services);
 
     for service in services {
         for rpc_cap in re_rpc.captures_iter(&service.body) {
@@ -54,8 +57,8 @@ pub fn split_proto(content: &str) -> Result<Vec<ProtoSpec>, String> {
     Ok(specs)
 }
 
-fn extract_service_blocks(content: &str) -> Vec<ServiceBlock> {
-    RE_SERVICE
+fn extract_service_blocks(re_service: &Regex, content: &str) -> Vec<ServiceBlock> {
+    re_service
         .captures_iter(content)
         .filter_map(|captures| {
             let service_match = captures.get(0)?;

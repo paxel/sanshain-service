@@ -4,6 +4,16 @@ version = "1.5.0"
 edition = "2024"
 license = "Apache-2.0"
 
+[lints.clippy]
+# No-panic policy (see AGENTS.md / ai/improvements.md E3). Test code is exempt
+# via `allow-*-in-tests` in clippy.toml.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+
 [features]
 # Compiles in-memory test doubles (e.g. `MockRepo`). Enabled automatically for
 # integration tests via the self dev-dependency below; never enabled for release builds.

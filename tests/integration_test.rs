@@ -62,6 +62,9 @@ fn test_app_state(repo: SqliteSpecRepository) -> AppState {
     }
 }
 
+// `cfg(test)` is always true in this crate; the attribute marks the helpers as
+// test code for clippy's `allow-unwrap-in-tests`.
+#[cfg(test)]
 async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
     let pool = SqlitePoolOptions::new()
         .connect("sqlite::memory:")
@@ -76,6 +79,7 @@ async fn setup_app() -> (axum::Router, SqliteSpecRepository) {
 }
 
 /// Setup app with initial admin and dev mode enabled (for tests that don't care about auth)
+#[cfg(test)]
 async fn setup_app_dev_mode() -> axum::Router {
     let pool = SqlitePoolOptions::new()
         .connect("sqlite::memory:")
@@ -96,6 +100,7 @@ async fn setup_app_dev_mode() -> axum::Router {
 }
 
 /// Setup app with initial admin, return app + admin token + repo
+#[cfg(test)]
 async fn setup_app_with_admin() -> (axum::Router, String, SqliteSpecRepository) {
     let pool = SqlitePoolOptions::new()
         .connect("sqlite::memory:")
@@ -749,7 +754,9 @@ paths:
         .await
         .unwrap();
     assert_eq!(resp2.status(), StatusCode::NOT_MODIFIED);
-    let body = axum::body::to_bytes(resp2.into_body(), 100_000).await.unwrap();
+    let body = axum::body::to_bytes(resp2.into_body(), 100_000)
+        .await
+        .unwrap();
     assert!(body.is_empty(), "304 response must have an empty body");
 }
 
