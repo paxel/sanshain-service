@@ -18,28 +18,14 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 ## P0+ — Enforcement guardrails against AI regressions (do before everything else)
 
-This codebase is 100% AI-generated and will stay that way. A source review (2026-07-03) showed that rules existing only as prose in instruction files get violated over time (example: "`unwrap()` is strictly forbidden" — yet 73 production `unwrap()` calls existed at review time), while the one machine-enforced rule (the self-checking `all_admin_routes_have_auth_middleware` test in `src/lib.rs`) has held across all generations. Every project rule must therefore be enforced by lints, tests, or CI — not by instructions. These items are numbered E6–E10; they outrank items 1–18 below, and all remaining items are independent. Already done (see the 1.5.0 CHANGELOG for the user-facing parts):
+This codebase is 100% AI-generated and will stay that way. A source review (2026-07-03) showed that rules existing only as prose in instruction files get violated over time (example: "`unwrap()` is strictly forbidden" — yet 73 production `unwrap()` calls existed at review time), while the one machine-enforced rule (the self-checking `all_admin_routes_have_auth_middleware` test in `src/lib.rs`) has held across all generations. Every project rule must therefore be enforced by lints, tests, or CI — not by instructions. These items are numbered E7–E10; they outrank items 1–18 below, and all remaining items are independent. Already done (see the 1.5.0 CHANGELOG for the user-facing parts):
 
 - **E1** — `MockRepo` feature-gated out of release builds (`test-support` Cargo feature).
 - **E2** — remaining production `unwrap()` calls removed.
 - **E3** — no-panic policy denied by clippy (`[lints.clippy]` in `Cargo.toml`, test exemptions in `clippy.toml`).
 - **E4** — Rust toolchain pinned (`rust-toolchain.toml` + `dtolnay/rust-toolchain@1.95.0` in all three workflows; bump policy documented in `AGENTS.md`).
 - **E5** — coverage floor ratchet in CI (`--fail-under 62` in `quality.yml`, from 64.19% measured 2026-07-03; ratchet rule in `AGENTS.md`).
-
-### E6. Self-enforcing contract test: router ↔ `api.yaml`
-
-**Problem:** "Keep `api.yaml` in sync with the code" is prose-only. Nothing detects drift between the routes registered in `create_app()` (`src/lib.rs`) and the documented OpenAPI contract.
-
-**Implementation instructions:**
-
-1. Follow the existing pattern of `all_admin_routes_have_auth_middleware` in `src/lib.rs`: add a test (there or in `tests/`) that
-   - parses `api.yaml` via `serde_yaml_ng` (already a dependency) and collects all `paths` keys;
-   - extracts all `.route("...")` paths from `include_str!`-ed `lib.rs` source;
-   - asserts every `api.yaml` path exists in the router, and every API route exists in `api.yaml`.
-2. Maintain an explicit allowlist constant in the test for intentionally undocumented routes (pages like `/`, `/dashboard`, `/health`, `/metrics`, `/LICENSE`, `/version`, fragments, static fallback). Axum `{param}` syntax matches OpenAPI path templating, so string comparison works.
-3. Failure messages must list the exact missing/extra paths.
-
-**Validation:** Test passes; removing a path from `api.yaml` makes it fail with the path named.
+- **E6** — router ↔ `api.yaml` contract test (`router_matches_api_yaml_contract` in `src/lib.rs`; `api.yaml` is the client API contract, all other routes live in the test's `NOT_IN_CLIENT_CONTRACT` allowlist, and stale allowlist entries fail too).
 
 ### E7. Real readiness probe and SQLite/replica conflict fix
 
@@ -601,7 +587,7 @@ This codebase is 100% AI-generated and will stay that way. A source review (2026
 
 ## Suggested implementation order
 
-0. Enforcement guardrails E6–E8 first (all independent; E9 is a manual owner step; E10 may be deferred). E1–E5 (MockRepo feature gate, production `unwrap()` removal, no-panic deny-lints, toolchain pin, coverage floor) are already done.
+0. Enforcement guardrails E7–E8 first (all independent; E9 is a manual owner step; E10 may be deferred). E1–E6 (MockRepo feature gate, production `unwrap()` removal, no-panic deny-lints, toolchain pin, coverage floor, router↔api.yaml contract test) are already done.
 1. Dev-mode production safety.
 2. Remove query-string API tokens.
 3. Stop logging submitted specs on parse errors.
