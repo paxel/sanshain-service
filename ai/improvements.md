@@ -18,35 +18,11 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 ## P0+ — Enforcement guardrails against AI regressions (do before everything else)
 
-This codebase is 100% AI-generated and will stay that way. A source review (2026-07-03) showed that rules existing only as prose in instruction files get violated over time (example: "`unwrap()` is strictly forbidden" — yet 73 production `unwrap()` calls exist), while the one machine-enforced rule (the self-checking `all_admin_routes_have_auth_middleware` test in `src/lib.rs`) has held across all generations. Every project rule must therefore be enforced by lints, tests, or CI — not by instructions. These items are numbered E1–E10 (they outrank items 1–18 below). E1 → E2 → E3 must be done in that order; the rest are independent.
-
-### E1. Feature-gate `MockRepo` out of production builds
-
-**Problem:** `src/application/mod.rs` declares `pub mod mock_repo;` unconditionally, so the test double `MockRepo` (with 64 `unwrap()` calls) is compiled into the release binary.
-
-**Impact:** Test-support code ships in production; also blocks E3 (deny-lints).
-
-**Relevant areas:**
-
-- `src/application/mod.rs`, `src/application/mock_repo.rs`
-- `Cargo.toml`
-- Many integration tests in `tests/` import `mock_repo`, so plain `#[cfg(test)]` will NOT work (integration tests link the library compiled without `cfg(test)`).
-
-**Implementation instructions:**
-
-1. In `Cargo.toml` add a feature: `[features]` → `test-support = []`.
-2. In `Cargo.toml` add a self dev-dependency so `tests/` get the feature: `[dev-dependencies]` → `sanshain_service = { path = ".", features = ["test-support"] }`.
-3. In `src/application/mod.rs` change the declaration to: `#[cfg(any(test, feature = "test-support"))] pub mod mock_repo;`.
-4. In `src/application/mock_repo.rs`, mechanically replace every `.lock().unwrap()` with `.lock().unwrap_or_else(std::sync::PoisonError::into_inner)` (lint-clean and correct for a mock). Fix any remaining non-mutex `unwrap()` in the file with `expect`-free patterns (`match`, `?`, `unwrap_or_else`).
-
-**Validation:**
-
-- `cargo build --release` succeeds and `grep -r "MockRepo" target/release/` finds nothing relevant (or simply confirm the module is not compiled: `cargo build` with no features must not compile `mock_repo.rs` — temporarily add a syntax error to it and confirm `cargo build` still succeeds, then revert the error).
-- `cargo test` passes (integration tests still find `mock_repo` through the feature).
+This codebase is 100% AI-generated and will stay that way. A source review (2026-07-03) showed that rules existing only as prose in instruction files get violated over time (example: "`unwrap()` is strictly forbidden" — yet 73 production `unwrap()` calls existed at review time), while the one machine-enforced rule (the self-checking `all_admin_routes_have_auth_middleware` test in `src/lib.rs`) has held across all generations. Every project rule must therefore be enforced by lints, tests, or CI — not by instructions. These items are numbered E2–E10 (E1, feature-gating `MockRepo` out of release builds, is done — see the 1.5.0 CHANGELOG; they outrank items 1–18 below). E2 must precede E3; the rest are independent.
 
 ### E2. Remove the remaining production `unwrap()` calls
 
-**Problem:** After E1, 9 production `unwrap()` calls remain: 8 ETag-related in `src/presentation/handlers/api.rs` (around lines 275, 280, 324, 329, 373, 378, 446, 451: `HeaderValue::from_str(&etag).unwrap()`), 1 in `src/openapi.rs`.
+**Problem:** 9 production `unwrap()` calls remain (the 64 in `mock_repo.rs` were removed when E1 feature-gated it): 8 ETag-related in `src/presentation/handlers/api.rs` (around lines 275, 280, 324, 329, 373, 378, 446, 451: `HeaderValue::from_str(&etag).unwrap()`), 1 in `src/openapi.rs`.
 
 **Impact:** Each is a panic path inside a request handler — a malformed value aborts the connection and violates the project's own no-panic policy.
 
@@ -66,7 +42,7 @@ This codebase is 100% AI-generated and will stay that way. A source review (2026
 
 **Validation:** `cargo test` passes; ETag/304 behavior covered by an integration test (add one if none exists: request with matching `If-None-Match` returns 304).
 
-### E3. Enforce the no-panic policy with deny-lints (depends on E1 + E2)
+### E3. Enforce the no-panic policy with deny-lints (depends on E2)
 
 **Problem:** `cargo clippy -- -D warnings` does NOT check for `unwrap()` — `clippy::unwrap_used` is opt-in and was never enabled. The written rule has no teeth.
 
@@ -88,7 +64,7 @@ This codebase is 100% AI-generated and will stay that way. A source review (2026
    allow-expect-in-tests = true
    allow-panic-in-tests = true
    ```
-3. Run `cargo clippy --all-targets -- -D warnings` and fix any remaining findings (there should be none in production code after E1/E2; if lints still fire inside `#[tokio::test]` functions, wrap the enclosing module in `#[cfg(test)]`).
+3. Run `cargo clippy --all-targets -- -D warnings` and fix any remaining findings (there should be none in production code after E2; if lints still fire inside `#[tokio::test]` functions, wrap the enclosing module in `#[cfg(test)]`).
 
 **Validation:** `cargo clippy --all-targets -- -D warnings` is clean; deliberately adding an `unwrap()` to a handler makes it fail.
 
@@ -696,7 +672,7 @@ This codebase is 100% AI-generated and will stay that way. A source review (2026
 
 ## Suggested implementation order
 
-0. Enforcement guardrails E1–E8 first (E1 → E2 → E3 in order; E4–E8 independent; E9 is a manual owner step; E10 may be deferred).
+0. Enforcement guardrails E2–E8 first (E2 before E3; E4–E8 independent; E9 is a manual owner step; E10 may be deferred). E1 (feature-gate `MockRepo`) is already done.
 1. Dev-mode production safety.
 2. Remove query-string API tokens.
 3. Stop logging submitted specs on parse errors.

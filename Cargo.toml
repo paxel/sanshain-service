@@ -4,6 +4,11 @@ version = "1.5.0"
 edition = "2024"
 license = "Apache-2.0"
 
+[features]
+# Compiles in-memory test doubles (e.g. `MockRepo`). Enabled automatically for
+# integration tests via the self dev-dependency below; never enabled for release builds.
+test-support = []
+
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
@@ -41,6 +46,9 @@ tracing-opentelemetry = "0.33"
 opentelemetry-semantic-conventions = "0.32"
 
 [dev-dependencies]
+# Self-dependency so `tests/` and benches link the library with `test-support`
+# enabled (integration tests are compiled without the `test` cfg of the crate).
+sanshain_service = { path = ".", features = ["test-support"] }
 flate2 = "1"
 criterion = "0.5"
 testcontainers = "0.27"

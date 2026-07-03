@@ -3,7 +3,7 @@ use crate::domain::ports::{
     EndpointMap, RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
 };
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 pub struct MockRepo {
     pub services: Mutex<HashMap<String, i64>>,
@@ -63,7 +63,7 @@ impl MockRepo {
     }
 
     pub fn next_id(&self) -> i64 {
-        let mut id = self.next_id.lock().unwrap();
+        let mut id = self.next_id.lock().unwrap_or_else(PoisonError::into_inner);
         let current = *id;
         *id += 1;
         current
@@ -76,7 +76,7 @@ impl SpecRepository for MockRepo {
         service_id: i64,
         branch_id: i64,
     ) -> Result<Option<(SemVer, String)>, RepositoryError> {
-        let versions = self.spec_versions.lock().unwrap();
+        let versions = self.spec_versions.lock().unwrap_or_else(PoisonError::into_inner);
         Ok(versions.get(&(service_id, branch_id)).cloned())
     }
 
@@ -87,7 +87,7 @@ impl SpecRepository for MockRepo {
         content_hash: &str,
         impact: Impact,
     ) -> Result<SemVer, RepositoryError> {
-        let mut versions = self.spec_versions.lock().unwrap();
+        let mut versions = self.spec_versions.lock().unwrap_or_else(PoisonError::into_inner);
         let (version, _) = versions
             .entry((service_id, branch_id))
             .or_insert((SemVer::default(), String::new()));
@@ -105,7 +105,7 @@ impl SpecRepository for MockRepo {
     }
 
     async fn ensure_service(&self, name: &str) -> Result<i64, RepositoryError> {
-        let mut services = self.services.lock().unwrap();
+        let mut services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(&id) = services.get(name) {
             return Ok(id);
         }
@@ -114,14 +114,14 @@ impl SpecRepository for MockRepo {
         Ok(id)
     }
     async fn find_service(&self, name: &str) -> Result<Option<i64>, RepositoryError> {
-        let services = self.services.lock().unwrap();
+        let services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
         Ok(services.get(name).copied())
     }
     async fn get_service_name_by_id(
         &self,
         service_id: i64,
     ) -> Result<Option<String>, RepositoryError> {
-        let services = self.services.lock().unwrap();
+        let services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
         Ok(services
             .iter()
             .find(|&(_, &id)| id == service_id)
@@ -132,7 +132,7 @@ impl SpecRepository for MockRepo {
         service_id: i64,
         branch_name: &str,
     ) -> Result<i64, RepositoryError> {
-        let mut branches = self.branches.lock().unwrap();
+        let mut branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
         let key = (service_id, branch_name.to_string());
         if let Some(&id) = branches.get(&key) {
             return Ok(id);
@@ -146,7 +146,7 @@ impl SpecRepository for MockRepo {
         service_id: i64,
         branch_name: &str,
     ) -> Result<Option<i64>, RepositoryError> {
-        let branches = self.branches.lock().unwrap();
+        let branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
         let key = (service_id, branch_name.to_string());
         Ok(branches.get(&key).copied())
     }
@@ -156,7 +156,7 @@ impl SpecRepository for MockRepo {
         branch_id: i64,
     ) -> Result<Vec<EndpointRecord>, RepositoryError> {
         let branch_info = {
-            let branches = self.branches.lock().unwrap();
+            let branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
             branches
                 .iter()
                 .find(|&(_, &id)| id == branch_id)
@@ -168,9 +168,9 @@ impl SpecRepository for MockRepo {
             None => return Ok(Vec::new()),
         };
 
-        let endpoints = self.endpoints.lock().unwrap();
-        let deleted = self.deleted_endpoints.lock().unwrap();
-        let contracts = self.shared_contracts.lock().unwrap();
+        let endpoints = self.endpoints.lock().unwrap_or_else(PoisonError::into_inner);
+        let deleted = self.deleted_endpoints.lock().unwrap_or_else(PoisonError::into_inner);
+        let contracts = self.shared_contracts.lock().unwrap_or_else(PoisonError::into_inner);
 
         Ok(endpoints
             .get(&branch_id)
@@ -202,7 +202,7 @@ impl SpecRepository for MockRepo {
         branch_id: i64,
         endpoint: &EndpointRecord,
     ) -> Result<(), RepositoryError> {
-        let mut endpoints = self.endpoints.lock().unwrap();
+        let mut endpoints = self.endpoints.lock().unwrap_or_else(PoisonError::into_inner);
         let mut record = endpoint.clone();
         record.id = Some(self.next_id());
         endpoints.entry(branch_id).or_default().push(record);
@@ -218,7 +218,7 @@ impl SpecRepository for MockRepo {
     }
 
     async fn ensure_client(&self, name: &str) -> Result<i64, RepositoryError> {
-        let mut clients = self.clients.lock().unwrap();
+        let mut clients = self.clients.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(&id) = clients.get(name) {
             return Ok(id);
         }
@@ -273,12 +273,12 @@ impl SpecRepository for MockRepo {
     }
 
     async fn is_branch_protected(&self, branch_name: &str) -> Result<bool, RepositoryError> {
-        let pb = self.protected_branches.lock().unwrap();
+        let pb = self.protected_branches.lock().unwrap_or_else(PoisonError::into_inner);
         Ok(pb.contains(&branch_name.to_string()))
     }
 
     async fn add_protected_branch(&self, pattern: &str) -> Result<(), RepositoryError> {
-        let mut pb = self.protected_branches.lock().unwrap();
+        let mut pb = self.protected_branches.lock().unwrap_or_else(PoisonError::into_inner);
         if !pb.contains(&pattern.to_string()) {
             pb.push(pattern.to_string());
         }
@@ -286,7 +286,7 @@ impl SpecRepository for MockRepo {
     }
 
     async fn remove_protected_branch(&self, pattern: &str) -> Result<bool, RepositoryError> {
-        let mut pb = self.protected_branches.lock().unwrap();
+        let mut pb = self.protected_branches.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(pos) = pb.iter().position(|p| p == pattern) {
             pb.remove(pos);
             Ok(true)
@@ -296,7 +296,7 @@ impl SpecRepository for MockRepo {
     }
 
     async fn list_protected_branches(&self) -> Result<Vec<String>, RepositoryError> {
-        Ok(self.protected_branches.lock().unwrap().clone())
+        Ok(self.protected_branches.lock().unwrap_or_else(PoisonError::into_inner).clone())
     }
 
     async fn update_endpoint(
@@ -313,7 +313,7 @@ impl SpecRepository for MockRepo {
         path: &str,
         method: &str,
     ) -> Result<(), RepositoryError> {
-        let mut deleted = self.deleted_endpoints.lock().unwrap();
+        let mut deleted = self.deleted_endpoints.lock().unwrap_or_else(PoisonError::into_inner);
         deleted.push((branch_id, api_type, path.to_string(), method.to_string()));
         Ok(())
     }
@@ -325,7 +325,7 @@ impl SpecRepository for MockRepo {
         path: &str,
         method: &str,
     ) -> Result<(), RepositoryError> {
-        let mut endpoints = self.endpoints.lock().unwrap();
+        let mut endpoints = self.endpoints.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(list) = endpoints.get_mut(&branch_id) {
             list.retain(|ep| !(ep.api_type == api_type && ep.path == path && ep.method == method));
         }
@@ -339,26 +339,26 @@ impl SpecRepository for MockRepo {
         path: &str,
         method: &str,
     ) -> Result<bool, RepositoryError> {
-        let deleted = self.deleted_endpoints.lock().unwrap();
+        let deleted = self.deleted_endpoints.lock().unwrap_or_else(PoisonError::into_inner);
         Ok(deleted.contains(&(branch_id, api_type, path.to_string(), method.to_string())))
     }
 
     async fn delete_all_services(&self) -> Result<u64, RepositoryError> {
-        let count = self.services.lock().unwrap().len() as u64;
-        self.services.lock().unwrap().clear();
-        self.branches.lock().unwrap().clear();
-        self.endpoints.lock().unwrap().clear();
+        let count = self.services.lock().unwrap_or_else(PoisonError::into_inner).len() as u64;
+        self.services.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        self.branches.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        self.endpoints.lock().unwrap_or_else(PoisonError::into_inner).clear();
         Ok(count)
     }
 
     async fn delete_all_clients(&self) -> Result<u64, RepositoryError> {
-        let count = self.clients.lock().unwrap().len() as u64;
-        self.clients.lock().unwrap().clear();
+        let count = self.clients.lock().unwrap_or_else(PoisonError::into_inner).len() as u64;
+        self.clients.lock().unwrap_or_else(PoisonError::into_inner).clear();
         Ok(count)
     }
 
     async fn delete_all_non_admin_users(&self) -> Result<u64, RepositoryError> {
-        let mut users = self.users.lock().unwrap();
+        let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
         let initial_count = users.len() as u64;
         users.retain(|u| u.is_admin);
         Ok(initial_count - users.len() as u64)
@@ -371,7 +371,7 @@ impl SpecRepository for MockRepo {
     }
 
     async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {
-        let mut services = self.services.lock().unwrap();
+        let mut services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
         Ok(services.remove(name).is_some())
     }
 
@@ -384,18 +384,18 @@ impl SpecRepository for MockRepo {
     }
 
     async fn delete_client(&self, name: &str) -> Result<bool, RepositoryError> {
-        let mut clients = self.clients.lock().unwrap();
+        let mut clients = self.clients.lock().unwrap_or_else(PoisonError::into_inner);
         Ok(clients.remove(name).is_some())
     }
 
     async fn list_services(&self) -> Result<Vec<String>, RepositoryError> {
-        Ok(self.services.lock().unwrap().keys().cloned().collect())
+        Ok(self.services.lock().unwrap_or_else(PoisonError::into_inner).keys().cloned().collect())
     }
 
     async fn list_services_detailed(&self) -> Result<Vec<ServiceSummary>, RepositoryError> {
-        let services = self.services.lock().unwrap();
-        let branches = self.branches.lock().unwrap();
-        let fallback_branches = self.fallback_branches.lock().unwrap();
+        let services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
+        let branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
+        let fallback_branches = self.fallback_branches.lock().unwrap_or_else(PoisonError::into_inner);
 
         let mut result = Vec::new();
         for (name, id) in services.iter() {
@@ -424,7 +424,7 @@ impl SpecRepository for MockRepo {
         service_name: &str,
         branch: Option<&str>,
     ) -> Result<(), RepositoryError> {
-        let mut fb = self.fallback_branches.lock().unwrap();
+        let mut fb = self.fallback_branches.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(b) = branch {
             fb.insert(service_name.to_string(), b.to_string());
         } else {
@@ -449,7 +449,7 @@ impl SpecRepository for MockRepo {
         Ok(self
             .fallback_branches
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .get(service_name)
             .cloned())
     }
@@ -463,7 +463,7 @@ impl SpecRepository for MockRepo {
     }
 
     async fn list_clients(&self) -> Result<Vec<String>, RepositoryError> {
-        let mut clients: Vec<String> = self.clients.lock().unwrap().keys().cloned().collect();
+        let mut clients: Vec<String> = self.clients.lock().unwrap_or_else(PoisonError::into_inner).keys().cloned().collect();
         clients.sort();
         Ok(clients)
     }
@@ -486,14 +486,14 @@ impl SpecRepository for MockRepo {
     }
 
     async fn user_count(&self) -> Result<i64, RepositoryError> {
-        Ok(self.users.lock().unwrap().len() as i64)
+        Ok(self.users.lock().unwrap_or_else(PoisonError::into_inner).len() as i64)
     }
 
     async fn find_user(&self, username: &str) -> Result<Option<User>, RepositoryError> {
         Ok(self
             .users
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .iter()
             .find(|u| u.username == username)
             .cloned())
@@ -513,12 +513,12 @@ impl SpecRepository for MockRepo {
             is_admin,
             approved,
         };
-        self.users.lock().unwrap().push(user.clone());
+        self.users.lock().unwrap_or_else(PoisonError::into_inner).push(user.clone());
         Ok(user)
     }
 
     async fn update_password(&self, user_id: i64, new_hash: &str) -> Result<(), RepositoryError> {
-        let mut users = self.users.lock().unwrap();
+        let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(u) = users.iter_mut().find(|u| u.id == user_id) {
             u.password_hash = new_hash.to_string();
         }
@@ -526,11 +526,11 @@ impl SpecRepository for MockRepo {
     }
 
     async fn list_users(&self) -> Result<Vec<User>, RepositoryError> {
-        Ok(self.users.lock().unwrap().clone())
+        Ok(self.users.lock().unwrap_or_else(PoisonError::into_inner).clone())
     }
 
     async fn approve_user(&self, user_id: i64) -> Result<bool, RepositoryError> {
-        let mut users = self.users.lock().unwrap();
+        let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(u) = users.iter_mut().find(|u| u.id == user_id) {
             u.approved = true;
             Ok(true)
@@ -540,7 +540,7 @@ impl SpecRepository for MockRepo {
     }
 
     async fn delete_user(&self, user_id: i64) -> Result<bool, RepositoryError> {
-        let mut users = self.users.lock().unwrap();
+        let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
         let initial_len = users.len();
         users.retain(|u| u.id != user_id);
         Ok(users.len() < initial_len)
@@ -556,7 +556,7 @@ impl SpecRepository for MockRepo {
             token: "mock-token".to_string(),
             expires_at: expires_at.to_string(),
         };
-        self.sessions.lock().unwrap().push(session.clone());
+        self.sessions.lock().unwrap_or_else(PoisonError::into_inner).push(session.clone());
         Ok(session)
     }
 
@@ -571,7 +571,7 @@ impl SpecRepository for MockRepo {
             token: token.to_string(),
             expires_at: expires_at.to_string(),
         };
-        self.sessions.lock().unwrap().push(session.clone());
+        self.sessions.lock().unwrap_or_else(PoisonError::into_inner).push(session.clone());
         Ok(session)
     }
 
@@ -579,9 +579,9 @@ impl SpecRepository for MockRepo {
         &self,
         token: &str,
     ) -> Result<Option<(User, Session)>, RepositoryError> {
-        let sessions = self.sessions.lock().unwrap();
+        let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(s) = sessions.iter().find(|s| s.token == token) {
-            let users = self.users.lock().unwrap();
+            let users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(u) = users.iter().find(|u| u.id == s.user_id) {
                 return Ok(Some((u.clone(), s.clone())));
             }
@@ -590,19 +590,19 @@ impl SpecRepository for MockRepo {
     }
 
     async fn delete_session(&self, token: &str) -> Result<(), RepositoryError> {
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
         sessions.retain(|s| s.token != token);
         Ok(())
     }
 
     async fn get_setting(&self, key: &str) -> Result<Option<String>, RepositoryError> {
-        Ok(self.settings.lock().unwrap().get(key).cloned())
+        Ok(self.settings.lock().unwrap_or_else(PoisonError::into_inner).get(key).cloned())
     }
 
     async fn set_setting(&self, key: &str, value: &str) -> Result<(), RepositoryError> {
         self.settings
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .insert(key.to_string(), value.to_string());
         Ok(())
     }
@@ -690,8 +690,8 @@ impl SpecRepository for MockRepo {
         _username: Option<&str>,
         _source_branch: Option<&str>,
     ) -> Result<(), RepositoryError> {
-        let mut endpoints = self.endpoints.lock().unwrap();
-        let mut deleted = self.deleted_endpoints.lock().unwrap();
+        let mut endpoints = self.endpoints.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut deleted = self.deleted_endpoints.lock().unwrap_or_else(PoisonError::into_inner);
         let list = endpoints.entry(branch_id).or_default();
 
         for change in changes {
@@ -761,7 +761,7 @@ impl SpecRepository for MockRepo {
         service_id: i64,
         tags: &[String],
     ) -> Result<(), RepositoryError> {
-        let mut st = self.service_tags.lock().unwrap();
+        let mut st = self.service_tags.lock().unwrap_or_else(PoisonError::into_inner);
         st.entry(service_id)
             .or_default()
             .extend(tags.iter().cloned());
@@ -780,7 +780,7 @@ impl SpecRepository for MockRepo {
         path: &str,
         method: &str,
     ) -> Result<Option<SharedContract>, RepositoryError> {
-        let contracts = self.shared_contracts.lock().unwrap();
+        let contracts = self.shared_contracts.lock().unwrap_or_else(PoisonError::into_inner);
         let key = (
             branch_name.to_string(),
             service_id,
@@ -795,7 +795,7 @@ impl SpecRepository for MockRepo {
         &self,
         contract: SharedContract,
     ) -> Result<(), RepositoryError> {
-        let mut contracts = self.shared_contracts.lock().unwrap();
+        let mut contracts = self.shared_contracts.lock().unwrap_or_else(PoisonError::into_inner);
         let key = (
             contract.branch_name.clone(),
             contract.service_id,
@@ -817,7 +817,7 @@ impl SpecRepository for MockRepo {
         action_type: Option<&str>,
         diff: Option<&str>,
     ) -> Result<(), RepositoryError> {
-        let mut logs = self.audit_logs.lock().unwrap();
+        let mut logs = self.audit_logs.lock().unwrap_or_else(PoisonError::into_inner);
         let id = self.next_id();
         let timestamp = chrono::Utc::now().to_rfc3339();
         logs.push(AuditLogEntry {
@@ -838,7 +838,7 @@ impl SpecRepository for MockRepo {
         &self,
         _filter: AuditLogFilter,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
-        let logs = self.audit_logs.lock().unwrap();
+        let logs = self.audit_logs.lock().unwrap_or_else(PoisonError::into_inner);
         let mut cloned = logs.clone();
         cloned.reverse(); // id DESC order (newest first)
         // Simplified mock filtering could be added here if needed for tests
@@ -849,7 +849,7 @@ impl SpecRepository for MockRepo {
         &self,
         limit: u32,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
-        let logs = self.audit_logs.lock().unwrap();
+        let logs = self.audit_logs.lock().unwrap_or_else(PoisonError::into_inner);
         let mut cloned = logs.clone();
         cloned.reverse(); // id DESC order (newest first)
         cloned.truncate(limit as usize);
@@ -861,7 +861,7 @@ impl SpecRepository for MockRepo {
         user_id: i64,
         item_type: &str,
     ) -> Result<Vec<String>, RepositoryError> {
-        let favorites = self.user_favorites.lock().unwrap();
+        let favorites = self.user_favorites.lock().unwrap_or_else(PoisonError::into_inner);
         let mut result: Vec<String> = favorites
             .iter()
             .filter(|(uid, t, _)| *uid == user_id && t == item_type)
@@ -877,7 +877,7 @@ impl SpecRepository for MockRepo {
         item_type: &str,
         item_name: &str,
     ) -> Result<(), RepositoryError> {
-        let mut favorites = self.user_favorites.lock().unwrap();
+        let mut favorites = self.user_favorites.lock().unwrap_or_else(PoisonError::into_inner);
         if !favorites
             .iter()
             .any(|(uid, t, name)| *uid == user_id && t == item_type && name == item_name)
@@ -893,15 +893,15 @@ impl SpecRepository for MockRepo {
         item_type: &str,
         item_name: &str,
     ) -> Result<(), RepositoryError> {
-        let mut favorites = self.user_favorites.lock().unwrap();
+        let mut favorites = self.user_favorites.lock().unwrap_or_else(PoisonError::into_inner);
         favorites
             .retain(|(uid, t, name)| !(*uid == user_id && t == item_type && name == item_name));
         Ok(())
     }
 
     async fn list_branches_with_metadata(&self) -> Result<Vec<BranchMetadata>, RepositoryError> {
-        let branches = self.branches.lock().unwrap();
-        let timestamps = self.branch_timestamps.lock().unwrap();
+        let branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
+        let timestamps = self.branch_timestamps.lock().unwrap_or_else(PoisonError::into_inner);
         let mut result = Vec::new();
         let mut seen = std::collections::HashSet::new();
         for ((_, bname), _) in branches.iter() {
