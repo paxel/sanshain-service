@@ -50,7 +50,9 @@ DATABASE_URL=postgres://user:password@localhost/dbname cargo run   # Postgres (n
 - `cargo test` — unit + integration tests.
 - `./scripts/itest.sh` — bash integration test suite (requires the service running).
 - `npx playwright test tests/ui/smoke.test.js` — UI smoke tests (requires the service running).
-- `cargo tarpaulin --out Xml` — coverage.
+- `cargo tarpaulin --out Xml` — coverage. CI enforces a ratcheting floor (`--fail-under` in
+  `.github/workflows/quality.yml`): whenever coverage rises, raise the floor to (new value − 2)
+  in the same PR. Never lower the floor.
 - `cargo audit` — security audit.
 - The Rust toolchain is pinned in `rust-toolchain.toml` and mirrored in the CI workflows
   (`dtolnay/rust-toolchain@<version>`). Toolchain bumps are deliberate, separate PRs that update

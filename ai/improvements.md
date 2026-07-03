@@ -18,24 +18,13 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 ## P0+ — Enforcement guardrails against AI regressions (do before everything else)
 
-This codebase is 100% AI-generated and will stay that way. A source review (2026-07-03) showed that rules existing only as prose in instruction files get violated over time (example: "`unwrap()` is strictly forbidden" — yet 73 production `unwrap()` calls existed at review time), while the one machine-enforced rule (the self-checking `all_admin_routes_have_auth_middleware` test in `src/lib.rs`) has held across all generations. Every project rule must therefore be enforced by lints, tests, or CI — not by instructions. These items are numbered E5–E10; they outrank items 1–18 below, and all remaining items are independent. Already done (see the 1.5.0 CHANGELOG for the user-facing parts):
+This codebase is 100% AI-generated and will stay that way. A source review (2026-07-03) showed that rules existing only as prose in instruction files get violated over time (example: "`unwrap()` is strictly forbidden" — yet 73 production `unwrap()` calls existed at review time), while the one machine-enforced rule (the self-checking `all_admin_routes_have_auth_middleware` test in `src/lib.rs`) has held across all generations. Every project rule must therefore be enforced by lints, tests, or CI — not by instructions. These items are numbered E6–E10; they outrank items 1–18 below, and all remaining items are independent. Already done (see the 1.5.0 CHANGELOG for the user-facing parts):
 
 - **E1** — `MockRepo` feature-gated out of release builds (`test-support` Cargo feature).
 - **E2** — remaining production `unwrap()` calls removed.
 - **E3** — no-panic policy denied by clippy (`[lints.clippy]` in `Cargo.toml`, test exemptions in `clippy.toml`).
 - **E4** — Rust toolchain pinned (`rust-toolchain.toml` + `dtolnay/rust-toolchain@1.95.0` in all three workflows; bump policy documented in `AGENTS.md`).
-
-### E5. Enforce a coverage floor in CI (ratchet)
-
-**Problem:** `cargo tarpaulin` runs in CI but with no threshold — the documented "80–90% coverage" target is prose-only. Actual coverage was ~64% at last measurement (May `cobertura.xml`), so the target is currently fiction and can silently decay further.
-
-**Implementation instructions:**
-
-1. Run `cargo tarpaulin --out Xml` locally and note the real current percentage.
-2. In `.github/workflows/quality.yml`, change the Coverage step to `cargo tarpaulin --out Xml --fail-under <current - 2>` (e.g. `--fail-under 62`).
-3. Add a ratchet rule to `AGENTS.md`: whenever coverage rises, raise `--fail-under` to (new value − 2) in the same PR. Never lower it.
-
-**Validation:** CI fails if a PR drops coverage below the floor.
+- **E5** — coverage floor ratchet in CI (`--fail-under 62` in `quality.yml`, from 64.19% measured 2026-07-03; ratchet rule in `AGENTS.md`).
 
 ### E6. Self-enforcing contract test: router ↔ `api.yaml`
 
@@ -612,7 +601,7 @@ This codebase is 100% AI-generated and will stay that way. A source review (2026
 
 ## Suggested implementation order
 
-0. Enforcement guardrails E5–E8 first (all independent; E9 is a manual owner step; E10 may be deferred). E1–E4 (MockRepo feature gate, production `unwrap()` removal, no-panic deny-lints, toolchain pin) are already done.
+0. Enforcement guardrails E6–E8 first (all independent; E9 is a manual owner step; E10 may be deferred). E1–E5 (MockRepo feature gate, production `unwrap()` removal, no-panic deny-lints, toolchain pin, coverage floor) are already done.
 1. Dev-mode production safety.
 2. Remove query-string API tokens.
 3. Stop logging submitted specs on parse errors.
