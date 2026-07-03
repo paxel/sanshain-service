@@ -678,6 +678,82 @@ components:
 }
 
 #[tokio::test]
+async fn test_require_returns_304_when_if_none_match_matches() {
+    let app = setup_app_dev_mode().await;
+
+    // Provide a spec with a single endpoint
+    let openapi_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test API
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+    let provide_payload = json!({
+        "servicename": "etag-304-svc",
+        "branch": "main",
+        "openapi_yaml": openapi_yaml
+    });
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&provide_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // First require: expect 200 and capture the ETag
+    let resp1: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require?clientname=etag-client&servicename=etag-304-svc&branch=main&path=/users&method=GET")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp1.status(), StatusCode::OK);
+    let etag = resp1
+        .headers()
+        .get("etag")
+        .expect("first response should carry an ETag")
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    // Second require with a matching If-None-Match: expect 304 Not Modified and an empty body
+    let resp2: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require?clientname=etag-client&servicename=etag-304-svc&branch=main&path=/users&method=GET")
+                .header("If-None-Match", &etag)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp2.status(), StatusCode::NOT_MODIFIED);
+    let body = axum::body::to_bytes(resp2.into_body(), 100_000).await.unwrap();
+    assert!(body.is_empty(), "304 response must have an empty body");
+}
+
+#[tokio::test]
 async fn test_idempotency_and_conflict() {
     let app = setup_app_dev_mode().await;
 

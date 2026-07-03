@@ -18,33 +18,11 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 ## P0+ — Enforcement guardrails against AI regressions (do before everything else)
 
-This codebase is 100% AI-generated and will stay that way. A source review (2026-07-03) showed that rules existing only as prose in instruction files get violated over time (example: "`unwrap()` is strictly forbidden" — yet 73 production `unwrap()` calls existed at review time), while the one machine-enforced rule (the self-checking `all_admin_routes_have_auth_middleware` test in `src/lib.rs`) has held across all generations. Every project rule must therefore be enforced by lints, tests, or CI — not by instructions. These items are numbered E2–E10 (E1, feature-gating `MockRepo` out of release builds, is done — see the 1.5.0 CHANGELOG; they outrank items 1–18 below). E2 must precede E3; the rest are independent.
+This codebase is 100% AI-generated and will stay that way. A source review (2026-07-03) showed that rules existing only as prose in instruction files get violated over time (example: "`unwrap()` is strictly forbidden" — yet 73 production `unwrap()` calls existed at review time), while the one machine-enforced rule (the self-checking `all_admin_routes_have_auth_middleware` test in `src/lib.rs`) has held across all generations. Every project rule must therefore be enforced by lints, tests, or CI — not by instructions. These items are numbered E3–E10 (E1, feature-gating `MockRepo` out of release builds, and E2, removing the remaining production `unwrap()` calls, are done — see the 1.5.0 CHANGELOG; they outrank items 1–18 below). All remaining items are independent.
 
-### E2. Remove the remaining production `unwrap()` calls
+### E3. Enforce the no-panic policy with deny-lints
 
-**Problem:** 9 production `unwrap()` calls remain (the 64 in `mock_repo.rs` were removed when E1 feature-gated it): 8 ETag-related in `src/presentation/handlers/api.rs` (around lines 275, 280, 324, 329, 373, 378, 446, 451: `HeaderValue::from_str(&etag).unwrap()`), 1 in `src/openapi.rs`.
-
-**Impact:** Each is a panic path inside a request handler — a malformed value aborts the connection and violates the project's own no-panic policy.
-
-**Implementation instructions:**
-
-1. For each ETag site, restructure so the fallible conversion happens once and failure skips caching instead of panicking:
-   ```rust
-   if let Ok(etag_value) = HeaderValue::from_str(&etag) {
-       if headers.get("if-none-match") == Some(&etag_value) {
-           // existing 304 return
-       }
-       response_headers.insert("ETag", etag_value);
-   }
-   ```
-   Adapt to each call site's exact shape; behavior with a valid etag must be unchanged.
-2. Locate the single `unwrap()` in `src/openapi.rs` (`grep -n "unwrap()" src/openapi.rs`) and replace it with `?`, `match`, or a safe default.
-
-**Validation:** `cargo test` passes; ETag/304 behavior covered by an integration test (add one if none exists: request with matching `If-None-Match` returns 304).
-
-### E3. Enforce the no-panic policy with deny-lints (depends on E2)
-
-**Problem:** `cargo clippy -- -D warnings` does NOT check for `unwrap()` — `clippy::unwrap_used` is opt-in and was never enabled. The written rule has no teeth.
+**Problem:** `cargo clippy -- -D warnings` does NOT check for `unwrap()` — `clippy::unwrap_used` is opt-in and was never enabled. The written rule has no teeth. Production code is already `unwrap()`-free as of E1/E2; this item locks that in so regressions cannot reappear.
 
 **Implementation instructions:**
 
@@ -64,7 +42,7 @@ This codebase is 100% AI-generated and will stay that way. A source review (2026
    allow-expect-in-tests = true
    allow-panic-in-tests = true
    ```
-3. Run `cargo clippy --all-targets -- -D warnings` and fix any remaining findings (there should be none in production code after E2; if lints still fire inside `#[tokio::test]` functions, wrap the enclosing module in `#[cfg(test)]`).
+3. Run `cargo clippy --all-targets -- -D warnings` and fix any remaining findings (there should be none in production code — E1/E2 already removed them; if lints still fire inside `#[tokio::test]` functions, wrap the enclosing module in `#[cfg(test)]`).
 
 **Validation:** `cargo clippy --all-targets -- -D warnings` is clean; deliberately adding an `unwrap()` to a handler makes it fail.
 
@@ -672,7 +650,7 @@ This codebase is 100% AI-generated and will stay that way. A source review (2026
 
 ## Suggested implementation order
 
-0. Enforcement guardrails E2–E8 first (E2 before E3; E4–E8 independent; E9 is a manual owner step; E10 may be deferred). E1 (feature-gate `MockRepo`) is already done.
+0. Enforcement guardrails E3–E8 first (all independent; E9 is a manual owner step; E10 may be deferred). E1 (feature-gate `MockRepo`) and E2 (remove production `unwrap()` calls) are already done.
 1. Dev-mode production safety.
 2. Remove query-string API tokens.
 3. Stop logging submitted specs on parse errors.

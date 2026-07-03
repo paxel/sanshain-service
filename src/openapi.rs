@@ -457,7 +457,10 @@ fn has_additions(old: &OpenAPI, new: &OpenAPI) -> bool {
                 }
 
                 // New response in existing method
-                let old_op = old_methods.iter().find(|(m, _)| m == method).unwrap().1;
+                let Some(old_entry) = old_methods.iter().find(|(m, _)| m == method) else {
+                    continue;
+                };
+                let old_op = old_entry.1;
                 for status in new_op.responses.responses.keys() {
                     if !old_op.responses.responses.contains_key(status) {
                         return true;

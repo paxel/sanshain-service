@@ -272,12 +272,17 @@ pub async fn require(
     };
 
     let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
-    if headers.get("if-none-match") == Some(&HeaderValue::from_str(&etag).unwrap()) {
+    let etag_value = HeaderValue::from_str(&etag).ok();
+    if let Some(ev) = &etag_value
+        && headers.get("if-none-match") == Some(ev)
+    {
         return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
     }
 
     let mut headers = HeaderMap::new();
-    headers.insert("ETag", HeaderValue::from_str(&etag).unwrap());
+    if let Some(ev) = etag_value {
+        headers.insert("ETag", ev);
+    }
     if res.deprecated {
         headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
     }
@@ -321,12 +326,17 @@ pub async fn require_asyncapi(
     .await;
 
     let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
-    if headers.get("if-none-match") == Some(&HeaderValue::from_str(&etag).unwrap()) {
+    let etag_value = HeaderValue::from_str(&etag).ok();
+    if let Some(ev) = &etag_value
+        && headers.get("if-none-match") == Some(ev)
+    {
         return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
     }
 
     let mut headers = HeaderMap::new();
-    headers.insert("ETag", HeaderValue::from_str(&etag).unwrap());
+    if let Some(ev) = etag_value {
+        headers.insert("ETag", ev);
+    }
     if res.deprecated {
         headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
     }
@@ -370,12 +380,17 @@ pub async fn require_proto(
     .await;
 
     let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
-    if headers.get("if-none-match") == Some(&HeaderValue::from_str(&etag).unwrap()) {
+    let etag_value = HeaderValue::from_str(&etag).ok();
+    if let Some(ev) = &etag_value
+        && headers.get("if-none-match") == Some(ev)
+    {
         return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
     }
 
     let mut headers = HeaderMap::new();
-    headers.insert("ETag", HeaderValue::from_str(&etag).unwrap());
+    if let Some(ev) = etag_value {
+        headers.insert("ETag", ev);
+    }
     if res.deprecated {
         headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
     }
@@ -443,12 +458,17 @@ pub async fn require_bundle(
     .await;
 
     let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
-    if headers.get("if-none-match") == Some(&HeaderValue::from_str(&etag).unwrap()) {
+    let etag_value = HeaderValue::from_str(&etag).ok();
+    if let Some(ev) = &etag_value
+        && headers.get("if-none-match") == Some(ev)
+    {
         return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
     }
 
     let mut headers = HeaderMap::new();
-    headers.insert("ETag", HeaderValue::from_str(&etag).unwrap());
+    if let Some(ev) = etag_value {
+        headers.insert("ETag", ev);
+    }
     if res.deprecated {
         headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
     }
