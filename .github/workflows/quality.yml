@@ -19,7 +19,8 @@ jobs:
           sudo rm -rf /opt/ghc
           sudo rm -rf "/usr/local/share/boost"
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-      - uses: dtolnay/rust-toolchain@stable
+      # Keep in sync with rust-toolchain.toml; toolchain bumps are deliberate, separate PRs.
+      - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: clippy, rustfmt
       - name: Rust Cache

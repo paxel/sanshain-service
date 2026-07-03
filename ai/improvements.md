@@ -18,24 +18,12 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 ## P0+ — Enforcement guardrails against AI regressions (do before everything else)
 
-This codebase is 100% AI-generated and will stay that way. A source review (2026-07-03) showed that rules existing only as prose in instruction files get violated over time (example: "`unwrap()` is strictly forbidden" — yet 73 production `unwrap()` calls existed at review time), while the one machine-enforced rule (the self-checking `all_admin_routes_have_auth_middleware` test in `src/lib.rs`) has held across all generations. Every project rule must therefore be enforced by lints, tests, or CI — not by instructions. These items are numbered E4–E10 (E1, feature-gating `MockRepo` out of release builds, E2, removing the remaining production `unwrap()` calls, and E3, denying `unwrap`/`expect`/`panic`/`todo`/`unimplemented`/`dbg!` via the `[lints.clippy]` table in `Cargo.toml` plus test exemptions in `clippy.toml`, are done — see the 1.5.0 CHANGELOG; they outrank items 1–18 below). All remaining items are independent.
+This codebase is 100% AI-generated and will stay that way. A source review (2026-07-03) showed that rules existing only as prose in instruction files get violated over time (example: "`unwrap()` is strictly forbidden" — yet 73 production `unwrap()` calls existed at review time), while the one machine-enforced rule (the self-checking `all_admin_routes_have_auth_middleware` test in `src/lib.rs`) has held across all generations. Every project rule must therefore be enforced by lints, tests, or CI — not by instructions. These items are numbered E5–E10; they outrank items 1–18 below, and all remaining items are independent. Already done (see the 1.5.0 CHANGELOG for the user-facing parts):
 
-### E4. Pin the Rust toolchain
-
-**Problem:** CI uses `dtolnay/rust-toolchain@stable`, so every new Rust release can introduce new clippy warnings and break green builds at random times, unrelated to any code change.
-
-**Implementation instructions:**
-
-1. Determine the current toolchain (`rustc --version`, currently 1.95.0) and create `rust-toolchain.toml`:
-   ```toml
-   [toolchain]
-   channel = "1.95.0"
-   components = ["clippy", "rustfmt"]
-   ```
-2. In `.github/workflows/ci.yml`, `quality.yml`, and `release.yml`, replace `dtolnay/rust-toolchain@stable` with the pinned version (`dtolnay/rust-toolchain@1.95.0`) so CI and local builds agree.
-3. Document in `AGENTS.md` under Build: toolchain bumps are deliberate, separate PRs.
-
-**Validation:** CI green; `rustup show` in the repo picks the pinned version.
+- **E1** — `MockRepo` feature-gated out of release builds (`test-support` Cargo feature).
+- **E2** — remaining production `unwrap()` calls removed.
+- **E3** — no-panic policy denied by clippy (`[lints.clippy]` in `Cargo.toml`, test exemptions in `clippy.toml`).
+- **E4** — Rust toolchain pinned (`rust-toolchain.toml` + `dtolnay/rust-toolchain@1.95.0` in all three workflows; bump policy documented in `AGENTS.md`).
 
 ### E5. Enforce a coverage floor in CI (ratchet)
 
@@ -624,7 +612,7 @@ This codebase is 100% AI-generated and will stay that way. A source review (2026
 
 ## Suggested implementation order
 
-0. Enforcement guardrails E4–E8 first (all independent; E9 is a manual owner step; E10 may be deferred). E1 (feature-gate `MockRepo`), E2 (remove production `unwrap()` calls), and E3 (no-panic deny-lints) are already done.
+0. Enforcement guardrails E5–E8 first (all independent; E9 is a manual owner step; E10 may be deferred). E1–E4 (MockRepo feature gate, production `unwrap()` removal, no-panic deny-lints, toolchain pin) are already done.
 1. Dev-mode production safety.
 2. Remove query-string API tokens.
 3. Stop logging submitted specs on parse errors.

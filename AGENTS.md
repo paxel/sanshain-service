@@ -52,6 +52,9 @@ DATABASE_URL=postgres://user:password@localhost/dbname cargo run   # Postgres (n
 - `npx playwright test tests/ui/smoke.test.js` — UI smoke tests (requires the service running).
 - `cargo tarpaulin --out Xml` — coverage.
 - `cargo audit` — security audit.
+- The Rust toolchain is pinned in `rust-toolchain.toml` and mirrored in the CI workflows
+  (`dtolnay/rust-toolchain@<version>`). Toolchain bumps are deliberate, separate PRs that update
+  the pin and all three workflow references together — never bump as a side effect of another change.
 
 ## Documentation Upkeep
 Update these as part of the same change, not as a follow-up:
