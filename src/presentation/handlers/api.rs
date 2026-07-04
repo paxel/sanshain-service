@@ -1,7 +1,7 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
 use crate::domain::models::ApiType;
-use crate::domain::ports::SpecRepository;
+use crate::domain::ports::{NewAuditLog, SpecRepository};
 use axum::{
     Json,
     extract::{
@@ -19,23 +19,17 @@ use sha2::{Digest, Sha256};
 use std::convert::Infallible;
 use tokio_stream::Stream;
 
-#[allow(clippy::too_many_arguments)]
 async fn record_audit_log(
     repo: &impl crate::domain::ports::SpecRepository,
     user: Option<axum::Extension<crate::domain::models::User>>,
-    action: &str,
-    details: &str,
-    service: Option<&str>,
-    branch: Option<&str>,
-    action_type: Option<&str>,
-    diff: Option<&str>,
+    log: crate::domain::ports::NewAuditLog<'_>,
 ) -> Result<(), AppError> {
     let actor = if let Some(axum::Extension(u)) = user {
         u.username.clone()
     } else {
         "DevMode/Anonymous".to_string()
     };
-    repo.insert_audit_log(&actor, action, details, service, branch, action_type, diff)
+    repo.insert_audit_log(&actor, log)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))
 }
@@ -76,12 +70,14 @@ pub async fn provide(
     } else {
         services::provide_spec_with_actor(
             &state.repo,
-            &payload.servicename,
-            &payload.branch,
-            ApiType::OpenApi,
-            &payload.openapi_yaml,
-            payload.base_version,
-            payload.force,
+            services::ProvideSpecParams {
+                servicename: &payload.servicename,
+                branch: &payload.branch,
+                api_type: ApiType::OpenApi,
+                content: &payload.openapi_yaml,
+                base_version: payload.base_version,
+                force: payload.force,
+            },
             Some(&actor),
         )
         .await?
@@ -90,19 +86,21 @@ pub async fn provide(
     if !payload.dry_run {
         let _ = state.spec_updated_tx.send(());
         record_audit_log(
-            &state.repo,
-            user,
-            "PROVIDE_SPEC",
-            &format!(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "PROVIDE_SPEC",
+            details: &format!(
                 "Uploaded OpenApi spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
                 payload.servicename, payload.branch, res.version,
                 res.changes.inserts, res.changes.updates, res.changes.deletes
             ),
-            Some(&payload.servicename),
-            Some(&payload.branch),
-            Some("WRITE"),
-            None,
-        )
+            service: Some(&payload.servicename),
+            branch: Some(&payload.branch),
+            action_type: Some("WRITE"),
+            diff: None,
+        },
+    )
         .await?;
     }
 
@@ -132,12 +130,14 @@ pub async fn provide_asyncapi(
 
     let res = services::provide_spec_with_actor(
         &state.repo,
-        &payload.servicename,
-        &payload.branch,
-        ApiType::AsyncApi,
-        &payload.asyncapi_yaml,
-        payload.base_version,
-        payload.force,
+        services::ProvideSpecParams {
+            servicename: &payload.servicename,
+            branch: &payload.branch,
+            api_type: ApiType::AsyncApi,
+            content: &payload.asyncapi_yaml,
+            base_version: payload.base_version,
+            force: payload.force,
+        },
         Some(&actor),
     )
     .await?;
@@ -145,16 +145,18 @@ pub async fn provide_asyncapi(
     record_audit_log(
         &state.repo,
         user,
-        "PROVIDE_SPEC",
-        &format!(
+        NewAuditLog {
+            action: "PROVIDE_SPEC",
+            details: &format!(
             "Uploaded AsyncApi spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
             payload.servicename, payload.branch, res.version,
             res.changes.inserts, res.changes.updates, res.changes.deletes
         ),
-        Some(&payload.servicename),
-        Some(&payload.branch),
-        Some("WRITE"),
-        None,
+            service: Some(&payload.servicename),
+            branch: Some(&payload.branch),
+            action_type: Some("WRITE"),
+            diff: None,
+        },
     )
     .await?;
     Ok((StatusCode::ACCEPTED, Json(res)))
@@ -183,12 +185,14 @@ pub async fn provide_proto(
 
     let res = services::provide_spec_with_actor(
         &state.repo,
-        &payload.servicename,
-        &payload.branch,
-        ApiType::Proto,
-        &payload.proto_content,
-        payload.base_version,
-        payload.force,
+        services::ProvideSpecParams {
+            servicename: &payload.servicename,
+            branch: &payload.branch,
+            api_type: ApiType::Proto,
+            content: &payload.proto_content,
+            base_version: payload.base_version,
+            force: payload.force,
+        },
         Some(&actor),
     )
     .await?;
@@ -196,16 +200,18 @@ pub async fn provide_proto(
     record_audit_log(
         &state.repo,
         user,
-        "PROVIDE_SPEC",
-        &format!(
+        NewAuditLog {
+            action: "PROVIDE_SPEC",
+            details: &format!(
             "Uploaded Proto spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
             payload.servicename, payload.branch, res.version,
             res.changes.inserts, res.changes.updates, res.changes.deletes
         ),
-        Some(&payload.servicename),
-        Some(&payload.branch),
-        Some("WRITE"),
-        None,
+            service: Some(&payload.servicename),
+            branch: Some(&payload.branch),
+            action_type: Some("WRITE"),
+            diff: None,
+        },
     )
     .await?;
     Ok((StatusCode::ACCEPTED, Json(res)))
@@ -256,15 +262,17 @@ pub async fn require(
         let _ = record_audit_log(
             &state.repo,
             user,
-            "REQUIRE_SPEC",
-            &format!(
-                "Client '{}' requested OpenApi spec for service '{}' on branch '{}' ({} {})",
-                query.clientname, query.servicename, query.branch, query.method, query.path
-            ),
-            Some(&query.servicename),
-            Some(&query.branch),
-            Some("READ"),
-            None,
+            NewAuditLog {
+                action: "REQUIRE_SPEC",
+                details: &format!(
+                    "Client '{}' requested OpenApi spec for service '{}' on branch '{}' ({} {})",
+                    query.clientname, query.servicename, query.branch, query.method, query.path
+                ),
+                service: Some(&query.servicename),
+                branch: Some(&query.branch),
+                action_type: Some("READ"),
+                diff: None,
+            },
         )
         .await;
 
@@ -313,15 +321,17 @@ pub async fn require_asyncapi(
     let _ = record_audit_log(
         &state.repo,
         user,
-        "REQUIRE_SPEC",
-        &format!(
-            "Client '{}' requested AsyncApi spec for service '{}' on branch '{}' ({} {})",
-            query.clientname, query.servicename, query.branch, query.method, query.path
-        ),
-        Some(&query.servicename),
-        Some(&query.branch),
-        Some("READ"),
-        None,
+        NewAuditLog {
+            action: "REQUIRE_SPEC",
+            details: &format!(
+                "Client '{}' requested AsyncApi spec for service '{}' on branch '{}' ({} {})",
+                query.clientname, query.servicename, query.branch, query.method, query.path
+            ),
+            service: Some(&query.servicename),
+            branch: Some(&query.branch),
+            action_type: Some("READ"),
+            diff: None,
+        },
     )
     .await;
 
@@ -367,15 +377,17 @@ pub async fn require_proto(
     let _ = record_audit_log(
         &state.repo,
         user,
-        "REQUIRE_SPEC",
-        &format!(
-            "Client '{}' requested Proto spec for service '{}' on branch '{}' ({} {})",
-            query.clientname, query.servicename, query.branch, query.method, query.path
-        ),
-        Some(&query.servicename),
-        Some(&query.branch),
-        Some("READ"),
-        None,
+        NewAuditLog {
+            action: "REQUIRE_SPEC",
+            details: &format!(
+                "Client '{}' requested Proto spec for service '{}' on branch '{}' ({} {})",
+                query.clientname, query.servicename, query.branch, query.method, query.path
+            ),
+            service: Some(&query.servicename),
+            branch: Some(&query.branch),
+            action_type: Some("READ"),
+            diff: None,
+        },
     )
     .await;
 
@@ -442,18 +454,20 @@ pub async fn require_bundle(
     let _ = record_audit_log(
         &state.repo,
         user,
-        "REQUIRE_SPEC",
-        &format!(
-            "Client '{}' requested bundle for service '{}' on branch '{}' ({} endpoints)",
-            payload.clientname,
-            payload.servicename,
-            payload.branch,
-            endpoints.len()
-        ),
-        Some(&payload.servicename),
-        Some(&payload.branch),
-        Some("READ"),
-        None,
+        NewAuditLog {
+            action: "REQUIRE_SPEC",
+            details: &format!(
+                "Client '{}' requested bundle for service '{}' on branch '{}' ({} endpoints)",
+                payload.clientname,
+                payload.servicename,
+                payload.branch,
+                endpoints.len()
+            ),
+            service: Some(&payload.servicename),
+            branch: Some(&payload.branch),
+            action_type: Some("READ"),
+            diff: None,
+        },
     )
     .await;
 
@@ -489,12 +503,14 @@ pub async fn report(
     let _ = record_audit_log(
         &state.repo,
         user,
-        "REPORT",
-        &format!("Generated report for branch '{}'", query.branch),
-        None,
-        Some(&query.branch),
-        Some("READ"),
-        None,
+        NewAuditLog {
+            action: "REPORT",
+            details: &format!("Generated report for branch '{}'", query.branch),
+            service: None,
+            branch: Some(&query.branch),
+            action_type: Some("READ"),
+            diff: None,
+        },
     )
     .await;
     Ok(Json(res))
@@ -509,12 +525,14 @@ pub async fn report_markdown(
     let _ = record_audit_log(
         &state.repo,
         user,
-        "REPORT",
-        &format!("Generated Markdown report for branch '{}'", query.branch),
-        None,
-        Some(&query.branch),
-        Some("READ"),
-        None,
+        NewAuditLog {
+            action: "REPORT",
+            details: &format!("Generated Markdown report for branch '{}'", query.branch),
+            service: None,
+            branch: Some(&query.branch),
+            action_type: Some("READ"),
+            diff: None,
+        },
     )
     .await;
     Ok((
@@ -535,12 +553,14 @@ pub async fn report_isolation(
     let _ = record_audit_log(
         &state.repo,
         user,
-        "REPORT",
-        &format!("Generated Isolation report for branch '{}'", query.branch),
-        None,
-        Some(&query.branch),
-        Some("READ"),
-        None,
+        NewAuditLog {
+            action: "REPORT",
+            details: &format!("Generated Isolation report for branch '{}'", query.branch),
+            service: None,
+            branch: Some(&query.branch),
+            action_type: Some("READ"),
+            diff: None,
+        },
     )
     .await;
     Ok(services::render_isolation_report(&res))
@@ -561,15 +581,17 @@ pub async fn report_merged(
     let _ = record_audit_log(
         &state.repo,
         user,
-        "REPORT",
-        &format!(
-            "Generated merged report for branch '{}' -> '{}'",
-            query.branch, query.target
-        ),
-        None,
-        Some(&query.branch),
-        Some("READ"),
-        None,
+        NewAuditLog {
+            action: "REPORT",
+            details: &format!(
+                "Generated merged report for branch '{}' -> '{}'",
+                query.branch, query.target
+            ),
+            service: None,
+            branch: Some(&query.branch),
+            action_type: Some("READ"),
+            diff: None,
+        },
     )
     .await;
     Ok(Json(res))

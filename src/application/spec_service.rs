@@ -79,56 +79,55 @@ pub async fn provide_spec_dry_run(
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Inputs describing the spec a service provides for a branch. Grouped so the
+/// public provide entry points stay within a sane argument count.
+pub struct ProvideSpecParams<'a> {
+    pub servicename: &'a str,
+    pub branch: &'a str,
+    pub api_type: ApiType,
+    pub content: &'a str,
+    pub base_version: Option<String>,
+    pub force: bool,
+}
+
 pub async fn provide_spec_with_tags(
     repo: &impl SpecRepository,
-    servicename: &str,
-    branch: &str,
-    api_type: ApiType,
-    content: &str,
+    params: ProvideSpecParams<'_>,
     tags: &[String],
-    base_version: Option<String>,
-    force: bool,
 ) -> Result<ProvideResponse, AppError> {
     provide_spec_inner(
         repo,
         ProvideInternalParams {
-            servicename,
-            branch,
-            api_type,
-            content,
+            servicename: params.servicename,
+            branch: params.branch,
+            api_type: params.api_type,
+            content: params.content,
             dry_run: false,
             extra_tags: tags,
-            base_version,
-            force,
+            base_version: params.base_version,
+            force: params.force,
             username: None,
         },
     )
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn provide_spec_with_actor(
     repo: &impl SpecRepository,
-    servicename: &str,
-    branch: &str,
-    api_type: ApiType,
-    content: &str,
-    base_version: Option<String>,
-    force: bool,
+    params: ProvideSpecParams<'_>,
     username: Option<&str>,
 ) -> Result<ProvideResponse, AppError> {
     provide_spec_inner(
         repo,
         ProvideInternalParams {
-            servicename,
-            branch,
-            api_type,
-            content,
+            servicename: params.servicename,
+            branch: params.branch,
+            api_type: params.api_type,
+            content: params.content,
             dry_run: false,
             extra_tags: &[],
-            base_version,
-            force,
+            base_version: params.base_version,
+            force: params.force,
             username,
         },
     )

@@ -1,6 +1,6 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
-    RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
+    NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
 };
 use crate::infrastructure::postgres_repository::PostgresSpecRepository;
 use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
@@ -511,25 +511,9 @@ impl SpecRepository for DatabaseRepo {
     async fn insert_audit_log(
         &self,
         username: &str,
-        action: &str,
-        details: &str,
-        service: Option<&str>,
-        branch: Option<&str>,
-        action_type: Option<&str>,
-        diff: Option<&str>,
+        log: NewAuditLog<'_>,
     ) -> Result<(), RepositoryError> {
-        delegate!(
-            self,
-            insert_audit_log(
-                username,
-                action,
-                details,
-                service,
-                branch,
-                action_type,
-                diff
-            )
-        )
+        delegate!(self, insert_audit_log(username, log))
     }
 
     async fn get_audit_logs(

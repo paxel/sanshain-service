@@ -15,6 +15,48 @@ type EndpointRow = (
     bool,
 );
 
+/// Row shape for `list_services_detailed` (name, fallback_branch, branches,
+/// icon, domain); branches are `GROUP_CONCAT`ed into a single string on SQLite.
+type ServiceSummaryRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// Row shape for endpoint-version queries joining metadata, service, branch,
+/// and endpoint columns.
+type EndpointVersionRow = (
+    i64,
+    i64,
+    i32,
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    String,
+    String,
+    String,
+    String,
+);
+
+/// Row shape for audit-log queries (id, timestamp, username, action, details,
+/// service, branch, action_type, diff).
+type AuditLogRow = (
+    i64,
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 /// Hashes a session token with SHA-256 so that only the hash is stored at rest.
 /// The raw token is returned to the client; lookups hash the incoming token.
 fn hash_session_token(token: &str) -> String {
@@ -26,7 +68,8 @@ fn hash_session_token(token: &str) -> String {
 
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
+    EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
+    UpdateEndpointParams,
 };
 
 struct ApiTokenRow {
@@ -1226,15 +1269,8 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    #[allow(clippy::type_complexity)]
     async fn list_services_detailed(&self) -> Result<Vec<ServiceSummary>, RepositoryError> {
-        let rows: Vec<(
-            String,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        )> = sqlx::query_as(
+        let rows: Vec<ServiceSummaryRow> = sqlx::query_as(
             r#"
             SELECT s.name, s.fallback_branch, GROUP_CONCAT(b.name) as branches, s.icon, s.domain
             FROM services s
@@ -1847,26 +1883,11 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(row.map(|(v,)| v).unwrap_or(0))
     }
 
-    #[allow(clippy::type_complexity)]
     async fn get_endpoint_versions(
         &self,
         endpoint_id: i64,
     ) -> Result<Vec<EndpointVersion>, RepositoryError> {
-        let rows: Vec<(
-            i64,
-            i64,
-            i32,
-            String,
-            Option<String>,
-            String,
-            Option<String>,
-            Option<String>,
-            String,
-            String,
-            String,
-            String,
-            String,
-        )> = sqlx::query_as(
+        let rows: Vec<EndpointVersionRow> = sqlx::query_as(
             "SELECT ev.id, ev.endpoint_id, ev.version, ev.yaml_content, ev.diff_from_previous, ev.created_at, 
                    m.username, m.source_branch,
                    s.name as service_name, b.name as branch_name, e.api_type, e.path, e.method
@@ -2247,12 +2268,7 @@ impl SpecRepository for SqliteSpecRepository {
     async fn insert_audit_log(
         &self,
         username: &str,
-        action: &str,
-        details: &str,
-        service: Option<&str>,
-        branch: Option<&str>,
-        action_type: Option<&str>,
-        diff: Option<&str>,
+        log: NewAuditLog<'_>,
     ) -> Result<(), RepositoryError> {
         let timestamp = chrono::Utc::now().to_rfc3339();
         sqlx::query(
@@ -2260,12 +2276,12 @@ impl SpecRepository for SqliteSpecRepository {
         )
         .bind(timestamp)
         .bind(username)
-        .bind(action)
-        .bind(details)
-        .bind(service)
-        .bind(branch)
-        .bind(action_type)
-        .bind(diff)
+        .bind(log.action)
+        .bind(log.details)
+        .bind(log.service)
+        .bind(log.branch)
+        .bind(log.action_type)
+        .bind(log.diff)
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -2360,8 +2376,7 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
         limit: u32,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
-        #[allow(clippy::type_complexity)]
-        let rows: Vec<(i64, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        let rows: Vec<AuditLogRow> = sqlx::query_as(
             "SELECT id, timestamp, username, action, details, service, branch, action_type, diff FROM audit_logs ORDER BY id DESC LIMIT ?"
         )
         .bind(limit)

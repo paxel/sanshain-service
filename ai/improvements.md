@@ -11,44 +11,9 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 ## Priority legend
 
-- **P0+**: enforcement guardrails that make all other rules machine-checked; do before anything else.
 - **P0**: security or data-loss risk; do first.
 - **P1**: documented feature gap, correctness issue, or production hardening.
 - **P2**: quality, maintainability, performance, or developer-experience improvement.
-
-## P0+ — Enforcement guardrails against AI regressions (do before everything else)
-
-This codebase is 100% AI-generated and will stay that way. A source review (2026-07-03) showed that rules existing only as prose in instruction files get violated over time (example: "`unwrap()` is strictly forbidden" — yet 73 production `unwrap()` calls existed at review time), while the one machine-enforced rule (the self-checking `all_admin_routes_have_auth_middleware` test in `src/lib.rs`) has held across all generations. Every project rule must therefore be enforced by lints, tests, or CI — not by instructions. These items outrank items 1–18 below, and all remaining items are independent. The remaining guardrails are E9 (a manual repository-owner step) and E10 (deferrable). Already done (see the 1.5.0 CHANGELOG for the user-facing parts):
-
-- **E1** — `MockRepo` feature-gated out of release builds (`test-support` Cargo feature).
-- **E2** — remaining production `unwrap()` calls removed.
-- **E3** — no-panic policy denied by clippy (`[lints.clippy]` in `Cargo.toml`, test exemptions in `clippy.toml`).
-- **E4** — Rust toolchain pinned (`rust-toolchain.toml` + `dtolnay/rust-toolchain@1.95.0` in all three workflows; bump policy documented in `AGENTS.md`).
-- **E5** — coverage floor ratchet in CI (`--fail-under 62` in `quality.yml`, from 64.19% measured 2026-07-03; ratchet rule in `AGENTS.md`).
-- **E6** — router ↔ `api.yaml` contract test (`router_matches_api_yaml_contract` in `src/lib.rs`; `api.yaml` is the client API contract, all other routes live in the test's `NOT_IN_CLIENT_CONTRACT` allowlist, and stale allowlist entries fail too).
-- **E7** — real readiness probe + SQLite/replica fix: unauthenticated `GET /ready` runs `SELECT 1` via `SpecRepository::ping()` (200 ready / 503 unavailable), liveness stays on `/health`; `deploy/kubernetes/deployment.yaml` readiness probe targets `/ready` and `replicas` dropped to `1` (comment + `docs/deployment.md` Scaling/probe sections); `/ready` is allowlisted in the E6 contract test as operational (not part of the client API contract).
-- **E8** — Playwright UI smoke tests in CI: dedicated `ui-quality` job in `.github/workflows/quality.yml` (Rust `@1.95.0` + Node) runs `npm ci`, `npx playwright install --with-deps chromium`, builds and starts the service with `INITIAL_ADMIN_PASSWORD` (reusing rust-quality's wait-for-health loop), then `npx playwright test tests/ui/smoke.test.js`.
-
-### E9. Branch protection (manual, human step)
-
-**Problem:** CI runs on every push, but nothing prevents merging (or pushing directly to) `master`/`release/*` with red CI.
-
-**Implementation instructions (for the repository owner, not an agent):** On GitHub (`paxel/sanshain-service`), protect `master` and `release/*`: require the `CI` and `Quality` checks to pass, require PRs (no direct pushes), forbid force pushes. Mirror expectations for the sourcehut remote where possible (`.build.yml` already exists).
-
-**Validation:** A test PR with a failing check cannot be merged.
-
-### E10. Eliminate the 13 `#[allow(clippy::...)]` attributes, then deny them (lowest urgency in this section)
-
-**Problem:** The project policy forbids `#[allow]`, yet 13 exist: 6× `type_complexity` (`src/infrastructure/{postgres,sqlite}_repository.rs`), 6× `too_many_arguments` (`src/application/spec_service.rs`, `src/domain/ports.rs`, `src/presentation/handlers/{admin,auth,api}.rs`), 1× `collapsible_if` (`src/presentation/handlers/admin.rs:908`).
-
-**Implementation instructions:**
-
-1. `type_complexity`: introduce named type aliases in `src/domain/ports.rs` (or the repository modules) for the offending signatures.
-2. `too_many_arguments`: group parameters into small structs (e.g. a params struct per use case, as already done with `RecordDependencyParams`/`UpdateEndpointParams`).
-3. `collapsible_if`: restructure the condition as clippy suggests.
-4. Only after all 13 are gone, add `allow_attributes = "deny"` to `[lints.clippy]` in `Cargo.toml` so new ones cannot appear.
-
-**Validation:** `grep -rn "#\[allow" src/` returns nothing; `cargo clippy --all-targets -- -D warnings` clean.
 
 ## P0 — Security and production safety
 
@@ -568,7 +533,6 @@ This codebase is 100% AI-generated and will stay that way. A source review (2026
 
 ## Suggested implementation order
 
-0. Enforcement guardrails done through E8 (E1–E6 tooling guardrails, E7 readiness probe + SQLite/replica fix, E8 Playwright UI smoke tests in CI). E9 is a manual repository-owner step (branch protection); E10 (eliminate `#[allow]` attributes, then deny them) may be deferred. Remaining automated work starts at item 1.
 1. Dev-mode production safety.
 2. Remove query-string API tokens.
 3. Stop logging submitted specs on parse errors.

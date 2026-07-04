@@ -74,13 +74,15 @@ async fn provide_with_tags_persists_and_auto_tag() {
     // Provide AsyncAPI should auto-tag with "messaging" and also keep custom tag
     let resp = spec_service::provide_spec_with_tags(
         &repo,
-        "orders",
-        "main",
-        ApiType::AsyncApi,
-        ASYNCAPI_V2,
+        spec_service::ProvideSpecParams {
+            servicename: "orders",
+            branch: "main",
+            api_type: ApiType::AsyncApi,
+            content: ASYNCAPI_V2,
+            base_version: None,
+            force: false,
+        },
         &["custom".to_string()],
-        None,
-        false,
     )
     .await
     .unwrap();

@@ -5,7 +5,8 @@ use moka::future::Cache;
 
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
+    EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
+    UpdateEndpointParams,
 };
 use crate::infrastructure::database::DatabaseRepo;
 
@@ -1193,24 +1194,9 @@ impl SpecRepository for CachedSpecRepository {
     async fn insert_audit_log(
         &self,
         username: &str,
-        action: &str,
-        details: &str,
-        service: Option<&str>,
-        branch: Option<&str>,
-        action_type: Option<&str>,
-        diff: Option<&str>,
+        log: NewAuditLog<'_>,
     ) -> Result<(), RepositoryError> {
-        self.inner
-            .insert_audit_log(
-                username,
-                action,
-                details,
-                service,
-                branch,
-                action_type,
-                diff,
-            )
-            .await
+        self.inner.insert_audit_log(username, log).await
     }
 
     async fn get_audit_logs(

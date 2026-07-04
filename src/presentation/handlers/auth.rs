@@ -1,27 +1,21 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
 use crate::domain::models::User;
-use crate::domain::ports::SpecRepository;
+use crate::domain::ports::{NewAuditLog, SpecRepository};
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 
-#[allow(clippy::too_many_arguments)]
 async fn record_audit_log(
     repo: &impl crate::domain::ports::SpecRepository,
     user: Option<&User>,
-    action: &str,
-    details: &str,
-    service: Option<&str>,
-    branch: Option<&str>,
-    action_type: Option<&str>,
-    diff: Option<&str>,
+    log: NewAuditLog<'_>,
 ) -> Result<(), AppError> {
     let actor = if let Some(u) = user {
         u.username.clone()
     } else {
         "DevMode/Anonymous".to_string()
     };
-    repo.insert_audit_log(&actor, action, details, service, branch, action_type, diff)
+    repo.insert_audit_log(&actor, log)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))
 }
@@ -144,12 +138,14 @@ pub async fn auth_change_password(
             record_audit_log(
                 &state.repo,
                 Some(&user),
-                "CHANGE_PASSWORD",
-                "Successfully changed user password",
-                None,
-                None,
-                Some("ADMIN"),
-                None,
+                NewAuditLog {
+                    action: "CHANGE_PASSWORD",
+                    details: "Successfully changed user password",
+                    service: None,
+                    branch: None,
+                    action_type: Some("ADMIN"),
+                    diff: None,
+                },
             )
             .await?;
             Ok((
@@ -173,12 +169,14 @@ pub async fn auth_register(
     record_audit_log(
         &state.repo,
         None,
-        "REGISTER_USER",
-        &format!("Registered user '{}'", payload.username),
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "REGISTER_USER",
+            details: &format!("Registered user '{}'", payload.username),
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(StatusCode::CREATED)
@@ -237,12 +235,14 @@ pub async fn create_token(
     record_audit_log(
         &state.repo,
         Some(&user),
-        "CREATE_TOKEN",
-        &format!("Created API token '{}' with ID '{}'", payload.name, id),
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "CREATE_TOKEN",
+            details: &format!("Created API token '{}' with ID '{}'", payload.name, id),
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(Json(CreateTokenResponse {
@@ -261,12 +261,14 @@ pub async fn revoke_token(
     record_audit_log(
         &state.repo,
         Some(&user),
-        "REVOKE_TOKEN",
-        &format!("Revoked API token with ID '{}'", id),
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "REVOKE_TOKEN",
+            details: &format!("Revoked API token with ID '{}'", id),
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(StatusCode::OK)

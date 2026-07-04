@@ -363,13 +363,15 @@ paths:
     let tags = vec!["messaging".to_string(), "api".to_string()];
     let _ = spec_service::provide_spec_with_tags(
         &repo,
-        "svc",
-        "main",
-        ApiType::OpenApi,
-        yaml,
+        spec_service::ProvideSpecParams {
+            servicename: "svc",
+            branch: "main",
+            api_type: ApiType::OpenApi,
+            content: yaml,
+            base_version: None,
+            force: false,
+        },
         &tags,
-        None,
-        false,
     )
     .await
     .unwrap();

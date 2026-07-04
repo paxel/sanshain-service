@@ -14,6 +14,11 @@ todo = "deny"
 unimplemented = "deny"
 dbg_macro = "deny"
 
+# No-`#[allow]` policy (see AGENTS.md / ai/improvements.md E10). Silencing a lint
+# with `#[allow(...)]` is forbidden — fix the lint instead. This denies the
+# escape hatch itself so it cannot creep back in.
+allow_attributes = "deny"
+
 [features]
 # Compiles in-memory test doubles (e.g. `MockRepo`). Enabled automatically for
 # integration tests via the self dev-dependency below; never enabled for release builds.

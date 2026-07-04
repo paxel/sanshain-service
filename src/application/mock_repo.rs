@@ -1,6 +1,7 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
+    EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
+    UpdateEndpointParams,
 };
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
@@ -929,12 +930,7 @@ impl SpecRepository for MockRepo {
     async fn insert_audit_log(
         &self,
         username: &str,
-        action: &str,
-        details: &str,
-        service: Option<&str>,
-        branch: Option<&str>,
-        action_type: Option<&str>,
-        diff: Option<&str>,
+        log: NewAuditLog<'_>,
     ) -> Result<(), RepositoryError> {
         let mut logs = self
             .audit_logs
@@ -946,12 +942,12 @@ impl SpecRepository for MockRepo {
             id,
             timestamp,
             username: username.to_string(),
-            action: action.to_string(),
-            details: details.to_string(),
-            service: service.map(|s| s.to_string()),
-            branch: branch.map(|b| b.to_string()),
-            action_type: action_type.map(|t| t.to_string()),
-            diff: diff.map(|d| d.to_string()),
+            action: log.action.to_string(),
+            details: log.details.to_string(),
+            service: log.service.map(|s| s.to_string()),
+            branch: log.branch.map(|b| b.to_string()),
+            action_type: log.action_type.map(|t| t.to_string()),
+            diff: log.diff.map(|d| d.to_string()),
         });
         Ok(())
     }

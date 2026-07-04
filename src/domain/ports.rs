@@ -61,6 +61,17 @@ pub struct UpdateEndpointParams<'a> {
     pub external: bool,
 }
 
+/// Content of a new audit-log entry — everything except the acting username,
+/// which the caller resolves from the request context.
+pub struct NewAuditLog<'a> {
+    pub action: &'a str,
+    pub details: &'a str,
+    pub service: Option<&'a str>,
+    pub branch: Option<&'a str>,
+    pub action_type: Option<&'a str>,
+    pub diff: Option<&'a str>,
+}
+
 pub trait SpecRepository: Send + Sync {
     /// Liveness/readiness check against the backing store: runs a trivial query
     /// (`SELECT 1`) to confirm the connection pool can reach the database.
@@ -537,16 +548,10 @@ pub trait SpecRepository: Send + Sync {
     // --- Audit Logs ---
 
     /// Insert an audit log record
-    #[allow(clippy::too_many_arguments)]
     fn insert_audit_log(
         &self,
         username: &str,
-        action: &str,
-        details: &str,
-        service: Option<&str>,
-        branch: Option<&str>,
-        action_type: Option<&str>,
-        diff: Option<&str>,
+        log: NewAuditLog<'_>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Get audit log records with filtering
