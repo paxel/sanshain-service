@@ -18,7 +18,7 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 ## P0+ — Enforcement guardrails against AI regressions (do before everything else)
 
-This codebase is 100% AI-generated and will stay that way. A source review (2026-07-03) showed that rules existing only as prose in instruction files get violated over time (example: "`unwrap()` is strictly forbidden" — yet 73 production `unwrap()` calls existed at review time), while the one machine-enforced rule (the self-checking `all_admin_routes_have_auth_middleware` test in `src/lib.rs`) has held across all generations. Every project rule must therefore be enforced by lints, tests, or CI — not by instructions. These items are numbered E7–E10; they outrank items 1–18 below, and all remaining items are independent. Already done (see the 1.5.0 CHANGELOG for the user-facing parts):
+This codebase is 100% AI-generated and will stay that way. A source review (2026-07-03) showed that rules existing only as prose in instruction files get violated over time (example: "`unwrap()` is strictly forbidden" — yet 73 production `unwrap()` calls existed at review time), while the one machine-enforced rule (the self-checking `all_admin_routes_have_auth_middleware` test in `src/lib.rs`) has held across all generations. Every project rule must therefore be enforced by lints, tests, or CI — not by instructions. These items outrank items 1–18 below, and all remaining items are independent. The remaining guardrails are E9 (a manual repository-owner step) and E10 (deferrable). Already done (see the 1.5.0 CHANGELOG for the user-facing parts):
 
 - **E1** — `MockRepo` feature-gated out of release builds (`test-support` Cargo feature).
 - **E2** — remaining production `unwrap()` calls removed.
@@ -26,35 +26,8 @@ This codebase is 100% AI-generated and will stay that way. A source review (2026
 - **E4** — Rust toolchain pinned (`rust-toolchain.toml` + `dtolnay/rust-toolchain@1.95.0` in all three workflows; bump policy documented in `AGENTS.md`).
 - **E5** — coverage floor ratchet in CI (`--fail-under 62` in `quality.yml`, from 64.19% measured 2026-07-03; ratchet rule in `AGENTS.md`).
 - **E6** — router ↔ `api.yaml` contract test (`router_matches_api_yaml_contract` in `src/lib.rs`; `api.yaml` is the client API contract, all other routes live in the test's `NOT_IN_CLIENT_CONTRACT` allowlist, and stale allowlist entries fail too).
-
-### E7. Real readiness probe and SQLite/replica conflict fix — DONE (1.5.0)
-
-Implemented: unauthenticated `GET /ready` runs `SELECT 1` via a new
-`SpecRepository::ping()` (returns 200 ready / 503 unavailable); liveness stays on
-`/health`. `deploy/kubernetes/deployment.yaml` readiness probe now targets
-`/ready` and `replicas` dropped to `1` with a comment; `docs/deployment.md` gained
-Scaling and probe sections. `/ready` is allowlisted in the router↔api.yaml
-contract test as an operational endpoint alongside `/health` (not part of the
-client API contract).
-
-**Problem:** Both k8s probes hit `/health`, which returns a static `"OK"` without touching the database — a pod with a broken DB still receives traffic. Separately, `deploy/kubernetes/deployment.yaml` sets `replicas: 2` with a `ReadWriteOnce` PVC and SQLite as default: the second pod either cannot mount the volume or risks corrupting the SQLite file.
-
-**Implementation instructions:**
-
-1. Add an unauthenticated `GET /ready` route: run `SELECT 1` against the active pool (add a `ping()` method to the repository port and implementations); return 200 on success, 503 with a short JSON body on failure. Keep `/health` as-is for liveness.
-2. Update `deploy/kubernetes/deployment.yaml`: `readinessProbe.httpGet.path: /ready` (liveness stays `/health`).
-3. Change `replicas: 2` to `replicas: 1` in `deployment.yaml`, and add a comment plus a note in `docs/deployment.md`: scaling above 1 replica requires PostgreSQL (`DATABASE_URL=postgres://...`) and removal of the SQLite PVC mount.
-4. Update `api.yaml` with the new `/ready` route (E6's test will enforce this).
-
-**Validation:** Integration test: `/ready` returns 200 with a live DB; unit/integration coverage for the 503 path where feasible. `kubectl apply --dry-run=client -k deploy/kubernetes/` still validates.
-
-### E8. Run Playwright UI smoke tests in CI
-
-**Problem:** `tests/ui/*.test.js` exist but CI only runs eslint/prettier for JS — UI regressions are invisible.
-
-**Implementation instructions:** In `.github/workflows/quality.yml`, extend the `js-quality` job (or add a job): `npm ci`, `npx playwright install --with-deps chromium`, build and start the service in the background with `INITIAL_ADMIN_PASSWORD` set (reuse the wait-for-health loop from `rust-quality`), then `npx playwright test tests/ui/smoke.test.js`.
-
-**Validation:** CI job green; breaking a smoke-tested page fails the workflow.
+- **E7** — real readiness probe + SQLite/replica fix: unauthenticated `GET /ready` runs `SELECT 1` via `SpecRepository::ping()` (200 ready / 503 unavailable), liveness stays on `/health`; `deploy/kubernetes/deployment.yaml` readiness probe targets `/ready` and `replicas` dropped to `1` (comment + `docs/deployment.md` Scaling/probe sections); `/ready` is allowlisted in the E6 contract test as operational (not part of the client API contract).
+- **E8** — Playwright UI smoke tests in CI: dedicated `ui-quality` job in `.github/workflows/quality.yml` (Rust `@1.95.0` + Node) runs `npm ci`, `npx playwright install --with-deps chromium`, builds and starts the service with `INITIAL_ADMIN_PASSWORD` (reusing rust-quality's wait-for-health loop), then `npx playwright test tests/ui/smoke.test.js`.
 
 ### E9. Branch protection (manual, human step)
 
@@ -595,7 +568,7 @@ client API contract).
 
 ## Suggested implementation order
 
-0. Enforcement guardrails E7–E8 first (all independent; E9 is a manual owner step; E10 may be deferred). E1–E7 (MockRepo feature gate, production `unwrap()` removal, no-panic deny-lints, toolchain pin, coverage floor, router↔api.yaml contract test, readiness probe + SQLite/replica fix) are already done; E8 (Playwright UI smoke tests in CI) is next.
+0. Enforcement guardrails done through E8 (E1–E6 tooling guardrails, E7 readiness probe + SQLite/replica fix, E8 Playwright UI smoke tests in CI). E9 is a manual repository-owner step (branch protection); E10 (eliminate `#[allow]` attributes, then deny them) may be deferred. Remaining automated work starts at item 1.
 1. Dev-mode production safety.
 2. Remove query-string API tokens.
 3. Stop logging submitted specs on parse errors.
