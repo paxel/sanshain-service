@@ -209,7 +209,7 @@ fn parse_spec_endpoints(
                     path: s.channel,
                     method: s.operation,
                     yaml_content: s.yaml_content,
-                    deprecated: false,
+                    deprecated: s.deprecated,
                 })
                 .collect())
         }
@@ -230,7 +230,7 @@ fn parse_spec_endpoints(
                 path: s.service,
                 method: s.method,
                 yaml_content: s.content,
-                deprecated: false,
+                deprecated: s.deprecated,
             })
             .collect()),
     }
@@ -390,12 +390,12 @@ async fn provide_spec_inner(
         );
     }
 
-    let mut existing_map: HashMap<(ApiType, String, String), (String, String)> = existing
+    let mut existing_map: HashMap<(ApiType, String, String), (String, String, bool)> = existing
         .into_iter()
         .map(|e| {
             (
                 (e.api_type, e.normalized_path, e.method),
-                (e.path, e.yaml_content),
+                (e.path, e.yaml_content, e.deprecated),
             )
         })
         .collect();
@@ -492,8 +492,27 @@ async fn provide_spec_inner(
             endpoint.normalized_path.clone(),
             endpoint.method.clone(),
         );
-        if let Some((old_path, existing_yaml)) = existing_map.remove(&key) {
+        if let Some((old_path, existing_yaml, _)) = existing_map.remove(&key) {
             if existing_yaml != endpoint.yaml_content || old_path != endpoint.path {
+                // OpenAPI is covered by the merged whole-spec check above;
+                // AsyncAPI/proto content changes are checked per endpoint here.
+                if is_protected
+                    && api_type != ApiType::OpenApi
+                    && existing_yaml != endpoint.yaml_content
+                    && let Err(reason) =
+                        check_compatibility(api_type, &existing_yaml, &endpoint.yaml_content)
+                {
+                    tracing::warn!(
+                        "Rejected update for service '{}' branch '{}': breaking changes: {}",
+                        servicename,
+                        branch,
+                        reason
+                    );
+                    return Err(AppError::BreakingChange(format!(
+                        "Breaking changes detected on protected branch '{}' of service '{}': {}",
+                        branch, servicename, reason
+                    )));
+                }
                 changes.push(SpecChange::Update {
                     api_type,
                     path: endpoint.path,
@@ -530,14 +549,14 @@ async fn provide_spec_inner(
     }
 
     let mut deletes = 0;
-    for ((old_api_type, _norm_path, method), (path, _)) in existing_map {
+    for ((old_api_type, _norm_path, method), (path, _, was_deprecated)) in existing_map {
         if old_api_type != api_type {
             continue;
         }
 
-        if is_protected && !dry_run {
+        if is_protected && !dry_run && !was_deprecated {
             return Err(AppError::BreakingChange(format!(
-                "Removing endpoint {} {} is a breaking change on a protected branch",
+                "Removing non-deprecated endpoint {} {} is a breaking change on a protected branch; mark it deprecated first",
                 method, path
             )));
         }
@@ -1134,7 +1153,8 @@ pub fn check_compatibility(
 ) -> Result<(), String> {
     match api_type {
         ApiType::OpenApi => openapi::check_backward_compatibility(old_yaml, new_yaml),
-        _ => Ok(()),
+        ApiType::AsyncApi => crate::asyncapi::check_backward_compatibility(old_yaml, new_yaml),
+        ApiType::Proto => crate::proto::check_backward_compatibility(old_yaml, new_yaml),
     }
 }
 
@@ -1439,9 +1459,40 @@ paths:
     }
 
     #[tokio::test]
-    async fn test_check_compatibility_asyncapi_always_ok() {
-        let result = check_compatibility(ApiType::AsyncApi, "old", "new");
-        assert!(result.is_ok());
+    async fn test_check_compatibility_asyncapi_detects_breaking_change() {
+        let old = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  user-created:
+    publish:
+      message:
+        payload:
+          type: object
+          properties:
+            id: { type: string }
+"#;
+        let new = old.replace("id: { type: string }", "id: { type: integer }");
+        assert_eq!(check_compatibility(ApiType::AsyncApi, old, old), Ok(()));
+        let err = check_compatibility(ApiType::AsyncApi, old, &new).unwrap_err();
+        assert!(
+            err.contains("changed type from 'string' to 'integer'"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_check_compatibility_proto_detects_breaking_change() {
+        let old = r#"
+syntax = "proto3";
+message Req { string id = 1; }
+message Res { string name = 1; }
+service S { rpc Get (Req) returns (Res); }
+"#;
+        let new = old.replace("string id = 1;", "string id = 2;");
+        assert_eq!(check_compatibility(ApiType::Proto, old, old), Ok(()));
+        let err = check_compatibility(ApiType::Proto, old, &new).unwrap_err();
+        assert!(err.contains("changed number from 1 to 2"), "{err}");
     }
 
     #[test]

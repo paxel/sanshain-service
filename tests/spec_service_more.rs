@@ -295,6 +295,253 @@ paths:
     }
 }
 
+// AsyncAPI snippets for protected-branch compatibility tests
+const ASYNCAPI_COMPAT_BASE: &str = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  user-created:
+    publish:
+      message:
+        payload:
+          type: object
+          properties:
+            id: { type: string }
+            age: { type: integer }
+"#;
+
+#[tokio::test]
+async fn protected_branch_rejects_breaking_asyncapi_change() {
+    let repo = MockRepo::new(); // 'main' is protected
+    spec_service::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::AsyncApi,
+        ASYNCAPI_COMPAT_BASE,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let removed_property = ASYNCAPI_COMPAT_BASE.replace("            age: { type: integer }\n", "");
+    let err = spec_service::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::AsyncApi,
+        &removed_property,
+        None,
+        false,
+    )
+    .await
+    .unwrap_err();
+    match err {
+        AppError::BreakingChange(msg) => {
+            assert!(msg.contains("was removed"), "{msg}");
+        }
+        other => panic!("expected BreakingChange, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn protected_branch_accepts_additive_asyncapi_change() {
+    let repo = MockRepo::new();
+    spec_service::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::AsyncApi,
+        ASYNCAPI_COMPAT_BASE,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let added_property = ASYNCAPI_COMPAT_BASE.replace(
+        "age: { type: integer }",
+        "age: { type: integer }\n            email: { type: string }",
+    );
+    let resp = spec_service::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::AsyncApi,
+        &added_property,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(resp.changes.updates, 1);
+}
+
+// Proto snippets for protected-branch compatibility tests
+const PROTO_COMPAT_BASE: &str = r#"
+syntax = "proto3";
+
+message Req {
+  string id = 1;
+}
+message Res {
+  string name = 1;
+}
+
+service UserService {
+  rpc GetUser (Req) returns (Res);
+  rpc DropUser (Req) returns (Res) { option deprecated = true; }
+}
+"#;
+
+#[tokio::test]
+async fn protected_branch_rejects_breaking_proto_change() {
+    let repo = MockRepo::new();
+    spec_service::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::Proto,
+        PROTO_COMPAT_BASE,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let changed_type = PROTO_COMPAT_BASE.replace("string id = 1;", "int64 id = 1;");
+    let err = spec_service::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::Proto,
+        &changed_type,
+        None,
+        false,
+    )
+    .await
+    .unwrap_err();
+    match err {
+        AppError::BreakingChange(msg) => {
+            assert!(
+                msg.contains("changed type from 'string' to 'int64'"),
+                "{msg}"
+            );
+        }
+        other => panic!("expected BreakingChange, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn protected_branch_allows_removing_deprecated_proto_rpc() {
+    let repo = MockRepo::new();
+    spec_service::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::Proto,
+        PROTO_COMPAT_BASE,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    // Removing the deprecated rpc is allowed on the protected branch...
+    let removed_deprecated = PROTO_COMPAT_BASE.replace(
+        "  rpc DropUser (Req) returns (Res) { option deprecated = true; }\n",
+        "",
+    );
+    let resp = spec_service::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::Proto,
+        &removed_deprecated,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(resp.changes.deletes, 1);
+
+    // ...but removing the remaining non-deprecated rpc is still rejected.
+    let removed_active = removed_deprecated.replace("  rpc GetUser (Req) returns (Res);\n", "");
+    let err = spec_service::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::Proto,
+        &removed_active,
+        None,
+        false,
+    )
+    .await
+    .unwrap_err();
+    match err {
+        AppError::BreakingChange(msg) => {
+            assert!(msg.contains("mark it deprecated first"), "{msg}");
+        }
+        other => panic!("expected BreakingChange, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn protected_branch_allows_removing_deprecated_asyncapi_channel() {
+    let repo = MockRepo::new();
+    let two_channels = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  user-created:
+    publish:
+      message:
+        payload:
+          type: object
+  legacy-events:
+    publish:
+      deprecated: true
+      message:
+        payload:
+          type: object
+"#;
+    spec_service::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::AsyncApi,
+        two_channels,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let without_legacy = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  user-created:
+    publish:
+      message:
+        payload:
+          type: object
+"#;
+    let resp = spec_service::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::AsyncApi,
+        without_legacy,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(resp.changes.deletes, 1);
+}
+
 #[tokio::test]
 async fn provide_spec_on_unprotected_hits_shared_contract_path() {
     let repo = MockRepo::new();

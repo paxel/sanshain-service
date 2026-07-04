@@ -6,7 +6,7 @@ This guide explains how to manage the evolution of your APIs in Sanshain, from i
 1. **Develop**: Make changes on a feature branch. Breaking changes are allowed here.
 2. **Review**: Sanshain validates compatibility when you merge to a **Protected Branch** (e.g., `main`).
 3. **Version**: If a change is breaking, increment the API path (e.g., `/v1` -> `/v2`).
-4. **Deprecate**: Mark old endpoints as deprecated in your OpenAPI/AsyncAPI spec.
+4. **Deprecate**: Mark old endpoints as deprecated in your OpenAPI/AsyncAPI/proto spec.
 5. **Retire**: Delete old endpoints only after the Dependency Graph shows zero active clients.
 
 ---
@@ -20,6 +20,14 @@ Sanshain encourages **additive changes**. Adding optional fields, new endpoints,
 
 ## 2. Handling Breaking Changes
 A breaking change is any modification that violates backward compatibility (e.g., removing a field, changing a type, renaming an endpoint).
+
+The compatibility checker covers all three API types:
+
+- **OpenAPI**: removed paths/methods/response codes, removed schema properties, property type changes, new required request fields.
+- **AsyncAPI**: removed messages, removed payload properties, payload property type (or `$ref`) changes. Enum value and `required` changes are not analyzed.
+- **gRPC/proto**: removed rpcs or messages, removed message fields, field number/type/`repeated` label changes, rpc signature changes. Enum changes are not analyzed.
+
+Elements marked **deprecated** in the previously published spec are exempt: removing them is treated as non-breaking (see section 4 for how to mark deprecation per API type).
 
 ### Phase A: Development (Feature Branches)
 You can push breaking changes to any non-protected branch.
@@ -42,7 +50,22 @@ When a breaking change is required, Sanshain expects you to support **side-by-si
 ## 4. Deprecation & Migration
 Once the new version is live, you should encourage clients to migrate.
 
-- **Annotate**: Use the `deprecated: true` flag in your OpenAPI/AsyncAPI specification for the old endpoints.
+- **Annotate**: Mark the old endpoints as deprecated in your specification:
+  - **OpenAPI**: `deprecated: true` on the operation (and/or on individual schema properties).
+  - **AsyncAPI**: `deprecated: true` (or `x-deprecated: true`) on the `publish`/`subscribe` operation, message, or payload property.
+  - **gRPC/proto**: `option deprecated = true;` inside the rpc or message body, or `[deprecated = true]` on a field.
+
+Deprecation is strictly **per element** — there is no whole-spec switch. A root-level
+`deprecated: true` in an AsyncAPI document or a file-level `option deprecated = true;` in a
+`.proto` file is ignored. The marker must also sit **at the level of the thing you later
+remove**:
+
+  - Deleting a whole endpoint (OpenAPI operation, AsyncAPI channel operation, proto rpc)
+    requires the marker on that operation/rpc itself.
+  - Removing a message requires the marker on that message; removing a payload property or
+    proto field requires the marker on that property/field. Deprecating an operation does
+    *not* exempt removing individual fields from its payload.
+  - Proto nested messages are independent: deprecating `Outer` does not cover `Outer.Inner`.
 - **Monitor**: Check the **Dependency Graph** in the Sanshain UI. It will show exactly which clients are still "requiring" the old `v1` endpoints.
 - **Communicate**: Use the dependency list to contact the owners of the consumer services.
 
@@ -51,7 +74,13 @@ The final step is removing the old code and specification.
 
 - **Check**: Verify in the Sanshain dashboard that the "Clients" count for the old endpoint is **zero**.
 - **Remove**: Delete the endpoint from your specification and push to `main`.
-- **Cleanup**: Since no clients are using it, this is a safe, non-breaking operation.
+- **Requirement**: On protected branches, only endpoints that were **marked deprecated** in the previously published spec can be deleted. Removing a non-deprecated endpoint is rejected as a breaking change — deprecate it first (section 4), then remove it in a later update.
+
+Retirement on a protected branch is therefore always **two publishes**: first publish the
+spec *with* the deprecation marker (an ordinary compatible update), then publish the spec
+*without* the element. This also applies to endpoints published before Sanshain 1.5.0: they
+were stored without a deprecation flag, so re-publish them once with the marker before the
+publish that removes them.
 
 ---
 
@@ -63,7 +92,7 @@ The final step is removing the old code and specification.
 | **Breaking**    | Feature   | Accepted           | Test with opt-in clients       |
 | **Breaking**    | Protected | **Rejected (409)** | Use Path Versioning            |
 | **Deprecation** | Protected | Accepted           | Monitor Dependency Graph       |
-| **Deletion**    | Protected | Accepted*          | *Only safe if client count is 0 |
+| **Deletion**    | Protected | Accepted*          | *Only for deprecated endpoints |
 
 ---
 

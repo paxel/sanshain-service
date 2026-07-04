@@ -544,7 +544,8 @@ pub fn check_openapi_compatible(old: &OpenAPI, new: &OpenAPI) -> Result<(), Stri
         }
     }
 
-    // Check that no existing paths/methods or status codes were removed
+    // Check that no existing paths/methods or status codes were removed.
+    // Removing a path is allowed when all of its operations were deprecated.
     for (path, old_item) in &old.paths.paths {
         if let ReferenceOr::Item(old_pi) = old_item {
             match new.paths.paths.get(path) {
@@ -552,7 +553,9 @@ pub fn check_openapi_compatible(old: &OpenAPI, new: &OpenAPI) -> Result<(), Stri
                     check_operations_compatible(path, old_pi, new_pi)?;
                 }
                 _ => {
-                    return Err(format!("Path '{}' was removed", path));
+                    if !get_methods(old_pi).iter().all(|(_, op)| op.deprecated) {
+                        return Err(format!("Path '{}' was removed", path));
+                    }
                 }
             }
         }
@@ -637,9 +640,9 @@ fn check_schema_compatible(
         let old_required = extract_required_fields(old);
         let new_required = extract_required_fields(new);
 
-        // Check no existing properties were removed
-        for prop_name in old_props.keys() {
-            if !new_props.contains_key(prop_name) {
+        // Check no existing properties were removed (deprecated ones may go)
+        for (prop_name, old_prop) in &old_props {
+            if !new_props.contains_key(prop_name) && !old_prop.deprecated {
                 return Err(format!(
                     "Property '{}' was removed from schema '{}'",
                     prop_name, name
@@ -658,13 +661,13 @@ fn check_schema_compatible(
         }
 
         // Check no property types changed
-        for (prop_name, old_type) in &old_props {
-            if let Some(new_type) = new_props.get(prop_name)
-                && old_type != new_type
+        for (prop_name, old_prop) in &old_props {
+            if let Some(new_prop) = new_props.get(prop_name)
+                && old_prop.type_str != new_prop.type_str
             {
                 return Err(format!(
                     "Property '{}' in schema '{}' changed type from '{}' to '{}'",
-                    prop_name, name, old_type, new_type
+                    prop_name, name, old_prop.type_str, new_prop.type_str
                 ));
             }
         }
@@ -673,17 +676,28 @@ fn check_schema_compatible(
     Ok(())
 }
 
-/// Extract property names and their type strings from an object schema.
-fn extract_object_properties(schema: &openapiv3::Schema) -> Option<HashMap<&str, String>> {
+struct PropertyInfo {
+    type_str: String,
+    deprecated: bool,
+}
+
+/// Extract property names, type strings, and deprecation flags from an object schema.
+fn extract_object_properties(schema: &openapiv3::Schema) -> Option<HashMap<&str, PropertyInfo>> {
     match &schema.schema_kind {
         SchemaKind::Type(OaType::Object(obj)) => {
             let mut props = HashMap::new();
             for (name, prop_ref) in &obj.properties {
-                let type_str = match prop_ref {
-                    ReferenceOr::Item(box_schema) => describe_schema_type(&box_schema.schema_kind),
-                    ReferenceOr::Reference { reference } => reference.clone(),
+                let info = match prop_ref {
+                    ReferenceOr::Item(box_schema) => PropertyInfo {
+                        type_str: describe_schema_type(&box_schema.schema_kind),
+                        deprecated: box_schema.schema_data.deprecated,
+                    },
+                    ReferenceOr::Reference { reference } => PropertyInfo {
+                        type_str: reference.clone(),
+                        deprecated: false,
+                    },
                 };
-                props.insert(name.as_str(), type_str);
+                props.insert(name.as_str(), info);
             }
             Some(props)
         }
@@ -719,6 +733,9 @@ fn check_operations_compatible(path: &str, old: &PathItem, new: &PathItem) -> Re
 
     for (method, old_op) in &old_methods {
         if !new_method_names.contains(method) {
+            if old_op.deprecated {
+                continue;
+            }
             return Err(format!(
                 "Method '{}' was removed from path '{}'",
                 method.to_uppercase(),
@@ -1377,6 +1394,137 @@ paths: {}
         let result = check_backward_compatibility(old_yaml, new_yaml);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Path '/users' was removed"));
+    }
+
+    #[test]
+    fn test_removing_deprecated_path_and_method_is_not_breaking() {
+        let old_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /legacy:
+    get:
+      deprecated: true
+      responses:
+        '200':
+          description: OK
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+    post:
+      deprecated: true
+      responses:
+        '201':
+          description: Created
+"#;
+        let new_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        assert_eq!(check_backward_compatibility(old_yaml, new_yaml), Ok(()));
+    }
+
+    #[test]
+    fn test_removing_non_deprecated_method_is_still_breaking() {
+        let old_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+    post:
+      responses:
+        '201':
+          description: Created
+"#;
+        let new_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+        let err = check_backward_compatibility(old_yaml, new_yaml).unwrap_err();
+        assert!(
+            err.contains("Method 'POST' was removed from path '/users'"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn test_removing_deprecated_property_is_not_breaking() {
+        let old_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        legacy_name:
+          type: string
+          deprecated: true
+"#;
+        let new_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+"#;
+        assert_eq!(check_backward_compatibility(old_yaml, new_yaml), Ok(()));
+
+        // Same removal without the deprecation marker stays breaking.
+        let old_without_marker = old_yaml.replace("\n          deprecated: true", "");
+        let err = check_backward_compatibility(&old_without_marker, new_yaml).unwrap_err();
+        assert!(
+            err.contains("Property 'legacy_name' was removed from schema 'User'"),
+            "{err}"
+        );
     }
 
     #[test]
