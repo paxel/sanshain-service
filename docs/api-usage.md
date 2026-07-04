@@ -6,7 +6,7 @@ Sanshain Service provides a set of API endpoints for providing specifications, r
 - **Contract**: The full API is defined in [`api.yaml`](../api.yaml).
 - **Provide**: `POST /provide` (OpenAPI), `/provide/asyncapi`, or `/provide/grpc`.
 - **Require**: `GET /require` (single) or `POST /require-bundle` (multiple).
-- **Auth**: Use `Authorization: Bearer <token>` (get tokens at `/account.html`).
+- **Auth**: Use `Authorization: Bearer <token>` (get tokens at `/account.html`). Tokens are accepted **only** in this header — never as a URL/query parameter, to avoid leaking them through logs, history, and referrers.
 
 ---
 

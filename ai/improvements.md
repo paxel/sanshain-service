@@ -21,31 +21,9 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 `get_dev_mode` now returns `is_dev_mode_requested(...) && dev_mode_gate_open()`: dev mode is effective only when requested (`SANSHAIN_DEV_MODE=true` or persisted `dev_mode`) **and** the `ALLOW_INSECURE_DEV_MODE=true` env safety gate is set. This single chokepoint gates every auth-bypass path in `middleware.rs`. Startup fails closed with a clear `SECURITY:` error when dev mode is requested but ungated. Covered by unit tests (`get_dev_mode`/`is_dev_mode_requested`/`dev_mode_gate_open`) and a middleware test proving a persisted `dev_mode=true` still returns 401 without the gate; documented in `docs/administration.md` and `docs/troubleshooting.md`.
 
-### 2. Stop accepting API tokens in query strings
+### 2. Stop accepting API tokens in query strings — DONE (1.5.0)
 
-**Problem:** API token authentication supports bearer tokens, but any route or helper that accepts tokens from a query parameter risks leaking credentials through logs, browser history, proxies, referrers, and screenshots.
-
-**Impact:** Long-lived API tokens can be unintentionally exposed.
-
-**Relevant areas:**
-
-- `src/presentation/middleware.rs`
-- API handlers that parse `token`, `api_token`, or equivalent query parameters
-- `docs/api-usage.md`
-- Integration tests under `tests/`
-
-**Implementation instructions:**
-
-1. Require `Authorization: Bearer san_...` for API token authentication.
-2. If backward compatibility is needed, implement a short deprecation window with a warning header and a changelog entry; otherwise remove query-token support immediately.
-3. Make error messages generic (`401 Unauthorized`) and do not echo supplied token values.
-4. Update docs and examples to use headers only.
-
-**Validation:**
-
-- Add integration tests: bearer token succeeds, missing token fails, query token fails.
-- Search docs for query-token examples and replace them.
-- Run `cargo test`.
+`api_auth` in `src/presentation/middleware.rs` no longer reads a `?token=` query parameter; API tokens are accepted only from the `Authorization` header. Invalid/missing credentials return generic `401`/`403` without echoing the token. No docs or tests used query tokens; `docs/api-usage.md` now states header-only explicitly. Regression test `test_api_token_query_param_is_rejected` proves query token → 403, header bearer → 200, no credentials → 403.
 
 ### 3. Avoid logging submitted API specifications on parse errors
 

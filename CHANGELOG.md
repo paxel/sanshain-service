@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Removed the last production `expect()` calls: the OpenAPI path normalizer and proto splitter no longer have a regex panic path, and a failing OTLP exporter build at startup (`OTEL_ENABLED=true`) now exits with a clear error message instead of panicking.
 
 ### Security
+- API tokens are no longer accepted from a `?token=` query parameter — they must be supplied via the `Authorization: Bearer <token>` header. Query-string credentials leak through server/proxy logs, browser history, and referrer headers; header-only auth closes that exposure. Update any client that passed `?token=...` to send the header instead.
 - Dev mode (which disables authentication on public API endpoints) now requires an explicit production safety gate: it only activates when requested (`SANSHAIN_DEV_MODE=true` or the persisted admin setting) **and** `ALLOW_INSECURE_DEV_MODE=true` is set in the environment. A requested-but-ungated dev mode fails closed — authentication stays enforced and a clear `SECURITY:` error is logged at startup — so a stray env var or configuration drift can no longer silently expose a production instance. See `docs/administration.md`.
 - Excluded in-memory test doubles (`MockRepo`) from release builds behind a new `test-support` Cargo feature, so test-only code no longer ships in the production binary. Its lock handling was also made panic-free.
 

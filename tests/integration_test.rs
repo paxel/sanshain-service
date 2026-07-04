@@ -2477,6 +2477,80 @@ async fn test_api_token_crud_and_bearer_auth() {
     assert_eq!(tokens_list.as_array().unwrap().len(), 0);
 }
 
+// Regression test: API tokens must only be accepted from the `Authorization`
+// header. A token supplied via a `?token=` query parameter must be rejected, so
+// long-lived credentials cannot leak through logs, history, or referrers.
+#[tokio::test]
+async fn test_api_token_query_param_is_rejected() {
+    let (app, admin_token, _) = setup_app_with_admin().await;
+
+    // Create a valid API token (auth mode is Local, so dev-mode bypass is off).
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/tokens")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({ "name": "ci", "expires_in_days": 30 })).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
+    let create_resp: Value = serde_json::from_slice(&body).unwrap();
+    let api_token = create_resp["token"].as_str().unwrap().to_string();
+
+    // 1. A valid token in the query string must NOT authenticate.
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/report?branch=main&token={}", api_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    // 2. The same token in the Authorization header still works.
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/report?branch=main")
+                .header("Authorization", format!("Bearer {}", api_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // 3. No credentials at all are rejected.
+    let response: Response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/report?branch=main")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
 #[tokio::test]
 async fn test_auth_config_api() {
     let (app, token, _) = setup_app_with_admin().await;
