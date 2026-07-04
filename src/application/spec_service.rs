@@ -236,22 +236,6 @@ fn parse_spec_endpoints(
     }
 }
 
-async fn has_protected_branch_endpoints(
-    repo: &impl SpecRepository,
-    service_id: i64,
-) -> Result<bool, AppError> {
-    let protected_branches = repo.list_protected_branches().await?;
-    for pb in &protected_branches {
-        if let Some(bid) = repo.find_branch(service_id, pb).await? {
-            let endpoints = repo.get_endpoints_for_branch(bid).await?;
-            if !endpoints.is_empty() {
-                return Ok(true);
-            }
-        }
-    }
-    Ok(false)
-}
-
 #[instrument(skip_all)]
 async fn provide_spec_inner(
     repo: &impl SpecRepository,
@@ -404,89 +388,7 @@ async fn provide_spec_inner(
     let mut inserts = 0;
     let mut updates = 0;
 
-    let skip_compat = if !is_protected && !dry_run {
-        force || !has_protected_branch_endpoints(repo, sid).await?
-    } else {
-        false
-    };
-
     for endpoint in endpoints {
-        if !is_protected && !dry_run {
-            if skip_compat {
-                repo.upsert_shared_contract(SharedContract {
-                    branch_name: branch.to_string(),
-                    service_id: sid,
-                    api_type,
-                    path: endpoint.normalized_path.clone(),
-                    method: endpoint.method.clone(),
-                    source_yaml: endpoint.yaml_content.clone(),
-                    current_yaml: endpoint.yaml_content.clone(),
-                    owner_service_id: None,
-                })
-                .await?;
-            } else {
-                let shared = repo
-                    .get_shared_contract(
-                        branch,
-                        sid,
-                        api_type,
-                        &endpoint.normalized_path,
-                        &endpoint.method,
-                    )
-                    .await?;
-                match shared {
-                    None => {
-                        repo.upsert_shared_contract(SharedContract {
-                            branch_name: branch.to_string(),
-                            service_id: sid,
-                            api_type,
-                            path: endpoint.normalized_path.clone(),
-                            method: endpoint.method.clone(),
-                            source_yaml: endpoint.yaml_content.clone(),
-                            current_yaml: endpoint.yaml_content.clone(),
-                            owner_service_id: None,
-                        })
-                        .await?;
-                    }
-                    Some(mut entry) => {
-                        if endpoint.yaml_content == entry.source_yaml {
-                            if entry.owner_service_id == Some(sid) {
-                                entry.current_yaml = entry.source_yaml.clone();
-                                entry.owner_service_id = None;
-                                repo.upsert_shared_contract(entry).await?;
-                            }
-                        } else if endpoint.yaml_content != entry.current_yaml {
-                            let is_owner = entry.owner_service_id == Some(sid);
-                            let check_against = if is_owner || entry.owner_service_id.is_none() {
-                                &entry.source_yaml
-                            } else {
-                                &entry.current_yaml
-                            };
-
-                            if let Err(reason) =
-                                check_compatibility(api_type, check_against, &endpoint.yaml_content)
-                            {
-                                tracing::warn!("Rejected shared endpoint modification: {}", reason);
-                                let owner_desc = if is_owner || entry.owner_service_id.is_none() {
-                                    "source"
-                                } else {
-                                    "current owner's"
-                                };
-                                return Err(AppError::BreakingChange(format!(
-                                    "Breaking change for shared endpoint {} {} on branch '{}' (compared to {} version): {}",
-                                    endpoint.method, endpoint.path, branch, owner_desc, reason
-                                )));
-                            }
-
-                            entry.current_yaml = endpoint.yaml_content.clone();
-                            entry.owner_service_id = Some(sid);
-                            repo.upsert_shared_contract(entry).await?;
-                        }
-                    }
-                }
-            }
-        }
-
         let key = (
             api_type,
             endpoint.normalized_path.clone(),
@@ -561,16 +463,6 @@ async fn provide_spec_inner(
             )));
         }
 
-        if !is_protected
-            && !dry_run
-            && let Some(mut entry) = repo
-                .get_shared_contract(branch, sid, old_api_type, &_norm_path, &method)
-                .await?
-        {
-            entry.current_yaml = entry.source_yaml.clone();
-            entry.owner_service_id = None;
-            repo.upsert_shared_contract(entry).await?;
-        }
         changes.push(SpecChange::Delete {
             api_type,
             path,
@@ -705,46 +597,6 @@ pub async fn get_audit_timeline(
     limit: u32,
 ) -> Result<Vec<EndpointVersion>, AppError> {
     Ok(repo.get_global_endpoint_versions(limit).await?)
-}
-
-pub async fn get_shared_contract_info(
-    repo: &impl SpecRepository,
-    servicename: &str,
-    branch: &str,
-    api_type: ApiType,
-    path: &str,
-    method: &str,
-) -> Result<Option<SharedContractInfo>, AppError> {
-    let service_id = match repo.find_service(servicename).await? {
-        Some(id) => id,
-        None => return Ok(None),
-    };
-
-    let method_to_use = match api_type {
-        ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
-        ApiType::Proto => method.to_string(),
-    };
-
-    let contract = repo
-        .get_shared_contract(branch, service_id, api_type, path, &method_to_use)
-        .await?;
-
-    match contract {
-        None => Ok(None),
-        Some(c) => {
-            let owner_service = match c.owner_service_id {
-                Some(owner_id) => repo.get_service_name_by_id(owner_id).await?,
-                None => None,
-            };
-            let has_changes = c.source_yaml != c.current_yaml;
-            Ok(Some(SharedContractInfo {
-                source_yaml: c.source_yaml,
-                current_yaml: c.current_yaml,
-                owner_service,
-                has_changes,
-            }))
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -1381,7 +1233,7 @@ paths:
     }
 
     #[tokio::test]
-    async fn test_list_endpoints_with_changes() {
+    async fn test_list_endpoints_on_feature_branch() {
         let repo = MockRepo::new();
         // 1. Provide initial spec to main
         provide_spec(
@@ -1409,28 +1261,65 @@ paths:
         .await
         .unwrap();
 
-        // 3. Simulate shared contract with changes for /hello
-        let service_id = repo.find_service("svc").await.unwrap().unwrap();
-        repo.upsert_shared_contract(SharedContract {
-            branch_name: "feat".to_string(),
-            service_id,
-            api_type: ApiType::OpenApi,
-            path: "/hello".to_string(),
-            method: "GET".to_string(),
-            source_yaml: "old".to_string(),
-            current_yaml: "new".to_string(),
-            owner_service_id: None,
-        })
+        // 3. List endpoints on the feature branch
+        let endpoints = list_service_endpoints(&repo, "svc", "feat").await.unwrap();
+        assert!(endpoints.iter().any(|e| e.path == "/hello"));
+        assert!(endpoints.iter().any(|e| e.path == "/world"));
+    }
+
+    // Feature branches accept breaking changes without `force`; protected
+    // branches remain the only compatibility gate.
+    #[tokio::test]
+    async fn test_breaking_change_allowed_on_feature_branch_without_force() {
+        let repo = MockRepo::new();
+        // Establish the spec on the protected branch first, so the service
+        // is not a "new service" special case.
+        provide_spec(
+            &repo,
+            "svc",
+            "main",
+            ApiType::OpenApi,
+            SIMPLE_OPENAPI,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+        provide_spec(
+            &repo,
+            "svc",
+            "feat",
+            ApiType::OpenApi,
+            SIMPLE_OPENAPI,
+            None,
+            false,
+        )
         .await
         .unwrap();
 
-        // 4. List endpoints and verify has_changes
-        let endpoints = list_service_endpoints(&repo, "svc", "feat").await.unwrap();
-        let hello = endpoints.iter().find(|e| e.path == "/hello").unwrap();
-        assert!(hello.has_changes);
-
-        let world = endpoints.iter().find(|e| e.path == "/world").unwrap();
-        assert!(!world.has_changes);
+        // Breaking change (removes the endpoint) on the feature branch: accepted.
+        let breaking = r#"
+openapi: 3.0.0
+info: { title: T, version: 2.0.0 }
+paths:
+  /renamed:
+    get:
+      responses:
+        '200': { description: OK }
+"#;
+        let resp = provide_spec(
+            &repo,
+            "svc",
+            "feat",
+            ApiType::OpenApi,
+            breaking,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.changes.inserts, 1);
+        assert_eq!(resp.changes.deletes, 1);
     }
 
     #[tokio::test]

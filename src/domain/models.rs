@@ -294,31 +294,9 @@ pub struct EndpointRecord {
     pub method: String,
     pub yaml_content: String,
     #[serde(default)]
-    pub has_changes: bool,
-    #[serde(default)]
     pub deprecated: bool,
     #[serde(default)]
     pub external: bool,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SharedContract {
-    pub branch_name: String,
-    pub service_id: i64,
-    pub api_type: ApiType,
-    pub path: String,
-    pub method: String,
-    pub source_yaml: String,
-    pub current_yaml: String,
-    pub owner_service_id: Option<i64>,
-}
-
-#[derive(Serialize, Clone, Debug)]
-pub struct SharedContractInfo {
-    pub source_yaml: String,
-    pub current_yaml: String,
-    pub owner_service: Option<String>,
-    pub has_changes: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -409,8 +387,6 @@ pub struct ClientEndpointInfo {
     pub path: String,
     pub method: String,
     pub yaml_content: Option<String>,
-    #[serde(default)]
-    pub has_changes: bool,
     #[serde(default)]
     pub deprecated: bool,
     #[serde(default)]

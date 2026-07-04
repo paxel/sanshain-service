@@ -543,7 +543,7 @@ channels:
 }
 
 #[tokio::test]
-async fn provide_spec_on_unprotected_hits_shared_contract_path() {
+async fn provide_spec_on_unprotected_branch_succeeds() {
     let repo = MockRepo::new();
     // Use a non-protected branch name
     let resp = spec_service::provide_spec(

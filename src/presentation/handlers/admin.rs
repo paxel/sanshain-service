@@ -125,25 +125,6 @@ pub async fn admin_get_endpoint_versions(
     Ok(Json(res))
 }
 
-pub async fn admin_get_shared_contract(
-    State(state): State<AppState>,
-    Query(query): Query<AdminEndpointYamlQuery>,
-) -> Result<impl IntoResponse, AppError> {
-    let res = services::get_shared_contract_info(
-        &state.repo,
-        &query.servicename,
-        &query.branch,
-        query.api_type,
-        &query.path,
-        &query.method,
-    )
-    .await?;
-    match res {
-        Some(info) => Ok(Json(info).into_response()),
-        None => Ok(StatusCode::NO_CONTENT.into_response()),
-    }
-}
-
 pub async fn list_protected_branches(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {

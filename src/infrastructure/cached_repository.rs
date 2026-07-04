@@ -1166,31 +1166,6 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.get_all_service_tags().await
     }
 
-    async fn get_shared_contract(
-        &self,
-        branch_name: &str,
-        service_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<Option<SharedContract>, RepositoryError> {
-        self.inner
-            .get_shared_contract(branch_name, service_id, api_type, path, method)
-            .await
-    }
-
-    async fn upsert_shared_contract(
-        &self,
-        contract: SharedContract,
-    ) -> Result<(), RepositoryError> {
-        self.inner.upsert_shared_contract(contract).await?;
-        if !self.is_disabled() {
-            // has_changes flag in endpoint list views depends on shared_contracts
-            self.branch_endpoints_cache.invalidate_all();
-        }
-        Ok(())
-    }
-
     async fn insert_audit_log(
         &self,
         username: &str,

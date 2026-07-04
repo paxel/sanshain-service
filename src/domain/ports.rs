@@ -527,24 +527,6 @@ pub trait SpecRepository: Send + Sync {
         &self,
     ) -> impl Future<Output = Result<HashMap<String, Vec<String>>, RepositoryError>> + Send;
 
-    // --- Shared Contracts (Problem 2) ---
-
-    /// Get a shared contract for a service on a branch and endpoint.
-    fn get_shared_contract(
-        &self,
-        branch_name: &str,
-        service_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> impl Future<Output = Result<Option<SharedContract>, RepositoryError>> + Send;
-
-    /// Upsert a shared contract.
-    fn upsert_shared_contract(
-        &self,
-        contract: SharedContract,
-    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
-
     // --- Audit Logs ---
 
     /// Insert an audit log record

@@ -487,27 +487,6 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, get_all_service_tags())
     }
 
-    async fn get_shared_contract(
-        &self,
-        branch_name: &str,
-        service_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<Option<SharedContract>, RepositoryError> {
-        delegate!(
-            self,
-            get_shared_contract(branch_name, service_id, api_type, path, method)
-        )
-    }
-
-    async fn upsert_shared_contract(
-        &self,
-        contract: SharedContract,
-    ) -> Result<(), RepositoryError> {
-        delegate!(self, upsert_shared_contract(contract))
-    }
-
     async fn insert_audit_log(
         &self,
         username: &str,

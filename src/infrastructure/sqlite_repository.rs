@@ -3,17 +3,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use tracing::instrument;
 
-type EndpointRow = (
-    i64,
-    String,
-    String,
-    String,
-    String,
-    String,
-    bool,
-    bool,
-    bool,
-);
+type EndpointRow = (i64, String, String, String, String, String, bool, bool);
 
 /// Row shape for `list_services_detailed` (name, fallback_branch, branches,
 /// icon, domain); branches are `GROUP_CONCAT`ed into a single string on SQLite.
@@ -336,15 +326,8 @@ impl SpecRepository for SqliteSpecRepository {
     ) -> Result<Vec<EndpointRecord>, RepositoryError> {
         let rows: Vec<EndpointRow> = sqlx::query_as(
             "SELECT e.id, e.api_type, e.path, e.normalized_path, e.method, e.yaml_content, \
-             COALESCE(sc.source_yaml != sc.current_yaml, 0) as has_changes, e.deprecated, e.external \
+             e.deprecated, e.external \
              FROM endpoints e \
-             JOIN branches b ON e.branch_id = b.id \
-             LEFT JOIN shared_contracts sc ON \
-                 sc.service_id = b.service_id AND \
-                 sc.branch_name = b.name AND \
-                 sc.api_type = e.api_type AND \
-                 sc.path = e.normalized_path AND \
-                 sc.method = e.method \
              WHERE e.branch_id = ? AND e.deleted = FALSE",
         )
         .bind(branch_id)
@@ -362,7 +345,6 @@ impl SpecRepository for SqliteSpecRepository {
                     normalized_path,
                     method,
                     yaml_content,
-                    has_changes,
                     deprecated,
                     external,
                 )| {
@@ -373,7 +355,6 @@ impl SpecRepository for SqliteSpecRepository {
                         normalized_path,
                         method,
                         yaml_content,
-                        has_changes,
                         deprecated,
                         external,
                     }
@@ -1032,11 +1013,6 @@ impl SpecRepository for SqliteSpecRepository {
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        sqlx::query("DELETE FROM shared_contracts")
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
         // Delete all sessions except the current admin's
         if let Some(uid) = keep_user_id {
             sqlx::query("DELETE FROM sessions WHERE user_id != ?")
@@ -1406,21 +1382,14 @@ impl SpecRepository for SqliteSpecRepository {
             Option<String>,
             bool,
             bool,
-            bool,
         );
         let rows: Vec<ClientEndpointRow> = sqlx::query_as(
             "SELECT d.api_type, s.name, d.requested_branch_name, d.requested_path, d.requested_method, e.yaml_content, \
-             COALESCE(sc.source_yaml != sc.current_yaml, 0) as has_changes, COALESCE(e.deprecated, 0), COALESCE(e.external, 0) \
+             COALESCE(e.deprecated, 0), COALESCE(e.external, 0) \
              FROM dependencies d \
              JOIN clients c ON d.client_id = c.id \
              JOIN services s ON d.requested_service_id = s.id \
              LEFT JOIN endpoints e ON d.endpoint_id = e.id \
-             LEFT JOIN shared_contracts sc ON \
-                 sc.service_id = d.requested_service_id AND \
-                 sc.branch_name = d.requested_branch_name AND \
-                 sc.api_type = d.api_type AND \
-                 sc.path = d.requested_normalized_path AND \
-                 sc.method = d.requested_method \
              WHERE c.name = ? AND d.requested_branch_name = ? \
              ORDER BY s.name, d.requested_path, d.requested_method"
         )
@@ -1432,17 +1401,7 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(
-                    api_type,
-                    service,
-                    branch,
-                    path,
-                    method,
-                    yaml_content,
-                    has_changes,
-                    deprecated,
-                    external,
-                )| {
+                |(api_type, service, branch, path, method, yaml_content, deprecated, external)| {
                     ClientEndpointInfo {
                         api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                         service,
@@ -1450,7 +1409,6 @@ impl SpecRepository for SqliteSpecRepository {
                         path,
                         method,
                         yaml_content,
-                        has_changes,
                         deprecated,
                         external,
                     }
@@ -2196,73 +2154,6 @@ impl SpecRepository for SqliteSpecRepository {
             result.entry(name).or_default().push(tag);
         }
         Ok(result)
-    }
-
-    async fn get_shared_contract(
-        &self,
-        branch_name: &str,
-        service_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<Option<SharedContract>, RepositoryError> {
-        let row = sqlx::query(
-            "SELECT branch_name, service_id, api_type, path, method, source_yaml, current_yaml, owner_service_id FROM shared_contracts WHERE branch_name = ? AND service_id = ? AND api_type = ? AND path = ? AND method = ?"
-        )
-        .bind(branch_name)
-        .bind(service_id)
-        .bind(api_type.as_str())
-        .bind(path)
-        .bind(method)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        match row {
-            Some(r) => {
-                use sqlx::Row;
-                Ok(Some(SharedContract {
-                    branch_name: r.get(0),
-                    service_id: r.get(1),
-                    api_type: ApiType::from_str(r.get::<&str, _>(2)).unwrap_or_default(),
-                    path: r.get(3),
-                    method: r.get(4),
-                    source_yaml: r.get(5),
-                    current_yaml: r.get(6),
-                    owner_service_id: r.get(7),
-                }))
-            }
-            None => Ok(None),
-        }
-    }
-
-    async fn upsert_shared_contract(
-        &self,
-        contract: SharedContract,
-    ) -> Result<(), RepositoryError> {
-        sqlx::query(
-            r#"
-            INSERT INTO shared_contracts (branch_name, service_id, api_type, path, method, source_yaml, current_yaml, owner_service_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(branch_name, service_id, api_type, path, method) DO UPDATE SET
-                source_yaml = excluded.source_yaml,
-                current_yaml = excluded.current_yaml,
-                owner_service_id = excluded.owner_service_id
-            "#
-        )
-        .bind(&contract.branch_name)
-        .bind(contract.service_id)
-        .bind(contract.api_type.as_str())
-        .bind(&contract.path)
-        .bind(&contract.method)
-        .bind(&contract.source_yaml)
-        .bind(&contract.current_yaml)
-        .bind(contract.owner_service_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        Ok(())
     }
 
     async fn insert_audit_log(

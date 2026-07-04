@@ -4048,7 +4048,7 @@ async fn test_nuke_endpoints() {
 }
 
 #[tokio::test]
-async fn test_problem_2_multi_publisher_conflict_integration() {
+async fn test_feature_branch_accepts_breaking_changes_without_force() {
     let app = setup_app_dev_mode().await;
 
     let yaml_v1 = r#"
@@ -4063,20 +4063,6 @@ paths:
         '200':
           description: OK
 "#;
-    let yaml_v2_compatible = r#"
-openapi: 3.0.0
-info:
-  title: Test
-  version: 1.0.0
-paths:
-  /orders:
-    get:
-      responses:
-        '200':
-          description: OK
-        '404':
-          description: Not Found
-"#;
     let yaml_v2_breaking = r#"
 openapi: 3.0.0
 info:
@@ -4090,8 +4076,8 @@ paths:
           description: Not Found
 "#;
 
-    // 0. Seed ALPHA on protected branch so shared contract checks are active (auto-skip is off).
-    let payload_alpha_seed =
+    // 0. Seed the service on the protected branch so this is not a brand-new service.
+    let payload_seed =
         json!({ "servicename": "alpha-svc", "branch": "main", "openapi_yaml": yaml_v1 });
     let response = app
         .clone()
@@ -4101,16 +4087,16 @@ paths:
                 .uri("/provide")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&payload_alpha_seed).unwrap()))
+                .body(Body::from(serde_json::to_vec(&payload_seed).unwrap()))
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
-    // 1. ALPHA provides v1 on feature branch.
-    let payload_alpha_v1 =
-        json!({ "servicename": "alpha-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v1 });
+    // 1. Provide v1 on a feature branch.
+    let payload_v1 =
+        json!({ "servicename": "alpha-svc", "branch": "feat-breaking", "openapi_yaml": yaml_v1 });
     let response = app
         .clone()
         .oneshot(
@@ -4119,15 +4105,15 @@ paths:
                 .uri("/provide")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&payload_alpha_v1).unwrap()))
+                .body(Body::from(serde_json::to_vec(&payload_v1).unwrap()))
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
-    // 2. BETA (different service) provides breaking change on same branch. Should SUCCEED (different service = independent).
-    let payload_beta_breaking = json!({ "servicename": "beta-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v2_breaking });
+    // 2. A breaking change on the feature branch is accepted without `force`.
+    let payload_breaking = json!({ "servicename": "alpha-svc", "branch": "feat-breaking", "openapi_yaml": yaml_v2_breaking });
     let response = app
         .clone()
         .oneshot(
@@ -4136,34 +4122,16 @@ paths:
                 .uri("/provide")
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(
-                    serde_json::to_vec(&payload_beta_breaking).unwrap(),
-                ))
+                .body(Body::from(serde_json::to_vec(&payload_breaking).unwrap()))
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
-    // 3. ALPHA provides compatible modification. OK. ALPHA becomes owner.
-    let payload_alpha_v2 = json!({ "servicename": "alpha-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v2_compatible });
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/provide")
-                .header("Content-Type", "application/json")
-                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&payload_alpha_v2).unwrap()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
-
-    // 4. ALPHA (same service) provides breaking change. Should fail (conflict with source).
-    let payload_alpha_v2_breaking = json!({ "servicename": "alpha-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v2_breaking });
+    // 3. The same breaking change on the protected branch is still rejected.
+    let payload_breaking_main =
+        json!({ "servicename": "alpha-svc", "branch": "main", "openapi_yaml": yaml_v2_breaking });
     let response = app
         .clone()
         .oneshot(
@@ -4173,7 +4141,7 @@ paths:
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
-                    serde_json::to_vec(&payload_alpha_v2_breaking).unwrap(),
+                    serde_json::to_vec(&payload_breaking_main).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -4184,47 +4152,7 @@ paths:
         .await
         .unwrap();
     let body_str = String::from_utf8_lossy(&body);
-    assert!(body_str.contains("source version"));
-
-    // 5. ALPHA provides v1 again. OK. Reverts to source, owner becomes None.
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/provide")
-                .header("Content-Type", "application/json")
-                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(serde_json::to_vec(&payload_alpha_v1).unwrap()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
-
-    // 6. ALPHA (same service) provides breaking change after rollback. Should fail (conflict with source).
-    let payload_alpha_v2_breaking_on_v1 = json!({ "servicename": "alpha-svc", "branch": "feat-problem-2", "openapi_yaml": yaml_v2_breaking });
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/provide")
-                .header("Content-Type", "application/json")
-                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(
-                    serde_json::to_vec(&payload_alpha_v2_breaking_on_v1).unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::CONFLICT);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let body_str = String::from_utf8_lossy(&body);
-    assert!(body_str.contains("source version"));
+    assert!(body_str.contains("Breaking changes detected"));
 }
 
 #[tokio::test]
@@ -4488,7 +4416,6 @@ async fn test_all_admin_endpoints_require_admin_token() {
         "/admin/observability/logs",
         "/admin/endpoint-yaml?servicename=x&branch=main&path=/p&method=GET",
         "/admin/endpoint-versions?servicename=x&branch=main&path=/p&method=GET",
-        "/admin/shared-contract?servicename=x&branch=main&api_type=openapi&path=/p&method=GET",
     ];
 
     for uri in &readonly_endpoints {
@@ -4738,185 +4665,6 @@ async fn test_protected_branches_public_endpoint() {
     // Default protected branches include "main" and "master"
     assert!(branches.contains(&"main".to_string()));
     assert!(branches.contains(&"master".to_string()));
-}
-
-#[tokio::test]
-async fn test_shared_contract_api() {
-    let (app, token, _) = setup_app_with_admin().await;
-
-    // Enable dev mode so provide/require work without per-request auth
-    let response: Response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/admin/settings/dev-mode")
-                .header("Content-Type", "application/json")
-                .header("Authorization", format!("Bearer {}", token))
-                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(
-                    serde_json::to_vec(&json!({"enabled": true})).unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let yaml_v1 = r#"
-openapi: 3.0.0
-info:
-  title: Test
-  version: 1.0.0
-paths:
-  /items:
-    get:
-      responses:
-        '200':
-          description: OK
-"#;
-    let yaml_v2 = r#"
-openapi: 3.0.0
-info:
-  title: Test
-  version: 1.0.0
-paths:
-  /items:
-    get:
-      responses:
-        '200':
-          description: OK
-        '404':
-          description: Not Found
-"#;
-
-    // 1. No shared contract on protected branch → 204
-    let response: Response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri("/admin/shared-contract?servicename=sc-svc&branch=main&api_type=openapi&path=/items&method=GET")
-                .header("Authorization", format!("Bearer {}", token))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
-
-    // 2. Seed on protected branch
-    let response: Response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/provide")
-                .header("Content-Type", "application/json")
-                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "servicename": "sc-svc",
-                        "branch": "main",
-                        "openapi_yaml": yaml_v1
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
-
-    // 3. Provide same on feature branch → shared contract created, no changes
-    let response: Response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/provide")
-                .header("Content-Type", "application/json")
-                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "servicename": "sc-svc",
-                        "branch": "feat-sc",
-                        "openapi_yaml": yaml_v1
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
-
-    // 4. Fetch shared contract → 200, has_changes=false
-    let response: Response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri("/admin/shared-contract?servicename=sc-svc&branch=feat-sc&api_type=openapi&path=/items&method=GET")
-                .header("Authorization", format!("Bearer {}", token))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let info: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(info["has_changes"], false);
-    assert!(info["source_yaml"].is_string());
-    assert!(info["current_yaml"].is_string());
-
-    // 5. Provide compatible change on feature branch → has_changes=true
-    let response: Response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/provide")
-                .header("Content-Type", "application/json")
-                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "servicename": "sc-svc",
-                        "branch": "feat-sc",
-                        "openapi_yaml": yaml_v2
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
-
-    // 6. Fetch shared contract → 200, has_changes=true, owner resolved
-    let response: Response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri("/admin/shared-contract?servicename=sc-svc&branch=feat-sc&api_type=openapi&path=/items&method=GET")
-                .header("Authorization", format!("Bearer {}", token))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let info: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(info["has_changes"], true);
-    assert_eq!(info["owner_service"], "sc-svc");
-    assert_ne!(info["source_yaml"], info["current_yaml"]);
 }
 
 #[tokio::test]

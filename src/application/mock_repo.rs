@@ -21,14 +21,11 @@ pub struct MockRepo {
     pub api_tokens: Mutex<Vec<ApiToken>>,
     pub endpoint_versions: Mutex<Vec<EndpointVersion>>,
     pub service_tags: Mutex<HashMap<i64, Vec<String>>>,
-    pub shared_contracts: Mutex<HashMap<SharedContractKey, SharedContract>>,
     pub spec_versions: Mutex<HashMap<(i64, i64), (SemVer, String)>>,
     pub audit_logs: Mutex<Vec<AuditLogEntry>>,
     pub user_favorites: Mutex<Vec<(i64, String, String)>>,
     pub branch_timestamps: Mutex<HashMap<String, String>>,
 }
-
-type SharedContractKey = (String, i64, ApiType, String, String);
 
 impl Default for MockRepo {
     fn default() -> Self {
@@ -55,7 +52,6 @@ impl MockRepo {
             api_tokens: Mutex::new(Vec::new()),
             endpoint_versions: Mutex::new(Vec::new()),
             service_tags: Mutex::new(HashMap::new()),
-            shared_contracts: Mutex::new(HashMap::new()),
             spec_versions: Mutex::new(HashMap::new()),
             audit_logs: Mutex::new(Vec::new()),
             user_favorites: Mutex::new(Vec::new()),
@@ -166,29 +162,12 @@ impl SpecRepository for MockRepo {
         &self,
         branch_id: i64,
     ) -> Result<Vec<EndpointRecord>, RepositoryError> {
-        let branch_info = {
-            let branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
-            branches
-                .iter()
-                .find(|&(_, &id)| id == branch_id)
-                .map(|(k, _)| k.clone())
-        };
-
-        let (service_id, branch_name) = match branch_info {
-            Some(info) => info,
-            None => return Ok(Vec::new()),
-        };
-
         let endpoints = self
             .endpoints
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         let deleted = self
             .deleted_endpoints
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let contracts = self
-            .shared_contracts
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
 
@@ -199,20 +178,6 @@ impl SpecRepository for MockRepo {
             .into_iter()
             .filter(|ep| {
                 !deleted.contains(&(branch_id, ep.api_type, ep.path.clone(), ep.method.clone()))
-            })
-            .map(|mut ep| {
-                let contract_key = (
-                    branch_name.clone(),
-                    service_id,
-                    ep.api_type,
-                    ep.normalized_path.clone(),
-                    ep.method.clone(),
-                );
-                ep.has_changes = contracts
-                    .get(&contract_key)
-                    .map(|c| c.source_yaml != c.current_yaml)
-                    .unwrap_or(false);
-                ep
             })
             .collect())
     }
@@ -564,7 +529,7 @@ impl SpecRepository for MockRepo {
         _branch: &str,
     ) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
         // This is a simplified mock implementation
-        // Real implementation joins dependencies, services, endpoints, and shared_contracts
+        // Real implementation joins dependencies, services, and endpoints
         Ok(Vec::new())
     }
 
@@ -823,7 +788,6 @@ impl SpecRepository for MockRepo {
                         normalized_path,
                         method,
                         yaml_content,
-                        has_changes: false,
                         deprecated,
                         external,
                     });
@@ -884,47 +848,6 @@ impl SpecRepository for MockRepo {
 
     async fn get_all_service_tags(&self) -> Result<HashMap<String, Vec<String>>, RepositoryError> {
         Ok(HashMap::new())
-    }
-
-    async fn get_shared_contract(
-        &self,
-        branch_name: &str,
-        service_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<Option<SharedContract>, RepositoryError> {
-        let contracts = self
-            .shared_contracts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let key = (
-            branch_name.to_string(),
-            service_id,
-            api_type,
-            path.to_string(),
-            method.to_string(),
-        );
-        Ok(contracts.get(&key).cloned())
-    }
-
-    async fn upsert_shared_contract(
-        &self,
-        contract: SharedContract,
-    ) -> Result<(), RepositoryError> {
-        let mut contracts = self
-            .shared_contracts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let key = (
-            contract.branch_name.clone(),
-            contract.service_id,
-            contract.api_type,
-            contract.path.clone(),
-            contract.method.clone(),
-        );
-        contracts.insert(key, contract);
-        Ok(())
     }
 
     async fn insert_audit_log(

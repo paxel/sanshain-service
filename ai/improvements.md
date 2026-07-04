@@ -11,31 +11,183 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 ## Priority legend
 
-### 6. Store and serve AsyncAPI subscribe operations instead of dropping them
+### 6. AsyncAPI subscribe operations: harvest as requires, validate as expectations — REWRITTEN 2026-07-04
 
-**Problem:** `parse_spec_endpoints()` skips AsyncAPI `SUB` operations and stores only `PUB` operations, with a warning that subscribe channels must be declared as requires elsewhere.
+**Original approach rejected.** The earlier version of this item ("store and serve SUB operations
+as endpoints") contradicts Sanshain's model: **provide = the contract a service produces,
+require = what it consumes.** Storing SUB operations as provided endpoints would create a second,
+competing schema per channel (the producer's PUB plus each consumer's SUB copy, under different
+endpoint keys that nothing unifies), and protected-branch enforcement on a consumer's SUB would
+protect nobody — a consumer changing what it reads breaks no one downstream. Decided 2026-07-04:
+**only PUB ever registers a contract; a SUB section is a declaration of expectation** — harvested
+as a require, validated against the producer's contract, never authoritative.
 
-**Impact:** The advertised AsyncAPI registry is incomplete and dependency graph data can miss important consumer/provider relationships.
+**Problem (still valid):** `parse_spec_endpoints()` drops AsyncAPI `SUB` operations with only a
+server-side log warning the provider never sees. Consumer relationships reach the dependency
+graph only if teams remember to hand-declare requires in `sanshain.yaml`.
+
+**Impact:** The dependency graph and KAFKA virtual node silently miss consumer edges; drift
+between a consumer's local schema copy and the producer's contract is never detected.
+
+**Depends on:** #19 and #20 below. Steps 1–2 need only the stored PUB endpoints and can land
+before #20; step 3 (drift validation) needs the #20 contract store.
 
 **Relevant areas:**
 
-- `src/application/spec_service.rs` (`parse_spec_endpoints`, require/provide flows)
-- `src/asyncapi.rs`
-- Domain endpoint model fields for path/method/API type
-- API docs and client examples
+- `src/application/spec_service.rs` (`parse_spec_endpoints`, provide flow, require flow, missing-endpoint tracking)
+- `src/asyncapi.rs` (SUB extraction, message/payload helpers from item #5)
+- `src/presentation/handlers/api.rs` (`provide_asyncapi` response shape), `api.yaml`
+- `static/js/graph.js` (KAFKA virtual node — should need no change, only tests)
+- `docs/api-lifecycle.md`, `docs/sanshain-yaml.md`, client-plugin docs
 
 **Implementation instructions:**
 
-1. Decide how to represent AsyncAPI directions consistently (`PUB`, `SUB`, or actual `publish`/`subscribe`).
-2. Store both operation directions with stable normalized keys.
-3. Update require/bundle logic so consumers can request the direction they need.
-4. Update graph/reporting code so publish/subscribe relationships are visible.
+1. **Harvest requires from SUB operations.** On a successful AsyncAPI provide, for each SUB
+   operation in the submitted document, create a dependency edge (same application-level path
+   the `/require/asyncapi` flow uses — do not insert rows directly in the provide handler):
+   client = the providing service, target = the service owning the PUB contract for that channel
+   on the branch (protected-branch fallback like the require flow). If no PUB provider exists,
+   accept and record via the existing missing-endpoint tracking so the graph shows unfulfilled
+   consumption.
+2. **Surface it in the response.** Extend the AsyncAPI provide response with a
+   `harvested_subscriptions` list (channel names + resolved/missing status), replacing the
+   log-only warning. Update `api.yaml` accordingly.
+3. **Drift validation (after #20).** For each SUB message payload the consumer declares, if a
+   PUB contract exists for `(branch, channel, message-name)`: check the *expectation is
+   satisfiable* — every property the consumer declares must exist in the contract with a
+   compatible type (recursive; new helper `check_expectation_satisfied(contract, expectation)`
+   in `src/asyncapi.rs`, the role-swapped sibling of `check_schema_compatible`). Consumer
+   expecting *less* than the contract is fine; expecting a property/type the contract does not
+   guarantee rejects the **consumer's own provide** with `409` naming channel, message, and
+   property. This failure mode only ever affects the consumer submitting the spec.
+4. **Document the direction convention loudly.** Sanshain reads AsyncAPI 2.x
+   `publish`/`subscribe` from the **application's perspective** (`publish` = this service
+   publishes). Note explicitly that the official 2.x spec defines the keywords from the client's
+   perspective (inverted) and that Sanshain deliberately uses the app-perspective reading,
+   matching its 3.x `send`/`receive` mapping.
+5. **Document the fetch-to-file workflow.** Consumers get the producer's snippet via the
+   existing `/require/asyncapi` / `/require-bundle`; the client plugin writes it as a dedicated
+   local file which the developer `$ref`s from their own spec (multi-file support for codegen).
+   The consumer's authored SUB section shrinks to channel refs + expectations. Plugin changes
+   live in the client repos; this item only documents the server contract.
 
 **Validation:**
 
-- Unit-test splitting an AsyncAPI document with both publish and subscribe operations.
-- Integration-test provide, list endpoints, require endpoint, and graph/report output.
+- Unit tests: SUB harvesting for AsyncAPI 2.x and 3.x documents; `check_expectation_satisfied`
+  accept (subset), reject (extra property, type mismatch) cases with exact error messages.
+- Application tests: provide-with-SUB creates a dependency edge and reports it in the response;
+  no-PUB-provider case records a missing endpoint; drift rejection returns 409 for the consumer
+  only.
+- Graph/report test: SUB-derived edges feed the KAFKA virtual node like manual requires.
+- Run `cargo test`; JS/UI checks only if graph code changes.
+
+## P1 — AsyncAPI contract-model rework (decided 2026-07-04)
+
+Context for the two items below: the `shared_contracts` mechanism was originally
+"Multi-Publisher Conflict Detection (Problem 2)" (see `OLDER_CHANGES.md`) — multiple services
+providing the same AsyncAPI channel, first provide = source, later changes checked against it.
+Two later events defanged it: the collision fix scoped contracts to `(branch_name, service_id)`
+(correct for service-scoped REST paths, collateral damage for globally-namespaced Kafka topics —
+cross-service linkage died, `owner_service_id` became vestigial), and `check_compatibility` was a
+no-op for AsyncAPI until 1.5.0. What remains today is only a per-service baseline check on
+*feature* branches (breaking changes there require `force`, contradicting
+`docs/api-lifecycle.md`). Decisions: rip the remainder out (#19) and rebuild multi-producer
+safety as message-level channel contracts (#20), enforced on all branches. Sequence: #19 → #20 → #6.
+
+### 19. Rip out the legacy shared-contract mechanism — DONE (1.5.0)
+
+Removed entirely, as decided 2026-07-04: application logic (`skip_compat`, the endpoint-loop
+upsert/check blocks, the delete-loop release, `get_shared_contract_info`,
+`has_protected_branch_endpoints`), the port methods and `SharedContract`/`SharedContractInfo`
+models, all four repository implementations (sqlite/postgres/cached/database dispatcher) plus
+`MockRepo`, the `/admin/shared-contract` route + handler, the dead `renderSharedContract`
+UI code and the `has_changes`/"modified" badge (field removed from `EndpointRecord` and
+`ClientEndpointInfo` end-to-end), and the `shared_contracts` table via new checksummed-layout
+migration `20260704000000_drop_shared_contracts.sql` (SQLite + Postgres; old migrations
+untouched). `force` stays accepted for API compatibility but is a no-op on non-protected
+branches and still `400` on protected ones (`api.yaml` descriptions updated). Behavior change:
+breaking changes on non-protected branches are now always accepted — protected branches are the
+only compatibility gate, matching `docs/api-lifecycle.md`. Covered by
+`test_breaking_change_allowed_on_feature_branch_without_force` (unit),
+`test_feature_branch_accepts_breaking_changes_without_force` (integration, replaces the old
+Problem-2 test), rewritten `scripts/itest.sh` sections 8/10, and a `CHANGELOG.md` "Removed"
+entry. The historical 20240502 scope migration and its upgrade tests remain untouched.
+
+### 20. Message-level AsyncAPI channel contracts (multi-producer topics)
+
+**Problem:** Kafka topic names are a **global namespace** within a broker — unlike REST paths,
+which are service-scoped. Topics like audit or DLQ legitimately have many producers. After #19
+there is no cross-service conflict detection at all (in practice there was none before either).
+The naive per-channel-payload contract creates a widening dilemma (producer A adds a field →
+producer B is rejected for a change it never made). Decided 2026-07-04: contract granularity is
+the **message**, not the channel payload — real multi-producer topics carry different event
+types from different producers, and a producer is only ever measured against the messages it
+provides itself.
+
+**Decision summary:**
+
+- Contract key: `(branch, channel, message-name)`, **PUB only**, message identity = message
+  `name` (fallback `title`). Unnamed messages get service-local identity, skip cross-service
+  checks, and are documented as unsuitable for multi-producer topics.
+- Owner = first providing service. Owner updates must pass the item-#5 payload checker
+  (deprecation exemptions per the established policy) and then update the stored schema — the
+  owner may widen its own message.
+- A *different* service providing the same `(channel, message-name)` is accepted only if the
+  payload schema is semantically identical (compare parsed YAML values, not bytes); otherwise
+  reject `409` naming the owning service ("align the schema or rename your message").
+  Consequence (intended): same-name co-publishing requires identical schemas at all times; the
+  recommended pattern is one owner per message name.
+- Enforced on **all** branches including protected ones; `force` does not bypass it.
+
+**Relevant areas:**
+
+- `src/asyncapi.rs` (reuse/extend the `collect_messages` keying from item #5 into a public
+  extraction helper returning channel, message name, payload, deprecated flag)
+- `src/application/spec_service.rs` (provide flow hook after parse, before `apply_spec_changes`;
+  dry-run must check but not write)
+- `src/domain/models.rs` / `src/domain/ports.rs` (new `ChannelMessageContract` model and port
+  methods: get by key, upsert, delete for owner/branch, list per branch)
+- `src/infrastructure/*repository.rs`, `mock_repo.rs`, new migration:
+  `channel_message_contracts (branch_name, channel, message_name, owner_service_id,
+  payload_yaml, PRIMARY KEY (branch_name, channel, message_name))`
+- `src/main.rs` cleanup task (drop contract rows for deleted/stale branches)
+- Version impact: the provide flow's SemVer bump uses `openapi::analyze_impact` (OpenAPI-only) —
+  add an AsyncAPI classification: additions (new channels/messages/properties) → minor,
+  doc-only → patch
+- `docs/api-lifecycle.md` / `docs/user-guide.md` (new "multi-producer topics" section),
+  `CHANGELOG.md`
+
+**Implementation instructions:**
+
+1. Migration + domain model + port methods + three repository implementations.
+2. Extraction helper in `src/asyncapi.rs` (named messages only; return the deprecation flag).
+3. Provide-flow hook, for every named PUB message in the submitted document:
+   - no contract row → insert, owner = this service;
+   - row owned by this service → run the payload compat check (old = stored, new = submitted;
+     deprecation exemptions apply); on pass, update `payload_yaml`; on fail, reject `409` with
+     the checker's message;
+   - row owned by another service → accept only on semantic equality of parsed payload values;
+     otherwise reject `409` naming owner service, channel, and message.
+4. Removal: when a provide by the owner drops a message it owns, apply the deprecation policy
+   (deprecated message → delete the contract row; non-deprecated on a protected branch is
+   already rejected by the item-#5 per-endpoint check — make sure the contract row outcome is
+   consistent with that rejection). Branch cleanup task deletes rows of removed branches.
+5. AsyncAPI version-impact classification (minor/patch as above) wired where the SemVer bump is
+   computed.
+6. Docs: multi-producer section (co-publish rule, message-naming requirement, one-owner
+   recommendation), CHANGELOG.
+
+**Validation:**
+
+- Unit/application tests: first provide creates rows; owner widens own message (accepted, row
+  updated); second service with identical schema accepted; second service with divergent schema
+  rejected with owner named in the message; enforcement identical on protected and feature
+  branches; deprecated message removal clears the row; unnamed messages skip contract handling;
+  stale-branch cleanup removes rows.
+- Repository tests for both SQLite and Postgres; migration covered by the existing upgrade tests.
 - Run `cargo test`.
+
+## P1 — Correctness and missing feature gaps
 
 ### 7. Make protocol removal explicit and clear stale Kafka/gRPC/OpenAPI markers
 
@@ -375,18 +527,15 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 ## Suggested implementation order
 
-1. Dev-mode production safety.
-2. Remove query-string API tokens.
-3. Stop logging submitted specs on parse errors.
-4. Request-size limits.
-5. Non-OpenAPI compatibility checks.
-6. Protocol removal and stale Kafka/gRPC/OpenAPI cleanup.
-7. Admin spec and endpoint editing workflow.
-8. Transactional spec updates.
-9. AsyncAPI subscribe support.
-10. CSP/static asset hardening.
-11. Operational cleanups and configuration validation.
-12. Module split and architecture checks.
+1. Message-level AsyncAPI channel contracts (#20).
+2. AsyncAPI SUB → requires + drift validation (#6; steps 1–2 may land before #20).
+3. Protocol removal and stale Kafka/gRPC/OpenAPI cleanup (#7).
+4. Admin spec and endpoint editing workflow (#8).
+5. Transactional spec updates (#12).
+6. CSP/static asset hardening (#11).
+7. README reconciliation (#9).
+8. Operational cleanups and configuration validation (#13–#15).
+9. Module split and architecture checks (#16–#18).
 
 ## Verification baseline for implementation agents
 

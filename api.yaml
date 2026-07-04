@@ -623,8 +623,8 @@ components:
           type: boolean
           default: false
           description: |
-            When true, resets the shared contract source to the current upload, bypassing
-            backward-compatibility checks. Blocked on protected branches (returns 400).
+            Deprecated: has no effect on non-protected branches (breaking changes are
+            always accepted there). Blocked on protected branches (returns 400).
     ProvideAsyncApiPayload:
       type: object
       required:
@@ -651,8 +651,8 @@ components:
           type: boolean
           default: false
           description: |
-            When true, resets the shared contract source to the current upload, bypassing
-            backward-compatibility checks. Blocked on protected branches (returns 400).
+            Deprecated: has no effect on non-protected branches (breaking changes are
+            always accepted there). Blocked on protected branches (returns 400).
     ProvideProtoPayload:
       type: object
       required:
@@ -679,8 +679,8 @@ components:
           type: boolean
           default: false
           description: |
-            When true, resets the shared contract source to the current upload, bypassing
-            backward-compatibility checks. Blocked on protected branches (returns 400).
+            Deprecated: has no effect on non-protected branches (breaking changes are
+            always accepted there). Blocked on protected branches (returns 400).
     ProvideResponse:
       type: object
       properties:
