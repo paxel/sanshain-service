@@ -25,29 +25,9 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 `api_auth` in `src/presentation/middleware.rs` no longer reads a `?token=` query parameter; API tokens are accepted only from the `Authorization` header. Invalid/missing credentials return generic `401`/`403` without echoing the token. No docs or tests used query tokens; `docs/api-usage.md` now states header-only explicitly. Regression test `test_api_token_query_param_is_rejected` proves query token → 403, header bearer → 200, no credentials → 403.
 
-### 3. Avoid logging submitted API specifications on parse errors
+### 3. Avoid logging submitted API specifications on parse errors — DONE (1.5.0)
 
-**Problem:** `parse_spec_endpoints()` logs full submitted OpenAPI, AsyncAPI, and proto content when parsing fails.
-
-**Impact:** Specs can contain internal URLs, examples, schemas with sample secrets, or unreleased contract details. Parse errors can leak that data to logs and the admin log viewer.
-
-**Relevant areas:**
-
-- `src/application/spec_service.rs` (`parse_spec_endpoints`)
-- `src/presentation/middleware.rs` (`LogCaptureLayer`)
-- Admin log UI and documentation
-
-**Implementation instructions:**
-
-1. Remove full `content` from warning logs.
-2. Log only safe metadata: service name, branch, API type, content length, hash prefix, and parser error.
-3. If detailed diagnostics are needed, return them to the authenticated caller without storing the full spec in logs.
-4. Consider adding log redaction for known sensitive field names before entries reach `LogCaptureLayer`.
-
-**Validation:**
-
-- Add a test that submits invalid content containing a fake secret and confirms captured/logged messages do not contain the secret.
-- Run `cargo test`.
+The three `parse_spec_endpoints` parse-failure warnings (OpenAPI/AsyncAPI/Proto) in `src/application/spec_service.rs` no longer include the raw `content`. They now log only a non-sensitive `spec_content_fingerprint` (byte length + short SHA-256 prefix) alongside service, branch, and the parser error; the error is still returned to the caller via `AppError::BadRequest`. Covered by `parse_error_does_not_log_submitted_content`, which captures the tracing output and asserts a submitted secret is absent. (Optional log-redaction in `LogCaptureLayer` was left out of scope — the fix removes the content at the source.)
 
 ### 4. Harden API token storage and comparison
 

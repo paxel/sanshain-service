@@ -146,6 +146,17 @@ struct ProvideInternalParams<'a> {
     pub username: Option<&'a str>,
 }
 
+/// A non-sensitive fingerprint of submitted spec content for diagnostics: its
+/// byte length and a short SHA-256 prefix. The spec itself must never be logged —
+/// it can contain internal URLs, schemas, or sample secrets, and captured logs
+/// are viewable in the admin log UI.
+fn spec_content_fingerprint(content: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    let hash = hex::encode(hasher.finalize());
+    format!("{} bytes, sha256:{}", content.len(), &hash[..16])
+}
+
 fn parse_spec_endpoints(
     api_type: ApiType,
     content: &str,
@@ -155,22 +166,22 @@ fn parse_spec_endpoints(
     match api_type {
         ApiType::OpenApi => openapi::split_openapi(content).map_err(|e| {
             tracing::warn!(
-                "Failed to split OpenAPI for service '{}' branch '{}': {}. Input content: \n{}",
+                "Failed to split OpenAPI for service '{}' branch '{}' ({}): {}",
                 servicename,
                 branch,
-                e,
-                content
+                spec_content_fingerprint(content),
+                e
             );
             AppError::BadRequest(e)
         }),
         ApiType::AsyncApi => {
             let all_specs = crate::asyncapi::split_asyncapi(content).map_err(|e| {
                 tracing::warn!(
-                    "Failed to split AsyncAPI for service '{}' branch '{}': {}. Input content: \n{}",
+                    "Failed to split AsyncAPI for service '{}' branch '{}' ({}): {}",
                     servicename,
                     branch,
-                    e,
-                    content
+                    spec_content_fingerprint(content),
+                    e
                 );
                 AppError::BadRequest(e)
             })?;
@@ -204,11 +215,11 @@ fn parse_spec_endpoints(
         ApiType::Proto => Ok(crate::proto::split_proto(content)
             .map_err(|e| {
                 tracing::warn!(
-                    "Failed to split Proto for service '{}' branch '{}': {}. Input content: \n{}",
+                    "Failed to split Proto for service '{}' branch '{}' ({}): {}",
                     servicename,
                     branch,
-                    e,
-                    content
+                    spec_content_fingerprint(content),
+                    e
                 );
                 AppError::BadRequest(e)
             })?
@@ -1130,6 +1141,61 @@ pub fn check_compatibility(
 mod tests {
     use super::*;
     use crate::application::mock_repo::MockRepo;
+
+    // A parse failure must never write the submitted spec into the logs, because
+    // captured logs are exposed in the admin log UI and specs can carry internal
+    // URLs, schemas, or sample secrets.
+    #[test]
+    fn parse_error_does_not_log_submitted_content() {
+        use std::io::Write;
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        #[derive(Clone)]
+        struct BufMakeWriter(Arc<Mutex<Vec<u8>>>);
+        struct BufGuard(Arc<Mutex<Vec<u8>>>);
+        impl Write for BufGuard {
+            fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(data);
+                Ok(data.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufMakeWriter {
+            type Writer = BufGuard;
+            fn make_writer(&'a self) -> Self::Writer {
+                BufGuard(self.0.clone())
+            }
+        }
+
+        let buf = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(BufMakeWriter(buf.clone()))
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        let secret = "SUPER_SECRET_TOKEN_9f8e7d6c";
+        // Unclosed flow sequence -> guaranteed YAML/parse failure.
+        let bad_spec = format!("openapi: \"3.0.0\"\npaths: [unclosed\ninternal_secret: {secret}\n");
+
+        tracing::subscriber::with_default(subscriber, || {
+            let result = parse_spec_endpoints(ApiType::OpenApi, &bad_spec, "billing", "main");
+            assert!(result.is_err(), "malformed spec should fail to parse");
+        });
+
+        let logged = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
+        assert!(
+            logged.contains("Failed to split OpenAPI"),
+            "expected a parse-failure warning to be logged, got: {logged:?}"
+        );
+        assert!(
+            !logged.contains(secret),
+            "parse-failure log leaked submitted spec content: {logged:?}"
+        );
+    }
 
     const SIMPLE_OPENAPI: &str = r#"openapi: "3.0.0"
 info:
