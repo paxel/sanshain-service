@@ -318,7 +318,10 @@ pub async fn admin_delete_client(
 }
 
 pub async fn get_dev_mode(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    let res = services::get_dev_mode(&state.repo).await?;
+    // Report the persisted *setting* (what the admin toggled), not the effective
+    // gated value. Whether dev mode actually bypasses auth additionally depends on
+    // the `ALLOW_INSECURE_DEV_MODE` safety gate, which is enforced in middleware.
+    let res = services::is_dev_mode_requested(&state.repo).await?;
     Ok(Json(json!({ "dev_mode": res })))
 }
 
