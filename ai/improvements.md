@@ -29,30 +29,25 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 Note: spec content is **public by design** (Sanshain exists to publish interfaces), so this is not a secrecy fix — it is log hygiene. The three `parse_spec_endpoints` parse-failure warnings (OpenAPI/AsyncAPI/Proto) in `src/application/spec_service.rs` no longer dump the raw `content` (which floods the in-memory, admin-viewable log buffer for large submissions). They log a compact `spec_content_fingerprint` (byte length + short SHA-256 prefix) alongside service, branch, and the parser error; the error is still returned to the caller via `AppError::BadRequest`. Covered by `parse_error_does_not_log_submitted_content`.
 
-### 4. Harden API token storage and comparison
+### 4. Harden API token storage and comparison — ANALYZED: premise moot; entropy bump only (1.5.0)
 
-**Problem:** API tokens are generated with high entropy but stored as raw `SHA-256` hashes. Plain hashes are fast to brute-force if the database leaks, and normal equality comparisons may not be constant-time.
+**Analysis (do not implement the pepper/HMAC design below):** the item's premise did not survive
+verification against the code. API tokens were already high-entropy CSPRNG values (UUIDv4, 122
+bits) stored as SHA-256 — inverting a fast hash of a ≥122-bit random secret is computationally
+infeasible regardless of hash speed, so a slow hash or pepper adds no meaningful protection
+(slow hashing exists for low-entropy secrets; passwords here already use Argon2). Storing a
+plain SHA-256 of a high-entropy token is the industry-standard design (e.g. GitHub PATs). The
+constant-time-comparison concern also does not apply: validation is an indexed SQL lookup keyed
+by SHA-256 of the caller's input, and exploiting its timing would require partial-preimage
+attacks on SHA-256. An `API_TOKEN_PEPPER` would instead *add* operational risk: losing or
+rotating the pepper invalidates every issued token.
 
-**Impact:** A database leak gives attackers a cheaper offline token-cracking target than necessary.
-
-**Relevant areas:**
-
-- `src/application/auth_service.rs` (`create_api_token`, `validate_api_token`)
-- Repository token lookup methods in `src/domain/ports.rs` and `src/infrastructure/*repository.rs`
-- Token migrations
-
-**Implementation instructions:**
-
-1. Prefer storing an HMAC-SHA-256 of the raw token using a server-side secret (`API_TOKEN_PEPPER`) rather than a plain hash.
-2. Keep a `token_hash_version` column so old hashes can be migrated gradually.
-3. Compare candidate hashes with a constant-time equality helper where feasible.
-4. On successful validation of an old token, rehash it into the new format if the raw token is available.
-
-**Validation:**
-
-- Unit-test new token creation, validation, revocation, expiry, and old-hash compatibility.
-- Integration-test authenticated API calls with new tokens.
-- Run both SQLite and Postgres migration tests if available.
+**What was done (1.5.0):** new API tokens are generated from 32 CSPRNG bytes (256 bits,
+hex-encoded) instead of a UUIDv4, matching session tokens (`create_api_token` in
+`src/application/auth_service.rs`). Backward compatible: storage and validation are
+format-agnostic (SHA-256 of the raw string), so existing tokens keep validating; only the raw
+token length changed (`san_` + 64 hex chars). Covered by `test_create_api_token_format_and_entropy`
+(unit) and a length assertion in the token-lifecycle integration test.
 
 ## P1 — Correctness and missing feature gaps
 

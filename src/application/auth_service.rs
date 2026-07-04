@@ -302,7 +302,15 @@ pub async fn create_api_token(
     name: &str,
     expires_in_days: u64,
 ) -> Result<(String, String), AppError> {
-    let raw_token = format!("san_{}", Uuid::new_v4().to_string().replace("-", ""));
+    // 256 bits of CSPRNG entropy, matching session tokens. Storage and
+    // validation are format-agnostic (SHA-256 of the raw string), so older
+    // 122-bit UUID-based tokens keep validating unchanged.
+    let mut token_bytes = [0u8; 32];
+    {
+        use rand::RngExt;
+        rand::rng().fill(&mut token_bytes);
+    }
+    let raw_token = format!("san_{}", hex::encode(token_bytes));
     let mut hasher = Sha256::new();
     hasher.update(raw_token.as_bytes());
     let token_hash = hex::encode(hasher.finalize());
@@ -348,6 +356,20 @@ pub async fn validate_api_token(
 mod tests {
     use super::*;
     use crate::application::mock_repo::MockRepo;
+
+    #[tokio::test]
+    async fn test_create_api_token_format_and_entropy() {
+        let repo = MockRepo::new();
+        let (id, token) = create_api_token(&repo, 1, "ci", 30).await.unwrap();
+        assert!(!id.is_empty());
+        assert!(token.starts_with("san_"));
+        let suffix = &token["san_".len()..];
+        assert_eq!(suffix.len(), 64);
+        assert_eq!(hex::decode(suffix).unwrap().len(), 32);
+
+        let (_, second_token) = create_api_token(&repo, 1, "ci", 30).await.unwrap();
+        assert_ne!(token, second_token);
+    }
 
     #[test]
     fn test_hash_and_verify_password() {

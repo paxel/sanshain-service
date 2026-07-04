@@ -2369,6 +2369,8 @@ async fn test_api_token_crud_and_bearer_auth() {
     let api_token = create_resp["token"].as_str().unwrap().to_string();
     let token_id = create_resp["id"].as_str().unwrap().to_string();
     assert!(api_token.starts_with("san_"));
+    // "san_" + 32 CSPRNG bytes hex-encoded
+    assert_eq!(api_token.len(), 68);
     assert_eq!(create_resp["name"], "jenkins-ci");
 
     // List tokens

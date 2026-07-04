@@ -232,7 +232,7 @@ Verification uses constant-time comparison. No plaintext passwords are ever stor
 
 For CI/CD integration, users can create API tokens:
 
-1. A random token is generated with the `san_` prefix (e.g., `san_a1b2c3d4...`).
+1. A random token (256 bits from the OS CSPRNG, hex-encoded) is generated with the `san_` prefix (e.g., `san_a1b2c3d4...`).
 2. The token is **SHA-256 hashed** before storage — the plaintext is shown once and never stored.
 3. On API requests, the `Authorization: Bearer san_...` header is SHA-256 hashed and looked up in the database.
 4. Tokens are scoped to the user and can be revoked individually.
