@@ -101,6 +101,44 @@ async fn health_and_metrics_and_version_are_accessible() {
 }
 
 #[tokio::test]
+async fn ready_probe_reflects_database_reachability() {
+    // Build the app but keep a clone of the pool so we can sever the database.
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool.clone());
+    repo.run_migrations().await.unwrap();
+    let app = create_app(test_state(repo));
+
+    // Live database: /ready is 200.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), axum::http::StatusCode::OK);
+
+    // Sever the database, then /ready must report 503.
+    pool.close().await;
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
 async fn static_file_served_via_fallback() {
     let app = build_app().await;
 

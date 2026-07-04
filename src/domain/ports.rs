@@ -62,6 +62,10 @@ pub struct UpdateEndpointParams<'a> {
 }
 
 pub trait SpecRepository: Send + Sync {
+    /// Liveness/readiness check against the backing store: runs a trivial query
+    /// (`SELECT 1`) to confirm the connection pool can reach the database.
+    fn ping(&self) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
     /// Get the current spec version and content hash for a service/branch.
     fn get_spec_version(
         &self,

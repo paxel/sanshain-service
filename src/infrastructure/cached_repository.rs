@@ -333,6 +333,10 @@ impl CachedSpecRepository {
 impl SpecRepository for CachedSpecRepository {
     // --- Cached reads with write-through invalidation ---
 
+    async fn ping(&self) -> Result<(), RepositoryError> {
+        self.inner.ping().await
+    }
+
     async fn get_spec_version(
         &self,
         service_id: i64,

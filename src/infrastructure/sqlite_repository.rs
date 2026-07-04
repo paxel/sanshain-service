@@ -142,6 +142,14 @@ impl SqliteSpecRepository {
 }
 
 impl SpecRepository for SqliteSpecRepository {
+    async fn ping(&self) -> Result<(), RepositoryError> {
+        sqlx::query("SELECT 1")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
     async fn get_spec_version(
         &self,
         service_id: i64,

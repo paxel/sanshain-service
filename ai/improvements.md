@@ -27,7 +27,15 @@ This codebase is 100% AI-generated and will stay that way. A source review (2026
 - **E5** — coverage floor ratchet in CI (`--fail-under 62` in `quality.yml`, from 64.19% measured 2026-07-03; ratchet rule in `AGENTS.md`).
 - **E6** — router ↔ `api.yaml` contract test (`router_matches_api_yaml_contract` in `src/lib.rs`; `api.yaml` is the client API contract, all other routes live in the test's `NOT_IN_CLIENT_CONTRACT` allowlist, and stale allowlist entries fail too).
 
-### E7. Real readiness probe and SQLite/replica conflict fix
+### E7. Real readiness probe and SQLite/replica conflict fix — DONE (1.5.0)
+
+Implemented: unauthenticated `GET /ready` runs `SELECT 1` via a new
+`SpecRepository::ping()` (returns 200 ready / 503 unavailable); liveness stays on
+`/health`. `deploy/kubernetes/deployment.yaml` readiness probe now targets
+`/ready` and `replicas` dropped to `1` with a comment; `docs/deployment.md` gained
+Scaling and probe sections. `/ready` is allowlisted in the router↔api.yaml
+contract test as an operational endpoint alongside `/health` (not part of the
+client API contract).
 
 **Problem:** Both k8s probes hit `/health`, which returns a static `"OK"` without touching the database — a pod with a broken DB still receives traffic. Separately, `deploy/kubernetes/deployment.yaml` sets `replicas: 2` with a `ReadWriteOnce` PVC and SQLite as default: the second pod either cannot mount the volume or risks corrupting the SQLite file.
 
@@ -587,7 +595,7 @@ This codebase is 100% AI-generated and will stay that way. A source review (2026
 
 ## Suggested implementation order
 
-0. Enforcement guardrails E7–E8 first (all independent; E9 is a manual owner step; E10 may be deferred). E1–E6 (MockRepo feature gate, production `unwrap()` removal, no-panic deny-lints, toolchain pin, coverage floor, router↔api.yaml contract test) are already done.
+0. Enforcement guardrails E7–E8 first (all independent; E9 is a manual owner step; E10 may be deferred). E1–E7 (MockRepo feature gate, production `unwrap()` removal, no-panic deny-lints, toolchain pin, coverage floor, router↔api.yaml contract test, readiness probe + SQLite/replica fix) are already done; E8 (Playwright UI smoke tests in CI) is next.
 1. Dev-mode production safety.
 2. Remove query-string API tokens.
 3. Stop logging submitted specs on parse errors.

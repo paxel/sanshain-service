@@ -33,6 +33,10 @@ macro_rules! delegate {
 }
 
 impl SpecRepository for DatabaseRepo {
+    async fn ping(&self) -> Result<(), RepositoryError> {
+        delegate!(self, ping())
+    }
+
     async fn get_spec_version(
         &self,
         service_id: i64,

@@ -138,6 +138,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/", get(pages::index_page))
         .route("/dashboard", get(pages::dashboard_page).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/health", get(pages::health))
+        .route("/ready", get(pages::ready))
         .route("/metrics", get(pages::metrics))
         .route("/LICENSE", get(pages::license_text))
         .route("/version", get(|State(s): State<AppState>| async move { axum::Json(serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "instance_id": s.instance_id})) }))
@@ -254,6 +255,7 @@ mod tests {
             "/",
             "/dashboard",
             "/health",
+            "/ready",
             "/metrics",
             "/LICENSE",
             "/version",

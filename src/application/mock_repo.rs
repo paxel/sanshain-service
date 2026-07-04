@@ -71,6 +71,10 @@ impl MockRepo {
 }
 
 impl SpecRepository for MockRepo {
+    async fn ping(&self) -> Result<(), RepositoryError> {
+        Ok(())
+    }
+
     async fn get_spec_version(
         &self,
         service_id: i64,
