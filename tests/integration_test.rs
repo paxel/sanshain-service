@@ -73,6 +73,7 @@ fn test_app_state(repo: SqliteSpecRepository) -> AppState {
         process_start_time: Utc::now(),
         prometheus_handle: get_test_prometheus_handle(),
         system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
+        max_body_bytes: sanshain_service::DEFAULT_MAX_BODY_BYTES,
     }
 }
 
@@ -5266,4 +5267,86 @@ async fn test_branches_metadata_endpoint() {
         .collect();
     assert!(names.contains(&"branch-1".to_string()));
     assert!(names.contains(&"branch-2".to_string()));
+}
+
+/// Request bodies above the configured `max_body_bytes` limit must be rejected
+/// with `413 Payload Too Large`, while payloads under the limit keep working.
+#[tokio::test]
+async fn test_request_body_over_limit_is_rejected_under_limit_accepted() {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+    services::ensure_initial_admin(&repo).await.unwrap();
+    services::set_auth_mode(&repo, &AuthMode::Dev)
+        .await
+        .unwrap();
+    let dev_user = services::ensure_dev_user(&repo).await.ok();
+
+    let mut state = test_app_state(repo);
+    state.dev_user = dev_user;
+    state.max_body_bytes = 1024;
+    let app = create_app(state);
+
+    // Over the limit: the request is rejected before the spec is parsed.
+    let oversized_payload = json!({
+        "servicename": "test-service",
+        "branch": "main",
+        "openapi_yaml": "x".repeat(2048),
+    });
+    let oversized_body = serde_json::to_vec(&oversized_payload).unwrap();
+    assert!(oversized_body.len() > 1024);
+
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(oversized_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+    // Under the limit: a normal provide payload still succeeds.
+    let openapi_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Test API
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+    let provide_payload = json!({
+        "servicename": "test-service",
+        "branch": "main",
+        "openapi_yaml": openapi_yaml
+    });
+    let under_limit_body = serde_json::to_vec(&provide_payload).unwrap();
+    assert!(under_limit_body.len() < 1024);
+
+    let response: Response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(under_limit_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
 }

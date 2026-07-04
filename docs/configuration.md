@@ -13,6 +13,7 @@ Sanshain Service can be configured using environment variables.
 | `CSRF_MAX_AGE_HOURS`           | `24`                                      | Maximum age of CSRF tokens before they are pruned.                                                        |
 | `LOG_BUFFER_SIZE`              | `100`                                     | Number of messages kept in the in-memory log buffer per level.                                            |
 | `SPEC_UPDATED_CHANNEL_SIZE`    | `100`                                     | Size of the broadcast channel for specification updates.                                                  |
+| `MAX_SPEC_BODY_BYTES`          | `4194304` (4 MiB)                         | Maximum HTTP request body size in bytes. Requests with a larger body are rejected with `413`.             |
 | `CAPTURE_LOG_FILTER`           | `sanshain_service=debug,tower_http=debug` | Log level filter for the in-memory log capture buffer.                                                    |
 | `PROMETHEUS_ENDPOINT`          | `/metrics`                                | Path for Prometheus metrics.                                                                              |
 | `STATIC_DIR`                   | `static`                                  | Directory containing static web assets.                                                                   |

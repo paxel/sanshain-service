@@ -5,10 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [1.5.0] - 2026-07-03
+## [1.5.0] - 2026-07-04
 
 ### Added
 - Initial preparation for version 1.5.0.
+- Configurable request body size limit: requests with a body larger than `MAX_SPEC_BODY_BYTES` are rejected with `413 Payload Too Large` before any spec parsing happens. Earlier releases silently enforced the web framework's built-in 2 MiB limit; it is now explicit, configurable, and defaults to 4 MiB — so spec uploads between 2 and 4 MiB that previously failed now succeed. Documented in `docs/configuration.md`; the client API contract (`api.yaml`) now lists the `413` response for `/provide*` and `/require-bundle`.
 - Real readiness probe: a new unauthenticated `GET /ready` endpoint runs a `SELECT 1` against the database and returns `200` when it is reachable or `503` when it is not, so orchestrators stop routing traffic to a pod with a broken database. Liveness (`GET /health`) stays database-independent. The Kubernetes readiness probe now targets `/ready`.
 - The no-panic policy is now machine-enforced: `unwrap()`, `expect()`, `panic!`, `todo!`, `unimplemented!`, and `dbg!` are denied by clippy in production code via the `[lints.clippy]` table in `Cargo.toml` (test code stays exempt through `clippy.toml`).
 

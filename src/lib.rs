@@ -29,6 +29,10 @@ pub use presentation::middleware::{
     LogCaptureLayer, admin_auth, api_auth, authenticated_auth, validate_csrf,
 };
 
+/// Default maximum request body size in bytes (4 MiB). Overridable at startup
+/// via the `MAX_SPEC_BODY_BYTES` environment variable.
+pub const DEFAULT_MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
+
 #[derive(Clone)]
 pub struct AppState {
     pub repo: CachedSpecRepository,
@@ -48,6 +52,7 @@ pub struct AppState {
     pub process_start_time: DateTime<Utc>,
     pub prometheus_handle: metrics_exporter_prometheus::PrometheusHandle,
     pub system: Arc<std::sync::Mutex<sysinfo::System>>,
+    pub max_body_bytes: usize,
 }
 
 pub fn create_app(state: AppState) -> Router {
@@ -144,6 +149,11 @@ pub fn create_app(state: AppState) -> Router {
         .route("/version", get(|State(s): State<AppState>| async move { axum::Json(serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "instance_id": s.instance_id})) }))
 
         .fallback_service(ServeDir::new(std::env::var("STATIC_DIR").unwrap_or_else(|_| "static".to_string())))
+        // Requests whose body exceeds this limit are rejected with `413 Payload
+        // Too Large` when the handler extracts the body. The limit counts the
+        // bytes the extractor reads, i.e. the decompressed stream for
+        // compressed requests.
+        .layer(axum::extract::DefaultBodyLimit::max(state.max_body_bytes))
         .layer(tower_http::compression::CompressionLayer::new())
         .layer(tower_http::decompression::RequestDecompressionLayer::new())
         .layer(tower_http::trace::TraceLayer::new_for_http()

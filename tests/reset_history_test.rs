@@ -49,6 +49,7 @@ fn test_app_state(repo: SqliteSpecRepository) -> AppState {
         process_start_time: chrono::Utc::now(),
         prometheus_handle: get_test_prometheus_handle(),
         system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
+        max_body_bytes: sanshain_service::DEFAULT_MAX_BODY_BYTES,
     }
 }
 

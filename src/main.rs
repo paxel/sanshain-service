@@ -227,6 +227,13 @@ pub async fn main() {
 
     let (prometheus_layer, prometheus_handle) = PrometheusMetricLayer::pair();
 
+    let max_body_bytes = std::env::var("MAX_SPEC_BODY_BYTES")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(sanshain_service::DEFAULT_MAX_BODY_BYTES);
+    tracing::info!("Maximum request body size: {} bytes", max_body_bytes);
+
     let spec_updated_channel_size = std::env::var("SPEC_UPDATED_CHANNEL_SIZE")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
@@ -254,6 +261,7 @@ pub async fn main() {
         process_start_time: Utc::now(),
         prometheus_handle,
         system: Arc::new(std::sync::Mutex::new(system)),
+        max_body_bytes,
     };
 
     // Spawn background branch cleanup task

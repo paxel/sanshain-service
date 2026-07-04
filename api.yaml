@@ -58,6 +58,8 @@ paths:
             text/plain:
               schema:
                 type: string
+        "413":
+          description: Request body exceeds the configured size limit (`MAX_SPEC_BODY_BYTES`, default 4 MiB).
 
   /provide/asyncapi:
     post:
@@ -83,6 +85,8 @@ paths:
           description: Invalid request.
         "409":
           description: Conflict on protected branch.
+        "413":
+          description: Request body exceeds the configured size limit.
 
   /provide/grpc:
     post:
@@ -108,6 +112,8 @@ paths:
           description: Invalid request.
         "409":
           description: Conflict on protected branch.
+        "413":
+          description: Request body exceeds the configured size limit.
 
   /admin/settings/dev-mode:
     get:
@@ -533,6 +539,8 @@ paths:
             text/plain:
               schema:
                 type: string
+        "413":
+          description: Request body exceeds the configured size limit.
 
 components:
   securitySchemes:

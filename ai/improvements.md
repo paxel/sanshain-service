@@ -248,30 +248,9 @@ Note: spec content is **public by design** (Sanshain exists to publish interface
 - Documentation-only review is enough unless code changes are made.
 - Ensure links are valid and examples match actual API behavior.
 
-### 10. Add request-size limits and parser resource limits
+### 10. Add request-size limits and parser resource limits — DONE (1.5.0)
 
-**Problem:** Spec upload/splitting endpoints parse user-provided YAML/proto content. Large or deeply nested documents can consume CPU/memory.
-
-**Impact:** A client can degrade service availability with oversized specs or pathological input.
-
-**Relevant areas:**
-
-- Axum route setup and middleware in `src/presentation/` / `src/lib.rs`
-- `src/openapi.rs`, `src/asyncapi.rs`, `src/proto.rs`
-- Configuration docs
-
-**Implementation instructions:**
-
-1. Add a configurable maximum request body size, with a safe default.
-2. Add parser-level guardrails where libraries expose recursion/depth/size controls.
-3. Return `413 Payload Too Large` for body limit failures and `400 Bad Request` for parser-limit failures.
-4. Document `MAX_SPEC_BODY_BYTES` or equivalent.
-
-**Validation:**
-
-- Integration-test payload just under and over the limit.
-- Unit-test parser failure handling for intentionally excessive nesting if practical.
-- Run `cargo test`.
+`create_app` now applies `DefaultBodyLimit::max(state.max_body_bytes)`; the limit is configurable via `MAX_SPEC_BODY_BYTES` (default `DEFAULT_MAX_BODY_BYTES` = 4 MiB, raised from axum's previous implicit 2 MiB; invalid or `0` values fall back to the default) and oversized bodies are rejected with `413 Payload Too Large` at extraction time — the limit counts decompressed bytes, so compressed uploads cannot bypass it. Parser-level protection relies on `serde_yaml_ng`'s built-in recursion limit, which turns pathologically nested YAML into a parse error surfaced as `400 Bad Request`; this is pinned by `split_rejects_excessively_nested_yaml` (tests/openapi_split_tests.rs). Over/under-limit behavior is covered by `test_request_body_over_limit_is_rejected_under_limit_accepted` (tests/integration_test.rs). Documented in `docs/configuration.md`; `api.yaml` lists the `413` response for `/provide*` and `/require-bundle`.
 
 ### 11. Tighten browser security headers and remove inline-script dependency
 
