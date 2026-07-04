@@ -25,9 +25,9 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 `api_auth` in `src/presentation/middleware.rs` no longer reads a `?token=` query parameter; API tokens are accepted only from the `Authorization` header. Invalid/missing credentials return generic `401`/`403` without echoing the token. No docs or tests used query tokens; `docs/api-usage.md` now states header-only explicitly. Regression test `test_api_token_query_param_is_rejected` proves query token → 403, header bearer → 200, no credentials → 403.
 
-### 3. Avoid logging submitted API specifications on parse errors — DONE (1.5.0)
+### 3. Avoid dumping submitted API specifications into logs on parse errors — DONE (1.5.0)
 
-The three `parse_spec_endpoints` parse-failure warnings (OpenAPI/AsyncAPI/Proto) in `src/application/spec_service.rs` no longer include the raw `content`. They now log only a non-sensitive `spec_content_fingerprint` (byte length + short SHA-256 prefix) alongside service, branch, and the parser error; the error is still returned to the caller via `AppError::BadRequest`. Covered by `parse_error_does_not_log_submitted_content`, which captures the tracing output and asserts a submitted secret is absent. (Optional log-redaction in `LogCaptureLayer` was left out of scope — the fix removes the content at the source.)
+Note: spec content is **public by design** (Sanshain exists to publish interfaces), so this is not a secrecy fix — it is log hygiene. The three `parse_spec_endpoints` parse-failure warnings (OpenAPI/AsyncAPI/Proto) in `src/application/spec_service.rs` no longer dump the raw `content` (which floods the in-memory, admin-viewable log buffer for large submissions). They log a compact `spec_content_fingerprint` (byte length + short SHA-256 prefix) alongside service, branch, and the parser error; the error is still returned to the caller via `AppError::BadRequest`. Covered by `parse_error_does_not_log_submitted_content`.
 
 ### 4. Harden API token storage and comparison
 

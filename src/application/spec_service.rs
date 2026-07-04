@@ -146,10 +146,11 @@ struct ProvideInternalParams<'a> {
     pub username: Option<&'a str>,
 }
 
-/// A non-sensitive fingerprint of submitted spec content for diagnostics: its
-/// byte length and a short SHA-256 prefix. The spec itself must never be logged —
-/// it can contain internal URLs, schemas, or sample secrets, and captured logs
-/// are viewable in the admin log UI.
+/// A compact fingerprint of submitted spec content for diagnostics: its byte
+/// length and a short SHA-256 prefix. Logged instead of the full spec on a parse
+/// failure so a large submission cannot flood the in-memory (admin-viewable) log
+/// buffer. Spec content is public by design, so this is about log hygiene, not
+/// secrecy.
 fn spec_content_fingerprint(content: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
@@ -1142,9 +1143,9 @@ mod tests {
     use super::*;
     use crate::application::mock_repo::MockRepo;
 
-    // A parse failure must never write the submitted spec into the logs, because
-    // captured logs are exposed in the admin log UI and specs can carry internal
-    // URLs, schemas, or sample secrets.
+    // A parse failure logs a compact fingerprint, not the whole submitted spec,
+    // so a large submission cannot flood the in-memory (admin-viewable) log
+    // buffer. (Spec content is public by design; this is log hygiene, not secrecy.)
     #[test]
     fn parse_error_does_not_log_submitted_content() {
         use std::io::Write;
@@ -1177,9 +1178,9 @@ mod tests {
             .with_ansi(false)
             .finish();
 
-        let secret = "SUPER_SECRET_TOKEN_9f8e7d6c";
+        let marker = "UNIQUE_CONTENT_MARKER_9f8e7d6c";
         // Unclosed flow sequence -> guaranteed YAML/parse failure.
-        let bad_spec = format!("openapi: \"3.0.0\"\npaths: [unclosed\ninternal_secret: {secret}\n");
+        let bad_spec = format!("openapi: \"3.0.0\"\npaths: [unclosed\nmarker: {marker}\n");
 
         tracing::subscriber::with_default(subscriber, || {
             let result = parse_spec_endpoints(ApiType::OpenApi, &bad_spec, "billing", "main");
@@ -1192,8 +1193,8 @@ mod tests {
             "expected a parse-failure warning to be logged, got: {logged:?}"
         );
         assert!(
-            !logged.contains(secret),
-            "parse-failure log leaked submitted spec content: {logged:?}"
+            !logged.contains(marker),
+            "parse-failure log dumped the full submitted spec: {logged:?}"
         );
     }
 

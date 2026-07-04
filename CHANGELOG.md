@@ -19,6 +19,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Removed panic paths from the `/require`, `/require/asyncapi`, `/require/grpc`, and `/require-bundle` handlers: a malformed ETag can no longer abort the response, and unmatched OpenAPI method comparison no longer panics. Malformed ETags now degrade to serving the response without a cache validator instead of failing the request.
 - Removed the last production `expect()` calls: the OpenAPI path normalizer and proto splitter no longer have a regex panic path, and a failing OTLP exporter build at startup (`OTEL_ENABLED=true`) now exits with a clear error message instead of panicking.
 
+### Changed
+- `/provide*` parse-failure warnings now log a compact fingerprint of the submitted spec (byte length + short SHA-256 prefix) plus the parser error, instead of dumping the entire document. This keeps the in-memory (admin-viewable) log buffer from being flooded by large submissions; the parser error is still returned to the caller.
+
 ### Security
 - Submitted API specifications are no longer written to the logs when they fail to parse. The `/provide*` parse-failure warnings now record only non-sensitive metadata (service, branch, API type, content length, and a short SHA-256 prefix) plus the parser error — never the raw spec, which can contain internal URLs, schemas, or sample secrets and would otherwise be visible in the admin log viewer. The parser error is still returned to the authenticated caller.
 - API tokens are no longer accepted from a `?token=` query parameter — they must be supplied via the `Authorization: Bearer <token>` header. Query-string credentials leak through server/proxy logs, browser history, and referrer headers; header-only auth closes that exposure. Update any client that passed `?token=...` to send the header instead.
