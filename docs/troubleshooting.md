@@ -4,7 +4,7 @@ Common issues encountered when setting up or using Sanshain Service and their so
 
 ### TL;DR
 - **Lost Admin Password?** Reset it by deleting `sanshain.db` (for SQLite) or clearing the `users` table (Postgres) and restarting.
-- **API Returning 401?** Ensure **Developer Mode** is enabled or you are sending a valid `Authorization: Bearer <token>` header.
+- **API Returning 401?** Send a valid `Authorization: Bearer <token>` header, or enable **Developer Mode** (which additionally requires the `ALLOW_INSECURE_DEV_MODE=true` safety gate — see below).
 - **Breaking Change Rejection?** Check if you are pushing to a **Protected Branch** (like `main`). Use a feature branch or version your API path.
 
 ---
@@ -39,9 +39,8 @@ PORT=3080 ./sanshain_service
 ### "Forbidden" or "Unauthorized" on API calls
 **Issue**: `POST /provide` or `GET /require` returns 401 or 403.
 **Solution**:
-1. Go to the Admin Dashboard (`/admin.html`).
-2. Enable **Developer Mode** for unauthenticated access.
-3. OR create an **API Token** in your Account settings (`/account.html`) and include it in your request: `Authorization: Bearer san_...`.
+1. Create an **API Token** in your Account settings (`/account.html`) and include it in your request: `Authorization: Bearer san_...` (recommended).
+2. OR, for local development only, enable **Developer Mode** for unauthenticated access. Dev Mode fails closed unless you **also** start the service with the safety gate `ALLOW_INSECURE_DEV_MODE=true`; without it, requests stay locked and a `SECURITY:` error is logged at startup. See [Developer Mode](administration.md#enabling-dev-mode-local-only) for details. Never set this gate in production.
 
 ---
 

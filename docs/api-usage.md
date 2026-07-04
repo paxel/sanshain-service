@@ -82,4 +82,4 @@ Request multiple endpoints in a single call. Returns a merged specification with
 
 ### Admin & Auth
 - **API Tokens**: Create tokens at `/account.html` for CI usage.
-- **Developer Mode**: Enable in the Admin Panel to bypass authentication for local testing.
+- **Developer Mode**: Bypasses authentication for local testing. Requires both enabling it (Admin Panel or `SANSHAIN_DEV_MODE=true`) and the `ALLOW_INSECURE_DEV_MODE=true` safety gate; it fails closed otherwise. Never use in production — see [Developer Mode](administration.md#enabling-dev-mode-local-only).

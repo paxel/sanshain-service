@@ -10,12 +10,17 @@ async fn dev_mode_default_false() {
     assert!(!auth::get_dev_mode(&repo).await.unwrap());
 }
 
-// 2. set dev mode true
+// 2. set dev mode true — persists the request, but stays *inactive* without the
+// ALLOW_INSECURE_DEV_MODE safety gate (which is not set in the test process).
 #[tokio::test]
-async fn dev_mode_set_true() {
+async fn dev_mode_set_true_is_refused_without_gate() {
     let repo = MockRepo::new();
     auth::set_dev_mode(&repo, true).await.unwrap();
-    assert!(auth::get_dev_mode(&repo).await.unwrap());
+    // Request is recorded...
+    assert!(auth::is_dev_mode_requested(&repo).await.unwrap());
+    // ...but dev mode fails closed because the safety gate is not open.
+    assert!(!auth::dev_mode_gate_open());
+    assert!(!auth::get_dev_mode(&repo).await.unwrap());
 }
 
 // 3. get_auth_mode default is Disabled

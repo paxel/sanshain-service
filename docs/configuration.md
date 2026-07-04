@@ -19,6 +19,8 @@ Sanshain Service can be configured using environment variables.
 | `LOGIN_SESSION_DURATION_HOURS` | `24`                                      | Duration of user login sessions in hours.                                                                 |
 | `INITIAL_ADMIN_USERNAME`       | `root`                                    | Username for the initial admin account.                                                                   |
 | `INITIAL_ADMIN_PASSWORD`       | *random*                                  | Pre-defined password for the initial admin account.                                                       |
+| `SANSHAIN_DEV_MODE`            | `false`                                   | Requests dev mode (unauthenticated API). Only active when `ALLOW_INSECURE_DEV_MODE=true`. Local only.     |
+| `ALLOW_INSECURE_DEV_MODE`      | `false`                                   | Safety gate: dev mode only activates when this is `true`; fails closed otherwise. Not for production.     |
 | `INSTANCE_ID`                  | *random UUID*                             | Unique ID for this service instance.                                                                      |
 | `CACHE_MEMORY_MB`              | `256`                                     | In-memory cache size in MB. Set to `0` to disable caching entirely. Configurable at runtime via admin UI. |
 | `LOG_FORMAT`                   | `text`                                    | Log output format (`text` or `json`).                                                                     |

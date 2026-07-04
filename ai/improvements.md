@@ -17,31 +17,9 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 ## P0 — Security and production safety
 
-### 1. Make dev mode impossible to leave enabled accidentally
+### 1. Make dev mode impossible to leave enabled accidentally — DONE (1.5.0)
 
-**Problem:** `services::get_dev_mode()` enables dev mode when `SANSHAIN_DEV_MODE=true` or the persisted `dev_mode` setting is `true`. `validate_csrf()` and auth middleware paths then allow protected requests without normal credentials. Startup logs warn loudly, but a bad environment variable or persisted setting can still expose all APIs.
-
-**Impact:** A production instance can become unauthenticated by configuration drift.
-
-**Relevant areas:**
-
-- `src/application/auth_service.rs` (`get_dev_mode`, `set_auth_mode`, `ensure_dev_user`)
-- `src/presentation/middleware.rs` (`validate_csrf`, auth middleware)
-- `src/main.rs` startup warning and bind handling
-- `docs/administration.md`, `docs/troubleshooting.md`
-
-**Implementation instructions:**
-
-1. Add an explicit production safety gate, for example `ALLOW_INSECURE_DEV_MODE=true`, that is required in addition to `SANSHAIN_DEV_MODE=true` or persisted `dev_mode=true`.
-2. Fail closed by default: if dev mode is requested without the safety gate, return an error at startup or force dev mode off and log a clear error.
-3. Keep test-only helpers behind `#[cfg(test)]`; do not add magic token/user bypasses in production code.
-4. Document the exact local-only workflow for enabling dev mode.
-
-**Validation:**
-
-- Add tests proving dev mode is denied without the safety gate and allowed only with it.
-- Add middleware tests proving protected endpoints still reject unauthenticated requests when dev mode is not fully enabled.
-- Run `cargo test` and `cargo clippy -- -D warnings`.
+`get_dev_mode` now returns `is_dev_mode_requested(...) && dev_mode_gate_open()`: dev mode is effective only when requested (`SANSHAIN_DEV_MODE=true` or persisted `dev_mode`) **and** the `ALLOW_INSECURE_DEV_MODE=true` env safety gate is set. This single chokepoint gates every auth-bypass path in `middleware.rs`. Startup fails closed with a clear `SECURITY:` error when dev mode is requested but ungated. Covered by unit tests (`get_dev_mode`/`is_dev_mode_requested`/`dev_mode_gate_open`) and a middleware test proving a persisted `dev_mode=true` still returns 401 without the gate; documented in `docs/administration.md` and `docs/troubleshooting.md`.
 
 ### 2. Stop accepting API tokens in query strings
 

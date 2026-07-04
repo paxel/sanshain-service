@@ -33,7 +33,21 @@ fn get_test_prometheus_handle() -> metrics_exporter_prometheus::PrometheusHandle
         .clone()
 }
 
+/// Open the `ALLOW_INSECURE_DEV_MODE` safety gate once for this test binary.
+/// Several tests here exercise the dev-mode auth bypass, which now requires this
+/// gate. Tests that do not request dev mode stay locked regardless, so opening
+/// the gate does not weaken their assertions. Set exactly once, synchronized, so
+/// it is in place before any app handles a request.
+fn ensure_dev_mode_gate_open() {
+    use std::sync::Once;
+    static GATE: Once = Once::new();
+    GATE.call_once(|| unsafe {
+        std::env::set_var("ALLOW_INSECURE_DEV_MODE", "true");
+    });
+}
+
 fn test_app_state(repo: SqliteSpecRepository) -> AppState {
+    ensure_dev_mode_gate_open();
     let mut tokens = HashMap::new();
     tokens.insert(
         TEST_CSRF_TOKEN.to_string(),

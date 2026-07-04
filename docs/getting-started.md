@@ -5,7 +5,7 @@ This guide walks you through installing Sanshain Service, logging in for the fir
 ### TL;DR
 1. **Run**: `docker run -p 3000:3000 -v ~/sanshain-data:/data ghcr.io/paxel/sanshain-service:latest`
 2. **Login**: Go to `http://localhost:3000/admin.html` with the password from the logs.
-3. **Configure**: Enable **Developer Mode** in the admin panel to start using the API without auth immediately.
+3. **Configure**: For a quick unauthenticated local trial, start the container with `-e ALLOW_INSECURE_DEV_MODE=true -e SANSHAIN_DEV_MODE=true` (local only — never in production), or create an API token in Account settings for authenticated access.
 
 ---
 
@@ -47,7 +47,7 @@ Migrations are applied automatically on startup.
 2. **Access**: Open `http://localhost:3000/admin.html`.
 3. **Password**: Change the `root` password immediately.
 4. **Permissions**: By default, Sanshain is locked. You must:
-   - **Enable Developer Mode**: Allows unauthenticated API access (useful for local testing).
+   - **Enable Developer Mode**: Allows unauthenticated API access (useful for local testing). For safety this only activates when the service is also started with the `ALLOW_INSECURE_DEV_MODE=true` environment variable — see [Developer Mode](administration.md#enabling-dev-mode-local-only). Never enable it in production.
    - **Approved Users**: New users must be approved by an admin before logging in.
 
 ---

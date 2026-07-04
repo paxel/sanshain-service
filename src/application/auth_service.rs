@@ -103,7 +103,19 @@ pub async fn change_password(
     Ok(None)
 }
 
-pub async fn get_dev_mode(repo: &impl SpecRepository) -> Result<bool, AppError> {
+/// The production safety gate for dev mode. Dev mode only takes effect when the
+/// `ALLOW_INSECURE_DEV_MODE` environment variable is set to `true`, so a stray
+/// `SANSHAIN_DEV_MODE` env var or a persisted `dev_mode=true` setting cannot
+/// silently disable authentication through configuration drift.
+pub fn dev_mode_gate_open() -> bool {
+    std::env::var("ALLOW_INSECURE_DEV_MODE").unwrap_or_default() == "true"
+}
+
+/// Whether dev mode has been *requested* — via the `SANSHAIN_DEV_MODE`
+/// environment variable or the persisted `dev_mode` setting — irrespective of
+/// the safety gate. Startup uses this to distinguish "requested but refused"
+/// from "not requested"; request-handling paths should use [`get_dev_mode`].
+pub async fn is_dev_mode_requested(repo: &impl SpecRepository) -> Result<bool, AppError> {
     if std::env::var("SANSHAIN_DEV_MODE").unwrap_or_default() == "true" {
         return Ok(true);
     }
@@ -112,6 +124,14 @@ pub async fn get_dev_mode(repo: &impl SpecRepository) -> Result<bool, AppError> 
         .await?
         .unwrap_or("false".to_string());
     Ok(val == "true")
+}
+
+/// Whether dev mode is *effective*: requested (see [`is_dev_mode_requested`])
+/// **and** explicitly permitted by the [`dev_mode_gate_open`] safety gate. Fails
+/// closed — a requested-but-ungated dev mode resolves to `false`, so protected
+/// endpoints keep enforcing authentication.
+pub async fn get_dev_mode(repo: &impl SpecRepository) -> Result<bool, AppError> {
+    Ok(is_dev_mode_requested(repo).await? && dev_mode_gate_open())
 }
 
 pub async fn set_dev_mode(repo: &impl SpecRepository, enabled: bool) -> Result<(), AppError> {

@@ -22,7 +22,18 @@ use tower::ServiceExt;
 
 const TEST_CSRF_TOKEN: &str = "test-csrf-token";
 
+/// Open the `ALLOW_INSECURE_DEV_MODE` safety gate once for this test binary,
+/// which exercises the dev-mode auth bypass. Set exactly once, synchronized.
+fn ensure_dev_mode_gate_open() {
+    use std::sync::Once;
+    static GATE: Once = Once::new();
+    GATE.call_once(|| unsafe {
+        std::env::set_var("ALLOW_INSECURE_DEV_MODE", "true");
+    });
+}
+
 fn test_app_state(repo: PostgresSpecRepository, db_url: String) -> AppState {
+    ensure_dev_mode_gate_open();
     let mut tokens = HashMap::new();
     tokens.insert(
         TEST_CSRF_TOKEN.to_string(),
