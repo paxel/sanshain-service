@@ -1166,6 +1166,51 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.get_all_service_tags().await
     }
 
+    async fn get_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<Option<ChannelMessageContract>, RepositoryError> {
+        self.inner
+            .get_channel_message_contract(branch_name, channel, message_name)
+            .await
+    }
+
+    async fn upsert_channel_message_contract(
+        &self,
+        contract: &ChannelMessageContract,
+    ) -> Result<(), RepositoryError> {
+        self.inner.upsert_channel_message_contract(contract).await
+    }
+
+    async fn delete_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .delete_channel_message_contract(branch_name, channel, message_name)
+            .await
+    }
+
+    async fn list_channel_message_contracts(
+        &self,
+        branch_name: &str,
+    ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
+        self.inner.list_channel_message_contracts(branch_name).await
+    }
+
+    async fn delete_orphaned_channel_message_contracts(
+        &self,
+        live_branches: &[String],
+    ) -> Result<u64, RepositoryError> {
+        self.inner
+            .delete_orphaned_channel_message_contracts(live_branches)
+            .await
+    }
+
     async fn insert_audit_log(
         &self,
         username: &str,

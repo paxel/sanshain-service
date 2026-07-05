@@ -25,6 +25,7 @@ pub struct MockRepo {
     pub audit_logs: Mutex<Vec<AuditLogEntry>>,
     pub user_favorites: Mutex<Vec<(i64, String, String)>>,
     pub branch_timestamps: Mutex<HashMap<String, String>>,
+    pub channel_message_contracts: Mutex<Vec<ChannelMessageContract>>,
 }
 
 impl Default for MockRepo {
@@ -56,6 +57,7 @@ impl MockRepo {
             audit_logs: Mutex::new(Vec::new()),
             user_favorites: Mutex::new(Vec::new()),
             branch_timestamps: Mutex::new(HashMap::new()),
+            channel_message_contracts: Mutex::new(Vec::new()),
         }
     }
 
@@ -848,6 +850,100 @@ impl SpecRepository for MockRepo {
 
     async fn get_all_service_tags(&self) -> Result<HashMap<String, Vec<String>>, RepositoryError> {
         Ok(HashMap::new())
+    }
+
+    async fn get_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<Option<ChannelMessageContract>, RepositoryError> {
+        let contracts = self
+            .channel_message_contracts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Ok(contracts
+            .iter()
+            .find(|c| {
+                c.branch_name == branch_name
+                    && c.channel == channel
+                    && c.message_name == message_name
+            })
+            .cloned())
+    }
+
+    async fn upsert_channel_message_contract(
+        &self,
+        contract: &ChannelMessageContract,
+    ) -> Result<(), RepositoryError> {
+        let mut contracts = self
+            .channel_message_contracts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        match contracts.iter_mut().find(|c| {
+            c.branch_name == contract.branch_name
+                && c.channel == contract.channel
+                && c.message_name == contract.message_name
+        }) {
+            Some(existing) => {
+                existing.owner_service_id = contract.owner_service_id;
+                existing.payload_yaml = contract.payload_yaml.clone();
+            }
+            None => contracts.push(contract.clone()),
+        }
+        Ok(())
+    }
+
+    async fn delete_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut contracts = self
+            .channel_message_contracts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        contracts.retain(|c| {
+            !(c.branch_name == branch_name
+                && c.channel == channel
+                && c.message_name == message_name)
+        });
+        Ok(())
+    }
+
+    async fn list_channel_message_contracts(
+        &self,
+        branch_name: &str,
+    ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
+        let contracts = self
+            .channel_message_contracts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut result: Vec<ChannelMessageContract> = contracts
+            .iter()
+            .filter(|c| c.branch_name == branch_name)
+            .cloned()
+            .collect();
+        result.sort_by(|a, b| {
+            a.channel
+                .cmp(&b.channel)
+                .then_with(|| a.message_name.cmp(&b.message_name))
+        });
+        Ok(result)
+    }
+
+    async fn delete_orphaned_channel_message_contracts(
+        &self,
+        live_branches: &[String],
+    ) -> Result<u64, RepositoryError> {
+        let mut contracts = self
+            .channel_message_contracts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let before = contracts.len();
+        contracts.retain(|c| live_branches.iter().any(|b| b == &c.branch_name));
+        Ok((before - contracts.len()) as u64)
     }
 
     async fn insert_audit_log(

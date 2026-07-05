@@ -299,6 +299,23 @@ pub struct EndpointRecord {
     pub external: bool,
 }
 
+/// A message-level AsyncAPI channel contract (ai/improvements.md item #20).
+///
+/// Kafka topic names share a global namespace, so contract identity is the
+/// message -- keyed by `(branch_name, channel, message_name)` -- not the whole
+/// channel payload. Only `publish` (PUB) messages register a contract; the
+/// first providing service becomes the `owner` and is the only one allowed to
+/// widen the message schema. A different service may co-publish the same
+/// `(channel, message_name)` only if its payload schema is identical.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChannelMessageContract {
+    pub branch_name: String,
+    pub channel: String,
+    pub message_name: String,
+    pub owner_service_id: i64,
+    pub payload_yaml: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum NodeSource {
     Branch,

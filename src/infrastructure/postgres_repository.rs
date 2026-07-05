@@ -2093,6 +2093,113 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(result)
     }
 
+    async fn get_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<Option<ChannelMessageContract>, RepositoryError> {
+        let row: Option<(i64, String)> = sqlx::query_as(
+            "SELECT owner_service_id, payload_yaml FROM channel_message_contracts WHERE branch_name = $1 AND channel = $2 AND message_name = $3",
+        )
+        .bind(branch_name)
+        .bind(channel)
+        .bind(message_name)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(
+            row.map(|(owner_service_id, payload_yaml)| ChannelMessageContract {
+                branch_name: branch_name.to_string(),
+                channel: channel.to_string(),
+                message_name: message_name.to_string(),
+                owner_service_id,
+                payload_yaml,
+            }),
+        )
+    }
+
+    async fn upsert_channel_message_contract(
+        &self,
+        contract: &ChannelMessageContract,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT INTO channel_message_contracts (branch_name, channel, message_name, owner_service_id, payload_yaml) \
+             VALUES ($1, $2, $3, $4, $5) \
+             ON CONFLICT (branch_name, channel, message_name) \
+             DO UPDATE SET owner_service_id = EXCLUDED.owner_service_id, payload_yaml = EXCLUDED.payload_yaml",
+        )
+        .bind(&contract.branch_name)
+        .bind(&contract.channel)
+        .bind(&contract.message_name)
+        .bind(contract.owner_service_id)
+        .bind(&contract.payload_yaml)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn delete_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "DELETE FROM channel_message_contracts WHERE branch_name = $1 AND channel = $2 AND message_name = $3",
+        )
+        .bind(branch_name)
+        .bind(channel)
+        .bind(message_name)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn list_channel_message_contracts(
+        &self,
+        branch_name: &str,
+    ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
+        let rows: Vec<(String, String, i64, String)> = sqlx::query_as(
+            "SELECT channel, message_name, owner_service_id, payload_yaml FROM channel_message_contracts WHERE branch_name = $1 ORDER BY channel, message_name",
+        )
+        .bind(branch_name)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(channel, message_name, owner_service_id, payload_yaml)| ChannelMessageContract {
+                    branch_name: branch_name.to_string(),
+                    channel,
+                    message_name,
+                    owner_service_id,
+                    payload_yaml,
+                },
+            )
+            .collect())
+    }
+
+    async fn delete_orphaned_channel_message_contracts(
+        &self,
+        live_branches: &[String],
+    ) -> Result<u64, RepositoryError> {
+        // Delete rows whose branch is absent from the live set. An empty live
+        // set means every branch is gone, so all rows are removed.
+        let result =
+            sqlx::query("DELETE FROM channel_message_contracts WHERE NOT (branch_name = ANY($1))")
+                .bind(live_branches)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected())
+    }
+
     async fn insert_audit_log(
         &self,
         username: &str,

@@ -487,6 +487,54 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, get_all_service_tags())
     }
 
+    async fn get_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<Option<ChannelMessageContract>, RepositoryError> {
+        delegate!(
+            self,
+            get_channel_message_contract(branch_name, channel, message_name)
+        )
+    }
+
+    async fn upsert_channel_message_contract(
+        &self,
+        contract: &ChannelMessageContract,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, upsert_channel_message_contract(contract))
+    }
+
+    async fn delete_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            delete_channel_message_contract(branch_name, channel, message_name)
+        )
+    }
+
+    async fn list_channel_message_contracts(
+        &self,
+        branch_name: &str,
+    ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
+        delegate!(self, list_channel_message_contracts(branch_name))
+    }
+
+    async fn delete_orphaned_channel_message_contracts(
+        &self,
+        live_branches: &[String],
+    ) -> Result<u64, RepositoryError> {
+        delegate!(
+            self,
+            delete_orphaned_channel_message_contracts(live_branches)
+        )
+    }
+
     async fn insert_audit_log(
         &self,
         username: &str,

@@ -577,4 +577,42 @@ pub trait SpecRepository: Send + Sync {
     fn list_branches_with_metadata(
         &self,
     ) -> impl Future<Output = Result<Vec<BranchMetadata>, RepositoryError>> + Send;
+
+    // --- AsyncAPI Channel Message Contracts (item #20) ---
+
+    /// Get the message-level channel contract for `(branch, channel, message)`, if any.
+    fn get_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> impl Future<Output = Result<Option<ChannelMessageContract>, RepositoryError>> + Send;
+
+    /// Insert or replace a channel message contract (owner service and payload).
+    fn upsert_channel_message_contract(
+        &self,
+        contract: &ChannelMessageContract,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Delete the channel message contract for `(branch, channel, message)`.
+    fn delete_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// List all channel message contracts registered on a branch (sorted by channel, message).
+    fn list_channel_message_contracts(
+        &self,
+        branch_name: &str,
+    ) -> impl Future<Output = Result<Vec<ChannelMessageContract>, RepositoryError>> + Send;
+
+    /// Delete channel message contracts whose `branch_name` is not in `live_branches`.
+    /// Used by the periodic cleanup task to drop rows for removed/stale branches.
+    /// Returns the number of deleted rows.
+    fn delete_orphaned_channel_message_contracts(
+        &self,
+        live_branches: &[String],
+    ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
 }

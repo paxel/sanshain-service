@@ -2156,6 +2156,126 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(result)
     }
 
+    async fn get_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<Option<ChannelMessageContract>, RepositoryError> {
+        let row: Option<(i64, String)> = sqlx::query_as(
+            "SELECT owner_service_id, payload_yaml FROM channel_message_contracts WHERE branch_name = ? AND channel = ? AND message_name = ?",
+        )
+        .bind(branch_name)
+        .bind(channel)
+        .bind(message_name)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(
+            row.map(|(owner_service_id, payload_yaml)| ChannelMessageContract {
+                branch_name: branch_name.to_string(),
+                channel: channel.to_string(),
+                message_name: message_name.to_string(),
+                owner_service_id,
+                payload_yaml,
+            }),
+        )
+    }
+
+    async fn upsert_channel_message_contract(
+        &self,
+        contract: &ChannelMessageContract,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT INTO channel_message_contracts (branch_name, channel, message_name, owner_service_id, payload_yaml) \
+             VALUES (?, ?, ?, ?, ?) \
+             ON CONFLICT (branch_name, channel, message_name) \
+             DO UPDATE SET owner_service_id = excluded.owner_service_id, payload_yaml = excluded.payload_yaml",
+        )
+        .bind(&contract.branch_name)
+        .bind(&contract.channel)
+        .bind(&contract.message_name)
+        .bind(contract.owner_service_id)
+        .bind(&contract.payload_yaml)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn delete_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "DELETE FROM channel_message_contracts WHERE branch_name = ? AND channel = ? AND message_name = ?",
+        )
+        .bind(branch_name)
+        .bind(channel)
+        .bind(message_name)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn list_channel_message_contracts(
+        &self,
+        branch_name: &str,
+    ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
+        let rows: Vec<(String, String, i64, String)> = sqlx::query_as(
+            "SELECT channel, message_name, owner_service_id, payload_yaml FROM channel_message_contracts WHERE branch_name = ? ORDER BY channel, message_name",
+        )
+        .bind(branch_name)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(channel, message_name, owner_service_id, payload_yaml)| ChannelMessageContract {
+                    branch_name: branch_name.to_string(),
+                    channel,
+                    message_name,
+                    owner_service_id,
+                    payload_yaml,
+                },
+            )
+            .collect())
+    }
+
+    async fn delete_orphaned_channel_message_contracts(
+        &self,
+        live_branches: &[String],
+    ) -> Result<u64, RepositoryError> {
+        let existing: Vec<(String,)> =
+            sqlx::query_as("SELECT DISTINCT branch_name FROM channel_message_contracts")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        let live: std::collections::HashSet<&str> =
+            live_branches.iter().map(String::as_str).collect();
+
+        let mut deleted = 0u64;
+        for (branch_name,) in existing {
+            if live.contains(branch_name.as_str()) {
+                continue;
+            }
+            let result = sqlx::query("DELETE FROM channel_message_contracts WHERE branch_name = ?")
+                .bind(&branch_name)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            deleted += result.rows_affected();
+        }
+        Ok(deleted)
+    }
+
     async fn insert_audit_log(
         &self,
         username: &str,
@@ -2365,5 +2485,200 @@ impl SpecRepository for SqliteSpecRepository {
                 last_modified,
             })
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod channel_message_contract_tests {
+    use super::*;
+
+    async fn setup() -> SqliteSpecRepository {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let repo = SqliteSpecRepository::new(pool);
+        repo.run_migrations().await.unwrap();
+        repo
+    }
+
+    fn contract(
+        branch: &str,
+        channel: &str,
+        message: &str,
+        owner: i64,
+        payload: &str,
+    ) -> ChannelMessageContract {
+        ChannelMessageContract {
+            branch_name: branch.to_string(),
+            channel: channel.to_string(),
+            message_name: message.to_string(),
+            owner_service_id: owner,
+            payload_yaml: payload.to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn upsert_then_get_roundtrips() {
+        let repo = setup().await;
+        let owner = repo.ensure_service("producer").await.unwrap();
+        let c = contract("main", "orders", "OrderPlaced", owner, "type: object");
+        repo.upsert_channel_message_contract(&c).await.unwrap();
+
+        let got = repo
+            .get_channel_message_contract("main", "orders", "OrderPlaced")
+            .await
+            .unwrap();
+        assert_eq!(got, Some(c));
+    }
+
+    #[tokio::test]
+    async fn get_missing_returns_none() {
+        let repo = setup().await;
+        let got = repo
+            .get_channel_message_contract("main", "orders", "Nope")
+            .await
+            .unwrap();
+        assert_eq!(got, None);
+    }
+
+    #[tokio::test]
+    async fn upsert_same_key_updates_owner_and_payload() {
+        let repo = setup().await;
+        let a = repo.ensure_service("a").await.unwrap();
+        let b = repo.ensure_service("b").await.unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "orders", "OrderPlaced", a, "v1"))
+            .await
+            .unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "orders", "OrderPlaced", b, "v2"))
+            .await
+            .unwrap();
+
+        let got = repo
+            .get_channel_message_contract("main", "orders", "OrderPlaced")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.owner_service_id, b);
+        assert_eq!(got.payload_yaml, "v2");
+        // Still a single row for the key.
+        let all = repo.list_channel_message_contracts("main").await.unwrap();
+        assert_eq!(all.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn delete_removes_only_that_message() {
+        let repo = setup().await;
+        let owner = repo.ensure_service("producer").await.unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "orders", "A", owner, "y"))
+            .await
+            .unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "orders", "B", owner, "y"))
+            .await
+            .unwrap();
+
+        repo.delete_channel_message_contract("main", "orders", "A")
+            .await
+            .unwrap();
+
+        assert!(
+            repo.get_channel_message_contract("main", "orders", "A")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            repo.get_channel_message_contract("main", "orders", "B")
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn list_is_scoped_to_branch_and_sorted() {
+        let repo = setup().await;
+        let owner = repo.ensure_service("producer").await.unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "orders", "B", owner, "y"))
+            .await
+            .unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "orders", "A", owner, "y"))
+            .await
+            .unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "audit", "Z", owner, "y"))
+            .await
+            .unwrap();
+        repo.upsert_channel_message_contract(&contract("feature", "orders", "A", owner, "y"))
+            .await
+            .unwrap();
+
+        let main = repo.list_channel_message_contracts("main").await.unwrap();
+        let keys: Vec<(String, String)> = main
+            .iter()
+            .map(|c| (c.channel.clone(), c.message_name.clone()))
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                ("audit".to_string(), "Z".to_string()),
+                ("orders".to_string(), "A".to_string()),
+                ("orders".to_string(), "B".to_string()),
+            ]
+        );
+
+        let feature = repo
+            .list_channel_message_contracts("feature")
+            .await
+            .unwrap();
+        assert_eq!(feature.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn orphan_cleanup_keeps_live_and_removes_dead() {
+        let repo = setup().await;
+        let owner = repo.ensure_service("producer").await.unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "orders", "A", owner, "y"))
+            .await
+            .unwrap();
+        repo.upsert_channel_message_contract(&contract("gone", "orders", "A", owner, "y"))
+            .await
+            .unwrap();
+
+        let removed = repo
+            .delete_orphaned_channel_message_contracts(&["main".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(removed, 1);
+        assert_eq!(
+            repo.list_channel_message_contracts("main")
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            repo.list_channel_message_contracts("gone")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn orphan_cleanup_empty_live_removes_all() {
+        let repo = setup().await;
+        let owner = repo.ensure_service("producer").await.unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "orders", "A", owner, "y"))
+            .await
+            .unwrap();
+
+        let removed = repo
+            .delete_orphaned_channel_message_contracts(&[])
+            .await
+            .unwrap();
+        assert_eq!(removed, 1);
+        assert!(
+            repo.list_channel_message_contracts("main")
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 }
