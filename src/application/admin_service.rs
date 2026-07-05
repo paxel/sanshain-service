@@ -231,6 +231,18 @@ pub async fn cleanup_stale_dependencies(repo: &impl SpecRepository) -> Result<u6
     Ok(repo.delete_stale_dependencies(&cutoff.to_rfc3339()).await?)
 }
 
+/// Drop message-level channel contracts (item #20) whose branch no longer
+/// exists on any service — the counterpart of stale-branch/dependency cleanup.
+#[instrument(skip_all)]
+pub async fn cleanup_orphaned_channel_message_contracts(
+    repo: &impl SpecRepository,
+) -> Result<u64, AppError> {
+    let live_branches = repo.list_all_branches().await?;
+    Ok(repo
+        .delete_orphaned_channel_message_contracts(&live_branches)
+        .await?)
+}
+
 pub async fn get_user_favorites(
     repo: &impl SpecRepository,
     user_id: i64,

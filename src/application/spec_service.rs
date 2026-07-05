@@ -1,10 +1,11 @@
+use crate::asyncapi;
 use crate::domain::models::*;
 use crate::domain::ports::{
     RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
 };
 use crate::openapi;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use tracing::instrument;
 
@@ -387,6 +388,9 @@ async fn provide_spec_inner(
     let mut changes = Vec::new();
     let mut inserts = 0;
     let mut updates = 0;
+    // Aggregated SemVer impact for AsyncAPI provides (OpenAPI uses the merged
+    // whole-spec `analyze_impact` below; proto keeps hash-based classification).
+    let mut async_impact = Impact::None;
 
     for endpoint in endpoints {
         let key = (
@@ -415,6 +419,12 @@ async fn provide_spec_inner(
                         branch, servicename, reason
                     )));
                 }
+                if api_type == ApiType::AsyncApi {
+                    async_impact = async_impact.max(asyncapi::analyze_impact(
+                        &existing_yaml,
+                        &endpoint.yaml_content,
+                    ));
+                }
                 changes.push(SpecChange::Update {
                     api_type,
                     path: endpoint.path,
@@ -436,6 +446,10 @@ async fn provide_spec_inner(
                     "Re-introduction of deleted {:?} endpoint {} {} on protected branch '{}'",
                     api_type, endpoint.method, endpoint.path, branch
                 )));
+            }
+            if api_type == ApiType::AsyncApi {
+                // A newly provided channel/operation is an additive change.
+                async_impact = async_impact.max(Impact::Minor);
             }
             changes.push(SpecChange::Insert {
                 api_type,
@@ -463,6 +477,10 @@ async fn provide_spec_inner(
             )));
         }
 
+        if api_type == ApiType::AsyncApi {
+            // Removing a provided channel/operation is a breaking change.
+            async_impact = async_impact.max(Impact::Major);
+        }
         changes.push(SpecChange::Delete {
             api_type,
             path,
@@ -471,6 +489,17 @@ async fn provide_spec_inner(
         });
         deletes += 1;
     }
+
+    // Item #20: reconcile message-level channel contracts for AsyncAPI provides.
+    // Runs on both dry-run and real provides so cross-service conflicts are
+    // reported by dry-run too; writes are applied only after commit below.
+    // Placed after the endpoint delete loop so protected-branch removal
+    // rejections have already fired before any contract mutation is planned.
+    let contract_ops = if api_type == ApiType::AsyncApi {
+        plan_channel_message_contracts(repo, branch, sid, content).await?
+    } else {
+        Vec::new()
+    };
 
     if dry_run {
         return Ok(ProvideResponse {
@@ -499,7 +528,26 @@ async fn provide_spec_inner(
     repo.apply_spec_changes(bid, changes, is_protected, username, Some(branch))
         .await?;
 
-    let impact = if let Some(old_yaml) = old_full_yaml {
+    // Apply the planned channel-message-contract mutations after the endpoint
+    // changes commit (endpoints are the source of truth).
+    for op in contract_ops {
+        match op {
+            ContractOp::Upsert(contract) => {
+                repo.upsert_channel_message_contract(&contract).await?;
+            }
+            ContractOp::Delete {
+                channel,
+                message_name,
+            } => {
+                repo.delete_channel_message_contract(branch, &channel, &message_name)
+                    .await?;
+            }
+        }
+    }
+
+    let impact = if api_type == ApiType::AsyncApi {
+        async_impact
+    } else if let Some(old_yaml) = old_full_yaml {
         openapi::analyze_impact(&old_yaml, content)
     } else if !last_hash.is_empty() {
         if content_hash != last_hash {
@@ -524,6 +572,123 @@ async fn provide_spec_inner(
             deletes,
         },
     })
+}
+
+/// A planned mutation of the message-level channel-contract store (item #20),
+/// computed during a provide and applied only after the endpoint changes commit.
+enum ContractOp {
+    Upsert(ChannelMessageContract),
+    Delete {
+        channel: String,
+        message_name: String,
+    },
+}
+
+/// Plan the channel-message-contract changes for an AsyncAPI provide.
+///
+/// For every named PUB message in the submitted document:
+/// - no contract yet → insert, owned by this service;
+/// - owned by this service (or by a service that no longer exists) → this
+///   service (re)owns it, after the owner-widen payload compatibility check;
+/// - owned by a *different* live service → accepted only if the payload schema
+///   is semantically identical, otherwise rejected `409` naming the owner.
+///
+/// Messages this service currently owns on the branch but no longer provides
+/// are planned for deletion. Protected-branch removal of a non-deprecated
+/// message is already rejected by the per-endpoint compatibility check before
+/// this runs, so a delete reaching here is always permitted.
+///
+/// Enforced identically on all branches; `force` does not bypass it. Performs no
+/// writes — it only reads and returns the planned [`ContractOp`]s (or an error).
+async fn plan_channel_message_contracts(
+    repo: &impl SpecRepository,
+    branch: &str,
+    service_id: i64,
+    content: &str,
+) -> Result<Vec<ContractOp>, AppError> {
+    let messages = asyncapi::extract_pub_messages(content).map_err(AppError::BadRequest)?;
+
+    let mut ops = Vec::new();
+    let mut provided: HashSet<(String, String)> = HashSet::new();
+
+    for msg in &messages {
+        provided.insert((msg.channel.clone(), msg.message_name.clone()));
+
+        let existing = repo
+            .get_channel_message_contract(branch, &msg.channel, &msg.message_name)
+            .await?;
+
+        let owner_alive = match &existing {
+            Some(c) => repo
+                .get_service_name_by_id(c.owner_service_id)
+                .await?
+                .is_some(),
+            None => false,
+        };
+
+        match existing {
+            // Unowned (new) or orphaned by a deleted owner → this service owns it.
+            None => ops.push(ContractOp::Upsert(new_contract(msg, branch, service_id))),
+            Some(_) if !owner_alive => {
+                ops.push(ContractOp::Upsert(new_contract(msg, branch, service_id)))
+            }
+            Some(contract) if contract.owner_service_id == service_id => {
+                // The owner may widen its own message, but not break it.
+                if let Err(reason) =
+                    asyncapi::check_payload_compatible(&contract.payload_yaml, &msg.payload_yaml)
+                {
+                    return Err(AppError::BreakingChange(format!(
+                        "Incompatible change to owned AsyncAPI message '{}' on channel '{}': {}",
+                        msg.message_name, msg.channel, reason
+                    )));
+                }
+                ops.push(ContractOp::Upsert(new_contract(msg, branch, service_id)));
+            }
+            Some(contract) => {
+                // A different live service owns this message: co-publishing is
+                // allowed only with a byte-for-byte identical payload schema.
+                if !asyncapi::payloads_equal(&contract.payload_yaml, &msg.payload_yaml) {
+                    let owner = repo
+                        .get_service_name_by_id(contract.owner_service_id)
+                        .await?
+                        .unwrap_or_else(|| "another service".to_string());
+                    return Err(AppError::Conflict(format!(
+                        "AsyncAPI message '{}' on channel '{}' is owned by service '{}' with a different schema; align the schema or rename your message",
+                        msg.message_name, msg.channel, owner
+                    )));
+                }
+                // Identical schema → accepted, ownership unchanged, no write.
+            }
+        }
+    }
+
+    // Messages this service owns on the branch but no longer provides are dropped.
+    for contract in repo.list_channel_message_contracts(branch).await? {
+        if contract.owner_service_id == service_id
+            && !provided.contains(&(contract.channel.clone(), contract.message_name.clone()))
+        {
+            ops.push(ContractOp::Delete {
+                channel: contract.channel,
+                message_name: contract.message_name,
+            });
+        }
+    }
+
+    Ok(ops)
+}
+
+fn new_contract(
+    msg: &asyncapi::PubMessage,
+    branch: &str,
+    service_id: i64,
+) -> ChannelMessageContract {
+    ChannelMessageContract {
+        branch_name: branch.to_string(),
+        channel: msg.channel.clone(),
+        message_name: msg.message_name.clone(),
+        owner_service_id: service_id,
+        payload_yaml: msg.payload_yaml.clone(),
+    }
 }
 
 pub async fn get_endpoint_yaml(
@@ -1396,5 +1561,242 @@ service S { rpc Get (Req) returns (Res); }
     fn test_parse_spec_endpoints_invalid() {
         let result = parse_spec_endpoints(ApiType::OpenApi, "not valid yaml {{", "svc", "main");
         assert!(result.is_err());
+    }
+
+    // --- item #20: message-level channel contracts through the provide flow ---
+
+    /// AsyncAPI 2.x document publishing a single named message on `orders`,
+    /// with the payload properties spliced in.
+    fn asyncapi_pub(props: &str) -> String {
+        format!(
+            r#"asyncapi: 2.6.0
+info:
+  title: T
+  version: "1.0.0"
+channels:
+  orders:
+    publish:
+      message:
+        name: OrderPlaced
+        payload:
+          type: object
+          properties:
+{props}
+"#
+        )
+    }
+
+    async fn provide_async(
+        repo: &MockRepo,
+        service: &str,
+        branch: &str,
+        content: &str,
+    ) -> Result<ProvideResponse, AppError> {
+        provide_spec(
+            repo,
+            service,
+            branch,
+            ApiType::AsyncApi,
+            content,
+            None,
+            false,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn asyncapi_provide_registers_contract() {
+        let repo = MockRepo::new();
+        let a = repo.ensure_service("producer-a").await.unwrap();
+        provide_async(
+            &repo,
+            "producer-a",
+            "main",
+            &asyncapi_pub("            id: { type: string }"),
+        )
+        .await
+        .unwrap();
+
+        let contracts = repo.list_channel_message_contracts("main").await.unwrap();
+        assert_eq!(contracts.len(), 1);
+        assert_eq!(contracts[0].channel, "orders");
+        assert_eq!(contracts[0].message_name, "OrderPlaced");
+        assert_eq!(contracts[0].owner_service_id, a);
+    }
+
+    #[tokio::test]
+    async fn asyncapi_owner_may_widen_message_minor_bump() {
+        let repo = MockRepo::new();
+        repo.ensure_service("producer-a").await.unwrap();
+        let r1 = provide_async(
+            &repo,
+            "producer-a",
+            "feature",
+            &asyncapi_pub("            id: { type: string }"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(r1.version, SemVer::new(1, 0, 0));
+
+        let r2 = provide_async(
+            &repo,
+            "producer-a",
+            "feature",
+            &asyncapi_pub("            id: { type: string }\n            name: { type: string }"),
+        )
+        .await
+        .unwrap();
+        // Additive change → minor bump; stored payload is updated.
+        assert_eq!(r2.version, SemVer::new(1, 1, 0));
+        let contracts = repo
+            .list_channel_message_contracts("feature")
+            .await
+            .unwrap();
+        assert!(contracts[0].payload_yaml.contains("name"));
+    }
+
+    #[tokio::test]
+    async fn asyncapi_owner_breaking_change_rejected_on_feature_branch() {
+        // Message contracts are enforced on all branches, including unprotected
+        // ones where endpoint-level breaking changes are otherwise allowed.
+        let repo = MockRepo::new();
+        repo.ensure_service("producer-a").await.unwrap();
+        provide_async(
+            &repo,
+            "producer-a",
+            "feature",
+            &asyncapi_pub("            id: { type: string }"),
+        )
+        .await
+        .unwrap();
+
+        let err = provide_async(
+            &repo,
+            "producer-a",
+            "feature",
+            &asyncapi_pub("            id: { type: integer }"),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, AppError::BreakingChange(_)), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn asyncapi_second_producer_identical_schema_accepted() {
+        let repo = MockRepo::new();
+        let a = repo.ensure_service("producer-a").await.unwrap();
+        repo.ensure_service("producer-b").await.unwrap();
+        let doc = asyncapi_pub("            id: { type: string }");
+        provide_async(&repo, "producer-a", "main", &doc)
+            .await
+            .unwrap();
+        provide_async(&repo, "producer-b", "main", &doc)
+            .await
+            .unwrap();
+
+        // Ownership is unchanged and there is still exactly one contract row.
+        let contracts = repo.list_channel_message_contracts("main").await.unwrap();
+        assert_eq!(contracts.len(), 1);
+        assert_eq!(contracts[0].owner_service_id, a);
+    }
+
+    #[tokio::test]
+    async fn asyncapi_second_producer_divergent_schema_rejected_naming_owner() {
+        let repo = MockRepo::new();
+        repo.ensure_service("producer-a").await.unwrap();
+        repo.ensure_service("producer-b").await.unwrap();
+        provide_async(
+            &repo,
+            "producer-a",
+            "main",
+            &asyncapi_pub("            id: { type: string }"),
+        )
+        .await
+        .unwrap();
+
+        let err = provide_async(
+            &repo,
+            "producer-b",
+            "main",
+            &asyncapi_pub("            id: { type: integer }"),
+        )
+        .await
+        .unwrap_err();
+        match err {
+            AppError::Conflict(msg) => {
+                assert!(msg.contains("producer-a"), "{msg}");
+                assert!(msg.contains("OrderPlaced"), "{msg}");
+            }
+            other => panic!("expected Conflict, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn asyncapi_owner_dropping_message_clears_contract() {
+        let repo = MockRepo::new();
+        repo.ensure_service("producer-a").await.unwrap();
+        provide_async(
+            &repo,
+            "producer-a",
+            "feature",
+            &asyncapi_pub("            id: { type: string }"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            repo.list_channel_message_contracts("feature")
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+
+        // A later provide without the message drops it (allowed on a feature
+        // branch); the contract row is cleared.
+        let empty = r#"asyncapi: 2.6.0
+info:
+  title: T
+  version: "1.0.0"
+channels:
+  status:
+    publish:
+      message:
+        name: Heartbeat
+        payload: { type: object }
+"#;
+        provide_async(&repo, "producer-a", "feature", empty)
+            .await
+            .unwrap();
+        let contracts = repo
+            .list_channel_message_contracts("feature")
+            .await
+            .unwrap();
+        assert_eq!(contracts.len(), 1);
+        assert_eq!(contracts[0].message_name, "Heartbeat");
+    }
+
+    #[tokio::test]
+    async fn asyncapi_unnamed_message_registers_no_contract() {
+        let repo = MockRepo::new();
+        repo.ensure_service("producer-a").await.unwrap();
+        let unnamed = r#"asyncapi: 2.6.0
+info:
+  title: T
+  version: "1.0.0"
+channels:
+  orders:
+    publish:
+      message:
+        payload: { type: object }
+"#;
+        provide_async(&repo, "producer-a", "main", unnamed)
+            .await
+            .unwrap();
+        assert!(
+            repo.list_channel_message_contracts("main")
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 }

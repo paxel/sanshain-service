@@ -293,6 +293,13 @@ pub async fn main() {
                 Ok(n) => tracing::info!("Dependency cleanup: pruned {} stale dependencies", n),
                 Err(e) => tracing::warn!("Dependency cleanup failed: {:?}", e),
             }
+            match services::cleanup_orphaned_channel_message_contracts(&cleanup_repo).await {
+                Ok(0) => {}
+                Ok(n) => {
+                    tracing::info!("Contract cleanup: dropped {} orphaned channel contracts", n)
+                }
+                Err(e) => tracing::warn!("Contract cleanup failed: {:?}", e),
+            }
 
             // Prune expired CSRF tokens
             {
