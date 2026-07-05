@@ -113,79 +113,36 @@ only compatibility gate, matching `docs/api-lifecycle.md`. Covered by
 Problem-2 test), rewritten `scripts/itest.sh` sections 8/10, and a `CHANGELOG.md` "Removed"
 entry. The historical 20240502 scope migration and its upgrade tests remain untouched.
 
-### 20. Message-level AsyncAPI channel contracts (multi-producer topics)
+### 20. Message-level AsyncAPI channel contracts (multi-producer topics) — DONE (1.5.0)
 
-**Problem:** Kafka topic names are a **global namespace** within a broker — unlike REST paths,
-which are service-scoped. Topics like audit or DLQ legitimately have many producers. After #19
-there is no cross-service conflict detection at all (in practice there was none before either).
-The naive per-channel-payload contract creates a widening dilemma (producer A adds a field →
-producer B is rejected for a change it never made). Decided 2026-07-04: contract granularity is
-the **message**, not the channel payload — real multi-producer topics carry different event
-types from different producers, and a producer is only ever measured against the messages it
-provides itself.
-
-**Decision summary:**
-
-- Contract key: `(branch, channel, message-name)`, **PUB only**, message identity = message
-  `name` (fallback `title`). Unnamed messages get service-local identity, skip cross-service
-  checks, and are documented as unsuitable for multi-producer topics.
-- Owner = first providing service. Owner updates must pass the item-#5 payload checker
-  (deprecation exemptions per the established policy) and then update the stored schema — the
-  owner may widen its own message.
-- A *different* service providing the same `(channel, message-name)` is accepted only if the
-  payload schema is semantically identical (compare parsed YAML values, not bytes); otherwise
-  reject `409` naming the owning service ("align the schema or rename your message").
-  Consequence (intended): same-name co-publishing requires identical schemas at all times; the
-  recommended pattern is one owner per message name.
-- Enforced on **all** branches including protected ones; `force` does not bypass it.
-
-**Relevant areas:**
-
-- `src/asyncapi.rs` (reuse/extend the `collect_messages` keying from item #5 into a public
-  extraction helper returning channel, message name, payload, deprecated flag)
-- `src/application/spec_service.rs` (provide flow hook after parse, before `apply_spec_changes`;
-  dry-run must check but not write)
-- `src/domain/models.rs` / `src/domain/ports.rs` (new `ChannelMessageContract` model and port
-  methods: get by key, upsert, delete for owner/branch, list per branch)
-- `src/infrastructure/*repository.rs`, `mock_repo.rs`, new migration:
-  `channel_message_contracts (branch_name, channel, message_name, owner_service_id,
-  payload_yaml, PRIMARY KEY (branch_name, channel, message_name))`
-- `src/main.rs` cleanup task (drop contract rows for deleted/stale branches)
-- Version impact: the provide flow's SemVer bump uses `openapi::analyze_impact` (OpenAPI-only) —
-  add an AsyncAPI classification: additions (new channels/messages/properties) → minor,
-  doc-only → patch
-- `docs/api-lifecycle.md` / `docs/user-guide.md` (new "multi-producer topics" section),
-  `CHANGELOG.md`
-
-**Implementation instructions:**
-
-1. Migration + domain model + port methods + three repository implementations.
-2. Extraction helper in `src/asyncapi.rs` (named messages only; return the deprecation flag).
-3. Provide-flow hook, for every named PUB message in the submitted document:
-   - no contract row → insert, owner = this service;
-   - row owned by this service → run the payload compat check (old = stored, new = submitted;
-     deprecation exemptions apply); on pass, update `payload_yaml`; on fail, reject `409` with
-     the checker's message;
-   - row owned by another service → accept only on semantic equality of parsed payload values;
-     otherwise reject `409` naming owner service, channel, and message.
-4. Removal: when a provide by the owner drops a message it owns, apply the deprecation policy
-   (deprecated message → delete the contract row; non-deprecated on a protected branch is
-   already rejected by the item-#5 per-endpoint check — make sure the contract row outcome is
-   consistent with that rejection). Branch cleanup task deletes rows of removed branches.
-5. AsyncAPI version-impact classification (minor/patch as above) wired where the SemVer bump is
-   computed.
-6. Docs: multi-producer section (co-publish rule, message-naming requirement, one-owner
-   recommendation), CHANGELOG.
-
-**Validation:**
-
-- Unit/application tests: first provide creates rows; owner widens own message (accepted, row
-  updated); second service with identical schema accepted; second service with divergent schema
-  rejected with owner named in the message; enforcement identical on protected and feature
-  branches; deprecated message removal clears the row; unnamed messages skip contract handling;
-  stale-branch cleanup removes rows.
-- Repository tests for both SQLite and Postgres; migration covered by the existing upgrade tests.
-- Run `cargo test`.
+Implemented as decided 2026-07-04. New `channel_message_contracts` table (migration
+`20260704000001_channel_message_contracts.sql`, SQLite + Postgres) keyed
+`(branch_name, channel, message_name)` with `owner_service_id` (FK → `services`,
+`ON DELETE CASCADE`) and `payload_yaml`; `ChannelMessageContract` domain model; five port methods
+(`get_channel_message_contract`, `upsert_channel_message_contract`,
+`delete_channel_message_contract`, `list_channel_message_contracts`,
+`delete_orphaned_channel_message_contracts`) across sqlite/postgres/cached/database dispatcher +
+`MockRepo`. Public `asyncapi::extract_pub_messages` harvests **named** PUB messages only (identity
+= message `name`, fallback `title`; channel = 3.x `address` / 2.x key; app-perspective
+`send`/`publish`), alongside new `check_payload_compatible`, `payloads_equal`, and `analyze_impact`
+helpers. Provide-flow hook `plan_channel_message_contracts` (`src/application/spec_service.rs`)
+runs after the endpoint delete-loop and before commit — it checks on both dry-run and real
+provides but writes only after `apply_spec_changes`: first provider owns; the owner may widen via
+the payload checker (breaking → `409` `BreakingChange`); a different **live** service must match
+the owner's payload exactly (else `409` `Conflict` naming the owner, channel, message); a contract
+whose owner service no longer exists is taken over (covers SQLite's un-enforced FK cascade);
+owner-dropped messages delete the row (protected-branch non-deprecated removals are already
+rejected by the item-#5 per-endpoint check before the hook runs). Enforced on all branches;
+`force` does not bypass. AsyncAPI SemVer impact is now classified (additions → minor, doc-only →
+patch, removal/incompatible → major) and aggregated into the provide bump. The periodic cleanup
+task calls `cleanup_orphaned_channel_message_contracts` (drops rows for branches no longer present
+on any service). Covered by asyncapi unit tests (extraction 2.x/3.x, unnamed-skip, oneOf,
+deprecated, payload compat, equality, impact classification), spec_service application tests
+(register, owner-widen minor bump, owner-breaking-on-feature rejected, identical co-publish
+accepted, divergent co-publish `409` naming owner, owner-drop clears row, unnamed → no contract),
+a SQLite repository test module, and a Postgres testcontainers repository test. Documented in
+`docs/api-lifecycle.md` §6, `docs/user-guide.md`, and `CHANGELOG.md`. **Item #6** (SUB harvesting
++ drift validation) builds on this store next.
 
 ## P1 — Correctness and missing feature gaps
 
@@ -527,8 +484,8 @@ provides itself.
 
 ## Suggested implementation order
 
-1. Message-level AsyncAPI channel contracts (#20).
-2. AsyncAPI SUB → requires + drift validation (#6; steps 1–2 may land before #20).
+1. ~~Message-level AsyncAPI channel contracts (#20).~~ — DONE (1.5.0).
+2. AsyncAPI SUB → requires + drift validation (#6; step 3 drift validation now unblocked by #20).
 3. Protocol removal and stale Kafka/gRPC/OpenAPI cleanup (#7).
 4. Admin spec and endpoint editing workflow (#8).
 5. Transactional spec updates (#12).

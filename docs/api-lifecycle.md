@@ -82,17 +82,54 @@ spec *with* the deprecation marker (an ordinary compatible update), then publish
 were stored without a deprecation flag, so re-publish them once with the marker before the
 publish that removes them.
 
+## 6. Multi-Producer Topics (AsyncAPI Message Contracts)
+
+Unlike REST paths, which are scoped to a single service, **Kafka topic names live in a global
+namespace** — topics such as an audit log or a dead-letter queue legitimately have many
+producers. To keep those topics safe without penalising a producer for a change it never made,
+Sanshain tracks AsyncAPI compatibility at the granularity of the **message**, not the whole
+channel.
+
+When you provide an AsyncAPI spec, every **named** `publish` message registers a *channel
+message contract* keyed by `(branch, channel, message name)`:
+
+- **Message identity** is the message `name`, falling back to its `title`. A message with
+  neither has no cross-service identity: it is skipped for contract purposes and is **unsuitable
+  for multi-producer topics**. Name your messages to make a shared topic safe.
+- **Ownership**: the first service to publish a `(channel, message name)` on a branch owns it.
+- **The owner may widen its own message** (add properties, add messages) but a breaking payload
+  change — a removed non-deprecated property, or a property/`$ref` type change — is rejected with
+  `409 Conflict`.
+- **A different service publishing the same `(channel, message name)`** is accepted only if its
+  payload schema is **semantically identical** to the owner's. Otherwise it is rejected with
+  `409 Conflict` naming the owning service: *align the schema or rename your message.* The
+  recommended pattern is therefore **one owner per message name** — give each producer's event a
+  distinct name.
+
+Message contracts are enforced on **all** branches, including feature branches where ordinary
+endpoint breaking changes are otherwise allowed, and `force` does not bypass them. Consuming the
+producer's snippet (via `/require/asyncapi`) and `$ref`-ing it from your own spec keeps a
+consumer's copy aligned with the contract.
+
+> **Direction convention.** Sanshain reads the AsyncAPI 2.x `publish`/`subscribe` keywords from
+> the **application's** perspective (`publish` = *this service publishes*), matching its 3.x
+> `send`/`receive` mapping. Note this is the inverse of the official 2.x specification, which
+> defines the keywords from the client's perspective. Only `publish`/`send` messages register a
+> contract.
+
 ---
 
 ## Summary Table
 
-| Change Type     | Branch    | Result             | Action                         |
-|-----------------|-----------|--------------------|--------------------------------|
-| **Additive**    | Any       | Accepted           | None                           |
-| **Breaking**    | Feature   | Accepted           | Test with opt-in clients       |
-| **Breaking**    | Protected | **Rejected (409)** | Use Path Versioning            |
-| **Deprecation** | Protected | Accepted           | Monitor Dependency Graph       |
-| **Deletion**    | Protected | Accepted*          | *Only for deprecated endpoints |
+| Change Type             | Branch    | Result             | Action                                |
+|-------------------------|-----------|--------------------|---------------------------------------|
+| **Additive**            | Any       | Accepted           | None                                  |
+| **Breaking**            | Feature   | Accepted           | Test with opt-in clients              |
+| **Breaking**            | Protected | **Rejected (409)** | Use Path Versioning                   |
+| **Deprecation**         | Protected | Accepted           | Monitor Dependency Graph              |
+| **Deletion**            | Protected | Accepted*          | *Only for deprecated endpoints        |
+| **Owned msg breaking**  | Any       | **Rejected (409)** | Widen own message only (all branches) |
+| **Co-publish, differs** | Any       | **Rejected (409)** | Match owner's schema or rename        |
 
 ---
 
