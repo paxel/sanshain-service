@@ -1913,7 +1913,11 @@ impl SpecRepository for PostgresSpecRepository {
                     external,
                 } => {
                     tracing::debug!("Inserting {:?} endpoint: {} {}", api_type, method, path);
-                    sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted, deprecated, external) VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, $8)")
+                    // Revive on conflict: a soft-deleted row (deleted = TRUE) still
+                    // occupies the UNIQUE(branch_id, api_type, path, method) slot, so a plain
+                    // INSERT would violate the constraint when a previously removed endpoint
+                    // is re-introduced (e.g. on a branch that is no longer protected).
+                    sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted, deprecated, external) VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, $8) ON CONFLICT (branch_id, api_type, path, method) DO UPDATE SET deleted = FALSE, normalized_path = EXCLUDED.normalized_path, yaml_content = EXCLUDED.yaml_content, deprecated = EXCLUDED.deprecated, external = EXCLUDED.external")
                         .bind(branch_id)
                         .bind(api_type.as_str())
                         .bind(&path)

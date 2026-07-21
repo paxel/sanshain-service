@@ -1976,7 +1976,11 @@ impl SpecRepository for SqliteSpecRepository {
                     external,
                 } => {
                     tracing::debug!("Inserting {:?} endpoint: {} {}", api_type, method, path);
-                    sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted, deprecated, external) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)")
+                    // Revive on conflict: a soft-deleted row (deleted = 1) still occupies the
+                    // UNIQUE(branch_id, api_type, path, method) slot, so a plain INSERT would
+                    // violate the constraint when a previously removed endpoint is
+                    // re-introduced (e.g. on a branch that is no longer protected).
+                    sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted, deprecated, external) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?) ON CONFLICT(branch_id, api_type, path, method) DO UPDATE SET deleted = 0, normalized_path = excluded.normalized_path, yaml_content = excluded.yaml_content, deprecated = excluded.deprecated, external = excluded.external")
                         .bind(branch_id)
                         .bind(api_type.as_str())
                         .bind(&path)
@@ -2679,6 +2683,99 @@ mod channel_message_contract_tests {
                 .await
                 .unwrap()
                 .is_empty()
+        );
+    }
+}
+
+#[cfg(test)]
+mod endpoint_revive_tests {
+    use super::*;
+
+    async fn setup() -> SqliteSpecRepository {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let repo = SqliteSpecRepository::new(pool);
+        repo.run_migrations().await.unwrap();
+        repo
+    }
+
+    fn insert(path: &str, method: &str, yaml: &str) -> SpecChange {
+        SpecChange::Insert {
+            api_type: ApiType::OpenApi,
+            path: path.to_string(),
+            normalized_path: path.to_string(),
+            method: method.to_string(),
+            yaml_content: yaml.to_string(),
+            deprecated: false,
+            external: false,
+        }
+    }
+
+    // Regression: a soft-deleted endpoint (as produced by a protected-branch removal)
+    // still occupies the UNIQUE(branch_id, api_type, path, method) slot. Re-introducing
+    // the same path+method later — e.g. on a branch that is no longer protected, so the
+    // application-layer re-introduction guard does not fire — used to fail with a
+    // "duplicate key" constraint violation. It must now revive the row instead.
+    #[tokio::test]
+    async fn reinserting_soft_deleted_endpoint_revives_row() {
+        let repo = setup().await;
+        let service_id = repo.ensure_service("svc").await.unwrap();
+        let branch_id = repo.ensure_branch(service_id, "main").await.unwrap();
+
+        repo.apply_spec_changes(
+            branch_id,
+            vec![insert("/users", "GET", "v1")],
+            false,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        repo.apply_spec_changes(
+            branch_id,
+            vec![SpecChange::Delete {
+                api_type: ApiType::OpenApi,
+                path: "/users".to_string(),
+                method: "GET".to_string(),
+                soft_delete: true,
+            }],
+            false,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            repo.get_endpoints_for_branch(branch_id)
+                .await
+                .unwrap()
+                .is_empty(),
+            "endpoint should be hidden after soft delete"
+        );
+
+        // Previously violated the UNIQUE constraint against the leftover soft-deleted row.
+        repo.apply_spec_changes(
+            branch_id,
+            vec![insert("/users", "GET", "v2")],
+            false,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let endpoints = repo.get_endpoints_for_branch(branch_id).await.unwrap();
+        assert_eq!(
+            endpoints.len(),
+            1,
+            "revived endpoint should be visible again"
+        );
+        assert_eq!(endpoints[0].path, "/users");
+        assert_eq!(endpoints[0].method, "GET");
+        assert_eq!(
+            endpoints[0].yaml_content, "v2",
+            "revive should refresh the stored content"
         );
     }
 }

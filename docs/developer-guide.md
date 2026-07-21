@@ -269,9 +269,35 @@ sequenceDiagram
 
 **TLS**: The `ldap3` crate uses **rustls** (pure Rust, no OpenSSL dependency):
 ```toml
-ldap3 = { version = "0.11", default-features = false, features = ["tls-rustls"] }
+ldap3 = { version = "0.12", default-features = false, features = ["tls-rustls-ring"] }
 ```
-This means `ldaps://` URLs work with zero system dependencies.
+This means `ldaps://` URLs work with no OpenSSL system dependency.
+
+**Trust store**: `ldap3`'s rustls integration pulls in `rustls-native-certs`, so it loads
+the **host's platform trust store** at startup — Sanshain does *not* ship or manage a trust
+store of its own. For an internal directory (e.g. an AD `.local` domain) whose LDAPS
+certificate is signed by a private/enterprise CA, that CA must be present in the OS trust
+store of whatever runs Sanshain. Sanshain then trusts it automatically — **no code, config,
+or image change is required on our side**; it's an operator concern:
+
+- **Debian/Ubuntu hosts or images**: drop the CA into `/usr/local/share/ca-certificates/`
+  and run `update-ca-certificates`.
+- **RHEL/Fedora**: use `/etc/pki/ca-trust/source/anchors/` + `update-ca-trust`.
+- **Containers**: prefer **bind-mounting** the CA over baking it into the image, so it can be
+  rotated with a file swap + container restart instead of an image rebuild. Either mount into
+  the platform's CA drop-in dir and re-run `update-ca-certificates` in the entrypoint
+  (additive — keeps public roots), or point `SSL_CERT_FILE` at the CA (honored by
+  `rustls-native-certs`, but it *replaces* the entire root set, so only use it when Sanshain
+  makes no other outbound TLS calls that need public roots).
+
+The trust anchor is deliberately kept out of the app (not uploadable via the admin UI):
+whoever controls the trusted CA could redirect the LDAPS connection to an impostor directory
+and capture the privileged service-account bind password, so it belongs in the reviewed,
+immutable infra layer — not in mutable runtime state.
+
+Two operator prerequisites for `ldaps://` to work: (1) the directory's CA is in the host OS
+trust store, and (2) the server URL uses the DC's **FQDN** (rustls verifies the hostname
+against the certificate SAN — an IP will fail validation).
 
 ### CSRF Protection
 
