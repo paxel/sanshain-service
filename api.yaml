@@ -58,6 +58,8 @@ paths:
             text/plain:
               schema:
                 type: string
+        "413":
+          description: Request body exceeds the configured size limit (`MAX_SPEC_BODY_BYTES`, default 4 MiB).
 
   /provide/asyncapi:
     post:
@@ -65,7 +67,9 @@ paths:
       summary: Upload an AsyncAPI specification for a service branch
       description: |
         Parses the provided AsyncAPI YAML, splits it into individual channel snippets,
-        and stores them for the given service and branch.
+        and stores them for the given service and branch. Each named `publish` message
+        registers a message-level channel contract; contract violations are rejected on
+        every branch (see the 409 response).
       requestBody:
         required: true
         content:
@@ -82,7 +86,13 @@ paths:
         "400":
           description: Invalid request.
         "409":
-          description: Conflict on protected branch.
+          description: |
+            Conflict. Either a breaking change on a protected branch, or a message-level
+            channel-contract violation on any branch: an incompatible change to a message
+            this service owns, or a different payload schema for a channel + message name
+            already owned by another service.
+        "413":
+          description: Request body exceeds the configured size limit.
 
   /provide/grpc:
     post:
@@ -108,6 +118,8 @@ paths:
           description: Invalid request.
         "409":
           description: Conflict on protected branch.
+        "413":
+          description: Request body exceeds the configured size limit.
 
   /admin/settings/dev-mode:
     get:
@@ -533,6 +545,8 @@ paths:
             text/plain:
               schema:
                 type: string
+        "413":
+          description: Request body exceeds the configured size limit.
 
 components:
   securitySchemes:
@@ -615,8 +629,8 @@ components:
           type: boolean
           default: false
           description: |
-            When true, resets the shared contract source to the current upload, bypassing
-            backward-compatibility checks. Blocked on protected branches (returns 400).
+            Deprecated: has no effect on non-protected branches (breaking changes are
+            always accepted there). Blocked on protected branches (returns 400).
     ProvideAsyncApiPayload:
       type: object
       required:
@@ -643,8 +657,8 @@ components:
           type: boolean
           default: false
           description: |
-            When true, resets the shared contract source to the current upload, bypassing
-            backward-compatibility checks. Blocked on protected branches (returns 400).
+            Deprecated: has no effect on non-protected branches (breaking changes are
+            always accepted there). Blocked on protected branches (returns 400).
     ProvideProtoPayload:
       type: object
       required:
@@ -671,8 +685,8 @@ components:
           type: boolean
           default: false
           description: |
-            When true, resets the shared contract source to the current upload, bypassing
-            backward-compatibility checks. Blocked on protected branches (returns 400).
+            Deprecated: has no effect on non-protected branches (breaking changes are
+            always accepted there). Blocked on protected branches (returns 400).
     ProvideResponse:
       type: object
       properties:

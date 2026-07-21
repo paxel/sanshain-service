@@ -1,7 +1,7 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
 use crate::domain::models::{ApiType, AuditLogEntry, AuthMode, LdapConfig};
-use crate::domain::ports::SpecRepository;
+use crate::domain::ports::{NewAuditLog, SpecRepository};
 use axum::{
     Json,
     extract::{Path, Query, State},
@@ -12,23 +12,17 @@ use serde::Deserialize;
 use serde_json::json;
 use std::str::FromStr;
 
-#[allow(clippy::too_many_arguments)]
 async fn record_audit_log(
     repo: &impl crate::domain::ports::SpecRepository,
     user: Option<axum::Extension<crate::domain::models::User>>,
-    action: &str,
-    details: &str,
-    service: Option<&str>,
-    branch: Option<&str>,
-    action_type: Option<&str>,
-    diff: Option<&str>,
+    log: NewAuditLog<'_>,
 ) -> Result<(), AppError> {
     let actor = if let Some(axum::Extension(u)) = user {
         u.username.clone()
     } else {
         "DevMode/Anonymous".to_string()
     };
-    repo.insert_audit_log(&actor, action, details, service, branch, action_type, diff)
+    repo.insert_audit_log(&actor, log)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))
 }
@@ -131,25 +125,6 @@ pub async fn admin_get_endpoint_versions(
     Ok(Json(res))
 }
 
-pub async fn admin_get_shared_contract(
-    State(state): State<AppState>,
-    Query(query): Query<AdminEndpointYamlQuery>,
-) -> Result<impl IntoResponse, AppError> {
-    let res = services::get_shared_contract_info(
-        &state.repo,
-        &query.servicename,
-        &query.branch,
-        query.api_type,
-        &query.path,
-        &query.method,
-    )
-    .await?;
-    match res {
-        Some(info) => Ok(Json(info).into_response()),
-        None => Ok(StatusCode::NO_CONTENT.into_response()),
-    }
-}
-
 pub async fn list_protected_branches(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -171,12 +146,14 @@ pub async fn add_protected_branch(
     record_audit_log(
         &state.repo,
         user,
-        "ADD_PROTECTED_BRANCH",
-        &format!("Protected branch pattern '{}' added", payload.pattern),
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "ADD_PROTECTED_BRANCH",
+            details: &format!("Protected branch pattern '{}' added", payload.pattern),
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(StatusCode::CREATED)
@@ -191,12 +168,14 @@ pub async fn delete_protected_branch(
         record_audit_log(
             &state.repo,
             user,
-            "DELETE_PROTECTED_BRANCH",
-            &format!("Protected branch pattern '{}' deleted", pattern),
-            None,
-            None,
-            Some("ADMIN"),
-            None,
+            NewAuditLog {
+                action: "DELETE_PROTECTED_BRANCH",
+                details: &format!("Protected branch pattern '{}' deleted", pattern),
+                service: None,
+                branch: None,
+                action_type: Some("ADMIN"),
+                diff: None,
+            },
         )
         .await?;
         Ok(StatusCode::OK)
@@ -218,12 +197,14 @@ pub async fn admin_delete_service(
         record_audit_log(
             &state.repo,
             user,
-            "DELETE_SERVICE",
-            &format!("Deleted service '{}'", name),
-            Some(&name),
-            None,
-            Some("WRITE"),
-            None,
+            NewAuditLog {
+                action: "DELETE_SERVICE",
+                details: &format!("Deleted service '{}'", name),
+                service: Some(&name),
+                branch: None,
+                action_type: Some("WRITE"),
+                diff: None,
+            },
         )
         .await?;
         Ok(StatusCode::OK)
@@ -242,12 +223,14 @@ pub async fn admin_delete_branch(
         record_audit_log(
             &state.repo,
             user,
-            "DELETE_BRANCH",
-            &format!("Deleted branch '{}' of service '{}'", branch, name),
-            Some(&name),
-            Some(&branch),
-            Some("WRITE"),
-            None,
+            NewAuditLog {
+                action: "DELETE_BRANCH",
+                details: &format!("Deleted branch '{}' of service '{}'", branch, name),
+                service: Some(&name),
+                branch: Some(&branch),
+                action_type: Some("WRITE"),
+                diff: None,
+            },
         )
         .await?;
         Ok(StatusCode::OK)
@@ -268,15 +251,17 @@ pub async fn admin_reset_branch_history(
         record_audit_log(
             &state.repo,
             user,
-            "RESET_BRANCH_HISTORY",
-            &format!(
-                "Reset branch history of branch '{}' of service '{}'",
-                branch, name
-            ),
-            Some(&name),
-            Some(&branch),
-            Some("WRITE"),
-            None,
+            NewAuditLog {
+                action: "RESET_BRANCH_HISTORY",
+                details: &format!(
+                    "Reset branch history of branch '{}' of service '{}'",
+                    branch, name
+                ),
+                service: Some(&name),
+                branch: Some(&branch),
+                action_type: Some("WRITE"),
+                diff: None,
+            },
         )
         .await?;
         Ok(StatusCode::OK)
@@ -297,12 +282,14 @@ pub async fn admin_delete_client(
         record_audit_log(
             &state.repo,
             user,
-            "DELETE_CLIENT",
-            &format!("Deleted client '{}'", name),
-            None,
-            None,
-            Some("WRITE"),
-            None,
+            NewAuditLog {
+                action: "DELETE_CLIENT",
+                details: &format!("Deleted client '{}'", name),
+                service: None,
+                branch: None,
+                action_type: Some("WRITE"),
+                diff: None,
+            },
         )
         .await?;
         Ok(StatusCode::OK)
@@ -312,7 +299,10 @@ pub async fn admin_delete_client(
 }
 
 pub async fn get_dev_mode(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    let res = services::get_dev_mode(&state.repo).await?;
+    // Report the persisted *setting* (what the admin toggled), not the effective
+    // gated value. Whether dev mode actually bypasses auth additionally depends on
+    // the `ALLOW_INSECURE_DEV_MODE` safety gate, which is enforced in middleware.
+    let res = services::is_dev_mode_requested(&state.repo).await?;
     Ok(Json(json!({ "dev_mode": res })))
 }
 
@@ -330,12 +320,14 @@ pub async fn set_dev_mode(
     record_audit_log(
         &state.repo,
         user,
-        "SET_DEV_MODE",
-        &format!("Set dev-mode to {}", payload.enabled),
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "SET_DEV_MODE",
+            details: &format!("Set dev-mode to {}", payload.enabled),
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(StatusCode::OK)
@@ -357,12 +349,14 @@ pub async fn set_auto_approve_users(
     record_audit_log(
         &state.repo,
         user,
-        "SET_AUTO_APPROVE",
-        &format!("Set auto-approve-users to {}", payload.enabled),
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "SET_AUTO_APPROVE",
+            details: &format!("Set auto-approve-users to {}", payload.enabled),
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(StatusCode::OK)
@@ -418,15 +412,17 @@ pub async fn set_auth_config(
     record_audit_log(
         &state.repo,
         user,
-        "UPDATE_SETTINGS",
-        &format!(
-            "Updated auth mode to '{}' and LDAP configurations",
-            payload.auth_mode
-        ),
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "UPDATE_SETTINGS",
+            details: &format!(
+                "Updated auth mode to '{}' and LDAP configurations",
+                payload.auth_mode
+            ),
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(StatusCode::OK)
@@ -467,12 +463,14 @@ pub async fn set_branch_max_age(
     record_audit_log(
         &state.repo,
         user,
-        "UPDATE_SETTINGS",
-        &format!("Set branch max age to {} days", payload.days),
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "UPDATE_SETTINGS",
+            details: &format!("Set branch max age to {} days", payload.days),
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(StatusCode::OK)
@@ -486,12 +484,14 @@ pub async fn trigger_branch_cleanup(
     record_audit_log(
         &state.repo,
         user,
-        "BRANCH_CLEANUP",
-        &format!("Triggered branch cleanup, deleted {} stale branches", res),
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "BRANCH_CLEANUP",
+            details: &format!("Triggered branch cleanup, deleted {} stale branches", res),
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(Json(json!({ "deleted": res })))
@@ -518,12 +518,14 @@ pub async fn set_dependency_max_age(
     record_audit_log(
         &state.repo,
         user,
-        "UPDATE_SETTINGS",
-        &format!("Set dependency max age to {} days", payload.days),
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "UPDATE_SETTINGS",
+            details: &format!("Set dependency max age to {} days", payload.days),
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(StatusCode::OK)
@@ -537,15 +539,17 @@ pub async fn trigger_dependency_cleanup(
     record_audit_log(
         &state.repo,
         user,
-        "DEPENDENCY_CLEANUP",
-        &format!(
-            "Triggered dependency cleanup, deleted {} stale dependencies",
-            res
-        ),
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "DEPENDENCY_CLEANUP",
+            details: &format!(
+                "Triggered dependency cleanup, deleted {} stale dependencies",
+                res
+            ),
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(Json(json!({ "deleted": res })))
@@ -577,12 +581,14 @@ pub async fn admin_approve_user(
         record_audit_log(
             &state.repo,
             user,
-            "APPROVE_USER",
-            &format!("Approved user '{}'", target_username),
-            None,
-            None,
-            Some("ADMIN"),
-            None,
+            NewAuditLog {
+                action: "APPROVE_USER",
+                details: &format!("Approved user '{}'", target_username),
+                service: None,
+                branch: None,
+                action_type: Some("ADMIN"),
+                diff: None,
+            },
         )
         .await?;
         Ok(StatusCode::OK)
@@ -610,12 +616,14 @@ pub async fn admin_delete_user_handler(
         record_audit_log(
             &state.repo,
             user,
-            "DELETE_USER",
-            &format!("Deleted user '{}'", target_username),
-            None,
-            None,
-            Some("ADMIN"),
-            None,
+            NewAuditLog {
+                action: "DELETE_USER",
+                details: &format!("Deleted user '{}'", target_username),
+                service: None,
+                branch: None,
+                action_type: Some("ADMIN"),
+                diff: None,
+            },
         )
         .await?;
         Ok(StatusCode::OK)
@@ -642,12 +650,14 @@ pub async fn admin_nuke_services(
     record_audit_log(
         &state.repo,
         user,
-        "NUKE_DATABASE",
-        &format!("Nuked all services, deleted {} services", res),
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "NUKE_DATABASE",
+            details: &format!("Nuked all services, deleted {} services", res),
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(Json(json!({ "deleted": res })))
@@ -666,12 +676,14 @@ pub async fn admin_nuke_clients(
     record_audit_log(
         &state.repo,
         user,
-        "NUKE_DATABASE",
-        &format!("Nuked all clients, deleted {} clients", res),
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "NUKE_DATABASE",
+            details: &format!("Nuked all clients, deleted {} clients", res),
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(Json(json!({ "deleted": res })))
@@ -690,12 +702,14 @@ pub async fn admin_nuke_users(
     record_audit_log(
         &state.repo,
         user,
-        "NUKE_DATABASE",
-        &format!("Nuked all non-admin users, deleted {} users", res),
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "NUKE_DATABASE",
+            details: &format!("Nuked all non-admin users, deleted {} users", res),
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(Json(json!({ "deleted": res })))
@@ -715,12 +729,14 @@ pub async fn admin_nuke_database(
     record_audit_log(
         &state.repo,
         user,
-        "NUKE_DATABASE",
-        "Nuked complete database (Full reset)",
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "NUKE_DATABASE",
+            details: "Nuked complete database (Full reset)",
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(StatusCode::OK)
@@ -771,15 +787,17 @@ pub async fn admin_nuke_branch(
     record_audit_log(
         &state.repo,
         user,
-        "NUKE_DATABASE",
-        &format!(
-            "Nuked branch '{}', deleted {} services on branch",
-            branch, res
-        ),
-        None,
-        Some(&branch),
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "NUKE_DATABASE",
+            details: &format!(
+                "Nuked branch '{}', deleted {} services on branch",
+                branch, res
+            ),
+            service: None,
+            branch: Some(&branch),
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(Json(json!({ "deleted": res })))
@@ -810,12 +828,14 @@ pub async fn admin_update_service_metadata(
     record_audit_log(
         &state.repo,
         user,
-        "UPDATE_SERVICE_METADATA",
-        &format!("Updated metadata for service '{}'", payload.name),
-        Some(&payload.name),
-        None,
-        Some("WRITE"),
-        None,
+        NewAuditLog {
+            action: "UPDATE_SERVICE_METADATA",
+            details: &format!("Updated metadata for service '{}'", payload.name),
+            service: Some(&payload.name),
+            branch: None,
+            action_type: Some("WRITE"),
+            diff: None,
+        },
     )
     .await?;
 
@@ -905,16 +925,15 @@ pub async fn get_debug_config(
     }))
 }
 
-#[allow(clippy::collapsible_if)]
 pub async fn set_debug_config(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
     Json(config): Json<crate::domain::models::DebugConfig>,
 ) -> Result<impl IntoResponse, AppError> {
-    if let Some(axum::Extension(ref u)) = user {
-        if !u.is_admin {
-            return Err(AppError::Forbidden);
-        }
+    if let Some(axum::Extension(ref u)) = user
+        && !u.is_admin
+    {
+        return Err(AppError::Forbidden);
     }
     state.business_logic_debug.store(
         config.business_logic_debug,
@@ -927,15 +946,17 @@ pub async fn set_debug_config(
     record_audit_log(
         &state.repo,
         user,
-        "UPDATE_SETTINGS",
-        &format!(
-            "Updated debug config: business_logic_debug={}, admin_user_debug={}",
-            config.business_logic_debug, config.admin_user_debug
-        ),
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "UPDATE_SETTINGS",
+            details: &format!(
+                "Updated debug config: business_logic_debug={}, admin_user_debug={}",
+                config.business_logic_debug, config.admin_user_debug
+            ),
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(StatusCode::OK)
@@ -970,12 +991,14 @@ pub async fn set_cache_config(
     record_audit_log(
         &state.repo,
         user,
-        "UPDATE_SETTINGS",
-        &format!("Updated cache memory limit to {} MB", payload.memory_mb),
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "UPDATE_SETTINGS",
+            details: &format!("Updated cache memory limit to {} MB", payload.memory_mb),
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(Json(json!({ "memory_mb": payload.memory_mb })))
@@ -990,12 +1013,14 @@ pub async fn clear_cache(
     record_audit_log(
         &state.repo,
         user,
-        "CLEAR_CACHE",
-        "Cleared service and branch caches",
-        None,
-        None,
-        Some("ADMIN"),
-        None,
+        NewAuditLog {
+            action: "CLEAR_CACHE",
+            details: "Cleared service and branch caches",
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
     )
     .await?;
     Ok(Json(json!({ "cleared": true })))
@@ -1048,15 +1073,17 @@ pub async fn admin_update_endpoint(
     record_audit_log(
         &state.repo,
         user,
-        "MANUAL_UPDATE_ENDPOINT",
-        &format!(
-            "Manually updated endpoint {} {} in {} ({})",
-            payload.method, payload.path, payload.servicename, payload.branch
-        ),
-        Some(&payload.servicename),
-        Some(&payload.branch),
-        Some("WRITE"),
-        None,
+        NewAuditLog {
+            action: "MANUAL_UPDATE_ENDPOINT",
+            details: &format!(
+                "Manually updated endpoint {} {} in {} ({})",
+                payload.method, payload.path, payload.servicename, payload.branch
+            ),
+            service: Some(&payload.servicename),
+            branch: Some(&payload.branch),
+            action_type: Some("WRITE"),
+            diff: None,
+        },
     )
     .await?;
 

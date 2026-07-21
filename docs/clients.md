@@ -18,6 +18,7 @@ Sanshain is designed to be integrated directly into your build process. We provi
 The [**sanshain-maven-plugin**](https://github.com/paxel/sanshain-maven-plugin) is the recommended way to integrate Sanshain into Java or Kotlin projects.
 - **Goals**: `sanshain:provide` and `sanshain:require`.
 - **Integration**: Typically bound to `generate-sources` and `deploy` phases.
+- **Corporate Usage**: See the [**Maven Corporate Guide**](../../SanshainMaven/docs/corporate-usage.md) for `settings.xml` and CI/CD patterns.
 - **Config**: Defined in your `pom.xml`.
 
 ### Rust / Cargo

@@ -39,6 +39,18 @@ The API is formally specified in [`api.yaml`](../api.yaml).
 4. **Idempotency**: Identical specs are skipped to avoid version inflation.
 5. **Ownership**: Feature branches track who "owns" an endpoint to prevent cross-service conflicts.
 
+### Multi-Producer Topics (AsyncAPI)
+
+Kafka topic names are a **global namespace**, so a topic (audit log, DLQ, …) can have many
+producers. Sanshain tracks AsyncAPI compatibility per **message**: every *named* `publish`
+message registers a contract keyed by `(branch, channel, message name)`, owned by the first
+service to publish it. The owner may widen its own message; a second producer of the same
+channel + message name is accepted only if its payload is identical, otherwise rejected with
+`409` naming the owner. **Name your messages** (`name`/`title`) — unnamed messages have no
+cross-service identity and are skipped. See
+[API Lifecycle §6](api-lifecycle.md#6-multi-producer-topics-asyncapi-message-contracts) for the
+full rules.
+
 ### Requiring an Endpoint
 1. Plugin calls `/require` for a specific path + method.
 2. Sanshain returns a minimal YAML/Proto containing only that operation and its models.

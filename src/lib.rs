@@ -29,6 +29,10 @@ pub use presentation::middleware::{
     LogCaptureLayer, admin_auth, api_auth, authenticated_auth, validate_csrf,
 };
 
+/// Default maximum request body size in bytes (4 MiB). Overridable at startup
+/// via the `MAX_SPEC_BODY_BYTES` environment variable.
+pub const DEFAULT_MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
+
 #[derive(Clone)]
 pub struct AppState {
     pub repo: CachedSpecRepository,
@@ -48,6 +52,7 @@ pub struct AppState {
     pub process_start_time: DateTime<Utc>,
     pub prometheus_handle: metrics_exporter_prometheus::PrometheusHandle,
     pub system: Arc<std::sync::Mutex<sysinfo::System>>,
+    pub max_body_bytes: usize,
 }
 
 pub fn create_app(state: AppState) -> Router {
@@ -92,7 +97,6 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/clients/{name}/branches/{branch}/endpoints", get(admin::admin_list_client_endpoints).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/endpoint-yaml", get(admin::admin_get_endpoint_yaml).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/endpoint-versions", get(admin::admin_get_endpoint_versions).layer(from_fn_with_state(state.clone(), authenticated_auth)))
-        .route("/admin/shared-contract", get(admin::admin_get_shared_contract).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/settings/dev-mode", get(admin::get_dev_mode).post(admin::set_dev_mode).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/settings/auto-approve", get(admin::get_auto_approve_users).post(admin::set_auto_approve_users).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/auth-config", get(admin::get_auth_config).put(admin::set_auth_config).layer(from_fn_with_state(state.clone(), admin_auth)))
@@ -138,11 +142,17 @@ pub fn create_app(state: AppState) -> Router {
         .route("/", get(pages::index_page))
         .route("/dashboard", get(pages::dashboard_page).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/health", get(pages::health))
+        .route("/ready", get(pages::ready))
         .route("/metrics", get(pages::metrics))
         .route("/LICENSE", get(pages::license_text))
         .route("/version", get(|State(s): State<AppState>| async move { axum::Json(serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "instance_id": s.instance_id})) }))
 
         .fallback_service(ServeDir::new(std::env::var("STATIC_DIR").unwrap_or_else(|_| "static".to_string())))
+        // Requests whose body exceeds this limit are rejected with `413 Payload
+        // Too Large` when the handler extracts the body. The limit counts the
+        // bytes the extractor reads, i.e. the decompressed stream for
+        // compressed requests.
+        .layer(axum::extract::DefaultBodyLimit::max(state.max_body_bytes))
         .layer(tower_http::compression::CompressionLayer::new())
         .layer(tower_http::decompression::RequestDecompressionLayer::new())
         .layer(tower_http::trace::TraceLayer::new_for_http()
@@ -230,6 +240,151 @@ mod tests {
         assert!(
             source.contains(".route(\"/metrics\", get(pages::metrics))"),
             "The app router must expose the Prometheus metrics endpoint at /metrics.",
+        );
+    }
+
+    /// Ensures the router in `create_app` and the OpenAPI contract in `api.yaml`
+    /// stay in sync.
+    ///
+    /// `api.yaml` documents the client API contract (build plugins, CLIs). Every
+    /// path it documents must be registered in the router, and every registered
+    /// route must either be documented there or listed in the explicit allowlist
+    /// of routes that are intentionally outside that contract. Stale allowlist
+    /// entries fail the test too, so the list cannot rot.
+    #[test]
+    fn router_matches_api_yaml_contract() {
+        use std::collections::BTreeSet;
+
+        // Routes intentionally NOT part of the client API contract. Moving a
+        // route into the contract means documenting it in api.yaml and removing
+        // it here. Axum `{param}` syntax matches OpenAPI templating, so paths
+        // compare as plain strings.
+        const NOT_IN_CLIENT_CONTRACT: &[&str] = &[
+            // HTML pages, static assets, operational endpoints
+            "/",
+            "/dashboard",
+            "/health",
+            "/ready",
+            "/metrics",
+            "/LICENSE",
+            "/version",
+            // Browser session, account, and CSRF endpoints for the UI
+            "/auth/change-password",
+            "/auth/favorites",
+            "/auth/favorites/{item_type}/{item_name}",
+            "/auth/login",
+            "/auth/logout",
+            "/auth/me",
+            "/auth/register",
+            "/auth/tokens",
+            "/auth/tokens/{id}",
+            "/csrf-token",
+            "/tokens",
+            "/tokens/{id}",
+            // Admin UI backend (HTMX fragments and admin JSON endpoints)
+            "/admin/auth-config",
+            "/admin/auth-config/test",
+            "/admin/cache/clear",
+            "/admin/cleanup/branches",
+            "/admin/cleanup/dependencies",
+            "/admin/clients",
+            "/admin/clients/{name}",
+            "/admin/clients/{name}/branches",
+            "/admin/clients/{name}/branches/{branch}/endpoints",
+            "/admin/endpoint-versions",
+            "/admin/endpoint-yaml",
+            "/admin/endpoints/update",
+            "/admin/nuke/clients",
+            "/admin/nuke/database",
+            "/admin/nuke/services",
+            "/admin/nuke/users",
+            "/admin/observability/audit-logs",
+            "/admin/observability/audit-logs/export",
+            "/admin/observability/debug-config",
+            "/admin/observability/debug-config-update",
+            "/admin/observability/logs",
+            "/admin/observability/stats",
+            "/admin/protected-branches",
+            "/admin/protected-branches/{pattern}",
+            "/admin/services",
+            "/admin/services/metadata",
+            "/admin/services/{name}",
+            "/admin/services/{name}/branches",
+            "/admin/services/{name}/branches/{branch}",
+            "/admin/services/{name}/branches/{branch}/endpoints",
+            "/admin/services/{name}/branches/{branch}/reset-history",
+            "/admin/settings/branch-cleanup",
+            "/admin/settings/cache",
+            "/admin/settings/dependency-cleanup",
+            // Reports, live updates, and other UI-facing read APIs
+            "/api/audit/timeline",
+            "/api/sse/updates",
+            "/api/ws/updates",
+            "/branches/metadata",
+            "/branches/protected",
+            "/endpoint-versions",
+            "/report",
+            "/report/isolation",
+            "/report/markdown",
+            "/report/merged",
+        ];
+
+        let source = include_str!("lib.rs");
+        let mut router_paths: BTreeSet<&str> = BTreeSet::new();
+        for line in source.lines() {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix(".route(\"")
+                && let Some(path) = rest.split('"').next()
+            {
+                router_paths.insert(path);
+            }
+        }
+
+        let spec: serde_yaml_ng::Value =
+            serde_yaml_ng::from_str(include_str!("../api.yaml")).expect("api.yaml must parse");
+        let spec_paths: BTreeSet<&str> = spec
+            .get("paths")
+            .and_then(|p| p.as_mapping())
+            .expect("api.yaml must have a `paths` mapping")
+            .keys()
+            .map(|k| k.as_str().expect("api.yaml path keys must be strings"))
+            .collect();
+
+        let allowlist: BTreeSet<&str> = NOT_IN_CLIENT_CONTRACT.iter().copied().collect();
+
+        let phantom: Vec<&str> = spec_paths.difference(&router_paths).copied().collect();
+        assert!(
+            phantom.is_empty(),
+            "api.yaml documents paths that are not registered in create_app(): {:?}\n\
+             Register the route or remove the path from api.yaml.",
+            phantom
+        );
+
+        let undocumented: Vec<&str> = router_paths
+            .iter()
+            .filter(|p| !spec_paths.contains(*p) && !allowlist.contains(*p))
+            .copied()
+            .collect();
+        assert!(
+            undocumented.is_empty(),
+            "Routes registered in create_app() are neither documented in api.yaml \
+             nor allowlisted: {:?}\n\
+             Document them in api.yaml, or add them to NOT_IN_CLIENT_CONTRACT if they \
+             are intentionally outside the client API contract.",
+            undocumented
+        );
+
+        let stale: Vec<&str> = allowlist
+            .iter()
+            .filter(|p| !router_paths.contains(*p) || spec_paths.contains(*p))
+            .copied()
+            .collect();
+        assert!(
+            stale.is_empty(),
+            "Stale NOT_IN_CLIENT_CONTRACT entries (route removed, or now documented \
+             in api.yaml): {:?}\n\
+             Remove them from the allowlist.",
+            stale
         );
     }
 }

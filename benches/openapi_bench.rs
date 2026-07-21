@@ -1,14 +1,36 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use sanshain_service::asyncapi::split_asyncapi;
 use sanshain_service::openapi::{
-    check_backward_compatibility, generate_diff, merge_endpoint_yamls, normalize_path,
-    split_openapi,
+    EndpointSpec, check_backward_compatibility, generate_diff, merge_endpoint_yamls,
+    normalize_path, split_openapi,
 };
 use sanshain_service::proto::split_proto;
 use std::fs;
 
+// Benches are not compiled with `cfg(test)`, so the no-panic lints apply here;
+// aborting with a message is the sensible reaction to a broken fixture.
+fn load_api_yaml() -> String {
+    match fs::read_to_string("api.yaml") {
+        Ok(content) => content,
+        Err(e) => {
+            eprintln!("Failed to read api.yaml: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn split_api_yaml(yaml_content: &str) -> Vec<EndpointSpec> {
+    match split_openapi(yaml_content) {
+        Ok(endpoints) => endpoints,
+        Err(e) => {
+            eprintln!("Failed to split openapi: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
 fn bench_split_openapi(c: &mut Criterion) {
-    let yaml_content = fs::read_to_string("api.yaml").expect("Failed to read api.yaml");
+    let yaml_content = load_api_yaml();
 
     c.bench_function("split_openapi", |b| {
         b.iter(|| split_openapi(black_box(&yaml_content)))
@@ -16,8 +38,8 @@ fn bench_split_openapi(c: &mut Criterion) {
 }
 
 fn bench_merge_endpoint_yamls(c: &mut Criterion) {
-    let yaml_content = fs::read_to_string("api.yaml").expect("Failed to read api.yaml");
-    let endpoints = split_openapi(&yaml_content).expect("Failed to split openapi");
+    let yaml_content = load_api_yaml();
+    let endpoints = split_api_yaml(&yaml_content);
     let endpoint_yamls: Vec<String> = endpoints.into_iter().map(|e| e.yaml_content).collect();
 
     c.bench_function("merge_endpoint_yamls", |b| {
@@ -43,8 +65,8 @@ fn bench_normalize_path(c: &mut Criterion) {
 }
 
 fn bench_generate_diff(c: &mut Criterion) {
-    let yaml_content = fs::read_to_string("api.yaml").expect("Failed to read api.yaml");
-    let endpoints = split_openapi(&yaml_content).expect("Failed to split openapi");
+    let yaml_content = load_api_yaml();
+    let endpoints = split_api_yaml(&yaml_content);
     if endpoints.len() >= 2 {
         let old = &endpoints[0].yaml_content;
         let new_yaml = &endpoints[1].yaml_content;
@@ -55,7 +77,7 @@ fn bench_generate_diff(c: &mut Criterion) {
 }
 
 fn bench_check_backward_compatibility(c: &mut Criterion) {
-    let yaml_content = fs::read_to_string("api.yaml").expect("Failed to read api.yaml");
+    let yaml_content = load_api_yaml();
     c.bench_function("check_backward_compatibility", |b| {
         b.iter(|| check_backward_compatibility(black_box(&yaml_content), black_box(&yaml_content)))
     });

@@ -11,10 +11,15 @@ use tracing_subscriber::registry::LookupSpan;
 ///
 /// This function sets up the OTLP exporter via gRPC and configures
 /// the global tracer provider and W3C propagator.
-pub fn init_tracer<S>() -> (
-    OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>,
-    SdkTracerProvider,
-)
+///
+/// Returns an error if the OTLP span exporter cannot be built.
+pub fn init_tracer<S>() -> Result<
+    (
+        OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>,
+        SdkTracerProvider,
+    ),
+    opentelemetry_otlp::ExporterBuildError,
+>
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span>,
 {
@@ -34,8 +39,7 @@ where
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
         .with_endpoint(endpoint)
-        .build()
-        .expect("Failed to create span exporter");
+        .build()?;
 
     let provider = SdkTracerProvider::builder()
         .with_batch_exporter(exporter)
@@ -52,7 +56,7 @@ where
 
     let layer = tracing_opentelemetry::layer().with_tracer(provider.tracer("sanshain_service"));
 
-    (layer, provider)
+    Ok((layer, provider))
 }
 
 /// Shuts down the telemetry system and flushes remaining spans.

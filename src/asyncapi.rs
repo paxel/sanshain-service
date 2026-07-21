@@ -1,9 +1,12 @@
+use crate::domain::models::Impact;
 use serde_yaml_ng::{Mapping, Value};
+use std::collections::HashMap;
 
 pub struct AsyncApiSpec {
     pub channel: String,
     pub operation: String, // PUB or SUB
     pub yaml_content: String,
+    pub deprecated: bool,
 }
 
 pub fn split_asyncapi(yaml_str: &str) -> Result<Vec<AsyncApiSpec>, String> {
@@ -154,6 +157,7 @@ fn create_spec_v3(
         channel: channel_address.to_string(),
         operation: operation.to_string(),
         yaml_content,
+        deprecated: is_marked_deprecated(op_value),
     })
 }
 
@@ -198,11 +202,354 @@ fn create_spec_v2(
     let yaml_content = serde_yaml_ng::to_string(&Value::Mapping(snippet))
         .map_err(|e| format!("Failed to serialize AsyncAPI snippet: {}", e))?;
 
+    let deprecated = channel_value
+        .get(op_key)
+        .map(is_marked_deprecated)
+        .unwrap_or(false);
+
     Ok(AsyncApiSpec {
         channel: channel_name.to_string(),
         operation: operation.to_string(),
         yaml_content,
+        deprecated,
     })
+}
+
+/// `deprecated: true` or the common `x-deprecated: true` extension on an
+/// operation, message, or schema node.
+fn is_marked_deprecated(node: &Value) -> bool {
+    ["deprecated", "x-deprecated"]
+        .iter()
+        .any(|key| node.get(key).and_then(Value::as_bool).unwrap_or(false))
+}
+
+/// Check if a new AsyncAPI endpoint snippet is backward-compatible with the old one.
+/// Breaking changes:
+/// - a message was removed from the channel (unless the old message was marked deprecated)
+/// - a message payload or payload property changed type (or `$ref` target)
+/// - a payload property was removed (unless the old property was marked deprecated)
+///
+/// Adding messages, adding properties, and metadata/description changes are OK.
+/// Enum value changes and `required` changes are not analyzed.
+///
+/// Returns Ok(()) if compatible, Err(description) if breaking.
+pub fn check_backward_compatibility(old_yaml: &str, new_yaml: &str) -> Result<(), String> {
+    let old: Value = serde_yaml_ng::from_str(old_yaml)
+        .map_err(|e| format!("Failed to parse old AsyncAPI YAML: {}", e))?;
+    let new: Value = serde_yaml_ng::from_str(new_yaml)
+        .map_err(|e| format!("Failed to parse new AsyncAPI YAML: {}", e))?;
+
+    let old_messages = collect_messages(&old);
+    let new_messages = collect_messages(&new);
+
+    for (name, old_message) in &old_messages {
+        match new_messages.get(name) {
+            None => {
+                if !is_marked_deprecated(old_message) {
+                    return Err(format!("Message '{}' was removed", name));
+                }
+            }
+            Some(new_message) => match (old_message.get("payload"), new_message.get("payload")) {
+                (Some(old_payload), Some(new_payload)) => {
+                    check_schema_compatible(
+                        &format!("{}.payload", name),
+                        old_payload,
+                        new_payload,
+                    )?;
+                }
+                (Some(_), None) => {
+                    return Err(format!("Payload of message '{}' was removed", name));
+                }
+                _ => {}
+            },
+        }
+    }
+
+    Ok(())
+}
+
+/// Collect all messages of a document keyed by a stable name: the message
+/// `name`/`title` when present, otherwise a channel/operation-derived key.
+fn collect_messages(root: &Value) -> HashMap<String, &Value> {
+    let mut messages = HashMap::new();
+    let Some(channels) = root.get("channels").and_then(Value::as_mapping) else {
+        return messages;
+    };
+
+    for (channel_name, channel_value) in channels {
+        let channel_name = channel_name.as_str().unwrap_or_default();
+
+        // AsyncAPI 3.x: channels.<name>.messages.<msgName>
+        if let Some(v3_messages) = channel_value.get("messages").and_then(Value::as_mapping) {
+            for (message_name, message) in v3_messages {
+                let message_name = message_name.as_str().unwrap_or_default();
+                messages.insert(format!("{}/{}", channel_name, message_name), message);
+            }
+        }
+
+        // AsyncAPI 2.x: channels.<name>.publish|subscribe.message (optionally oneOf)
+        for op_key in ["publish", "subscribe"] {
+            let Some(message) = channel_value.get(op_key).and_then(|op| op.get("message")) else {
+                continue;
+            };
+            if let Some(one_of) = message.get("oneOf").and_then(Value::as_sequence) {
+                for (index, variant) in one_of.iter().enumerate() {
+                    messages.insert(message_key(channel_name, op_key, variant, index), variant);
+                }
+            } else {
+                messages.insert(message_key(channel_name, op_key, message, 0), message);
+            }
+        }
+    }
+
+    messages
+}
+
+fn message_key(channel: &str, op_key: &str, message: &Value, index: usize) -> String {
+    let name = message
+        .get("name")
+        .or_else(|| message.get("title"))
+        .and_then(Value::as_str);
+    match name {
+        Some(name) => format!("{}/{}/{}", channel, op_key, name),
+        None => format!("{}/{}/#{}", channel, op_key, index),
+    }
+}
+
+/// Recursively check that a payload schema change is backward-compatible.
+fn check_schema_compatible(path: &str, old: &Value, new: &Value) -> Result<(), String> {
+    let old_ref = old.get("$ref").and_then(Value::as_str);
+    let new_ref = new.get("$ref").and_then(Value::as_str);
+    if let (Some(old_ref), Some(new_ref)) = (old_ref, new_ref)
+        && old_ref != new_ref
+    {
+        return Err(format!(
+            "'{}' changed $ref from '{}' to '{}'",
+            path, old_ref, new_ref
+        ));
+    }
+
+    let old_type = old.get("type").and_then(Value::as_str);
+    let new_type = new.get("type").and_then(Value::as_str);
+    if let (Some(old_type), Some(new_type)) = (old_type, new_type)
+        && old_type != new_type
+    {
+        return Err(format!(
+            "'{}' changed type from '{}' to '{}'",
+            path, old_type, new_type
+        ));
+    }
+
+    if let Some(old_props) = old.get("properties").and_then(Value::as_mapping) {
+        let new_props = new.get("properties").and_then(Value::as_mapping);
+        for (prop_name, old_prop) in old_props {
+            let prop_path = format!("{}.{}", path, prop_name.as_str().unwrap_or_default());
+            match new_props.and_then(|props| props.get(prop_name)) {
+                None => {
+                    if !is_marked_deprecated(old_prop) {
+                        return Err(format!("Property '{}' was removed", prop_path));
+                    }
+                }
+                Some(new_prop) => check_schema_compatible(&prop_path, old_prop, new_prop)?,
+            }
+        }
+    }
+
+    if let (Some(old_items), Some(new_items)) = (old.get("items"), new.get("items")) {
+        check_schema_compatible(&format!("{}[]", path), old_items, new_items)?;
+    }
+
+    Ok(())
+}
+
+/// A `publish`/`send` (PUB) message extracted from an AsyncAPI document, for
+/// message-level channel contracts (ai/improvements.md item #20). Only messages
+/// carrying an explicit identity (`name`, falling back to `title`) are returned;
+/// unnamed messages have no cross-service identity and are skipped.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PubMessage {
+    /// Topic identity: the channel `address` (3.x) or the channel key (2.x).
+    pub channel: String,
+    /// Message identity: the message `name`, falling back to `title`.
+    pub message_name: String,
+    /// The message `payload` schema, re-serialized as YAML.
+    pub payload_yaml: String,
+    /// Whether the message (or its publishing operation) is marked deprecated.
+    pub deprecated: bool,
+}
+
+/// Extract every named PUB (publish/send) message from an AsyncAPI 2.x or 3.x
+/// document, used to register and validate message-level channel contracts.
+///
+/// Sanshain reads the AsyncAPI 2.x `publish` keyword from the **application's**
+/// perspective (`publish` = this service publishes), matching its 3.x `send`
+/// mapping. Note this is the inverse of the official 2.x spec, which defines
+/// the keyword from the client's perspective.
+pub fn extract_pub_messages(yaml_str: &str) -> Result<Vec<PubMessage>, String> {
+    let root: Value = serde_yaml_ng::from_str(yaml_str)
+        .map_err(|e| format!("Failed to parse AsyncAPI YAML: {}", e))?;
+    let version = root.get("asyncapi").and_then(Value::as_str).unwrap_or("");
+    if version.starts_with("3.") {
+        Ok(extract_pub_messages_v3(&root))
+    } else {
+        Ok(extract_pub_messages_v2(&root))
+    }
+}
+
+fn extract_pub_messages_v2(root: &Value) -> Vec<PubMessage> {
+    let mut out = Vec::new();
+    let Some(channels) = root.get("channels").and_then(Value::as_mapping) else {
+        return out;
+    };
+    for (channel_name, channel_value) in channels {
+        let channel = channel_name.as_str().unwrap_or_default();
+        let Some(publish) = channel_value.get("publish") else {
+            continue;
+        };
+        let op_deprecated = is_marked_deprecated(publish);
+        let Some(message) = publish.get("message") else {
+            continue;
+        };
+        let variants: Vec<&Value> = match message.get("oneOf").and_then(Value::as_sequence) {
+            Some(one_of) => one_of.iter().collect(),
+            None => vec![message],
+        };
+        for variant in variants {
+            if let Some(pm) = pub_message_from_node(channel, variant, op_deprecated) {
+                out.push(pm);
+            }
+        }
+    }
+    out
+}
+
+fn extract_pub_messages_v3(root: &Value) -> Vec<PubMessage> {
+    let mut out = Vec::new();
+    let Some(operations) = root.get("operations").and_then(Value::as_mapping) else {
+        return out;
+    };
+    let channels = root.get("channels");
+    for (_op_name, op) in operations {
+        if op.get("action").and_then(Value::as_str) != Some("send") {
+            continue;
+        }
+        let op_deprecated = is_marked_deprecated(op);
+        let Some(channel_ref) = op
+            .get("channel")
+            .and_then(|c| c.get("$ref"))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        let Some(channel_key) = channel_ref.strip_prefix("#/channels/") else {
+            continue;
+        };
+        let channel_node = channels.and_then(|chs| chs.get(channel_key));
+        let channel_address = channel_node
+            .and_then(|ch| ch.get("address"))
+            .and_then(Value::as_str)
+            .unwrap_or(channel_key);
+
+        // Messages the operation publishes: explicit `messages` refs when
+        // present, otherwise all messages declared on the referenced channel.
+        if let Some(op_messages) = op.get("messages").and_then(Value::as_sequence) {
+            for m_ref in op_messages {
+                let Some(ref_str) = m_ref.get("$ref").and_then(Value::as_str) else {
+                    continue;
+                };
+                if let Some(node) = resolve_json_pointer(root, ref_str)
+                    && let Some(pm) = pub_message_from_node(channel_address, node, op_deprecated)
+                {
+                    out.push(pm);
+                }
+            }
+        } else if let Some(msgs) = channel_node
+            .and_then(|ch| ch.get("messages"))
+            .and_then(Value::as_mapping)
+        {
+            for (_k, node) in msgs {
+                if let Some(pm) = pub_message_from_node(channel_address, node, op_deprecated) {
+                    out.push(pm);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn pub_message_from_node(
+    channel: &str,
+    message: &Value,
+    op_deprecated: bool,
+) -> Option<PubMessage> {
+    let name = message
+        .get("name")
+        .or_else(|| message.get("title"))
+        .and_then(Value::as_str)?;
+    let payload = message.get("payload").cloned().unwrap_or(Value::Null);
+    let payload_yaml = serde_yaml_ng::to_string(&payload).ok()?;
+    Some(PubMessage {
+        channel: channel.to_string(),
+        message_name: name.to_string(),
+        payload_yaml,
+        deprecated: op_deprecated || is_marked_deprecated(message),
+    })
+}
+
+/// Resolve a local JSON pointer (`#/a/b/c`) against a document.
+fn resolve_json_pointer<'a>(root: &'a Value, pointer: &str) -> Option<&'a Value> {
+    let path = pointer.strip_prefix("#/")?;
+    let mut node = root;
+    for raw in path.split('/') {
+        let key = raw.replace("~1", "/").replace("~0", "~");
+        node = node.get(key.as_str())?;
+    }
+    Some(node)
+}
+
+/// Check that a change to a single message `payload` schema is
+/// backward-compatible: removed non-deprecated properties and type/`$ref`
+/// changes are breaking, additions are fine (same rules as
+/// [`check_backward_compatibility`], applied at the payload root).
+pub fn check_payload_compatible(
+    old_payload_yaml: &str,
+    new_payload_yaml: &str,
+) -> Result<(), String> {
+    let old: Value = serde_yaml_ng::from_str(old_payload_yaml)
+        .map_err(|e| format!("Failed to parse stored payload: {}", e))?;
+    let new: Value = serde_yaml_ng::from_str(new_payload_yaml)
+        .map_err(|e| format!("Failed to parse submitted payload: {}", e))?;
+    check_schema_compatible("payload", &old, &new)
+}
+
+/// Two message payloads are semantically equal if their parsed YAML values are
+/// equal (ignoring formatting and key-order differences).
+pub fn payloads_equal(a_yaml: &str, b_yaml: &str) -> bool {
+    match (
+        serde_yaml_ng::from_str::<Value>(a_yaml),
+        serde_yaml_ng::from_str::<Value>(b_yaml),
+    ) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
+/// Classify the SemVer impact of an AsyncAPI change between two endpoint
+/// snippets: breaking → `Major`, additive (new messages/properties) → `Minor`,
+/// other textual change → `Patch`, identical → `None`.
+pub fn analyze_impact(old_yaml: &str, new_yaml: &str) -> Impact {
+    if check_backward_compatibility(old_yaml, new_yaml).is_err() {
+        return Impact::Major;
+    }
+    // Role-swap: if treating the new document as the "old" one flags a removal,
+    // then the real new document added a message/property -> a minor change.
+    if check_backward_compatibility(new_yaml, old_yaml).is_err() {
+        return Impact::Minor;
+    }
+    if old_yaml != new_yaml {
+        return Impact::Patch;
+    }
+    Impact::None
 }
 
 #[cfg(test)]
@@ -325,5 +672,320 @@ operations:
         // Without an address field, falls back to channel key name
         assert_eq!(result[0].channel, "notifications");
         assert_eq!(result[0].operation, "PUB");
+    }
+
+    #[test]
+    fn test_split_detects_deprecated_operations() {
+        let v2 = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  old-events:
+    publish:
+      deprecated: true
+      message:
+        payload:
+          type: object
+  new-events:
+    publish:
+      message:
+        payload:
+          type: object
+"#;
+        let result = split_asyncapi(v2).unwrap();
+        let old = result.iter().find(|s| s.channel == "old-events").unwrap();
+        let new = result.iter().find(|s| s.channel == "new-events").unwrap();
+        assert!(old.deprecated);
+        assert!(!new.deprecated);
+
+        let v3 = r#"
+asyncapi: 3.0.0
+info: { title: T, version: 1.0.0 }
+channels:
+  Legacy:
+    address: legacy.topic
+    messages:
+      M:
+        payload:
+          type: object
+operations:
+  publishLegacy:
+    action: send
+    x-deprecated: true
+    channel:
+      $ref: '#/channels/Legacy'
+"#;
+        let result = split_asyncapi(v3).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result[0].deprecated);
+    }
+
+    const COMPAT_BASE: &str = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  user-created:
+    publish:
+      message:
+        name: UserCreated
+        payload:
+          type: object
+          properties:
+            id: { type: string }
+            age: { type: integer }
+"#;
+
+    #[test]
+    fn test_compat_identical_and_additive_ok() {
+        assert_eq!(
+            check_backward_compatibility(COMPAT_BASE, COMPAT_BASE),
+            Ok(())
+        );
+
+        let added = COMPAT_BASE.replace(
+            "age: { type: integer }",
+            "age: { type: integer }\n            email: { type: string }",
+        );
+        assert_eq!(check_backward_compatibility(COMPAT_BASE, &added), Ok(()));
+    }
+
+    #[test]
+    fn test_compat_removed_property_is_breaking() {
+        let removed = COMPAT_BASE.replace("            age: { type: integer }\n", "");
+        let err = check_backward_compatibility(COMPAT_BASE, &removed).unwrap_err();
+        assert_eq!(
+            err,
+            "Property 'user-created/publish/UserCreated.payload.age' was removed"
+        );
+    }
+
+    #[test]
+    fn test_compat_removed_deprecated_property_ok() {
+        let base = COMPAT_BASE.replace(
+            "age: { type: integer }",
+            "age: { type: integer, deprecated: true }",
+        );
+        let removed = base.replace("            age: { type: integer, deprecated: true }\n", "");
+        assert_eq!(check_backward_compatibility(&base, &removed), Ok(()));
+    }
+
+    #[test]
+    fn test_compat_type_change_is_breaking() {
+        let changed = COMPAT_BASE.replace("age: { type: integer }", "age: { type: string }");
+        let err = check_backward_compatibility(COMPAT_BASE, &changed).unwrap_err();
+        assert_eq!(
+            err,
+            "'user-created/publish/UserCreated.payload.age' changed type from 'integer' to 'string'"
+        );
+    }
+
+    #[test]
+    fn test_compat_removed_message_is_breaking_unless_deprecated() {
+        let two_messages = r#"
+asyncapi: 3.0.0
+info: { title: T, version: 1.0.0 }
+channels:
+  Events:
+    address: events
+    messages:
+      Kept:
+        payload: { type: object }
+      Dropped:
+        payload: { type: object }
+"#;
+        let one_message = r#"
+asyncapi: 3.0.0
+info: { title: T, version: 1.0.0 }
+channels:
+  Events:
+    address: events
+    messages:
+      Kept:
+        payload: { type: object }
+"#;
+        let err = check_backward_compatibility(two_messages, one_message).unwrap_err();
+        assert_eq!(err, "Message 'Events/Dropped' was removed");
+
+        let deprecated = two_messages.replace(
+            "      Dropped:\n",
+            "      Dropped:\n        deprecated: true\n",
+        );
+        assert_eq!(
+            check_backward_compatibility(&deprecated, one_message),
+            Ok(())
+        );
+    }
+
+    // --- item #20: PUB message extraction and contract helpers ---
+
+    #[test]
+    fn extract_pub_messages_v2_named_publish_only() {
+        let yaml = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  orders:
+    publish:
+      message:
+        name: OrderPlaced
+        payload: { type: object }
+    subscribe:
+      message:
+        name: OrderShipped
+        payload: { type: object }
+"#;
+        let msgs = extract_pub_messages(yaml).unwrap();
+        // Only the publish message is harvested; subscribe is ignored.
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].channel, "orders");
+        assert_eq!(msgs[0].message_name, "OrderPlaced");
+        assert!(!msgs[0].deprecated);
+    }
+
+    #[test]
+    fn extract_pub_messages_v2_oneof_and_title_fallback() {
+        let yaml = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  events:
+    publish:
+      message:
+        oneOf:
+          - name: Created
+            payload: { type: object }
+          - title: Updated
+            payload: { type: object }
+          - payload: { type: object }
+"#;
+        let mut msgs = extract_pub_messages(yaml).unwrap();
+        msgs.sort_by(|a, b| a.message_name.cmp(&b.message_name));
+        // The unnamed (no name/title) variant is skipped.
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].message_name, "Created");
+        assert_eq!(msgs[1].message_name, "Updated");
+    }
+
+    #[test]
+    fn extract_pub_messages_v3_send_only_with_address() {
+        let yaml = r#"
+asyncapi: 3.0.0
+info: { title: T, version: 1.0.0 }
+channels:
+  OrderCreated:
+    address: orders.created
+    messages:
+      OrderMessage:
+        name: OrderPlaced
+        payload: { type: object }
+  UserSignup:
+    address: user/signedup
+    messages:
+      UserMessage:
+        name: UserSignedUp
+        payload: { type: object }
+operations:
+  publishOrder:
+    action: send
+    channel: { $ref: '#/channels/OrderCreated' }
+  consumeUser:
+    action: receive
+    channel: { $ref: '#/channels/UserSignup' }
+"#;
+        let msgs = extract_pub_messages(yaml).unwrap();
+        // Only the `send` operation's message, keyed by channel address.
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].channel, "orders.created");
+        assert_eq!(msgs[0].message_name, "OrderPlaced");
+    }
+
+    #[test]
+    fn extract_pub_messages_skips_unnamed() {
+        let yaml = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  orders:
+    publish:
+      message:
+        payload: { type: object }
+"#;
+        assert!(extract_pub_messages(yaml).unwrap().is_empty());
+    }
+
+    #[test]
+    fn extract_pub_messages_marks_deprecated() {
+        let yaml = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  orders:
+    publish:
+      deprecated: true
+      message:
+        name: OrderPlaced
+        payload: { type: object }
+"#;
+        let msgs = extract_pub_messages(yaml).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].deprecated);
+    }
+
+    #[test]
+    fn check_payload_compatible_accepts_additions_rejects_removals() {
+        let old = "type: object\nproperties:\n  id: { type: string }\n";
+        let widened =
+            "type: object\nproperties:\n  id: { type: string }\n  name: { type: string }\n";
+        assert_eq!(check_payload_compatible(old, widened), Ok(()));
+
+        let removed = "type: object\nproperties:\n  other: { type: string }\n";
+        assert!(check_payload_compatible(old, removed).is_err());
+
+        let retyped = "type: object\nproperties:\n  id: { type: integer }\n";
+        assert!(check_payload_compatible(old, retyped).is_err());
+
+        // Removing a property that was marked deprecated is allowed.
+        let old_dep = "type: object\nproperties:\n  id: { type: string }\n  legacy: { type: string, deprecated: true }\n";
+        assert_eq!(check_payload_compatible(old_dep, old), Ok(()));
+    }
+
+    #[test]
+    fn payloads_equal_ignores_formatting() {
+        let a = "type: object\nproperties:\n  id: { type: string }\n";
+        let b = "properties:\n  id:\n    type: string\ntype: object\n";
+        assert!(payloads_equal(a, b));
+
+        let c = "type: object\nproperties:\n  id: { type: integer }\n";
+        assert!(!payloads_equal(a, c));
+    }
+
+    #[test]
+    fn analyze_impact_classifies_changes() {
+        let base = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  orders:
+    publish:
+      message:
+        name: OrderPlaced
+        payload:
+          type: object
+          properties:
+            id: { type: string }
+"#;
+        assert_eq!(analyze_impact(base, base), Impact::None);
+
+        let added = base.replace(
+            "            id: { type: string }\n",
+            "            id: { type: string }\n            name: { type: string }\n",
+        );
+        assert_eq!(analyze_impact(base, &added), Impact::Minor);
+
+        let removed = base.replace("            id: { type: string }\n", "");
+        assert_eq!(analyze_impact(base, &removed), Impact::Major);
+
+        let doc_only = base.replace("title: T", "title: Titled");
+        assert_eq!(analyze_impact(base, &doc_only), Impact::Patch);
     }
 }

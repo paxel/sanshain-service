@@ -294,31 +294,26 @@ pub struct EndpointRecord {
     pub method: String,
     pub yaml_content: String,
     #[serde(default)]
-    pub has_changes: bool,
-    #[serde(default)]
     pub deprecated: bool,
     #[serde(default)]
     pub external: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SharedContract {
+/// A message-level AsyncAPI channel contract (ai/improvements.md item #20).
+///
+/// Kafka topic names share a global namespace, so contract identity is the
+/// message -- keyed by `(branch_name, channel, message_name)` -- not the whole
+/// channel payload. Only `publish` (PUB) messages register a contract; the
+/// first providing service becomes the `owner` and is the only one allowed to
+/// widen the message schema. A different service may co-publish the same
+/// `(channel, message_name)` only if its payload schema is identical.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChannelMessageContract {
     pub branch_name: String,
-    pub service_id: i64,
-    pub api_type: ApiType,
-    pub path: String,
-    pub method: String,
-    pub source_yaml: String,
-    pub current_yaml: String,
-    pub owner_service_id: Option<i64>,
-}
-
-#[derive(Serialize, Clone, Debug)]
-pub struct SharedContractInfo {
-    pub source_yaml: String,
-    pub current_yaml: String,
-    pub owner_service: Option<String>,
-    pub has_changes: bool,
+    pub channel: String,
+    pub message_name: String,
+    pub owner_service_id: i64,
+    pub payload_yaml: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -409,8 +404,6 @@ pub struct ClientEndpointInfo {
     pub path: String,
     pub method: String,
     pub yaml_content: Option<String>,
-    #[serde(default)]
-    pub has_changes: bool,
     #[serde(default)]
     pub deprecated: bool,
     #[serde(default)]

@@ -38,7 +38,7 @@ This will create the following resources:
 - `ConfigMap`: Application settings.
 - `Secret`: Sensitive credentials.
 - `PersistentVolumeClaim`: 1Gi storage for SQLite (mounted at `/data`).
-- `Deployment`: 2 replicas of the Sanshain Service.
+- `Deployment`: 1 replica of the Sanshain Service (see [Scaling](#scaling)).
 - `Service`: ClusterIP service for internal access.
 - `Ingress`: External access with TLS support.
 
@@ -100,6 +100,25 @@ When using SQLite (default), the database file is stored at `/data/sanshain.db`.
 
 ### PostgreSQL
 If using PostgreSQL, set `persistence.enabled` to `false` (unless you need persistent storage for other purposes) and provide the `DATABASE_URL` in `secrets.databaseUrl`.
+
+## Scaling
+
+The default deployment runs a single replica because the default SQLite backend
+stores its database on a `ReadWriteOnce` PVC that only one pod can mount, and
+concurrent writers would corrupt the SQLite file.
+
+To run more than one replica, switch to PostgreSQL (set `DATABASE_URL` to a
+`postgres://...` URL and disable the SQLite PVC), then raise `replicas`
+(Kustomize) or `replicaCount` (Helm).
+
+## Health and readiness probes
+
+- **Liveness** (`GET /health`): returns `OK` without touching the database, so a
+  transient database outage does not cause the pod to be restarted.
+- **Readiness** (`GET /ready`): runs a trivial `SELECT 1` against the database
+  and returns `200` when it succeeds or `503` when the database is unreachable.
+  Kubernetes stops routing traffic to a pod whose database is down until it
+  recovers.
 
 ## Security
 

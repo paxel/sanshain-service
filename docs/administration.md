@@ -34,6 +34,20 @@ The **Observability** tab provides real-time insights into the system's health:
 
 Developer Mode is configured via the unified **Authentication** section of the admin dashboard. Selecting **Dev Mode** allows public API endpoints (`/provide`, `/require`, `/report`) to be accessible without any authentication. This is useful for local development and quick testing, but should not be used in production.
 
+### Enabling Dev Mode (local only)
+
+Because Dev Mode disables authentication entirely, it is protected by a **production safety gate** so a stray environment variable or a persisted setting left behind by configuration drift cannot silently open up a production instance. Dev Mode only becomes active when **both** of the following are true:
+
+1. It is **requested** — either by selecting **Dev Mode** in the admin dashboard (persisted setting) or by setting `SANSHAIN_DEV_MODE=true` in the environment.
+2. The safety gate `ALLOW_INSECURE_DEV_MODE=true` is set in the environment.
+
+If Dev Mode is requested without the gate, the service **fails closed**: authentication stays enforced and the startup log emits a clear `SECURITY:` error explaining that Dev Mode was refused. Set `ALLOW_INSECURE_DEV_MODE=true` only on a trusted local machine — never in a production deployment or shared environment.
+
+```bash
+# Local development only — never set this gate in production:
+ALLOW_INSECURE_DEV_MODE=true SANSHAIN_DEV_MODE=true cargo run
+```
+
 ## Protected Branches
 
 Protected branches enforce **immutable endpoint paths**. Once an endpoint is published on a protected branch, its schema cannot change; consumers can rely on it being stable. To evolve an endpoint you must bump the version in the path (e.g. `/api/v1/users` → `/api/v2/users`).

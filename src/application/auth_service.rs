@@ -103,7 +103,19 @@ pub async fn change_password(
     Ok(None)
 }
 
-pub async fn get_dev_mode(repo: &impl SpecRepository) -> Result<bool, AppError> {
+/// The production safety gate for dev mode. Dev mode only takes effect when the
+/// `ALLOW_INSECURE_DEV_MODE` environment variable is set to `true`, so a stray
+/// `SANSHAIN_DEV_MODE` env var or a persisted `dev_mode=true` setting cannot
+/// silently disable authentication through configuration drift.
+pub fn dev_mode_gate_open() -> bool {
+    std::env::var("ALLOW_INSECURE_DEV_MODE").unwrap_or_default() == "true"
+}
+
+/// Whether dev mode has been *requested* — via the `SANSHAIN_DEV_MODE`
+/// environment variable or the persisted `dev_mode` setting — irrespective of
+/// the safety gate. Startup uses this to distinguish "requested but refused"
+/// from "not requested"; request-handling paths should use [`get_dev_mode`].
+pub async fn is_dev_mode_requested(repo: &impl SpecRepository) -> Result<bool, AppError> {
     if std::env::var("SANSHAIN_DEV_MODE").unwrap_or_default() == "true" {
         return Ok(true);
     }
@@ -112,6 +124,14 @@ pub async fn get_dev_mode(repo: &impl SpecRepository) -> Result<bool, AppError> 
         .await?
         .unwrap_or("false".to_string());
     Ok(val == "true")
+}
+
+/// Whether dev mode is *effective*: requested (see [`is_dev_mode_requested`])
+/// **and** explicitly permitted by the [`dev_mode_gate_open`] safety gate. Fails
+/// closed — a requested-but-ungated dev mode resolves to `false`, so protected
+/// endpoints keep enforcing authentication.
+pub async fn get_dev_mode(repo: &impl SpecRepository) -> Result<bool, AppError> {
+    Ok(is_dev_mode_requested(repo).await? && dev_mode_gate_open())
 }
 
 pub async fn set_dev_mode(repo: &impl SpecRepository, enabled: bool) -> Result<(), AppError> {
@@ -282,7 +302,15 @@ pub async fn create_api_token(
     name: &str,
     expires_in_days: u64,
 ) -> Result<(String, String), AppError> {
-    let raw_token = format!("san_{}", Uuid::new_v4().to_string().replace("-", ""));
+    // 256 bits of CSPRNG entropy, matching session tokens. Storage and
+    // validation are format-agnostic (SHA-256 of the raw string), so older
+    // 122-bit UUID-based tokens keep validating unchanged.
+    let mut token_bytes = [0u8; 32];
+    {
+        use rand::RngExt;
+        rand::rng().fill(&mut token_bytes);
+    }
+    let raw_token = format!("san_{}", hex::encode(token_bytes));
     let mut hasher = Sha256::new();
     hasher.update(raw_token.as_bytes());
     let token_hash = hex::encode(hasher.finalize());
@@ -328,6 +356,20 @@ pub async fn validate_api_token(
 mod tests {
     use super::*;
     use crate::application::mock_repo::MockRepo;
+
+    #[tokio::test]
+    async fn test_create_api_token_format_and_entropy() {
+        let repo = MockRepo::new();
+        let (id, token) = create_api_token(&repo, 1, "ci", 30).await.unwrap();
+        assert!(!id.is_empty());
+        assert!(token.starts_with("san_"));
+        let suffix = &token["san_".len()..];
+        assert_eq!(suffix.len(), 64);
+        assert_eq!(hex::decode(suffix).unwrap().len(), 32);
+
+        let (_, second_token) = create_api_token(&repo, 1, "ci", 30).await.unwrap();
+        assert_ne!(token, second_token);
+    }
 
     #[test]
     fn test_hash_and_verify_password() {

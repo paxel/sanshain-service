@@ -17,7 +17,7 @@ Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and
 
 ## Core Features
 - **Multi-Protocol**: Native support for OpenAPI, AsyncAPI, and Protocol Buffers.
-- **Backward Compatibility**: Rejects breaking changes on protected branches (e.g., `main`).
+- **Backward Compatibility**: Rejects breaking changes on protected branches (e.g., `main`) for all three protocols; elements marked deprecated may be removed. See [API Lifecycle](docs/api-lifecycle.md).
 - **Dependency Tracking**: Tracks exactly which client version uses which endpoint.
 - **Web Dashboard**: Navigate services, branches, and dependencies visually.
 - **Auditing**: Full history of spec changes with unified diffs.

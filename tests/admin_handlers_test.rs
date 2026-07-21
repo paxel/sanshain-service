@@ -49,9 +49,13 @@ fn test_state(repo: SqliteSpecRepository) -> AppState {
         process_start_time: Utc::now(),
         prometheus_handle: get_test_prometheus_handle(),
         system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
+        max_body_bytes: sanshain_service::DEFAULT_MAX_BODY_BYTES,
     }
 }
 
+// `cfg(test)` is always true in this crate; the attribute marks the helper as
+// test code for clippy's `allow-unwrap-in-tests`.
+#[cfg(test)]
 async fn app_with_seed() -> (axum::Router, SqliteSpecRepository, String) {
     let pool = SqlitePoolOptions::new()
         .connect("sqlite::memory:")
@@ -261,4 +265,51 @@ async fn test_favorites_api_endpoints() {
     let favs: sanshain_service::domain::models::UserFavoritesResponse =
         serde_json::from_slice(&body).unwrap();
     assert!(favs.services.is_empty());
+}
+
+// The dev-mode *settings* endpoint reports the persisted toggle (intent), not the
+// gated effective value: enabling it reads back as `true` even though the
+// ALLOW_INSECURE_DEV_MODE gate is closed in this test process. Regression guard —
+// it briefly returned the gated value, which broke the admin toggle round-trip.
+#[tokio::test]
+async fn dev_mode_setting_reports_persisted_intent() {
+    let (app, _repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+    assert!(
+        !services::dev_mode_gate_open(),
+        "gate must be closed for this test to be meaningful"
+    );
+
+    // Enable dev mode via the admin settings endpoint (Bearer exempts CSRF).
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/settings/dev-mode")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"enabled":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // Read it back: must reflect the persisted setting, not the gated value.
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/settings/dev-mode")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["dev_mode"], serde_json::Value::Bool(true));
 }

@@ -1,10 +1,11 @@
+use crate::asyncapi;
 use crate::domain::models::*;
 use crate::domain::ports::{
     RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
 };
 use crate::openapi;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use tracing::instrument;
 
@@ -79,56 +80,55 @@ pub async fn provide_spec_dry_run(
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Inputs describing the spec a service provides for a branch. Grouped so the
+/// public provide entry points stay within a sane argument count.
+pub struct ProvideSpecParams<'a> {
+    pub servicename: &'a str,
+    pub branch: &'a str,
+    pub api_type: ApiType,
+    pub content: &'a str,
+    pub base_version: Option<String>,
+    pub force: bool,
+}
+
 pub async fn provide_spec_with_tags(
     repo: &impl SpecRepository,
-    servicename: &str,
-    branch: &str,
-    api_type: ApiType,
-    content: &str,
+    params: ProvideSpecParams<'_>,
     tags: &[String],
-    base_version: Option<String>,
-    force: bool,
 ) -> Result<ProvideResponse, AppError> {
     provide_spec_inner(
         repo,
         ProvideInternalParams {
-            servicename,
-            branch,
-            api_type,
-            content,
+            servicename: params.servicename,
+            branch: params.branch,
+            api_type: params.api_type,
+            content: params.content,
             dry_run: false,
             extra_tags: tags,
-            base_version,
-            force,
+            base_version: params.base_version,
+            force: params.force,
             username: None,
         },
     )
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn provide_spec_with_actor(
     repo: &impl SpecRepository,
-    servicename: &str,
-    branch: &str,
-    api_type: ApiType,
-    content: &str,
-    base_version: Option<String>,
-    force: bool,
+    params: ProvideSpecParams<'_>,
     username: Option<&str>,
 ) -> Result<ProvideResponse, AppError> {
     provide_spec_inner(
         repo,
         ProvideInternalParams {
-            servicename,
-            branch,
-            api_type,
-            content,
+            servicename: params.servicename,
+            branch: params.branch,
+            api_type: params.api_type,
+            content: params.content,
             dry_run: false,
             extra_tags: &[],
-            base_version,
-            force,
+            base_version: params.base_version,
+            force: params.force,
             username,
         },
     )
@@ -147,6 +147,18 @@ struct ProvideInternalParams<'a> {
     pub username: Option<&'a str>,
 }
 
+/// A compact fingerprint of submitted spec content for diagnostics: its byte
+/// length and a short SHA-256 prefix. Logged instead of the full spec on a parse
+/// failure so a large submission cannot flood the in-memory (admin-viewable) log
+/// buffer. Spec content is public by design, so this is about log hygiene, not
+/// secrecy.
+fn spec_content_fingerprint(content: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    let hash = hex::encode(hasher.finalize());
+    format!("{} bytes, sha256:{}", content.len(), &hash[..16])
+}
+
 fn parse_spec_endpoints(
     api_type: ApiType,
     content: &str,
@@ -156,22 +168,22 @@ fn parse_spec_endpoints(
     match api_type {
         ApiType::OpenApi => openapi::split_openapi(content).map_err(|e| {
             tracing::warn!(
-                "Failed to split OpenAPI for service '{}' branch '{}': {}. Input content: \n{}",
+                "Failed to split OpenAPI for service '{}' branch '{}' ({}): {}",
                 servicename,
                 branch,
-                e,
-                content
+                spec_content_fingerprint(content),
+                e
             );
             AppError::BadRequest(e)
         }),
         ApiType::AsyncApi => {
             let all_specs = crate::asyncapi::split_asyncapi(content).map_err(|e| {
                 tracing::warn!(
-                    "Failed to split AsyncAPI for service '{}' branch '{}': {}. Input content: \n{}",
+                    "Failed to split AsyncAPI for service '{}' branch '{}' ({}): {}",
                     servicename,
                     branch,
-                    e,
-                    content
+                    spec_content_fingerprint(content),
+                    e
                 );
                 AppError::BadRequest(e)
             })?;
@@ -198,18 +210,18 @@ fn parse_spec_endpoints(
                     path: s.channel,
                     method: s.operation,
                     yaml_content: s.yaml_content,
-                    deprecated: false,
+                    deprecated: s.deprecated,
                 })
                 .collect())
         }
         ApiType::Proto => Ok(crate::proto::split_proto(content)
             .map_err(|e| {
                 tracing::warn!(
-                    "Failed to split Proto for service '{}' branch '{}': {}. Input content: \n{}",
+                    "Failed to split Proto for service '{}' branch '{}' ({}): {}",
                     servicename,
                     branch,
-                    e,
-                    content
+                    spec_content_fingerprint(content),
+                    e
                 );
                 AppError::BadRequest(e)
             })?
@@ -219,26 +231,10 @@ fn parse_spec_endpoints(
                 path: s.service,
                 method: s.method,
                 yaml_content: s.content,
-                deprecated: false,
+                deprecated: s.deprecated,
             })
             .collect()),
     }
-}
-
-async fn has_protected_branch_endpoints(
-    repo: &impl SpecRepository,
-    service_id: i64,
-) -> Result<bool, AppError> {
-    let protected_branches = repo.list_protected_branches().await?;
-    for pb in &protected_branches {
-        if let Some(bid) = repo.find_branch(service_id, pb).await? {
-            let endpoints = repo.get_endpoints_for_branch(bid).await?;
-            if !endpoints.is_empty() {
-                return Ok(true);
-            }
-        }
-    }
-    Ok(false)
 }
 
 #[instrument(skip_all)]
@@ -379,12 +375,12 @@ async fn provide_spec_inner(
         );
     }
 
-    let mut existing_map: HashMap<(ApiType, String, String), (String, String)> = existing
+    let mut existing_map: HashMap<(ApiType, String, String), (String, String, bool)> = existing
         .into_iter()
         .map(|e| {
             (
                 (e.api_type, e.normalized_path, e.method),
-                (e.path, e.yaml_content),
+                (e.path, e.yaml_content, e.deprecated),
             )
         })
         .collect();
@@ -392,97 +388,43 @@ async fn provide_spec_inner(
     let mut changes = Vec::new();
     let mut inserts = 0;
     let mut updates = 0;
-
-    let skip_compat = if !is_protected && !dry_run {
-        force || !has_protected_branch_endpoints(repo, sid).await?
-    } else {
-        false
-    };
+    // Aggregated SemVer impact for AsyncAPI provides (OpenAPI uses the merged
+    // whole-spec `analyze_impact` below; proto keeps hash-based classification).
+    let mut async_impact = Impact::None;
 
     for endpoint in endpoints {
-        if !is_protected && !dry_run {
-            if skip_compat {
-                repo.upsert_shared_contract(SharedContract {
-                    branch_name: branch.to_string(),
-                    service_id: sid,
-                    api_type,
-                    path: endpoint.normalized_path.clone(),
-                    method: endpoint.method.clone(),
-                    source_yaml: endpoint.yaml_content.clone(),
-                    current_yaml: endpoint.yaml_content.clone(),
-                    owner_service_id: None,
-                })
-                .await?;
-            } else {
-                let shared = repo
-                    .get_shared_contract(
-                        branch,
-                        sid,
-                        api_type,
-                        &endpoint.normalized_path,
-                        &endpoint.method,
-                    )
-                    .await?;
-                match shared {
-                    None => {
-                        repo.upsert_shared_contract(SharedContract {
-                            branch_name: branch.to_string(),
-                            service_id: sid,
-                            api_type,
-                            path: endpoint.normalized_path.clone(),
-                            method: endpoint.method.clone(),
-                            source_yaml: endpoint.yaml_content.clone(),
-                            current_yaml: endpoint.yaml_content.clone(),
-                            owner_service_id: None,
-                        })
-                        .await?;
-                    }
-                    Some(mut entry) => {
-                        if endpoint.yaml_content == entry.source_yaml {
-                            if entry.owner_service_id == Some(sid) {
-                                entry.current_yaml = entry.source_yaml.clone();
-                                entry.owner_service_id = None;
-                                repo.upsert_shared_contract(entry).await?;
-                            }
-                        } else if endpoint.yaml_content != entry.current_yaml {
-                            let is_owner = entry.owner_service_id == Some(sid);
-                            let check_against = if is_owner || entry.owner_service_id.is_none() {
-                                &entry.source_yaml
-                            } else {
-                                &entry.current_yaml
-                            };
-
-                            if let Err(reason) =
-                                check_compatibility(api_type, check_against, &endpoint.yaml_content)
-                            {
-                                tracing::warn!("Rejected shared endpoint modification: {}", reason);
-                                let owner_desc = if is_owner || entry.owner_service_id.is_none() {
-                                    "source"
-                                } else {
-                                    "current owner's"
-                                };
-                                return Err(AppError::BreakingChange(format!(
-                                    "Breaking change for shared endpoint {} {} on branch '{}' (compared to {} version): {}",
-                                    endpoint.method, endpoint.path, branch, owner_desc, reason
-                                )));
-                            }
-
-                            entry.current_yaml = endpoint.yaml_content.clone();
-                            entry.owner_service_id = Some(sid);
-                            repo.upsert_shared_contract(entry).await?;
-                        }
-                    }
-                }
-            }
-        }
-
         let key = (
             api_type,
             endpoint.normalized_path.clone(),
             endpoint.method.clone(),
         );
-        if let Some((old_path, existing_yaml)) = existing_map.remove(&key) {
+        if let Some((old_path, existing_yaml, _)) = existing_map.remove(&key) {
             if existing_yaml != endpoint.yaml_content || old_path != endpoint.path {
+                // OpenAPI is covered by the merged whole-spec check above;
+                // AsyncAPI/proto content changes are checked per endpoint here.
+                if is_protected
+                    && api_type != ApiType::OpenApi
+                    && existing_yaml != endpoint.yaml_content
+                    && let Err(reason) =
+                        check_compatibility(api_type, &existing_yaml, &endpoint.yaml_content)
+                {
+                    tracing::warn!(
+                        "Rejected update for service '{}' branch '{}': breaking changes: {}",
+                        servicename,
+                        branch,
+                        reason
+                    );
+                    return Err(AppError::BreakingChange(format!(
+                        "Breaking changes detected on protected branch '{}' of service '{}': {}",
+                        branch, servicename, reason
+                    )));
+                }
+                if api_type == ApiType::AsyncApi {
+                    async_impact = async_impact.max(asyncapi::analyze_impact(
+                        &existing_yaml,
+                        &endpoint.yaml_content,
+                    ));
+                }
                 changes.push(SpecChange::Update {
                     api_type,
                     path: endpoint.path,
@@ -505,6 +447,10 @@ async fn provide_spec_inner(
                     api_type, endpoint.method, endpoint.path, branch
                 )));
             }
+            if api_type == ApiType::AsyncApi {
+                // A newly provided channel/operation is an additive change.
+                async_impact = async_impact.max(Impact::Minor);
+            }
             changes.push(SpecChange::Insert {
                 api_type,
                 path: endpoint.path,
@@ -519,27 +465,21 @@ async fn provide_spec_inner(
     }
 
     let mut deletes = 0;
-    for ((old_api_type, _norm_path, method), (path, _)) in existing_map {
+    for ((old_api_type, _norm_path, method), (path, _, was_deprecated)) in existing_map {
         if old_api_type != api_type {
             continue;
         }
 
-        if is_protected && !dry_run {
+        if is_protected && !dry_run && !was_deprecated {
             return Err(AppError::BreakingChange(format!(
-                "Removing endpoint {} {} is a breaking change on a protected branch",
+                "Removing non-deprecated endpoint {} {} is a breaking change on a protected branch; mark it deprecated first",
                 method, path
             )));
         }
 
-        if !is_protected
-            && !dry_run
-            && let Some(mut entry) = repo
-                .get_shared_contract(branch, sid, old_api_type, &_norm_path, &method)
-                .await?
-        {
-            entry.current_yaml = entry.source_yaml.clone();
-            entry.owner_service_id = None;
-            repo.upsert_shared_contract(entry).await?;
+        if api_type == ApiType::AsyncApi {
+            // Removing a provided channel/operation is a breaking change.
+            async_impact = async_impact.max(Impact::Major);
         }
         changes.push(SpecChange::Delete {
             api_type,
@@ -549,6 +489,17 @@ async fn provide_spec_inner(
         });
         deletes += 1;
     }
+
+    // Item #20: reconcile message-level channel contracts for AsyncAPI provides.
+    // Runs on both dry-run and real provides so cross-service conflicts are
+    // reported by dry-run too; writes are applied only after commit below.
+    // Placed after the endpoint delete loop so protected-branch removal
+    // rejections have already fired before any contract mutation is planned.
+    let contract_ops = if api_type == ApiType::AsyncApi {
+        plan_channel_message_contracts(repo, branch, sid, content).await?
+    } else {
+        Vec::new()
+    };
 
     if dry_run {
         return Ok(ProvideResponse {
@@ -577,7 +528,26 @@ async fn provide_spec_inner(
     repo.apply_spec_changes(bid, changes, is_protected, username, Some(branch))
         .await?;
 
-    let impact = if let Some(old_yaml) = old_full_yaml {
+    // Apply the planned channel-message-contract mutations after the endpoint
+    // changes commit (endpoints are the source of truth).
+    for op in contract_ops {
+        match op {
+            ContractOp::Upsert(contract) => {
+                repo.upsert_channel_message_contract(&contract).await?;
+            }
+            ContractOp::Delete {
+                channel,
+                message_name,
+            } => {
+                repo.delete_channel_message_contract(branch, &channel, &message_name)
+                    .await?;
+            }
+        }
+    }
+
+    let impact = if api_type == ApiType::AsyncApi {
+        async_impact
+    } else if let Some(old_yaml) = old_full_yaml {
         openapi::analyze_impact(&old_yaml, content)
     } else if !last_hash.is_empty() {
         if content_hash != last_hash {
@@ -602,6 +572,123 @@ async fn provide_spec_inner(
             deletes,
         },
     })
+}
+
+/// A planned mutation of the message-level channel-contract store (item #20),
+/// computed during a provide and applied only after the endpoint changes commit.
+enum ContractOp {
+    Upsert(ChannelMessageContract),
+    Delete {
+        channel: String,
+        message_name: String,
+    },
+}
+
+/// Plan the channel-message-contract changes for an AsyncAPI provide.
+///
+/// For every named PUB message in the submitted document:
+/// - no contract yet → insert, owned by this service;
+/// - owned by this service (or by a service that no longer exists) → this
+///   service (re)owns it, after the owner-widen payload compatibility check;
+/// - owned by a *different* live service → accepted only if the payload schema
+///   is semantically identical, otherwise rejected `409` naming the owner.
+///
+/// Messages this service currently owns on the branch but no longer provides
+/// are planned for deletion. Protected-branch removal of a non-deprecated
+/// message is already rejected by the per-endpoint compatibility check before
+/// this runs, so a delete reaching here is always permitted.
+///
+/// Enforced identically on all branches; `force` does not bypass it. Performs no
+/// writes — it only reads and returns the planned [`ContractOp`]s (or an error).
+async fn plan_channel_message_contracts(
+    repo: &impl SpecRepository,
+    branch: &str,
+    service_id: i64,
+    content: &str,
+) -> Result<Vec<ContractOp>, AppError> {
+    let messages = asyncapi::extract_pub_messages(content).map_err(AppError::BadRequest)?;
+
+    let mut ops = Vec::new();
+    let mut provided: HashSet<(String, String)> = HashSet::new();
+
+    for msg in &messages {
+        provided.insert((msg.channel.clone(), msg.message_name.clone()));
+
+        let existing = repo
+            .get_channel_message_contract(branch, &msg.channel, &msg.message_name)
+            .await?;
+
+        let owner_alive = match &existing {
+            Some(c) => repo
+                .get_service_name_by_id(c.owner_service_id)
+                .await?
+                .is_some(),
+            None => false,
+        };
+
+        match existing {
+            // Unowned (new) or orphaned by a deleted owner → this service owns it.
+            None => ops.push(ContractOp::Upsert(new_contract(msg, branch, service_id))),
+            Some(_) if !owner_alive => {
+                ops.push(ContractOp::Upsert(new_contract(msg, branch, service_id)))
+            }
+            Some(contract) if contract.owner_service_id == service_id => {
+                // The owner may widen its own message, but not break it.
+                if let Err(reason) =
+                    asyncapi::check_payload_compatible(&contract.payload_yaml, &msg.payload_yaml)
+                {
+                    return Err(AppError::BreakingChange(format!(
+                        "Incompatible change to owned AsyncAPI message '{}' on channel '{}': {}",
+                        msg.message_name, msg.channel, reason
+                    )));
+                }
+                ops.push(ContractOp::Upsert(new_contract(msg, branch, service_id)));
+            }
+            Some(contract) => {
+                // A different live service owns this message: co-publishing is
+                // allowed only with a byte-for-byte identical payload schema.
+                if !asyncapi::payloads_equal(&contract.payload_yaml, &msg.payload_yaml) {
+                    let owner = repo
+                        .get_service_name_by_id(contract.owner_service_id)
+                        .await?
+                        .unwrap_or_else(|| "another service".to_string());
+                    return Err(AppError::Conflict(format!(
+                        "AsyncAPI message '{}' on channel '{}' is owned by service '{}' with a different schema; align the schema or rename your message",
+                        msg.message_name, msg.channel, owner
+                    )));
+                }
+                // Identical schema → accepted, ownership unchanged, no write.
+            }
+        }
+    }
+
+    // Messages this service owns on the branch but no longer provides are dropped.
+    for contract in repo.list_channel_message_contracts(branch).await? {
+        if contract.owner_service_id == service_id
+            && !provided.contains(&(contract.channel.clone(), contract.message_name.clone()))
+        {
+            ops.push(ContractOp::Delete {
+                channel: contract.channel,
+                message_name: contract.message_name,
+            });
+        }
+    }
+
+    Ok(ops)
+}
+
+fn new_contract(
+    msg: &asyncapi::PubMessage,
+    branch: &str,
+    service_id: i64,
+) -> ChannelMessageContract {
+    ChannelMessageContract {
+        branch_name: branch.to_string(),
+        channel: msg.channel.clone(),
+        message_name: msg.message_name.clone(),
+        owner_service_id: service_id,
+        payload_yaml: msg.payload_yaml.clone(),
+    }
 }
 
 pub async fn get_endpoint_yaml(
@@ -675,46 +762,6 @@ pub async fn get_audit_timeline(
     limit: u32,
 ) -> Result<Vec<EndpointVersion>, AppError> {
     Ok(repo.get_global_endpoint_versions(limit).await?)
-}
-
-pub async fn get_shared_contract_info(
-    repo: &impl SpecRepository,
-    servicename: &str,
-    branch: &str,
-    api_type: ApiType,
-    path: &str,
-    method: &str,
-) -> Result<Option<SharedContractInfo>, AppError> {
-    let service_id = match repo.find_service(servicename).await? {
-        Some(id) => id,
-        None => return Ok(None),
-    };
-
-    let method_to_use = match api_type {
-        ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
-        ApiType::Proto => method.to_string(),
-    };
-
-    let contract = repo
-        .get_shared_contract(branch, service_id, api_type, path, &method_to_use)
-        .await?;
-
-    match contract {
-        None => Ok(None),
-        Some(c) => {
-            let owner_service = match c.owner_service_id {
-                Some(owner_id) => repo.get_service_name_by_id(owner_id).await?,
-                None => None,
-            };
-            let has_changes = c.source_yaml != c.current_yaml;
-            Ok(Some(SharedContractInfo {
-                source_yaml: c.source_yaml,
-                current_yaml: c.current_yaml,
-                owner_service,
-                has_changes,
-            }))
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -1123,7 +1170,8 @@ pub fn check_compatibility(
 ) -> Result<(), String> {
     match api_type {
         ApiType::OpenApi => openapi::check_backward_compatibility(old_yaml, new_yaml),
-        _ => Ok(()),
+        ApiType::AsyncApi => crate::asyncapi::check_backward_compatibility(old_yaml, new_yaml),
+        ApiType::Proto => crate::proto::check_backward_compatibility(old_yaml, new_yaml),
     }
 }
 
@@ -1131,6 +1179,61 @@ pub fn check_compatibility(
 mod tests {
     use super::*;
     use crate::application::mock_repo::MockRepo;
+
+    // A parse failure logs a compact fingerprint, not the whole submitted spec,
+    // so a large submission cannot flood the in-memory (admin-viewable) log
+    // buffer. (Spec content is public by design; this is log hygiene, not secrecy.)
+    #[test]
+    fn parse_error_does_not_log_submitted_content() {
+        use std::io::Write;
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        #[derive(Clone)]
+        struct BufMakeWriter(Arc<Mutex<Vec<u8>>>);
+        struct BufGuard(Arc<Mutex<Vec<u8>>>);
+        impl Write for BufGuard {
+            fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(data);
+                Ok(data.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufMakeWriter {
+            type Writer = BufGuard;
+            fn make_writer(&'a self) -> Self::Writer {
+                BufGuard(self.0.clone())
+            }
+        }
+
+        let buf = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(BufMakeWriter(buf.clone()))
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        let marker = "UNIQUE_CONTENT_MARKER_9f8e7d6c";
+        // Unclosed flow sequence -> guaranteed YAML/parse failure.
+        let bad_spec = format!("openapi: \"3.0.0\"\npaths: [unclosed\nmarker: {marker}\n");
+
+        tracing::subscriber::with_default(subscriber, || {
+            let result = parse_spec_endpoints(ApiType::OpenApi, &bad_spec, "billing", "main");
+            assert!(result.is_err(), "malformed spec should fail to parse");
+        });
+
+        let logged = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
+        assert!(
+            logged.contains("Failed to split OpenAPI"),
+            "expected a parse-failure warning to be logged, got: {logged:?}"
+        );
+        assert!(
+            !logged.contains(marker),
+            "parse-failure log dumped the full submitted spec: {logged:?}"
+        );
+    }
 
     const SIMPLE_OPENAPI: &str = r#"openapi: "3.0.0"
 info:
@@ -1295,7 +1398,7 @@ paths:
     }
 
     #[tokio::test]
-    async fn test_list_endpoints_with_changes() {
+    async fn test_list_endpoints_on_feature_branch() {
         let repo = MockRepo::new();
         // 1. Provide initial spec to main
         provide_spec(
@@ -1323,28 +1426,65 @@ paths:
         .await
         .unwrap();
 
-        // 3. Simulate shared contract with changes for /hello
-        let service_id = repo.find_service("svc").await.unwrap().unwrap();
-        repo.upsert_shared_contract(SharedContract {
-            branch_name: "feat".to_string(),
-            service_id,
-            api_type: ApiType::OpenApi,
-            path: "/hello".to_string(),
-            method: "GET".to_string(),
-            source_yaml: "old".to_string(),
-            current_yaml: "new".to_string(),
-            owner_service_id: None,
-        })
+        // 3. List endpoints on the feature branch
+        let endpoints = list_service_endpoints(&repo, "svc", "feat").await.unwrap();
+        assert!(endpoints.iter().any(|e| e.path == "/hello"));
+        assert!(endpoints.iter().any(|e| e.path == "/world"));
+    }
+
+    // Feature branches accept breaking changes without `force`; protected
+    // branches remain the only compatibility gate.
+    #[tokio::test]
+    async fn test_breaking_change_allowed_on_feature_branch_without_force() {
+        let repo = MockRepo::new();
+        // Establish the spec on the protected branch first, so the service
+        // is not a "new service" special case.
+        provide_spec(
+            &repo,
+            "svc",
+            "main",
+            ApiType::OpenApi,
+            SIMPLE_OPENAPI,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+        provide_spec(
+            &repo,
+            "svc",
+            "feat",
+            ApiType::OpenApi,
+            SIMPLE_OPENAPI,
+            None,
+            false,
+        )
         .await
         .unwrap();
 
-        // 4. List endpoints and verify has_changes
-        let endpoints = list_service_endpoints(&repo, "svc", "feat").await.unwrap();
-        let hello = endpoints.iter().find(|e| e.path == "/hello").unwrap();
-        assert!(hello.has_changes);
-
-        let world = endpoints.iter().find(|e| e.path == "/world").unwrap();
-        assert!(!world.has_changes);
+        // Breaking change (removes the endpoint) on the feature branch: accepted.
+        let breaking = r#"
+openapi: 3.0.0
+info: { title: T, version: 2.0.0 }
+paths:
+  /renamed:
+    get:
+      responses:
+        '200': { description: OK }
+"#;
+        let resp = provide_spec(
+            &repo,
+            "svc",
+            "feat",
+            ApiType::OpenApi,
+            breaking,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.changes.inserts, 1);
+        assert_eq!(resp.changes.deletes, 1);
     }
 
     #[tokio::test]
@@ -1373,9 +1513,40 @@ paths:
     }
 
     #[tokio::test]
-    async fn test_check_compatibility_asyncapi_always_ok() {
-        let result = check_compatibility(ApiType::AsyncApi, "old", "new");
-        assert!(result.is_ok());
+    async fn test_check_compatibility_asyncapi_detects_breaking_change() {
+        let old = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  user-created:
+    publish:
+      message:
+        payload:
+          type: object
+          properties:
+            id: { type: string }
+"#;
+        let new = old.replace("id: { type: string }", "id: { type: integer }");
+        assert_eq!(check_compatibility(ApiType::AsyncApi, old, old), Ok(()));
+        let err = check_compatibility(ApiType::AsyncApi, old, &new).unwrap_err();
+        assert!(
+            err.contains("changed type from 'string' to 'integer'"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_check_compatibility_proto_detects_breaking_change() {
+        let old = r#"
+syntax = "proto3";
+message Req { string id = 1; }
+message Res { string name = 1; }
+service S { rpc Get (Req) returns (Res); }
+"#;
+        let new = old.replace("string id = 1;", "string id = 2;");
+        assert_eq!(check_compatibility(ApiType::Proto, old, old), Ok(()));
+        let err = check_compatibility(ApiType::Proto, old, &new).unwrap_err();
+        assert!(err.contains("changed number from 1 to 2"), "{err}");
     }
 
     #[test]
@@ -1390,5 +1561,242 @@ paths:
     fn test_parse_spec_endpoints_invalid() {
         let result = parse_spec_endpoints(ApiType::OpenApi, "not valid yaml {{", "svc", "main");
         assert!(result.is_err());
+    }
+
+    // --- item #20: message-level channel contracts through the provide flow ---
+
+    /// AsyncAPI 2.x document publishing a single named message on `orders`,
+    /// with the payload properties spliced in.
+    fn asyncapi_pub(props: &str) -> String {
+        format!(
+            r#"asyncapi: 2.6.0
+info:
+  title: T
+  version: "1.0.0"
+channels:
+  orders:
+    publish:
+      message:
+        name: OrderPlaced
+        payload:
+          type: object
+          properties:
+{props}
+"#
+        )
+    }
+
+    async fn provide_async(
+        repo: &MockRepo,
+        service: &str,
+        branch: &str,
+        content: &str,
+    ) -> Result<ProvideResponse, AppError> {
+        provide_spec(
+            repo,
+            service,
+            branch,
+            ApiType::AsyncApi,
+            content,
+            None,
+            false,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn asyncapi_provide_registers_contract() {
+        let repo = MockRepo::new();
+        let a = repo.ensure_service("producer-a").await.unwrap();
+        provide_async(
+            &repo,
+            "producer-a",
+            "main",
+            &asyncapi_pub("            id: { type: string }"),
+        )
+        .await
+        .unwrap();
+
+        let contracts = repo.list_channel_message_contracts("main").await.unwrap();
+        assert_eq!(contracts.len(), 1);
+        assert_eq!(contracts[0].channel, "orders");
+        assert_eq!(contracts[0].message_name, "OrderPlaced");
+        assert_eq!(contracts[0].owner_service_id, a);
+    }
+
+    #[tokio::test]
+    async fn asyncapi_owner_may_widen_message_minor_bump() {
+        let repo = MockRepo::new();
+        repo.ensure_service("producer-a").await.unwrap();
+        let r1 = provide_async(
+            &repo,
+            "producer-a",
+            "feature",
+            &asyncapi_pub("            id: { type: string }"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(r1.version, SemVer::new(1, 0, 0));
+
+        let r2 = provide_async(
+            &repo,
+            "producer-a",
+            "feature",
+            &asyncapi_pub("            id: { type: string }\n            name: { type: string }"),
+        )
+        .await
+        .unwrap();
+        // Additive change → minor bump; stored payload is updated.
+        assert_eq!(r2.version, SemVer::new(1, 1, 0));
+        let contracts = repo
+            .list_channel_message_contracts("feature")
+            .await
+            .unwrap();
+        assert!(contracts[0].payload_yaml.contains("name"));
+    }
+
+    #[tokio::test]
+    async fn asyncapi_owner_breaking_change_rejected_on_feature_branch() {
+        // Message contracts are enforced on all branches, including unprotected
+        // ones where endpoint-level breaking changes are otherwise allowed.
+        let repo = MockRepo::new();
+        repo.ensure_service("producer-a").await.unwrap();
+        provide_async(
+            &repo,
+            "producer-a",
+            "feature",
+            &asyncapi_pub("            id: { type: string }"),
+        )
+        .await
+        .unwrap();
+
+        let err = provide_async(
+            &repo,
+            "producer-a",
+            "feature",
+            &asyncapi_pub("            id: { type: integer }"),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, AppError::BreakingChange(_)), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn asyncapi_second_producer_identical_schema_accepted() {
+        let repo = MockRepo::new();
+        let a = repo.ensure_service("producer-a").await.unwrap();
+        repo.ensure_service("producer-b").await.unwrap();
+        let doc = asyncapi_pub("            id: { type: string }");
+        provide_async(&repo, "producer-a", "main", &doc)
+            .await
+            .unwrap();
+        provide_async(&repo, "producer-b", "main", &doc)
+            .await
+            .unwrap();
+
+        // Ownership is unchanged and there is still exactly one contract row.
+        let contracts = repo.list_channel_message_contracts("main").await.unwrap();
+        assert_eq!(contracts.len(), 1);
+        assert_eq!(contracts[0].owner_service_id, a);
+    }
+
+    #[tokio::test]
+    async fn asyncapi_second_producer_divergent_schema_rejected_naming_owner() {
+        let repo = MockRepo::new();
+        repo.ensure_service("producer-a").await.unwrap();
+        repo.ensure_service("producer-b").await.unwrap();
+        provide_async(
+            &repo,
+            "producer-a",
+            "main",
+            &asyncapi_pub("            id: { type: string }"),
+        )
+        .await
+        .unwrap();
+
+        let err = provide_async(
+            &repo,
+            "producer-b",
+            "main",
+            &asyncapi_pub("            id: { type: integer }"),
+        )
+        .await
+        .unwrap_err();
+        match err {
+            AppError::Conflict(msg) => {
+                assert!(msg.contains("producer-a"), "{msg}");
+                assert!(msg.contains("OrderPlaced"), "{msg}");
+            }
+            other => panic!("expected Conflict, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn asyncapi_owner_dropping_message_clears_contract() {
+        let repo = MockRepo::new();
+        repo.ensure_service("producer-a").await.unwrap();
+        provide_async(
+            &repo,
+            "producer-a",
+            "feature",
+            &asyncapi_pub("            id: { type: string }"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            repo.list_channel_message_contracts("feature")
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+
+        // A later provide without the message drops it (allowed on a feature
+        // branch); the contract row is cleared.
+        let empty = r#"asyncapi: 2.6.0
+info:
+  title: T
+  version: "1.0.0"
+channels:
+  status:
+    publish:
+      message:
+        name: Heartbeat
+        payload: { type: object }
+"#;
+        provide_async(&repo, "producer-a", "feature", empty)
+            .await
+            .unwrap();
+        let contracts = repo
+            .list_channel_message_contracts("feature")
+            .await
+            .unwrap();
+        assert_eq!(contracts.len(), 1);
+        assert_eq!(contracts[0].message_name, "Heartbeat");
+    }
+
+    #[tokio::test]
+    async fn asyncapi_unnamed_message_registers_no_contract() {
+        let repo = MockRepo::new();
+        repo.ensure_service("producer-a").await.unwrap();
+        let unnamed = r#"asyncapi: 2.6.0
+info:
+  title: T
+  version: "1.0.0"
+channels:
+  orders:
+    publish:
+      message:
+        payload: { type: object }
+"#;
+        provide_async(&repo, "producer-a", "main", unnamed)
+            .await
+            .unwrap();
+        assert!(
+            repo.list_channel_message_contracts("main")
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 }

@@ -104,17 +104,15 @@ pub async fn api_auth(
             .into_response());
     }
 
+    // API tokens must be supplied via the `Authorization` header only. Accepting
+    // them from a `?token=` query parameter would leak long-lived credentials
+    // through server/proxy logs, browser history, and referrers.
     let auth_header = req
         .headers()
         .get(header::AUTHORIZATION)
         .and_then(|h| h.to_str().ok());
 
-    let query_token =
-        axum::extract::Query::<std::collections::HashMap<String, String>>::try_from_uri(req.uri())
-            .ok()
-            .and_then(|q| q.get("token").cloned());
-
-    if let Some(token) = auth_header.or(query_token.as_deref()) {
+    if let Some(token) = auth_header {
         let token = token.strip_prefix("Bearer ").unwrap_or(token);
 
         if let Ok(Some((user, _))) = services::validate_session(&state.repo, token).await {

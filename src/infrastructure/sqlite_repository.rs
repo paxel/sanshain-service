@@ -3,16 +3,48 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use tracing::instrument;
 
-type EndpointRow = (
+type EndpointRow = (i64, String, String, String, String, String, bool, bool);
+
+/// Row shape for `list_services_detailed` (name, fallback_branch, branches,
+/// icon, domain); branches are `GROUP_CONCAT`ed into a single string on SQLite.
+type ServiceSummaryRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// Row shape for endpoint-version queries joining metadata, service, branch,
+/// and endpoint columns.
+type EndpointVersionRow = (
+    i64,
+    i64,
+    i32,
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    String,
+    String,
+    String,
+    String,
+);
+
+/// Row shape for audit-log queries (id, timestamp, username, action, details,
+/// service, branch, action_type, diff).
+type AuditLogRow = (
     i64,
     String,
     String,
     String,
     String,
-    String,
-    bool,
-    bool,
-    bool,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
 );
 
 /// Hashes a session token with SHA-256 so that only the hash is stored at rest.
@@ -26,7 +58,8 @@ fn hash_session_token(token: &str) -> String {
 
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
+    EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
+    UpdateEndpointParams,
 };
 
 struct ApiTokenRow {
@@ -142,6 +175,14 @@ impl SqliteSpecRepository {
 }
 
 impl SpecRepository for SqliteSpecRepository {
+    async fn ping(&self) -> Result<(), RepositoryError> {
+        sqlx::query("SELECT 1")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
     async fn get_spec_version(
         &self,
         service_id: i64,
@@ -285,15 +326,8 @@ impl SpecRepository for SqliteSpecRepository {
     ) -> Result<Vec<EndpointRecord>, RepositoryError> {
         let rows: Vec<EndpointRow> = sqlx::query_as(
             "SELECT e.id, e.api_type, e.path, e.normalized_path, e.method, e.yaml_content, \
-             COALESCE(sc.source_yaml != sc.current_yaml, 0) as has_changes, e.deprecated, e.external \
+             e.deprecated, e.external \
              FROM endpoints e \
-             JOIN branches b ON e.branch_id = b.id \
-             LEFT JOIN shared_contracts sc ON \
-                 sc.service_id = b.service_id AND \
-                 sc.branch_name = b.name AND \
-                 sc.api_type = e.api_type AND \
-                 sc.path = e.normalized_path AND \
-                 sc.method = e.method \
              WHERE e.branch_id = ? AND e.deleted = FALSE",
         )
         .bind(branch_id)
@@ -311,7 +345,6 @@ impl SpecRepository for SqliteSpecRepository {
                     normalized_path,
                     method,
                     yaml_content,
-                    has_changes,
                     deprecated,
                     external,
                 )| {
@@ -322,7 +355,6 @@ impl SpecRepository for SqliteSpecRepository {
                         normalized_path,
                         method,
                         yaml_content,
-                        has_changes,
                         deprecated,
                         external,
                     }
@@ -981,11 +1013,6 @@ impl SpecRepository for SqliteSpecRepository {
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        sqlx::query("DELETE FROM shared_contracts")
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
         // Delete all sessions except the current admin's
         if let Some(uid) = keep_user_id {
             sqlx::query("DELETE FROM sessions WHERE user_id != ?")
@@ -1218,15 +1245,8 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    #[allow(clippy::type_complexity)]
     async fn list_services_detailed(&self) -> Result<Vec<ServiceSummary>, RepositoryError> {
-        let rows: Vec<(
-            String,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        )> = sqlx::query_as(
+        let rows: Vec<ServiceSummaryRow> = sqlx::query_as(
             r#"
             SELECT s.name, s.fallback_branch, GROUP_CONCAT(b.name) as branches, s.icon, s.domain
             FROM services s
@@ -1362,21 +1382,14 @@ impl SpecRepository for SqliteSpecRepository {
             Option<String>,
             bool,
             bool,
-            bool,
         );
         let rows: Vec<ClientEndpointRow> = sqlx::query_as(
             "SELECT d.api_type, s.name, d.requested_branch_name, d.requested_path, d.requested_method, e.yaml_content, \
-             COALESCE(sc.source_yaml != sc.current_yaml, 0) as has_changes, COALESCE(e.deprecated, 0), COALESCE(e.external, 0) \
+             COALESCE(e.deprecated, 0), COALESCE(e.external, 0) \
              FROM dependencies d \
              JOIN clients c ON d.client_id = c.id \
              JOIN services s ON d.requested_service_id = s.id \
              LEFT JOIN endpoints e ON d.endpoint_id = e.id \
-             LEFT JOIN shared_contracts sc ON \
-                 sc.service_id = d.requested_service_id AND \
-                 sc.branch_name = d.requested_branch_name AND \
-                 sc.api_type = d.api_type AND \
-                 sc.path = d.requested_normalized_path AND \
-                 sc.method = d.requested_method \
              WHERE c.name = ? AND d.requested_branch_name = ? \
              ORDER BY s.name, d.requested_path, d.requested_method"
         )
@@ -1388,17 +1401,7 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(
-                    api_type,
-                    service,
-                    branch,
-                    path,
-                    method,
-                    yaml_content,
-                    has_changes,
-                    deprecated,
-                    external,
-                )| {
+                |(api_type, service, branch, path, method, yaml_content, deprecated, external)| {
                     ClientEndpointInfo {
                         api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                         service,
@@ -1406,7 +1409,6 @@ impl SpecRepository for SqliteSpecRepository {
                         path,
                         method,
                         yaml_content,
-                        has_changes,
                         deprecated,
                         external,
                     }
@@ -1839,26 +1841,11 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(row.map(|(v,)| v).unwrap_or(0))
     }
 
-    #[allow(clippy::type_complexity)]
     async fn get_endpoint_versions(
         &self,
         endpoint_id: i64,
     ) -> Result<Vec<EndpointVersion>, RepositoryError> {
-        let rows: Vec<(
-            i64,
-            i64,
-            i32,
-            String,
-            Option<String>,
-            String,
-            Option<String>,
-            Option<String>,
-            String,
-            String,
-            String,
-            String,
-            String,
-        )> = sqlx::query_as(
+        let rows: Vec<EndpointVersionRow> = sqlx::query_as(
             "SELECT ev.id, ev.endpoint_id, ev.version, ev.yaml_content, ev.diff_from_previous, ev.created_at, 
                    m.username, m.source_branch,
                    s.name as service_name, b.name as branch_name, e.api_type, e.path, e.method
@@ -1989,7 +1976,11 @@ impl SpecRepository for SqliteSpecRepository {
                     external,
                 } => {
                     tracing::debug!("Inserting {:?} endpoint: {} {}", api_type, method, path);
-                    sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted, deprecated, external) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)")
+                    // Revive on conflict: a soft-deleted row (deleted = 1) still occupies the
+                    // UNIQUE(branch_id, api_type, path, method) slot, so a plain INSERT would
+                    // violate the constraint when a previously removed endpoint is
+                    // re-introduced (e.g. on a branch that is no longer protected).
+                    sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted, deprecated, external) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?) ON CONFLICT(branch_id, api_type, path, method) DO UPDATE SET deleted = 0, normalized_path = excluded.normalized_path, yaml_content = excluded.yaml_content, deprecated = excluded.deprecated, external = excluded.external")
                         .bind(branch_id)
                         .bind(api_type.as_str())
                         .bind(&path)
@@ -2169,82 +2160,130 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(result)
     }
 
-    async fn get_shared_contract(
+    async fn get_channel_message_contract(
         &self,
         branch_name: &str,
-        service_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<Option<SharedContract>, RepositoryError> {
-        let row = sqlx::query(
-            "SELECT branch_name, service_id, api_type, path, method, source_yaml, current_yaml, owner_service_id FROM shared_contracts WHERE branch_name = ? AND service_id = ? AND api_type = ? AND path = ? AND method = ?"
+        channel: &str,
+        message_name: &str,
+    ) -> Result<Option<ChannelMessageContract>, RepositoryError> {
+        let row: Option<(i64, String)> = sqlx::query_as(
+            "SELECT owner_service_id, payload_yaml FROM channel_message_contracts WHERE branch_name = ? AND channel = ? AND message_name = ?",
         )
         .bind(branch_name)
-        .bind(service_id)
-        .bind(api_type.as_str())
-        .bind(path)
-        .bind(method)
+        .bind(channel)
+        .bind(message_name)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        match row {
-            Some(r) => {
-                use sqlx::Row;
-                Ok(Some(SharedContract {
-                    branch_name: r.get(0),
-                    service_id: r.get(1),
-                    api_type: ApiType::from_str(r.get::<&str, _>(2)).unwrap_or_default(),
-                    path: r.get(3),
-                    method: r.get(4),
-                    source_yaml: r.get(5),
-                    current_yaml: r.get(6),
-                    owner_service_id: r.get(7),
-                }))
-            }
-            None => Ok(None),
-        }
+        Ok(
+            row.map(|(owner_service_id, payload_yaml)| ChannelMessageContract {
+                branch_name: branch_name.to_string(),
+                channel: channel.to_string(),
+                message_name: message_name.to_string(),
+                owner_service_id,
+                payload_yaml,
+            }),
+        )
     }
 
-    async fn upsert_shared_contract(
+    async fn upsert_channel_message_contract(
         &self,
-        contract: SharedContract,
+        contract: &ChannelMessageContract,
     ) -> Result<(), RepositoryError> {
         sqlx::query(
-            r#"
-            INSERT INTO shared_contracts (branch_name, service_id, api_type, path, method, source_yaml, current_yaml, owner_service_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(branch_name, service_id, api_type, path, method) DO UPDATE SET
-                source_yaml = excluded.source_yaml,
-                current_yaml = excluded.current_yaml,
-                owner_service_id = excluded.owner_service_id
-            "#
+            "INSERT INTO channel_message_contracts (branch_name, channel, message_name, owner_service_id, payload_yaml) \
+             VALUES (?, ?, ?, ?, ?) \
+             ON CONFLICT (branch_name, channel, message_name) \
+             DO UPDATE SET owner_service_id = excluded.owner_service_id, payload_yaml = excluded.payload_yaml",
         )
         .bind(&contract.branch_name)
-        .bind(contract.service_id)
-        .bind(contract.api_type.as_str())
-        .bind(&contract.path)
-        .bind(&contract.method)
-        .bind(&contract.source_yaml)
-        .bind(&contract.current_yaml)
+        .bind(&contract.channel)
+        .bind(&contract.message_name)
         .bind(contract.owner_service_id)
+        .bind(&contract.payload_yaml)
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
         Ok(())
+    }
+
+    async fn delete_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "DELETE FROM channel_message_contracts WHERE branch_name = ? AND channel = ? AND message_name = ?",
+        )
+        .bind(branch_name)
+        .bind(channel)
+        .bind(message_name)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn list_channel_message_contracts(
+        &self,
+        branch_name: &str,
+    ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
+        let rows: Vec<(String, String, i64, String)> = sqlx::query_as(
+            "SELECT channel, message_name, owner_service_id, payload_yaml FROM channel_message_contracts WHERE branch_name = ? ORDER BY channel, message_name",
+        )
+        .bind(branch_name)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(channel, message_name, owner_service_id, payload_yaml)| ChannelMessageContract {
+                    branch_name: branch_name.to_string(),
+                    channel,
+                    message_name,
+                    owner_service_id,
+                    payload_yaml,
+                },
+            )
+            .collect())
+    }
+
+    async fn delete_orphaned_channel_message_contracts(
+        &self,
+        live_branches: &[String],
+    ) -> Result<u64, RepositoryError> {
+        let existing: Vec<(String,)> =
+            sqlx::query_as("SELECT DISTINCT branch_name FROM channel_message_contracts")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        let live: std::collections::HashSet<&str> =
+            live_branches.iter().map(String::as_str).collect();
+
+        let mut deleted = 0u64;
+        for (branch_name,) in existing {
+            if live.contains(branch_name.as_str()) {
+                continue;
+            }
+            let result = sqlx::query("DELETE FROM channel_message_contracts WHERE branch_name = ?")
+                .bind(&branch_name)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            deleted += result.rows_affected();
+        }
+        Ok(deleted)
     }
 
     async fn insert_audit_log(
         &self,
         username: &str,
-        action: &str,
-        details: &str,
-        service: Option<&str>,
-        branch: Option<&str>,
-        action_type: Option<&str>,
-        diff: Option<&str>,
+        log: NewAuditLog<'_>,
     ) -> Result<(), RepositoryError> {
         let timestamp = chrono::Utc::now().to_rfc3339();
         sqlx::query(
@@ -2252,12 +2291,12 @@ impl SpecRepository for SqliteSpecRepository {
         )
         .bind(timestamp)
         .bind(username)
-        .bind(action)
-        .bind(details)
-        .bind(service)
-        .bind(branch)
-        .bind(action_type)
-        .bind(diff)
+        .bind(log.action)
+        .bind(log.details)
+        .bind(log.service)
+        .bind(log.branch)
+        .bind(log.action_type)
+        .bind(log.diff)
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -2352,8 +2391,7 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
         limit: u32,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
-        #[allow(clippy::type_complexity)]
-        let rows: Vec<(i64, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        let rows: Vec<AuditLogRow> = sqlx::query_as(
             "SELECT id, timestamp, username, action, details, service, branch, action_type, diff FROM audit_logs ORDER BY id DESC LIMIT ?"
         )
         .bind(limit)
@@ -2451,5 +2489,293 @@ impl SpecRepository for SqliteSpecRepository {
                 last_modified,
             })
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod channel_message_contract_tests {
+    use super::*;
+
+    async fn setup() -> SqliteSpecRepository {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let repo = SqliteSpecRepository::new(pool);
+        repo.run_migrations().await.unwrap();
+        repo
+    }
+
+    fn contract(
+        branch: &str,
+        channel: &str,
+        message: &str,
+        owner: i64,
+        payload: &str,
+    ) -> ChannelMessageContract {
+        ChannelMessageContract {
+            branch_name: branch.to_string(),
+            channel: channel.to_string(),
+            message_name: message.to_string(),
+            owner_service_id: owner,
+            payload_yaml: payload.to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn upsert_then_get_roundtrips() {
+        let repo = setup().await;
+        let owner = repo.ensure_service("producer").await.unwrap();
+        let c = contract("main", "orders", "OrderPlaced", owner, "type: object");
+        repo.upsert_channel_message_contract(&c).await.unwrap();
+
+        let got = repo
+            .get_channel_message_contract("main", "orders", "OrderPlaced")
+            .await
+            .unwrap();
+        assert_eq!(got, Some(c));
+    }
+
+    #[tokio::test]
+    async fn get_missing_returns_none() {
+        let repo = setup().await;
+        let got = repo
+            .get_channel_message_contract("main", "orders", "Nope")
+            .await
+            .unwrap();
+        assert_eq!(got, None);
+    }
+
+    #[tokio::test]
+    async fn upsert_same_key_updates_owner_and_payload() {
+        let repo = setup().await;
+        let a = repo.ensure_service("a").await.unwrap();
+        let b = repo.ensure_service("b").await.unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "orders", "OrderPlaced", a, "v1"))
+            .await
+            .unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "orders", "OrderPlaced", b, "v2"))
+            .await
+            .unwrap();
+
+        let got = repo
+            .get_channel_message_contract("main", "orders", "OrderPlaced")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.owner_service_id, b);
+        assert_eq!(got.payload_yaml, "v2");
+        // Still a single row for the key.
+        let all = repo.list_channel_message_contracts("main").await.unwrap();
+        assert_eq!(all.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn delete_removes_only_that_message() {
+        let repo = setup().await;
+        let owner = repo.ensure_service("producer").await.unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "orders", "A", owner, "y"))
+            .await
+            .unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "orders", "B", owner, "y"))
+            .await
+            .unwrap();
+
+        repo.delete_channel_message_contract("main", "orders", "A")
+            .await
+            .unwrap();
+
+        assert!(
+            repo.get_channel_message_contract("main", "orders", "A")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            repo.get_channel_message_contract("main", "orders", "B")
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn list_is_scoped_to_branch_and_sorted() {
+        let repo = setup().await;
+        let owner = repo.ensure_service("producer").await.unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "orders", "B", owner, "y"))
+            .await
+            .unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "orders", "A", owner, "y"))
+            .await
+            .unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "audit", "Z", owner, "y"))
+            .await
+            .unwrap();
+        repo.upsert_channel_message_contract(&contract("feature", "orders", "A", owner, "y"))
+            .await
+            .unwrap();
+
+        let main = repo.list_channel_message_contracts("main").await.unwrap();
+        let keys: Vec<(String, String)> = main
+            .iter()
+            .map(|c| (c.channel.clone(), c.message_name.clone()))
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                ("audit".to_string(), "Z".to_string()),
+                ("orders".to_string(), "A".to_string()),
+                ("orders".to_string(), "B".to_string()),
+            ]
+        );
+
+        let feature = repo
+            .list_channel_message_contracts("feature")
+            .await
+            .unwrap();
+        assert_eq!(feature.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn orphan_cleanup_keeps_live_and_removes_dead() {
+        let repo = setup().await;
+        let owner = repo.ensure_service("producer").await.unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "orders", "A", owner, "y"))
+            .await
+            .unwrap();
+        repo.upsert_channel_message_contract(&contract("gone", "orders", "A", owner, "y"))
+            .await
+            .unwrap();
+
+        let removed = repo
+            .delete_orphaned_channel_message_contracts(&["main".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(removed, 1);
+        assert_eq!(
+            repo.list_channel_message_contracts("main")
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            repo.list_channel_message_contracts("gone")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn orphan_cleanup_empty_live_removes_all() {
+        let repo = setup().await;
+        let owner = repo.ensure_service("producer").await.unwrap();
+        repo.upsert_channel_message_contract(&contract("main", "orders", "A", owner, "y"))
+            .await
+            .unwrap();
+
+        let removed = repo
+            .delete_orphaned_channel_message_contracts(&[])
+            .await
+            .unwrap();
+        assert_eq!(removed, 1);
+        assert!(
+            repo.list_channel_message_contracts("main")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+}
+
+#[cfg(test)]
+mod endpoint_revive_tests {
+    use super::*;
+
+    async fn setup() -> SqliteSpecRepository {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let repo = SqliteSpecRepository::new(pool);
+        repo.run_migrations().await.unwrap();
+        repo
+    }
+
+    fn insert(path: &str, method: &str, yaml: &str) -> SpecChange {
+        SpecChange::Insert {
+            api_type: ApiType::OpenApi,
+            path: path.to_string(),
+            normalized_path: path.to_string(),
+            method: method.to_string(),
+            yaml_content: yaml.to_string(),
+            deprecated: false,
+            external: false,
+        }
+    }
+
+    // Regression: a soft-deleted endpoint (as produced by a protected-branch removal)
+    // still occupies the UNIQUE(branch_id, api_type, path, method) slot. Re-introducing
+    // the same path+method later — e.g. on a branch that is no longer protected, so the
+    // application-layer re-introduction guard does not fire — used to fail with a
+    // "duplicate key" constraint violation. It must now revive the row instead.
+    #[tokio::test]
+    async fn reinserting_soft_deleted_endpoint_revives_row() {
+        let repo = setup().await;
+        let service_id = repo.ensure_service("svc").await.unwrap();
+        let branch_id = repo.ensure_branch(service_id, "main").await.unwrap();
+
+        repo.apply_spec_changes(
+            branch_id,
+            vec![insert("/users", "GET", "v1")],
+            false,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        repo.apply_spec_changes(
+            branch_id,
+            vec![SpecChange::Delete {
+                api_type: ApiType::OpenApi,
+                path: "/users".to_string(),
+                method: "GET".to_string(),
+                soft_delete: true,
+            }],
+            false,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            repo.get_endpoints_for_branch(branch_id)
+                .await
+                .unwrap()
+                .is_empty(),
+            "endpoint should be hidden after soft delete"
+        );
+
+        // Previously violated the UNIQUE constraint against the leftover soft-deleted row.
+        repo.apply_spec_changes(
+            branch_id,
+            vec![insert("/users", "GET", "v2")],
+            false,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let endpoints = repo.get_endpoints_for_branch(branch_id).await.unwrap();
+        assert_eq!(
+            endpoints.len(),
+            1,
+            "revived endpoint should be visible again"
+        );
+        assert_eq!(endpoints[0].path, "/users");
+        assert_eq!(endpoints[0].method, "GET");
+        assert_eq!(
+            endpoints[0].yaml_content, "v2",
+            "revive should refresh the stored content"
+        );
     }
 }

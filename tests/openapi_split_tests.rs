@@ -109,3 +109,23 @@ components:
     let eps = split_openapi(y).unwrap();
     assert!(eps.is_empty());
 }
+
+// Pathologically nested documents must fail parsing with an error (handled as
+// 400 Bad Request at the API boundary) instead of exhausting the stack. This
+// pins serde_yaml_ng's built-in recursion limit as a load-bearing guardrail.
+#[test]
+fn split_rejects_excessively_nested_yaml() {
+    let deep = format!("{}1{}", "{a: ".repeat(500), "}".repeat(500));
+    let y = format!(
+        "openapi: 3.0.0\ninfo: {{ title: T, version: 1.0.0 }}\npaths: {{}}\nx-deep: {}\n",
+        deep
+    );
+    match split_openapi(&y) {
+        Ok(_) => panic!("expected excessively nested YAML to be rejected"),
+        Err(err) => assert!(
+            err.contains("Failed to parse OpenAPI YAML"),
+            "unexpected error: {}",
+            err
+        ),
+    }
+}

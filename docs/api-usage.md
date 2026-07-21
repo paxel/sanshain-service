@@ -6,7 +6,7 @@ Sanshain Service provides a set of API endpoints for providing specifications, r
 - **Contract**: The full API is defined in [`api.yaml`](../api.yaml).
 - **Provide**: `POST /provide` (OpenAPI), `/provide/asyncapi`, or `/provide/grpc`.
 - **Require**: `GET /require` (single) or `POST /require-bundle` (multiple).
-- **Auth**: Use `Authorization: Bearer <token>` (get tokens at `/account.html`).
+- **Auth**: Use `Authorization: Bearer <token>` (get tokens at `/account.html`). Tokens are accepted **only** in this header — never as a URL/query parameter, to avoid leaking them through logs, history, and referrers.
 
 ---
 
@@ -82,4 +82,4 @@ Request multiple endpoints in a single call. Returns a merged specification with
 
 ### Admin & Auth
 - **API Tokens**: Create tokens at `/account.html` for CI usage.
-- **Developer Mode**: Enable in the Admin Panel to bypass authentication for local testing.
+- **Developer Mode**: Bypasses authentication for local testing. Requires both enabling it (Admin Panel or `SANSHAIN_DEV_MODE=true`) and the `ALLOW_INSECURE_DEV_MODE=true` safety gate; it fails closed otherwise. Never use in production — see [Developer Mode](administration.md#enabling-dev-mode-local-only).

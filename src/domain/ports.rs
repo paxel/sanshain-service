@@ -61,7 +61,22 @@ pub struct UpdateEndpointParams<'a> {
     pub external: bool,
 }
 
+/// Content of a new audit-log entry — everything except the acting username,
+/// which the caller resolves from the request context.
+pub struct NewAuditLog<'a> {
+    pub action: &'a str,
+    pub details: &'a str,
+    pub service: Option<&'a str>,
+    pub branch: Option<&'a str>,
+    pub action_type: Option<&'a str>,
+    pub diff: Option<&'a str>,
+}
+
 pub trait SpecRepository: Send + Sync {
+    /// Liveness/readiness check against the backing store: runs a trivial query
+    /// (`SELECT 1`) to confirm the connection pool can reach the database.
+    fn ping(&self) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
     /// Get the current spec version and content hash for a service/branch.
     fn get_spec_version(
         &self,
@@ -512,37 +527,13 @@ pub trait SpecRepository: Send + Sync {
         &self,
     ) -> impl Future<Output = Result<HashMap<String, Vec<String>>, RepositoryError>> + Send;
 
-    // --- Shared Contracts (Problem 2) ---
-
-    /// Get a shared contract for a service on a branch and endpoint.
-    fn get_shared_contract(
-        &self,
-        branch_name: &str,
-        service_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> impl Future<Output = Result<Option<SharedContract>, RepositoryError>> + Send;
-
-    /// Upsert a shared contract.
-    fn upsert_shared_contract(
-        &self,
-        contract: SharedContract,
-    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
-
     // --- Audit Logs ---
 
     /// Insert an audit log record
-    #[allow(clippy::too_many_arguments)]
     fn insert_audit_log(
         &self,
         username: &str,
-        action: &str,
-        details: &str,
-        service: Option<&str>,
-        branch: Option<&str>,
-        action_type: Option<&str>,
-        diff: Option<&str>,
+        log: NewAuditLog<'_>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Get audit log records with filtering
@@ -586,4 +577,42 @@ pub trait SpecRepository: Send + Sync {
     fn list_branches_with_metadata(
         &self,
     ) -> impl Future<Output = Result<Vec<BranchMetadata>, RepositoryError>> + Send;
+
+    // --- AsyncAPI Channel Message Contracts (item #20) ---
+
+    /// Get the message-level channel contract for `(branch, channel, message)`, if any.
+    fn get_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> impl Future<Output = Result<Option<ChannelMessageContract>, RepositoryError>> + Send;
+
+    /// Insert or replace a channel message contract (owner service and payload).
+    fn upsert_channel_message_contract(
+        &self,
+        contract: &ChannelMessageContract,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Delete the channel message contract for `(branch, channel, message)`.
+    fn delete_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// List all channel message contracts registered on a branch (sorted by channel, message).
+    fn list_channel_message_contracts(
+        &self,
+        branch_name: &str,
+    ) -> impl Future<Output = Result<Vec<ChannelMessageContract>, RepositoryError>> + Send;
+
+    /// Delete channel message contracts whose `branch_name` is not in `live_branches`.
+    /// Used by the periodic cleanup task to drop rows for removed/stale branches.
+    /// Returns the number of deleted rows.
+    fn delete_orphaned_channel_message_contracts(
+        &self,
+        live_branches: &[String],
+    ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
 }

@@ -5,7 +5,8 @@ use moka::future::Cache;
 
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
+    EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
+    UpdateEndpointParams,
 };
 use crate::infrastructure::database::DatabaseRepo;
 
@@ -332,6 +333,10 @@ impl CachedSpecRepository {
 
 impl SpecRepository for CachedSpecRepository {
     // --- Cached reads with write-through invalidation ---
+
+    async fn ping(&self) -> Result<(), RepositoryError> {
+        self.inner.ping().await
+    }
 
     async fn get_spec_version(
         &self,
@@ -1161,52 +1166,57 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.get_all_service_tags().await
     }
 
-    async fn get_shared_contract(
+    async fn get_channel_message_contract(
         &self,
         branch_name: &str,
-        service_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<Option<SharedContract>, RepositoryError> {
+        channel: &str,
+        message_name: &str,
+    ) -> Result<Option<ChannelMessageContract>, RepositoryError> {
         self.inner
-            .get_shared_contract(branch_name, service_id, api_type, path, method)
+            .get_channel_message_contract(branch_name, channel, message_name)
             .await
     }
 
-    async fn upsert_shared_contract(
+    async fn upsert_channel_message_contract(
         &self,
-        contract: SharedContract,
+        contract: &ChannelMessageContract,
     ) -> Result<(), RepositoryError> {
-        self.inner.upsert_shared_contract(contract).await?;
-        if !self.is_disabled() {
-            // has_changes flag in endpoint list views depends on shared_contracts
-            self.branch_endpoints_cache.invalidate_all();
-        }
-        Ok(())
+        self.inner.upsert_channel_message_contract(contract).await
+    }
+
+    async fn delete_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .delete_channel_message_contract(branch_name, channel, message_name)
+            .await
+    }
+
+    async fn list_channel_message_contracts(
+        &self,
+        branch_name: &str,
+    ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
+        self.inner.list_channel_message_contracts(branch_name).await
+    }
+
+    async fn delete_orphaned_channel_message_contracts(
+        &self,
+        live_branches: &[String],
+    ) -> Result<u64, RepositoryError> {
+        self.inner
+            .delete_orphaned_channel_message_contracts(live_branches)
+            .await
     }
 
     async fn insert_audit_log(
         &self,
         username: &str,
-        action: &str,
-        details: &str,
-        service: Option<&str>,
-        branch: Option<&str>,
-        action_type: Option<&str>,
-        diff: Option<&str>,
+        log: NewAuditLog<'_>,
     ) -> Result<(), RepositoryError> {
-        self.inner
-            .insert_audit_log(
-                username,
-                action,
-                details,
-                service,
-                branch,
-                action_type,
-                diff,
-            )
-            .await
+        self.inner.insert_audit_log(username, log).await
     }
 
     async fn get_audit_logs(

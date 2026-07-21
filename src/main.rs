@@ -61,8 +61,15 @@ pub async fn main() {
 
     let otel_enabled = std::env::var("OTEL_ENABLED").unwrap_or_default() == "true";
     let (otel_layer, otel_provider) = if otel_enabled {
-        let (layer, provider) = telemetry::init_tracer();
-        (Some(layer), Some(provider))
+        match telemetry::init_tracer() {
+            Ok((layer, provider)) => (Some(layer), Some(provider)),
+            Err(e) => {
+                // The tracing subscriber is not initialized yet, so stderr is
+                // the only reliable channel here.
+                eprintln!("ERROR: Failed to initialize OpenTelemetry tracing: {}", e);
+                std::process::exit(1);
+            }
+        }
     } else {
         (None, None)
     };
@@ -180,10 +187,15 @@ pub async fn main() {
         std::process::exit(1);
     }
 
-    // Loudly warn if authentication is effectively disabled. Dev mode lets any
-    // caller reach protected endpoints without a token and must never be left
-    // enabled in production.
-    let dev_user = if services::get_dev_mode(&repo).await.unwrap_or(false) {
+    // Dev mode lets any caller reach protected endpoints without a token and
+    // must never be left enabled in production. It only takes effect when
+    // explicitly requested AND permitted by the `ALLOW_INSECURE_DEV_MODE` safety
+    // gate; a requested-but-ungated dev mode fails closed so configuration drift
+    // cannot silently disable authentication.
+    let dev_mode_requested = services::is_dev_mode_requested(&repo)
+        .await
+        .unwrap_or(false);
+    let dev_user = if dev_mode_requested && services::dev_mode_gate_open() {
         tracing::warn!(
             "SECURITY WARNING: dev_mode is ENABLED - API endpoints accept unauthenticated requests. Disable it in production."
         );
@@ -198,6 +210,14 @@ pub async fn main() {
             }
         }
     } else {
+        if dev_mode_requested {
+            tracing::error!(
+                "SECURITY: dev_mode is requested (SANSHAIN_DEV_MODE or persisted dev_mode setting) but the ALLOW_INSECURE_DEV_MODE safety gate is not set to 'true'. Refusing to enable dev mode - authentication stays enforced. Set ALLOW_INSECURE_DEV_MODE=true only on a trusted local machine to enable it."
+            );
+            eprintln!(
+                "SECURITY: dev_mode is requested but the ALLOW_INSECURE_DEV_MODE safety gate is not set to 'true'. Refusing to enable dev mode - authentication stays enforced."
+            );
+        }
         None
     };
 
@@ -206,6 +226,13 @@ pub async fn main() {
     tracing::info!("Instance ID: {}", instance_id);
 
     let (prometheus_layer, prometheus_handle) = PrometheusMetricLayer::pair();
+
+    let max_body_bytes = std::env::var("MAX_SPEC_BODY_BYTES")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(sanshain_service::DEFAULT_MAX_BODY_BYTES);
+    tracing::info!("Maximum request body size: {} bytes", max_body_bytes);
 
     let spec_updated_channel_size = std::env::var("SPEC_UPDATED_CHANNEL_SIZE")
         .ok()
@@ -234,6 +261,7 @@ pub async fn main() {
         process_start_time: Utc::now(),
         prometheus_handle,
         system: Arc::new(std::sync::Mutex::new(system)),
+        max_body_bytes,
     };
 
     // Spawn background branch cleanup task
@@ -264,6 +292,13 @@ pub async fn main() {
                 Ok(0) => {}
                 Ok(n) => tracing::info!("Dependency cleanup: pruned {} stale dependencies", n),
                 Err(e) => tracing::warn!("Dependency cleanup failed: {:?}", e),
+            }
+            match services::cleanup_orphaned_channel_message_contracts(&cleanup_repo).await {
+                Ok(0) => {}
+                Ok(n) => {
+                    tracing::info!("Contract cleanup: dropped {} orphaned channel contracts", n)
+                }
+                Err(e) => tracing::warn!("Contract cleanup failed: {:?}", e),
             }
 
             // Prune expired CSRF tokens

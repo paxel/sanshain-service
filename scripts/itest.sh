@@ -317,16 +317,16 @@ PAYLOAD_CORRECT=$(jq -n --arg svc "$CONCURRENCY_SVC" --arg branch "main" --arg y
 call_api POST "/provide" "$PAYLOAD_CORRECT"
 assert_status 202 "Accept correct base_version ($V2)"
 
-# 8. Advanced Features: Shared Contracts (Multi-producer, SAME SERVICE)
-header "Shared Contracts (Multi-producer) Tests"
+# 8. Feature-Branch Breaking Changes (protected branches are the only gate)
+header "Feature-Branch Breaking Change Tests"
 
-SHARED_SVC="service-SHARED"
-SHARED_BRANCH="feat-shared-$TEST_ID"
-log_info "Using branch: $SHARED_BRANCH"
+FB_SVC="service-FEATBREAK"
+FB_BRANCH="feat-break-$TEST_ID"
+log_info "Using branch: $FB_BRANCH"
 
-ENDPOINT_V1="openapi: '3.0.0'
+FB_V1="openapi: '3.0.0'
 info:
-  title: Shared API
+  title: FeatBreak API
   version: '1.0'
 paths:
   /shared:
@@ -335,22 +335,9 @@ paths:
         '200':
           description: V1"
 
-ENDPOINT_V2_COMPAT="openapi: '3.0.0'
+FB_INCOMPAT="openapi: '3.0.0'
 info:
-  title: Shared API
-  version: '1.0'
-paths:
-  /shared:
-    get:
-      responses:
-        '200':
-          description: V1
-        '201':
-          description: V2 COMPAT"
-
-ENDPOINT_INCOMPAT="openapi: '3.0.0'
-info:
-  title: Shared API
+  title: FeatBreak API
   version: '1.0'
 paths:
   /shared:
@@ -359,85 +346,29 @@ paths:
         '201':
           description: 'INCOMPAT (Breaking: 200 removed)'"
 
-# First, push V1 to main so the service has protected-branch endpoints (disables auto-skip)
-PAYLOAD_SHARED_MAIN=$(jq -n --arg svc "$SHARED_SVC" --arg branch "main" --arg yaml "$ENDPOINT_V1" \
+# Push V1 to main so the service exists on a protected branch
+PAYLOAD_FB_MAIN=$(jq -n --arg svc "$FB_SVC" --arg branch "main" --arg yaml "$FB_V1" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
-call_api POST "/provide" "$PAYLOAD_SHARED_MAIN"
-assert_status 202 "SHARED service pushed to main (enables conflict detection)"
+call_api POST "/provide" "$PAYLOAD_FB_MAIN"
+assert_status 202 "FEATBREAK service pushed to main"
 
-# Developer 1 (ALPHA) provides V1
-PAYLOAD_ALPHA_V1=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V1" \
+# V1 on a feature branch
+PAYLOAD_FB_V1=$(jq -n --arg svc "$FB_SVC" --arg branch "$FB_BRANCH" --arg yaml "$FB_V1" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
-call_api POST "/provide" "$PAYLOAD_ALPHA_V1"
-assert_status 202 "ALPHA provides V1 (Source established)"
+call_api POST "/provide" "$PAYLOAD_FB_V1"
+assert_status 202 "V1 provided on feature branch"
 
-# Developer 2 (BETA) provides V2 (COMPAT)
-PAYLOAD_BETA_V2=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V2_COMPAT" \
+# Breaking change on the feature branch is accepted without force
+PAYLOAD_FB_BREAK=$(jq -n --arg svc "$FB_SVC" --arg branch "$FB_BRANCH" --arg yaml "$FB_INCOMPAT" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
-call_api POST "/provide" "$PAYLOAD_BETA_V2"
-assert_status 202 "BETA provides V2 COMPAT (Current updated, owner=BETA)"
+call_api POST "/provide" "$PAYLOAD_FB_BREAK"
+assert_status 202 "Breaking change accepted on feature branch without force"
 
-# Developer 1 (ALPHA) provides INCOMPAT (compared to current V2)
-PAYLOAD_ALPHA_INCOMPAT=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_INCOMPAT" \
+# The same breaking change on main is rejected
+PAYLOAD_FB_BREAK_MAIN=$(jq -n --arg svc "$FB_SVC" --arg branch "main" --arg yaml "$FB_INCOMPAT" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
-call_api POST "/provide" "$PAYLOAD_ALPHA_INCOMPAT"
-assert_status 409 "ALPHA rejected for INCOMPAT change compared to current (BETA's)"
-
-# Developer 2 (BETA) provides INCOMPAT (compared to source V1)
-PAYLOAD_BETA_INCOMPAT=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_INCOMPAT" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
-call_api POST "/provide" "$PAYLOAD_BETA_INCOMPAT"
-assert_status 409 "BETA rejected for INCOMPAT change compared to source"
-
-# Developer 2 (BETA) provides V1 (reset to source)
-PAYLOAD_BETA_V1=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V1" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
-call_api POST "/provide" "$PAYLOAD_BETA_V1"
-assert_status 202 "BETA provides V1 (Reset to source, owner released)"
-
-# Developer 3 (GAMMA) provides V3 (after BETA rolled back)
-ENDPOINT_V3_COMPAT="openapi: '3.0.0'
-info:
-  title: Shared API
-  version: '1.0'
-paths:
-  /shared:
-    get:
-      responses:
-        '200':
-          description: V1
-        '202':
-          description: V3 COMPAT"
-
-PAYLOAD_GAMMA_V3=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V3_COMPAT" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
-call_api POST "/provide" "$PAYLOAD_GAMMA_V3"
-assert_status 202 "GAMMA provides V3 COMPAT (New owner after rollback)"
-
-# Developer 3 (GAMMA) rolls back to V1
-PAYLOAD_GAMMA_V1=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V1" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
-call_api POST "/provide" "$PAYLOAD_GAMMA_V1"
-assert_status 202 "GAMMA provides V1 (Reset to source, owner released again)"
-
-# Developer 1 (ALPHA) provides V4 (Original committer can take over again)
-ENDPOINT_V4_COMPAT="openapi: '3.0.0'
-info:
-  title: Shared API
-  version: '1.0'
-paths:
-  /shared:
-    get:
-      responses:
-        '200':
-          description: V1
-        '203':
-          description: V4 COMPAT"
-
-PAYLOAD_ALPHA_V4=$(jq -n --arg svc "$SHARED_SVC" --arg branch "$SHARED_BRANCH" --arg yaml "$ENDPOINT_V4_COMPAT" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
-call_api POST "/provide" "$PAYLOAD_ALPHA_V4"
-assert_status 202 "ALPHA provides V4 COMPAT (Takeover possible by original committer)"
+call_api POST "/provide" "$PAYLOAD_FB_BREAK_MAIN"
+assert_status 409 "Breaking change still rejected on protected branch"
 
 # 9. Cross-service Independence (Same Path, Different Services)
 header "Cross-service Independence Tests"
@@ -556,12 +487,12 @@ paths:
 PAYLOAD_OB1=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "$ONBOARD_BRANCH" --arg yaml "$ONBOARD_V1" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_OB1"
-assert_status 202 "New service first spec on feature branch (auto-skip)"
+assert_status 202 "New service first spec on feature branch"
 
 PAYLOAD_OB2=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "$ONBOARD_BRANCH" --arg yaml "$ONBOARD_V2_BREAKING" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_OB2"
-assert_status 202 "New service breaking change on feature branch succeeds (auto-skip, no protected endpoints)"
+assert_status 202 "New service breaking change on feature branch succeeds"
 
 # Force on protected branch should be rejected
 FORCE_PROTECTED_PAYLOAD=$(jq -n --arg svc "$SVC_NAME" --arg branch "main" --arg yaml "$ONBOARD_V1" \
@@ -570,30 +501,30 @@ call_api POST "/provide" "$FORCE_PROTECTED_PAYLOAD"
 assert_status 400 "Force on protected branch rejected"
 
 # Force on feature branch should succeed even with breaking change
-# First, push the onboard service to a protected branch so auto-skip no longer applies
+# Push the onboard service to a protected branch
 PAYLOAD_OB_MAIN=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "main" --arg yaml "$ONBOARD_V1" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_OB_MAIN"
 assert_status 202 "Push onboard service to protected branch"
 
-# Use a fresh feature branch so V1 becomes the source (not the V2 from auto-skip)
+# Use a fresh feature branch
 ONBOARD_BRANCH2="feature-onboard2-$TEST_ID"
 PAYLOAD_OB_FRESH=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "$ONBOARD_BRANCH2" --arg yaml "$ONBOARD_V1" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_OB_FRESH"
-assert_status 202 "Establish V1 source on fresh feature branch"
+assert_status 202 "Establish V1 on fresh feature branch"
 
-# Now a breaking change on the fresh feature branch WITHOUT force should fail
+# Breaking changes on feature branches are accepted even for established services
 PAYLOAD_OB3=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "$ONBOARD_BRANCH2" --arg yaml "$ONBOARD_V2_BREAKING" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_OB3"
-assert_status 409 "Breaking change rejected after protected branch push"
+assert_status 202 "Breaking change accepted on feature branch (established service)"
 
-# With force=true on feature branch, it should succeed
+# force is accepted but has no effect on feature branches
 PAYLOAD_OB4=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "$ONBOARD_BRANCH2" --arg yaml "$ONBOARD_V2_BREAKING" \
     '{servicename:$svc, branch:$branch, openapi_yaml:$yaml, force:true}')
 call_api POST "/provide" "$PAYLOAD_OB4"
-assert_status 202 "Force on feature branch overrides breaking change"
+assert_status 202 "Force accepted as no-op on feature branch"
 
 # 5b. Merged Report & Protected Branches Public Endpoint
 header "Merged Report & Graph Fallback Tests"

@@ -1,6 +1,6 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
-    RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
+    NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
 };
 use crate::infrastructure::postgres_repository::PostgresSpecRepository;
 use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
@@ -33,6 +33,10 @@ macro_rules! delegate {
 }
 
 impl SpecRepository for DatabaseRepo {
+    async fn ping(&self) -> Result<(), RepositoryError> {
+        delegate!(self, ping())
+    }
+
     async fn get_spec_version(
         &self,
         service_id: i64,
@@ -483,49 +487,60 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, get_all_service_tags())
     }
 
-    async fn get_shared_contract(
+    async fn get_channel_message_contract(
         &self,
         branch_name: &str,
-        service_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<Option<SharedContract>, RepositoryError> {
+        channel: &str,
+        message_name: &str,
+    ) -> Result<Option<ChannelMessageContract>, RepositoryError> {
         delegate!(
             self,
-            get_shared_contract(branch_name, service_id, api_type, path, method)
+            get_channel_message_contract(branch_name, channel, message_name)
         )
     }
 
-    async fn upsert_shared_contract(
+    async fn upsert_channel_message_contract(
         &self,
-        contract: SharedContract,
+        contract: &ChannelMessageContract,
     ) -> Result<(), RepositoryError> {
-        delegate!(self, upsert_shared_contract(contract))
+        delegate!(self, upsert_channel_message_contract(contract))
+    }
+
+    async fn delete_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            delete_channel_message_contract(branch_name, channel, message_name)
+        )
+    }
+
+    async fn list_channel_message_contracts(
+        &self,
+        branch_name: &str,
+    ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
+        delegate!(self, list_channel_message_contracts(branch_name))
+    }
+
+    async fn delete_orphaned_channel_message_contracts(
+        &self,
+        live_branches: &[String],
+    ) -> Result<u64, RepositoryError> {
+        delegate!(
+            self,
+            delete_orphaned_channel_message_contracts(live_branches)
+        )
     }
 
     async fn insert_audit_log(
         &self,
         username: &str,
-        action: &str,
-        details: &str,
-        service: Option<&str>,
-        branch: Option<&str>,
-        action_type: Option<&str>,
-        diff: Option<&str>,
+        log: NewAuditLog<'_>,
     ) -> Result<(), RepositoryError> {
-        delegate!(
-            self,
-            insert_audit_log(
-                username,
-                action,
-                details,
-                service,
-                branch,
-                action_type,
-                diff
-            )
-        )
+        delegate!(self, insert_audit_log(username, log))
     }
 
     async fn get_audit_logs(

@@ -40,9 +40,13 @@ fn test_state(repo: SqliteSpecRepository) -> AppState {
         process_start_time: Utc::now(),
         prometheus_handle,
         system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
+        max_body_bytes: sanshain_service::DEFAULT_MAX_BODY_BYTES,
     }
 }
 
+// `cfg(test)` is always true in this crate; the attribute marks the helper as
+// test code for clippy's `allow-unwrap-in-tests`.
+#[cfg(test)]
 async fn build_app() -> axum::Router {
     let pool = SqlitePoolOptions::new()
         .connect("sqlite::memory:")
@@ -95,6 +99,44 @@ async fn health_and_metrics_and_version_are_accessible() {
         .await
         .unwrap();
     assert!(res.status().is_success());
+}
+
+#[tokio::test]
+async fn ready_probe_reflects_database_reachability() {
+    // Build the app but keep a clone of the pool so we can sever the database.
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool.clone());
+    repo.run_migrations().await.unwrap();
+    let app = create_app(test_state(repo));
+
+    // Live database: /ready is 200.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), axum::http::StatusCode::OK);
+
+    // Sever the database, then /ready must report 503.
+    pool.close().await;
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
 }
 
 #[tokio::test]

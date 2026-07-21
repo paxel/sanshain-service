@@ -2,6 +2,9 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
 
+// `cfg(test)` is always true in this crate; the attribute marks the helper as
+// test code for clippy's `allow-panic-in-tests`.
+#[cfg(test)]
 fn calculate_file_sha256(path: &Path) -> String {
     let content =
         fs::read(path).unwrap_or_else(|e| panic!("Failed to read file {:?}: {}", path, e));

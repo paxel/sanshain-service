@@ -5,7 +5,11 @@ metadata:
   labels:
     app: sanshain
 spec:
-  replicas: 2
+  # Keep at 1 with the default SQLite backend: the ReadWriteOnce PVC below can
+  # only be mounted by a single pod, and concurrent writers would corrupt the
+  # SQLite file. To scale above 1, switch to PostgreSQL (set DATABASE_URL to a
+  # postgres:// URL in the secret) and remove the SQLite PVC mount.
+  replicas: 1
   selector:
     matchLabels:
       app: sanshain
@@ -46,7 +50,7 @@ spec:
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /health
+            path: /ready
             port: 3000
           initialDelaySeconds: 5
           periodSeconds: 10

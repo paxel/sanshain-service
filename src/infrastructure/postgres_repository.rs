@@ -1,22 +1,55 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
+    EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
+    UpdateEndpointParams,
 };
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::str::FromStr;
 use tracing::instrument;
 
-type EndpointRow = (
+type EndpointRow = (i64, String, String, String, String, String, bool, bool);
+
+/// Row shape for `list_services_detailed` (name, fallback_branch, branches,
+/// icon, domain); branches are `array_agg`ed into a `Vec` on PostgreSQL.
+type ServiceSummaryRow = (
+    String,
+    Option<String>,
+    Option<Vec<String>>,
+    Option<String>,
+    Option<String>,
+);
+
+/// Row shape for endpoint-version queries joining metadata, service, branch,
+/// and endpoint columns.
+type EndpointVersionRow = (
+    i64,
+    i64,
+    i32,
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    String,
+    String,
+    String,
+    String,
+);
+
+/// Row shape for audit-log queries (id, timestamp, username, action, details,
+/// service, branch, action_type, diff).
+type AuditLogRow = (
     i64,
     String,
     String,
     String,
     String,
-    String,
-    bool,
-    bool,
-    bool,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
 );
 
 /// Hashes a session token with SHA-256 so that only the hash is stored at rest.
@@ -141,6 +174,14 @@ impl PostgresSpecRepository {
 }
 
 impl SpecRepository for PostgresSpecRepository {
+    async fn ping(&self) -> Result<(), RepositoryError> {
+        sqlx::query("SELECT 1")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
     async fn get_spec_version(
         &self,
         service_id: i64,
@@ -282,15 +323,8 @@ impl SpecRepository for PostgresSpecRepository {
     ) -> Result<Vec<EndpointRecord>, RepositoryError> {
         let rows: Vec<EndpointRow> = sqlx::query_as(
             "SELECT e.id, e.api_type, e.path, e.normalized_path, e.method, e.yaml_content, \
-             COALESCE(sc.source_yaml != sc.current_yaml, FALSE) as has_changes, e.deprecated, e.external \
+             e.deprecated, e.external \
              FROM endpoints e \
-             JOIN branches b ON e.branch_id = b.id \
-             LEFT JOIN shared_contracts sc ON \
-                 sc.service_id = b.service_id AND \
-                 sc.branch_name = b.name AND \
-                 sc.api_type = e.api_type AND \
-                 sc.path = e.normalized_path AND \
-                 sc.method = e.method \
              WHERE e.branch_id = $1 AND e.deleted = FALSE",
         )
         .bind(branch_id)
@@ -308,7 +342,6 @@ impl SpecRepository for PostgresSpecRepository {
                     normalized_path,
                     method,
                     yaml_content,
-                    has_changes,
                     deprecated,
                     external,
                 )| {
@@ -319,7 +352,6 @@ impl SpecRepository for PostgresSpecRepository {
                         normalized_path,
                         method,
                         yaml_content,
-                        has_changes,
                         deprecated,
                         external,
                     }
@@ -1161,15 +1193,8 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    #[allow(clippy::type_complexity)]
     async fn list_services_detailed(&self) -> Result<Vec<ServiceSummary>, RepositoryError> {
-        let rows: Vec<(
-            String,
-            Option<String>,
-            Option<Vec<String>>,
-            Option<String>,
-            Option<String>,
-        )> = sqlx::query_as(
+        let rows: Vec<ServiceSummaryRow> = sqlx::query_as(
             r#"
             SELECT s.name, s.fallback_branch, array_agg(b.name) as branches, s.icon, s.domain
             FROM services s
@@ -1302,21 +1327,14 @@ impl SpecRepository for PostgresSpecRepository {
             Option<String>,
             bool,
             bool,
-            bool,
         );
         let rows: Vec<ClientEndpointRow> = sqlx::query_as(
             "SELECT d.api_type, s.name, d.requested_branch_name, d.requested_path, d.requested_method, e.yaml_content, \
-             COALESCE(sc.source_yaml != sc.current_yaml, FALSE) as has_changes, COALESCE(e.deprecated, FALSE), COALESCE(e.external, FALSE) \
+             COALESCE(e.deprecated, FALSE), COALESCE(e.external, FALSE) \
              FROM dependencies d \
              JOIN clients c ON d.client_id = c.id \
              JOIN services s ON d.requested_service_id = s.id \
              LEFT JOIN endpoints e ON d.endpoint_id = e.id \
-             LEFT JOIN shared_contracts sc ON \
-                 sc.service_id = d.requested_service_id AND \
-                 sc.branch_name = d.requested_branch_name AND \
-                 sc.api_type = d.api_type AND \
-                 sc.path = d.requested_normalized_path AND \
-                 sc.method = d.requested_method \
              WHERE c.name = $1 AND d.requested_branch_name = $2 \
              ORDER BY s.name, d.requested_path, d.requested_method"
         )
@@ -1328,17 +1346,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(
-                    api_type,
-                    service,
-                    branch,
-                    path,
-                    method,
-                    yaml_content,
-                    has_changes,
-                    deprecated,
-                    external,
-                )| {
+                |(api_type, service, branch, path, method, yaml_content, deprecated, external)| {
                     ClientEndpointInfo {
                         api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                         service,
@@ -1346,7 +1354,6 @@ impl SpecRepository for PostgresSpecRepository {
                         path,
                         method,
                         yaml_content,
-                        has_changes,
                         deprecated,
                         external,
                     }
@@ -1771,26 +1778,11 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(row.map(|(v,)| v).unwrap_or(0))
     }
 
-    #[allow(clippy::type_complexity)]
     async fn get_endpoint_versions(
         &self,
         endpoint_id: i64,
     ) -> Result<Vec<EndpointVersion>, RepositoryError> {
-        let rows: Vec<(
-            i64,
-            i64,
-            i32,
-            String,
-            Option<String>,
-            String,
-            Option<String>,
-            Option<String>,
-            String,
-            String,
-            String,
-            String,
-            String,
-        )> = sqlx::query_as(
+        let rows: Vec<EndpointVersionRow> = sqlx::query_as(
             "SELECT ev.id, ev.endpoint_id, ev.version, ev.yaml_content, ev.diff_from_previous, ev.created_at, 
                    m.username, m.source_branch,
                    s.name as service_name, b.name as branch_name, e.api_type, e.path, e.method
@@ -1921,7 +1913,11 @@ impl SpecRepository for PostgresSpecRepository {
                     external,
                 } => {
                     tracing::debug!("Inserting {:?} endpoint: {} {}", api_type, method, path);
-                    sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted, deprecated, external) VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, $8)")
+                    // Revive on conflict: a soft-deleted row (deleted = TRUE) still
+                    // occupies the UNIQUE(branch_id, api_type, path, method) slot, so a plain
+                    // INSERT would violate the constraint when a previously removed endpoint
+                    // is re-introduced (e.g. on a branch that is no longer protected).
+                    sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted, deprecated, external) VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, $8) ON CONFLICT (branch_id, api_type, path, method) DO UPDATE SET deleted = FALSE, normalized_path = EXCLUDED.normalized_path, yaml_content = EXCLUDED.yaml_content, deprecated = EXCLUDED.deprecated, external = EXCLUDED.external")
                         .bind(branch_id)
                         .bind(api_type.as_str())
                         .bind(&path)
@@ -2101,82 +2097,117 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(result)
     }
 
-    async fn get_shared_contract(
+    async fn get_channel_message_contract(
         &self,
         branch_name: &str,
-        service_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<Option<SharedContract>, RepositoryError> {
-        let row = sqlx::query(
-            "SELECT branch_name, service_id, api_type, path, method, source_yaml, current_yaml, owner_service_id FROM shared_contracts WHERE branch_name = $1 AND service_id = $2 AND api_type = $3 AND path = $4 AND method = $5"
+        channel: &str,
+        message_name: &str,
+    ) -> Result<Option<ChannelMessageContract>, RepositoryError> {
+        let row: Option<(i64, String)> = sqlx::query_as(
+            "SELECT owner_service_id, payload_yaml FROM channel_message_contracts WHERE branch_name = $1 AND channel = $2 AND message_name = $3",
         )
         .bind(branch_name)
-        .bind(service_id)
-        .bind(api_type.as_str())
-        .bind(path)
-        .bind(method)
+        .bind(channel)
+        .bind(message_name)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        match row {
-            Some(r) => {
-                use sqlx::Row;
-                Ok(Some(SharedContract {
-                    branch_name: r.get(0),
-                    service_id: r.get(1),
-                    api_type: ApiType::from_str(r.get::<&str, _>(2)).unwrap_or_default(),
-                    path: r.get(3),
-                    method: r.get(4),
-                    source_yaml: r.get(5),
-                    current_yaml: r.get(6),
-                    owner_service_id: r.get(7),
-                }))
-            }
-            None => Ok(None),
-        }
+        Ok(
+            row.map(|(owner_service_id, payload_yaml)| ChannelMessageContract {
+                branch_name: branch_name.to_string(),
+                channel: channel.to_string(),
+                message_name: message_name.to_string(),
+                owner_service_id,
+                payload_yaml,
+            }),
+        )
     }
 
-    async fn upsert_shared_contract(
+    async fn upsert_channel_message_contract(
         &self,
-        contract: SharedContract,
+        contract: &ChannelMessageContract,
     ) -> Result<(), RepositoryError> {
         sqlx::query(
-            r#"
-            INSERT INTO shared_contracts (branch_name, service_id, api_type, path, method, source_yaml, current_yaml, owner_service_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ON CONFLICT(branch_name, service_id, api_type, path, method) DO UPDATE SET
-                source_yaml = EXCLUDED.source_yaml,
-                current_yaml = EXCLUDED.current_yaml,
-                owner_service_id = EXCLUDED.owner_service_id
-            "#
+            "INSERT INTO channel_message_contracts (branch_name, channel, message_name, owner_service_id, payload_yaml) \
+             VALUES ($1, $2, $3, $4, $5) \
+             ON CONFLICT (branch_name, channel, message_name) \
+             DO UPDATE SET owner_service_id = EXCLUDED.owner_service_id, payload_yaml = EXCLUDED.payload_yaml",
         )
         .bind(&contract.branch_name)
-        .bind(contract.service_id)
-        .bind(contract.api_type.as_str())
-        .bind(&contract.path)
-        .bind(&contract.method)
-        .bind(&contract.source_yaml)
-        .bind(&contract.current_yaml)
+        .bind(&contract.channel)
+        .bind(&contract.message_name)
         .bind(contract.owner_service_id)
+        .bind(&contract.payload_yaml)
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
         Ok(())
+    }
+
+    async fn delete_channel_message_contract(
+        &self,
+        branch_name: &str,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "DELETE FROM channel_message_contracts WHERE branch_name = $1 AND channel = $2 AND message_name = $3",
+        )
+        .bind(branch_name)
+        .bind(channel)
+        .bind(message_name)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn list_channel_message_contracts(
+        &self,
+        branch_name: &str,
+    ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
+        let rows: Vec<(String, String, i64, String)> = sqlx::query_as(
+            "SELECT channel, message_name, owner_service_id, payload_yaml FROM channel_message_contracts WHERE branch_name = $1 ORDER BY channel, message_name",
+        )
+        .bind(branch_name)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(channel, message_name, owner_service_id, payload_yaml)| ChannelMessageContract {
+                    branch_name: branch_name.to_string(),
+                    channel,
+                    message_name,
+                    owner_service_id,
+                    payload_yaml,
+                },
+            )
+            .collect())
+    }
+
+    async fn delete_orphaned_channel_message_contracts(
+        &self,
+        live_branches: &[String],
+    ) -> Result<u64, RepositoryError> {
+        // Delete rows whose branch is absent from the live set. An empty live
+        // set means every branch is gone, so all rows are removed.
+        let result =
+            sqlx::query("DELETE FROM channel_message_contracts WHERE NOT (branch_name = ANY($1))")
+                .bind(live_branches)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected())
     }
 
     async fn insert_audit_log(
         &self,
         username: &str,
-        action: &str,
-        details: &str,
-        service: Option<&str>,
-        branch: Option<&str>,
-        action_type: Option<&str>,
-        diff: Option<&str>,
+        log: NewAuditLog<'_>,
     ) -> Result<(), RepositoryError> {
         let timestamp = chrono::Utc::now().to_rfc3339();
         sqlx::query(
@@ -2184,12 +2215,12 @@ impl SpecRepository for PostgresSpecRepository {
         )
         .bind(timestamp)
         .bind(username)
-        .bind(action)
-        .bind(details)
-        .bind(service)
-        .bind(branch)
-        .bind(action_type)
-        .bind(diff)
+        .bind(log.action)
+        .bind(log.details)
+        .bind(log.service)
+        .bind(log.branch)
+        .bind(log.action_type)
+        .bind(log.diff)
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -2290,8 +2321,7 @@ impl SpecRepository for PostgresSpecRepository {
         &self,
         limit: u32,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
-        #[allow(clippy::type_complexity)]
-        let rows: Vec<(i64, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        let rows: Vec<AuditLogRow> = sqlx::query_as(
             "SELECT id, timestamp, username, action, details, service, branch, action_type, diff FROM audit_logs ORDER BY id DESC LIMIT $1"
         )
         .bind(limit as i64)

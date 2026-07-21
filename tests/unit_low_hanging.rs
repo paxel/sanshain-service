@@ -4,6 +4,9 @@ use sanshain_service::domain::models::*;
 use sanshain_service::domain::ports::SpecRepository;
 
 // Helper to quickly create a user and store in repo
+// `cfg(test)` is always true in this crate; the attribute marks the helper as
+// test code for clippy's `allow-unwrap-in-tests`.
+#[cfg(test)]
 fn add_user(
     repo: &MockRepo,
     username: &str,
@@ -100,13 +103,15 @@ fn generate_random_password_len() {
     assert_eq!(p.len(), 16);
 }
 
-// 10. get/set dev mode
+// 10. get/set dev mode — set_dev_mode persists the request, but get_dev_mode
+// stays false without the ALLOW_INSECURE_DEV_MODE safety gate (fail closed).
 #[tokio::test]
 async fn get_set_dev_mode() {
     let repo = MockRepo::new();
     assert!(!auth_service::get_dev_mode(&repo).await.unwrap());
     auth_service::set_dev_mode(&repo, true).await.unwrap();
-    assert!(auth_service::get_dev_mode(&repo).await.unwrap());
+    assert!(auth_service::is_dev_mode_requested(&repo).await.unwrap());
+    assert!(!auth_service::get_dev_mode(&repo).await.unwrap());
 }
 
 // 11. auth mode default and set
@@ -360,13 +365,15 @@ paths:
     let tags = vec!["messaging".to_string(), "api".to_string()];
     let _ = spec_service::provide_spec_with_tags(
         &repo,
-        "svc",
-        "main",
-        ApiType::OpenApi,
-        yaml,
+        spec_service::ProvideSpecParams {
+            servicename: "svc",
+            branch: "main",
+            api_type: ApiType::OpenApi,
+            content: yaml,
+            base_version: None,
+            force: false,
+        },
         &tags,
-        None,
-        false,
     )
     .await
     .unwrap();

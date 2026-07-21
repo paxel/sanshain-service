@@ -19,7 +19,8 @@ jobs:
           sudo rm -rf /opt/ghc
           sudo rm -rf "/usr/local/share/boost"
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-      - uses: dtolnay/rust-toolchain@stable
+      # Keep in sync with rust-toolchain.toml; toolchain bumps are deliberate, separate PRs.
+      - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: clippy, rustfmt
       - name: Rust Cache
@@ -61,8 +62,10 @@ jobs:
           tool: cargo-audit,cargo-tarpaulin
       - name: Security Audit
         run: cargo audit
+      # Ratchet rule (see AGENTS.md): when coverage rises, raise --fail-under to
+      # (new value - 2) in the same PR. Never lower it. Floor set 2026-07-03 at 64.19% actual.
       - name: Coverage
-        run: cargo tarpaulin --out Xml
+        run: cargo tarpaulin --out Xml --fail-under 62
   js-quality:
     runs-on: ubuntu-latest
     steps:
@@ -71,3 +74,56 @@ jobs:
       - run: npm ci
       - run: npx eslint static/js/
       - run: npx prettier --check static/js/
+  ui-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+      # Keep in sync with rust-toolchain.toml; toolchain bumps are deliberate, separate PRs.
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+      - run: npm ci
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Build service
+        run: cargo build
+      - name: UI Smoke Tests
+        run: |
+          cargo run &
+          PID=$!
+          trap "kill $PID || true" EXIT
+          # Wait for service to be ready (mirrors rust-quality)
+          READY=0
+          for i in {1..60}; do
+            if curl -s http://localhost:3000/health | grep -q "OK"; then
+              echo "Service is up!"
+              READY=1
+              break
+            fi
+            echo "Waiting for service... ($i)"
+            sleep 2
+          done
+          if [ $READY -eq 0 ]; then
+            echo "Service failed to start"
+            exit 1
+          fi
+          npx playwright test tests/ui/smoke.test.js
+        env:
+          INITIAL_ADMIN_PASSWORD: root_password
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
