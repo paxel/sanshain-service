@@ -242,6 +242,7 @@
             const res = await fetchJSON(`/admin/endpoint-versions?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
             if (!res || res.length === 0) {
                 viewerContainer.innerHTML = `<div class="text-slate-400 italic">No version history found for this endpoint.</div>`;
+                hideLoader();
                 return;
             }
 
