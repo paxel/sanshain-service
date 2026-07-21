@@ -535,9 +535,9 @@ assert_status 200 "Public protected branches endpoint"
 assert_json ". | length > 0" "true" "Protected branches returned"
 
 # Merged report: feature branch with main as target
-call_api GET "/report/merged?branch=$SHARED_BRANCH&target=main"
+call_api GET "/report/merged?branch=$ONBOARD_BRANCH2&target=main"
 assert_status 200 "Merged report endpoint"
-assert_json ".branch" "$SHARED_BRANCH" "Merged report branch field"
+assert_json ".branch" "$ONBOARD_BRANCH2" "Merged report branch field"
 assert_json ".target" "main" "Merged report target field"
 assert_json ".dependency_graph | length >= 0" "true" "Merged report has dependency_graph"
 assert_json ".node_sources | length >= 0" "true" "Merged report has node_sources"

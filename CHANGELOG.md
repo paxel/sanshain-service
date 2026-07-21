@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [1.5.0] - 2026-07-04
+## [1.5.0] - 2026-07-21
 
 ### Added
 - Initial preparation for version 1.5.0.
