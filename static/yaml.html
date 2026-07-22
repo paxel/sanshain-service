@@ -176,6 +176,9 @@
     let activeVersion = null;
     let isDiffMode = false;
     let isBlameOn = false;
+    // Set when there is no recorded version history and we fall back to the
+    // endpoint's current spec (see loadCurrentSpecFallback).
+    let fallbackNote = null;
 
     // Retrieve endpoint identity from query params
     const params = new URLSearchParams(window.location.search);
@@ -241,11 +244,14 @@
         try {
             const res = await fetchJSON(`/admin/endpoint-versions?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
             if (!res || res.length === 0) {
-                viewerContainer.innerHTML = `<div class="text-slate-400 italic">No version history found for this endpoint.</div>`;
-                hideLoader();
+                // Version history is only recorded on protected branches. On other
+                // branches (e.g. a freshly uploaded service with no master yet) fall
+                // back to the endpoint's current spec so the viewer isn't empty.
+                await loadCurrentSpecFallback();
                 return;
             }
 
+            fallbackNote = null;
             globalVersions = [...res].sort((a, b) => a.version - b.version);
 
             // Populate selectors for diffing
@@ -275,8 +281,48 @@
         }
     }
 
+    // Fall back to the endpoint's current spec when no version history exists.
+    // The endpoints table always stores the latest yaml_content regardless of
+    // branch protection, so we can still show it (as a single, current version).
+    async function loadCurrentSpecFallback() {
+        const noHistory = () => {
+            viewerContainer.innerHTML = `<div class="text-slate-400 italic">No version history found for this endpoint.</div>`;
+            hideLoader();
+        };
+        try {
+            const res = await apiCall(`/admin/endpoints/yaml?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
+            if (!res.ok) {
+                noHistory();
+                return;
+            }
+            const yamlText = await res.text();
+            if (!yamlText) {
+                noHistory();
+                return;
+            }
+            fallbackNote = 'No recorded history on this branch — version tracking begins on protected branches. Showing the current spec.';
+            globalVersions = [{
+                version: 1,
+                yaml_content: yamlText,
+                created_at: '',
+                username: null,
+                source_branch: branchName,
+            }];
+            activeVersion = globalVersions[0];
+            diffFromSelect.innerHTML = '';
+            diffToSelect.innerHTML = '';
+            renderVersionsSidebar();
+            renderActiveView();
+            hideLoader();
+        } catch (e) {
+            console.error(e);
+            hideLoader();
+            viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load spec: ${e.message}</div>`;
+        }
+    }
+
     function renderVersionsSidebar() {
-        versionsListContainer.innerHTML = [...globalVersions].reverse().map(v => {
+        const cards = [...globalVersions].reverse().map(v => {
             const isActive = !isDiffMode && activeVersion && activeVersion.version === v.version;
             const username = v.username || 'DevMode/Anonymous';
             const branch = v.source_branch || branchName;
@@ -299,6 +345,10 @@
                 </div>
             `;
         }).join('');
+        const noteHtml = fallbackNote
+            ? `<div class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5 mb-1">${fallbackNote}</div>`
+            : '';
+        versionsListContainer.innerHTML = noteHtml + cards;
     }
 
     function selectVersion(vNum) {
