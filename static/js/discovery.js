@@ -6,6 +6,7 @@
 let allServices = [];
 let allServiceBranches = {}; // cache: serviceName -> branches[]
 let allServiceLastPublished = {}; // cache: serviceName -> { branch: isoTimestamp }
+let allServiceExpireAt = {}; // cache: serviceName -> { branch: isoTimestamp } (stale-cleanup TTL)
 let userFavorites = { services: [], clients: [] };
 const YAML_PAGE_SIZE = 80; // lines per page for YAML viewer
 
@@ -20,9 +21,11 @@ async function loadAllServiceBranches() {
   allServices = services || [];
   allServiceBranches = {};
   allServiceLastPublished = {};
+  allServiceExpireAt = {};
   for (const svc of allServices) {
     allServiceBranches[svc.name] = svc.branches || [];
     allServiceLastPublished[svc.name] = svc.branches_last_published || {};
+    allServiceExpireAt[svc.name] = svc.branches_expire_at || {};
   }
 }
 

@@ -224,11 +224,22 @@
         }
 
         const lastPublishedMap = allServiceLastPublished[serviceName] || {};
+        const expireMap = allServiceExpireAt[serviceName] || {};
         for (const branch of branches) {
             const iso = lastPublishedMap[branch];
             const lastPublished = iso
                 ? `Last published ${iso.slice(0, 16).replace('T', ' ')}`
                 : 'No publishes yet';
+            // Stale-cleanup TTL: warn when a non-protected branch is due to be culled soon.
+            let ttlBadge = '';
+            const expireIso = expireMap[branch];
+            if (expireIso) {
+                const daysLeft = Math.ceil((new Date(expireIso).getTime() - Date.now()) / 86400000);
+                if (daysLeft <= 3) {
+                    const label = daysLeft <= 0 ? 'Expiring' : `Expires in ${daysLeft}d`;
+                    ttlBadge = `<span class="text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter mr-2" title="This branch has had no publish recently and will be removed by stale-branch cleanup.">${label}</span>`;
+                }
+            }
             const card = document.createElement('div');
             card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
             card.onclick = () => {
@@ -248,9 +259,12 @@
                             <p class="text-xs text-slate-400 mt-0.5">${lastPublished}</p>
                         </div>
                     </div>
-                    <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                    </svg>
+                    <div class="flex items-center">
+                        ${ttlBadge}
+                        <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </div>
                 </div>`;
             list.appendChild(card);
         }

@@ -99,6 +99,10 @@ pub async fn list_services_detailed(
         .map(|(svc, branch, ts)| ((svc, branch), ts))
         .collect();
 
+    // Stale-cleanup horizon: non-protected branches are culled once their last
+    // publish is older than this many days (0 = disabled). Used to surface a TTL.
+    let max_age_days = get_branch_max_age_days(repo).await?;
+
     // Order each service's branches deterministically: protected branches first
     // (e.g. master/main), then most recently published, then alphabetically. The
     // underlying GROUP_CONCAT returns them in an unspecified order otherwise.
@@ -116,6 +120,22 @@ pub async fn list_services_detailed(
                     .map(|ts| (b.clone(), ts.clone()))
             })
             .collect();
+        // Attach the stale-cleanup expiry per branch (non-protected only), so the UI
+        // can warn when a branch is about to be culled.
+        if max_age_days > 0 {
+            svc.branches_expire_at = svc
+                .branches
+                .iter()
+                .filter(|b| !protected.contains(b.as_str()))
+                .filter_map(|b| {
+                    let ts = last_published.get(&(sname.clone(), b.clone()))?;
+                    let published =
+                        chrono::NaiveDateTime::parse_from_str(ts, "%Y-%m-%dT%H:%M:%SZ").ok()?;
+                    let expire = published + chrono::Duration::days(max_age_days as i64);
+                    Some((b.clone(), expire.format("%Y-%m-%dT%H:%M:%SZ").to_string()))
+                })
+                .collect();
+        }
         let ts = |branch: &str| {
             last_published
                 .get(&(sname.clone(), branch.to_string()))

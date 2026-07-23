@@ -511,6 +511,48 @@ paths:
     assert!(missing.is_err(), "no branch has this endpoint");
 }
 
+// Only non-protected branches get a stale-cleanup expiry (protected branches are
+// exempt from cleanup), and it is after the last publish.
+#[tokio::test]
+async fn overview_shows_expiry_for_non_protected_branches_only() {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+
+    let spec = r#"openapi: 3.0.0
+info: {title: t, version: v1}
+paths:
+  /p:
+    get:
+      responses:
+        '200': { description: ok }
+"#;
+    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec, None, false)
+        .await
+        .unwrap();
+    services::provide_spec(&repo, "svc", "feature", ApiType::OpenApi, spec, None, false)
+        .await
+        .unwrap();
+
+    let svcs = services::list_services_detailed(&repo, None).await.unwrap();
+    let svc = svcs.iter().find(|s| s.name == "svc").unwrap();
+    assert!(
+        svc.branches_expire_at.contains_key("feature"),
+        "a non-protected branch has a stale-cleanup expiry"
+    );
+    assert!(
+        !svc.branches_expire_at.contains_key("main"),
+        "a protected branch is exempt from cleanup, so has no expiry"
+    );
+    assert!(
+        svc.branches_expire_at["feature"] > svc.branches_last_published["feature"],
+        "expiry is after the last publish"
+    );
+}
+
 fn all_audit_logs_filter() -> sanshain_service::domain::models::AuditLogFilter {
     sanshain_service::domain::models::AuditLogFilter {
         from_date: None,

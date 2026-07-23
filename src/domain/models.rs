@@ -426,6 +426,11 @@ pub struct ServiceSummary {
     /// application layer; empty in raw repository results.
     #[serde(default)]
     pub branches_last_published: std::collections::HashMap<String, String>,
+    /// Stale-cleanup expiry time per branch name (ISO 8601), only for
+    /// non-protected branches when cleanup is enabled. Populated by the
+    /// application layer; empty in raw repository results.
+    #[serde(default)]
+    pub branches_expire_at: std::collections::HashMap<String, String>,
     pub is_favorite: bool,
     pub icon: Option<String>,
     pub domain: Option<String>,

@@ -368,15 +368,25 @@ method — see #10), then alphabetically. Tested by
 `test_branches_ordered_protected_first_then_alphabetical` (mock, name tiebreak) and
 `overview_branches_ordered_protected_then_recent` (sqlite, real recency).
 
-### 12. Branch TTL in the overview
+### 12. Branch TTL in the overview — DONE 2026-07-23
 
 **Feature:** stale branches are already cleaned up (the "Branch cleanup: deleted N stale branches"
 task). Surface the remaining TTL on the branch card — at least warn when a branch will be culled in
-**< 3 days** (e.g. an amber "expires in 2d" badge). Derive from the same cutoff the cleanup task
-uses so the badge and the actual deletion agree.
+**< 3 days**.
 
-**Relevant areas:** the stale-branch cutoff logic in `src/application/` / cleanup task, a
-per-branch last-activity query, `static/services.html`.
+**Done:** `list_services_detailed` computes a per-branch `branches_expire_at`
+(= last publish + `branch_max_age_days`) for **non-protected** branches only (protected branches
+are exempt from `delete_stale_branches`, confirmed via its `NOT EXISTS (protected_branches …)`
+guard), when cleanup is enabled (`max_age_days > 0`). `services.html` shows an amber
+"Expires in Nd" / "Expiring" badge when the branch is ≤ 3 days from culling. Uses the same retention
+setting the cleanup task uses, so badge and deletion agree. Backend tested by
+`overview_shows_expiry_for_non_protected_branches_only`; frontend eslint/prettier/`node --check`
+clean.
+
+**Note:** the stale-cleanup guard matches protected patterns with `GLOB` (wildcards), but
+`is_branch_protected` matches **exactly** (`WHERE pattern = ?`). A wildcard protected pattern would
+thus exempt a branch from cleanup yet report "not protected" elsewhere (and get a TTL badge here).
+Minor latent inconsistency worth reconciling separately.
 
 ### 15. Blame on master: attribute to the real author, not the CI
 

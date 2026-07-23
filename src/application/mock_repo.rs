@@ -452,6 +452,7 @@ impl SpecRepository for MockRepo {
                 fallback_branch: fallback_branches.get(name).cloned(),
                 branches: svc_branches,
                 branches_last_published: std::collections::HashMap::new(),
+                branches_expire_at: std::collections::HashMap::new(),
                 is_favorite: false,
                 icon: None,
                 domain: None,
