@@ -91,6 +91,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/services/{name}/branches/{branch}", delete(admin::admin_delete_branch).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/services/{name}/branches/{branch}/reset-history", post(admin::admin_reset_branch_history).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/services/{name}/branches/{branch}/endpoints", get(admin::admin_list_service_endpoints).layer(from_fn_with_state(state.clone(), authenticated_auth)))
+        .route("/admin/services/{name}/branches/{branch}/full-spec", get(admin::admin_get_full_spec).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/clients", get(admin::admin_list_clients).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/clients/{name}", delete(admin::admin_delete_client).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/clients/{name}/branches", get(admin::admin_list_client_branches).layer(from_fn_with_state(state.clone(), authenticated_auth)))
@@ -312,6 +313,7 @@ mod tests {
             "/admin/services/{name}/branches",
             "/admin/services/{name}/branches/{branch}",
             "/admin/services/{name}/branches/{branch}/endpoints",
+            "/admin/services/{name}/branches/{branch}/full-spec",
             "/admin/services/{name}/branches/{branch}/reset-history",
             "/admin/settings/branch-cleanup",
             "/admin/settings/cache",

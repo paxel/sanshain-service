@@ -270,6 +270,28 @@
         }
     }
 
+    async function downloadFullApi(service, branch, apiType) {
+        try {
+            const res = await apiCall(`/admin/services/${encodeURIComponent(service)}/branches/${encodeURIComponent(branch)}/full-spec?api_type=${encodeURIComponent(apiType)}`);
+            if (!res.ok) {
+                alert('Failed to load the full API spec for this branch.');
+                return;
+            }
+            const text = await res.text();
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${service}-${branch}.yaml`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            alert('Failed to download the full API: ' + e.message);
+        }
+    }
+
     async function showServiceBranchEndpoints(serviceName, branchName) {
         showLoader();
         const list = document.getElementById('services-list');
@@ -286,6 +308,10 @@
 
         try {
             const providedEndpoints = await fetchJSON(`/admin/services/${encodeURIComponent(serviceName)}/branches/${encodeURIComponent(branchName)}/endpoints`);
+            if (providedEndpoints && providedEndpoints.length > 0) {
+                const apiType = providedEndpoints[0].api_type || 'openapi';
+                breadcrumb.innerHTML += `<button onclick="downloadFullApi('${serviceName.replace(/'/g, "\\'")}', '${branchName.replace(/'/g, "\\'")}', '${apiType}')" class="ml-4 px-2.5 py-1 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Download full API</button>`;
+            }
             let report = { dependency_graph: [], unused_endpoints: [] };
             try {
                 report = await fetchJSON(`/report?branch=${encodeURIComponent(branchName)}`);

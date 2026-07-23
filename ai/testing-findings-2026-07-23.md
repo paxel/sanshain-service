@@ -295,15 +295,20 @@ color choices. This is a multi-PR UI effort — track sub-tasks here.
 **Test:** visual review in both themes; a Playwright screenshot smoke in dark mode; a contrast
 check on the primary text/background pairs.
 
-### 2. "Show full API for a branch" view
+### 2. "Show full API for a branch" view — DONE 2026-07-23
 
-**Feature:** the UI only shows per-endpoint YAML. Add a way to view the **full assembled** spec
-(OpenAPI/AsyncAPI/proto) for a branch — the merged document across all its endpoints. Likely a new
-read endpoint that concatenates/serves the stored per-endpoint specs into one document, plus a
-"View full API" button on the branch view with copy/download (reuse the existing viewer chrome).
+**Feature:** the UI only shows per-endpoint YAML. Add a way to view the **full assembled** spec for
+a branch.
 
-**Relevant areas:** `src/application/spec_service.rs` (assemble full spec), a new handler in
-`src/presentation/handlers/api.rs`, `static/services.html` (button) + a viewer, `api.yaml`.
+**Done:** new `services::get_full_spec` (`src/application/spec_service.rs`) reassembles a branch's
+stored per-endpoint specs into one document — OpenAPI via the existing
+`openapi::merge_endpoint_yamls`, AsyncAPI/proto concatenated with `\n---\n` (matching
+`require_bundle`), endpoints sorted for stable output; errors `404` when no endpoint of that type
+exists. Served by `GET /admin/services/{name}/branches/{branch}/full-spec?api_type=…`
+(`admin_get_full_spec`, `authenticated_auth`, added to the `NOT_IN_CLIENT_CONTRACT` allowlist).
+`services.html` shows a "Download full API" button on the branch view that fetches it (with the
+bearer token) and downloads it as a file. Backend tested by `full_spec_merges_branch_endpoints`;
+route auth + contract tests pass; frontend `node --check` clean.
 
 ### 5. OpenAPI spec with no endpoints — define the behavior **DECISION NEEDED**
 

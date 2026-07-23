@@ -553,6 +553,48 @@ paths:
     );
 }
 
+// The full-spec view reassembles a branch's stored per-endpoint OpenAPI specs
+// into one document; an api_type with no endpoints errors.
+#[tokio::test]
+async fn full_spec_merges_branch_endpoints() {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+
+    let spec = r#"openapi: 3.0.0
+info: {title: t, version: v1}
+paths:
+  /a:
+    get:
+      responses:
+        '200': { description: ok }
+  /b:
+    post:
+      responses:
+        '201': { description: created }
+"#;
+    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec, None, false)
+        .await
+        .unwrap();
+
+    let full = services::get_full_spec(&repo, "svc", "main", ApiType::OpenApi)
+        .await
+        .unwrap();
+    assert!(full.contains("/a"), "merged spec includes path /a");
+    assert!(full.contains("/b"), "merged spec includes path /b");
+    assert!(
+        full.contains("openapi"),
+        "reassembled as one OpenAPI document"
+    );
+
+    // No endpoints of the requested type -> NotFound.
+    let err = services::get_full_spec(&repo, "svc", "main", ApiType::Proto).await;
+    assert!(err.is_err(), "no proto endpoints on this branch");
+}
+
 fn all_audit_logs_filter() -> sanshain_service::domain::models::AuditLogFilter {
     sanshain_service::domain::models::AuditLogFilter {
         from_date: None,

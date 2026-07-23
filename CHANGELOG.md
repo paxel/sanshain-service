@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.5.2] - 2026-07-23
 
 ### Added
+- The full API spec for a branch can now be viewed/downloaded: a **"Download full API"** button on the services branch view reassembles the branch's stored per-endpoint specs into one document (OpenAPI merged into a single document; AsyncAPI/proto concatenated) via a new authenticated endpoint, `GET /admin/services/{name}/branches/{branch}/full-spec?api_type=…`.
 - The services overview now shows each branch's **last-published time** on its branch card (or "No publishes yet" when it has never received a publishing change). The timestamp reflects the last spec change published to that branch, not merely when it was last viewed.
 - The services overview now shows an amber **"Expires in Nd"** badge on a branch card when a non-protected branch is within 3 days of removal by stale-branch cleanup (computed from its last publish and the configured retention window, `branch_max_age_days`). Protected branches, which are never culled, show no badge.
 

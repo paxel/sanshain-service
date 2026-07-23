@@ -734,6 +734,39 @@ pub async fn list_service_endpoints(
     Ok(repo.get_endpoints_for_branch(branch_id).await?)
 }
 
+/// Reassemble the full spec for a service/branch from its stored per-endpoint
+/// specs. OpenAPI endpoints are merged into one document; AsyncAPI/proto are
+/// concatenated (matching how `require_bundle` assembles them). Endpoints are
+/// ordered deterministically so the output is stable.
+pub async fn get_full_spec(
+    repo: &impl SpecRepository,
+    servicename: &str,
+    branch: &str,
+    api_type: ApiType,
+) -> Result<String, AppError> {
+    let mut endpoints: Vec<EndpointRecord> = list_service_endpoints(repo, servicename, branch)
+        .await?
+        .into_iter()
+        .filter(|e| e.api_type == api_type)
+        .collect();
+    if endpoints.is_empty() {
+        return Err(AppError::NotFound(format!(
+            "No {} endpoints for service '{}' on branch '{}'",
+            api_type.as_str(),
+            servicename,
+            branch
+        )));
+    }
+    endpoints.sort_by(|a, b| {
+        (a.path.as_str(), a.method.as_str()).cmp(&(b.path.as_str(), b.method.as_str()))
+    });
+    let yamls: Vec<String> = endpoints.into_iter().map(|e| e.yaml_content).collect();
+    match api_type {
+        ApiType::OpenApi => openapi::merge_endpoint_yamls(&yamls).map_err(AppError::Internal),
+        _ => Ok(yamls.join("\n---\n")),
+    }
+}
+
 pub async fn get_endpoint_version_history(
     repo: &impl SpecRepository,
     servicename: &str,

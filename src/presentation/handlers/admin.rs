@@ -77,6 +77,27 @@ pub async fn admin_list_service_endpoints(
     Ok(Json(res))
 }
 
+#[derive(Deserialize)]
+pub struct FullSpecQuery {
+    pub api_type: Option<ApiType>,
+}
+
+pub async fn admin_get_full_spec(
+    State(state): State<AppState>,
+    Path((name, branch)): Path<(String, String)>,
+    Query(query): Query<FullSpecQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let api_type = query.api_type.unwrap_or(ApiType::OpenApi);
+    let spec = services::get_full_spec(&state.repo, &name, &branch, api_type).await?;
+    Ok((
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; charset=utf-8",
+        )],
+        spec,
+    ))
+}
+
 pub async fn admin_list_all_branches(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
