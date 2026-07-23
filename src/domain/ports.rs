@@ -578,6 +578,14 @@ pub trait SpecRepository: Send + Sync {
         &self,
     ) -> impl Future<Output = Result<Vec<BranchMetadata>, RepositoryError>> + Send;
 
+    /// Last-published time per `(service_name, branch_name)`.
+    ///
+    /// Returns `(service_name, branch_name, updated_at)` rows. `updated_at` tracks
+    /// the last publishing change to the branch (see `apply_spec_changes`), not reads.
+    fn list_branch_last_published(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(String, String, String)>, RepositoryError>> + Send;
+
     // --- AsyncAPI Channel Message Contracts (item #20) ---
 
     /// Get the message-level channel contract for `(branch, channel, message)`, if any.

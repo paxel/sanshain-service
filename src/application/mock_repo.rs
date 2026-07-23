@@ -1073,4 +1073,12 @@ impl SpecRepository for MockRepo {
         }
         Ok(result)
     }
+
+    async fn list_branch_last_published(
+        &self,
+    ) -> Result<Vec<(String, String, String)>, RepositoryError> {
+        // MockRepo does not track per-branch publish times, so recency ordering is
+        // exercised by the sqlite-backed integration tests instead.
+        Ok(Vec::new())
+    }
 }

@@ -389,6 +389,64 @@ paths:
     );
 }
 
+// Overview branch ordering: protected first, then most-recently-published, then name.
+#[tokio::test]
+async fn overview_branches_ordered_protected_then_recent() {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+
+    let spec = r#"openapi: 3.0.0
+info: {title: t, version: v1}
+paths:
+  /p:
+    get:
+      responses:
+        '200': { description: ok }
+"#;
+    // main (protected) and feature-old published first.
+    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec, None, false)
+        .await
+        .unwrap();
+    services::provide_spec(
+        &repo,
+        "svc",
+        "feature-old",
+        ApiType::OpenApi,
+        spec,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    // Cross a whole-second boundary so feature-new is strictly newer.
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+
+    services::provide_spec(
+        &repo,
+        "svc",
+        "feature-new",
+        ApiType::OpenApi,
+        spec,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let svcs = services::list_services_detailed(&repo, None).await.unwrap();
+    let svc = svcs.iter().find(|s| s.name == "svc").unwrap();
+    assert_eq!(
+        svc.branches,
+        vec!["main", "feature-new", "feature-old"],
+        "protected first, then most-recently-published, then alphabetical"
+    );
+}
+
 fn all_audit_logs_filter() -> sanshain_service::domain::models::AuditLogFilter {
     sanshain_service::domain::models::AuditLogFilter {
         from_date: None,

@@ -1266,6 +1266,12 @@ impl SpecRepository for CachedSpecRepository {
     async fn list_branches_with_metadata(&self) -> Result<Vec<BranchMetadata>, RepositoryError> {
         self.inner.list_branches_with_metadata().await
     }
+
+    async fn list_branch_last_published(
+        &self,
+    ) -> Result<Vec<(String, String, String)>, RepositoryError> {
+        self.inner.list_branch_last_published().await
+    }
 }
 
 #[cfg(test)]

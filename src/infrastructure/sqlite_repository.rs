@@ -2496,6 +2496,18 @@ impl SpecRepository for SqliteSpecRepository {
             })
             .collect())
     }
+
+    async fn list_branch_last_published(
+        &self,
+    ) -> Result<Vec<(String, String, String)>, RepositoryError> {
+        sqlx::query_as(
+            "SELECT s.name, b.name, b.updated_at
+             FROM branches b JOIN services s ON s.id = b.service_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))
+    }
 }
 
 #[cfg(test)]

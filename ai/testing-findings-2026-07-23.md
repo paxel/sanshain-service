@@ -300,13 +300,13 @@ no-op re-provide short-circuits before `apply_spec_changes` and does not advance
 with #9). Tested by `reads_do_not_advance_last_published_but_publishes_do`. **This also fixes the
 latent #12 bug** (viewing a branch used to reset its stale-cleanup timer; now only publishes do).
 
-**TODO (display):** surface the per-branch `updated_at` on the overview branch cards. `updated_at`
-already exists per branch; `list_branches_with_metadata` exposes `(name, last_modified)` but keyed
-globally by branch name — for the overview it needs to be per `(service, branch)`. Add it to the
-`list_services_detailed` path (additive: a new field alongside `ServiceSummary.branches`, e.g.
-`branches_last_published: map<name, iso>` — do **not** change the existing `branches: Vec<String>`
-type, which `cached_repository.rs:133` and the sort in #11 rely on), plus `api.yaml` and the
-`services.html` branch-card render.
+**TODO (display):** surface the per-branch last-published time on the overview branch cards. The
+per-`(service, branch)` query already exists — the `list_branch_last_published` port method added
+for #11 returns `(service, branch, updated_at)` rows. Remaining work: add an additive field
+alongside `ServiceSummary.branches` (e.g. `branches_last_published: map<name, iso>` — do **not**
+change the existing `branches: Vec<String>` type, which `cached_repository.rs:133` and the #11 sort
+rely on), populate it in `list_services_detailed` (the map is already built there for the sort),
+then `api.yaml` + the `services.html` branch-card render.
 
 **Known gap:** admin manual endpoint edits (`update_endpoint` / `update_endpoint_manual`) are a
 write path that does **not** currently bump `updated_at`. Decide whether an admin edit should count
@@ -315,7 +315,7 @@ as branch activity; if so, add the same bump there.
 **Unblocks:** #11 recency ordering (protected → newest publish → name) and #12 (TTL badge) can now
 use `updated_at` correctly.
 
-### 11. Branch ordering in the overview — DONE 2026-07-23 (recency deferred to #10)
+### 11. Branch ordering in the overview — DONE 2026-07-23 (incl. recency)
 
 **Finding:** the per-service `list_branches` query is `ORDER BY b.name` (alphabetical), but the
 **services-overview** branch list is built from `GROUP_CONCAT(b.name)` in `list_services_detailed`
@@ -325,10 +325,10 @@ saw.
 
 **Done:** `list_services_detailed` (`src/application/admin_service.rs`) now sorts each service's
 branches **protected-first** (exact-match against `list_protected_branches`, e.g. master/main),
-then alphabetically. Unit-tested
-(`test_branches_ordered_protected_first_then_alphabetical`). **Deferred:** recency ordering
-(protected → newest publish → name) still wants the per-branch last-activity query from #10; wire
-it in when #10 lands.
+then by **most recent publish** (newest first, via the new `list_branch_last_published` port
+method — see #10), then alphabetically. Tested by
+`test_branches_ordered_protected_first_then_alphabetical` (mock, name tiebreak) and
+`overview_branches_ordered_protected_then_recent` (sqlite, real recency).
 
 ### 12. Branch TTL in the overview
 

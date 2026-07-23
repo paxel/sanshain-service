@@ -586,4 +586,10 @@ impl SpecRepository for DatabaseRepo {
     async fn list_branches_with_metadata(&self) -> Result<Vec<BranchMetadata>, RepositoryError> {
         delegate!(self, list_branches_with_metadata())
     }
+
+    async fn list_branch_last_published(
+        &self,
+    ) -> Result<Vec<(String, String, String)>, RepositoryError> {
+        delegate!(self, list_branch_last_published())
+    }
 }

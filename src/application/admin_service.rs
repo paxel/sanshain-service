@@ -91,16 +91,32 @@ pub async fn list_services_detailed(
 ) -> Result<Vec<ServiceSummary>, AppError> {
     let mut services = repo.list_services_detailed().await?;
 
+    // Per-(service, branch) last-published time, for recency ordering.
+    let last_published: std::collections::HashMap<(String, String), String> = repo
+        .list_branch_last_published()
+        .await?
+        .into_iter()
+        .map(|(svc, branch, ts)| ((svc, branch), ts))
+        .collect();
+
     // Order each service's branches deterministically: protected branches first
-    // (e.g. master/main), then alphabetically. The underlying GROUP_CONCAT returns
-    // them in an unspecified order otherwise.
+    // (e.g. master/main), then most recently published, then alphabetically. The
+    // underlying GROUP_CONCAT returns them in an unspecified order otherwise.
     let protected = repo.list_protected_branches().await?;
     let protected: std::collections::HashSet<&str> = protected.iter().map(String::as_str).collect();
     for svc in &mut services {
+        let sname = svc.name.clone();
+        let ts = |branch: &str| {
+            last_published
+                .get(&(sname.clone(), branch.to_string()))
+                .cloned()
+                .unwrap_or_default()
+        };
         svc.branches.sort_by(|a, b| {
             protected
                 .contains(b.as_str())
                 .cmp(&protected.contains(a.as_str()))
+                .then_with(|| ts(b).cmp(&ts(a))) // newest publish first
                 .then_with(|| a.cmp(b))
         });
     }
