@@ -445,6 +445,12 @@ paths:
         vec!["main", "feature-new", "feature-old"],
         "protected first, then most-recently-published, then alphabetical"
     );
+    // The per-branch last-published map is populated for display (#10).
+    assert!(svc.branches_last_published.contains_key("feature-new"));
+    assert!(
+        svc.branches_last_published["feature-new"] > svc.branches_last_published["feature-old"],
+        "feature-new was published later than feature-old"
+    );
 }
 
 fn all_audit_logs_filter() -> sanshain_service::domain::models::AuditLogFilter {

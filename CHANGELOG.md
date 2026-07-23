@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.5.2] - 2026-07-23
 
+### Added
+- The services overview now shows each branch's **last-published time** on its branch card (or "No publishes yet" when it has never received a publishing change). The timestamp reflects the last spec change published to that branch, not merely when it was last viewed.
+
 ### Fixed
 - A branch's "last updated" time (`branches.updated_at`) is now advanced only when a spec change is actually published to it, not when the branch is merely viewed. Previously (1.5.1) any read that resolved the branch — viewing an endpoint's history, listing a branch's endpoints — bumped the timestamp, with two consequences: "last activity" reflected the last *view* instead of the last *publish*, and the stale-branch cleanup (which deletes branches whose `updated_at` is older than the retention window) had its timer reset just by someone looking at the branch, so a viewed-but-unpublished branch was never culled. Viewing no longer keeps a branch alive; only a publishing change does. (A no-op re-publish of an identical spec does not advance it either, consistent with it producing no change.)
 

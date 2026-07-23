@@ -287,10 +287,19 @@ provide with a `400` explaining that at least one operation is required. Check c
 tested. Recommendation: **accept + explicit empty state**, since a service may legitimately start
 empty.
 
-### 10. Show "last publish" per branch in the overview — DATA FIXED 2026-07-23, display TODO
+### 10. Show "last publish" per branch in the overview — DONE 2026-07-23
 
 **Feature:** the branch cards (`static/services.html`) show only the branch name. Add the last
 publish timestamp; surface it on the card.
+
+**Done:** the overview branch cards now show "Last published <time>" (or "No publishes yet"),
+sourced from the additive `ServiceSummary.branches_last_published` field (populated in
+`list_services_detailed` from the `list_branch_last_published` port method), cached in
+`discovery.js` and rendered in `services.html`. The `branches: Vec<String>` type was left unchanged.
+Backend tested by `overview_branches_ordered_protected_then_recent` (asserts the field is
+populated); frontend eslint/prettier/`node --check` clean. Note: `/admin/services` is not in the
+documented `api.yaml` contract, so no schema change was needed. Historical note below is retained
+for context.
 
 **Done (the hard part — the timestamp is now trustworthy):** `branches.updated_at` previously
 meant "last touched" because `ensure_branch` bumped it on read paths too. It now advances only on

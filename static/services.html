@@ -223,7 +223,12 @@
             return;
         }
 
+        const lastPublishedMap = allServiceLastPublished[serviceName] || {};
         for (const branch of branches) {
+            const iso = lastPublishedMap[branch];
+            const lastPublished = iso
+                ? `Last published ${iso.slice(0, 16).replace('T', ' ')}`
+                : 'No publishes yet';
             const card = document.createElement('div');
             card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
             card.onclick = () => {
@@ -238,7 +243,10 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
                             </svg>
                         </span>
-                        <h3 class="font-semibold text-slate-800">${branch}</h3>
+                        <div>
+                            <h3 class="font-semibold text-slate-800">${branch}</h3>
+                            <p class="text-xs text-slate-400 mt-0.5">${lastPublished}</p>
+                        </div>
                     </div>
                     <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>

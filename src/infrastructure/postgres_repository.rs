@@ -1210,6 +1210,7 @@ impl SpecRepository for PostgresSpecRepository {
                     name,
                     fallback_branch,
                     branches: branches.unwrap_or_default(),
+                    branches_last_published: std::collections::HashMap::new(),
                     is_favorite: false,
                     icon,
                     domain,

@@ -422,6 +422,10 @@ pub struct ServiceSummary {
     pub name: String,
     pub fallback_branch: Option<String>,
     pub branches: Vec<String>,
+    /// Last-published time per branch name (ISO 8601). Populated by the
+    /// application layer; empty in raw repository results.
+    #[serde(default)]
+    pub branches_last_published: std::collections::HashMap<String, String>,
     pub is_favorite: bool,
     pub icon: Option<String>,
     pub domain: Option<String>,

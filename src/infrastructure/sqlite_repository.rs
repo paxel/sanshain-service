@@ -1266,6 +1266,7 @@ impl SpecRepository for SqliteSpecRepository {
                     name,
                     fallback_branch,
                     branches,
+                    branches_last_published: std::collections::HashMap::new(),
                     is_favorite: false,
                     icon,
                     domain,

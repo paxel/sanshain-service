@@ -5,6 +5,7 @@
 
 let allServices = [];
 let allServiceBranches = {}; // cache: serviceName -> branches[]
+let allServiceLastPublished = {}; // cache: serviceName -> { branch: isoTimestamp }
 let userFavorites = { services: [], clients: [] };
 const YAML_PAGE_SIZE = 80; // lines per page for YAML viewer
 
@@ -18,8 +19,10 @@ async function loadAllServiceBranches() {
   const services = await fetchJSON("/admin/services");
   allServices = services || [];
   allServiceBranches = {};
+  allServiceLastPublished = {};
   for (const svc of allServices) {
     allServiceBranches[svc.name] = svc.branches || [];
+    allServiceLastPublished[svc.name] = svc.branches_last_published || {};
   }
 }
 

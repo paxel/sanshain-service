@@ -106,6 +106,16 @@ pub async fn list_services_detailed(
     let protected: std::collections::HashSet<&str> = protected.iter().map(String::as_str).collect();
     for svc in &mut services {
         let sname = svc.name.clone();
+        // Attach the last-published time per branch, for display in the overview.
+        svc.branches_last_published = svc
+            .branches
+            .iter()
+            .filter_map(|b| {
+                last_published
+                    .get(&(sname.clone(), b.clone()))
+                    .map(|ts| (b.clone(), ts.clone()))
+            })
+            .collect();
         let ts = |branch: &str| {
             last_published
                 .get(&(sname.clone(), branch.to_string()))
