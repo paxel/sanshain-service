@@ -453,6 +453,64 @@ paths:
     );
 }
 
+// Endpoint history for a branch the server never published falls back to the
+// protected branch's history, instead of 404-ing.
+#[tokio::test]
+async fn version_history_falls_back_to_protected_branch() {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+
+    let spec = r#"openapi: 3.0.0
+info: {title: t, version: v1}
+paths:
+  /p:
+    get:
+      responses:
+        '200': { description: ok }
+"#;
+    // Publish only to the protected branch "main".
+    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec, None, false)
+        .await
+        .unwrap();
+
+    // Requesting history for a branch the server never published falls back to main.
+    let versions = services::get_endpoint_version_history(
+        &repo,
+        "svc",
+        "feature-x",
+        ApiType::OpenApi,
+        "/p",
+        "GET",
+    )
+    .await
+    .unwrap();
+    assert!(
+        !versions.is_empty(),
+        "should fall back to the protected branch's history"
+    );
+    assert_eq!(
+        versions[0].branch_name.as_deref(),
+        Some("main"),
+        "history served from the protected branch"
+    );
+
+    // A path that exists on no branch still errors (nothing to fall back to).
+    let missing = services::get_endpoint_version_history(
+        &repo,
+        "svc",
+        "feature-x",
+        ApiType::OpenApi,
+        "/nope",
+        "GET",
+    )
+    .await;
+    assert!(missing.is_err(), "no branch has this endpoint");
+}
+
 fn all_audit_logs_filter() -> sanshain_service::domain::models::AuditLogFilter {
     sanshain_service::domain::models::AuditLogFilter {
         from_date: None,

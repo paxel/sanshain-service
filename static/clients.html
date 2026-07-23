@@ -286,7 +286,7 @@
                         </div>
                         <div class="flex items-center">
                             ${ep.yaml_content
-                                ? `<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2 cursor-pointer hover:bg-green-100" onclick="event.stopPropagation(); navigateToServiceEndpoint('${ep.service}', '${ep.branch}', '${ep.path}', '${ep.method}')">resolved → ${ep.service}</span>`
+                                ? `<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2 cursor-pointer hover:bg-green-100" onclick="event.stopPropagation(); navigateToServiceEndpoint('${ep.service}', '${ep.branch}', '${ep.path}', '${ep.method}', '${ep.api_type || 'openapi'}')">resolved → ${ep.service}</span>`
                                 : '<span class="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full mr-2">pending</span>'}
                             ${ep.yaml_content ? '<svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>' : ''}
                         </div>
@@ -300,8 +300,8 @@
         }
     }
 
-    function navigateToServiceEndpoint(serviceName, branch, path, method) {
-        window.location.href = `/yaml.html?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}`;
+    function navigateToServiceEndpoint(serviceName, branch, path, method, apiType) {
+        window.location.href = `/yaml.html?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}&api_type=${encodeURIComponent(apiType || 'openapi')}`;
     }
 
     document.getElementById('client-search').addEventListener('input', function() {

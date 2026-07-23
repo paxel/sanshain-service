@@ -743,16 +743,28 @@ pub async fn get_endpoint_version_history(
     method: &str,
 ) -> Result<Vec<EndpointVersion>, AppError> {
     let service_id = repo.ensure_service(servicename).await?;
-    let branch_id = repo.ensure_branch(service_id, branch).await?;
     let method_to_use = match api_type {
         ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
         ApiType::Proto => method.to_string(),
     };
 
-    let endpoint_id = repo
-        .get_endpoint_id(branch_id, api_type, path, &method_to_use)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
+    // Resolve the endpoint, falling back to the service's configured fallback branch
+    // and then any protected branch when the requested branch has no such endpoint
+    // (e.g. a client-required branch the server never published). The returned
+    // versions carry the branch they actually live on (`branch_name`), so the caller
+    // can tell whether a fallback happened.
+    let endpoint_id = find_endpoint_with_fallback(
+        repo,
+        service_id,
+        servicename,
+        branch,
+        api_type,
+        path,
+        &method_to_use,
+    )
+    .await?
+    .map(|(id, _, _, _)| id)
+    .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
     Ok(repo.get_endpoint_versions(endpoint_id).await?)
 }

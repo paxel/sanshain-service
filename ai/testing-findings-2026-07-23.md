@@ -86,7 +86,26 @@ user upsert/create), the admin reset/nuke handler in `src/presentation/handlers/
 
 ## P1 — Correctness / UX bugs
 
-### 13. Client-only branch → clicking an endpoint fails with `Failed to load versions: 404`
+### 13. Client-only branch → clicking an endpoint fails with `Failed to load versions: 404` — PARTIALLY DONE 2026-07-23
+
+**Done (falls back to the protected branch, per maintainer direction):** rather than a "not
+available" dead-end, the history view now resolves the endpoint with a branch fallback.
+`get_endpoint_version_history` (`src/application/spec_service.rs`) uses `find_endpoint_with_fallback`
+(the same resolver the YAML view already used): try the requested branch, else the service's
+configured fallback branch, else any protected branch. So a client-required branch the server only
+publishes on `master` now shows `master`'s real history. `yaml.html` labels it ("Branch X has no
+published spec — showing history from master") by comparing the served `branch_name` to the
+requested branch. Only when **no** branch has the endpoint does the explicit "not available" state
+show. Tested by `version_history_falls_back_to_protected_branch` (sqlite); JS syntax-checked.
+
+**Still open (needs live reproduction):** *why* the services overview lists a service with
+clickable branches that have no provided endpoints in the first place — i.e. whether `require`
+creates service/branch/endpoint rows that surface as clickable-but-unprovided. With the fallback
+above, clicking such a branch now shows the protected branch's spec instead of an error, so this is
+lower urgency; still worth confirming against a running instance whether those branch cards should
+appear at all.
+
+**Original analysis (retained for context):**
 
 **Symptom:** A client requires a service+branch the server has no *provided* spec for. The services
 view still shows an entry for that service listing **only the branches the client uses**; clicking
@@ -115,7 +134,17 @@ dead-end; deep-linking `yaml.html` to a non-existent branch shows the friendly e
 **Relevant areas:** `static/yaml.html` (`loadEndpointVersions`, `loadCurrentSpecFallback`),
 `static/clients.html` / `static/services.html` (clickability gating).
 
-### 14. Browsing a client's branch, the "→ server" link shows the same page
+### 14. Browsing a client's branch, the "→ server" link shows the same page — PARTIALLY DONE 2026-07-23
+
+**Done:** `navigateToServiceEndpoint` (`static/clients.html`) dropped `api_type`, so the "resolved →
+service" badge always opened the endpoint as OpenAPI (wrong viewer for AsyncAPI/proto, and a likely
+contributor to the "same page" impression). It now passes `ep.api_type` through to `yaml.html`.
+
+**Still open (needs live reproduction):** confirm whether the badge should open the *endpoint*
+(current behavior) or the *service/branch* overview, and whether the provider branch differs from
+the client branch (see below). Reproduce and decide the intended destination.
+
+**Original analysis (retained for context):**
 
 **Symptom:** From a client's branch view, clicking the link to the server ("resolved → service")
 navigates but lands back on what looks like the same page.

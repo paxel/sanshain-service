@@ -242,8 +242,16 @@
 
     async function loadEndpointVersions() {
         try {
-            const res = await fetchJSON(`/admin/endpoint-versions?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
-            if (!res || res.length === 0) {
+            const res = await apiCall(`/admin/endpoint-versions?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
+            // A 404 means the endpoint does not exist on this branch — e.g. a client
+            // requires a service/branch the server never provided. Fall back to the
+            // current spec, which renders a clear "not available" state if that is
+            // missing too, instead of a raw fetch error.
+            if (res.status !== 404 && !res.ok) {
+                throw new Error(`Fetch error: ${res.status}`);
+            }
+            const versions = res.status === 404 ? [] : await res.json();
+            if (!versions || versions.length === 0) {
                 // Version history is only recorded on protected branches. On other
                 // branches (e.g. a freshly uploaded service with no master yet) fall
                 // back to the endpoint's current spec so the viewer isn't empty.
@@ -251,8 +259,14 @@
                 return;
             }
 
-            fallbackNote = null;
-            globalVersions = [...res].sort((a, b) => a.version - b.version);
+            // The backend resolves the endpoint with a branch fallback (see
+            // get_endpoint_version_history), so the served versions may live on a
+            // protected/fallback branch rather than the one requested. Tell the user.
+            const servedBranch = versions[0].branch_name || branchName;
+            fallbackNote = servedBranch !== branchName
+                ? `Branch &ldquo;${escapeHtml(branchName)}&rdquo; has no published spec — showing history from &ldquo;${escapeHtml(servedBranch)}&rdquo;.`
+                : null;
+            globalVersions = [...versions].sort((a, b) => a.version - b.version);
 
             // Populate selectors for diffing
             diffFromSelect.innerHTML = globalVersions.map(v => `<option value="${v.version}">v${v.version} (${v.created_at.slice(0, 16)})</option>`).join('');
@@ -285,19 +299,19 @@
     // The endpoints table always stores the latest yaml_content regardless of
     // branch protection, so we can still show it (as a single, current version).
     async function loadCurrentSpecFallback() {
-        const noHistory = () => {
-            viewerContainer.innerHTML = `<div class="text-slate-400 italic">No version history found for this endpoint.</div>`;
+        const notAvailable = () => {
+            viewerContainer.innerHTML = `<div class="text-slate-400 italic">This endpoint isn't available on the server for branch &ldquo;${escapeHtml(branchName)}&rdquo;. It may be required by a client but not yet provided by the service.</div>`;
             hideLoader();
         };
         try {
             const res = await apiCall(`/admin/endpoints/yaml?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
             if (!res.ok) {
-                noHistory();
+                notAvailable();
                 return;
             }
             const yamlText = await res.text();
             if (!yamlText) {
-                noHistory();
+                notAvailable();
                 return;
             }
             fallbackNote = 'No recorded history on this branch — version tracking begins on protected branches. Showing the current spec.';
