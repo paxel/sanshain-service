@@ -290,18 +290,14 @@ impl SpecRepository for PostgresSpecRepository {
         branch_name: &str,
     ) -> Result<i64, RepositoryError> {
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        // Only create the branch here; do NOT bump `updated_at` on existing branches.
+        // `ensure_branch` is called on read paths too, so bumping here would make
+        // `updated_at` mean "last touched" instead of "last published". The publish
+        // write-path (`apply_spec_changes`) advances `updated_at`.
         sqlx::query("INSERT INTO branches (service_id, name, updated_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING")
             .bind(service_id)
             .bind(branch_name)
             .bind(&now)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        sqlx::query("UPDATE branches SET updated_at = $1 WHERE service_id = $2 AND name = $3")
-            .bind(&now)
-            .bind(service_id)
-            .bind(branch_name)
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -1900,6 +1896,15 @@ impl SpecRepository for PostgresSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+
+        // Advance the branch's `updated_at` on every publish (provide), so it
+        // reflects the last-published time. Read paths no longer bump it.
+        sqlx::query("UPDATE branches SET updated_at = $1 WHERE id = $2")
+            .bind(&now)
+            .bind(branch_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         for change in changes {
             match change {

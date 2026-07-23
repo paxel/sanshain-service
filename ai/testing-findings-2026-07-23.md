@@ -287,11 +287,33 @@ provide with a `400` explaining that at least one operation is required. Check c
 tested. Recommendation: **accept + explicit empty state**, since a service may legitimately start
 empty.
 
-### 10. Show "last publish" per branch in the overview
+### 10. Show "last publish" per branch in the overview — DATA FIXED 2026-07-23, display TODO
 
 **Feature:** the branch cards (`static/services.html`) show only the branch name. Add the last
-publish timestamp (latest provide/version `created_at` for that branch). Needs a repository query
-returning per-branch last-activity; surface it on the card.
+publish timestamp; surface it on the card.
+
+**Done (the hard part — the timestamp is now trustworthy):** `branches.updated_at` previously
+meant "last touched" because `ensure_branch` bumped it on read paths too. It now advances only on
+a publishing change: `ensure_branch` (`sqlite_repository.rs` / `postgres_repository.rs`) no longer
+bumps it, and `apply_spec_changes` does. So `updated_at` == last-published (last spec *change*; a
+no-op re-provide short-circuits before `apply_spec_changes` and does not advance it — consistent
+with #9). Tested by `reads_do_not_advance_last_published_but_publishes_do`. **This also fixes the
+latent #12 bug** (viewing a branch used to reset its stale-cleanup timer; now only publishes do).
+
+**TODO (display):** surface the per-branch `updated_at` on the overview branch cards. `updated_at`
+already exists per branch; `list_branches_with_metadata` exposes `(name, last_modified)` but keyed
+globally by branch name — for the overview it needs to be per `(service, branch)`. Add it to the
+`list_services_detailed` path (additive: a new field alongside `ServiceSummary.branches`, e.g.
+`branches_last_published: map<name, iso>` — do **not** change the existing `branches: Vec<String>`
+type, which `cached_repository.rs:133` and the sort in #11 rely on), plus `api.yaml` and the
+`services.html` branch-card render.
+
+**Known gap:** admin manual endpoint edits (`update_endpoint` / `update_endpoint_manual`) are a
+write path that does **not** currently bump `updated_at`. Decide whether an admin edit should count
+as branch activity; if so, add the same bump there.
+
+**Unblocks:** #11 recency ordering (protected → newest publish → name) and #12 (TTL badge) can now
+use `updated_at` correctly.
 
 ### 11. Branch ordering in the overview — DONE 2026-07-23 (recency deferred to #10)
 

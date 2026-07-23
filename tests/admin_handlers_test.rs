@@ -314,6 +314,81 @@ async fn dev_mode_setting_reports_persisted_intent() {
     assert_eq!(json["dev_mode"], serde_json::Value::Bool(true));
 }
 
+#[cfg(test)]
+async fn branch_last_modified(repo: &SqliteSpecRepository, branch: &str) -> String {
+    use sanshain_service::domain::ports::SpecRepository;
+    repo.list_branches_with_metadata()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|b| b.name == branch)
+        .unwrap()
+        .last_modified
+}
+
+// A branch's `updated_at` must track the last *publish*, not the last *read*.
+// `ensure_branch` is on read paths, so it must no longer bump the timestamp;
+// only `apply_spec_changes` (provide) advances it.
+#[tokio::test]
+async fn reads_do_not_advance_last_published_but_publishes_do() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+
+    let spec = r#"openapi: 3.0.0
+info: {title: t, version: v1}
+paths:
+  /p:
+    get:
+      responses:
+        '200': { description: ok }
+"#;
+
+    // First publish establishes the branch timestamp.
+    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec, None, false)
+        .await
+        .unwrap();
+    let t1 = branch_last_modified(&repo, "main").await;
+
+    // Cross a whole-second boundary (timestamps are second-granular).
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+
+    // A read-path call to `ensure_branch` must NOT advance `updated_at`.
+    let sid = repo.ensure_service("svc").await.unwrap();
+    let _ = repo.ensure_branch(sid, "main").await.unwrap();
+    assert_eq!(
+        branch_last_modified(&repo, "main").await,
+        t1,
+        "reading/ensuring a branch must not advance its last-published time"
+    );
+
+    // A publish that changes the spec MUST advance it.
+    let spec2 = r#"openapi: 3.0.0
+info: {title: t, version: v1}
+paths:
+  /p:
+    get:
+      responses:
+        '200': { description: ok }
+  /q:
+    get:
+      responses:
+        '200': { description: ok }
+"#;
+    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec2, None, false)
+        .await
+        .unwrap();
+    assert!(
+        branch_last_modified(&repo, "main").await > t1,
+        "a publish that changes the spec must advance the branch's last-published time"
+    );
+}
+
 fn all_audit_logs_filter() -> sanshain_service::domain::models::AuditLogFilter {
     sanshain_service::domain::models::AuditLogFilter {
         from_date: None,
