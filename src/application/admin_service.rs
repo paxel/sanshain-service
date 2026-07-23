@@ -90,6 +90,21 @@ pub async fn list_services_detailed(
     user_id: Option<i64>,
 ) -> Result<Vec<ServiceSummary>, AppError> {
     let mut services = repo.list_services_detailed().await?;
+
+    // Order each service's branches deterministically: protected branches first
+    // (e.g. master/main), then alphabetically. The underlying GROUP_CONCAT returns
+    // them in an unspecified order otherwise.
+    let protected = repo.list_protected_branches().await?;
+    let protected: std::collections::HashSet<&str> = protected.iter().map(String::as_str).collect();
+    for svc in &mut services {
+        svc.branches.sort_by(|a, b| {
+            protected
+                .contains(b.as_str())
+                .cmp(&protected.contains(a.as_str()))
+                .then_with(|| a.cmp(b))
+        });
+    }
+
     if let Some(uid) = user_id {
         let favorites = repo.get_user_favorites(uid, "service").await?;
         for svc in &mut services {
@@ -407,5 +422,21 @@ mod tests {
             .unwrap();
         let svcs_removed = list_services_detailed(&repo, Some(42)).await.unwrap();
         assert_eq!(svcs_removed[0].name, "svc-a");
+    }
+
+    #[tokio::test]
+    async fn test_branches_ordered_protected_first_then_alphabetical() {
+        let repo = MockRepo::new();
+        // MockRepo seeds "main" and "master" as protected branches.
+        let s = repo.ensure_service("svc").await.unwrap();
+        // Insert in a deliberately unsorted order.
+        for b in ["zebra", "master", "alpha", "main"] {
+            repo.ensure_branch(s, b).await.unwrap();
+        }
+
+        let svcs = list_services_detailed(&repo, None).await.unwrap();
+        let svc = svcs.iter().find(|s| s.name == "svc").unwrap();
+        // Protected first (alphabetical among themselves), then the rest alphabetically.
+        assert_eq!(svc.branches, vec!["main", "master", "alpha", "zebra"]);
     }
 }

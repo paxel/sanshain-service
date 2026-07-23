@@ -293,12 +293,20 @@ empty.
 publish timestamp (latest provide/version `created_at` for that branch). Needs a repository query
 returning per-branch last-activity; surface it on the card.
 
-### 11. Branch ordering in the overview
+### 11. Branch ordering in the overview — DONE 2026-07-23 (recency deferred to #10)
 
-**Finding:** branches are already returned `ORDER BY b.name` (alphabetical) — `list_branches`,
-`src/infrastructure/sqlite_repository.rs:1325`. Improve the ordering to be more useful: protected
-branches (master/main) first, then by **last publish** (ties into #10), newest first. Keep it
-deterministic (no randomness).
+**Finding:** the per-service `list_branches` query is `ORDER BY b.name` (alphabetical), but the
+**services-overview** branch list is built from `GROUP_CONCAT(b.name)` in `list_services_detailed`
+(`src/infrastructure/sqlite_repository.rs`), which has **no** inner ordering — so the overview
+branches were effectively unsorted and could vary between requests. That is the surface the tester
+saw.
+
+**Done:** `list_services_detailed` (`src/application/admin_service.rs`) now sorts each service's
+branches **protected-first** (exact-match against `list_protected_branches`, e.g. master/main),
+then alphabetically. Unit-tested
+(`test_branches_ordered_protected_first_then_alphabetical`). **Deferred:** recency ordering
+(protected → newest publish → name) still wants the per-branch last-activity query from #10; wire
+it in when #10 lands.
 
 ### 12. Branch TTL in the overview
 
