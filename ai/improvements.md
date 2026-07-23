@@ -9,6 +9,11 @@ This document is a handoff for follow-up implementation agents. It lists concret
 
 Do not “fix everything” in one pull request. Pick one item, add tests, implement the minimum safe change, run the relevant verification, update `CHANGELOG.md` only when the change is user-facing, and update `docs/ai/plan.md` when task status changes.
 
+> **See also:** [`ai/testing-findings-2026-07-23.md`](testing-findings-2026-07-23.md) — a separate,
+> prioritized plan for 16 issues found during exploratory testing (favorites loss, client-branch
+> navigation dead-ends, audit/observability noise, dark-mode contrast, and several feature
+> requests). Fold those items into this backlog's numbering as they are picked up.
+
 ## Priority legend
 
 ### 6. AsyncAPI subscribe operations: harvest as requires, validate as expectations — REWRITTEN 2026-07-04

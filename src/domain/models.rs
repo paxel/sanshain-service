@@ -203,6 +203,13 @@ pub struct ProvideChanges {
     pub deletes: usize,
 }
 
+impl ProvideChanges {
+    /// True when a provide produced no endpoint changes (a no-op re-upload).
+    pub fn is_empty(&self) -> bool {
+        self.inserts == 0 && self.updates == 0 && self.deletes == 0
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LdapConfig {
     pub server_url: String,
@@ -553,6 +560,35 @@ pub struct AuditLogFilter {
 mod tests {
     use super::*;
     use std::str::FromStr;
+
+    #[test]
+    fn provide_changes_is_empty_only_when_all_zero() {
+        assert!(ProvideChanges::default().is_empty());
+        assert!(
+            ProvideChanges {
+                inserts: 0,
+                updates: 0,
+                deletes: 0
+            }
+            .is_empty()
+        );
+        assert!(
+            !ProvideChanges {
+                inserts: 1,
+                updates: 0,
+                deletes: 0
+            }
+            .is_empty()
+        );
+        assert!(
+            !ProvideChanges {
+                inserts: 0,
+                updates: 0,
+                deletes: 3
+            }
+            .is_empty()
+        );
+    }
 
     #[test]
     fn api_type_accepts_canonical_names_and_legacy_aliases() {

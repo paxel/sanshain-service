@@ -85,7 +85,10 @@ pub async fn provide(
 
     if !payload.dry_run {
         let _ = state.spec_updated_tx.send(());
-        record_audit_log(
+        // Skip the audit entry for a no-op re-upload (no endpoint changes) to keep
+        // the audit timeline focused on actual spec changes.
+        if !res.changes.is_empty() {
+            record_audit_log(
         &state.repo,
         user,
         NewAuditLog {
@@ -102,6 +105,7 @@ pub async fn provide(
         },
     )
         .await?;
+        }
     }
 
     Ok((StatusCode::ACCEPTED, Json(res)))
@@ -142,7 +146,9 @@ pub async fn provide_asyncapi(
     )
     .await?;
     let _ = state.spec_updated_tx.send(());
-    record_audit_log(
+    // Skip the audit entry for a no-op re-upload (no endpoint changes).
+    if !res.changes.is_empty() {
+        record_audit_log(
         &state.repo,
         user,
         NewAuditLog {
@@ -159,6 +165,7 @@ pub async fn provide_asyncapi(
         },
     )
     .await?;
+    }
     Ok((StatusCode::ACCEPTED, Json(res)))
 }
 
@@ -197,7 +204,9 @@ pub async fn provide_proto(
     )
     .await?;
     let _ = state.spec_updated_tx.send(());
-    record_audit_log(
+    // Skip the audit entry for a no-op re-upload (no endpoint changes).
+    if !res.changes.is_empty() {
+        record_audit_log(
         &state.repo,
         user,
         NewAuditLog {
@@ -214,6 +223,7 @@ pub async fn provide_proto(
         },
     )
     .await?;
+    }
     Ok((StatusCode::ACCEPTED, Json(res)))
 }
 
@@ -496,23 +506,12 @@ pub struct ReportQuery {
 
 pub async fn report(
     State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
     Query(query): Query<ReportQuery>,
 ) -> Result<impl IntoResponse, AppError> {
+    // Not audited: this JSON report is fetched to render the branch view in the UI,
+    // so auditing it turns every branch view into a "Generated report" audit entry.
+    // Explicit report exports (markdown/isolation/merged) are still audited below.
     let res = services::generate_report(&state.repo, &query.branch).await?;
-    let _ = record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "REPORT",
-            details: &format!("Generated report for branch '{}'", query.branch),
-            service: None,
-            branch: Some(&query.branch),
-            action_type: Some("READ"),
-            diff: None,
-        },
-    )
-    .await;
     Ok(Json(res))
 }
 

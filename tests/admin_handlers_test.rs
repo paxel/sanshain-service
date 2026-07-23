@@ -313,3 +313,110 @@ async fn dev_mode_setting_reports_persisted_intent() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["dev_mode"], serde_json::Value::Bool(true));
 }
+
+fn all_audit_logs_filter() -> sanshain_service::domain::models::AuditLogFilter {
+    sanshain_service::domain::models::AuditLogFilter {
+        from_date: None,
+        to_date: None,
+        action_type: None,
+        service_wildcard: None,
+        branch_wildcard: None,
+        limit: 100,
+    }
+}
+
+// A no-op re-provide (identical spec, zero endpoint changes) must not create a
+// second PROVIDE_SPEC audit entry — audit noise reported during testing.
+#[tokio::test]
+async fn provide_without_changes_is_not_audited() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let (app, repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+
+    let spec = r#"openapi: 3.0.0
+info: {title: audit-demo, version: v1}
+paths:
+  /ping:
+    get:
+      responses:
+        '200': { description: ok }
+"#;
+    let body = serde_json::json!({
+        "servicename": "audit-svc",
+        "branch": "main",
+        "openapi_yaml": spec,
+    })
+    .to_string();
+
+    // First provide creates the endpoint -> audited.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+
+    // Second provide of the identical spec -> no changes -> NOT audited.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+
+    let logs = repo.get_audit_logs(all_audit_logs_filter()).await.unwrap();
+    let provide_count = logs
+        .iter()
+        .filter(|l| l.action == "PROVIDE_SPEC" && l.service.as_deref() == Some("audit-svc"))
+        .count();
+    assert_eq!(
+        provide_count, 1,
+        "a no-op re-provide must not add a second PROVIDE_SPEC audit entry"
+    );
+}
+
+// Fetching the branch report (used to render the branch view) must not create a
+// REPORT audit entry — otherwise merely viewing a branch is audited.
+#[tokio::test]
+async fn viewing_report_is_not_audited() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let (app, repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/report?branch=main")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let logs = repo.get_audit_logs(all_audit_logs_filter()).await.unwrap();
+    assert!(
+        logs.iter().all(|l| l.action != "REPORT"),
+        "viewing a branch report must not create a REPORT audit entry"
+    );
+}
