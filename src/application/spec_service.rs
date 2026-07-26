@@ -781,11 +781,45 @@ pub async fn get_endpoint_version_history(
         ApiType::Proto => method.to_string(),
     };
 
-    // Resolve the endpoint, falling back to the service's configured fallback branch
-    // and then any protected branch when the requested branch has no such endpoint
-    // (e.g. a client-required branch the server never published). The returned
-    // versions carry the branch they actually live on (`branch_name`), so the caller
-    // can tell whether a fallback happened.
+    // Prefer the requested branch's own history, but only if it actually has any:
+    // version rows are only written on protected branches (see
+    // `apply_spec_changes`), so a feature branch can genuinely hold the endpoint
+    // (e.g. branched from `master` with identical content) yet have zero version
+    // rows of its own. Checking existence alone (as `find_endpoint_with_fallback`
+    // does, and would do again below) would stop right there and hand back that
+    // same empty history.
+    if let Some(branch_id) = repo.find_branch(service_id, branch).await?
+        && let Some(endpoint_id) = repo
+            .get_endpoint_id(branch_id, api_type, path, &method_to_use)
+            .await?
+    {
+        let versions = repo.get_endpoint_versions(endpoint_id).await?;
+        if !versions.is_empty() {
+            return Ok(versions);
+        }
+    }
+
+    // No local history — look for real history on the service's configured
+    // fallback branch, then any protected branch (in priority order), explicitly
+    // skipping the branch already checked above (existence there isn't enough).
+    for candidate in fallback_branch_candidates(repo, servicename, branch).await? {
+        if let Some(candidate_branch_id) = repo.find_branch(service_id, &candidate).await?
+            && let Some(endpoint_id) = repo
+                .get_endpoint_id(candidate_branch_id, api_type, path, &method_to_use)
+                .await?
+        {
+            let versions = repo.get_endpoint_versions(endpoint_id).await?;
+            if !versions.is_empty() {
+                return Ok(versions);
+            }
+        }
+    }
+
+    // Nobody has real history — fall back to whatever endpoint exists at all
+    // (e.g. a client-required branch the server never published, or the local
+    // branch's own content with no recorded history). The returned versions
+    // carry the branch they actually live on (`branch_name`), so the caller can
+    // tell a fallback happened.
     let endpoint_id = find_endpoint_with_fallback(
         repo,
         service_id,
@@ -1111,6 +1145,28 @@ async fn require_bundle_inner(
     }
 }
 
+/// Ordered list of candidate branches to fall back to when `branch` doesn't have
+/// what's needed: the service's configured fallback branch (if set), then every
+/// protected branch — excluding `branch` itself, in priority order.
+async fn fallback_branch_candidates(
+    repo: &impl SpecRepository,
+    servicename: &str,
+    branch: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    let mut candidates = Vec::new();
+    if let Ok(Some(sfb)) = repo.get_fallback_branch(servicename).await
+        && sfb != branch
+    {
+        candidates.push(sfb);
+    }
+    for pb in repo.list_protected_branches().await? {
+        if pb != branch && !candidates.contains(&pb) {
+            candidates.push(pb);
+        }
+    }
+    Ok(candidates)
+}
+
 async fn find_endpoint_with_fallback(
     repo: &impl SpecRepository,
     service_id: i64,
@@ -1127,21 +1183,10 @@ async fn find_endpoint_with_fallback(
         return Ok(endpoint);
     }
 
-    if let Ok(Some(sfb)) = repo.get_fallback_branch(servicename).await
-        && sfb != branch
-        && let Some(ep) = repo
-            .find_endpoint(service_id, &sfb, api_type, path, method_to_use)
+    for candidate in fallback_branch_candidates(repo, servicename, branch).await? {
+        if let Some(ep) = repo
+            .find_endpoint(service_id, &candidate, api_type, path, method_to_use)
             .await?
-    {
-        return Ok(Some(ep));
-    }
-
-    let protected = repo.list_protected_branches().await?;
-    for pb in &protected {
-        if pb != branch
-            && let Some(ep) = repo
-                .find_endpoint(service_id, pb, api_type, path, method_to_use)
-                .await?
         {
             return Ok(Some(ep));
         }

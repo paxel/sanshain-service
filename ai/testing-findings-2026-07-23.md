@@ -170,46 +170,43 @@ already knows which provider branch satisfied the require). Reuse one link-build
 **Test:** UI test: from a client branch, the server link opens the *provider's* endpoint page and
 renders its spec.
 
-### 3 & 4. Feature branches always show "No history" — even a branch cut from master with no changes
+### 3 & 4. Feature branches always show "No history" — even a branch cut from master with no changes — RESOLVED 2026-07-26
 
 **Symptom:** Viewing an endpoint on a feature branch shows no version history. A branch created
 from `master` with identical content also shows "no history", which is confusing because `master`
 has history.
 
 **Root cause:** version rows (`endpoint_versions`) are only written when the branch is protected
-(`if is_protected { … }` in `apply_spec_changes`, `src/infrastructure/sqlite_repository.rs:1996`
-and `postgres_repository.rs:1933`). Feature branches never accumulate history.
+(`apply_spec_changes`, both backends). Feature branches never accumulate their own history.
 
-**Reproduce first — the symptom is ambiguous.** The 1.5.1 current-spec fallback
-(`loadCurrentSpecFallback`) **is confirmed present in the tested build** (HEAD `06a20ce`), so
-"tested an old build" is ruled out. When that fallback fires it shows the endpoint's **current
-spec**, *not* the "No version history found" text — so seeing the empty message means the fallback
-did **not** fire. Determine which reality holds before choosing a fix:
-- **(b) Endpoint not materialized on the branch** → `get_endpoint_id` returns `None` →
-  `/admin/endpoint-versions` returns `404`, the fallback also 404s → this is the **same failure as
-  #13**, not an empty-history state. Check whether creating a branch from master actually copies
-  endpoints onto the new branch, or whether the endpoint list shows rows that don't exist server-side.
-- **(c) Fallback bug** — the endpoint exists (200 `[]`) but the fallback fetch fails or is skipped.
-  Check the `res.length === 0` path and the `/admin/endpoints/yaml` call in `yaml.html`.
-- **(d) Label perception** — the fallback *is* showing the current spec as a single "Version 1"
-  card and the tester reads that as "no history".
+**Traced without needing a live repro** (the earlier plan's options (b)/(c)/(d) were superseded by
+reading the actual code path): this turned out to be a genuinely different bug from #13, not the
+same one. `find_endpoint_with_fallback` (used by #13's fix) only checks whether the endpoint
+*exists* on the requested branch — if a feature branch genuinely holds the endpoint (e.g. it was
+branched from `master` with identical, unchanged content, so a real row exists there), the resolver
+returns that branch's own endpoint immediately, without ever checking whether it has any version
+*history*. `get_endpoint_versions` on that endpoint then legitimately returns empty, because only
+protected branches ever write those rows. This is (b)-shaped but not the #13 case: existence is not
+the problem, empty *history* despite existence is.
 
-**Fix depends on the reality:**
-- (b) → fix under #13 (branch/endpoint existence + 404 handling); possibly ensure branching copies
-  endpoints, or make the UI not list unprovided endpoints as clickable.
-- (c) → fix the fallback.
-- (d) → **(C)** relabel the single card, e.g. "Current spec — no branch history yet (version
-  tracking begins on protected branches)". Nearly free.
+**Fix (option (A), now justified — this is exactly what (A) was for):** `get_endpoint_version_history`
+(`src/application/spec_service.rs`) now: (1) checks the requested branch's own history first, and
+returns it immediately if non-empty (protected branches — the fast, unchanged path); (2) if empty,
+searches the service's fallback branch then every protected branch (via a new shared
+`fallback_branch_candidates` helper, factored out of `find_endpoint_with_fallback` so both stay in
+sync) for one with real history, returning the first found; (3) only if nobody has real history
+does it fall through to the existence-based `find_endpoint_with_fallback` (the #13 path — covers a
+branch that doesn't have the endpoint at all). `yaml.html`'s existing fallback-note UI (added for
+#13) needed no change — it already compares the served `branch_name` to the requested branch.
 
-**Only if it's (d) and the product wants real feature-branch history**, consider the heavier option
-**(A) inherited view**: when a feature branch has no history, show the base/protected branch's
-history for the same endpoint (read-time fallback, no schema change). Do **not** default to (A);
-it is the biggest option and is unjustified unless (b)/(c) are excluded and (C) is deemed
-insufficient. (Option (B) — record versions on all branches — is explicitly out of scope: more
-storage, and it abandons the "protected = versioning gate" design.)
+**Test:** `version_history_falls_back_when_local_branch_has_no_history_of_its_own` — a feature
+branch is given the endpoint's real (identical) content via a normal provide, confirmed to have its
+own row, and history is asserted to be inherited from `master`'s real multi-version history, not
+reported empty. `version_history_falls_back_to_protected_branch` (the #13 case) still passes
+unchanged.
 
-**Relevant areas:** `src/application/spec_service.rs` (`get_endpoint_version_history`),
-`src/infrastructure/*_repository.rs`, `static/yaml.html`, branch-creation/copy logic (for (b)).
+**Relevant areas:** `src/application/spec_service.rs` (`get_endpoint_version_history`,
+`fallback_branch_candidates`, `find_endpoint_with_fallback`).
 
 ---
 
@@ -449,6 +446,91 @@ rendering in `yaml.html`.
 `src/application/spec_service.rs` (provide flow, blame), provide handlers + `api.yaml`,
 `static/yaml.html` (blame view).
 
+### 17. No real notion of which protected branch a feature branch descends from — **DECISION NEEDED**
+
+**Problem (raised by maintainer, 2026-07-26):** the service has no concept of branch ancestry.
+When resolving a fallback for a branch that lacks its own data, the only signals available are:
+1. A single, **admin-configured, per-service** `fallback_branch` setting (`set_fallback_branch`) —
+   static, does not vary per feature branch, must be set manually.
+2. Otherwise, **every** protected branch, tried in **alphabetical order**
+   (`list_protected_branches`: `ORDER BY pattern`) — e.g. with `main`, `release/1.5`, `release/1.6`
+   all protected, a feature branch actually cut from `release/1.6` would try `main` first, then
+   `release/1.5`, before ever reaching `release/1.6` — an arbitrary pick with no relation to which
+   release the branch was actually created from.
+
+There is currently no field anywhere in the `/provide*` **or** `/require*` payloads
+(`ProvideRequest`, `RequireQuery`/`RequireEndpointParams`, `src/presentation/handlers/api.rs`) that
+identifies a branch's parent/base — Sanshain only ever receives an isolated branch name string on
+each call, never git ancestry.
+
+**This is not just a `/provide`-side concern.** `find_endpoint_with_fallback` (which
+`fallback_branch_candidates` feeds into) has three call sites, all sharing the exact same
+ambiguity: `get_endpoint_yaml` (`spec_service.rs:708`, the current-spec viewer), the version-history
+fallback added for #3/#4/#13 (`get_endpoint_version_history`, `:823`), and — most consequentially —
+**`require_endpoint_inner`** (`:900`), which is what actually decides what spec content a *client*
+gets served when it calls `/require` for a branch the service hasn't published. A wrong fallback
+pick there isn't just a confusing history view; it's a client building or testing against the wrong
+release's contract, silently.
+
+**Impact:** the fallback/inherited-history behavior added for #3/#4 and #13, and the pre-existing
+`/require` fallback, are only as good as "some protected branch happens to have this endpoint" —
+with multiple protected branches (a common setup: `main` plus several `release/X.Y` lines), the
+branch picked can be the wrong one, silently showing history, a fallback spec, or served client
+content from an unrelated release.
+
+**An added wrinkle for the eventual decision:** the hint could originate from either side. A
+*service* provide could declare what its own branch descends from; a *client* require could equally
+declare what its branch descends from. Since Sanshain correlates branches across repos purely by
+name convention (a client's "feature-x" and a service's "feature-x" are unrelated git branches in
+unrelated repos that happen to share a name), these two declarations are two independent opinions
+about the same conceptual ancestry and could disagree — e.g. a client believes it's based on
+`release/1.6` while the service that owns the branch name believes `release/1.5`. Whichever design
+is chosen needs to say which side's hint wins, or whether both are recorded and reconciled somehow.
+
+**Is this solvable without git access?** Correctly and generally — no. Sanshain has no git
+integration and only sees whatever a `/provide` or `/require` call tells it; there is no way to
+derive "this branch was cut from that commit on that branch" from the API surface as it exists
+today.
+
+**A partial, git-access-free mitigation that *is* feasible:** the entity provisioning a branch
+already knows its own git parent — that information just isn't being forwarded to Sanshain. An
+optional `base_branch` hint (e.g. `{"base_branch": "release/1.6"}`, best-effort) on **both**
+`/provide*` and `/require*` would let `fallback_branch_candidates`/`find_endpoint_with_fallback` try
+the *declared* parent first, before falling back to the current alphabetical-protected-branch
+behavior. This does not require git access on **Sanshain's** side — only a small, additive protocol
+change (`ProvideRequest` and `RequireQuery`/`RequireEndpointParams` fields, `api.yaml`, stored e.g.
+in `endpoint_version_metadata` or a new `branches.base_branch` column).
+
+Critically, this doesn't have to mean "every CI author manually adds a flag to their pipeline YAML"
+— it's more realistic than that. **Client integrations that run inside the checkout** (the Sanshain
+Maven plugin is the concrete example here — it would forward the hint on the `/require` calls it
+makes, not `/provide`; any future client library fits the same shape) sit exactly where git *is*
+available, unlike Sanshain's server. Such a plugin could auto-detect the base branch itself — via a
+local `git merge-base`/`git symbolic-ref` against the checkout, or by reading whichever CI
+platform's own env var already carries it (GitHub Actions' `GITHUB_BASE_REF`, GitLab's
+`CI_MERGE_REQUEST_TARGET_BRANCH_NAME`, etc.) — and forward it automatically, with zero manual wiring
+from whoever writes the pipeline config. Service-side CI (calling `/provide`) could do the same for
+its own branch. (The Maven plugin is a **separate repository** (`sanshain-maven-plugin`), not part
+of this codebase — any change there is out of scope for this repo's backlog, but the *protocol*
+side, the optional `base_branch` field this server would need to accept on both `/provide` and
+`/require`, belongs here.)
+
+Either way — human-supplied or plugin-auto-detected — it remains a *hint*, not authoritative
+ancestry: nothing stops a caller from omitting it or getting it wrong, and it wouldn't retroactively
+fix branches created before the field existed.
+
+**Recommendation:** don't implement yet — this is a protocol/product decision (is CI/plugin
+cooperation realistic here? is "hint, not truth" an acceptable model? which side's hint wins if
+provide and require disagree, or are both stored and reconciled? does the ordering need to be
+configurable beyond a single per-service `fallback_branch`?). Get the call before touching
+`ProvideRequest`/`RequireQuery`/`api.yaml`.
+
+**Relevant areas:** `src/presentation/handlers/api.rs` (`ProvideRequest`, `RequireQuery` and
+siblings), `src/application/spec_service.rs` (`fallback_branch_candidates`,
+`find_endpoint_with_fallback`, `require_endpoint_inner`),
+`src/infrastructure/*_repository.rs` (`list_protected_branches`, `set_fallback_branch`),
+`api.yaml`, `src/infrastructure/migrations/` (if a stored `base_branch` is chosen over metadata-only).
+
 ---
 
 ## Cross-cutting notes
@@ -459,3 +541,7 @@ rendering in `yaml.html`.
 - #10, #11, #12 all want a **per-branch last-activity / expiry query** — build that once.
 - #3/#4, #13, #14 all revolve around the branch/history model — settle the #3/#4 decision first, as
   it shapes the others.
+- #17 is the underlying limitation of the fallback logic #3/#4 and #13 both landed on
+  (`fallback_branch_candidates`): it picks *a* protected branch, not necessarily the *right* one
+  when several exist. Not blocking — #3/#4/#13 are still correct improvements over 404/empty — but
+  worth resolving before leaning on the fallback further.

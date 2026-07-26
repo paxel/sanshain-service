@@ -511,6 +511,84 @@ paths:
     assert!(missing.is_err(), "no branch has this endpoint");
 }
 
+// A feature branch created from a protected branch with identical content
+// genuinely has the endpoint (its own row, same yaml), but never accumulates its
+// own `endpoint_versions` rows since only protected branches record history. It
+// must not report "no history" — it should inherit the protected branch's real
+// history, distinct from #13's case where the endpoint doesn't exist at all.
+#[tokio::test]
+async fn version_history_falls_back_when_local_branch_has_no_history_of_its_own() {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+
+    let spec = r#"openapi: 3.0.0
+info: {title: t, version: v1}
+paths:
+  /p:
+    get:
+      responses:
+        '200': { description: ok }
+"#;
+    // Two real versions on the protected branch "main".
+    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec, None, false)
+        .await
+        .unwrap();
+    let spec_v2 = r#"openapi: 3.0.0
+info: {title: t, version: v2}
+paths:
+  /p:
+    get:
+      responses:
+        '200': { description: ok }
+  /q:
+    get:
+      responses:
+        '200': { description: ok }
+"#;
+    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec_v2, None, false)
+        .await
+        .unwrap();
+
+    // Branch "feature-x" actually holds the same endpoint content (a real row,
+    // not a missing one) — but since it's not protected, no endpoint_versions
+    // rows were ever written for it.
+    services::provide_spec(
+        &repo,
+        "svc",
+        "feature-x",
+        ApiType::OpenApi,
+        spec_v2,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let versions = services::get_endpoint_version_history(
+        &repo,
+        "svc",
+        "feature-x",
+        ApiType::OpenApi,
+        "/p",
+        "GET",
+    )
+    .await
+    .unwrap();
+    assert!(
+        versions.len() >= 2,
+        "must inherit main's real multi-version history, not report empty"
+    );
+    assert_eq!(
+        versions[0].branch_name.as_deref(),
+        Some("main"),
+        "history is served from main, where it was actually recorded"
+    );
+}
+
 // Only non-protected branches get a stale-cleanup expiry (protected branches are
 // exempt from cleanup), and it is after the last publish.
 #[tokio::test]
