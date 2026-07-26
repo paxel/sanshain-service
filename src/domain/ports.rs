@@ -311,6 +311,31 @@ pub trait SpecRepository: Send + Sync {
         service_name: &str,
     ) -> impl Future<Output = Result<Option<String>, RepositoryError>> + Send;
 
+    /// Atomically set a branch's `source_protected_branch` (item #17), but only
+    /// if it is currently unset. Returns `true` if this call set it, `false` if
+    /// the branch already had a value (left untouched) — callers use this to
+    /// distinguish "I set it" from "someone already had a different answer",
+    /// for mismatch logging.
+    fn set_source_protected_branch_if_unset(
+        &self,
+        branch_id: i64,
+        value: &str,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Get a branch's current `source_protected_branch`, if any.
+    fn get_source_protected_branch(
+        &self,
+        branch_id: i64,
+    ) -> impl Future<Output = Result<Option<String>, RepositoryError>> + Send;
+
+    /// Admin-only: unconditionally set (or clear, with `None`) a branch's
+    /// `source_protected_branch`, overwriting any existing value.
+    fn admin_set_source_protected_branch(
+        &self,
+        branch_id: i64,
+        value: Option<&str>,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
     /// List all branches for a service.
     fn list_branches(
         &self,

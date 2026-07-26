@@ -213,6 +213,45 @@ pub async fn get_fallback_branch(
     Ok(repo.get_fallback_branch(service_name).await?)
 }
 
+async fn resolve_branch_id(
+    repo: &impl SpecRepository,
+    service_name: &str,
+    branch_name: &str,
+) -> Result<i64, AppError> {
+    let service_id = repo
+        .find_service(service_name)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Service '{}' not found", service_name)))?;
+    repo.find_branch(service_id, branch_name)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Branch '{}' not found", branch_name)))
+}
+
+/// Item #17: get a branch's `source_protected_branch`, if any.
+pub async fn get_source_protected_branch(
+    repo: &impl SpecRepository,
+    service_name: &str,
+    branch_name: &str,
+) -> Result<Option<String>, AppError> {
+    let branch_id = resolve_branch_id(repo, service_name, branch_name).await?;
+    Ok(repo.get_source_protected_branch(branch_id).await?)
+}
+
+/// Item #17, admin-only: unconditionally set (or clear, with `None`) a
+/// branch's `source_protected_branch`, overwriting whatever caller-supplied
+/// or previously-admin-set value is currently stored.
+pub async fn admin_set_source_protected_branch(
+    repo: &impl SpecRepository,
+    service_name: &str,
+    branch_name: &str,
+    value: Option<&str>,
+) -> Result<(), AppError> {
+    let branch_id = resolve_branch_id(repo, service_name, branch_name).await?;
+    repo.admin_set_source_protected_branch(branch_id, value)
+        .await?;
+    Ok(())
+}
+
 pub async fn list_branches(
     repo: &impl SpecRepository,
     service_name: &str,

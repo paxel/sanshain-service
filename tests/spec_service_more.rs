@@ -81,6 +81,7 @@ async fn provide_with_tags_persists_and_auto_tag() {
             content: ASYNCAPI_V2,
             base_version: None,
             force: false,
+            source_protected_branch: None,
         },
         &["custom".to_string()],
     )
@@ -168,6 +169,8 @@ async fn require_endpoint_dry_run_not_found() {
         path: "/nope",
         method: "get",
         timeout_secs: Some(0),
+        source_protected_branch: None,
+        pull_from_branch: None,
     };
     let res = spec_service::require_endpoint_dry_run(&repo, None, params).await;
     match res {

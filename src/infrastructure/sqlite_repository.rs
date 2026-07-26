@@ -1336,6 +1336,49 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(row.and_then(|r| r.0))
     }
 
+    async fn set_source_protected_branch_if_unset(
+        &self,
+        branch_id: i64,
+        value: &str,
+    ) -> Result<bool, RepositoryError> {
+        let result = sqlx::query(
+            "UPDATE branches SET source_protected_branch = ? WHERE id = ? AND source_protected_branch IS NULL",
+        )
+        .bind(value)
+        .bind(branch_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn get_source_protected_branch(
+        &self,
+        branch_id: i64,
+    ) -> Result<Option<String>, RepositoryError> {
+        let row: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT source_protected_branch FROM branches WHERE id = ?")
+                .bind(branch_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.and_then(|r| r.0))
+    }
+
+    async fn admin_set_source_protected_branch(
+        &self,
+        branch_id: i64,
+        value: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE branches SET source_protected_branch = ? WHERE id = ?")
+            .bind(value)
+            .bind(branch_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
     async fn list_branches(&self, service_name: &str) -> Result<Vec<String>, RepositoryError> {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT b.name FROM branches b JOIN services s ON b.service_id = s.id WHERE s.name = ? ORDER BY b.name"

@@ -294,6 +294,70 @@ pub async fn admin_reset_branch_history(
     }
 }
 
+#[derive(serde::Serialize)]
+pub struct SourceProtectedBranchResponse {
+    pub source_protected_branch: Option<String>,
+}
+
+/// Item #17: view a branch's `source_protected_branch` — the protected branch
+/// it defers to when it has no data of its own (either caller-supplied on a
+/// first `/provide`/`/require`, or admin-corrected).
+pub async fn admin_get_source_protected_branch(
+    State(state): State<AppState>,
+    Path((name, branch)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let value = services::get_source_protected_branch(&state.repo, &name, &branch).await?;
+    Ok(Json(SourceProtectedBranchResponse {
+        source_protected_branch: value,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct SetSourceProtectedBranchRequest {
+    pub source_protected_branch: Option<String>,
+}
+
+/// Item #17, admin-only: unconditionally set (or clear, with `null`) a
+/// branch's `source_protected_branch`, overwriting whatever is currently
+/// stored — the only way to correct a wrong or missing caller-supplied value.
+pub async fn admin_set_source_protected_branch(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Path((name, branch)): Path<(String, String)>,
+    Json(payload): Json<SetSourceProtectedBranchRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    services::admin_set_source_protected_branch(
+        &state.repo,
+        &name,
+        &branch,
+        payload.source_protected_branch.as_deref(),
+    )
+    .await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "SET_SOURCE_PROTECTED_BRANCH",
+            details: &match &payload.source_protected_branch {
+                Some(v) => format!(
+                    "Set source_protected_branch of branch '{}' of service '{}' to '{}'",
+                    branch, name, v
+                ),
+                None => format!(
+                    "Cleared source_protected_branch of branch '{}' of service '{}'",
+                    branch, name
+                ),
+            },
+            service: Some(&name),
+            branch: Some(&branch),
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
+    )
+    .await?;
+    Ok(StatusCode::OK)
+}
+
 pub async fn admin_delete_client(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
@@ -1081,6 +1145,8 @@ pub async fn admin_update_endpoint(
             path: &payload.path,
             method: &payload.method,
             timeout_secs: None,
+            source_protected_branch: None,
+            pull_from_branch: None,
         },
         payload.api_type,
         payload.yaml,

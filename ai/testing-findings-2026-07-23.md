@@ -492,7 +492,57 @@ rendering in `yaml.html`.
 `src/application/spec_service.rs` (provide flow, blame), provide handlers + `api.yaml`,
 `static/yaml.html` (blame view).
 
-### 17. No real notion of which protected branch a feature branch descends from — **DECISION NEEDED**
+### 17. No real notion of which protected branch a feature branch descends from — DONE 2026-07-26
+
+**Design resolved via a grilling session** (details below), specced as
+[GitHub issue #1](https://github.com/paxel/sanshain-service/issues/1) (`ready-for-agent`), then
+fully implemented per that spec. Summary: **`source_protected_branch`** (sticky, per-branch,
+first-write-wins, admin-correctable) + **`pull_from_branch`** (per-request, `/require`-only,
+non-persisting override).
+
+**Implementation:**
+- Migration: nullable `branches.source_protected_branch` (both backends).
+- Port methods `set_source_protected_branch_if_unset` / `get_source_protected_branch` /
+  `admin_set_source_protected_branch`, implemented on both backends plus cached/database
+  delegators and a real (not stubbed) `MockRepo` tracking map.
+- `ProvideRequest`/`ProvideAsyncApiRequest`/`ProvideProtoRequest`/`ProvideSpecParams` gained
+  `source_protected_branch`; `RequireQuery`/`RequireEndpointParams` gained
+  `source_protected_branch` and `pull_from_branch`.
+- `apply_source_protected_branch_hint` (`src/application/spec_service.rs`): shared write-once +
+  mismatch-logging helper, called from both `provide_spec_inner` and `require_endpoint_inner`.
+  Mismatches log via `tracing::warn!(service = …, branch = …, …)`, reusing item #7's structured
+  logging.
+- `fallback_branch_candidates` now takes `service_id` and consults the branch's own
+  `source_protected_branch` first, ahead of the service `fallback_branch` and the alphabetical
+  protected-branch chain — automatically propagating to all three of its callers (`get_endpoint_yaml`,
+  `get_endpoint_version_history`, `find_endpoint_with_fallback` → `require_endpoint_inner`).
+- `pull_from_branch` short-circuits `require_endpoint_inner`'s loop to a single direct
+  `find_endpoint` lookup, with no resolution chain and no persistence.
+- New admin routes `GET`/`PUT /admin/services/{name}/branches/{branch}/source-protected-branch`
+  (`admin_auth`-gated), added to the `NOT_IN_CLIENT_CONTRACT` allowlist.
+- `api.yaml` updated: new `source_protected_branch` field on all three provide payload schemas;
+  new shared `source_protected_branch`/`pull_from_branch` query parameters on all three require
+  endpoints; the `/require` description's stale "falls back to `master` automatically" text
+  (inaccurate since #13's fallback work earlier this session) corrected to describe the real
+  resolution order.
+
+**A real regression was caught and fixed during testing:** the first implementation called
+`ensure_branch` unconditionally in `require_endpoint_inner` whenever a hint *could* apply, which
+created a phantom branch row for a plain `/require` against a nonexistent service/branch — breaking
+the pre-existing `test_require_does_not_create_phantom_service` invariant. Fixed by gating
+`ensure_branch` on a hint actually being supplied (`params.source_protected_branch.is_some()`), so a
+require with no hint has zero persistence side effects, matching prior behavior exactly.
+
+**Tests** (`tests/admin_handlers_test.rs`): first-write sets the value; a differing second write is
+ignored and logged as a mismatch (via a scoped `LogCaptureLayer` + `#[tokio::test(flavor =
+"current_thread")]`, since a multi-threaded runtime cannot reliably keep a thread-local tracing
+subscriber active across `.await` points); a matching second write is a no-op with no log; an admin
+correction always overwrites and a later caller-supplied value cannot undo it; `pull_from_branch`
+bypasses resolution and creates no branch row at all; a protected branch with no data still 404s
+(regression guard, still correct); `get_endpoint_version_history` prefers `source_protected_branch`
+over the alphabetically-earlier `main`; the admin HTTP endpoint works end-to-end through the real
+router and is confirmed `403` for a non-admin. Full suite (33 groups), `cargo clippy --tests -D
+warnings`, and `cargo fmt --check` all pass.
 
 **Problem (raised by maintainer, 2026-07-26):** the service has no concept of branch ancestry.
 When resolving a fallback for a branch that lacks its own data, the only signals available are:
@@ -576,6 +626,60 @@ siblings), `src/application/spec_service.rs` (`fallback_branch_candidates`,
 `find_endpoint_with_fallback`, `require_endpoint_inner`),
 `src/infrastructure/*_repository.rs` (`list_protected_branches`, `set_fallback_branch`),
 `api.yaml`, `src/infrastructure/migrations/` (if a stored `base_branch` is chosen over metadata-only).
+
+---
+
+**Design session 2026-07-26 (in progress — not yet decided, nothing implemented).** Grilled through
+concrete scenarios (server/client branching off master vs. off a release line, merge-order races,
+and — the decisive one — a hotfix cut locally off `release/1.0` while `master` has since deprecated
+and removed endpoints `release/1.0` still needs). Findings:
+
+- Confirmed in code: requiring against a branch that **is itself protected** but has no data already
+  fails correctly today (`find_endpoint_with_fallback` returns `None` without ever substituting
+  another protected branch) — the "must never silently fall back to master from a *different*
+  protected branch" requirement is **already met** for that specific case. No change needed there.
+- The real gap is a *local development machine, before any PR/CI context exists* — not a rare edge
+  case, the **default state** of any branch before it has a pull/merge request. CI env vars
+  (`GITHUB_BASE_REF` etc., see the CI survey above) only populate once a PR exists, so they cannot be
+  the whole answer.
+- `git merge-base` computed **locally** (a normal dev clone has full history, unlike CI's typical
+  shallow clone) against the **known protected branches** correctly identifies the true divergence
+  point even pre-PR. This requires knowing the candidate set first — confirmed
+  `GET /branches/protected` **already exists** (`api_auth`-gated, `src/lib.rs:76`) and already serves
+  exactly this list, so no new endpoint is needed for a client to fetch candidates.
+
+**Emerging design (names confirmed 2026-07-26; not yet implemented — still awaiting go-ahead):**
+- **`source_protected_branch`** — a new **per-branch** sticky setting (deliberately not named
+  `source_branch`, which already exists at a different grain: `EndpointVersion.source_branch` is
+  recorded per *version*, for blame; this is per *branch*) holding which protected branch should be
+  treated as authoritative when this branch has no data of its own.
+- Unset → today's last resort (service `fallback_branch` / alphabetical) applies unchanged.
+- A caller (client `/require` or service `/provide`) may supply a value; **first write wins** — once
+  set (by that first write or by an admin), later caller-supplied values for the same branch are
+  **ignored**, specifically to prevent flip-flopping between different computed values across
+  different machines/CI runs. Only an admin can change it after that point.
+- Work required elsewhere, out of scope for this repo: the Maven plugin (separate repository,
+  `sanshain-maven-plugin`) would need to actually implement the local `merge-base` computation
+  against `/branches/protected` and start sending the value.
+
+**Client/service disagreement — resolved with a second, separate mechanism: `pull_from_branch`.**
+The client and the service are **independent repositories**, correlated only by matching branch
+*names* (established earlier in this doc). Each independently computes its own
+`merge-base`-derived answer against its *own* git history — for a branch name that exists in both,
+the two sides can genuinely disagree about which protected branch it actually diverged from. This
+isn't a bug, it's a structural consequence of correlating two unrelated commit graphs by name alone.
+
+Resolution: **`pull_from_branch`** — a **per-request** parameter on `/require` only (not `/provide`).
+Unlike `source_protected_branch`, it does **not** persist or overwrite any stored value — it is a
+one-shot override for that single call: when supplied, it bypasses `source_protected_branch` and all
+other fallback resolution entirely and fetches data from exactly the named branch. This is the
+client's escape hatch when it disagrees with (or can't rely on) whatever `source_protected_branch`
+currently holds, **without** corrupting the shared, persisted state that other callers depend on —
+it only affects the one call that used it. This addresses the earlier discomfort with a destructive
+"client wins outright" global override: the override is now scoped and non-destructive rather than a
+silent, permanent discarding of the service's own answer.
+
+---
 
 ### 18. The whole observability/audit view is open to any authenticated user, not just admins — PARTIALLY RESOLVED 2026-07-26 (audit log restricted; stats/raw logs deliberately left open)
 

@@ -321,8 +321,12 @@ paths:
         **Long-polling**: If `timeout` is provided and the endpoint is not yet available,
         the server waits up to `timeout` seconds for it to appear.
 
-        **Feature branch fallback**: If the endpoint is not found on the requested branch,
-        the server falls back to the `master` branch automatically.
+        **Branch fallback**: if the endpoint is not found on the requested branch (and that
+        branch is not itself a protected branch — protected branches never substitute another),
+        the server falls back in this order: the branch's `source_protected_branch` (a sticky,
+        persisted hint — see `source_protected_branch` below), then the service's configured
+        fallback branch, then any protected branch. Use `pull_from_branch` to bypass this chain
+        entirely for a single request.
       parameters:
         - name: If-None-Match
           in: header
@@ -379,6 +383,26 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: source_protected_branch
+          in: query
+          required: false
+          description: |
+            Best-effort hint: the protected branch this branch defers to when it has no data
+            of its own. Only takes effect the first time it is supplied for a given branch —
+            once set (by any caller, or an admin), later differing values are ignored (and
+            logged as a mismatch); only an admin can change it afterward.
+          schema:
+            type: string
+        - name: pull_from_branch
+          in: query
+          required: false
+          description: |
+            One-shot override: resolve this specific request against exactly this branch,
+            bypassing `source_protected_branch` and all other fallback resolution. Never
+            persisted — use this when the caller's own understanding of its lineage disagrees
+            with the stored `source_protected_branch`.
+          schema:
+            type: string
       responses:
         "200":
           description: The OpenAPI YAML snippet for the requested endpoint.
@@ -430,6 +454,8 @@ paths:
             type: string
         - $ref: "#/components/parameters/timeout"
         - $ref: "#/components/parameters/dry_run"
+        - $ref: "#/components/parameters/source_protected_branch"
+        - $ref: "#/components/parameters/pull_from_branch"
       responses:
         "200":
           description: The AsyncAPI snippet.
@@ -471,6 +497,8 @@ paths:
             type: string
         - $ref: "#/components/parameters/timeout"
         - $ref: "#/components/parameters/dry_run"
+        - $ref: "#/components/parameters/source_protected_branch"
+        - $ref: "#/components/parameters/pull_from_branch"
       responses:
         "200":
           description: The Proto snippet.
@@ -587,6 +615,28 @@ components:
       schema:
         type: boolean
         default: false
+    source_protected_branch:
+      name: source_protected_branch
+      in: query
+      required: false
+      description: |
+        Best-effort hint: the protected branch this branch defers to when it has no data
+        of its own. Only takes effect the first time it is supplied for a given branch —
+        once set (by any caller, or an admin), later differing values are ignored (and
+        logged as a mismatch); only an admin can change it afterward.
+      schema:
+        type: string
+    pull_from_branch:
+      name: pull_from_branch
+      in: query
+      required: false
+      description: |
+        One-shot override: resolve this specific request against exactly this branch,
+        bypassing `source_protected_branch` and all other fallback resolution. Never
+        persisted — use this when the caller's own understanding of its lineage disagrees
+        with the stored `source_protected_branch`.
+      schema:
+        type: string
 
   schemas:
     ProvidePayload:
@@ -631,6 +681,14 @@ components:
           description: |
             Deprecated: has no effect on non-protected branches (breaking changes are
             always accepted there). Blocked on protected branches (returns 400).
+        source_protected_branch:
+          type: string
+          description: |
+            Best-effort hint: the protected branch this branch defers to when it has no
+            data of its own (e.g. the release line a hotfix branch was cut from). Only
+            takes effect the first time it is supplied for a given branch — once set
+            (by any caller, or an admin), later differing values are ignored (and logged
+            as a mismatch); only an admin can change it afterward.
     ProvideAsyncApiPayload:
       type: object
       required:
@@ -659,6 +717,9 @@ components:
           description: |
             Deprecated: has no effect on non-protected branches (breaking changes are
             always accepted there). Blocked on protected branches (returns 400).
+        source_protected_branch:
+          type: string
+          description: See `ProvidePayload.source_protected_branch`.
     ProvideProtoPayload:
       type: object
       required:
@@ -687,6 +748,9 @@ components:
           description: |
             Deprecated: has no effect on non-protected branches (breaking changes are
             always accepted there). Blocked on protected branches (returns 400).
+        source_protected_branch:
+          type: string
+          description: See `ProvidePayload.source_protected_branch`.
     ProvideResponse:
       type: object
       properties:

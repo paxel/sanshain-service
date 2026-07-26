@@ -44,6 +44,10 @@ pub struct ProvideRequest {
     pub dry_run: bool,
     #[serde(default)]
     pub force: bool,
+    /// Best-effort hint: which protected branch this branch defers to when it
+    /// has no data of its own (item #17). Only takes effect the first time it
+    /// is supplied for a given branch — see `services::apply_source_protected_branch_hint`.
+    pub source_protected_branch: Option<String>,
 }
 
 pub async fn provide(
@@ -77,6 +81,7 @@ pub async fn provide(
                 content: &payload.openapi_yaml,
                 base_version: payload.base_version,
                 force: payload.force,
+                source_protected_branch: payload.source_protected_branch.as_deref(),
             },
             Some(&actor),
         )
@@ -119,6 +124,8 @@ pub struct ProvideAsyncApiRequest {
     pub base_version: Option<String>,
     #[serde(default)]
     pub force: bool,
+    /// See `ProvideRequest::source_protected_branch`.
+    pub source_protected_branch: Option<String>,
 }
 
 pub async fn provide_asyncapi(
@@ -141,6 +148,7 @@ pub async fn provide_asyncapi(
             content: &payload.asyncapi_yaml,
             base_version: payload.base_version,
             force: payload.force,
+            source_protected_branch: payload.source_protected_branch.as_deref(),
         },
         Some(&actor),
     )
@@ -177,6 +185,8 @@ pub struct ProvideProtoRequest {
     pub base_version: Option<String>,
     #[serde(default)]
     pub force: bool,
+    /// See `ProvideRequest::source_protected_branch`.
+    pub source_protected_branch: Option<String>,
 }
 
 pub async fn provide_proto(
@@ -199,6 +209,7 @@ pub async fn provide_proto(
             content: &payload.proto_content,
             base_version: payload.base_version,
             force: payload.force,
+            source_protected_branch: payload.source_protected_branch.as_deref(),
         },
         Some(&actor),
     )
@@ -237,6 +248,14 @@ pub struct RequireQuery {
     pub timeout: Option<u64>,
     #[serde(default)]
     pub dry_run: bool,
+    /// Sticky hint (item #17): which protected branch this branch defers to
+    /// when it has no data of its own. Only takes effect the first time it is
+    /// supplied for this branch.
+    pub source_protected_branch: Option<String>,
+    /// One-shot override (item #17): resolve this specific request against
+    /// exactly this branch, bypassing `source_protected_branch` and all other
+    /// fallback resolution. Never persisted.
+    pub pull_from_branch: Option<String>,
 }
 
 pub async fn require(
@@ -253,6 +272,8 @@ pub async fn require(
         path: &query.path,
         method: &query.method,
         timeout_secs: query.timeout,
+        source_protected_branch: query.source_protected_branch.as_deref(),
+        pull_from_branch: query.pull_from_branch.as_deref(),
     };
     let res = if query.dry_run {
         services::require_endpoint_dry_run(
@@ -324,6 +345,8 @@ pub async fn require_asyncapi(
             path: &query.path,
             method: &query.method,
             timeout_secs: query.timeout,
+            source_protected_branch: query.source_protected_branch.as_deref(),
+            pull_from_branch: query.pull_from_branch.as_deref(),
         },
     )
     .await?;
@@ -380,6 +403,8 @@ pub async fn require_proto(
             path: &query.path,
             method: &query.method,
             timeout_secs: query.timeout,
+            source_protected_branch: query.source_protected_branch.as_deref(),
+            pull_from_branch: query.pull_from_branch.as_deref(),
         },
     )
     .await?;

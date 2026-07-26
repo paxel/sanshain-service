@@ -1082,3 +1082,554 @@ async fn viewing_report_is_not_audited() {
         "viewing a branch report must not create a REPORT audit entry"
     );
 }
+
+// --- Item #17: source_protected_branch / pull_from_branch (GitHub issue #1) ---
+
+// `cfg(test)` is always true in this crate; the attribute marks the helper as
+// test code for clippy's `allow-unwrap-in-tests`.
+#[cfg(test)]
+async fn spb_test_repo() -> SqliteSpecRepository {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+    repo
+}
+
+const SPB_SPEC: &str = r#"openapi: 3.0.0
+info: {title: t, version: v1}
+paths:
+  /p:
+    get:
+      responses:
+        '200': { description: ok }
+"#;
+
+// First caller write sets source_protected_branch on a previously-unset branch.
+#[tokio::test]
+async fn source_protected_branch_first_write_sets_it() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let repo = spb_test_repo().await;
+    services::provide_spec_with_actor(
+        &repo,
+        services::ProvideSpecParams {
+            servicename: "svc",
+            branch: "hotfix/1.0.1",
+            api_type: ApiType::OpenApi,
+            content: SPB_SPEC,
+            base_version: None,
+            force: false,
+            source_protected_branch: Some("release/1.0"),
+        },
+        Some("ci-bot"),
+    )
+    .await
+    .unwrap();
+
+    let sid = repo.ensure_service("svc").await.unwrap();
+    let bid = repo
+        .find_branch(sid, "hotfix/1.0.1")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        repo.get_source_protected_branch(bid)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("release/1.0")
+    );
+}
+
+// A second, differing caller-supplied value is ignored (stored value
+// unchanged) and a mismatch log entry (tagged service/branch) is produced.
+// `current_thread` flavor so the thread-local tracing subscriber reliably
+// stays active across every .await in this test (see item #7's note on why a
+// multi-threaded runtime would make this flaky).
+#[tokio::test(flavor = "current_thread")]
+async fn source_protected_branch_mismatch_is_logged_and_ignored() {
+    use sanshain_service::domain::ports::SpecRepository;
+    use sanshain_service::presentation::middleware::LogCaptureLayer;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let repo = spb_test_repo().await;
+    services::provide_spec_with_actor(
+        &repo,
+        services::ProvideSpecParams {
+            servicename: "svc",
+            branch: "hotfix/1.0.1",
+            api_type: ApiType::OpenApi,
+            content: SPB_SPEC,
+            base_version: None,
+            force: false,
+            source_protected_branch: Some("release/1.0"),
+        },
+        Some("ci-bot"),
+    )
+    .await
+    .unwrap();
+
+    let warn_buffer = Arc::new(std::sync::Mutex::new(VecDeque::new()));
+    let layer = LogCaptureLayer {
+        error_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+        warn_buffer: warn_buffer.clone(),
+        info_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+        debug_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+        business_logic_debug: Arc::new(AtomicBool::new(true)),
+        admin_user_debug: Arc::new(AtomicBool::new(true)),
+    };
+    let subscriber = tracing_subscriber::registry().with(layer);
+    // `set_default` (RAII guard), not `with_default` (sync-closure-only): we're
+    // on a `current_thread` runtime, so the thread-local subscriber stays
+    // active across the `.await` below as long as the guard hasn't dropped yet.
+    {
+        let _guard = tracing::subscriber::set_default(subscriber);
+        services::provide_spec_with_actor(
+            &repo,
+            services::ProvideSpecParams {
+                servicename: "svc",
+                branch: "hotfix/1.0.1",
+                api_type: ApiType::OpenApi,
+                content: SPB_SPEC,
+                base_version: None,
+                force: false,
+                source_protected_branch: Some("master"),
+            },
+            Some("ci-bot"),
+        )
+        .await
+        .unwrap();
+    }
+
+    let sid = repo.ensure_service("svc").await.unwrap();
+    let bid = repo
+        .find_branch(sid, "hotfix/1.0.1")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        repo.get_source_protected_branch(bid)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("release/1.0"),
+        "stored value must be unchanged by the differing second write"
+    );
+
+    let warns = warn_buffer.lock().unwrap();
+    assert_eq!(warns.len(), 1, "exactly one mismatch warning expected");
+    assert_eq!(warns[0].service.as_deref(), Some("svc"));
+    assert_eq!(warns[0].branch.as_deref(), Some("hotfix/1.0.1"));
+    assert!(warns[0].message.contains("mismatch"));
+}
+
+// A second, matching caller-supplied value is a no-op (no spurious log entry).
+#[tokio::test(flavor = "current_thread")]
+async fn source_protected_branch_matching_resupply_is_noop_no_log() {
+    use sanshain_service::domain::ports::SpecRepository;
+    use sanshain_service::presentation::middleware::LogCaptureLayer;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let repo = spb_test_repo().await;
+    services::provide_spec_with_actor(
+        &repo,
+        services::ProvideSpecParams {
+            servicename: "svc",
+            branch: "hotfix/1.0.1",
+            api_type: ApiType::OpenApi,
+            content: SPB_SPEC,
+            base_version: None,
+            force: false,
+            source_protected_branch: Some("release/1.0"),
+        },
+        Some("ci-bot"),
+    )
+    .await
+    .unwrap();
+
+    let warn_buffer = Arc::new(std::sync::Mutex::new(VecDeque::new()));
+    let layer = LogCaptureLayer {
+        error_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+        warn_buffer: warn_buffer.clone(),
+        info_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+        debug_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+        business_logic_debug: Arc::new(AtomicBool::new(true)),
+        admin_user_debug: Arc::new(AtomicBool::new(true)),
+    };
+    let subscriber = tracing_subscriber::registry().with(layer);
+    // Re-provide identical content + a matching source_protected_branch.
+    // apply_source_protected_branch_hint runs regardless of whether the spec
+    // content itself changed (it happens before the #9 no-op short-circuit),
+    // so this still exercises the "matching value" comparison path.
+    {
+        let _guard = tracing::subscriber::set_default(subscriber);
+        services::provide_spec_with_actor(
+            &repo,
+            services::ProvideSpecParams {
+                servicename: "svc",
+                branch: "hotfix/1.0.1",
+                api_type: ApiType::OpenApi,
+                content: SPB_SPEC,
+                base_version: None,
+                force: false,
+                source_protected_branch: Some("release/1.0"),
+            },
+            Some("ci-bot"),
+        )
+        .await
+        .unwrap();
+    }
+
+    let sid = repo.ensure_service("svc").await.unwrap();
+    let bid = repo
+        .find_branch(sid, "hotfix/1.0.1")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        repo.get_source_protected_branch(bid)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("release/1.0")
+    );
+    assert!(
+        warn_buffer.lock().unwrap().is_empty(),
+        "a matching resupply must not log a mismatch"
+    );
+}
+
+// An admin correction always overwrites, regardless of what's currently
+// stored, and a later differing caller-supplied value cannot undo it (only
+// an admin can change it once set).
+#[tokio::test]
+async fn admin_correction_always_overwrites_source_protected_branch() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let repo = spb_test_repo().await;
+    services::provide_spec_with_actor(
+        &repo,
+        services::ProvideSpecParams {
+            servicename: "svc",
+            branch: "hotfix/1.0.1",
+            api_type: ApiType::OpenApi,
+            content: SPB_SPEC,
+            base_version: None,
+            force: false,
+            source_protected_branch: Some("release/1.0"),
+        },
+        Some("ci-bot"),
+    )
+    .await
+    .unwrap();
+
+    services::admin_set_source_protected_branch(&repo, "svc", "hotfix/1.0.1", Some("release/2.0"))
+        .await
+        .unwrap();
+
+    let sid = repo.ensure_service("svc").await.unwrap();
+    let bid = repo
+        .find_branch(sid, "hotfix/1.0.1")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        repo.get_source_protected_branch(bid)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("release/2.0"),
+        "admin correction must overwrite the caller-set value"
+    );
+
+    // A later differing caller-supplied value must not undo the admin's fix.
+    services::provide_spec_with_actor(
+        &repo,
+        services::ProvideSpecParams {
+            servicename: "svc",
+            branch: "hotfix/1.0.1",
+            api_type: ApiType::OpenApi,
+            content: SPB_SPEC,
+            base_version: None,
+            force: false,
+            source_protected_branch: Some("master"),
+        },
+        Some("ci-bot"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        repo.get_source_protected_branch(bid)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("release/2.0"),
+        "only an admin may change an already-set value"
+    );
+}
+
+// pull_from_branch bypasses source_protected_branch/fallback resolution
+// entirely and does not persist anything (no branch row is even created for
+// the requesting branch).
+#[tokio::test]
+async fn pull_from_branch_bypasses_resolution_without_persisting() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let repo = spb_test_repo().await;
+    // Only "release/1.0" (protected) has the endpoint.
+    repo.add_protected_branch("release/1.0").await.unwrap();
+    services::provide_spec(
+        &repo,
+        "svc",
+        "release/1.0",
+        ApiType::OpenApi,
+        SPB_SPEC,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let res = services::require_endpoint(
+        &repo,
+        None,
+        services::RequireEndpointParams {
+            clientname: "client-a",
+            servicename: "svc",
+            branch: "feature-x",
+            api_type: ApiType::OpenApi,
+            path: "/p",
+            method: "GET",
+            timeout_secs: None,
+            source_protected_branch: None,
+            pull_from_branch: Some("release/1.0"),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(res.yaml.contains("/p"));
+
+    // No branch row was created for "feature-x" — pull_from_branch has zero
+    // persistence side effects.
+    let sid = repo.ensure_service("svc").await.unwrap();
+    assert!(
+        repo.find_branch(sid, "feature-x").await.unwrap().is_none(),
+        "pull_from_branch must not create or touch a branch row for the requesting branch"
+    );
+}
+
+// Regression guard: requiring against a branch that IS itself protected, with
+// no data, still resolves to "not found" — never silently substituting a
+// different protected branch. Confirms item #17's changes did not weaken
+// this pre-existing, already-correct invariant.
+#[tokio::test]
+async fn protected_branch_with_no_data_still_not_found() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let repo = spb_test_repo().await;
+    repo.add_protected_branch("release/2.0").await.unwrap();
+    // Some other protected branch DOES have the endpoint — must not leak here.
+    services::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::OpenApi,
+        SPB_SPEC,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let result = services::require_endpoint(
+        &repo,
+        None,
+        services::RequireEndpointParams {
+            clientname: "client-a",
+            servicename: "svc",
+            branch: "release/2.0",
+            api_type: ApiType::OpenApi,
+            path: "/p",
+            method: "GET",
+            timeout_secs: None,
+            source_protected_branch: None,
+            pull_from_branch: None,
+        },
+    )
+    .await;
+    assert!(
+        result.is_err(),
+        "a protected branch with no data must not substitute another protected branch"
+    );
+}
+
+// get_endpoint_version_history prefers a branch's own source_protected_branch
+// over the plain protected-branch fallback chain, even when a different
+// protected branch would otherwise win alphabetically.
+#[tokio::test]
+async fn version_history_prefers_source_protected_branch_over_alphabetical() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let repo = spb_test_repo().await;
+    // "main" sorts before "release/1.0" alphabetically, and both are protected
+    // with real (different) history — without source_protected_branch, the
+    // plain chain would incorrectly prefer "main".
+    services::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::OpenApi,
+        SPB_SPEC,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+    repo.add_protected_branch("release/1.0").await.unwrap();
+    services::provide_spec(
+        &repo,
+        "svc",
+        "release/1.0",
+        ApiType::OpenApi,
+        SPB_SPEC,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    // The admin-set endpoint requires the branch row to already exist.
+    let sid = repo.ensure_service("svc").await.unwrap();
+    repo.ensure_branch(sid, "hotfix/1.0.1").await.unwrap();
+    services::admin_set_source_protected_branch(&repo, "svc", "hotfix/1.0.1", Some("release/1.0"))
+        .await
+        .unwrap();
+
+    let versions = services::get_endpoint_version_history(
+        &repo,
+        "svc",
+        "hotfix/1.0.1",
+        ApiType::OpenApi,
+        "/p",
+        "GET",
+    )
+    .await
+    .unwrap();
+    assert!(!versions.is_empty());
+    assert_eq!(
+        versions[0].branch_name.as_deref(),
+        Some("release/1.0"),
+        "source_protected_branch must be preferred over the alphabetically-earlier 'main'"
+    );
+}
+
+// HTTP-contract level: GET/PUT the admin source_protected_branch endpoint
+// through the real router, and confirm a non-admin gets 403 (matching #18's
+// admin_auth-gating test pattern).
+#[tokio::test]
+async fn admin_source_protected_branch_endpoint_is_admin_only_and_works() {
+    use sanshain_service::application::auth_service;
+    use sanshain_service::domain::models::AuthMode;
+
+    let (app, repo, admin_token) = app_with_seed().await;
+    let admin_auth = format!("Bearer {}", admin_token);
+    let uri = "/admin/services/demo-svc/branches/main/source-protected-branch";
+
+    // GET: initially unset.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(uri)
+                .header(axum::http::header::AUTHORIZATION, &admin_auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["source_protected_branch"], serde_json::Value::Null);
+
+    // PUT: set it.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(uri)
+                .header(axum::http::header::AUTHORIZATION, &admin_auth)
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({"source_protected_branch": "release/1.0"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // GET again: now set.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(uri)
+                .header(axum::http::header::AUTHORIZATION, &admin_auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["source_protected_branch"], "release/1.0");
+
+    // A non-admin is forbidden from both GET and PUT.
+    auth_service::set_auth_mode(&repo, &AuthMode::Local)
+        .await
+        .unwrap();
+    auth_service::register_user(&repo, "regular-user", "password123")
+        .await
+        .unwrap();
+    let users = auth_service::list_users(&repo).await.unwrap();
+    let regular = users.iter().find(|u| u.username == "regular-user").unwrap();
+    auth_service::approve_user(&repo, regular.id).await.unwrap();
+    let (session, _user) = auth_service::login(&repo, "regular-user", "password123")
+        .await
+        .unwrap();
+    let regular_auth = format!("Bearer {}", session.token);
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(uri)
+                .header(axum::http::header::AUTHORIZATION, &regular_auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(uri)
+                .header(axum::http::header::AUTHORIZATION, &regular_auth)
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({"source_protected_branch": "release/2.0"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
