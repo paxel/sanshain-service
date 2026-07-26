@@ -263,6 +263,9 @@ impl SpecRepository for MockRepo {
     }
 
     async fn is_branch_protected(&self, branch_name: &str) -> Result<bool, RepositoryError> {
+        // NB: the SQL repositories glob/LIKE-match wildcard patterns; this test
+        // double does exact matching only, which is sufficient for the exact
+        // `main`/`master` patterns the mock-based tests use.
         let pb = self
             .protected_branches
             .lock()

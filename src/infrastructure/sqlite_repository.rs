@@ -682,12 +682,19 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn is_branch_protected(&self, branch_name: &str) -> Result<bool, RepositoryError> {
-        let row: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM protected_branches WHERE pattern = ?")
-                .bind(branch_name)
-                .fetch_one(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // Match protected patterns the same way `delete_stale_branches` does, so a
+        // wildcard pattern (e.g. `release/*`) actually protects the branches it
+        // covers here too — otherwise a matching branch would be exempt from stale
+        // cleanup yet reported "not protected" for breaking-change enforcement,
+        // version recording, and fallback resolution.
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM protected_branches WHERE ? GLOB pattern OR pattern = ?",
+        )
+        .bind(branch_name)
+        .bind(branch_name)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         Ok(row.0 > 0)
     }
@@ -732,6 +739,15 @@ impl SpecRepository for SqliteSpecRepository {
             .bind(params.api_type.as_str())
             .bind(params.path)
             .bind(params.method)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // An admin manual edit is branch activity — advance the branch's
+        // last-published time so it does not look stale (and is not culled).
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        sqlx::query("UPDATE branches SET updated_at = ? WHERE id = ?")
+            .bind(&now)
+            .bind(params.branch_id)
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;

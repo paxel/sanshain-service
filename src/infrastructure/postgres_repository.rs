@@ -674,12 +674,16 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn is_branch_protected(&self, branch_name: &str) -> Result<bool, RepositoryError> {
-        let row: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM protected_branches WHERE pattern = $1")
-                .bind(branch_name)
-                .fetch_one(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // Match protected patterns the same way `delete_stale_branches` does (LIKE
+        // on this backend), so a wildcard pattern actually protects the branches it
+        // covers here too, consistent with stale cleanup.
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM protected_branches WHERE $1 LIKE pattern OR pattern = $1",
+        )
+        .bind(branch_name)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         Ok(row.0 > 0)
     }
@@ -724,6 +728,15 @@ impl SpecRepository for PostgresSpecRepository {
             .bind(params.api_type.as_str())
             .bind(params.path)
             .bind(params.method)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // An admin manual edit is branch activity — advance the branch's
+        // last-published time so it does not look stale (and is not culled).
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        sqlx::query("UPDATE branches SET updated_at = $1 WHERE id = $2")
+            .bind(&now)
+            .bind(params.branch_id)
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;

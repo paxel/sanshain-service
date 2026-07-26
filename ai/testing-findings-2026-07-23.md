@@ -351,9 +351,10 @@ change the existing `branches: Vec<String>` type, which `cached_repository.rs:13
 rely on), populate it in `list_services_detailed` (the map is already built there for the sort),
 then `api.yaml` + the `services.html` branch-card render.
 
-**Known gap:** admin manual endpoint edits (`update_endpoint` / `update_endpoint_manual`) are a
-write path that does **not** currently bump `updated_at`. Decide whether an admin edit should count
-as branch activity; if so, add the same bump there.
+**Known gap — RESOLVED 2026-07-26 (latent finding L2):** admin manual endpoint edits went through
+`update_endpoint` without bumping `updated_at`. `update_endpoint` (both backends) now advances
+`branches.updated_at`, so a manual edit counts as branch activity (last-published refreshed, not
+prematurely culled). Tested by `admin_edit_advances_last_published`.
 
 **Unblocks:** #11 recency ordering (protected → newest publish → name) and #12 (TTL badge) can now
 use `updated_at` correctly.
@@ -388,10 +389,19 @@ setting the cleanup task uses, so badge and deletion agree. Backend tested by
 `overview_shows_expiry_for_non_protected_branches_only`; frontend eslint/prettier/`node --check`
 clean.
 
-**Note:** the stale-cleanup guard matches protected patterns with `GLOB` (wildcards), but
-`is_branch_protected` matches **exactly** (`WHERE pattern = ?`). A wildcard protected pattern would
-thus exempt a branch from cleanup yet report "not protected" elsewhere (and get a TTL badge here).
-Minor latent inconsistency worth reconciling separately.
+**Note — RESOLVED 2026-07-26 (latent finding L1):** `is_branch_protected` matched patterns
+**exactly** while stale-cleanup used wildcards, so a wildcard protected pattern exempted a branch
+from cleanup yet reported "not protected" everywhere else (breaking-change enforcement, version
+recording, fallback, and this TTL badge). `is_branch_protected` now mirrors each backend's cleanup
+matcher (SQLite `GLOB`, PostgreSQL `LIKE`) — wildcard patterns like `release/*` now protect the
+branches they cover. Tested by `wildcard_protected_pattern_matches_branches`.
+
+**Still open (separate, pre-existing):** the two backends use *different* wildcard syntaxes in
+cleanup — SQLite `GLOB` (`*`, `?`) vs PostgreSQL `LIKE` (`%`, `_`) — so a pattern like `release/*`
+protects on SQLite but `release/%` is needed on PostgreSQL. `is_branch_protected` now faithfully
+mirrors that per-backend, but the cross-backend divergence in what a pattern *means* predates this
+work and should be reconciled separately (pick one canonical wildcard syntax, translate at the
+boundary).
 
 ### 15. Blame on master: attribute to the real author, not the CI
 

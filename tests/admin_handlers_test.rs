@@ -595,6 +595,87 @@ paths:
     assert!(err.is_err(), "no proto endpoints on this branch");
 }
 
+// A wildcard protected pattern must protect the branches it covers, matching how
+// stale-cleanup exempts them (SQLite GLOB). Exact patterns keep working.
+#[tokio::test]
+async fn wildcard_protected_pattern_matches_branches() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+
+    // Defaults (exact) still work.
+    assert!(repo.is_branch_protected("main").await.unwrap());
+    assert!(!repo.is_branch_protected("feature-x").await.unwrap());
+
+    repo.add_protected_branch("release/*").await.unwrap();
+    assert!(
+        repo.is_branch_protected("release/1.5").await.unwrap(),
+        "a wildcard pattern protects matching branches"
+    );
+    assert!(
+        !repo.is_branch_protected("feature-x").await.unwrap(),
+        "a non-matching branch stays unprotected"
+    );
+    assert!(
+        repo.is_branch_protected("main").await.unwrap(),
+        "exact patterns are unaffected"
+    );
+}
+
+// An admin manual endpoint edit is branch activity and must advance the branch's
+// last-published time (so it does not look stale / get culled).
+#[tokio::test]
+async fn admin_edit_advances_last_published() {
+    use sanshain_service::domain::ports::{SpecRepository, UpdateEndpointParams};
+
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+
+    let spec = r#"openapi: 3.0.0
+info: {title: t, version: v1}
+paths:
+  /p:
+    get:
+      responses:
+        '200': { description: ok }
+"#;
+    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec, None, false)
+        .await
+        .unwrap();
+    let t1 = branch_last_modified(&repo, "main").await;
+
+    // Cross a whole-second boundary so any advance is observable.
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+
+    let sid = repo.ensure_service("svc").await.unwrap();
+    let bid = repo.ensure_branch(sid, "main").await.unwrap();
+    repo.update_endpoint(UpdateEndpointParams {
+        branch_id: bid,
+        api_type: ApiType::OpenApi,
+        path: "/p",
+        method: "GET",
+        yaml_content: "openapi: 3.0.0\ninfo: {title: t, version: v2}\npaths: {}\n",
+        deprecated: false,
+        external: false,
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        branch_last_modified(&repo, "main").await > t1,
+        "an admin manual edit must advance the branch's last-published time"
+    );
+}
+
 fn all_audit_logs_filter() -> sanshain_service::domain::models::AuditLogFilter {
     sanshain_service::domain::models::AuditLogFilter {
         from_date: None,
