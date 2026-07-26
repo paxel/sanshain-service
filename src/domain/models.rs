@@ -431,6 +431,13 @@ pub struct ServiceSummary {
     /// application layer; empty in raw repository results.
     #[serde(default)]
     pub branches_expire_at: std::collections::HashMap<String, String>,
+    /// Non-deleted endpoint count per branch name (0 for a branch with no
+    /// provided spec content, e.g. from an OpenAPI document with no paths).
+    /// `branches` above lists every branch regardless of this count — callers
+    /// that only want branches serving something should filter on it being > 0.
+    /// Populated by the application layer; empty in raw repository results.
+    #[serde(default)]
+    pub branches_endpoint_count: std::collections::HashMap<String, i64>,
     pub is_favorite: bool,
     pub icon: Option<String>,
     pub domain: Option<String>,

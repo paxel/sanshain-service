@@ -1272,6 +1272,12 @@ impl SpecRepository for CachedSpecRepository {
     ) -> Result<Vec<(String, String, String)>, RepositoryError> {
         self.inner.list_branch_last_published().await
     }
+
+    async fn list_branch_endpoint_counts(
+        &self,
+    ) -> Result<Vec<(String, String, i64)>, RepositoryError> {
+        self.inner.list_branch_endpoint_counts().await
+    }
 }
 
 #[cfg(test)]

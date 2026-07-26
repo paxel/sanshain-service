@@ -1225,6 +1225,7 @@ impl SpecRepository for PostgresSpecRepository {
                     branches: branches.unwrap_or_default(),
                     branches_last_published: std::collections::HashMap::new(),
                     branches_expire_at: std::collections::HashMap::new(),
+                    branches_endpoint_count: std::collections::HashMap::new(),
                     is_favorite: false,
                     icon,
                     domain,
@@ -2447,6 +2448,21 @@ impl SpecRepository for PostgresSpecRepository {
         sqlx::query_as(
             "SELECT s.name, b.name, b.updated_at
              FROM branches b JOIN services s ON s.id = b.service_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))
+    }
+
+    async fn list_branch_endpoint_counts(
+        &self,
+    ) -> Result<Vec<(String, String, i64)>, RepositoryError> {
+        sqlx::query_as(
+            "SELECT s.name, b.name, COUNT(e.id)
+             FROM branches b
+             JOIN services s ON s.id = b.service_id
+             LEFT JOIN endpoints e ON e.branch_id = b.id AND e.deleted = FALSE
+             GROUP BY s.id, b.id, s.name, b.name",
         )
         .fetch_all(&self.pool)
         .await

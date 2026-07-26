@@ -128,11 +128,17 @@
         showServiceBranches(serviceName);
     }
 
-    function renderServiceList(services) {
+    function renderServiceList(allServicesIn) {
         const list = document.getElementById('services-list');
         const breadcrumb = document.getElementById('service-breadcrumb');
         breadcrumb.classList.add('hidden');
         breadcrumb.innerHTML = '';
+
+        // Only show services that serve something: at least one of their
+        // branches must have at least one endpoint. A service whose only
+        // branches are empty (e.g. an OpenAPI spec provided with no paths)
+        // provides no benefit to list here.
+        const services = (allServicesIn || []).filter(svc => serviceHasAnyEndpoints(svc.name));
 
         if (!services || services.length === 0) {
             list.innerHTML = `
@@ -151,7 +157,7 @@
         list.innerHTML = '';
         for (const svc of services) {
             const name = svc.name;
-            const branches = svc.branches || [];
+            const branches = (svc.branches || []).filter(b => branchHasEndpoints(name, b));
             const isFav = !!svc.is_favorite;
             const icon = svc.icon || null;
             const domain = svc.domain || null;
@@ -215,7 +221,9 @@
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
             <span class="text-slate-800 font-semibold">${serviceName}</span>`;
 
-        const branches = allServiceBranches[serviceName] || [];
+        // Only branches that actually serve something belong in the server view —
+        // an empty branch (e.g. an OpenAPI spec with no paths) gives no benefit here.
+        const branches = (allServiceBranches[serviceName] || []).filter(b => branchHasEndpoints(serviceName, b));
         list.innerHTML = '';
 
         if (branches.length === 0) {

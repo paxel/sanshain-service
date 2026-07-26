@@ -676,6 +676,75 @@ paths:
     );
 }
 
+// An OpenAPI spec with no paths is accepted (creates an empty branch), but the
+// per-branch endpoint count must correctly report 0 for it, distinguishing it
+// from a branch that actually serves something — the signal the discovery UI
+// uses to hide branches/services that provide nothing.
+#[tokio::test]
+async fn empty_spec_branch_reports_zero_endpoint_count() {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+
+    let empty_spec = r#"openapi: 3.0.0
+info: {title: empty, version: v1}
+paths: {}
+"#;
+    services::provide_spec(
+        &repo,
+        "empty-svc",
+        "main",
+        ApiType::OpenApi,
+        empty_spec,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let real_spec = r#"openapi: 3.0.0
+info: {title: real, version: v1}
+paths:
+  /p:
+    get:
+      responses:
+        '200': { description: ok }
+"#;
+    services::provide_spec(
+        &repo,
+        "real-svc",
+        "main",
+        ApiType::OpenApi,
+        real_spec,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let svcs = services::list_services_detailed(&repo, None).await.unwrap();
+    let empty = svcs.iter().find(|s| s.name == "empty-svc").unwrap();
+    assert_eq!(
+        empty.branches_endpoint_count.get("main").copied(),
+        Some(0),
+        "an empty-paths provide creates the branch, but with a reported 0 endpoint count"
+    );
+
+    let real = svcs.iter().find(|s| s.name == "real-svc").unwrap();
+    assert_eq!(
+        real.branches_endpoint_count.get("main").copied(),
+        Some(1),
+        "a branch with one endpoint reports count 1"
+    );
+
+    // `branches` itself stays unfiltered (raw truth for admin management) —
+    // the empty branch is still listed, just reported as having 0 endpoints.
+    assert!(empty.branches.contains(&"main".to_string()));
+}
+
 fn all_audit_logs_filter() -> sanshain_service::domain::models::AuditLogFilter {
     sanshain_service::domain::models::AuditLogFilter {
         from_date: None,

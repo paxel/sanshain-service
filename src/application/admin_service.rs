@@ -99,6 +99,17 @@ pub async fn list_services_detailed(
         .map(|(svc, branch, ts)| ((svc, branch), ts))
         .collect();
 
+    // Per-(service, branch) endpoint count, so the discovery UI can tell a branch
+    // that serves nothing (e.g. an OpenAPI spec provided with no paths) apart from
+    // one that does. `branches` itself is left unfiltered — admin management needs
+    // to see and clean up empty branches too.
+    let endpoint_count: std::collections::HashMap<(String, String), i64> = repo
+        .list_branch_endpoint_counts()
+        .await?
+        .into_iter()
+        .map(|(svc, branch, count)| ((svc, branch), count))
+        .collect();
+
     // Stale-cleanup horizon: non-protected branches are culled once their last
     // publish is older than this many days (0 = disabled). Used to surface a TTL.
     let max_age_days = get_branch_max_age_days(repo).await?;
@@ -118,6 +129,18 @@ pub async fn list_services_detailed(
                 last_published
                     .get(&(sname.clone(), b.clone()))
                     .map(|ts| (b.clone(), ts.clone()))
+            })
+            .collect();
+        // Attach the endpoint count per branch, for filtering in the discovery UI.
+        svc.branches_endpoint_count = svc
+            .branches
+            .iter()
+            .map(|b| {
+                let count = endpoint_count
+                    .get(&(sname.clone(), b.clone()))
+                    .copied()
+                    .unwrap_or(0);
+                (b.clone(), count)
             })
             .collect();
         // Attach the stale-cleanup expiry per branch (non-protected only), so the UI

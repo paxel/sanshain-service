@@ -456,6 +456,7 @@ impl SpecRepository for MockRepo {
                 branches: svc_branches,
                 branches_last_published: std::collections::HashMap::new(),
                 branches_expire_at: std::collections::HashMap::new(),
+                branches_endpoint_count: std::collections::HashMap::new(),
                 is_favorite: false,
                 icon: None,
                 domain: None,
@@ -1084,6 +1085,14 @@ impl SpecRepository for MockRepo {
     ) -> Result<Vec<(String, String, String)>, RepositoryError> {
         // MockRepo does not track per-branch publish times, so recency ordering is
         // exercised by the sqlite-backed integration tests instead.
+        Ok(Vec::new())
+    }
+
+    async fn list_branch_endpoint_counts(
+        &self,
+    ) -> Result<Vec<(String, String, i64)>, RepositoryError> {
+        // MockRepo does not track per-branch endpoint counts; exercised by the
+        // sqlite-backed integration tests instead.
         Ok(Vec::new())
     }
 }

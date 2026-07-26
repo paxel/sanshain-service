@@ -586,6 +586,14 @@ pub trait SpecRepository: Send + Sync {
         &self,
     ) -> impl Future<Output = Result<Vec<(String, String, String)>, RepositoryError>> + Send;
 
+    /// Non-deleted endpoint count per `(service_name, branch_name)`, for every
+    /// branch (including ones with zero endpoints — callers filter as needed).
+    ///
+    /// Returns `(service_name, branch_name, count)` rows.
+    fn list_branch_endpoint_counts(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(String, String, i64)>, RepositoryError>> + Send;
+
     // --- AsyncAPI Channel Message Contracts (item #20) ---
 
     /// Get the message-level channel contract for `(branch, channel, message)`, if any.

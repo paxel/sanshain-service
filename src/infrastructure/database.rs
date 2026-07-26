@@ -592,4 +592,10 @@ impl SpecRepository for DatabaseRepo {
     ) -> Result<Vec<(String, String, String)>, RepositoryError> {
         delegate!(self, list_branch_last_published())
     }
+
+    async fn list_branch_endpoint_counts(
+        &self,
+    ) -> Result<Vec<(String, String, i64)>, RepositoryError> {
+        delegate!(self, list_branch_endpoint_counts())
+    }
 }

@@ -35,9 +35,16 @@ guess; get the call first.
 
 ## P0 — Data loss
 
-### 1. Favorites disappear "after update"
+### 1. Favorites disappear "after update" — NOT A BUG (resolved 2026-07-26)
 
-**Symptom:** After an update, a user's starred favorites (services/clients) are gone.
+**Resolution:** confirmed by the reporter to be an account switch, not data loss. Favorites are
+per-`user_id` and rendered for the currently authenticated user, so signing in as a different user
+shows that user's (empty) favorites while the original rows remain intact — exactly the
+"session-identity mismatch, not deletion" case anticipated below. No code change needed. (The
+read/write paths were verified consistent: both `get_favorites` and `add_favorite` resolve the same
+`axum::Extension<User>.id`, `auth.rs:277`/`285`.)
+
+**Symptom (original):** After an update, a user's starred favorites (services/clients) are gone.
 
 **Storage:** `user_favorites` is keyed `(user_id, item_type, item_name)` with
 `user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE`
@@ -310,16 +317,38 @@ exists. Served by `GET /admin/services/{name}/branches/{branch}/full-spec?api_ty
 bearer token) and downloads it as a file. Backend tested by `full_spec_merges_branch_endpoints`;
 route auth + contract tests pass; frontend `node --check` clean.
 
-### 5. OpenAPI spec with no endpoints — define the behavior **DECISION NEEDED**
+### 5. OpenAPI spec with no endpoints — RESOLVED 2026-07-26 (accept, but hide from browsing)
 
-**Symptom/question:** what should happen when a provided OpenAPI document has no paths/operations?
+**Decision (maintainer):** keep accepting an empty-paths provide (option (a)) — but an empty
+branch, or a service whose branches are *all* empty, provides zero benefit sitting in the services
+overview / "server" browsing view and must not appear there.
 
-**Plan:** decide and then enforce one behavior: (a) accept and store an "empty" branch, and have the
-UI show a clear "No endpoints in this spec" state (not a broken/blank view); or (b) reject the
-provide with a `400` explaining that at least one operation is required. Check current behavior in
-`parse_spec_endpoints` (`src/application/spec_service.rs`) first, then make it intentional and
-tested. Recommendation: **accept + explicit empty state**, since a service may legitimately start
-empty.
+**Verified current behavior (unchanged):** `split_openapi` returns `Ok(vec![])` for an empty
+`paths` map (`openapi.rs:83-147`, no error) — this was already true, not something added now.
+`provide_spec_inner` still creates the service+branch, advances the version, and returns `202`.
+
+**Done — visibility fix (`services.html` discovery view only):**
+- New port method `list_branch_endpoint_counts()` → `(service, branch, non_deleted_endpoint_count)`
+  for every branch, implemented on both backends (SQLite/PostgreSQL), delegated through
+  cached/database, stubbed empty in `MockRepo`.
+- `ServiceSummary.branches_endpoint_count: HashMap<branch, i64>` (additive field, like
+  `branches_last_published`/`branches_expire_at`), populated in `list_services_detailed`
+  (`src/application/admin_service.rs`). **`ServiceSummary.branches` itself is left unfiltered** —
+  it is the raw source of truth and admin management (`admin.html`, which lists/deletes
+  branches/services) needs to see and clean up empty branches too.
+- `discovery.js`: new `allServiceEndpointCount` cache + `branchHasEndpoints()` /
+  `serviceHasAnyEndpoints()` helpers.
+- `services.html`: `renderServiceList` now only lists services with `serviceHasAnyEndpoints`;
+  `showServiceBranches` filters branches to `branchHasEndpoints`. `reports.html`/`graph.html` keep
+  using the unfiltered `allServiceBranches` for their branch-selector dropdowns (intentionally —
+  you may want to select an empty branch there, e.g. to see what a client is missing).
+- Confirmed **no graph fix was needed**: the dependency graph is built entirely from
+  `dependency_graph` rows (`get_report`'s SQL joins `endpoints`), so an empty branch already
+  produced zero graph nodes/edges.
+
+**Test:** `empty_spec_branch_reports_zero_endpoint_count` — an empty-paths provide creates the
+branch (still listed in unfiltered `branches`) but reports `branches_endpoint_count == 0`; a normal
+provide reports the real count.
 
 ### 10. Show "last publish" per branch in the overview — DONE 2026-07-23
 
