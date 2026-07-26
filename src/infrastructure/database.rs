@@ -403,7 +403,7 @@ impl SpecRepository for DatabaseRepo {
         &self,
         token_id: &str,
         user_id: i64,
-    ) -> Result<bool, RepositoryError> {
+    ) -> Result<Option<String>, RepositoryError> {
         delegate!(self, delete_api_token(token_id, user_id))
     }
 

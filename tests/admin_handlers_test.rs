@@ -823,6 +823,86 @@ paths:
     assert!(empty.branches.contains(&"main".to_string()));
 }
 
+// Revoking a token that doesn't exist (or was already revoked) now correctly
+// 404s instead of silently "succeeding" with a false audit entry. Revoking a
+// real token succeeds, and neither audit entry names the token or its ID.
+#[tokio::test]
+async fn revoke_token_404s_when_not_found_and_audit_has_no_identifying_details() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let (app, repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/tokens")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({"name": "very-secret-name", "expires_in_days": 30})
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
+    let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let new_id = created["id"].as_str().unwrap().to_string();
+
+    // First revoke succeeds.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/auth/tokens/{new_id}"))
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // Revoking the same (now-gone) token again correctly 404s.
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/auth/tokens/{new_id}"))
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    // Neither the token's name nor its ID appear in the audit log.
+    let logs = repo.get_audit_logs(all_audit_logs_filter()).await.unwrap();
+    let token_logs: Vec<_> = logs
+        .iter()
+        .filter(|l| l.action == "CREATE_TOKEN" || l.action == "REVOKE_TOKEN")
+        .collect();
+    assert_eq!(
+        token_logs.len(),
+        2,
+        "one CREATE_TOKEN and one REVOKE_TOKEN entry (the failed second revoke logs nothing)"
+    );
+    for log in token_logs {
+        assert!(
+            !log.details.contains("very-secret-name") && !log.details.contains(&new_id),
+            "audit details must not name the token or its ID: {}",
+            log.details
+        );
+    }
+}
+
 fn all_audit_logs_filter() -> sanshain_service::domain::models::AuditLogFilter {
     sanshain_service::domain::models::AuditLogFilter {
         from_date: None,

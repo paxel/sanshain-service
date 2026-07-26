@@ -1691,14 +1691,32 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
         token_id: &str,
         user_id: i64,
-    ) -> Result<bool, RepositoryError> {
-        let result = sqlx::query("DELETE FROM api_tokens WHERE id = ? AND user_id = ?")
-            .bind(token_id)
-            .bind(user_id)
-            .execute(&self.pool)
+    ) -> Result<Option<String>, RepositoryError> {
+        let mut tx = self
+            .pool
+            .begin()
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(result.rows_affected() > 0)
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT name FROM api_tokens WHERE id = ? AND user_id = ?")
+                .bind(token_id)
+                .bind(user_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let Some((name,)) = row else {
+            return Ok(None);
+        };
+        sqlx::query("DELETE FROM api_tokens WHERE id = ? AND user_id = ?")
+            .bind(token_id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(Some(name))
     }
 
     async fn delete_stale_branches(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {

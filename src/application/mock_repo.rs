@@ -705,8 +705,8 @@ impl SpecRepository for MockRepo {
         &self,
         _token_id: &str,
         _user_id: i64,
-    ) -> Result<bool, RepositoryError> {
-        Ok(true)
+    ) -> Result<Option<String>, RepositoryError> {
+        Ok(Some("mock-token".to_string()))
     }
 
     async fn validate_api_token(&self, _hash: &str) -> Result<Option<User>, RepositoryError> {

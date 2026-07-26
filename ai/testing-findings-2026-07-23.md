@@ -243,15 +243,36 @@ export still does (if kept).
 
 **Test:** integration test: two identical provides → exactly one `PROVIDE_SPEC` audit row.
 
-### 8. Token create/revoke in the audit log — keep, drop, or separate? **DECISION NEEDED**
+### 8. Token create/revoke in the audit log — RESOLVED 2026-07-26 (keep events, strip identifying content)
 
-**Symptom:** The audit timeline shows `CREATE_TOKEN` / `REVOKE_TOKEN` rows
-(`src/presentation/handlers/auth.rs:239,265`), which the tester questioned.
+**Original symptom/question:** the audit timeline shows `CREATE_TOKEN` / `REVOKE_TOKEN` rows,
+questioned by the tester. On follow-up, the actual objection was narrower than "should these events
+be logged at all": the *ID* logged with each event was a raw internal UUID with no benefit — it was
+never shown anywhere in the UI (the token list never displays it; it's only used internally as a
+JS `onclick` parameter for the Revoke button), so a human reading the audit log gained nothing from
+it, and `REVOKE_TOKEN` logged *only* the ID, no name, making it uncorrelatable to anything.
 
-**Discussion:** token lifecycle is genuinely security-relevant and arguably *should* be audited —
-but it is noise in a timeline meant for spec/branch activity. Decide: (a) keep as-is; (b) move
-token events to a separate security/admin audit view and out of the spec timeline; (c) drop.
-Recommendation: **(b)**. No code until the call is made.
+**Decision (maintainer, direct correction):** don't add more identifying detail to fix that — strip
+identifying detail entirely. Keep the `CREATE_TOKEN`/`REVOKE_TOKEN` events (they still mark that
+token lifecycle activity happened, at the right timestamp/actor), but log **generic text with no
+token name and no ID**: `"Created an API token"` / `"Revoked an API token"`. Audit log entries are
+permanent and visible to every authenticated user (see #18 below — the audit log is not actually
+admin-restricted), so a token name its creator considered private — or the
+opaque ID — has no way to be redacted after the fact once logged; better to never log it. (An
+intermediate version of this fix that added the token's *name* alongside dropping the ID was
+explicitly rejected for the same reason — it made the identifying-content problem worse, not
+better.)
+
+**Also fixed while touching this code:** `revoke_api_token`/`delete_api_token` previously returned
+a bare `bool` that the handler never even checked — revoking a nonexistent or already-revoked token
+silently returned `200 OK` and wrote a false "Revoked" audit entry regardless. `delete_api_token`
+(`src/domain/ports.rs` and both backends) now returns `Option<String>` (the deleted token's name,
+used only for the not-found check, never logged) and the handler returns `404` when nothing was
+actually revoked.
+
+**Test:** `revoke_token_404s_when_not_found_and_audit_has_no_identifying_details` — creates a real
+token via the HTTP API, revokes it (200), revokes it again (404), and asserts neither audit entry's
+`details` text contains the token's name or its ID.
 
 ### 7. Observability log entries always missing `service` and `branch` — DONE 2026-07-26
 
@@ -555,6 +576,38 @@ siblings), `src/application/spec_service.rs` (`fallback_branch_candidates`,
 `find_endpoint_with_fallback`, `require_endpoint_inner`),
 `src/infrastructure/*_repository.rs` (`list_protected_branches`, `set_fallback_branch`),
 `api.yaml`, `src/infrastructure/migrations/` (if a stored `base_branch` is chosen over metadata-only).
+
+### 18. The whole observability/audit view is open to any authenticated user, not just admins — **DECISION NEEDED**
+
+**Problem (raised by maintainer, 2026-07-26, surfaced while fixing #8):** every **read** route under
+`/admin/observability/*` — `stats`, `logs` (the raw tracing stream), `audit-logs`, and
+`audit-logs/export` (CSV) — is gated by `authenticated_auth` (any valid logged-in session), not
+`admin_auth` (`src/lib.rs:123-128`). Only the one **write** route, `debug-config-update` (toggling
+debug logging on/off), requires `admin_auth`. The frontend (`static/observability.html`) matches
+this: `checkSession()` only requires a valid token, never redirects a non-admin away — `isAdmin` is
+used solely to disable the debug-toggle buttons, not to gate visibility of the page or its content.
+
+**Impact:** despite living under an `/admin/` path (which reads as admin-only by convention), any
+registered, non-admin user can view the full audit trail (every `PROVIDE_SPEC`, `REQUIRE_*`,
+`CREATE_TOKEN`/`REVOKE_TOKEN`, branch/service deletions, settings changes — everything
+`record_audit_log` has ever written, across all users) and the raw structured log stream (which can
+carry internal error detail, stack traces, DB errors). This is a broader exposure than the #8 fix
+addressed: #8 stopped the token audit *content* from naming a specific token; it does nothing about
+*who* can see the rest of the trail, which was already fully open to any signed-up user before #8
+and remains so after it.
+
+**Not implemented — this is a real authorization decision, not a bug with one obvious fix:**
+- Is this intentional (e.g. transparency-by-design: any team member can see what happened, even if
+  they can't change settings) or an oversight (route naming/nesting under `/admin/` suggests it was
+  meant to be admin-only and the middleware choice just didn't match)?
+- If it should be admin-only, switching these four routes from `authenticated_auth` to `admin_auth`
+  is small and mechanical (`src/lib.rs`, mirroring `debug-config-update`'s existing pattern; the
+  frontend's `checkSession`/`applyAdminState` would need an actual redirect-away for non-admins, not
+  just disabled buttons) — but it is a **behavior change that could lock out users who currently
+  rely on this access**, so it needs a decision before touching it, not an assumption.
+
+**Relevant areas:** `src/lib.rs` (route middleware for the four read routes),
+`static/observability.html` (`checkSession`, `applyAdminState`).
 
 ---
 

@@ -476,6 +476,9 @@
             if (res.ok) {
                 const logs = await res.json();
                 renderAuditLogs(logs);
+            } else if (res.status === 403) {
+                const body = document.getElementById('audit-log-body');
+                body.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-400 italic">Admin access required to view the audit log.</td></tr>';
             }
         } catch (_) {}
     }
