@@ -85,6 +85,20 @@ Update these as part of the same change, not as a follow-up:
 ## External Integrations
 - Playwright MCP server available for browser-based UI testing (`npx @playwright/mcp`).
 
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`paxel/sanshain-service`); skills use the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout (`CONTEXT.md` + `docs/adr/` at the repo root, created lazily). See `docs/agents/domain.md`.
+
 ## Note for maintainers
 This file is the shared, tool-agnostic instruction set (also usable by Junie, Codex, etc.).
 `GEMINI.md` and `.junie/guidelines.md` predate it and overlap significantly — worth consolidating
