@@ -563,6 +563,17 @@ async fn provide_spec_inner(
         .increment_spec_version(sid, bid, &content_hash, impact)
         .await?;
 
+    tracing::info!(
+        service = servicename,
+        branch = branch,
+        "Provided {:?} spec (version {}, changes: +{} ~{} -{})",
+        api_type,
+        new_version,
+        inserts,
+        updates,
+        deletes
+    );
+
     Ok(ProvideResponse {
         version: new_version,
         content_hash,
@@ -920,6 +931,16 @@ async fn require_endpoint_inner(
                     method: &method_to_use,
                 })
                 .await?;
+                tracing::info!(
+                    service = params.servicename,
+                    branch = params.branch,
+                    "Client '{}' required {:?} {} {} on branch '{}'",
+                    params.clientname,
+                    params.api_type,
+                    method_to_use,
+                    params.path,
+                    params.branch
+                );
             }
             return Ok(RequireResponse {
                 yaml,

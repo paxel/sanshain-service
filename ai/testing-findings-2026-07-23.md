@@ -253,27 +253,52 @@ but it is noise in a timeline meant for spec/branch activity. Decide: (a) keep a
 token events to a separate security/admin audit view and out of the spec timeline; (c) drop.
 Recommendation: **(b)**. No code until the call is made.
 
-### 7. Observability log entries always missing `service` and `branch`
+### 7. Observability log entries always missing `service` and `branch` — DONE 2026-07-26
 
-**Symptom:** The observability log viewer shows service/branch columns that are always empty; log
-lines are plain `sanshain_service: …` messages.
+**Symptom:** the observability log viewer conveys no service/branch context; log lines are plain
+`sanshain_service: …` messages.
 
-**Root cause (to confirm):** the in-memory/tracing log events do not carry structured `service` /
-`branch` fields (`src/infrastructure/telemetry.rs` sets up tracing but events are emitted as bare
-messages). The viewer has the columns but nothing populates them.
+**Root cause, confirmed by reading the actual code (corrects the original hypothesis in two ways):**
+1. The raw log viewer (`renderLogs()` in `static/observability.html`, backing
+   `/admin/observability/logs`) has **no service/branch columns at all** — it renders only
+   timestamp/level/target/message. The original "columns that are always empty" framing was
+   inaccurate; there was nothing to populate because there was nothing there.
+2. `LogVisitor` (`src/presentation/middleware.rs`), which turns a `tracing::Event` into a
+   `LogEntry` for the in-memory buffer, only ever captured the field literally named `"message"` —
+   every other field an event might carry was silently discarded.
+3. Independently, the provide path's only log line mentioning service+branch was `DEBUG`-level and
+   gated behind the (default-off) `business_logic_debug` toggle, so it never reached the buffer in
+   normal operation; `require_endpoint_inner` had **zero** tracing calls on its success path at all.
 
-**Proposed fix:** attach `service` and `branch` as structured fields on the relevant tracing events
-(provide/require/report paths) via `tracing::info!(service = …, branch = …, "…")`, and surface
-those fields in the log-buffer entry the observability page reads. Where a log line has no
-service/branch context, show "—" rather than an empty cell.
+**Fix:**
+- `LogEntry` (`src/domain/models.rs`) gained `service: Option<String>` / `branch: Option<String>`.
+- `LogVisitor` now also captures fields named `"service"`/`"branch"` (in `record_str` and
+  `record_debug`), alongside `"message"`.
+- One new `tracing::info!(service = …, branch = …, "…")` line each in `provide_spec_inner`
+  (`src/application/spec_service.rs`, on a real non-dry-run, non-no-op provide, right after the
+  version increments — mirrors the `#9` no-op-skip condition) and `require_endpoint_inner` (on
+  successful, non-dry-run resolution). `report` paths were **not** instrumented — `#6` already
+  excludes plain report viewing from the audit log as noise, and the same reasoning applies here;
+  can be added later if wanted.
+- `static/observability.html` shows a compact `[service/branch]` chip inline when present, omitted
+  (not padded with "—") when absent — the original plan's "show — rather than empty" suggestion
+  assumed a table layout; the real UI is a monospace text stream where a placeholder on every
+  context-less line (the majority — auth, startup, migrations) would be noise, not signal.
 
-**Bonus (spotted in the pasted logs):** the "Branch cleanup: deleted N stale branches" lines print
-with inconsistent timezones (`[13:54:26]` vs `[00:54:26]` / `[02:54:26]` for events emitted moments
-apart). Looks like a local-vs-UTC mix in the log timestamp formatter — worth a look while in
-`telemetry.rs`.
+**Retracted — the "bonus" timezone finding was a false alarm.** The pasted `[13:54:26]` /
+`[00:54:26]` / `[02:54:26]` lines all share the identical `:54:26` minute:second, only the hour
+differs — the signature of a **fixed-interval periodic task** (`tokio::time::interval` in
+`src/main.rs`, confirmed), not mixed timezones. The apparent "jump" is simply the pasted excerpt
+skipping intermediate ticks. No timezone bug exists; nothing to fix.
 
-**Test:** unit/integration test asserting a provide emits a log/observability entry carrying the
-correct `service` and `branch`.
+**Test:** `captures_service_and_branch_fields_from_an_event` and
+`leaves_service_and_branch_none_when_absent` (`src/presentation/middleware.rs`, using
+`tracing::subscriber::with_default` to exercise the real capture layer). **Scope note:** these
+unit-test the capture mechanism with the exact field pattern the call sites use
+(`service = &str, branch = &str`); they do **not** exercise `provide_spec_inner`/
+`require_endpoint_inner` end-to-end through a live subscriber, since `tracing`'s thread-local
+`with_default` subscriber isn't guaranteed to survive suspension points across tokio worker threads
+in a multi-threaded async test, and a flaky test would be worse than no test here.
 
 ---
 

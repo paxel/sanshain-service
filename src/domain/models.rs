@@ -511,6 +511,11 @@ pub struct LogEntry {
     pub level: String,
     pub target: String,
     pub message: String,
+    /// Service name, when the emitting event attached a `service` field
+    /// (e.g. a provide/require log line). `None` for events with no such context.
+    pub service: Option<String>,
+    /// Branch name, when the emitting event attached a `branch` field.
+    pub branch: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]

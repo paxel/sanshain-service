@@ -393,7 +393,13 @@
                 'TRACE': 'text-slate-600'
             }[l.level] || 'text-slate-300';
 
-            return `<div class="mb-1"><span class="text-slate-500">[${l.timestamp.substring(11, 19)}]</span> <span class="${color} font-bold">${l.level.padEnd(5)}</span> <span class="text-indigo-400">${escapeHtml(l.target)}</span>: ${escapeHtml(l.message)}</div>`;
+            // Some events (provide/require) carry service/branch context; show it as
+            // a compact chip when present. Most lines (auth, startup, migrations)
+            // have none, so the chip is omitted rather than padded with a placeholder.
+            const context = l.service
+                ? `<span class="text-teal-400">[${escapeHtml(l.service)}${l.branch ? '/' + escapeHtml(l.branch) : ''}]</span> `
+                : '';
+            return `<div class="mb-1"><span class="text-slate-500">[${l.timestamp.substring(11, 19)}]</span> <span class="${color} font-bold">${l.level.padEnd(5)}</span> <span class="text-indigo-400">${escapeHtml(l.target)}</span>: ${context}${escapeHtml(l.message)}</div>`;
         }).join('');
 
         const autoScroll = document.getElementById('log-autoscroll');

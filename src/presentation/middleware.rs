@@ -144,23 +144,36 @@ pub async fn api_auth(
 
 pub struct LogVisitor<'a> {
     pub message: &'a mut String,
+    /// Captured from an event field literally named `service`, if present
+    /// (e.g. `tracing::info!(service = servicename, branch = branch, "...")`
+    /// on the provide/require paths). Lets the observability log viewer show
+    /// which service/branch a line refers to.
+    pub service: &'a mut Option<String>,
+    pub branch: &'a mut Option<String>,
 }
 
 impl<'a> tracing::field::Visit for LogVisitor<'a> {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "message" {
-            *self.message = format!("{:?}", value);
-            if self.message.starts_with('"')
-                && self.message.ends_with('"')
-                && self.message.len() >= 2
-            {
-                *self.message = self.message[1..self.message.len() - 1].to_string();
+        let formatted = || {
+            let mut s = format!("{:?}", value);
+            if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
+                s = s[1..s.len() - 1].to_string();
             }
+            s
+        };
+        match field.name() {
+            "message" => *self.message = formatted(),
+            "service" => *self.service = Some(formatted()),
+            "branch" => *self.branch = Some(formatted()),
+            _ => {}
         }
     }
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        if field.name() == "message" {
-            *self.message = value.to_string();
+        match field.name() {
+            "message" => *self.message = value.to_string(),
+            "service" => *self.service = Some(value.to_string()),
+            "branch" => *self.branch = Some(value.to_string()),
+            _ => {}
         }
     }
     fn record_error(
@@ -210,8 +223,12 @@ where
         }
 
         let mut message = String::new();
+        let mut service = None;
+        let mut branch = None;
         let mut visitor = LogVisitor {
             message: &mut message,
+            service: &mut service,
+            branch: &mut branch,
         };
         event.record(&mut visitor);
 
@@ -224,6 +241,8 @@ where
             } else {
                 message
             },
+            service,
+            branch,
         };
 
         let (buf_to_use, max_size) = match *level {
@@ -289,4 +308,60 @@ pub async fn validate_csrf(
     }
 
     Err(StatusCode::FORBIDDEN)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    fn test_layer() -> (LogCaptureLayer, Arc<std::sync::Mutex<VecDeque<LogEntry>>>) {
+        let info_buffer = Arc::new(std::sync::Mutex::new(VecDeque::new()));
+        let layer = LogCaptureLayer {
+            error_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+            warn_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+            info_buffer: info_buffer.clone(),
+            debug_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+            business_logic_debug: Arc::new(AtomicBool::new(false)),
+            admin_user_debug: Arc::new(AtomicBool::new(false)),
+        };
+        (layer, info_buffer)
+    }
+
+    // An event carrying `service`/`branch` fields (as used on the provide/require
+    // paths) must have them captured on the resulting LogEntry, not silently
+    // dropped like every field used to be except "message".
+    #[test]
+    fn captures_service_and_branch_fields_from_an_event() {
+        let (layer, info_buffer) = test_layer();
+        let subscriber = tracing_subscriber::registry().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!(service = "svc-a", branch = "main", "did a thing");
+        });
+
+        let buf = info_buffer.lock().unwrap();
+        assert_eq!(buf.len(), 1);
+        let entry = &buf[0];
+        assert_eq!(entry.message, "did a thing");
+        assert_eq!(entry.service.as_deref(), Some("svc-a"));
+        assert_eq!(entry.branch.as_deref(), Some("main"));
+    }
+
+    // An event with no service/branch fields must leave them as None, not
+    // fabricate a value or drop the entry.
+    #[test]
+    fn leaves_service_and_branch_none_when_absent() {
+        let (layer, info_buffer) = test_layer();
+        let subscriber = tracing_subscriber::registry().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!("no context here");
+        });
+
+        let buf = info_buffer.lock().unwrap();
+        assert_eq!(buf.len(), 1);
+        let entry = &buf[0];
+        assert_eq!(entry.message, "no context here");
+        assert_eq!(entry.service, None);
+        assert_eq!(entry.branch, None);
+    }
 }
