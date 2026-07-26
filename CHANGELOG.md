@@ -28,7 +28,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A `provide` that results in no endpoint changes (re-uploading an identical spec) no longer creates a `PROVIDE_SPEC` audit entry. Previously (1.5.1) every non-dry-run provide was audited even when it changed nothing (`+0, ~0, -0`), cluttering the audit timeline. Applies to OpenAPI, AsyncAPI, and gRPC/proto provides.
 
 ### Security
-- API token creation and revocation audit entries ("Created an API token" / "Revoked an API token") no longer include the token's name or its internal ID. Previously (1.5.1) both were logged in plain text (`Created API token 'name' with ID '...'`); since audit log entries are permanent and visible to every authenticated user (the audit log view is not restricted to admins — see the `ai/testing-findings` backlog), a token name the creator considered private, or the ID itself, had no way to be redacted after the fact.
+- The audit log (`GET /admin/observability/audit-logs` and its CSV export) now requires admin privileges. Previously (1.5.1) both were reachable by any authenticated user — the routes lived under `/admin/` by naming convention only; the actual middleware (`authenticated_auth`) accepted any valid session, not just admins. A non-admin, regular user could view the full audit trail — every provide/require, token create/revoke, branch/service deletion, and settings change, across all users. The observability stats and raw log-stream views remain open to any authenticated user, unchanged.
+- API token creation and revocation audit entries ("Created an API token" / "Revoked an API token") no longer include the token's name or its internal ID. Previously (1.5.1) both were logged in plain text (`Created API token 'name' with ID '...'`); since audit log entries are permanent, a token name the creator considered private, or the ID itself, had no way to be redacted after the fact.
 
 
 ---

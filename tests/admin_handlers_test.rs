@@ -903,6 +903,79 @@ async fn revoke_token_404s_when_not_found_and_audit_has_no_identifying_details()
     }
 }
 
+// The audit log (and its CSV export) is restricted to admins: a non-admin,
+// authenticated user gets 403, while an admin still gets 200.
+#[tokio::test]
+async fn audit_logs_are_admin_only() {
+    use sanshain_service::application::auth_service;
+    use sanshain_service::domain::models::AuthMode;
+
+    let (app, repo, admin_token) = app_with_seed().await;
+    let admin_auth = format!("Bearer {}", admin_token);
+
+    // Register + approve + log in a non-admin user.
+    auth_service::set_auth_mode(&repo, &AuthMode::Local)
+        .await
+        .unwrap();
+    auth_service::register_user(&repo, "regular-user", "password123")
+        .await
+        .unwrap();
+    let users = auth_service::list_users(&repo).await.unwrap();
+    let regular = users.iter().find(|u| u.username == "regular-user").unwrap();
+    assert!(!regular.is_admin, "newly registered users are not admins");
+    auth_service::approve_user(&repo, regular.id).await.unwrap();
+    let (session, _user) = auth_service::login(&repo, "regular-user", "password123")
+        .await
+        .unwrap();
+    let regular_auth = format!("Bearer {}", session.token);
+
+    // Non-admin: 403 on both audit-log routes.
+    for uri in [
+        "/admin/observability/audit-logs",
+        "/admin/observability/audit-logs/export",
+    ] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .header(axum::http::header::AUTHORIZATION, &regular_auth)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            res.status(),
+            StatusCode::FORBIDDEN,
+            "non-admin must be forbidden from {uri}"
+        );
+    }
+
+    // Admin: still 200 on both.
+    for uri in [
+        "/admin/observability/audit-logs",
+        "/admin/observability/audit-logs/export",
+    ] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .header(axum::http::header::AUTHORIZATION, &admin_auth)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            res.status(),
+            StatusCode::OK,
+            "admin must retain access to {uri}"
+        );
+    }
+}
+
 fn all_audit_logs_filter() -> sanshain_service::domain::models::AuditLogFilter {
     sanshain_service::domain::models::AuditLogFilter {
         from_date: None,

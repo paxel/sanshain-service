@@ -577,37 +577,38 @@ siblings), `src/application/spec_service.rs` (`fallback_branch_candidates`,
 `src/infrastructure/*_repository.rs` (`list_protected_branches`, `set_fallback_branch`),
 `api.yaml`, `src/infrastructure/migrations/` (if a stored `base_branch` is chosen over metadata-only).
 
-### 18. The whole observability/audit view is open to any authenticated user, not just admins — **DECISION NEEDED**
+### 18. The whole observability/audit view is open to any authenticated user, not just admins — PARTIALLY RESOLVED 2026-07-26 (audit log restricted; stats/raw logs deliberately left open)
 
 **Problem (raised by maintainer, 2026-07-26, surfaced while fixing #8):** every **read** route under
 `/admin/observability/*` — `stats`, `logs` (the raw tracing stream), `audit-logs`, and
-`audit-logs/export` (CSV) — is gated by `authenticated_auth` (any valid logged-in session), not
+`audit-logs/export` (CSV) — was gated by `authenticated_auth` (any valid logged-in session), not
 `admin_auth` (`src/lib.rs:123-128`). Only the one **write** route, `debug-config-update` (toggling
-debug logging on/off), requires `admin_auth`. The frontend (`static/observability.html`) matches
-this: `checkSession()` only requires a valid token, never redirects a non-admin away — `isAdmin` is
-used solely to disable the debug-toggle buttons, not to gate visibility of the page or its content.
+debug logging on/off), required `admin_auth`. Despite living under an `/admin/` path, any
+registered, non-admin user could view the full audit trail (every `PROVIDE_SPEC`, `REQUIRE_*`,
+`CREATE_TOKEN`/`REVOKE_TOKEN`, branch/service deletions, settings changes, across all users).
 
-**Impact:** despite living under an `/admin/` path (which reads as admin-only by convention), any
-registered, non-admin user can view the full audit trail (every `PROVIDE_SPEC`, `REQUIRE_*`,
-`CREATE_TOKEN`/`REVOKE_TOKEN`, branch/service deletions, settings changes — everything
-`record_audit_log` has ever written, across all users) and the raw structured log stream (which can
-carry internal error detail, stack traces, DB errors). This is a broader exposure than the #8 fix
-addressed: #8 stopped the token audit *content* from naming a specific token; it does nothing about
-*who* can see the rest of the trail, which was already fully open to any signed-up user before #8
-and remains so after it.
+**Decision (maintainer):** restrict the **audit log** specifically — `audit-logs` and
+`audit-logs/export` now require `admin_auth` (`src/lib.rs`). `stats` and `logs` (the raw tracing
+stream) were **deliberately left** on `authenticated_auth` — narrower scope than my original framing
+of "the whole observability view," matching exactly what was asked ("change the audit to admin
+only"), not the broader page.
 
-**Not implemented — this is a real authorization decision, not a bug with one obvious fix:**
-- Is this intentional (e.g. transparency-by-design: any team member can see what happened, even if
-  they can't change settings) or an oversight (route naming/nesting under `/admin/` suggests it was
-  meant to be admin-only and the middleware choice just didn't match)?
-- If it should be admin-only, switching these four routes from `authenticated_auth` to `admin_auth`
-  is small and mechanical (`src/lib.rs`, mirroring `debug-config-update`'s existing pattern; the
-  frontend's `checkSession`/`applyAdminState` would need an actual redirect-away for non-admins, not
-  just disabled buttons) — but it is a **behavior change that could lock out users who currently
-  rely on this access**, so it needs a decision before touching it, not an assumption.
+**Done:**
+- `src/lib.rs`: `audit-logs` and `audit-logs/export` routes switched from `authenticated_auth` to
+  `admin_auth`.
+- `static/observability.html`: `loadAuditLogs()` now shows an explicit "Admin access required to
+  view the audit log." message in the table on a `403`, instead of silently leaving it blank
+  forever for a non-admin.
+- Test `audit_logs_are_admin_only`: registers a real non-admin user (via the actual
+  register/approve/login flow), asserts `403` on both audit routes, then asserts the seeded admin
+  still gets `200` on both.
 
-**Relevant areas:** `src/lib.rs` (route middleware for the four read routes),
-`static/observability.html` (`checkSession`, `applyAdminState`).
+**Still open — not decided, not touched:** whether `stats` and `logs` (the raw tracing stream, which
+can carry internal error detail/stack traces/DB errors) should also become admin-only. Left as a
+separate, smaller open question rather than assumed.
+
+**Relevant areas:** `src/lib.rs` (route middleware), `static/observability.html`
+(`loadAuditLogs`, `checkSession`, `applyAdminState`).
 
 ---
 
