@@ -464,15 +464,19 @@ pub trait SpecRepository: Send + Sync {
         user_id: i64,
     ) -> impl Future<Output = Result<Vec<ApiToken>, RepositoryError>> + Send;
 
-    /// Delete an API token by ID (only if owned by user_id). Returns the
-    /// deleted token's name, or `None` if no matching token was found (or it
-    /// wasn't owned by `user_id`) — so callers can log/report which token was
-    /// actually revoked instead of only its opaque ID.
+    /// Delete an API token by ID (only if owned by user_id). Returns whether a
+    /// token was actually deleted, so the caller can answer 404 rather than
+    /// reporting success for a token that never existed.
+    ///
+    /// Deliberately does *not* return the token's name: audit entries for token
+    /// revocation must not record it (a name its creator considered private
+    /// cannot be redacted from a permanent audit log afterwards), so the name
+    /// is not handed to callers who might log it.
     fn delete_api_token(
         &self,
         token_id: &str,
         user_id: i64,
-    ) -> impl Future<Output = Result<Option<String>, RepositoryError>> + Send;
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
 
     /// Validate an API token hash, returning the user if valid and not expired. Also updates last_used_at.
     fn validate_api_token(

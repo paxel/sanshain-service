@@ -528,8 +528,10 @@ paths:
         **Long-polling**: If `timeout` is provided and the service spec is not yet available,
         the server waits up to `timeout` seconds for it to appear.
 
-        **Feature branch fallback**: If the spec is not found on the requested branch,
-        the server falls back to the `master` branch automatically.
+        **Branch fallback**: identical to `/require` — anything not found on the requested
+        branch (and only when that branch is not itself protected) resolves via the branch's
+        `source_protected_branch`, then the service's configured fallback branch, then any
+        protected branch. Use `pull_from_branch` to bypass the chain for a single request.
 
         **Caching**: Supports `If-None-Match` and `ETag` headers.
       parameters:
@@ -822,6 +824,18 @@ components:
           description: |
             Optional long-polling timeout in seconds. If the service spec is not yet available,
             the server waits up to this duration before returning 404.
+        source_protected_branch:
+          type: string
+          description: |
+            Best-effort hint: the protected branch this branch defers to when it has no data
+            of its own. Same write-once semantics as on `/provide` and `/require` — only
+            takes effect the first time it is supplied for a given branch.
+        pull_from_branch:
+          type: string
+          description: |
+            One-shot override: resolve this specific request against exactly this branch,
+            bypassing `source_protected_branch` and all other fallback resolution. Never
+            persisted.
         dry_run:
           type: boolean
           default: false

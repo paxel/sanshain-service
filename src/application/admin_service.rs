@@ -1,3 +1,4 @@
+use crate::domain::branch_pattern::branch_matches_any;
 use crate::domain::models::*;
 use crate::domain::ports::SpecRepository;
 use chrono::Utc;
@@ -91,67 +92,62 @@ pub async fn list_services_detailed(
 ) -> Result<Vec<ServiceSummary>, AppError> {
     let mut services = repo.list_services_detailed().await?;
 
-    // Per-(service, branch) last-published time, for recency ordering.
-    let last_published: std::collections::HashMap<(String, String), String> = repo
-        .list_branch_last_published()
-        .await?
-        .into_iter()
-        .map(|(svc, branch, ts)| ((svc, branch), ts))
-        .collect();
+    // Last-published time and endpoint count, keyed service -> branch -> value.
+    // Nested rather than keyed by a `(String, String)` tuple so lookups below
+    // borrow instead of allocating a fresh key pair each time.
+    let mut last_published: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, String>,
+    > = std::collections::HashMap::new();
+    for (svc, branch, ts) in repo.list_branch_last_published().await? {
+        last_published.entry(svc).or_default().insert(branch, ts);
+    }
 
-    // Per-(service, branch) endpoint count, so the discovery UI can tell a branch
-    // that serves nothing (e.g. an OpenAPI spec provided with no paths) apart from
-    // one that does. `branches` itself is left unfiltered — admin management needs
-    // to see and clean up empty branches too.
-    let endpoint_count: std::collections::HashMap<(String, String), i64> = repo
-        .list_branch_endpoint_counts()
-        .await?
-        .into_iter()
-        .map(|(svc, branch, count)| ((svc, branch), count))
-        .collect();
+    // The endpoint count lets the discovery UI tell a branch that serves nothing
+    // (e.g. an OpenAPI spec provided with no paths) apart from one that does.
+    // `branches` itself is left unfiltered — admin management needs to see and
+    // clean up empty branches too.
+    let mut endpoint_count: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, i64>,
+    > = std::collections::HashMap::new();
+    for (svc, branch, count) in repo.list_branch_endpoint_counts().await? {
+        endpoint_count.entry(svc).or_default().insert(branch, count);
+    }
 
     // Stale-cleanup horizon: non-protected branches are culled once their last
     // publish is older than this many days (0 = disabled). Used to surface a TTL.
     let max_age_days = get_branch_max_age_days(repo).await?;
 
-    // Order each service's branches deterministically: protected branches first
-    // (e.g. master/main), then most recently published, then alphabetically. The
-    // underlying GROUP_CONCAT returns them in an unspecified order otherwise.
-    let protected = repo.list_protected_branches().await?;
-    let protected: std::collections::HashSet<&str> = protected.iter().map(String::as_str).collect();
+    let patterns = repo.list_protected_branches().await?;
+    let empty_times = std::collections::HashMap::new();
+    let empty_counts = std::collections::HashMap::new();
     for svc in &mut services {
-        let sname = svc.name.clone();
+        let times = last_published.get(&svc.name).unwrap_or(&empty_times);
+        let counts = endpoint_count.get(&svc.name).unwrap_or(&empty_counts);
+
         // Attach the last-published time per branch, for display in the overview.
         svc.branches_last_published = svc
             .branches
             .iter()
-            .filter_map(|b| {
-                last_published
-                    .get(&(sname.clone(), b.clone()))
-                    .map(|ts| (b.clone(), ts.clone()))
-            })
+            .filter_map(|b| times.get(b).map(|ts| (b.clone(), ts.clone())))
             .collect();
         // Attach the endpoint count per branch, for filtering in the discovery UI.
         svc.branches_endpoint_count = svc
             .branches
             .iter()
-            .map(|b| {
-                let count = endpoint_count
-                    .get(&(sname.clone(), b.clone()))
-                    .copied()
-                    .unwrap_or(0);
-                (b.clone(), count)
-            })
+            .map(|b| (b.clone(), counts.get(b).copied().unwrap_or(0)))
             .collect();
         // Attach the stale-cleanup expiry per branch (non-protected only), so the UI
-        // can warn when a branch is about to be culled.
+        // can warn when a branch is about to be culled. Protection is glob-matched,
+        // so a wildcard-protected branch correctly shows no expiry badge.
         if max_age_days > 0 {
             svc.branches_expire_at = svc
                 .branches
                 .iter()
-                .filter(|b| !protected.contains(b.as_str()))
+                .filter(|b| !branch_matches_any(b, &patterns))
                 .filter_map(|b| {
-                    let ts = last_published.get(&(sname.clone(), b.clone()))?;
+                    let ts = times.get(b)?;
                     let published =
                         chrono::NaiveDateTime::parse_from_str(ts, "%Y-%m-%dT%H:%M:%SZ").ok()?;
                     let expire = published + chrono::Duration::days(max_age_days as i64);
@@ -159,19 +155,30 @@ pub async fn list_services_detailed(
                 })
                 .collect();
         }
-        let ts = |branch: &str| {
-            last_published
-                .get(&(sname.clone(), branch.to_string()))
-                .cloned()
-                .unwrap_or_default()
-        };
-        svc.branches.sort_by(|a, b| {
-            protected
-                .contains(b.as_str())
-                .cmp(&protected.contains(a.as_str()))
-                .then_with(|| ts(b).cmp(&ts(a))) // newest publish first
-                .then_with(|| a.cmp(b))
+
+        // Order branches deterministically: protected first (e.g. master/main),
+        // then most recently published, then alphabetically — the underlying
+        // GROUP_CONCAT returns them in an unspecified order otherwise. Sort keys
+        // are computed once per branch rather than inside the comparator, which
+        // would otherwise re-derive them on every comparison.
+        let mut keyed: Vec<(bool, &str, &String)> = svc
+            .branches
+            .iter()
+            .map(|b| {
+                (
+                    branch_matches_any(b, &patterns),
+                    times.get(b).map(String::as_str).unwrap_or(""),
+                    b,
+                )
+            })
+            .collect();
+        keyed.sort_by(|a, b| {
+            b.0.cmp(&a.0)
+                .then_with(|| b.1.cmp(a.1)) // newest publish first
+                .then_with(|| a.2.cmp(b.2))
         });
+        let ordered: Vec<String> = keyed.into_iter().map(|(_, _, name)| name.clone()).collect();
+        svc.branches = ordered;
     }
 
     if let Some(uid) = user_id {

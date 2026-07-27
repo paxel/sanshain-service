@@ -674,18 +674,16 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn is_branch_protected(&self, branch_name: &str) -> Result<bool, RepositoryError> {
-        // Match protected patterns the same way `delete_stale_branches` does (LIKE
-        // on this backend), so a wildcard pattern actually protects the branches it
-        // covers here too, consistent with stale cleanup.
-        let row: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM protected_branches WHERE $1 LIKE pattern OR pattern = $1",
-        )
-        .bind(branch_name)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        Ok(row.0 > 0)
+        // Matching runs in Rust (`branch_pattern`) rather than in SQL so both
+        // backends agree on what a pattern means. Using `LIKE` here would make
+        // `_` a single-character wildcard on this backend only, so a pattern
+        // like `feature_x` would silently protect `featureAx` on PostgreSQL
+        // and not on SQLite.
+        let patterns = self.list_protected_branches().await?;
+        Ok(crate::domain::branch_pattern::branch_matches_any(
+            branch_name,
+            &patterns,
+        ))
     }
 
     async fn add_protected_branch(&self, pattern: &str) -> Result<(), RepositoryError> {
@@ -1675,49 +1673,38 @@ impl SpecRepository for PostgresSpecRepository {
         &self,
         token_id: &str,
         user_id: i64,
-    ) -> Result<Option<String>, RepositoryError> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        let row: Option<(String,)> =
-            sqlx::query_as("SELECT name FROM api_tokens WHERE id = $1 AND user_id = $2")
-                .bind(token_id)
-                .bind(user_id)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        let Some((name,)) = row else {
-            return Ok(None);
-        };
-        sqlx::query("DELETE FROM api_tokens WHERE id = $1 AND user_id = $2")
+    ) -> Result<bool, RepositoryError> {
+        let result = sqlx::query("DELETE FROM api_tokens WHERE id = $1 AND user_id = $2")
             .bind(token_id)
             .bind(user_id)
-            .execute(&mut *tx)
+            .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        tx.commit()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(Some(name))
+        Ok(result.rows_affected() > 0)
     }
 
     async fn delete_stale_branches(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
-        let stale_branch_ids: Vec<(i64,)> = sqlx::query_as(
+        // Protection is decided in Rust (`branch_pattern`), the same way
+        // `is_branch_protected` does it, so a branch can never be culled here
+        // while counting as protected elsewhere.
+        let patterns = self.list_protected_branches().await?;
+        let candidates: Vec<(i64, String)> = sqlx::query_as(
             r#"
-            SELECT b.id FROM branches b
+            SELECT b.id, b.name FROM branches b
             JOIN services s ON b.service_id = s.id
             WHERE b.updated_at < $1
-            AND NOT EXISTS (
-                SELECT 1 FROM protected_branches pb WHERE b.name LIKE pb.pattern OR b.name = pb.pattern
-            )
             "#,
         )
         .bind(cutoff_iso)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        let stale_branch_ids: Vec<(i64,)> = candidates
+            .into_iter()
+            .filter(|(_, name)| !crate::domain::branch_pattern::branch_matches_any(name, &patterns))
+            .map(|(id, _)| (id,))
+            .collect();
 
         if stale_branch_ids.is_empty() {
             return Ok(0);

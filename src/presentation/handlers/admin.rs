@@ -89,13 +89,56 @@ pub async fn admin_get_full_spec(
 ) -> Result<impl IntoResponse, AppError> {
     let api_type = query.api_type.unwrap_or(ApiType::OpenApi);
     let spec = services::get_full_spec(&state.repo, &name, &branch, api_type).await?;
+    // Served as a download: name the file after the service/branch it came from,
+    // and use the media type matching the reassembled document.
+    let extension = match api_type {
+        ApiType::Proto => "proto",
+        _ => "yaml",
+    };
+    let content_type = match api_type {
+        ApiType::Proto => "text/plain; charset=utf-8",
+        _ => "application/yaml; charset=utf-8",
+    };
+    let filename = format!(
+        "{}-{}.{}",
+        sanitize_filename_part(&name),
+        sanitize_filename_part(&branch),
+        extension
+    );
     Ok((
-        [(
-            axum::http::header::CONTENT_TYPE,
-            "text/plain; charset=utf-8",
-        )],
+        [
+            (axum::http::header::CONTENT_TYPE, content_type.to_string()),
+            (
+                axum::http::header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", filename),
+            ),
+        ],
         spec,
     ))
+}
+
+/// Reduce a service or branch name to characters that are safe in a
+/// `Content-Disposition` filename. Service and branch names are client-supplied
+/// and unvalidated, so anything outside this set — quotes, path separators, and
+/// notably control characters like CR/LF, which would make the header value
+/// invalid and fail the response — becomes `-`. Whitelisted rather than
+/// blacklisted so a character nobody thought of cannot slip through.
+fn sanitize_filename_part(value: &str) -> String {
+    let cleaned: String = value
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if cleaned.is_empty() {
+        "spec".to_string()
+    } else {
+        cleaned
+    }
 }
 
 pub async fn admin_list_all_branches(

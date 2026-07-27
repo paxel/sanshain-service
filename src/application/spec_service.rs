@@ -1,4 +1,5 @@
 use crate::asyncapi;
+use crate::domain::branch_pattern::branch_matches_any;
 use crate::domain::models::*;
 use crate::domain::ports::{
     RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
@@ -30,6 +31,12 @@ pub struct RequireBundleParams<'a> {
     pub api_type: ApiType,
     pub endpoints: &'a [(String, String)],
     pub timeout_secs: Option<u64>,
+    /// Sticky hint (item #17): see `RequireQuery::source_protected_branch`.
+    /// Honoured identically to the single-endpoint `/require` — a bundle that
+    /// resolved lineage differently would hand a client the wrong branch's API.
+    pub source_protected_branch: Option<&'a str>,
+    /// One-shot override (item #17): see `RequireQuery::pull_from_branch`.
+    pub pull_from_branch: Option<&'a str>,
 }
 
 #[instrument(skip_all)]
@@ -791,12 +798,15 @@ pub async fn get_endpoint_yaml(
 
     let endpoint = find_endpoint_with_fallback(
         repo,
-        service_id,
-        servicename,
-        branch,
-        api_type,
+        BranchLookup {
+            service_id,
+            servicename,
+            branch,
+            api_type,
+        },
         path,
         &method_to_use,
+        &mut None,
     )
     .await?;
     endpoint.map(|(_, yaml, _, _)| yaml).ok_or_else(|| {
@@ -883,19 +893,30 @@ pub async fn get_endpoint_version_history(
         }
     }
 
+    let mut candidates: Option<Vec<String>> = None;
+
     // No local history — look for real history on the branch's source_protected_branch
     // hint (item #17), then the service's configured fallback branch, then any
     // protected branch (in priority order), explicitly skipping the branch
     // already checked above (existence there isn't enough).
-    for candidate in fallback_branch_candidates(repo, service_id, servicename, branch).await? {
-        if let Some(candidate_branch_id) = repo.find_branch(service_id, &candidate).await?
-            && let Some(endpoint_id) = repo
-                .get_endpoint_id(candidate_branch_id, api_type, path, &method_to_use)
-                .await?
-        {
-            let versions = repo.get_endpoint_versions(endpoint_id).await?;
-            if !versions.is_empty() {
-                return Ok(versions);
+    //
+    // Skipped entirely when the requested branch is itself protected: a
+    // protected branch is authoritative for its own line, so showing another
+    // protected branch's history under its name would misattribute it. This
+    // mirrors the guard `find_endpoint_with_fallback` applies below.
+    if !repo.is_branch_protected(branch).await? {
+        let chain =
+            resolve_candidates(repo, service_id, servicename, branch, &mut candidates).await?;
+        for candidate in chain.clone() {
+            if let Some(candidate_branch_id) = repo.find_branch(service_id, &candidate).await?
+                && let Some(endpoint_id) = repo
+                    .get_endpoint_id(candidate_branch_id, api_type, path, &method_to_use)
+                    .await?
+            {
+                let versions = repo.get_endpoint_versions(endpoint_id).await?;
+                if !versions.is_empty() {
+                    return Ok(versions);
+                }
             }
         }
     }
@@ -907,12 +928,15 @@ pub async fn get_endpoint_version_history(
     // tell a fallback happened.
     let endpoint_id = find_endpoint_with_fallback(
         repo,
-        service_id,
-        servicename,
-        branch,
-        api_type,
+        BranchLookup {
+            service_id,
+            servicename,
+            branch,
+            api_type,
+        },
         path,
         &method_to_use,
+        &mut candidates,
     )
     .await?
     .map(|(id, _, _, _)| id)
@@ -1003,6 +1027,11 @@ async fn require_endpoint_inner(
         .map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
     let poll_interval = std::time::Duration::from_millis(500);
 
+    // Filled on the first poll iteration that actually reaches the fallback,
+    // then reused for the rest of the long-poll instead of being re-resolved
+    // every 500ms.
+    let mut candidates: Option<Vec<String>> = None;
+
     loop {
         let endpoint = if let Some(pull_from_branch) = params.pull_from_branch {
             repo.find_endpoint(
@@ -1016,12 +1045,15 @@ async fn require_endpoint_inner(
         } else {
             find_endpoint_with_fallback(
                 repo,
-                service_id,
-                params.servicename,
-                params.branch,
-                params.api_type,
+                BranchLookup {
+                    service_id,
+                    servicename: params.servicename,
+                    branch: params.branch,
+                    api_type: params.api_type,
+                },
                 params.path,
                 &method_to_use,
+                &mut candidates,
             )
             .await?
         };
@@ -1161,10 +1193,33 @@ async fn require_bundle_inner(
         repo.ensure_service(params.servicename).await?
     };
 
+    // Same lineage handling as the single-endpoint `/require` (item #17):
+    // record the sticky hint on first supply, and skip it entirely when
+    // `pull_from_branch` pins this one request to an exact branch. Gated on a
+    // hint actually being present so a plain bundle require never creates a
+    // phantom branch row for an unknown service/branch.
+    if !dry_run
+        && params.pull_from_branch.is_none()
+        && let Some(hint) = params.source_protected_branch
+    {
+        let bid = repo.ensure_branch(service_id, params.branch).await?;
+        apply_source_protected_branch_hint(
+            repo,
+            bid,
+            params.servicename,
+            params.branch,
+            Some(hint),
+        )
+        .await?;
+    }
+
     let deadline = params
         .timeout_secs
         .map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
     let poll_interval = std::time::Duration::from_millis(500);
+
+    // Lazily filled and reused across poll iterations — see `require_endpoint_inner`.
+    let mut candidates: Option<Vec<String>> = None;
 
     loop {
         let normalized_endpoints: Vec<(String, String)> = params
@@ -1186,15 +1241,30 @@ async fn require_bundle_inner(
         let mut sorted_endpoints = normalized_endpoints.clone();
         sorted_endpoints.sort();
 
-        let found_endpoints = find_endpoints_bulk_with_fallback(
-            repo,
-            service_id,
-            params.servicename,
-            params.branch,
-            params.api_type,
-            &normalized_endpoints,
-        )
-        .await?;
+        // `pull_from_branch` pins this request to an exact branch, bypassing
+        // fallback resolution entirely (and persisting nothing).
+        let found_endpoints = if let Some(pull_from_branch) = params.pull_from_branch {
+            repo.find_endpoints_bulk(
+                service_id,
+                pull_from_branch,
+                params.api_type,
+                &normalized_endpoints,
+            )
+            .await?
+        } else {
+            find_endpoints_bulk_with_fallback(
+                repo,
+                BranchLookup {
+                    service_id,
+                    servicename: params.servicename,
+                    branch: params.branch,
+                    api_type: params.api_type,
+                },
+                &normalized_endpoints,
+                &mut candidates,
+            )
+            .await?
+        };
 
         if found_endpoints.len() == params.endpoints.len() {
             let mut yamls = Vec::new();
@@ -1297,7 +1367,19 @@ async fn fallback_branch_candidates(
     {
         candidates.push(sfb);
     }
-    for pb in repo.list_protected_branches().await? {
+    // `list_protected_branches` returns *patterns*, not branch names: a wildcard
+    // entry like `release/*` is not itself a branch and can never be resolved
+    // against. Expand the patterns over the service's real branches instead, so
+    // wildcard-protected branches actually participate in fallback resolution.
+    let patterns = repo.list_protected_branches().await?;
+    let mut protected: Vec<String> = repo
+        .list_branches(servicename)
+        .await?
+        .into_iter()
+        .filter(|b| branch_matches_any(b, &patterns))
+        .collect();
+    protected.sort();
+    for pb in protected {
         if pb != branch && !candidates.contains(&pb) {
             candidates.push(pb);
         }
@@ -1305,15 +1387,39 @@ async fn fallback_branch_candidates(
     Ok(candidates)
 }
 
+/// Resolve a single endpoint, falling back over the branch's candidate chain
+/// when `branch` doesn't have it.
+///
+/// `candidates` is a lazily-filled cache, not an input: the chain is resolved
+/// only once the fallback is actually reached, and then reused. That keeps the
+/// common cases free — an endpoint present on the requested branch, or a
+/// request against a protected branch, both return before any chain lookup —
+/// while a long-poll that waits out its timeout still resolves the chain once
+/// rather than on every 500ms iteration. (The chain cannot change in a way this
+/// caller could observe mid-poll.)
+/// Which service/branch (and API flavour) a fallback lookup is resolving
+/// against. Grouped so the two resolvers stay within a sane argument count.
+#[derive(Clone, Copy)]
+struct BranchLookup<'a> {
+    service_id: i64,
+    servicename: &'a str,
+    branch: &'a str,
+    api_type: ApiType,
+}
+
 async fn find_endpoint_with_fallback(
     repo: &impl SpecRepository,
-    service_id: i64,
-    servicename: &str,
-    branch: &str,
-    api_type: ApiType,
+    lookup: BranchLookup<'_>,
     path: &str,
     method_to_use: &str,
+    candidates: &mut Option<Vec<String>>,
 ) -> Result<Option<(i64, String, bool, bool)>, RepositoryError> {
+    let BranchLookup {
+        service_id,
+        servicename,
+        branch,
+        api_type,
+    } = lookup;
     let endpoint = repo
         .find_endpoint(service_id, branch, api_type, path, method_to_use)
         .await?;
@@ -1321,9 +1427,10 @@ async fn find_endpoint_with_fallback(
         return Ok(endpoint);
     }
 
-    for candidate in fallback_branch_candidates(repo, service_id, servicename, branch).await? {
+    let candidates = resolve_candidates(repo, service_id, servicename, branch, candidates).await?;
+    for candidate in candidates.iter() {
         if let Some(ep) = repo
-            .find_endpoint(service_id, &candidate, api_type, path, method_to_use)
+            .find_endpoint(service_id, candidate, api_type, path, method_to_use)
             .await?
         {
             return Ok(Some(ep));
@@ -1332,14 +1439,39 @@ async fn find_endpoint_with_fallback(
     Ok(None)
 }
 
-async fn find_endpoints_bulk_with_fallback(
+/// Fill `cache` with the branch's fallback chain on first use, then hand back
+/// the cached list. See `find_endpoint_with_fallback` for why this is lazy.
+async fn resolve_candidates<'a>(
     repo: &impl SpecRepository,
     service_id: i64,
     servicename: &str,
     branch: &str,
-    api_type: ApiType,
+    cache: &'a mut Option<Vec<String>>,
+) -> Result<&'a Vec<String>, RepositoryError> {
+    if cache.is_none() {
+        let resolved = fallback_branch_candidates(repo, service_id, servicename, branch).await?;
+        *cache = Some(resolved);
+    }
+    Ok(cache.as_ref().unwrap_or(const { &Vec::new() }))
+}
+
+/// Bulk counterpart of `find_endpoint_with_fallback`, resolving whatever the
+/// requested branch is missing over the same ordered `candidates`. It must use
+/// the identical chain — a bundle require that resolved differently from the
+/// single-endpoint require would silently hand a client a different branch's
+/// API for the same lineage.
+async fn find_endpoints_bulk_with_fallback(
+    repo: &impl SpecRepository,
+    lookup: BranchLookup<'_>,
     endpoints: &[(String, String)],
+    candidates: &mut Option<Vec<String>>,
 ) -> Result<crate::domain::ports::EndpointMap, RepositoryError> {
+    let BranchLookup {
+        service_id,
+        servicename,
+        branch,
+        api_type,
+    } = lookup;
     let mut results = repo
         .find_endpoints_bulk(service_id, branch, api_type, endpoints)
         .await?;
@@ -1352,33 +1484,10 @@ async fn find_endpoints_bulk_with_fallback(
         return Ok(results);
     }
 
-    if let Some(sfb) = repo
-        .get_fallback_branch(servicename)
-        .await
-        .ok()
-        .flatten()
-        .filter(|b| b != branch)
-    {
+    let candidates = resolve_candidates(repo, service_id, servicename, branch, candidates).await?;
+    for candidate in candidates.iter() {
         let fallback_results = repo
-            .find_endpoints_bulk(service_id, &sfb, api_type, &missing)
-            .await?;
-        for (key, val) in fallback_results {
-            results.insert(key.clone(), val);
-            missing.retain(|m| m.0 != key.0 || m.1 != key.1);
-        }
-    }
-
-    if missing.is_empty() {
-        return Ok(results);
-    }
-
-    let protected = repo.list_protected_branches().await?;
-    for pb in &protected {
-        if pb == branch {
-            continue;
-        }
-        let fallback_results = repo
-            .find_endpoints_bulk(service_id, pb, api_type, &missing)
+            .find_endpoints_bulk(service_id, candidate, api_type, &missing)
             .await?;
         for (key, val) in fallback_results {
             results.insert(key.clone(), val);

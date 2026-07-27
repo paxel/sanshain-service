@@ -110,6 +110,8 @@ async fn require_bundle_dry_run_empty_is_bad_request() {
         api_type: ApiType::OpenApi,
         endpoints: &[],
         timeout_secs: None,
+        source_protected_branch: None,
+        pull_from_branch: None,
     };
     let res = spec_service::require_bundle_dry_run(&repo, None, params).await;
     match res {
@@ -134,6 +136,8 @@ async fn require_bundle_dry_run_reports_missing() {
         api_type: ApiType::OpenApi,
         endpoints: &eps,
         timeout_secs: Some(0),
+        source_protected_branch: None,
+        pull_from_branch: None,
     };
     let res = spec_service::require_bundle_dry_run(&repo, None, params).await;
     match res {

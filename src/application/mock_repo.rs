@@ -265,14 +265,16 @@ impl SpecRepository for MockRepo {
     }
 
     async fn is_branch_protected(&self, branch_name: &str) -> Result<bool, RepositoryError> {
-        // NB: the SQL repositories glob/LIKE-match wildcard patterns; this test
-        // double does exact matching only, which is sufficient for the exact
-        // `main`/`master` patterns the mock-based tests use.
+        // Uses the same shared matcher as the SQL repositories, so wildcard
+        // patterns behave identically in mock-based tests.
         let pb = self
             .protected_branches
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        Ok(pb.contains(&branch_name.to_string()))
+        Ok(crate::domain::branch_pattern::branch_matches_any(
+            branch_name,
+            &pb,
+        ))
     }
 
     async fn add_protected_branch(&self, pattern: &str) -> Result<(), RepositoryError> {
@@ -755,8 +757,8 @@ impl SpecRepository for MockRepo {
         &self,
         _token_id: &str,
         _user_id: i64,
-    ) -> Result<Option<String>, RepositoryError> {
-        Ok(Some("mock-token".to_string()))
+    ) -> Result<bool, RepositoryError> {
+        Ok(true)
     }
 
     async fn validate_api_token(&self, _hash: &str) -> Result<Option<User>, RepositoryError> {

@@ -332,13 +332,14 @@ pub async fn list_api_tokens(
     Ok(repo.list_api_tokens(user_id).await?)
 }
 
-/// Revokes the token, returning its name if one was found and owned by
-/// `user_id`, or `None` if there was nothing to revoke.
+/// Revokes the token, returning whether one was found and owned by `user_id`
+/// so the caller can answer 404 instead of reporting a success that never
+/// happened.
 pub async fn revoke_api_token(
     repo: &impl SpecRepository,
     token_id: &str,
     user_id: i64,
-) -> Result<Option<String>, AppError> {
+) -> Result<bool, AppError> {
     Ok(repo.delete_api_token(token_id, user_id).await?)
 }
 

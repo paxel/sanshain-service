@@ -1092,7 +1092,7 @@ impl SpecRepository for CachedSpecRepository {
         &self,
         token_id: &str,
         user_id: i64,
-    ) -> Result<Option<String>, RepositoryError> {
+    ) -> Result<bool, RepositoryError> {
         self.inner.delete_api_token(token_id, user_id).await
     }
 

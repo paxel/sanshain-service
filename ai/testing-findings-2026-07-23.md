@@ -747,3 +747,78 @@ separate, smaller open question rather than assumed.
   (`fallback_branch_candidates`): it picks *a* protected branch, not necessarily the *right* one
   when several exist. Not blocking — #3/#4/#13 are still correct improvements over 404/empty — but
   worth resolving before leaning on the fallback further.
+
+---
+
+## Post-review fixes (2026-07-27)
+
+A code review of the whole `release/1.5.2` branch raised the following; all are fixed here.
+
+**Blocking:**
+
+1. **`/require-bundle` ignored `source_protected_branch`.** `find_endpoints_bulk_with_fallback` was
+   never updated for item #17 and still resolved via configured-fallback → protected-alphabetical,
+   so `/require` and `/require-bundle` disagreed about lineage — exactly the hotfix-off-`release/X.Y`
+   case the feature exists for, on the path a build plugin is most likely to use. `RequireBundleParams`
+   and the `/require-bundle` body now carry `source_protected_branch`/`pull_from_branch`, and both
+   resolvers share one ordered candidate list. Covered by
+   `require_bundle_prefers_source_protected_branch_over_alphabetical` and
+   `require_bundle_pull_from_branch_bypasses_resolution_without_persisting`.
+2. **HTML-attribute injection in the services view.** The new "Download full API" button built an
+   `onclick="downloadFullApi('…')"` attribute out of the service and branch names, escaping only
+   single quotes. Names come from `/provide` payloads and are never validated, so `"` or `<` escaped
+   the attribute. Handlers are now bound with `addEventListener` and all interpolated names go
+   through `escapeHtml` (already used elsewhere in the codebase). The unescaped
+   `${serviceName}`/`${branch}` interpolations that predate this branch were fixed at the same time.
+
+**Also fixed:**
+
+3. **Protected patterns were used as if they were branch names.** `list_protected_branches` returns
+   *patterns*, so `fallback_branch_candidates` looked up a branch literally named `release/*`.
+   Patterns are now expanded over the service's real branches
+   (`wildcard_protected_pattern_resolves_as_fallback`). The same bug affected branch ordering and the
+   expiry badge in the services overview, which compared branch names against patterns by equality.
+4. **Cross-backend pattern divergence.** Matching was delegated to each backend's SQL dialect
+   (SQLite `GLOB`, PostgreSQL `LIKE`), so `feature_x` silently treated `_` as a wildcard on
+   PostgreSQL only. Replaced by one domain-level matcher, `src/domain/branch_pattern.rs`
+   (`*` and `?` are wildcards; everything else literal), used by `is_branch_protected`,
+   `delete_stale_branches`, the fallback resolver, the services overview, and `MockRepo` — which
+   previously did exact matching only and so could not catch wildcard bugs. This closes the
+   "still open" cross-backend divergence noted under item #16 above.
+5. **Fallback candidates were recomputed on every long-poll iteration.** `find_endpoint_with_fallback`
+   ran inside the poll loop and re-ran `find_branch` + the deliberately uncached
+   `get_source_protected_branch` + `get_fallback_branch` + `list_protected_branches` every 500ms for
+   the whole timeout. Candidates are now resolved once, before the loop, in both require paths.
+6. **`delete_api_token` returned the token's name.** Only a "did it exist" signal was needed for the
+   404; returning the name handed callers a value the audit policy forbids logging (see item #8).
+   Reverted to `bool`, which also drops a transaction and a round-trip per revocation.
+7. **Version history could misattribute a protected branch.** `get_endpoint_version_history` lacked
+   the `is_branch_protected` guard its sibling `find_endpoint_with_fallback` applies, so a protected
+   branch holding an endpoint with no version rows inherited a *different* protected branch's
+   history under its own name. Guard added.
+8. **Nits:** branch-sort keys are computed once per branch instead of re-derived (and allocated)
+   inside the comparator; the overview's lookup maps are nested (`service -> branch -> value`) so
+   lookups no longer allocate a tuple key each time; `full-spec` responds with `application/yaml`
+   and a `Content-Disposition` filename rather than bare `text/plain`; the audit-log blocks in the
+   three provide handlers are re-indented to match their enclosing `if`.
+
+**Second review pass on the fixes themselves:**
+
+- The candidate hoist was initially *eager* (computed before the poll loop), which made the common
+  cases slower: `find_endpoint_with_fallback` short-circuits when the endpoint is on the requested
+  branch or the branch is protected, so the chain was resolved and discarded on every hit. Now
+  lazily resolved on the first miss and memoized for the rest of the poll (`resolve_candidates`).
+- The `Content-Disposition` filename was built by stripping `/` and `"` from unvalidated names; a
+  name containing CR/LF would still produce an invalid header and a 500. Replaced with a
+  whitelist (`sanitize_filename_part`).
+- The XSS fix initially covered only service/branch names. The same page also rendered endpoint
+  `path`/`method`, service `icon`/`domain`, client names (into a `data-` attribute *and* an
+  `onclick`), and error messages unescaped — all client-supplied. All are now escaped or built as
+  nodes with `textContent` + listeners, so the Security changelog entry is accurate.
+- Added `protected_branch_without_history_does_not_inherit_another_protected_branch`, verified to
+  fail without the guard (it returned `main`'s history under `release/1.0`).
+
+**Note for reviewers:** `delete_stale_branches` was changed as part of unifying pattern matching,
+although it was not itself a review finding. It is the highest-blast-radius edit in this pass — it
+decides which branches get deleted — and the PostgreSQL `_` fix means a branch that was only
+incidentally protected is now eligible for cleanup. Called out in `CHANGELOG.md` as an upgrade note.

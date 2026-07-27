@@ -1770,3 +1770,279 @@ paths:
     .unwrap();
     assert_eq!(versions[0].username.as_deref(), Some("root"));
 }
+
+// --- /require-bundle must resolve lineage exactly like /require ---
+
+// Same endpoint, distinguishable content per branch, so a test can tell which
+// branch actually served the bundle.
+const SPB_SPEC_FROM_RELEASE: &str = r#"openapi: 3.0.0
+info: {title: t, version: v1}
+paths:
+  /p:
+    get:
+      responses:
+        '200': { description: served-by-release }
+"#;
+
+const SPB_SPEC_FROM_MAIN: &str = r#"openapi: 3.0.0
+info: {title: t, version: v1}
+paths:
+  /p:
+    get:
+      responses:
+        '200': { description: served-by-main }
+"#;
+
+// A bundle require from a feature branch must follow that branch's
+// source_protected_branch, not the alphabetically-first protected branch.
+// Before this was wired up, /require and /require-bundle disagreed: the single
+// endpoint resolved against release/1.0 while the bundle silently returned
+// main's diverged API.
+#[tokio::test]
+async fn require_bundle_prefers_source_protected_branch_over_alphabetical() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let repo = spb_test_repo().await;
+    // "main" sorts before "release/1.0"; both protected, both hold /p with
+    // different content.
+    services::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::OpenApi,
+        SPB_SPEC_FROM_MAIN,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+    repo.add_protected_branch("release/1.0").await.unwrap();
+    services::provide_spec(
+        &repo,
+        "svc",
+        "release/1.0",
+        ApiType::OpenApi,
+        SPB_SPEC_FROM_RELEASE,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let eps = vec![("/p".to_string(), "GET".to_string())];
+    let res = services::require_bundle(
+        &repo,
+        None,
+        services::RequireBundleParams {
+            clientname: "client-a",
+            servicename: "svc",
+            branch: "hotfix/1.0.1",
+            api_type: ApiType::OpenApi,
+            endpoints: &eps,
+            timeout_secs: None,
+            source_protected_branch: Some("release/1.0"),
+            pull_from_branch: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        res.yaml.contains("served-by-release"),
+        "bundle must resolve against source_protected_branch, got: {}",
+        res.yaml
+    );
+
+    // The hint was persisted by the bundle path, exactly as /require does.
+    let sid = repo.ensure_service("svc").await.unwrap();
+    let bid = repo
+        .find_branch(sid, "hotfix/1.0.1")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        repo.get_source_protected_branch(bid)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("release/1.0")
+    );
+}
+
+// pull_from_branch pins a bundle request to an exact branch and persists
+// nothing — matching the single-endpoint behavior.
+#[tokio::test]
+async fn require_bundle_pull_from_branch_bypasses_resolution_without_persisting() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let repo = spb_test_repo().await;
+    services::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::OpenApi,
+        SPB_SPEC_FROM_MAIN,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+    repo.add_protected_branch("release/1.0").await.unwrap();
+    services::provide_spec(
+        &repo,
+        "svc",
+        "release/1.0",
+        ApiType::OpenApi,
+        SPB_SPEC_FROM_RELEASE,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let eps = vec![("/p".to_string(), "GET".to_string())];
+    let res = services::require_bundle(
+        &repo,
+        None,
+        services::RequireBundleParams {
+            clientname: "client-a",
+            servicename: "svc",
+            branch: "feature-x",
+            api_type: ApiType::OpenApi,
+            endpoints: &eps,
+            timeout_secs: None,
+            source_protected_branch: None,
+            pull_from_branch: Some("release/1.0"),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(res.yaml.contains("served-by-release"));
+
+    let sid = repo.ensure_service("svc").await.unwrap();
+    assert!(
+        repo.find_branch(sid, "feature-x").await.unwrap().is_none(),
+        "pull_from_branch must not create a branch row on the bundle path either"
+    );
+}
+
+// A protected branch that holds the endpoint but has no version rows of its
+// own must not inherit a *different* protected branch's history — that would
+// show another release line's changes under this branch's name. It reports an
+// empty history instead.
+#[tokio::test]
+async fn protected_branch_without_history_does_not_inherit_another_protected_branch() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let repo = spb_test_repo().await;
+    // "main" is protected and accumulates real version rows.
+    services::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::OpenApi,
+        SPB_SPEC_FROM_MAIN,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+    let versions_on_main =
+        services::get_endpoint_version_history(&repo, "svc", "main", ApiType::OpenApi, "/p", "GET")
+            .await
+            .unwrap();
+    assert!(
+        !versions_on_main.is_empty(),
+        "precondition: main must have real history"
+    );
+
+    // "release/1.0" is protected and holds the endpoint, but its endpoint row is
+    // created directly so it has no version rows of its own.
+    repo.add_protected_branch("release/1.0").await.unwrap();
+    let sid = repo.ensure_service("svc").await.unwrap();
+    let bid = repo.ensure_branch(sid, "release/1.0").await.unwrap();
+    repo.insert_endpoint(
+        bid,
+        &sanshain_service::domain::models::EndpointRecord {
+            id: None,
+            api_type: ApiType::OpenApi,
+            path: "/p".to_string(),
+            normalized_path: "/p".to_string(),
+            method: "GET".to_string(),
+            yaml_content: SPB_SPEC_FROM_RELEASE.to_string(),
+            deprecated: false,
+            external: false,
+        },
+    )
+    .await
+    .unwrap();
+
+    let versions = services::get_endpoint_version_history(
+        &repo,
+        "svc",
+        "release/1.0",
+        ApiType::OpenApi,
+        "/p",
+        "GET",
+    )
+    .await
+    .unwrap();
+    assert!(
+        versions.is_empty(),
+        "a protected branch must not inherit another protected branch's history, got: {:?}",
+        versions
+            .iter()
+            .map(|v| v.branch_name.as_deref())
+            .collect::<Vec<_>>()
+    );
+}
+
+// A wildcard protected pattern (release/*) must actually participate in
+// fallback resolution. `list_protected_branches` returns patterns, so before
+// the patterns were expanded over real branch names the resolver looked up a
+// branch literally named "release/*" and found nothing.
+#[tokio::test]
+async fn wildcard_protected_pattern_resolves_as_fallback() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let repo = spb_test_repo().await;
+    repo.add_protected_branch("release/*").await.unwrap();
+    // Remove the seeded exact patterns so only the wildcard can match.
+    repo.remove_protected_branch("main").await.unwrap();
+    repo.remove_protected_branch("master").await.unwrap();
+
+    services::provide_spec(
+        &repo,
+        "svc",
+        "release/1.0",
+        ApiType::OpenApi,
+        SPB_SPEC_FROM_RELEASE,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    // A feature branch with nothing of its own must fall back to the
+    // wildcard-protected release/1.0.
+    let res = services::require_endpoint(
+        &repo,
+        None,
+        services::RequireEndpointParams {
+            clientname: "client-a",
+            servicename: "svc",
+            branch: "feature-x",
+            api_type: ApiType::OpenApi,
+            path: "/p",
+            method: "GET",
+            timeout_secs: None,
+            source_protected_branch: None,
+            pull_from_branch: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        res.yaml.contains("served-by-release"),
+        "a wildcard-protected branch must be reachable as a fallback target"
+    );
+}

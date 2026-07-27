@@ -257,9 +257,9 @@ pub async fn revoke_token(
     axum::Extension(user): axum::Extension<User>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    services::revoke_api_token(&state.repo, &id, user.id)
-        .await?
-        .ok_or_else(|| AppError::NotFound("API token not found".to_string()))?;
+    if !services::revoke_api_token(&state.repo, &id, user.id).await? {
+        return Err(AppError::NotFound("API token not found".to_string()));
+    }
     record_audit_log(
         &state.repo,
         Some(&user),

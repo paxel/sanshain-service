@@ -101,22 +101,26 @@ pub async fn provide(
         // the audit timeline focused on actual spec changes.
         if !res.changes.is_empty() {
             record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "PROVIDE_SPEC",
-            details: &format!(
-                "Uploaded OpenApi spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
-                payload.servicename, payload.branch, res.version,
-                res.changes.inserts, res.changes.updates, res.changes.deletes
-            ),
-            service: Some(&payload.servicename),
-            branch: Some(&payload.branch),
-            action_type: Some("WRITE"),
-            diff: None,
-        },
-    )
-        .await?;
+                &state.repo,
+                user,
+                NewAuditLog {
+                    action: "PROVIDE_SPEC",
+                    details: &format!(
+                        "Uploaded OpenApi spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
+                        payload.servicename,
+                        payload.branch,
+                        res.version,
+                        res.changes.inserts,
+                        res.changes.updates,
+                        res.changes.deletes
+                    ),
+                    service: Some(&payload.servicename),
+                    branch: Some(&payload.branch),
+                    action_type: Some("WRITE"),
+                    diff: None,
+                },
+            )
+            .await?;
         }
     }
 
@@ -167,22 +171,26 @@ pub async fn provide_asyncapi(
     // Skip the audit entry for a no-op re-upload (no endpoint changes).
     if !res.changes.is_empty() {
         record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "PROVIDE_SPEC",
-            details: &format!(
-            "Uploaded AsyncApi spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
-            payload.servicename, payload.branch, res.version,
-            res.changes.inserts, res.changes.updates, res.changes.deletes
-        ),
-            service: Some(&payload.servicename),
-            branch: Some(&payload.branch),
-            action_type: Some("WRITE"),
-            diff: None,
-        },
-    )
-    .await?;
+            &state.repo,
+            user,
+            NewAuditLog {
+                action: "PROVIDE_SPEC",
+                details: &format!(
+                    "Uploaded AsyncApi spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
+                    payload.servicename,
+                    payload.branch,
+                    res.version,
+                    res.changes.inserts,
+                    res.changes.updates,
+                    res.changes.deletes
+                ),
+                service: Some(&payload.servicename),
+                branch: Some(&payload.branch),
+                action_type: Some("WRITE"),
+                diff: None,
+            },
+        )
+        .await?;
     }
     Ok((StatusCode::ACCEPTED, Json(res)))
 }
@@ -231,22 +239,26 @@ pub async fn provide_proto(
     // Skip the audit entry for a no-op re-upload (no endpoint changes).
     if !res.changes.is_empty() {
         record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "PROVIDE_SPEC",
-            details: &format!(
-            "Uploaded Proto spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
-            payload.servicename, payload.branch, res.version,
-            res.changes.inserts, res.changes.updates, res.changes.deletes
-        ),
-            service: Some(&payload.servicename),
-            branch: Some(&payload.branch),
-            action_type: Some("WRITE"),
-            diff: None,
-        },
-    )
-    .await?;
+            &state.repo,
+            user,
+            NewAuditLog {
+                action: "PROVIDE_SPEC",
+                details: &format!(
+                    "Uploaded Proto spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
+                    payload.servicename,
+                    payload.branch,
+                    res.version,
+                    res.changes.inserts,
+                    res.changes.updates,
+                    res.changes.deletes
+                ),
+                service: Some(&payload.servicename),
+                branch: Some(&payload.branch),
+                action_type: Some("WRITE"),
+                diff: None,
+            },
+        )
+        .await?;
     }
     Ok((StatusCode::ACCEPTED, Json(res)))
 }
@@ -471,6 +483,11 @@ pub struct RequireBundleRequest {
     pub api_type: Option<ApiType>,
     pub endpoints: Vec<BundleEndpoint>,
     pub timeout: Option<u64>,
+    /// See `RequireQuery::source_protected_branch`. Supplied in the body here
+    /// because `/require-bundle` is a POST.
+    pub source_protected_branch: Option<String>,
+    /// See `RequireQuery::pull_from_branch`.
+    pub pull_from_branch: Option<String>,
 }
 
 pub async fn require_bundle(
@@ -495,6 +512,8 @@ pub async fn require_bundle(
             api_type: payload.api_type.unwrap_or(ApiType::OpenApi),
             endpoints: &endpoints,
             timeout_secs: payload.timeout,
+            source_protected_branch: payload.source_protected_branch.as_deref(),
+            pull_from_branch: payload.pull_from_branch.as_deref(),
         },
     )
     .await?;
