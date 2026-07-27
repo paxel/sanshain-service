@@ -283,6 +283,24 @@ pub struct RequireQuery {
     pub pull_from_branch: Option<String>,
 }
 
+/// Report how a require was resolved, so a Consumer can tell a branch's own
+/// spec from one inherited off an ancestor without parsing the body.
+///
+/// The served branch is Producer-supplied and unvalidated, so a name carrying
+/// control characters cannot become a header value — in that case the header is
+/// omitted rather than the response failing.
+fn insert_resolution_headers(headers: &mut HeaderMap, res: &services::RequireResponse) {
+    headers.insert(
+        "X-Sanshain-Resolution",
+        HeaderValue::from_static(res.state.as_str()),
+    );
+    if let Some(branch) = &res.served_branch
+        && let Ok(value) = HeaderValue::from_str(branch)
+    {
+        headers.insert("X-Sanshain-Served-Branch", value);
+    }
+}
+
 pub async fn require(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
@@ -350,6 +368,7 @@ pub async fn require(
     if res.deprecated {
         headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
     }
+    insert_resolution_headers(&mut headers, &res);
     Ok((headers, res.yaml).into_response())
 }
 
@@ -408,6 +427,7 @@ pub async fn require_asyncapi(
     if res.deprecated {
         headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
     }
+    insert_resolution_headers(&mut headers, &res);
     Ok((headers, res.yaml).into_response())
 }
 
@@ -466,6 +486,7 @@ pub async fn require_proto(
     if res.deprecated {
         headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
     }
+    insert_resolution_headers(&mut headers, &res);
     Ok((headers, res.yaml).into_response())
 }
 
@@ -553,6 +574,7 @@ pub async fn require_bundle(
     if res.deprecated {
         headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
     }
+    insert_resolution_headers(&mut headers, &res);
     Ok((headers, res.yaml).into_response())
 }
 

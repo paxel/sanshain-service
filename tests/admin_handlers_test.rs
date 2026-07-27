@@ -511,13 +511,20 @@ paths:
     assert!(missing.is_err(), "no branch has this endpoint");
 }
 
-// A feature branch created from a protected branch with identical content
-// genuinely has the endpoint (its own row, same yaml), but never accumulates its
-// own `endpoint_versions` rows since only protected branches record history. It
-// must not report "no history" — it should inherit the protected branch's real
-// history, distinct from #13's case where the endpoint doesn't exist at all.
+// A feature branch that published its own spec is authoritative: it genuinely
+// has the endpoint (its own row), and never accumulates `endpoint_versions` rows
+// because only protected branches record history. It reports *its own* empty
+// history rather than importing the protected branch's — the caller then renders
+// this branch's current spec.
+//
+// This reverses the earlier behaviour, which fell through to the ancestor's
+// history here. That only looked right while the current-spec fetch was broken
+// by a dead URL, so inheriting was the sole way to show anything; with the branch
+// resolving correctly, showing master's history under a feature branch's name
+// would display an API that branch does not serve.
+// See docs/adr/0001-endpoint-resolution-model.md.
 #[tokio::test]
-async fn version_history_falls_back_when_local_branch_has_no_history_of_its_own() {
+async fn branch_with_its_own_endpoint_does_not_import_ancestor_history() {
     let pool = SqlitePoolOptions::new()
         .connect("sqlite::memory:")
         .await
@@ -579,14 +586,23 @@ paths:
     .await
     .unwrap();
     assert!(
-        versions.len() >= 2,
-        "must inherit main's real multi-version history, not report empty"
+        versions.is_empty(),
+        "an authoritative branch reports its own (empty) history, not main's: {:?}",
+        versions
+            .iter()
+            .map(|v| v.branch_name.as_deref())
+            .collect::<Vec<_>>()
     );
-    assert_eq!(
-        versions[0].branch_name.as_deref(),
-        Some("main"),
-        "history is served from main, where it was actually recorded"
-    );
+
+    // ...and the view falls back to that branch's own current spec, reported as
+    // `published` — not inherited from main.
+    let view =
+        services::get_endpoint_yaml(&repo, "svc", "feature-x", ApiType::OpenApi, "/p", "GET")
+            .await
+            .unwrap();
+    assert_eq!(view.state.as_str(), "published");
+    assert_eq!(view.served_branch.as_deref(), Some("feature-x"));
+    assert!(view.yaml.is_some());
 }
 
 // Only non-protected branches get a stale-cleanup expiry (protected branches are
@@ -2096,18 +2112,25 @@ async fn browsing_an_unknown_branch_does_not_create_it() {
     );
 }
 
-// The endpoint spec and history views are reads too: an unknown service must
-// 404 without being created as a side effect.
+// The endpoint spec and history views are reads too: an unknown service is
+// reported as `unknown` (or 404 for history) without being created as a side
+// effect.
 #[tokio::test]
 async fn viewing_an_unknown_service_does_not_create_it() {
     use sanshain_service::domain::ports::SpecRepository;
 
     let repo = spb_test_repo().await;
 
-    let yaml =
+    let view =
         services::get_endpoint_yaml(&repo, "ghost-svc", "main", ApiType::OpenApi, "/p", "get")
-            .await;
-    assert!(yaml.is_err(), "unknown service has no endpoint yaml");
+            .await
+            .unwrap();
+    assert_eq!(
+        view.state.as_str(),
+        "unknown",
+        "an unknown service resolves to unknown, not an error"
+    );
+    assert!(view.yaml.is_none());
 
     let history = services::get_endpoint_version_history(
         &repo,
@@ -2126,4 +2149,355 @@ async fn viewing_an_unknown_service_does_not_create_it() {
             "{name} must not have been created by a read"
         );
     }
+}
+
+// --- Resolution states (GitHub issue #2, ADR 0001) ---
+
+const SPEC_TWO_ENDPOINTS: &str = r#"openapi: 3.0.0
+info: {title: t, version: v1}
+paths:
+  /keep:
+    get:
+      responses:
+        '200': { description: ok }
+  /deprecated:
+    get:
+      responses:
+        '200': { description: ok }
+"#;
+
+const SPEC_ONE_ENDPOINT: &str = r#"openapi: 3.0.0
+info: {title: t, version: v1}
+paths:
+  /keep:
+    get:
+      responses:
+        '200': { description: ok }
+"#;
+
+// THE regression this model exists for. master carries a deprecated endpoint; a
+// feature branch publishes a spec without it. The deletion must stick: a
+// Consumer of that branch must NOT receive master's copy.
+#[tokio::test]
+async fn deleting_an_endpoint_on_a_branch_is_not_undone_by_inheritance() {
+    let repo = spb_test_repo().await;
+    services::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::OpenApi,
+        SPEC_TWO_ENDPOINTS,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+    // The feature branch publishes a complete spec that omits /deprecated.
+    services::provide_spec(
+        &repo,
+        "svc",
+        "feature-x",
+        ApiType::OpenApi,
+        SPEC_ONE_ENDPOINT,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let err = services::require_endpoint(
+        &repo,
+        None,
+        services::RequireEndpointParams {
+            clientname: "c1",
+            servicename: "svc",
+            branch: "feature-x",
+            api_type: ApiType::OpenApi,
+            path: "/deprecated",
+            method: "GET",
+            timeout_secs: None,
+            source_protected_branch: None,
+            pull_from_branch: None,
+        },
+    )
+    .await
+    .unwrap_err();
+    match err {
+        sanshain_service::domain::models::AppError::Gone(msg) => {
+            assert!(
+                msg.contains("/deprecated"),
+                "message names the endpoint: {msg}"
+            );
+        }
+        other => panic!("expected Gone (deliberately absent), got {other:?}"),
+    }
+
+    // The endpoint the branch *does* publish still resolves, from itself.
+    let ok = services::require_endpoint(
+        &repo,
+        None,
+        services::RequireEndpointParams {
+            clientname: "c1",
+            servicename: "svc",
+            branch: "feature-x",
+            api_type: ApiType::OpenApi,
+            path: "/keep",
+            method: "GET",
+            timeout_secs: None,
+            source_protected_branch: None,
+            pull_from_branch: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(ok.state.as_str(), "published");
+    assert_eq!(ok.served_branch.as_deref(), Some("feature-x"));
+}
+
+// A branch that has never published inherits, and the response names where from.
+#[tokio::test]
+async fn a_branch_that_never_published_inherits_and_names_the_source() {
+    let repo = spb_test_repo().await;
+    services::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::OpenApi,
+        SPEC_TWO_ENDPOINTS,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let res = services::require_endpoint(
+        &repo,
+        None,
+        services::RequireEndpointParams {
+            clientname: "c1",
+            servicename: "svc",
+            branch: "brand-new-feature",
+            api_type: ApiType::OpenApi,
+            path: "/deprecated",
+            method: "GET",
+            timeout_secs: None,
+            source_protected_branch: None,
+            pull_from_branch: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(res.state.as_str(), "inherited");
+    assert_eq!(res.served_branch.as_deref(), Some("main"));
+}
+
+// Absent must not long-poll: the answer is definitive, so a supplied timeout is
+// not burned waiting for something that cannot arrive.
+#[tokio::test]
+async fn absent_fails_immediately_despite_a_timeout() {
+    let repo = spb_test_repo().await;
+    services::provide_spec(
+        &repo,
+        "svc",
+        "feature-x",
+        ApiType::OpenApi,
+        SPEC_ONE_ENDPOINT,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let started = std::time::Instant::now();
+    let err = services::require_endpoint(
+        &repo,
+        None,
+        services::RequireEndpointParams {
+            clientname: "c1",
+            servicename: "svc",
+            branch: "feature-x",
+            api_type: ApiType::OpenApi,
+            path: "/never",
+            method: "GET",
+            timeout_secs: Some(30),
+            source_protected_branch: None,
+            pull_from_branch: None,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        matches!(err, sanshain_service::domain::models::AppError::Gone(_)),
+        "expected Gone, got {err:?}"
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "Absent must not wait out the timeout, took {:?}",
+        started.elapsed()
+    );
+}
+
+// Every read path must agree about the same endpoint on the same branch — the
+// disagreement between browse and require is what started all of this.
+#[tokio::test]
+async fn all_read_paths_agree_on_the_same_endpoint() {
+    let repo = spb_test_repo().await;
+    services::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::OpenApi,
+        SPEC_TWO_ENDPOINTS,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+    services::provide_spec(
+        &repo,
+        "svc",
+        "feature-x",
+        ApiType::OpenApi,
+        SPEC_ONE_ENDPOINT,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    // /keep is published on feature-x: single require, bundle require and the
+    // endpoint view must all say so, and all name feature-x.
+    let single = services::require_endpoint(
+        &repo,
+        None,
+        services::RequireEndpointParams {
+            clientname: "c1",
+            servicename: "svc",
+            branch: "feature-x",
+            api_type: ApiType::OpenApi,
+            path: "/keep",
+            method: "GET",
+            timeout_secs: None,
+            source_protected_branch: None,
+            pull_from_branch: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let eps = vec![("/keep".to_string(), "GET".to_string())];
+    let bundle = services::require_bundle(
+        &repo,
+        None,
+        services::RequireBundleParams {
+            clientname: "c1",
+            servicename: "svc",
+            branch: "feature-x",
+            api_type: ApiType::OpenApi,
+            endpoints: &eps,
+            timeout_secs: None,
+            source_protected_branch: None,
+            pull_from_branch: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let view =
+        services::get_endpoint_yaml(&repo, "svc", "feature-x", ApiType::OpenApi, "/keep", "GET")
+            .await
+            .unwrap();
+
+    assert_eq!(single.state.as_str(), "published");
+    assert_eq!(bundle.state.as_str(), "published");
+    assert_eq!(view.state.as_str(), "published");
+    for served in [
+        single.served_branch.as_deref(),
+        bundle.served_branch.as_deref(),
+        view.served_branch.as_deref(),
+    ] {
+        assert_eq!(served, Some("feature-x"), "all paths serve the same branch");
+    }
+
+    // ...and all three agree that /deprecated is deliberately absent there.
+    let bundle_eps = vec![("/deprecated".to_string(), "GET".to_string())];
+    let bundle_absent = services::require_bundle(
+        &repo,
+        None,
+        services::RequireBundleParams {
+            clientname: "c1",
+            servicename: "svc",
+            branch: "feature-x",
+            api_type: ApiType::OpenApi,
+            endpoints: &bundle_eps,
+            timeout_secs: None,
+            source_protected_branch: None,
+            pull_from_branch: None,
+        },
+    )
+    .await;
+    assert!(
+        matches!(
+            bundle_absent,
+            Err(sanshain_service::domain::models::AppError::Gone(_))
+        ),
+        "bundle must agree with single require that it is Gone"
+    );
+    let view_absent = services::get_endpoint_yaml(
+        &repo,
+        "svc",
+        "feature-x",
+        ApiType::OpenApi,
+        "/deprecated",
+        "GET",
+    )
+    .await
+    .unwrap();
+    assert_eq!(view_absent.state.as_str(), "absent");
+}
+
+// A Consumer asking for an endpoint its Producer deliberately dropped is real
+// breakage, so it must still appear in the dependency views rather than vanish.
+#[tokio::test]
+async fn an_absent_require_still_records_the_unmet_dependency() {
+    let repo = spb_test_repo().await;
+    services::provide_spec(
+        &repo,
+        "svc",
+        "feature-x",
+        ApiType::OpenApi,
+        SPEC_ONE_ENDPOINT,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let _ = services::require_endpoint(
+        &repo,
+        None,
+        services::RequireEndpointParams {
+            clientname: "hungry-consumer",
+            servicename: "svc",
+            branch: "feature-x",
+            api_type: ApiType::OpenApi,
+            path: "/gone",
+            method: "GET",
+            timeout_secs: None,
+            source_protected_branch: None,
+            pull_from_branch: None,
+        },
+    )
+    .await;
+
+    let report = services::generate_report(&repo, "feature-x").await.unwrap();
+    let names: Vec<&str> = report
+        .dependency_graph
+        .iter()
+        .map(|d| d.client.as_str())
+        .collect();
+    assert!(
+        names.contains(&"hungry-consumer"),
+        "the unmet dependency must be recorded, got {names:?}"
+    );
 }

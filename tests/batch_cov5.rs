@@ -372,11 +372,15 @@ channels:
 }
 
 #[tokio::test]
-async fn get_endpoint_yaml_not_found_has_clear_message() {
+async fn get_endpoint_yaml_reports_unknown_for_a_missing_producer() {
+    // The view always gets an answer rather than an error to interpret: an
+    // unknown producer resolves to `unknown` with nothing served.
     let repo = MockRepo::new();
-    let err = spec_service::get_endpoint_yaml(&repo, "nope", "main", ApiType::OpenApi, "/x", "GET")
-        .await
-        .unwrap_err()
-        .to_string();
-    assert!(err.contains("Endpoint not found") && err.contains("/x") && err.contains("GET"));
+    let view =
+        spec_service::get_endpoint_yaml(&repo, "nope", "main", ApiType::OpenApi, "/x", "GET")
+            .await
+            .unwrap();
+    assert_eq!(view.state.as_str(), "unknown");
+    assert!(view.yaml.is_none());
+    assert!(view.served_branch.is_none());
 }

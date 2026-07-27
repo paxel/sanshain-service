@@ -151,14 +151,13 @@ async fn require_bundle_dry_run_reports_missing() {
 }
 
 #[tokio::test]
-async fn get_endpoint_yaml_not_found() {
+async fn get_endpoint_yaml_unknown_when_nobody_has_the_endpoint() {
     let repo = MockRepo::new();
-    let res =
-        spec_service::get_endpoint_yaml(&repo, "svc", "main", ApiType::OpenApi, "/x", "get").await;
-    match res {
-        Err(AppError::NotFound(msg)) => assert!(msg.contains("Endpoint not found")),
-        other => panic!("expected NotFound, got {:?}", other),
-    }
+    let view = spec_service::get_endpoint_yaml(&repo, "svc", "main", ApiType::OpenApi, "/x", "get")
+        .await
+        .unwrap();
+    assert_eq!(view.state.as_str(), "unknown");
+    assert!(view.yaml.is_none());
 }
 
 #[tokio::test]

@@ -170,7 +170,10 @@ pub async fn admin_get_endpoint_yaml(
         &query.method,
     )
     .await?;
-    Ok(res)
+    // Always 200 with a discriminated body: the view is told what happened
+    // (published / absent / inherited / unknown) and which branch served it,
+    // instead of having to infer a state from an error.
+    Ok(Json(res))
 }
 
 pub async fn admin_get_endpoint_versions(

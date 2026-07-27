@@ -243,14 +243,15 @@
     async function loadEndpointVersions() {
         try {
             const res = await apiCall(`/admin/endpoint-versions?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
-            // A 404 means the endpoint does not exist on this branch — e.g. a client
-            // requires a service/branch the server never provided. Fall back to the
-            // current spec, which renders a clear "not available" state if that is
-            // missing too, instead of a raw fetch error.
-            if (res.status !== 404 && !res.ok) {
+            // 404 = nobody has this endpoint; 410 = this branch deliberately
+            // does not carry it. Neither is a transport failure, so hand both to
+            // the current-spec lookup, which asks the server for the resolution
+            // state and renders the right explanation.
+            const noHistory = res.status === 404 || res.status === 410;
+            if (!noHistory && !res.ok) {
                 throw new Error(`Fetch error: ${res.status}`);
             }
-            const versions = res.status === 404 ? [] : await res.json();
+            const versions = noHistory ? [] : await res.json();
             if (!versions || versions.length === 0) {
                 // Version history is only recorded on protected branches. On other
                 // branches (e.g. a freshly uploaded service with no master yet) fall
@@ -299,28 +300,38 @@
     // The endpoints table always stores the latest yaml_content regardless of
     // branch protection, so we can still show it (as a single, current version).
     async function loadCurrentSpecFallback() {
-        const notAvailable = () => {
-            viewerContainer.innerHTML = `<div class="text-slate-400 italic">This endpoint isn't available on the server for branch &ldquo;${escapeHtml(branchName)}&rdquo;. It may be required by a client but not yet provided by the service.</div>`;
+        const showMessage = (html) => {
+            viewerContainer.innerHTML = `<div class="text-slate-400 italic">${html}</div>`;
             hideLoader();
         };
         try {
             const res = await apiCall(`/admin/endpoint-yaml?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
             if (!res.ok) {
-                notAvailable();
+                showMessage(`Could not load this endpoint (HTTP ${res.status}).`);
                 return;
             }
-            const yamlText = await res.text();
-            if (!yamlText) {
-                notAvailable();
+            // The server states how it resolved this, so the view renders that
+            // answer rather than inferring one from an empty body.
+            const view = await res.json();
+            const branch = escapeHtml(branchName);
+            if (view.state === 'absent') {
+                showMessage(`Branch &ldquo;${branch}&rdquo; publishes a spec that does not include this endpoint, so it is deliberately not part of this branch's API. It was not inherited from another branch.`);
                 return;
             }
-            fallbackNote = 'No recorded history on this branch — version tracking begins on protected branches. Showing the current spec.';
+            if (view.state === 'unknown' || !view.yaml) {
+                showMessage(`This endpoint isn't available on the server for branch &ldquo;${branch}&rdquo;. It may be required by a consumer but not yet provided.`);
+                return;
+            }
+            const servedBranch = view.served_branch || branchName;
+            fallbackNote = view.state === 'inherited'
+                ? `Branch &ldquo;${branch}&rdquo; has never published a spec — showing the current spec from &ldquo;${escapeHtml(servedBranch)}&rdquo;.`
+                : 'No recorded history on this branch — version tracking begins on protected branches. Showing the current spec.';
             globalVersions = [{
                 version: 1,
-                yaml_content: yamlText,
+                yaml_content: view.yaml,
                 created_at: '',
                 username: null,
-                source_branch: branchName,
+                source_branch: servedBranch,
             }];
             activeVersion = globalVersions[0];
             diffFromSelect.innerHTML = '';

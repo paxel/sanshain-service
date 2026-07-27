@@ -411,15 +411,39 @@ paths:
               description: SHA-256 hash of the returned content.
               schema:
                 type: string
+            X-Sanshain-Resolution:
+              description: |
+                How this request was resolved: `published` (this branch published it)
+                or `inherited` (this branch has never published, so it came from the
+                branch named in `X-Sanshain-Served-Branch`).
+              schema:
+                type: string
+                enum: [published, inherited]
+            X-Sanshain-Served-Branch:
+              description: The branch the returned spec actually came from.
+              schema:
+                type: string
           content:
             text/plain:
               schema:
                 type: string
         "304":
           description: Not Modified. The specification hasn't changed since the version provided in `If-None-Match`.
+        "410":
+          description: |
+            The requested branch has published a spec that does not include this
+            endpoint, so it is deliberately not part of that branch's API. Definitive:
+            returned immediately even when `timeout` is set, because no later publish
+            of the *current* spec can change it. Distinct from `404`, which means no
+            branch has the endpoint and it may still appear.
+          content:
+            text/plain:
+              schema:
+                type: string
         "404":
           description: |
-            Endpoint not found (after timeout, if specified).
+            No branch of this service has the endpoint (after timeout, if specified).
+            May still appear later, which is why a long-poll waits on this state but not on `410`.
             The response body contains a descriptive error message with the service name, branch, and endpoint details.
           content:
             text/plain:
@@ -464,8 +488,30 @@ paths:
               description: SHA-256 hash of the returned content.
               schema:
                 type: string
+            X-Sanshain-Resolution:
+              description: |
+                How this request was resolved: `published` (this branch published it)
+                or `inherited` (this branch has never published, so it came from the
+                branch named in `X-Sanshain-Served-Branch`).
+              schema:
+                type: string
+                enum: [published, inherited]
+            X-Sanshain-Served-Branch:
+              description: The branch the returned spec actually came from.
+              schema:
+                type: string
         "304":
           description: Not Modified.
+        "410":
+          description: |
+            The requested branch has published a spec that does not include the requested
+            endpoint(s), so they are deliberately not part of that branch's API. Definitive:
+            returned immediately even when `timeout` is set. Distinct from `404`, which means
+            no branch has it and it may still appear.
+          content:
+            text/plain:
+              schema:
+                type: string
         "404":
           description: Not found.
 
@@ -507,8 +553,30 @@ paths:
               description: SHA-256 hash of the returned content.
               schema:
                 type: string
+            X-Sanshain-Resolution:
+              description: |
+                How this request was resolved: `published` (this branch published it)
+                or `inherited` (this branch has never published, so it came from the
+                branch named in `X-Sanshain-Served-Branch`).
+              schema:
+                type: string
+                enum: [published, inherited]
+            X-Sanshain-Served-Branch:
+              description: The branch the returned spec actually came from.
+              schema:
+                type: string
         "304":
           description: Not Modified.
+        "410":
+          description: |
+            The requested branch has published a spec that does not include the requested
+            endpoint(s), so they are deliberately not part of that branch's API. Definitive:
+            returned immediately even when `timeout` is set. Distinct from `404`, which means
+            no branch has it and it may still appear.
+          content:
+            text/plain:
+              schema:
+                type: string
         "404":
           description: Not found.
 
@@ -555,6 +623,18 @@ paths:
               description: SHA-256 hash of the returned content.
               schema:
                 type: string
+            X-Sanshain-Resolution:
+              description: |
+                How this request was resolved: `published` (this branch published it)
+                or `inherited` (this branch has never published, so it came from the
+                branch named in `X-Sanshain-Served-Branch`).
+              schema:
+                type: string
+                enum: [published, inherited]
+            X-Sanshain-Served-Branch:
+              description: The branch the returned spec actually came from.
+              schema:
+                type: string
           content:
             text/plain:
               schema:
@@ -563,6 +643,16 @@ paths:
           description: Not Modified.
         "400":
           description: Invalid request (e.g. empty endpoints list or missing fields).
+          content:
+            text/plain:
+              schema:
+                type: string
+        "410":
+          description: |
+            The requested branch has published a spec that does not include the requested
+            endpoint(s), so they are deliberately not part of that branch's API. Definitive:
+            returned immediately even when `timeout` is set. Distinct from `404`, which means
+            no branch has it and it may still appear.
           content:
             text/plain:
               schema:

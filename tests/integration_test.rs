@@ -512,7 +512,10 @@ components:
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    // The branch published a spec without this endpoint, so it is deliberately
+    // not part of that branch's API: 410 Gone, not 404. See
+    // docs/adr/0001-endpoint-resolution-model.md.
+    assert_eq!(response.status(), StatusCode::GONE);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
@@ -3404,7 +3407,10 @@ paths:
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    // The branch published a spec without this endpoint, so it is deliberately
+    // not part of that branch's API: 410 Gone, not 404. See
+    // docs/adr/0001-endpoint-resolution-model.md.
+    assert_eq!(response.status(), StatusCode::GONE);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
@@ -3781,7 +3787,10 @@ async fn test_client_with_missing_endpoint_appears_in_list() {
         .await
         .unwrap();
     // Should get 404 since endpoint doesn't exist
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    // The branch published a spec without this endpoint, so it is deliberately
+    // not part of that branch's API: 410 Gone, not 404. See
+    // docs/adr/0001-endpoint-resolution-model.md.
+    assert_eq!(response.status(), StatusCode::GONE);
 
     // Client should still appear in the clients list
     let response: Response = app

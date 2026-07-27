@@ -155,7 +155,13 @@
             // Load latest YAML
             const yamlRes = await apiCall(`/admin/endpoint-yaml?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
             if (yamlRes.ok) {
-                yamlEditor.value = await yamlRes.text();
+                // Editing is always about *this* branch's own spec, so only load
+                // the yaml when the branch actually published it. An inherited or
+                // absent endpoint has nothing here to edit.
+                const view = await yamlRes.json();
+                if (view.state === 'published' && view.yaml) {
+                    yamlEditor.value = view.yaml;
+                }
             }
 
             // Load endpoint details (deprecated/external)
