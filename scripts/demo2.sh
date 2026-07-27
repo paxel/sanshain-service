@@ -45,7 +45,7 @@ provide() {
   local svc="$1" branch="$2" yaml="$3"
   echo ">>> PROVIDE  $svc @ $branch"
   PAYLOAD=$(jq -n --arg s "$svc" --arg b "$branch" --arg y "$yaml" \
-    '{servicename:$s, branch:$b, openapi_yaml:$y}')
+    '{producername:$s, branch:$b, openapi_yaml:$y}')
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST "$BASE_URL/provide" \
     -H "Content-Type: application/json" \
@@ -60,8 +60,8 @@ require_endpoint() {
   echo ">>> REQUIRE  $client -> $svc $method $path ($branch)"
   RESPONSE=$(curl -s -w "\n%{http_code}" \
     -G "$BASE_URL/require" \
-    --data-urlencode "clientname=$client" \
-    --data-urlencode "servicename=$svc" \
+    --data-urlencode "consumername=$client" \
+    --data-urlencode "producername=$svc" \
     --data-urlencode "branch=$branch" \
     --data-urlencode "path=$path" \
     --data-urlencode "method=$method" \

@@ -1,6 +1,6 @@
 /**
  * discovery.js — Shared utilities for the Sanshain discovery pages
- * (services.html, clients.html, graph.html, reports.html)
+ * (producers.html, consumers.html, graph.html, reports.html)
  */
 
 let allServices = [];
@@ -11,7 +11,7 @@ let allServiceEndpointCount = {}; // cache: serviceName -> { branch: count } (0 
 let userFavorites = { services: [], clients: [] };
 
 // A branch "serves something" once it has at least one endpoint. Used by the
-// discovery view (services.html) to hide branches/services that provide
+// discovery view (producers.html) to hide branches/services that provide
 // nothing — e.g. an OpenAPI spec published with no paths. Other consumers of
 // allServiceBranches (reports.html, graph.html branch selectors) intentionally
 // keep offering every branch, including empty ones.
@@ -33,7 +33,7 @@ async function fetchJSON(url) {
 }
 
 async function loadAllServiceBranches() {
-  const services = await fetchJSON("/admin/services");
+  const services = await fetchJSON("/admin/producers");
   allServices = services || [];
   allServiceBranches = {};
   allServiceLastPublished = {};

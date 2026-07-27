@@ -76,22 +76,22 @@ export SANSHAIN_PASSWORD=$INITIAL_ADMIN_PASSWORD
 
 echo "Applying service metadata for better graph visualization..."
 # config-service -> Infrastructure
-curl -s -X POST http://localhost:$PORT/admin/services/metadata \
+curl -s -X POST http://localhost:$PORT/admin/producers/metadata \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"config-service", "icon":"⚙️", "domain":"Infrastructure"}'
 
 # auth-service -> Core
-curl -s -X POST http://localhost:$PORT/admin/services/metadata \
+curl -s -X POST http://localhost:$PORT/admin/producers/metadata \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"auth-service", "icon":"🔑", "domain":"Core"}'
 
 # ml-inference -> AI
-curl -s -X POST http://localhost:$PORT/admin/services/metadata \
+curl -s -X POST http://localhost:$PORT/admin/producers/metadata \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"ml-inference", "icon":"🧠", "domain":"AI"}'
 
 # etl-orchestrator -> Data
-curl -s -X POST http://localhost:$PORT/admin/services/metadata \
+curl -s -X POST http://localhost:$PORT/admin/producers/metadata \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"etl-orchestrator", "icon":"🏗️", "domain":"Data"}'
 

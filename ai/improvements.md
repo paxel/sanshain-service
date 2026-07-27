@@ -165,7 +165,7 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 - `src/application/spec_service.rs` (`provide_spec_inner`, `parse_spec_endpoints`, shared-contract update/delete logic, auto-tagging)
 - `src/application/report_service.rs` (AsyncAPI renders as `KAFKA` in isolation reports)
 - `static/js/graph.js` (injects virtual `KAFKA` node from `api_type=asyncapi` dependency edges)
-- `static/services.html` (shows stored endpoint `api_type` labels)
+- `static/producers.html` (shows stored endpoint `api_type` labels)
 - `src/domain/ports.rs` and `src/infrastructure/*repository.rs` for endpoint, dependency, shared-contract, and service-tag cleanup APIs
 
 **Implementation instructions:**
@@ -220,7 +220,7 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 
 **Relevant areas:**
 
-- `static/services.html` branch and endpoint list views
+- `static/producers.html` branch and endpoint list views
 - `static/yaml.html` admin-only `Edit` button for existing endpoints
 - `static/edit.html` manual endpoint editor
 - `src/lib.rs` routes for `/provide`, `/provide/asyncapi`, `/provide/grpc`, `/admin/endpoint-yaml`, `/admin/endpoint-versions`, and `/admin/endpoints/update`
@@ -232,7 +232,7 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 **Implementation instructions:**
 
 1. Keep the main write path spec-first: admins should add endpoints by uploading or pasting a complete OpenAPI/AsyncAPI/proto document, then reuse the existing `provide_spec*` application use cases so endpoint parsing, compatibility checks, protected-branch rules, version history, shared-contract updates, audit logs, and notifications stay consistent.
-2. Add discoverable UI actions in `static/services.html`:
+2. Add discoverable UI actions in `static/producers.html`:
    - On the services page, show an admin-only `Provide spec` or `Add service spec` button near the search/header area.
    - On each service branch page, show an admin-only `Replace branch spec` or `Add endpoints` button.
    - On empty branch/endpoint states, include a clear admin call-to-action instead of only showing “No endpoints found”.
@@ -259,7 +259,7 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 
 **Validation:**
 
-- Add UI/API integration tests for an admin creating a new service/branch by pasting a spec, replacing an existing branch spec, and seeing new endpoints on `services.html`.
+- Add UI/API integration tests for an admin creating a new service/branch by pasting a spec, replacing an existing branch spec, and seeing new endpoints on `producers.html`.
 - Add negative tests: non-admin cannot see/use write routes, invalid YAML/proto is rejected, protected-branch breaking changes are blocked unless the existing force rules allow them, and stale `base_version` handling remains safe.
 - Add or update application tests proving the UI route reuses `provide_spec*` behavior and records audit/version history consistently.
 - Run `cargo test`, `npx eslint static/js/` if JavaScript files are changed, and the relevant Playwright/UI checks if available.

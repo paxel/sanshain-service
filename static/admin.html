@@ -59,8 +59,8 @@
             <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
         <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-            <a href="/services.html" class="text-white hover:text-indigo-100 transition-colors">Services</a>
-            <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors">Producers</a>
+            <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
             <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
             <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
             <a href="/audit.html" class="text-white hover:text-indigo-100 transition-colors">Audit</a>
@@ -297,7 +297,7 @@
             <!-- Manual Service Addition -->
             <section class="bg-white rounded-xl border border-indigo-300 shadow-sm p-6">
                 <div class="mb-4">
-                    <h2 class="text-lg font-semibold text-indigo-700">Add Manual / External Service</h2>
+                    <h2 class="text-lg font-semibold text-indigo-700">Add Manual / External Producer</h2>
                     <p class="text-sm text-slate-500 mt-1">Register a new service manually. You can then add endpoints and specs to it.</p>
                 </div>
                 <div class="flex items-center space-x-3">
@@ -305,7 +305,7 @@
                         class="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         autocomplete="off">
                     <button onclick="addManualService()"
-                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm transition-colors font-medium whitespace-nowrap">Add Service</button>
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm transition-colors font-medium whitespace-nowrap">Add Producer</button>
                 </div>
                 <div id="manual-service-result" class="mt-3 hidden text-sm"></div>
             </section>
@@ -314,13 +314,13 @@
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="flex justify-between items-center mb-4">
                     <div>
-                        <h2 class="text-lg font-semibold text-slate-800">Services</h2>
+                        <h2 class="text-lg font-semibold text-slate-800">Producers</h2>
                         <p class="text-sm text-slate-500 mt-1">Registered API services. Expand to see branches.</p>
                     </div>
                     <div class="flex items-center space-x-3">
                         <button onclick="loadServices()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
                         <button onclick="nukeConfirm('☠️ Delete ALL services and their data?', 'DELETE ALL SERVICES', () => nukeServices())"
-                            class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium">💀 Nuke Services</button>
+                            class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium">💀 Nuke Producers</button>
                     </div>
                 </div>
                 <div class="mb-3">
@@ -335,13 +335,13 @@
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="flex justify-between items-center mb-4">
                     <div>
-                        <h2 class="text-lg font-semibold text-slate-800">Clients</h2>
+                        <h2 class="text-lg font-semibold text-slate-800">Consumers</h2>
                         <p class="text-sm text-slate-500 mt-1">Registered API consumers.</p>
                     </div>
                     <div class="flex items-center space-x-3">
                         <button onclick="loadClients()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
                         <button onclick="nukeConfirm('☠️ Delete ALL clients and their dependencies?', 'DELETE ALL CLIENTS', () => nukeClients())"
-                            class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium">💀 Nuke Clients</button>
+                            class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium">💀 Nuke Consumers</button>
                     </div>
                 </div>
                 <div class="mb-3">
@@ -352,10 +352,10 @@
                 <div id="clients-list" class="space-y-2 max-h-[500px] overflow-y-auto"></div>
             </section>
 
-            <!-- Nuke Branch Across All Services -->
+            <!-- Nuke Branch Across All Producers -->
             <section class="bg-white rounded-xl border border-orange-300 shadow-sm p-6">
                 <div class="mb-4">
-                    <h2 class="text-lg font-semibold text-orange-700">🔥 Nuke Branch Across All Services</h2>
+                    <h2 class="text-lg font-semibold text-orange-700">🔥 Nuke Branch Across All Producers</h2>
                     <p class="text-sm text-slate-500 mt-1">Delete a specific branch from <strong>every</strong> service at once. Useful for cleaning up old feature branches.</p>
                 </div>
                 <div class="flex items-center space-x-3">
@@ -440,7 +440,7 @@
     <!-- Metadata Modal -->
     <div id="metadata-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-            <h3 class="text-lg font-bold text-slate-800 mb-4">Service Metadata: <span id="metadata-service-name"></span></h3>
+            <h3 class="text-lg font-bold text-slate-800 mb-4">Producer Metadata: <span id="metadata-service-name"></span></h3>
             <form id="metadata-form" class="space-y-4">
                 <input type="hidden" id="metadata-svc-hidden">
                 <div>
@@ -452,7 +452,7 @@
                     <label class="block text-sm font-medium text-slate-600 mb-1">Domain / Group</label>
                     <input type="text" id="metadata-domain" placeholder="e.g. Core, Auth, Billing"
                         class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <p class="text-[10px] text-slate-400 mt-1">Services with the same domain are clustered in the graph.</p>
+                    <p class="text-[10px] text-slate-400 mt-1">Producers with the same domain are clustered in the graph.</p>
                 </div>
                 <div class="flex space-x-3">
                     <button type="submit" class="flex-1 bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium">Save</button>
@@ -824,7 +824,7 @@
                 const res = await apiCall('/provide', {
                     method: 'POST',
                     body: {
-                        servicename: name,
+                        producername: name,
                         branch: 'main',
                         openapi_yaml: 'openapi: 3.0.0\ninfo:\n  title: Manual Service\n  version: 1.0.0\npaths:\n  /_manual_init:\n    get:\n      responses:\n        "200":\n          description: OK'
                     },
@@ -854,7 +854,7 @@
         async function loadServices() {
             const list = document.getElementById('services-list');
             try {
-                const res = await apiCall('/admin/services');
+                const res = await apiCall('/admin/producers');
                 if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
                 allServices = await res.json();
                 renderServices(allServices);
@@ -913,7 +913,7 @@
             container.classList.remove('hidden');
             container.innerHTML = '<p class="text-xs text-slate-500">Loading...</p>';
             try {
-                const res = await apiCall(`/admin/services/${encodeURIComponent(serviceName)}/branches`);
+                const res = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/branches`);
                 if (!res.ok) { container.innerHTML = '<p class="text-xs text-red-500">Failed</p>'; return; }
                 const branches = await res.json();
                 if (branches.length === 0) {
@@ -938,14 +938,14 @@
 
         async function deleteService(name) {
             try {
-                await apiCall(`/admin/services/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                await apiCall(`/admin/producers/${encodeURIComponent(name)}`, { method: 'DELETE' });
                 loadServices();
             } catch (_) {}
         }
 
         async function deleteBranch(service, branch) {
             try {
-                await apiCall(`/admin/services/${encodeURIComponent(service)}/branches/${encodeURIComponent(branch)}`, { method: 'DELETE' });
+                await apiCall(`/admin/producers/${encodeURIComponent(service)}/branches/${encodeURIComponent(branch)}`, { method: 'DELETE' });
                 loadServices();
             } catch (_) {}
         }
@@ -956,7 +956,7 @@
                 `This will prune all old endpoint versions, renumber the latest version to 1, and reset the version counter, while preserving existing endpoints and client dependencies.`,
                 async () => {
                     try {
-                        const res = await apiCall(`/admin/services/${encodeURIComponent(service)}/branches/${encodeURIComponent(branch)}/reset-history`, { method: 'POST' });
+                        const res = await apiCall(`/admin/producers/${encodeURIComponent(service)}/branches/${encodeURIComponent(branch)}/reset-history`, { method: 'POST' });
                         if (res.ok) {
                             alert(`✓ History reset successfully for branch "${branch}" of service "${service}"`);
                         } else {
@@ -977,7 +977,7 @@
         async function loadClients() {
             const list = document.getElementById('clients-list');
             try {
-                const res = await apiCall('/admin/clients');
+                const res = await apiCall('/admin/consumers');
                 if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
                 allClients = await res.json();
                 renderClients(allClients);
@@ -1011,7 +1011,7 @@
 
         async function deleteClient(name) {
             try {
-                await apiCall(`/admin/clients/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                await apiCall(`/admin/consumers/${encodeURIComponent(name)}`, { method: 'DELETE' });
                 loadClients();
             } catch (_) {}
         }
@@ -1202,13 +1202,13 @@
         }
 
         async function nukeServices() {
-            const res = await apiCall('/admin/nuke/services', { method: 'POST', body: { confirmation: 'DELETE ALL SERVICES' } });
+            const res = await apiCall('/admin/nuke/producers', { method: 'POST', body: { confirmation: 'DELETE ALL SERVICES' } });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             loadServices();
         }
 
         async function nukeClients() {
-            const res = await apiCall('/admin/nuke/clients', { method: 'POST', body: { confirmation: 'DELETE ALL CLIENTS' } });
+            const res = await apiCall('/admin/nuke/consumers', { method: 'POST', body: { confirmation: 'DELETE ALL CLIENTS' } });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             loadClients();
         }
@@ -1245,7 +1245,7 @@
             const domain = document.getElementById('metadata-domain').value.trim() || null;
 
             try {
-                const res = await apiCall('/admin/services/metadata', {
+                const res = await apiCall('/admin/producers/metadata', {
                     method: 'POST',
                     body: { name, icon, domain }
                 });

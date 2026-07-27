@@ -10,7 +10,7 @@ use tracing::instrument;
 
 type EndpointRow = (i64, String, String, String, String, String, bool, bool);
 
-/// Row shape for `list_services_detailed` (name, fallback_branch, branches,
+/// Row shape for `list_producers_detailed` (name, fallback_branch, branches,
 /// icon, domain); branches are `array_agg`ed into a `Vec` on PostgreSQL.
 type ServiceSummaryRow = (
     String,
@@ -1034,7 +1034,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(())
     }
 
-    async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {
+    async fn delete_producer(&self, name: &str) -> Result<bool, RepositoryError> {
         let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM services WHERE name = $1")
             .bind(name)
             .fetch_optional(&self.pool)
@@ -1163,7 +1163,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(true)
     }
 
-    async fn delete_client(&self, name: &str) -> Result<bool, RepositoryError> {
+    async fn delete_consumer(&self, name: &str) -> Result<bool, RepositoryError> {
         let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM clients WHERE name = $1")
             .bind(name)
             .fetch_optional(&self.pool)
@@ -1190,7 +1190,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(true)
     }
 
-    async fn list_services(&self) -> Result<Vec<String>, RepositoryError> {
+    async fn list_producers(&self) -> Result<Vec<String>, RepositoryError> {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT DISTINCT s.name FROM services s INNER JOIN branches b ON b.service_id = s.id ORDER BY s.name"
         )
@@ -1200,7 +1200,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    async fn list_services_detailed(&self) -> Result<Vec<ServiceSummary>, RepositoryError> {
+    async fn list_producers_detailed(&self) -> Result<Vec<ProducerSummary>, RepositoryError> {
         let rows: Vec<ServiceSummaryRow> = sqlx::query_as(
             r#"
             SELECT s.name, s.fallback_branch, array_agg(b.name) as branches, s.icon, s.domain
@@ -1217,7 +1217,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(name, fallback_branch, branches, icon, domain)| ServiceSummary {
+                |(name, fallback_branch, branches, icon, domain)| ProducerSummary {
                     name,
                     fallback_branch,
                     branches: branches.unwrap_or_default(),
@@ -1246,7 +1246,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(())
     }
 
-    async fn update_service_metadata(
+    async fn update_producer_metadata(
         &self,
         service_name: &str,
         icon: Option<&str>,
@@ -1338,7 +1338,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    async fn list_clients(&self) -> Result<Vec<String>, RepositoryError> {
+    async fn list_consumers(&self) -> Result<Vec<String>, RepositoryError> {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT DISTINCT c.name FROM clients c INNER JOIN dependencies d ON d.client_id = c.id ORDER BY c.name"
         )
@@ -1348,7 +1348,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    async fn list_client_branches(
+    async fn list_consumer_branches(
         &self,
         client_name: &str,
     ) -> Result<Vec<String>, RepositoryError> {
@@ -1366,11 +1366,11 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    async fn list_client_endpoints(
+    async fn list_consumer_endpoints(
         &self,
         client_name: &str,
         branch: &str,
-    ) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
+    ) -> Result<Vec<ConsumerEndpointInfo>, RepositoryError> {
         type ClientEndpointRow = (
             String,
             String,
@@ -1400,7 +1400,7 @@ impl SpecRepository for PostgresSpecRepository {
             .into_iter()
             .map(
                 |(api_type, service, branch, path, method, yaml_content, deprecated, external)| {
-                    ClientEndpointInfo {
+                    ConsumerEndpointInfo {
                         api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                         service,
                         branch,

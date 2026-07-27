@@ -43,8 +43,8 @@ pub async fn nuke_database(
     Ok(())
 }
 
-pub async fn delete_service(repo: &impl SpecRepository, name: &str) -> Result<bool, AppError> {
-    Ok(repo.delete_service(name).await?)
+pub async fn delete_producer(repo: &impl SpecRepository, name: &str) -> Result<bool, AppError> {
+    Ok(repo.delete_producer(name).await?)
 }
 
 pub async fn delete_branch(
@@ -67,7 +67,7 @@ pub async fn delete_branch_all_services(
     repo: &impl SpecRepository,
     branch_name: &str,
 ) -> Result<u64, AppError> {
-    let services = repo.list_services().await?;
+    let services = repo.list_producers().await?;
     let mut count = 0;
     for svc in services {
         if repo.delete_branch(&svc, branch_name).await? {
@@ -77,20 +77,20 @@ pub async fn delete_branch_all_services(
     Ok(count)
 }
 
-pub async fn delete_client(repo: &impl SpecRepository, name: &str) -> Result<bool, AppError> {
-    Ok(repo.delete_client(name).await?)
+pub async fn delete_consumer(repo: &impl SpecRepository, name: &str) -> Result<bool, AppError> {
+    Ok(repo.delete_consumer(name).await?)
 }
 
-pub async fn list_services(repo: &impl SpecRepository) -> Result<Vec<String>, AppError> {
-    Ok(repo.list_services().await?)
+pub async fn list_producers(repo: &impl SpecRepository) -> Result<Vec<String>, AppError> {
+    Ok(repo.list_producers().await?)
 }
 
 #[instrument(skip_all)]
-pub async fn list_services_detailed(
+pub async fn list_producers_detailed(
     repo: &impl SpecRepository,
     user_id: Option<i64>,
-) -> Result<Vec<ServiceSummary>, AppError> {
-    let mut services = repo.list_services_detailed().await?;
+) -> Result<Vec<ProducerSummary>, AppError> {
+    let mut services = repo.list_producers_detailed().await?;
 
     // Last-published time and endpoint count, keyed service -> branch -> value.
     // Nested rather than keyed by a `(String, String)` tuple so lookups below
@@ -202,13 +202,13 @@ pub async fn set_fallback_branch(
     Ok(())
 }
 
-pub async fn update_service_metadata(
+pub async fn update_producer_metadata(
     repo: &impl SpecRepository,
     service_name: &str,
     icon: Option<&str>,
     domain: Option<&str>,
 ) -> Result<(), AppError> {
-    repo.update_service_metadata(service_name, icon, domain)
+    repo.update_producer_metadata(service_name, icon, domain)
         .await?;
     Ok(())
 }
@@ -276,11 +276,11 @@ pub async fn list_branches_with_metadata(
     Ok(repo.list_branches_with_metadata().await?)
 }
 
-pub async fn list_clients(
+pub async fn list_consumers(
     repo: &impl SpecRepository,
     user_id: Option<i64>,
 ) -> Result<Vec<String>, AppError> {
-    let mut clients = repo.list_clients().await?;
+    let mut clients = repo.list_consumers().await?;
     if let Some(uid) = user_id {
         let favorites = repo.get_user_favorites(uid, "client").await?;
         clients.sort_by(|a, b| {
@@ -292,19 +292,19 @@ pub async fn list_clients(
     Ok(clients)
 }
 
-pub async fn list_client_branches(
+pub async fn list_consumer_branches(
     repo: &impl SpecRepository,
     client_name: &str,
 ) -> Result<Vec<String>, AppError> {
-    Ok(repo.list_client_branches(client_name).await?)
+    Ok(repo.list_consumer_branches(client_name).await?)
 }
 
-pub async fn list_client_endpoints(
+pub async fn list_consumer_endpoints(
     repo: &impl SpecRepository,
     client_name: &str,
     branch: &str,
-) -> Result<Vec<ClientEndpointInfo>, AppError> {
-    Ok(repo.list_client_endpoints(client_name, branch).await?)
+) -> Result<Vec<ConsumerEndpointInfo>, AppError> {
+    Ok(repo.list_consumer_endpoints(client_name, branch).await?)
 }
 
 pub async fn get_branch_max_age_days(repo: &impl SpecRepository) -> Result<u64, AppError> {
@@ -443,7 +443,7 @@ mod tests {
         let repo = MockRepo::new();
         repo.ensure_service("svc-a").await.unwrap();
         repo.ensure_service("svc-b").await.unwrap();
-        let svcs = list_services(&repo).await.unwrap();
+        let svcs = list_producers(&repo).await.unwrap();
         assert_eq!(svcs.len(), 2);
     }
 
@@ -451,8 +451,8 @@ mod tests {
     async fn test_delete_service() {
         let repo = MockRepo::new();
         repo.ensure_service("svc").await.unwrap();
-        assert!(delete_service(&repo, "svc").await.unwrap());
-        assert!(!delete_service(&repo, "svc").await.unwrap());
+        assert!(delete_producer(&repo, "svc").await.unwrap());
+        assert!(!delete_producer(&repo, "svc").await.unwrap());
     }
 
     #[tokio::test]
@@ -502,12 +502,12 @@ mod tests {
         repo.ensure_client("client-b").await.unwrap();
         repo.ensure_client("client-c").await.unwrap();
 
-        let svcs = list_services_detailed(&repo, None).await.unwrap();
+        let svcs = list_producers_detailed(&repo, None).await.unwrap();
         assert_eq!(svcs[0].name, "svc-a");
         assert_eq!(svcs[1].name, "svc-b");
         assert_eq!(svcs[2].name, "svc-c");
 
-        let clients = list_clients(&repo, None).await.unwrap();
+        let clients = list_consumers(&repo, None).await.unwrap();
         assert_eq!(clients[0], "client-a");
         assert_eq!(clients[1], "client-b");
         assert_eq!(clients[2], "client-c");
@@ -519,7 +519,7 @@ mod tests {
             .await
             .unwrap();
 
-        let svcs_fav = list_services_detailed(&repo, Some(42)).await.unwrap();
+        let svcs_fav = list_producers_detailed(&repo, Some(42)).await.unwrap();
         assert_eq!(svcs_fav[0].name, "svc-b");
         assert!(svcs_fav[0].is_favorite);
         assert_eq!(svcs_fav[1].name, "svc-a");
@@ -527,7 +527,7 @@ mod tests {
         assert_eq!(svcs_fav[2].name, "svc-c");
         assert!(!svcs_fav[2].is_favorite);
 
-        let clients_fav = list_clients(&repo, Some(42)).await.unwrap();
+        let clients_fav = list_consumers(&repo, Some(42)).await.unwrap();
         assert_eq!(clients_fav[0], "client-c");
         assert_eq!(clients_fav[1], "client-a");
         assert_eq!(clients_fav[2], "client-b");
@@ -535,7 +535,7 @@ mod tests {
         remove_user_favorite(&repo, 42, "service", "svc-b")
             .await
             .unwrap();
-        let svcs_removed = list_services_detailed(&repo, Some(42)).await.unwrap();
+        let svcs_removed = list_producers_detailed(&repo, Some(42)).await.unwrap();
         assert_eq!(svcs_removed[0].name, "svc-a");
     }
 
@@ -549,7 +549,7 @@ mod tests {
             repo.ensure_branch(s, b).await.unwrap();
         }
 
-        let svcs = list_services_detailed(&repo, None).await.unwrap();
+        let svcs = list_producers_detailed(&repo, None).await.unwrap();
         let svc = svcs.iter().find(|s| s.name == "svc").unwrap();
         // Protected first (alphabetical among themselves), then the rest alphabetically.
         assert_eq!(svc.branches, vec!["main", "master", "alpha", "zebra"]);

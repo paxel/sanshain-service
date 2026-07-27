@@ -3,8 +3,8 @@
 This guide covers day-to-day workflows for developers using Sanshain Service.
 
 ### TL;DR
-- **Publish**: Services upload their API specs (OpenAPI, AsyncAPI, Proto) to Sanshain.
-- **Consume**: Clients download only the specific endpoint snippets they need.
+- **Publish**: Producers upload their API specs (OpenAPI, AsyncAPI, Proto) to Sanshain.
+- **Consume**: Consumers download only the specific endpoint snippets they need.
 - **Verify**: Use **Dry Run** mode in PRs to catch breaking changes before they merge.
 - **Explore**: Use the Web UI to navigate the dependency graph and audit logs.
 
@@ -61,8 +61,8 @@ full rules.
 
 ## Web Dashboard Features
 
-#### Services (`/services.html`)
-- Browse registered services and branches.
+#### Producers (`/producers.html`)
+- Browse registered producers and branches.
 - View endpoint usage and availability.
 - Copy or download endpoint specifications.
 

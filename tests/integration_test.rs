@@ -237,8 +237,8 @@ async fn test_root_page_banner_links_to_all_discovery_views() {
         .unwrap();
     let html = String::from_utf8(body.to_vec()).unwrap();
 
-    assert!(html.contains("href=\"/services.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Services</a>"));
-    assert!(html.contains("href=\"/clients.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Clients</a>"));
+    assert!(html.contains("href=\"/producers.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Producers</a>"));
+    assert!(html.contains("href=\"/consumers.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Consumers</a>"));
     assert!(html.contains("href=\"/graph.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Graph</a>"));
     assert!(html.contains("href=\"/reports.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Reports</a>"));
     assert!(html.contains("href=\"/observability.html\" class=\"text-white hover:text-indigo-100 transition-colors\">Observability</a>"));
@@ -286,7 +286,7 @@ paths:
           description: OK
 "#;
     let provide_payload = json!({
-        "servicename": "test-service",
+        "producername": "test-service",
         "branch": "main",
         "openapi_yaml": openapi_yaml
     });
@@ -312,7 +312,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/require?clientname=client-a&servicename=test-service&branch=main&path=/users&method=GET")
+                .uri("/require?consumername=client-a&producername=test-service&branch=main&path=/users&method=GET")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -425,7 +425,7 @@ components:
           type: integer
 "#;
     let provide_payload = json!({
-        "servicename": "test-service",
+        "producername": "test-service",
         "branch": "main",
         "openapi_yaml": openapi_yaml
     });
@@ -447,8 +447,8 @@ components:
 
     // Require bundle with two endpoints
     let bundle_payload = json!({
-        "clientname": "java-client",
-        "servicename": "test-service",
+        "consumername": "java-client",
+        "producername": "test-service",
         "branch": "main",
         "endpoints": [
             { "path": "/users", "method": "POST" },
@@ -490,8 +490,8 @@ components:
 
     // Test missing endpoint returns error
     let bundle_missing = json!({
-        "clientname": "java-client",
-        "servicename": "test-service",
+        "consumername": "java-client",
+        "producername": "test-service",
         "branch": "main",
         "endpoints": [
             { "path": "/users", "method": "GET" },
@@ -527,8 +527,8 @@ components:
 
     // Test empty endpoints returns error
     let bundle_empty = json!({
-        "clientname": "java-client",
-        "servicename": "test-service",
+        "consumername": "java-client",
+        "producername": "test-service",
         "branch": "main",
         "endpoints": []
     });
@@ -593,7 +593,7 @@ components:
           type: integer
 "#;
     let provide_payload = json!({
-        "servicename": "etag-svc",
+        "producername": "etag-svc",
         "branch": "main",
         "openapi_yaml": openapi_yaml
     });
@@ -614,8 +614,8 @@ components:
 
     // Request bundle: order A (users first, orders second)
     let bundle_a = json!({
-        "clientname": "etag-client",
-        "servicename": "etag-svc",
+        "consumername": "etag-client",
+        "producername": "etag-svc",
         "branch": "main",
         "endpoints": [
             { "path": "/users", "method": "POST" },
@@ -653,8 +653,8 @@ components:
 
     // Request bundle: order B (orders first, users second)
     let bundle_b = json!({
-        "clientname": "etag-client",
-        "servicename": "etag-svc",
+        "consumername": "etag-client",
+        "producername": "etag-svc",
         "branch": "main",
         "endpoints": [
             { "path": "/orders", "method": "GET" },
@@ -718,7 +718,7 @@ paths:
           description: OK
 "#;
     let provide_payload = json!({
-        "servicename": "etag-304-svc",
+        "producername": "etag-304-svc",
         "branch": "main",
         "openapi_yaml": openapi_yaml
     });
@@ -743,7 +743,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/require?clientname=etag-client&servicename=etag-304-svc&branch=main&path=/users&method=GET")
+                .uri("/require?consumername=etag-client&producername=etag-304-svc&branch=main&path=/users&method=GET")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -764,7 +764,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/require?clientname=etag-client&servicename=etag-304-svc&branch=main&path=/users&method=GET")
+                .uri("/require?consumername=etag-client&producername=etag-304-svc&branch=main&path=/users&method=GET")
                 .header("If-None-Match", &etag)
                 .body(Body::empty())
                 .unwrap(),
@@ -795,7 +795,7 @@ paths:
           description: OK
 "#;
     let payload_v1 = json!({
-        "servicename": "test-service",
+        "producername": "test-service",
         "branch": "main",
         "openapi_yaml": openapi_v1
     });
@@ -847,7 +847,7 @@ paths:
           description: OK
 "#;
     let payload_compat = json!({
-        "servicename": "test-service",
+        "producername": "test-service",
         "branch": "main",
         "openapi_yaml": openapi_v1_compat
     });
@@ -894,7 +894,7 @@ components:
 "#;
     // First provide the version with schema
     let payload_with_schema = json!({
-        "servicename": "test-service",
+        "producername": "test-service",
         "branch": "main",
         "openapi_yaml": openapi_v1_breaking
     });
@@ -941,7 +941,7 @@ components:
           type: integer
 "#;
     let payload_breaking = json!({
-        "servicename": "test-service",
+        "producername": "test-service",
         "branch": "main",
         "openapi_yaml": openapi_v1_type_change
     });
@@ -991,7 +991,7 @@ components:
           type: string
 "#;
     let payload_v2 = json!({
-        "servicename": "test-service",
+        "producername": "test-service",
         "branch": "main",
         "openapi_yaml": openapi_v2
     });
@@ -1131,7 +1131,7 @@ paths:
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "servicename": "svc",
+                        "producername": "svc",
                         "branch": "feature/test",
                         "openapi_yaml": yaml1
                     }))
@@ -1154,7 +1154,7 @@ paths:
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "servicename": "svc",
+                        "producername": "svc",
                         "branch": "feature/test",
                         "openapi_yaml": yaml2
                     }))
@@ -1171,7 +1171,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/require?clientname=client&servicename=svc&branch=feature/test&path=/users&method=GET")
+                .uri("/require?consumername=client&producername=svc&branch=feature/test&path=/users&method=GET")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1232,7 +1232,7 @@ paths:
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "servicename": "svc1",
+                        "producername": "svc1",
                         "branch": "main",
                         "openapi_yaml": yaml
                     }))
@@ -1249,7 +1249,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/require?clientname=client1&servicename=svc1&branch=main&path=/users&method=GET")
+                .uri("/require?consumername=client1&producername=svc1&branch=main&path=/users&method=GET")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1263,7 +1263,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/admin/services")
+                .uri("/admin/producers")
                 .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
@@ -1283,7 +1283,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/admin/services/svc1/branches")
+                .uri("/admin/producers/svc1/branches")
                 .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
@@ -1303,7 +1303,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/admin/clients")
+                .uri("/admin/consumers")
                 .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
@@ -1323,7 +1323,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/admin/clients/client1")
+                .uri("/admin/consumers/client1")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::empty())
@@ -1339,7 +1339,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/admin/clients/client1")
+                .uri("/admin/consumers/client1")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::empty())
@@ -1355,7 +1355,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/admin/services/svc1")
+                .uri("/admin/producers/svc1")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::empty())
@@ -1371,7 +1371,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/admin/services")
+                .uri("/admin/producers")
                 .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
@@ -1447,7 +1447,7 @@ async fn test_api_locked_without_dev_mode() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/require?clientname=c&servicename=s&branch=b&path=/p&method=GET")
+                .uri("/require?consumername=c&producername=s&branch=b&path=/p&method=GET")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -2036,13 +2036,13 @@ async fn test_role_based_access_control() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    // 3. Staff should be able to see discovery routes (e.g. /admin/services)
+    // 3. Staff should be able to see discovery routes (e.g. /admin/producers)
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/admin/services")
+                .uri("/admin/producers")
                 .header("Authorization", format!("Bearer {}", staff_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -2078,7 +2078,7 @@ async fn test_role_based_access_control() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/admin/services/any-service")
+                .uri("/admin/producers/any-service")
                 .header("Authorization", format!("Bearer {}", staff_token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::empty())
@@ -2099,7 +2099,7 @@ async fn test_dev_mode_toggle() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/require?clientname=c&servicename=s&branch=b&path=/p&method=GET")
+                .uri("/require?consumername=c&producername=s&branch=b&path=/p&method=GET")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -2132,7 +2132,7 @@ async fn test_dev_mode_toggle() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/require?clientname=c&servicename=s&branch=b&path=/p&method=GET")
+                .uri("/require?consumername=c&producername=s&branch=b&path=/p&method=GET")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -2786,7 +2786,7 @@ async fn test_disabled_mode_endpoints_return_503() {
 
     // By default, the app is in "disabled" mode, so calling /provide should return 503 Service Unavailable
     let provide_payload = json!({
-        "servicename": "test-service",
+        "producername": "test-service",
         "branch": "main",
         "openapi_yaml": "openapi: 3.0.0\ninfo:\n  title: Test\n  version: 1.0.0\npaths:\n  /:\n    get:\n      responses:\n        '200':\n          description: OK"
     });
@@ -2818,7 +2818,7 @@ async fn test_disabled_mode_endpoints_return_503() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/require?clientname=client-a&servicename=test-service&branch=main&path=/&method=GET")
+                .uri("/require?consumername=client-a&producername=test-service&branch=main&path=/&method=GET")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -2898,7 +2898,7 @@ components:
 "#;
 
     let provide_payload = json!({
-        "servicename": "compress-test-service",
+        "producername": "compress-test-service",
         "branch": "main",
         "openapi_yaml": openapi_yaml
     });
@@ -2923,7 +2923,7 @@ components:
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/require?clientname=gzip-client&servicename=compress-test-service&branch=main&path=/users&method=GET&timeout=1")
+                .uri("/require?consumername=gzip-client&producername=compress-test-service&branch=main&path=/users&method=GET&timeout=1")
                 .header("Accept-Encoding", "gzip")
                 .body(Body::empty())
                 .unwrap(),
@@ -2966,7 +2966,7 @@ paths:
 "#;
 
     let payload = serde_json::to_vec(&json!({
-        "servicename": "gzip-request-test",
+        "producername": "gzip-request-test",
         "branch": "main",
         "openapi_yaml": openapi_yaml
     }))
@@ -3219,8 +3219,8 @@ async fn test_require_does_not_create_phantom_service() {
 
     // A client requires an endpoint from a service that was never provided
     let _require_payload = json!({
-        "clientname": "my-client",
-        "servicename": "phantom-service",
+        "consumername": "my-client",
+        "producername": "phantom-service",
         "branch": "main",
         "path": "/health",
         "method": "GET"
@@ -3229,7 +3229,7 @@ async fn test_require_does_not_create_phantom_service() {
     let response: Response = app.clone()
         .oneshot(
             Request::builder()
-                .uri("/require?clientname=my-client&servicename=phantom-service&branch=main&path=/health&method=GET")
+                .uri("/require?consumername=my-client&producername=phantom-service&branch=main&path=/health&method=GET")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -3244,7 +3244,7 @@ async fn test_require_does_not_create_phantom_service() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/admin/services")
+                .uri("/admin/producers")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -3269,7 +3269,7 @@ async fn test_delete_service_does_not_create_phantom_client() {
     // Upload a spec so the service exists
     let yaml = "openapi: '3.0.0'\ninfo:\n  title: Svc\n  version: '1.0'\npaths:\n  /health:\n    get:\n      operationId: getHealth\n      responses:\n        '200':\n          description: OK\n";
     let provide_payload = json!({
-        "servicename": "temp-service",
+        "producername": "temp-service",
         "branch": "main",
         "openapi_yaml": yaml
     });
@@ -3293,7 +3293,7 @@ async fn test_delete_service_does_not_create_phantom_client() {
     let response: Response = app.clone()
         .oneshot(
             Request::builder()
-                .uri("/require?clientname=orphan-client&servicename=temp-service&branch=main&path=/health&method=GET")
+                .uri("/require?consumername=orphan-client&producername=temp-service&branch=main&path=/health&method=GET")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -3307,7 +3307,7 @@ async fn test_delete_service_does_not_create_phantom_client() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/admin/clients")
+                .uri("/admin/consumers")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -3327,7 +3327,7 @@ async fn test_delete_service_does_not_create_phantom_client() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/admin/services/temp-service")
+                .uri("/admin/producers/temp-service")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::empty())
@@ -3342,7 +3342,7 @@ async fn test_delete_service_does_not_create_phantom_client() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/admin/clients")
+                .uri("/admin/consumers")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -3378,7 +3378,7 @@ paths:
           description: OK
 "#;
     let payload = json!({
-        "servicename": "err-svc",
+        "producername": "err-svc",
         "branch": "main",
         "openapi_yaml": yaml
     });
@@ -3401,7 +3401,7 @@ paths:
     let response: Response = app.clone()
         .oneshot(
             Request::builder()
-                .uri("/require?clientname=test-client&servicename=err-svc&branch=main&path=/missing&method=GET")
+                .uri("/require?consumername=test-client&producername=err-svc&branch=main&path=/missing&method=GET")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -3479,7 +3479,8 @@ components:
 "#;
 
     // Provide first version
-    let payload = json!({ "servicename": "conflict-svc", "branch": "main", "openapi_yaml": yaml1 });
+    let payload =
+        json!({ "producername": "conflict-svc", "branch": "main", "openapi_yaml": yaml1 });
     let response: Response = app
         .clone()
         .oneshot(
@@ -3497,7 +3498,7 @@ components:
 
     // Provide breaking change on protected branch — should get 409 with descriptive body
     let payload2 =
-        json!({ "servicename": "conflict-svc", "branch": "main", "openapi_yaml": yaml2 });
+        json!({ "producername": "conflict-svc", "branch": "main", "openapi_yaml": yaml2 });
     let response: Response = app
         .clone()
         .oneshot(
@@ -3546,7 +3547,7 @@ paths:
 "#;
 
     // Provide with dry_run=true
-    let payload = json!({ "servicename": "dry-svc", "branch": "main", "openapi_yaml": yaml, "dry_run": true });
+    let payload = json!({ "producername": "dry-svc", "branch": "main", "openapi_yaml": yaml, "dry_run": true });
     let response: Response = app
         .clone()
         .oneshot(
@@ -3566,7 +3567,7 @@ paths:
     let response: Response = app.clone()
         .oneshot(
             Request::builder()
-                .uri("/require?clientname=dry-client&servicename=dry-svc&branch=main&path=/items&method=GET")
+                .uri("/require?consumername=dry-client&producername=dry-svc&branch=main&path=/items&method=GET")
                 .body(Body::empty())
                 .unwrap(),
         ).await.unwrap();
@@ -3591,7 +3592,7 @@ paths:
 "#;
 
     // Provide a real spec
-    let payload = json!({ "servicename": "dryreq-svc", "branch": "main", "openapi_yaml": yaml });
+    let payload = json!({ "producername": "dryreq-svc", "branch": "main", "openapi_yaml": yaml });
     let response: Response = app
         .clone()
         .oneshot(
@@ -3612,7 +3613,7 @@ paths:
     let response: Response = app.clone()
         .oneshot(
             Request::builder()
-                .uri("/require?clientname=dry-client&servicename=dryreq-svc&branch=main&path=/health&method=GET&dry_run=true")
+                .uri("/require?consumername=dry-client&producername=dryreq-svc&branch=main&path=/health&method=GET&dry_run=true")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -3624,7 +3625,7 @@ paths:
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/admin/clients")
+                .uri("/admin/consumers")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -3648,7 +3649,7 @@ async fn test_multiple_provides() {
 
     // 1. Provide OpenAPI
     let openapi_payload = json!({
-        "servicename": "multi-svc",
+        "producername": "multi-svc",
         "branch": "main",
         "openapi_yaml": "openapi: 3.0.0\ninfo:\n  title: Test\n  version: 1.0.0\npaths:\n  /hello:\n    get:\n      responses:\n        '200':\n          description: OK"
     });
@@ -3670,7 +3671,7 @@ async fn test_multiple_provides() {
 
     // 2. Provide Proto
     let proto_payload = json!({
-        "servicename": "multi-svc",
+        "producername": "multi-svc",
         "branch": "main",
         "proto_content": "syntax = \"proto3\";\npackage test;\nservice TestService {\n  rpc Hello (HelloRequest) returns (HelloResponse);\n}\nmessage HelloRequest {}\nmessage HelloResponse {}"
     });
@@ -3692,7 +3693,7 @@ async fn test_multiple_provides() {
 
     // 2.5 Provide AsyncAPI
     let asyncapi_payload = json!({
-        "servicename": "multi-svc",
+        "producername": "multi-svc",
         "branch": "main",
         "asyncapi_yaml": "asyncapi: 2.0.0\ninfo:\n  title: Test\n  version: 1.0.0\nchannels:\n  events:\n    publish:\n      message:\n        payload:\n          type: object"
     });
@@ -3718,7 +3719,7 @@ async fn test_multiple_provides() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/admin/services/multi-svc/branches/main/endpoints")
+                .uri("/admin/producers/multi-svc/branches/main/endpoints")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -3755,7 +3756,7 @@ async fn test_client_with_missing_endpoint_appears_in_list() {
     // Provide a spec with only /users
     let yaml = "openapi: '3.0.0'\ninfo:\n  title: Svc\n  version: '1.0'\npaths:\n  /users:\n    get:\n      operationId: getUsers\n      responses:\n        '200':\n          description: OK\n";
     let provide_payload = json!({
-        "servicename": "missing-ep-svc",
+        "producername": "missing-ep-svc",
         "branch": "main",
         "openapi_yaml": yaml
     });
@@ -3779,7 +3780,7 @@ async fn test_client_with_missing_endpoint_appears_in_list() {
     let response: Response = app.clone()
         .oneshot(
             Request::builder()
-                .uri("/require?clientname=missing-client&servicename=missing-ep-svc&branch=main&path=/nonexistent&method=GET&timeout=0")
+                .uri("/require?consumername=missing-client&producername=missing-ep-svc&branch=main&path=/nonexistent&method=GET&timeout=0")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -3797,7 +3798,7 @@ async fn test_client_with_missing_endpoint_appears_in_list() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/admin/clients")
+                .uri("/admin/consumers")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -3847,7 +3848,7 @@ async fn test_no_duplicate_null_endpoint_dependencies() {
     // Provide a spec
     let yaml = "openapi: '3.0.0'\ninfo:\n  title: Svc\n  version: '1.0'\npaths:\n  /users:\n    get:\n      operationId: getUsers\n      responses:\n        '200':\n          description: OK\n";
     let provide_payload = json!({
-        "servicename": "dedup-svc",
+        "producername": "dedup-svc",
         "branch": "main",
         "openapi_yaml": yaml
     });
@@ -3872,7 +3873,7 @@ async fn test_no_duplicate_null_endpoint_dependencies() {
         let _response: Response = app.clone()
             .oneshot(
                 Request::builder()
-                    .uri("/require?clientname=dedup-client&servicename=dedup-svc&branch=main&path=/missing&method=GET&timeout=0")
+                    .uri("/require?consumername=dedup-client&producername=dedup-svc&branch=main&path=/missing&method=GET&timeout=0")
                     .header("Authorization", format!("Bearer {}", admin_token))
                     .body(Body::empty())
                     .unwrap(),
@@ -3931,7 +3932,7 @@ async fn test_nuke_endpoints() {
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "servicename": "nuke-svc",
+                        "producername": "nuke-svc",
                         "branch": "main",
                         "openapi_yaml": yaml
                     }))
@@ -3947,7 +3948,7 @@ async fn test_nuke_endpoints() {
     let _response: Response = app.clone()
         .oneshot(
             Request::builder()
-                .uri("/require?clientname=nuke-client&servicename=nuke-svc&branch=main&path=/items&method=GET&timeout=0")
+                .uri("/require?consumername=nuke-client&producername=nuke-svc&branch=main&path=/items&method=GET&timeout=0")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -3961,7 +3962,7 @@ async fn test_nuke_endpoints() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/admin/nuke/services")
+                .uri("/admin/nuke/producers")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
@@ -3980,7 +3981,7 @@ async fn test_nuke_endpoints() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/admin/nuke/services")
+                .uri("/admin/nuke/producers")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
@@ -4003,7 +4004,7 @@ async fn test_nuke_endpoints() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/admin/services")
+                .uri("/admin/producers")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -4023,7 +4024,7 @@ async fn test_nuke_endpoints() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/admin/nuke/clients")
+                .uri("/admin/nuke/consumers")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .header("Content-Type", "application/json")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
@@ -4041,7 +4042,7 @@ async fn test_nuke_endpoints() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/admin/clients")
+                .uri("/admin/consumers")
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -4087,7 +4088,7 @@ paths:
 
     // 0. Seed the service on the protected branch so this is not a brand-new service.
     let payload_seed =
-        json!({ "servicename": "alpha-svc", "branch": "main", "openapi_yaml": yaml_v1 });
+        json!({ "producername": "alpha-svc", "branch": "main", "openapi_yaml": yaml_v1 });
     let response = app
         .clone()
         .oneshot(
@@ -4105,7 +4106,7 @@ paths:
 
     // 1. Provide v1 on a feature branch.
     let payload_v1 =
-        json!({ "servicename": "alpha-svc", "branch": "feat-breaking", "openapi_yaml": yaml_v1 });
+        json!({ "producername": "alpha-svc", "branch": "feat-breaking", "openapi_yaml": yaml_v1 });
     let response = app
         .clone()
         .oneshot(
@@ -4122,7 +4123,7 @@ paths:
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 
     // 2. A breaking change on the feature branch is accepted without `force`.
-    let payload_breaking = json!({ "servicename": "alpha-svc", "branch": "feat-breaking", "openapi_yaml": yaml_v2_breaking });
+    let payload_breaking = json!({ "producername": "alpha-svc", "branch": "feat-breaking", "openapi_yaml": yaml_v2_breaking });
     let response = app
         .clone()
         .oneshot(
@@ -4140,7 +4141,7 @@ paths:
 
     // 3. The same breaking change on the protected branch is still rejected.
     let payload_breaking_main =
-        json!({ "servicename": "alpha-svc", "branch": "main", "openapi_yaml": yaml_v2_breaking });
+        json!({ "producername": "alpha-svc", "branch": "main", "openapi_yaml": yaml_v2_breaking });
     let response = app
         .clone()
         .oneshot(
@@ -4171,7 +4172,7 @@ async fn test_problem_3_optimistic_concurrency_integration() {
     let yaml2 = "openapi: 3.0.0\ninfo:\n  title: T2\n  version: 1.0.0\npaths: {}";
 
     // 1. First provide
-    let payload1 = json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml1 });
+    let payload1 = json!({ "producername": "svc", "branch": "main", "openapi_yaml": yaml1 });
     let response = app
         .clone()
         .oneshot(
@@ -4193,7 +4194,7 @@ async fn test_problem_3_optimistic_concurrency_integration() {
     assert_eq!(res1.version, SemVer::new(1, 0, 0));
 
     // 2. Second provide with correct base_version
-    let payload2 = json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml2, "base_version": "1.0.0" });
+    let payload2 = json!({ "producername": "svc", "branch": "main", "openapi_yaml": yaml2, "base_version": "1.0.0" });
     let response = app
         .clone()
         .oneshot(
@@ -4215,7 +4216,7 @@ async fn test_problem_3_optimistic_concurrency_integration() {
     assert_eq!(res2.version, SemVer::new(1, 0, 1));
 
     // 3. Third provide with OUTDATED base_version
-    let payload3 = json!({ "servicename": "svc", "branch": "main", "openapi_yaml": yaml1, "base_version": "1.0.0" });
+    let payload3 = json!({ "producername": "svc", "branch": "main", "openapi_yaml": yaml1, "base_version": "1.0.0" });
     let response = app
         .clone()
         .oneshot(
@@ -4337,9 +4338,9 @@ async fn test_all_admin_endpoints_require_admin_token() {
         ),
         ("DELETE", "/admin/protected-branches/main", None),
         // Service/branch/client deletion
-        ("DELETE", "/admin/services/any-service", None),
-        ("DELETE", "/admin/services/any-service/branches/main", None),
-        ("DELETE", "/admin/clients/any-client", None),
+        ("DELETE", "/admin/producers/any-service", None),
+        ("DELETE", "/admin/producers/any-service/branches/main", None),
+        ("DELETE", "/admin/consumers/any-client", None),
         // Settings (POST = write)
         (
             "POST",
@@ -4361,8 +4362,8 @@ async fn test_all_admin_endpoints_require_admin_token() {
         ("POST", "/admin/auth-config/test", Some(json!({}))),
         // Nuke endpoints
         ("POST", "/admin/nuke/database", None),
-        ("POST", "/admin/nuke/services", None),
-        ("POST", "/admin/nuke/clients", None),
+        ("POST", "/admin/nuke/producers", None),
+        ("POST", "/admin/nuke/consumers", None),
         ("POST", "/admin/nuke/users", None),
         ("POST", "/admin/nuke/branch/main", None),
         // Branch max-age
@@ -4419,12 +4420,12 @@ async fn test_all_admin_endpoints_require_admin_token() {
 
     // --- Read-only admin endpoints: staff should NOT get 401/403 (authenticated_auth) ---
     let readonly_endpoints: Vec<&str> = vec![
-        "/admin/services",
-        "/admin/clients",
+        "/admin/producers",
+        "/admin/consumers",
         "/admin/observability/stats",
         "/admin/observability/logs",
-        "/admin/endpoint-yaml?servicename=x&branch=main&path=/p&method=GET",
-        "/admin/endpoint-versions?servicename=x&branch=main&path=/p&method=GET",
+        "/admin/endpoint-yaml?producername=x&branch=main&path=/p&method=GET",
+        "/admin/endpoint-versions?producername=x&branch=main&path=/p&method=GET",
     ];
 
     for uri in &readonly_endpoints {
@@ -4475,8 +4476,8 @@ async fn test_all_admin_endpoints_require_admin_token() {
     let no_auth_checks: Vec<(&str, &str)> = vec![
         ("GET", "/admin/protected-branches"),
         ("POST", "/admin/settings/dev-mode"),
-        ("GET", "/admin/services"),
-        ("DELETE", "/admin/services/x"),
+        ("GET", "/admin/producers"),
+        ("DELETE", "/admin/producers/x"),
         ("GET", "/admin/users"),
         ("POST", "/admin/nuke/database"),
     ];
@@ -4532,7 +4533,7 @@ paths:
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "servicename": "merge-svc",
+                        "producername": "merge-svc",
                         "branch": "main",
                         "openapi_yaml": yaml_main
                     }))
@@ -4550,7 +4551,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/require?clientname=merge-client&servicename=merge-svc&branch=main&path=/users&method=GET")
+                .uri("/require?consumername=merge-client&producername=merge-svc&branch=main&path=/users&method=GET")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::empty())
                 .unwrap(),
@@ -4582,7 +4583,7 @@ paths:
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "servicename": "feature-svc",
+                        "producername": "feature-svc",
                         "branch": "feature",
                         "openapi_yaml": yaml_feature
                     }))
@@ -4600,7 +4601,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/require?clientname=feature-client&servicename=feature-svc&branch=feature&path=/orders&method=POST")
+                .uri("/require?consumername=feature-client&producername=feature-svc&branch=feature&path=/orders&method=POST")
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::empty())
                 .unwrap(),
@@ -4889,7 +4890,7 @@ paths:
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "servicename": "UserService",
+                        "producername": "UserService",
                         "branch": "main",
                         "openapi_yaml": spec1
                     }))
@@ -4937,7 +4938,7 @@ paths:
                 .header("X-CSRF-Token", TEST_CSRF_TOKEN)
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "servicename": "UserService",
+                        "producername": "UserService",
                         "branch": "main",
                         "openapi_yaml": spec2
                     }))
@@ -4955,7 +4956,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/admin/endpoint-versions?servicename=UserService&branch=main&api_type=openapi&path=/users&method=GET")
+                .uri("/admin/endpoint-versions?producername=UserService&branch=main&api_type=openapi&path=/users&method=GET")
                 .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
@@ -5051,7 +5052,7 @@ async fn test_request_body_over_limit_is_rejected_under_limit_accepted() {
 
     // Over the limit: the request is rejected before the spec is parsed.
     let oversized_payload = json!({
-        "servicename": "test-service",
+        "producername": "test-service",
         "branch": "main",
         "openapi_yaml": "x".repeat(2048),
     });
@@ -5087,7 +5088,7 @@ paths:
           description: OK
 "#;
     let provide_payload = json!({
-        "servicename": "test-service",
+        "producername": "test-service",
         "branch": "main",
         "openapi_yaml": openapi_yaml
     });

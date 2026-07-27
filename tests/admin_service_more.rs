@@ -58,24 +58,24 @@ async fn cleanup_stale_dependencies_zero_days() {
 #[tokio::test]
 async fn delete_nonexisting_returns_false_or_zero() {
     let repo = MockRepo::new();
-    assert!(!admin::delete_service(&repo, "nope").await.unwrap());
-    assert!(!admin::delete_client(&repo, "nope").await.unwrap());
+    assert!(!admin::delete_producer(&repo, "nope").await.unwrap());
+    assert!(!admin::delete_consumer(&repo, "nope").await.unwrap());
     assert!(admin::delete_branch(&repo, "svc", "feature").await.unwrap());
 }
 
-// 8. list_client_branches empty
+// 8. list_consumer_branches empty
 #[tokio::test]
 async fn list_client_branches_empty() {
     let repo = MockRepo::new();
-    let v = admin::list_client_branches(&repo, "c").await.unwrap();
+    let v = admin::list_consumer_branches(&repo, "c").await.unwrap();
     assert!(v.is_empty());
 }
 
-// 9. list_client_endpoints empty
+// 9. list_consumer_endpoints empty
 #[tokio::test]
 async fn list_client_endpoints_empty() {
     let repo = MockRepo::new();
-    let v = admin::list_client_endpoints(&repo, "c", "main")
+    let v = admin::list_consumer_endpoints(&repo, "c", "main")
         .await
         .unwrap();
     assert!(v.is_empty());

@@ -109,7 +109,7 @@ async fn admin_lists_and_cache_endpoints_work() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/admin/services")
+                .uri("/admin/producers")
                 .header(axum::http::header::AUTHORIZATION, &auth)
                 .body(Body::empty())
                 .unwrap(),
@@ -123,7 +123,7 @@ async fn admin_lists_and_cache_endpoints_work() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/admin/services/demo-svc/branches/main/endpoints")
+                .uri("/admin/producers/demo-svc/branches/main/endpoints")
                 .header(axum::http::header::AUTHORIZATION, &auth)
                 .body(Body::empty())
                 .unwrap(),
@@ -438,7 +438,9 @@ paths:
     .await
     .unwrap();
 
-    let svcs = services::list_services_detailed(&repo, None).await.unwrap();
+    let svcs = services::list_producers_detailed(&repo, None)
+        .await
+        .unwrap();
     let svc = svcs.iter().find(|s| s.name == "svc").unwrap();
     assert_eq!(
         svc.branches,
@@ -631,7 +633,9 @@ paths:
         .await
         .unwrap();
 
-    let svcs = services::list_services_detailed(&repo, None).await.unwrap();
+    let svcs = services::list_producers_detailed(&repo, None)
+        .await
+        .unwrap();
     let svc = svcs.iter().find(|s| s.name == "svc").unwrap();
     assert!(
         svc.branches_expire_at.contains_key("feature"),
@@ -819,7 +823,9 @@ paths:
     .await
     .unwrap();
 
-    let svcs = services::list_services_detailed(&repo, None).await.unwrap();
+    let svcs = services::list_producers_detailed(&repo, None)
+        .await
+        .unwrap();
     let empty = svcs.iter().find(|s| s.name == "empty-svc").unwrap();
     assert_eq!(
         empty.branches_endpoint_count.get("main").copied(),
@@ -1021,7 +1027,7 @@ paths:
         '200': { description: ok }
 "#;
     let body = serde_json::json!({
-        "servicename": "audit-svc",
+        "producername": "audit-svc",
         "branch": "main",
         "openapi_yaml": spec,
     })
@@ -1132,7 +1138,7 @@ async fn source_protected_branch_first_write_sets_it() {
     services::provide_spec_with_actor(
         &repo,
         services::ProvideSpecParams {
-            servicename: "svc",
+            producername: "svc",
             branch: "hotfix/1.0.1",
             api_type: ApiType::OpenApi,
             content: SPB_SPEC,
@@ -1176,7 +1182,7 @@ async fn source_protected_branch_mismatch_is_logged_and_ignored() {
     services::provide_spec_with_actor(
         &repo,
         services::ProvideSpecParams {
-            servicename: "svc",
+            producername: "svc",
             branch: "hotfix/1.0.1",
             api_type: ApiType::OpenApi,
             content: SPB_SPEC,
@@ -1208,7 +1214,7 @@ async fn source_protected_branch_mismatch_is_logged_and_ignored() {
         services::provide_spec_with_actor(
             &repo,
             services::ProvideSpecParams {
-                servicename: "svc",
+                producername: "svc",
                 branch: "hotfix/1.0.1",
                 api_type: ApiType::OpenApi,
                 content: SPB_SPEC,
@@ -1256,7 +1262,7 @@ async fn source_protected_branch_matching_resupply_is_noop_no_log() {
     services::provide_spec_with_actor(
         &repo,
         services::ProvideSpecParams {
-            servicename: "svc",
+            producername: "svc",
             branch: "hotfix/1.0.1",
             api_type: ApiType::OpenApi,
             content: SPB_SPEC,
@@ -1289,7 +1295,7 @@ async fn source_protected_branch_matching_resupply_is_noop_no_log() {
         services::provide_spec_with_actor(
             &repo,
             services::ProvideSpecParams {
-                servicename: "svc",
+                producername: "svc",
                 branch: "hotfix/1.0.1",
                 api_type: ApiType::OpenApi,
                 content: SPB_SPEC,
@@ -1334,7 +1340,7 @@ async fn admin_correction_always_overwrites_source_protected_branch() {
     services::provide_spec_with_actor(
         &repo,
         services::ProvideSpecParams {
-            servicename: "svc",
+            producername: "svc",
             branch: "hotfix/1.0.1",
             api_type: ApiType::OpenApi,
             content: SPB_SPEC,
@@ -1371,7 +1377,7 @@ async fn admin_correction_always_overwrites_source_protected_branch() {
     services::provide_spec_with_actor(
         &repo,
         services::ProvideSpecParams {
-            servicename: "svc",
+            producername: "svc",
             branch: "hotfix/1.0.1",
             api_type: ApiType::OpenApi,
             content: SPB_SPEC,
@@ -1420,8 +1426,8 @@ async fn pull_from_branch_bypasses_resolution_without_persisting() {
         &repo,
         None,
         services::RequireEndpointParams {
-            clientname: "client-a",
-            servicename: "svc",
+            consumername: "client-a",
+            producername: "svc",
             branch: "feature-x",
             api_type: ApiType::OpenApi,
             path: "/p",
@@ -1471,8 +1477,8 @@ async fn protected_branch_with_no_data_still_not_found() {
         &repo,
         None,
         services::RequireEndpointParams {
-            clientname: "client-a",
-            servicename: "svc",
+            consumername: "client-a",
+            producername: "svc",
             branch: "release/2.0",
             api_type: ApiType::OpenApi,
             path: "/p",
@@ -1559,7 +1565,7 @@ async fn admin_source_protected_branch_endpoint_is_admin_only_and_works() {
 
     let (app, repo, admin_token) = app_with_seed().await;
     let admin_auth = format!("Bearer {}", admin_token);
-    let uri = "/admin/services/demo-svc/branches/main/source-protected-branch";
+    let uri = "/admin/producers/demo-svc/branches/main/source-protected-branch";
 
     // GET: initially unset.
     let res = app
@@ -1690,7 +1696,7 @@ paths:
                 .header(axum::http::header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     serde_json::json!({
-                        "servicename": "demo-svc",
+                        "producername": "demo-svc",
                         "branch": "main",
                         "openapi_yaml": spec,
                         "author": "external.author@example.com",
@@ -1762,7 +1768,7 @@ paths:
                 .header(axum::http::header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     serde_json::json!({
-                        "servicename": "demo-svc",
+                        "producername": "demo-svc",
                         "branch": "main",
                         "openapi_yaml": spec,
                     })
@@ -1850,8 +1856,8 @@ async fn require_bundle_prefers_source_protected_branch_over_alphabetical() {
         &repo,
         None,
         services::RequireBundleParams {
-            clientname: "client-a",
-            servicename: "svc",
+            consumername: "client-a",
+            producername: "svc",
             branch: "hotfix/1.0.1",
             api_type: ApiType::OpenApi,
             endpoints: &eps,
@@ -1920,8 +1926,8 @@ async fn require_bundle_pull_from_branch_bypasses_resolution_without_persisting(
         &repo,
         None,
         services::RequireBundleParams {
-            clientname: "client-a",
-            servicename: "svc",
+            consumername: "client-a",
+            producername: "svc",
             branch: "feature-x",
             api_type: ApiType::OpenApi,
             endpoints: &eps,
@@ -2044,8 +2050,8 @@ async fn wildcard_protected_pattern_resolves_as_fallback() {
         &repo,
         None,
         services::RequireEndpointParams {
-            clientname: "client-a",
-            servicename: "svc",
+            consumername: "client-a",
+            producername: "svc",
             branch: "feature-x",
             api_type: ApiType::OpenApi,
             path: "/p",
@@ -2066,7 +2072,7 @@ async fn wildcard_protected_pattern_resolves_as_fallback() {
 // --- Read paths must resolve, never create ---
 
 // Browsing a service/branch that does not exist must not bring it into
-// existence. `list_service_endpoints` used to call ensure_service/ensure_branch,
+// existence. `list_producer_endpoints` used to call ensure_service/ensure_branch,
 // so a mistyped or stale URL minted a permanent empty branch that then appeared
 // in the services overview and the stale-cleanup horizon.
 #[tokio::test]
@@ -2087,7 +2093,7 @@ async fn browsing_an_unknown_branch_does_not_create_it() {
     .unwrap();
 
     // A branch that was never published, on a real service.
-    let listed = services::list_service_endpoints(&repo, "svc", "ghost-branch")
+    let listed = services::list_producer_endpoints(&repo, "svc", "ghost-branch")
         .await
         .unwrap();
     assert!(listed.is_empty(), "an unknown branch serves nothing");
@@ -2102,7 +2108,7 @@ async fn browsing_an_unknown_branch_does_not_create_it() {
     );
 
     // A service that does not exist at all.
-    let listed = services::list_service_endpoints(&repo, "no-such-svc", "main")
+    let listed = services::list_producer_endpoints(&repo, "no-such-svc", "main")
         .await
         .unwrap();
     assert!(listed.is_empty());
@@ -2209,8 +2215,8 @@ async fn deleting_an_endpoint_on_a_branch_is_not_undone_by_inheritance() {
         &repo,
         None,
         services::RequireEndpointParams {
-            clientname: "c1",
-            servicename: "svc",
+            consumername: "c1",
+            producername: "svc",
             branch: "feature-x",
             api_type: ApiType::OpenApi,
             path: "/deprecated",
@@ -2237,8 +2243,8 @@ async fn deleting_an_endpoint_on_a_branch_is_not_undone_by_inheritance() {
         &repo,
         None,
         services::RequireEndpointParams {
-            clientname: "c1",
-            servicename: "svc",
+            consumername: "c1",
+            producername: "svc",
             branch: "feature-x",
             api_type: ApiType::OpenApi,
             path: "/keep",
@@ -2274,8 +2280,8 @@ async fn a_branch_that_never_published_inherits_and_names_the_source() {
         &repo,
         None,
         services::RequireEndpointParams {
-            clientname: "c1",
-            servicename: "svc",
+            consumername: "c1",
+            producername: "svc",
             branch: "brand-new-feature",
             api_type: ApiType::OpenApi,
             path: "/deprecated",
@@ -2313,8 +2319,8 @@ async fn absent_fails_immediately_despite_a_timeout() {
         &repo,
         None,
         services::RequireEndpointParams {
-            clientname: "c1",
-            servicename: "svc",
+            consumername: "c1",
+            producername: "svc",
             branch: "feature-x",
             api_type: ApiType::OpenApi,
             path: "/never",
@@ -2371,8 +2377,8 @@ async fn all_read_paths_agree_on_the_same_endpoint() {
         &repo,
         None,
         services::RequireEndpointParams {
-            clientname: "c1",
-            servicename: "svc",
+            consumername: "c1",
+            producername: "svc",
             branch: "feature-x",
             api_type: ApiType::OpenApi,
             path: "/keep",
@@ -2390,8 +2396,8 @@ async fn all_read_paths_agree_on_the_same_endpoint() {
         &repo,
         None,
         services::RequireBundleParams {
-            clientname: "c1",
-            servicename: "svc",
+            consumername: "c1",
+            producername: "svc",
             branch: "feature-x",
             api_type: ApiType::OpenApi,
             endpoints: &eps,
@@ -2425,8 +2431,8 @@ async fn all_read_paths_agree_on_the_same_endpoint() {
         &repo,
         None,
         services::RequireBundleParams {
-            clientname: "c1",
-            servicename: "svc",
+            consumername: "c1",
+            producername: "svc",
             branch: "feature-x",
             api_type: ApiType::OpenApi,
             endpoints: &bundle_eps,
@@ -2477,8 +2483,8 @@ async fn an_absent_require_still_records_the_unmet_dependency() {
         &repo,
         None,
         services::RequireEndpointParams {
-            clientname: "hungry-consumer",
-            servicename: "svc",
+            consumername: "hungry-consumer",
+            producername: "svc",
             branch: "feature-x",
             api_type: ApiType::OpenApi,
             path: "/gone",

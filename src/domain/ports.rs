@@ -264,7 +264,7 @@ pub trait SpecRepository: Send + Sync {
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Delete a service and all its branches, endpoints, and related dependencies.
-    fn delete_service(
+    fn delete_producer(
         &self,
         name: &str,
     ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
@@ -277,18 +277,18 @@ pub trait SpecRepository: Send + Sync {
     ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
 
     /// Delete a client and all its dependencies.
-    fn delete_client(
+    fn delete_consumer(
         &self,
         name: &str,
     ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
 
     /// List all services.
-    fn list_services(&self) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+    fn list_producers(&self) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
     /// List all services with detailed information (like fallback branch).
-    fn list_services_detailed(
+    fn list_producers_detailed(
         &self,
-    ) -> impl Future<Output = Result<Vec<ServiceSummary>, RepositoryError>> + Send;
+    ) -> impl Future<Output = Result<Vec<ProducerSummary>, RepositoryError>> + Send;
 
     /// Set the fallback branch for a service.
     fn set_fallback_branch(
@@ -298,7 +298,7 @@ pub trait SpecRepository: Send + Sync {
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Update service metadata (icon, domain).
-    fn update_service_metadata(
+    fn update_producer_metadata(
         &self,
         service_name: &str,
         icon: Option<&str>,
@@ -348,20 +348,20 @@ pub trait SpecRepository: Send + Sync {
     ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
     /// List all clients.
-    fn list_clients(&self) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+    fn list_consumers(&self) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
     /// List all branches that a client has dependencies on.
-    fn list_client_branches(
+    fn list_consumer_branches(
         &self,
         client_name: &str,
     ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
     /// List all endpoints a client depends on for a given branch.
-    fn list_client_endpoints(
+    fn list_consumer_endpoints(
         &self,
         client_name: &str,
         branch: &str,
-    ) -> impl Future<Output = Result<Vec<ClientEndpointInfo>, RepositoryError>> + Send;
+    ) -> impl Future<Output = Result<Vec<ConsumerEndpointInfo>, RepositoryError>> + Send;
 
     // --- Auth ---
 

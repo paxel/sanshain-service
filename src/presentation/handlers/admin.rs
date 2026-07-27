@@ -27,12 +27,12 @@ async fn record_audit_log(
         .map_err(|e| AppError::Internal(e.to_string()))
 }
 
-pub async fn admin_list_services(
+pub async fn admin_list_producers(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
 ) -> Result<impl IntoResponse, AppError> {
     let user_id = user.map(|axum::Extension(u)| u.id);
-    let res = services::list_services_detailed(&state.repo, user_id).await?;
+    let res = services::list_producers_detailed(&state.repo, user_id).await?;
     Ok(Json(res))
 }
 
@@ -44,36 +44,36 @@ pub async fn admin_list_branches(
     Ok(Json(res))
 }
 
-pub async fn admin_list_clients(
+pub async fn admin_list_consumers(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
 ) -> Result<impl IntoResponse, AppError> {
     let user_id = user.map(|axum::Extension(u)| u.id);
-    let res = services::list_clients(&state.repo, user_id).await?;
+    let res = services::list_consumers(&state.repo, user_id).await?;
     Ok(Json(res))
 }
 
-pub async fn admin_list_client_branches(
+pub async fn admin_list_consumer_branches(
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_client_branches(&state.repo, &name).await?;
+    let res = services::list_consumer_branches(&state.repo, &name).await?;
     Ok(Json(res))
 }
 
-pub async fn admin_list_client_endpoints(
+pub async fn admin_list_consumer_endpoints(
     State(state): State<AppState>,
     Path((name, branch)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_client_endpoints(&state.repo, &name, &branch).await?;
+    let res = services::list_consumer_endpoints(&state.repo, &name, &branch).await?;
     Ok(Json(res))
 }
 
-pub async fn admin_list_service_endpoints(
+pub async fn admin_list_producer_endpoints(
     State(state): State<AppState>,
     Path((name, branch)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_service_endpoints(&state.repo, &name, &branch).await?;
+    let res = services::list_producer_endpoints(&state.repo, &name, &branch).await?;
     Ok(Json(res))
 }
 
@@ -150,7 +150,7 @@ pub async fn admin_list_all_branches(
 
 #[derive(Deserialize)]
 pub struct AdminEndpointYamlQuery {
-    pub servicename: String,
+    pub producername: String,
     pub branch: String,
     pub api_type: ApiType,
     pub path: String,
@@ -163,7 +163,7 @@ pub async fn admin_get_endpoint_yaml(
 ) -> Result<impl IntoResponse, AppError> {
     let res = services::get_endpoint_yaml(
         &state.repo,
-        &query.servicename,
+        &query.producername,
         &query.branch,
         query.api_type,
         &query.path,
@@ -182,7 +182,7 @@ pub async fn admin_get_endpoint_versions(
 ) -> Result<impl IntoResponse, AppError> {
     let res = services::get_endpoint_version_history(
         &state.repo,
-        &query.servicename,
+        &query.producername,
         &query.branch,
         query.api_type,
         &query.path,
@@ -254,12 +254,12 @@ pub async fn delete_protected_branch(
     }
 }
 
-pub async fn admin_delete_service(
+pub async fn admin_delete_producer(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    if services::delete_service(&state.repo, &name).await? {
+    if services::delete_producer(&state.repo, &name).await? {
         let _ = state.spec_updated_tx.send(());
         record_audit_log(
             &state.repo,
@@ -404,12 +404,12 @@ pub async fn admin_set_source_protected_branch(
     Ok(StatusCode::OK)
 }
 
-pub async fn admin_delete_client(
+pub async fn admin_delete_consumer(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    if services::delete_client(&state.repo, &name).await? {
+    if services::delete_consumer(&state.repo, &name).await? {
         record_audit_log(
             &state.repo,
             user,
@@ -768,7 +768,7 @@ pub struct NukeConfirmPayload {
     pub confirmation: String,
 }
 
-pub async fn admin_nuke_services(
+pub async fn admin_nuke_producers(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<NukeConfirmPayload>,
@@ -794,7 +794,7 @@ pub async fn admin_nuke_services(
     Ok(Json(json!({ "deleted": res })))
 }
 
-pub async fn admin_nuke_clients(
+pub async fn admin_nuke_consumers(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<NukeConfirmPayload>,
@@ -935,18 +935,18 @@ pub async fn admin_nuke_branch(
 }
 
 #[derive(Deserialize)]
-pub struct UpdateServiceMetadataRequest {
+pub struct UpdateProducerMetadataRequest {
     pub name: String,
     pub icon: Option<String>,
     pub domain: Option<String>,
 }
 
-pub async fn admin_update_service_metadata(
+pub async fn admin_update_producer_metadata(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
-    Json(payload): Json<UpdateServiceMetadataRequest>,
+    Json(payload): Json<UpdateProducerMetadataRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    services::update_service_metadata(
+    services::update_producer_metadata(
         &state.repo,
         &payload.name,
         payload.icon.as_deref(),
@@ -1243,7 +1243,7 @@ pub async fn get_observability_audit_logs(
 
 #[derive(Deserialize)]
 pub struct UpdateEndpointRequest {
-    pub servicename: String,
+    pub producername: String,
     pub branch: String,
     pub api_type: ApiType,
     pub path: String,
@@ -1261,8 +1261,8 @@ pub async fn admin_update_endpoint(
     services::update_endpoint_manual(
         &state.repo,
         services::RequireEndpointParams {
-            clientname: "_admin",
-            servicename: &payload.servicename,
+            consumername: "_admin",
+            producername: &payload.producername,
             branch: &payload.branch,
             api_type: payload.api_type,
             path: &payload.path,
@@ -1287,9 +1287,9 @@ pub async fn admin_update_endpoint(
             action: "MANUAL_UPDATE_ENDPOINT",
             details: &format!(
                 "Manually updated endpoint {} {} in {} ({})",
-                payload.method, payload.path, payload.servicename, payload.branch
+                payload.method, payload.path, payload.producername, payload.branch
             ),
-            service: Some(&payload.servicename),
+            service: Some(&payload.producername),
             branch: Some(&payload.branch),
             action_type: Some("WRITE"),
             diff: None,

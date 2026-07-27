@@ -192,6 +192,6 @@ async fn test_admin_list_interface_consistency() {
     };
 
     check_list("/admin/users").await;
-    check_list("/admin/services").await;
-    check_list("/admin/clients").await;
+    check_list("/admin/producers").await;
+    check_list("/admin/consumers").await;
 }

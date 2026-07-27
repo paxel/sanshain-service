@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/png" href="/images/sonne.png">
-    <title>Sanshain - Clients</title>
+    <title>Sanshain - Consumers</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/js/common.js"></script>
     <script src="/js/discovery.js"></script>
@@ -48,8 +48,8 @@
             <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
         <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-            <a href="/services.html" class="text-white hover:text-indigo-100 transition-colors">Services</a>
-            <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors">Producers</a>
+            <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
             <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
             <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
             <a href="/audit.html" class="text-white hover:text-indigo-100 transition-colors">Audit</a>
@@ -105,7 +105,7 @@
 
         try {
             await loadUserFavorites();
-            const clients = await fetchJSON('/admin/clients');
+            const clients = await fetchJSON('/admin/consumers');
             allClients = clients || [];
             document.getElementById('client-search').value = '';
             renderClientList(allClients);
@@ -137,7 +137,7 @@
                         </svg>
                     </div>
                     <h3 class="text-lg font-medium text-slate-900">No clients found</h3>
-                    <p class="text-slate-500 mt-1">Clients will appear here once they request endpoints via GET /require.</p>
+                    <p class="text-slate-500 mt-1">Consumers will appear here once they request endpoints via GET /require.</p>
                 </div>`;
             return;
         }
@@ -183,13 +183,13 @@
         list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading branches...</div>';
 
         try {
-            const branches = await fetchJSON(`/admin/clients/${encodeURIComponent(clientName)}/branches`);
+            const branches = await fetchJSON(`/admin/consumers/${encodeURIComponent(clientName)}/branches`);
             list.innerHTML = '';
 
             const breadcrumb = document.createElement('div');
             breadcrumb.className = 'flex items-center text-sm text-slate-500 mb-4';
             breadcrumb.innerHTML = `
-                <button onclick="goBackToClients()" class="hover:text-teal-600 font-medium">Clients</button>
+                <button onclick="goBackToClients()" class="hover:text-teal-600 font-medium">Consumers</button>
                 <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
                 <span class="text-slate-800 font-semibold">${clientName}</span>`;
             list.appendChild(breadcrumb);
@@ -239,13 +239,13 @@
         list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading endpoints...</div>';
 
         try {
-            const endpoints = await fetchJSON(`/admin/clients/${encodeURIComponent(clientName)}/branches/${encodeURIComponent(branch)}/endpoints`);
+            const endpoints = await fetchJSON(`/admin/consumers/${encodeURIComponent(clientName)}/branches/${encodeURIComponent(branch)}/endpoints`);
             list.innerHTML = '';
 
             const breadcrumb = document.createElement('div');
             breadcrumb.className = 'flex items-center text-sm text-slate-500 mb-4';
             breadcrumb.innerHTML = `
-                <button onclick="goBackToClients()" class="hover:text-teal-600 font-medium">Clients</button>
+                <button onclick="goBackToClients()" class="hover:text-teal-600 font-medium">Consumers</button>
                 <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
                 <button onclick="goBackToClientBranches('${clientName.replace(/'/g, "\\'")}')" class="hover:text-teal-600 font-medium">${clientName}</button>
                 <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
@@ -322,7 +322,7 @@
 
         if (name && branch && path && method) {
             await showClientEndpoints(name, branch);
-            const endpoints = await fetchJSON(`/admin/clients/${encodeURIComponent(name)}/branches/${encodeURIComponent(branch)}/endpoints`);
+            const endpoints = await fetchJSON(`/admin/consumers/${encodeURIComponent(name)}/branches/${encodeURIComponent(branch)}/endpoints`);
             const ep = (endpoints || []).find(e => e.path === path && e.method === method);
             if (ep && ep.yaml_content) {
                 window.location.href = `/yaml.html?service=${encodeURIComponent(ep.service)}&branch=${encodeURIComponent(ep.branch || branch)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${encodeURIComponent(ep.api_type || 'openapi')}`;

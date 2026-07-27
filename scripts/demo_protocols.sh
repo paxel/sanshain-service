@@ -43,7 +43,7 @@ provide_openapi() {
   local svc="$1" branch="$2" yaml="$3"
   echo ">>> PROVIDE OPENAPI  $svc @ $branch"
   PAYLOAD=$(jq -n --arg s "$svc" --arg b "$branch" --arg y "$yaml" \
-    '{servicename:$s, branch:$b, openapi_yaml:$y}')
+    '{producername:$s, branch:$b, openapi_yaml:$y}')
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST "$BASE_URL/provide" \
     -H "Content-Type: application/json" \
@@ -56,7 +56,7 @@ provide_asyncapi() {
   local svc="$1" branch="$2" yaml="$3"
   echo ">>> PROVIDE ASYNCAPI $svc @ $branch"
   PAYLOAD=$(jq -n --arg s "$svc" --arg b "$branch" --arg y "$yaml" \
-    '{servicename:$s, branch:$b, asyncapi_yaml:$y}')
+    '{producername:$s, branch:$b, asyncapi_yaml:$y}')
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST "$BASE_URL/provide/asyncapi" \
     -H "Content-Type: application/json" \
@@ -69,7 +69,7 @@ provide_grpc() {
   local svc="$1" branch="$2" proto="$3"
   echo ">>> PROVIDE GRPC     $svc @ $branch"
   PAYLOAD=$(jq -n --arg s "$svc" --arg b "$branch" --arg p "$proto" \
-    '{servicename:$s, branch:$b, proto_content:$p}')
+    '{producername:$s, branch:$b, proto_content:$p}')
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST "$BASE_URL/provide/grpc" \
     -H "Content-Type: application/json" \
@@ -83,8 +83,8 @@ require_endpoint() {
   echo ">>> REQUIRE REST     $client -> $svc $method $path ($branch)"
   RESPONSE=$(curl -s -w "\n%{http_code}" \
     -G "$BASE_URL/require" \
-    --data-urlencode "clientname=$client" \
-    --data-urlencode "servicename=$svc" \
+    --data-urlencode "consumername=$client" \
+    --data-urlencode "producername=$svc" \
     --data-urlencode "branch=$branch" \
     --data-urlencode "path=$path" \
     --data-urlencode "method=$method" \
@@ -98,8 +98,8 @@ require_asyncapi() {
   echo ">>> REQUIRE ASYNC    $client -> $svc $op $channel ($branch)"
   RESPONSE=$(curl -s -w "\n%{http_code}" \
     -G "$BASE_URL/require/asyncapi" \
-    --data-urlencode "clientname=$client" \
-    --data-urlencode "servicename=$svc" \
+    --data-urlencode "consumername=$client" \
+    --data-urlencode "producername=$svc" \
     --data-urlencode "branch=$branch" \
     --data-urlencode "path=$channel" \
     --data-urlencode "method=$op" \
@@ -113,8 +113,8 @@ require_grpc() {
   echo ">>> REQUIRE GRPC     $client -> $svc $service.$method ($branch)"
   RESPONSE=$(curl -s -w "\n%{http_code}" \
     -G "$BASE_URL/require/grpc" \
-    --data-urlencode "clientname=$client" \
-    --data-urlencode "servicename=$svc" \
+    --data-urlencode "consumername=$client" \
+    --data-urlencode "producername=$svc" \
     --data-urlencode "branch=$branch" \
     --data-urlencode "path=$service" \
     --data-urlencode "method=$method" \

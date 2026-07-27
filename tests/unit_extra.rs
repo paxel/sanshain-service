@@ -59,22 +59,22 @@ async fn generate_report_populates_tags() {
     assert_eq!(rep.branch, "main");
 }
 
-// 4. admin_service list_services_detailed empty
+// 4. admin_service list_producers_detailed empty
 #[tokio::test]
 async fn list_services_detailed_empty() {
     let repo = MockRepo::new();
-    let list = admin_service::list_services_detailed(&repo, None)
+    let list = admin_service::list_producers_detailed(&repo, None)
         .await
         .unwrap();
     assert!(list.is_empty());
 }
 
-// 5. admin_service list_services after seeding
+// 5. admin_service list_producers after seeding
 #[tokio::test]
 async fn list_services_after_seed() {
     let repo = MockRepo::new();
     repo.ensure_service("a").await.unwrap();
-    let list = admin_service::list_services(&repo).await.unwrap();
+    let list = admin_service::list_producers(&repo).await.unwrap();
     assert!(list.contains(&"a".into()));
 }
 
@@ -96,17 +96,17 @@ async fn list_branches_for_service() {
     assert!(list.is_empty());
 }
 
-// 8. list_clients empty then seed one
+// 8. list_consumers empty then seed one
 #[tokio::test]
 async fn list_clients_seed() {
     let repo = MockRepo::new();
     assert!(
-        admin_service::list_clients(&repo, None)
+        admin_service::list_consumers(&repo, None)
             .await
             .unwrap()
             .is_empty()
     );
     repo.ensure_client("c1").await.unwrap();
-    let list = admin_service::list_clients(&repo, None).await.unwrap();
+    let list = admin_service::list_consumers(&repo, None).await.unwrap();
     assert!(list.contains(&"c1".into()));
 }

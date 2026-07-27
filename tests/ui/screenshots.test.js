@@ -108,7 +108,7 @@ test.describe('Sanshain Screenshot Capture', () => {
   });
 
   test('Capture services and drill-down', async ({ page }) => {
-    await page.goto('/services.html', { waitUntil: 'domcontentloaded' });
+    await page.goto('/producers.html', { waitUntil: 'domcontentloaded' });
     await ensureLoaderHidden(page);
     await page.waitForSelector('.endpoint-card', { timeout: 30000 });
     await page.screenshot({ path: path.join(screenshotDir, 'services_list.png') });
@@ -244,7 +244,7 @@ test.describe('Sanshain Screenshot Capture', () => {
   });
 
   test('Capture clients list', async ({ page }) => {
-    await page.goto('/clients.html', { waitUntil: 'domcontentloaded' });
+    await page.goto('/consumers.html', { waitUntil: 'domcontentloaded' });
     await ensureLoaderHidden(page);
     await page.waitForSelector('.endpoint-card', { timeout: 20000 });
     await page.screenshot({ path: path.join(screenshotDir, 'clients_list.png') });

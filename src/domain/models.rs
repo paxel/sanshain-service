@@ -502,7 +502,7 @@ pub struct DependencyInfo {
 }
 
 #[derive(Serialize, Clone, Debug)]
-pub struct ClientEndpointInfo {
+pub struct ConsumerEndpointInfo {
     pub api_type: ApiType,
     pub service: String,
     pub branch: String,
@@ -516,7 +516,7 @@ pub struct ClientEndpointInfo {
 }
 
 #[derive(Serialize, Clone, Debug)]
-pub struct ServiceSummary {
+pub struct ProducerSummary {
     pub name: String,
     pub fallback_branch: Option<String>,
     pub branches: Vec<String>,

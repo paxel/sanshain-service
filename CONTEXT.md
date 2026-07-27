@@ -107,6 +107,10 @@ _Avoid_: not found, 404
 
 ## Note on storage
 
-The physical schema still calls these `services` and `clients` (tables and columns). That is
-deliberate — renaming them buys nothing and costs a migration against live data. Producer maps to
-`services`, Consumer maps to `clients`.
+The physical schema still calls these `services` and `clients` — tables, and the columns that
+reference them (`service_id`, `client_id`). That is deliberate: renaming them buys nothing and costs
+a migration against live data. **Producer maps to `services`, Consumer maps to `clients`.**
+
+The translation is confined to the repository layer, which is where the SQL already lives, so
+identifiers that name a database column keep the database's word even in Rust. Everything above that
+layer — wire parameters, routes, domain types, the UI, these docs — uses Producer and Consumer.

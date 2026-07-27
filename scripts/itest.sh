@@ -192,7 +192,7 @@ log_info "Using service name: $SVC_NAME"
 
 # Provide OpenAPI
 PAYLOAD=$(jq -n --arg svc "$SVC_NAME" --arg branch "main" --arg yaml "$OPENAPI_SPEC" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 
 call_api POST "/provide" "$PAYLOAD"
 assert_status 202 "Provide OpenAPI specification"
@@ -215,7 +215,7 @@ channels:
         name: UserSignedUp"
 
 PAYLOAD_ASYNC=$(jq -n --arg svc "$SVC_NAME" --arg branch "main" --arg yaml "$ASYNC_SPEC" \
-    '{servicename:$svc, branch:$branch, asyncapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, asyncapi_yaml:$yaml}')
 
 call_api POST "/provide/asyncapi" "$PAYLOAD_ASYNC"
 assert_status 202 "Provide AsyncAPI specification"
@@ -224,16 +224,17 @@ assert_status 202 "Provide AsyncAPI specification"
 header "Consumer API Tests"
 
 # Require endpoint (existing)
-call_api GET "/require?clientname=itest-client&servicename=$SVC_NAME&branch=main&path=/hello&method=GET"
+call_api GET "/require?consumername=itest-client&producername=$SVC_NAME&branch=main&path=/hello&method=GET"
 assert_status 200 "Require existing endpoint"
 
-# Require endpoint (non-existing)
-call_api GET "/require?clientname=itest-client&servicename=$SVC_NAME&branch=main&path=/missing&method=GET"
-assert_status 404 "Require missing endpoint returns 404"
+# Require endpoint that this branch's published spec deliberately does not
+# include: 410 Gone, not 404 — see docs/adr/0001-endpoint-resolution-model.md.
+call_api GET "/require?consumername=itest-client&producername=$SVC_NAME&branch=main&path=/missing&method=GET"
+assert_status 410 "Require endpoint absent from a published branch returns 410"
 
 # Require bundle
 BUNDLE_PAYLOAD=$(jq -n --arg client "itest-client" --arg svc "$SVC_NAME" --arg branch "main" \
-    '{clientname:$client, servicename:$svc, branch:$branch, endpoints:[{path:"/hello", method:"GET"}, {path:"/world", method:"POST"}]}')
+    '{consumername:$client, producername:$svc, branch:$branch, endpoints:[{path:"/hello", method:"GET"}, {path:"/world", method:"POST"}]}')
 
 call_api POST "/require-bundle" "$BUNDLE_PAYLOAD"
 assert_status 200 "Require bundle (multiple endpoints)"
@@ -259,20 +260,20 @@ paths:
           description: Beta"
 
 PAYLOAD_ETAG=$(jq -n --arg svc "$ETAG_SVC" --arg branch "main" --arg yaml "$ETAG_SPEC" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_ETAG"
 assert_status 202 "Provide spec for ETag stability test"
 
 # Order A: alpha first, beta second
 BUNDLE_A=$(jq -n --arg client "etag-client" --arg svc "$ETAG_SVC" --arg branch "main" \
-    '{clientname:$client, servicename:$svc, branch:$branch, endpoints:[{path:"/alpha", method:"GET"}, {path:"/beta", method:"POST"}]}')
+    '{consumername:$client, producername:$svc, branch:$branch, endpoints:[{path:"/alpha", method:"GET"}, {path:"/beta", method:"POST"}]}')
 ETAG_A=$(curl -s -o /dev/null -D - -X POST "$BASE_URL/require-bundle" \
     -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -H "X-CSRF-Token: test" \
     -d "$BUNDLE_A" | grep -i "^etag:" | tr -d '\r\n ')
 
 # Order B: beta first, alpha second
 BUNDLE_B=$(jq -n --arg client "etag-client" --arg svc "$ETAG_SVC" --arg branch "main" \
-    '{clientname:$client, servicename:$svc, branch:$branch, endpoints:[{path:"/beta", method:"POST"}, {path:"/alpha", method:"GET"}]}')
+    '{consumername:$client, producername:$svc, branch:$branch, endpoints:[{path:"/beta", method:"POST"}, {path:"/alpha", method:"GET"}]}')
 ETAG_B=$(curl -s -o /dev/null -D - -X POST "$BASE_URL/require-bundle" \
     -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -H "X-CSRF-Token: test" \
     -d "$BUNDLE_B" | grep -i "^etag:" | tr -d '\r\n ')
@@ -291,7 +292,7 @@ log_info "Using service: $CONCURRENCY_SVC"
 
 # Step 1: First provide
 PAYLOAD_C1=$(jq -n --arg svc "$CONCURRENCY_SVC" --arg branch "main" --arg yaml "$OPENAPI_SPEC" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_C1"
 assert_status 202 "First provide"
 V1=$(echo "$LAST_BODY" | jq -r .version)
@@ -300,20 +301,20 @@ V1=$(echo "$LAST_BODY" | jq -r .version)
 OPENAPI_SPEC_V2="$OPENAPI_SPEC
 # Change V2"
 PAYLOAD_C2=$(jq -n --arg svc "$CONCURRENCY_SVC" --arg branch "main" --arg yaml "$OPENAPI_SPEC_V2" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_C2"
 assert_status 202 "Second provide"
 V2=$(echo "$LAST_BODY" | jq -r .version)
 
 # Step 3: Outdated base_version
 PAYLOAD_OUTDATED=$(jq -n --arg svc "$CONCURRENCY_SVC" --arg branch "main" --arg yaml "$OPENAPI_SPEC" --arg v "$V1" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml, base_version:$v}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml, base_version:$v}')
 call_api POST "/provide" "$PAYLOAD_OUTDATED"
 assert_status 409 "Reject outdated base_version ($V1 vs $V2)"
 
 # Step 4: Correct base_version
 PAYLOAD_CORRECT=$(jq -n --arg svc "$CONCURRENCY_SVC" --arg branch "main" --arg yaml "$OPENAPI_SPEC" --arg v "$V2" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml, base_version:$v}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml, base_version:$v}')
 call_api POST "/provide" "$PAYLOAD_CORRECT"
 assert_status 202 "Accept correct base_version ($V2)"
 
@@ -348,25 +349,25 @@ paths:
 
 # Push V1 to main so the service exists on a protected branch
 PAYLOAD_FB_MAIN=$(jq -n --arg svc "$FB_SVC" --arg branch "main" --arg yaml "$FB_V1" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_FB_MAIN"
 assert_status 202 "FEATBREAK service pushed to main"
 
 # V1 on a feature branch
 PAYLOAD_FB_V1=$(jq -n --arg svc "$FB_SVC" --arg branch "$FB_BRANCH" --arg yaml "$FB_V1" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_FB_V1"
 assert_status 202 "V1 provided on feature branch"
 
 # Breaking change on the feature branch is accepted without force
 PAYLOAD_FB_BREAK=$(jq -n --arg svc "$FB_SVC" --arg branch "$FB_BRANCH" --arg yaml "$FB_INCOMPAT" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_FB_BREAK"
 assert_status 202 "Breaking change accepted on feature branch without force"
 
 # The same breaking change on main is rejected
 PAYLOAD_FB_BREAK_MAIN=$(jq -n --arg svc "$FB_SVC" --arg branch "main" --arg yaml "$FB_INCOMPAT" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_FB_BREAK_MAIN"
 assert_status 409 "Breaking change still rejected on protected branch"
 
@@ -400,20 +401,20 @@ paths:
           description: Result Y"
 
 PAYLOAD_X=$(jq -n --arg svc "$SVC_X" --arg branch "main" --arg yaml "$SPEC_X" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_X"
 assert_status 202 "Service X provides $COMMON_PATH (200 OK)"
 
 PAYLOAD_Y=$(jq -n --arg svc "$SVC_Y" --arg branch "main" --arg yaml "$SPEC_Y" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_Y"
 assert_status 202 "Service Y provides $COMMON_PATH (202 Accepted) without conflict"
 
 # Verify they are independent
-call_api GET "/admin/endpoint-yaml?servicename=$SVC_X&branch=main&api_type=openapi&path=$COMMON_PATH&method=GET"
+call_api GET "/admin/endpoint-yaml?producername=$SVC_X&branch=main&api_type=openapi&path=$COMMON_PATH&method=GET"
 assert_contains "Result X" "Service X endpoint preserved"
 
-call_api GET "/admin/endpoint-yaml?servicename=$SVC_Y&branch=main&api_type=openapi&path=$COMMON_PATH&method=GET"
+call_api GET "/admin/endpoint-yaml?producername=$SVC_Y&branch=main&api_type=openapi&path=$COMMON_PATH&method=GET"
 assert_contains "Result Y" "Service Y endpoint preserved"
 
 # 5. Admin API
@@ -448,7 +449,7 @@ assert_status 400 "Nuke rejected with wrong confirmation"
 # Actually, let's create a temporary branch and nuke it
 BRANCH_TO_NUKE="temp-branch-$TEST_ID"
 PAYLOAD_TEMP=$(jq -n --arg svc "$SVC_NAME" --arg branch "$BRANCH_TO_NUKE" --arg yaml "$OPENAPI_SPEC" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_TEMP"
 
 call_api POST "/admin/nuke/branch/$BRANCH_TO_NUKE" "{\"confirmation\":\"DELETE BRANCH $BRANCH_TO_NUKE\"}"
@@ -485,44 +486,44 @@ paths:
           description: Breaking change removed 200"
 
 PAYLOAD_OB1=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "$ONBOARD_BRANCH" --arg yaml "$ONBOARD_V1" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_OB1"
 assert_status 202 "New service first spec on feature branch"
 
 PAYLOAD_OB2=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "$ONBOARD_BRANCH" --arg yaml "$ONBOARD_V2_BREAKING" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_OB2"
 assert_status 202 "New service breaking change on feature branch succeeds"
 
 # Force on protected branch should be rejected
 FORCE_PROTECTED_PAYLOAD=$(jq -n --arg svc "$SVC_NAME" --arg branch "main" --arg yaml "$ONBOARD_V1" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml, force:true}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml, force:true}')
 call_api POST "/provide" "$FORCE_PROTECTED_PAYLOAD"
 assert_status 400 "Force on protected branch rejected"
 
 # Force on feature branch should succeed even with breaking change
 # Push the onboard service to a protected branch
 PAYLOAD_OB_MAIN=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "main" --arg yaml "$ONBOARD_V1" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_OB_MAIN"
 assert_status 202 "Push onboard service to protected branch"
 
 # Use a fresh feature branch
 ONBOARD_BRANCH2="feature-onboard2-$TEST_ID"
 PAYLOAD_OB_FRESH=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "$ONBOARD_BRANCH2" --arg yaml "$ONBOARD_V1" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_OB_FRESH"
 assert_status 202 "Establish V1 on fresh feature branch"
 
 # Breaking changes on feature branches are accepted even for established services
 PAYLOAD_OB3=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "$ONBOARD_BRANCH2" --arg yaml "$ONBOARD_V2_BREAKING" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_OB3"
 assert_status 202 "Breaking change accepted on feature branch (established service)"
 
 # force is accepted but has no effect on feature branches
 PAYLOAD_OB4=$(jq -n --arg svc "$ONBOARD_SVC" --arg branch "$ONBOARD_BRANCH2" --arg yaml "$ONBOARD_V2_BREAKING" \
-    '{servicename:$svc, branch:$branch, openapi_yaml:$yaml, force:true}')
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml, force:true}')
 call_api POST "/provide" "$PAYLOAD_OB4"
 assert_status 202 "Force accepted as no-op on feature branch"
 
@@ -555,7 +556,7 @@ assert_status 200 "Get protected branches after nuke"
 assert_json ". | length > 0" "true" "Protected branches preserved"
 
 # Verify services are gone
-call_api GET "/admin/services"
+call_api GET "/admin/producers"
 assert_status 200 "Get services after nuke"
 assert_json ". | length" "0" "Services cleared"
 

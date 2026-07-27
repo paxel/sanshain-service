@@ -11,8 +11,8 @@ use std::collections::{HashMap, HashSet};
 use tracing::instrument;
 
 pub struct RequireEndpointParams<'a> {
-    pub clientname: &'a str,
-    pub servicename: &'a str,
+    pub consumername: &'a str,
+    pub producername: &'a str,
     pub branch: &'a str,
     pub api_type: ApiType,
     pub path: &'a str,
@@ -25,8 +25,8 @@ pub struct RequireEndpointParams<'a> {
 }
 
 pub struct RequireBundleParams<'a> {
-    pub clientname: &'a str,
-    pub servicename: &'a str,
+    pub consumername: &'a str,
+    pub producername: &'a str,
     pub branch: &'a str,
     pub api_type: ApiType,
     pub endpoints: &'a [(String, String)],
@@ -42,7 +42,7 @@ pub struct RequireBundleParams<'a> {
 #[instrument(skip_all)]
 pub async fn provide_spec(
     repo: &impl SpecRepository,
-    servicename: &str,
+    producername: &str,
     branch: &str,
     api_type: ApiType,
     content: &str,
@@ -52,7 +52,7 @@ pub async fn provide_spec(
     provide_spec_inner(
         repo,
         ProvideInternalParams {
-            servicename,
+            producername,
             branch,
             api_type,
             content,
@@ -70,7 +70,7 @@ pub async fn provide_spec(
 
 pub async fn provide_spec_dry_run(
     repo: &impl SpecRepository,
-    servicename: &str,
+    producername: &str,
     branch: &str,
     api_type: ApiType,
     content: &str,
@@ -79,7 +79,7 @@ pub async fn provide_spec_dry_run(
     provide_spec_inner(
         repo,
         ProvideInternalParams {
-            servicename,
+            producername,
             branch,
             api_type,
             content,
@@ -98,7 +98,7 @@ pub async fn provide_spec_dry_run(
 /// Inputs describing the spec a service provides for a branch. Grouped so the
 /// public provide entry points stay within a sane argument count.
 pub struct ProvideSpecParams<'a> {
-    pub servicename: &'a str,
+    pub producername: &'a str,
     pub branch: &'a str,
     pub api_type: ApiType,
     pub content: &'a str,
@@ -118,7 +118,7 @@ pub async fn provide_spec_with_tags(
     provide_spec_inner(
         repo,
         ProvideInternalParams {
-            servicename: params.servicename,
+            producername: params.producername,
             branch: params.branch,
             api_type: params.api_type,
             content: params.content,
@@ -142,7 +142,7 @@ pub async fn provide_spec_with_actor(
     provide_spec_inner(
         repo,
         ProvideInternalParams {
-            servicename: params.servicename,
+            producername: params.producername,
             branch: params.branch,
             api_type: params.api_type,
             content: params.content,
@@ -159,7 +159,7 @@ pub async fn provide_spec_with_actor(
 }
 
 struct ProvideInternalParams<'a> {
-    pub servicename: &'a str,
+    pub producername: &'a str,
     pub branch: &'a str,
     pub api_type: ApiType,
     pub content: &'a str,
@@ -191,14 +191,14 @@ fn spec_content_fingerprint(content: &str) -> String {
 fn parse_spec_endpoints(
     api_type: ApiType,
     content: &str,
-    servicename: &str,
+    producername: &str,
     branch: &str,
 ) -> Result<Vec<openapi::EndpointSpec>, AppError> {
     match api_type {
         ApiType::OpenApi => openapi::split_openapi(content).map_err(|e| {
             tracing::warn!(
                 "Failed to split OpenAPI for service '{}' branch '{}' ({}): {}",
-                servicename,
+                producername,
                 branch,
                 spec_content_fingerprint(content),
                 e
@@ -209,7 +209,7 @@ fn parse_spec_endpoints(
             let all_specs = crate::asyncapi::split_asyncapi(content).map_err(|e| {
                 tracing::warn!(
                     "Failed to split AsyncAPI for service '{}' branch '{}' ({}): {}",
-                    servicename,
+                    producername,
                     branch,
                     spec_content_fingerprint(content),
                     e
@@ -226,7 +226,7 @@ fn parse_spec_endpoints(
                 tracing::warn!(
                     "Skipping {} SUB operation(s) for service '{}' branch '{}': subscribe channels {:?} are not stored via /provide. Declare them as 'requires' in sanshain.yaml instead.",
                     sub_count,
-                    servicename,
+                    producername,
                     branch,
                     sub_channels
                 );
@@ -247,7 +247,7 @@ fn parse_spec_endpoints(
             .map_err(|e| {
                 tracing::warn!(
                     "Failed to split Proto for service '{}' branch '{}' ({}): {}",
-                    servicename,
+                    producername,
                     branch,
                     spec_content_fingerprint(content),
                     e
@@ -272,7 +272,7 @@ async fn provide_spec_inner(
     params: ProvideInternalParams<'_>,
 ) -> Result<ProvideResponse, AppError> {
     let ProvideInternalParams {
-        servicename,
+        producername,
         branch,
         api_type,
         content,
@@ -293,7 +293,7 @@ async fn provide_spec_inner(
     tracing::debug!(
         "Providing {:?} for service '{}' branch '{}' (dry_run: {}, base_version: {:?})",
         api_type,
-        servicename,
+        producername,
         branch,
         dry_run,
         base_version
@@ -305,17 +305,17 @@ async fn provide_spec_inner(
         format!("sha256:{}", hex::encode(hasher.finalize()))
     };
 
-    let endpoints = parse_spec_endpoints(api_type, content, servicename, branch)?;
+    let endpoints = parse_spec_endpoints(api_type, content, producername, branch)?;
 
     tracing::debug!(
         "Successfully split {:?} into {} endpoints for service '{}'",
         api_type,
         endpoints.len(),
-        servicename
+        producername
     );
 
     let (sid, bid) = if dry_run {
-        match repo.find_service(servicename).await? {
+        match repo.find_service(producername).await? {
             Some(sid) => match repo.find_branch(sid, branch).await? {
                 Some(bid) => (sid, bid),
                 None => (sid, 0),
@@ -323,7 +323,7 @@ async fn provide_spec_inner(
             None => (0, 0),
         }
     } else {
-        let sid = repo.ensure_service(servicename).await?;
+        let sid = repo.ensure_service(producername).await?;
         let bid = repo.ensure_branch(sid, branch).await?;
 
         // Auto-tag based on API type
@@ -346,8 +346,14 @@ async fn provide_spec_inner(
     };
 
     if !dry_run {
-        apply_source_protected_branch_hint(repo, bid, servicename, branch, source_protected_branch)
-            .await?;
+        apply_source_protected_branch_hint(
+            repo,
+            bid,
+            producername,
+            branch,
+            source_protected_branch,
+        )
+        .await?;
     }
 
     let (current_version, last_hash) = if sid != 0 && bid != 0 {
@@ -401,13 +407,13 @@ async fn provide_spec_inner(
         if let Err(reason) = openapi::check_backward_compatibility(old_yaml, content) {
             tracing::warn!(
                 "Rejected update for service '{}' branch '{}': breaking changes: {}",
-                servicename,
+                producername,
                 branch,
                 reason
             );
             return Err(AppError::BreakingChange(format!(
                 "Breaking changes detected on protected branch '{}' of service '{}': {}",
-                branch, servicename, reason
+                branch, producername, reason
             )));
         }
         tracing::info!(
@@ -451,13 +457,13 @@ async fn provide_spec_inner(
                 {
                     tracing::warn!(
                         "Rejected update for service '{}' branch '{}': breaking changes: {}",
-                        servicename,
+                        producername,
                         branch,
                         reason
                     );
                     return Err(AppError::BreakingChange(format!(
                         "Breaking changes detected on protected branch '{}' of service '{}': {}",
-                        branch, servicename, reason
+                        branch, producername, reason
                     )));
                 }
                 if api_type == ApiType::AsyncApi {
@@ -605,7 +611,7 @@ async fn provide_spec_inner(
         .await?;
 
     tracing::info!(
-        service = servicename,
+        service = producername,
         branch = branch,
         "Provided {:?} spec (version {}, changes: +{} ~{} -{})",
         api_type,
@@ -638,7 +644,7 @@ async fn provide_spec_inner(
 async fn apply_source_protected_branch_hint(
     repo: &impl SpecRepository,
     branch_id: i64,
-    servicename: &str,
+    producername: &str,
     branch: &str,
     hint: Option<&str>,
 ) -> Result<(), AppError> {
@@ -655,7 +661,7 @@ async fn apply_source_protected_branch_hint(
         && stored != hint
     {
         tracing::warn!(
-            service = servicename,
+            service = producername,
             branch = branch,
             "source_protected_branch mismatch: caller supplied '{}' but branch already has '{}' recorded; keeping the stored value",
             hint,
@@ -800,7 +806,7 @@ pub struct EndpointView {
 
 pub async fn get_endpoint_yaml(
     repo: &impl SpecRepository,
-    servicename: &str,
+    producername: &str,
     branch: &str,
     api_type: ApiType,
     path: &str,
@@ -817,7 +823,7 @@ pub async fn get_endpoint_yaml(
 
     // Read path: resolve, never create. An unknown producer has no endpoint,
     // which is `Unknown` rather than an error — the view always gets an answer.
-    let Some(service_id) = repo.find_service(servicename).await? else {
+    let Some(service_id) = repo.find_service(producername).await? else {
         return Ok(unknown());
     };
     let method_to_use = match api_type {
@@ -829,7 +835,7 @@ pub async fn get_endpoint_yaml(
         repo,
         BranchLookup {
             service_id,
-            servicename,
+            producername,
             branch,
             api_type,
         },
@@ -869,9 +875,9 @@ pub async fn get_endpoint_yaml(
 }
 
 #[instrument(skip_all)]
-pub async fn list_service_endpoints(
+pub async fn list_producer_endpoints(
     repo: &impl SpecRepository,
-    servicename: &str,
+    producername: &str,
     branch: &str,
 ) -> Result<Vec<EndpointRecord>, AppError> {
     // Read path: resolve, never create. This previously called
@@ -879,7 +885,7 @@ pub async fn list_service_endpoints(
     // branch URL minted a permanent empty branch that then showed up in listings
     // and cleanup. An unknown service or branch serves nothing, which is the
     // same empty list callers already handled.
-    let Some(service_id) = repo.find_service(servicename).await? else {
+    let Some(service_id) = repo.find_service(producername).await? else {
         return Ok(Vec::new());
     };
     let Some(branch_id) = repo.find_branch(service_id, branch).await? else {
@@ -894,11 +900,11 @@ pub async fn list_service_endpoints(
 /// ordered deterministically so the output is stable.
 pub async fn get_full_spec(
     repo: &impl SpecRepository,
-    servicename: &str,
+    producername: &str,
     branch: &str,
     api_type: ApiType,
 ) -> Result<String, AppError> {
-    let mut endpoints: Vec<EndpointRecord> = list_service_endpoints(repo, servicename, branch)
+    let mut endpoints: Vec<EndpointRecord> = list_producer_endpoints(repo, producername, branch)
         .await?
         .into_iter()
         .filter(|e| e.api_type == api_type)
@@ -907,7 +913,7 @@ pub async fn get_full_spec(
         return Err(AppError::NotFound(format!(
             "No {} endpoints for service '{}' on branch '{}'",
             api_type.as_str(),
-            servicename,
+            producername,
             branch
         )));
     }
@@ -923,7 +929,7 @@ pub async fn get_full_spec(
 
 pub async fn get_endpoint_version_history(
     repo: &impl SpecRepository,
-    servicename: &str,
+    producername: &str,
     branch: &str,
     api_type: ApiType,
     path: &str,
@@ -931,7 +937,7 @@ pub async fn get_endpoint_version_history(
 ) -> Result<Vec<EndpointVersion>, AppError> {
     // Read path: resolve, never create. An unknown service has no history,
     // which is the same 404 this produced before creating the row.
-    let Some(service_id) = repo.find_service(servicename).await? else {
+    let Some(service_id) = repo.find_service(producername).await? else {
         return Err(AppError::NotFound("Endpoint not found".to_string()));
     };
     let method_to_use = match api_type {
@@ -966,7 +972,7 @@ pub async fn get_endpoint_version_history(
     // candidate that merely has the endpoint. The returned versions carry the
     // branch they live on (`branch_name`), so the caller can say where from.
     let mut candidates: Option<Vec<String>> = None;
-    let chain = resolve_candidates(repo, service_id, servicename, branch, &mut candidates)
+    let chain = resolve_candidates(repo, service_id, producername, branch, &mut candidates)
         .await?
         .clone();
     let mut first_without_history: Option<i64> = None;
@@ -1036,14 +1042,14 @@ async fn require_endpoint_inner(
     let client_id = if dry_run {
         0
     } else {
-        repo.ensure_client(params.clientname).await?
+        repo.ensure_client(params.consumername).await?
     };
     let service_id = if dry_run {
-        repo.find_service(params.servicename)
+        repo.find_service(params.producername)
             .await?
             .ok_or_else(|| AppError::NotFound("Service not found".to_string()))?
     } else {
-        repo.ensure_service(params.servicename).await?
+        repo.ensure_service(params.producername).await?
     };
 
     let method_to_use = match params.api_type {
@@ -1066,7 +1072,7 @@ async fn require_endpoint_inner(
         apply_source_protected_branch_hint(
             repo,
             bid,
-            params.servicename,
+            params.producername,
             params.branch,
             Some(hint),
         )
@@ -1112,7 +1118,7 @@ async fn require_endpoint_inner(
                 repo,
                 BranchLookup {
                     service_id,
-                    servicename: params.servicename,
+                    producername: params.producername,
                     branch: params.branch,
                     api_type: params.api_type,
                 },
@@ -1146,7 +1152,7 @@ async fn require_endpoint_inner(
             return Err(AppError::Gone(format!(
                 "Branch '{}' of service '{}' publishes a spec that does not include {} {}. \
                  It was not inherited from another branch because this branch is authoritative.",
-                params.branch, params.servicename, method_to_use, params.path
+                params.branch, params.producername, method_to_use, params.path
             )));
         }
 
@@ -1171,10 +1177,10 @@ async fn require_endpoint_inner(
                 })
                 .await?;
                 tracing::info!(
-                    service = params.servicename,
+                    service = params.producername,
                     branch = params.branch,
                     "Client '{}' required {:?} {} {} on branch '{}'",
-                    params.clientname,
+                    params.consumername,
                     params.api_type,
                     method_to_use,
                     params.path,
@@ -1220,7 +1226,7 @@ async fn require_endpoint_inner(
         }
         return Err(AppError::NotFound(format!(
             "Endpoint not found: {} {} (service: {}, branch: {})",
-            method_to_use, params.path, params.servicename, params.branch
+            method_to_use, params.path, params.producername, params.branch
         )));
     }
 }
@@ -1250,7 +1256,7 @@ pub async fn update_endpoint_manual(
     external: bool,
 ) -> Result<(), AppError> {
     let service_id = repo
-        .find_service(params.servicename)
+        .find_service(params.producername)
         .await?
         .ok_or_else(|| AppError::NotFound("Service not found".to_string()))?;
     let branch_id = repo
@@ -1285,14 +1291,14 @@ async fn require_bundle_inner(
     let client_id = if dry_run {
         0
     } else {
-        repo.ensure_client(params.clientname).await?
+        repo.ensure_client(params.consumername).await?
     };
     let service_id = if dry_run {
-        repo.find_service(params.servicename)
+        repo.find_service(params.producername)
             .await?
             .ok_or_else(|| AppError::NotFound("Service not found".to_string()))?
     } else {
-        repo.ensure_service(params.servicename).await?
+        repo.ensure_service(params.producername).await?
     };
 
     // Same lineage handling as the single-endpoint `/require` (item #17):
@@ -1308,7 +1314,7 @@ async fn require_bundle_inner(
         apply_source_protected_branch_hint(
             repo,
             bid,
-            params.servicename,
+            params.producername,
             params.branch,
             Some(hint),
         )
@@ -1369,7 +1375,7 @@ async fn require_bundle_inner(
                 repo,
                 BranchLookup {
                     service_id,
-                    servicename: params.servicename,
+                    producername: params.producername,
                     branch: params.branch,
                     api_type: params.api_type,
                 },
@@ -1395,7 +1401,7 @@ async fn require_bundle_inner(
                 "Branch '{}' of service '{}' publishes a spec that does not include: {}. \
                  These were not inherited from another branch because this branch is authoritative.",
                 params.branch,
-                params.servicename,
+                params.producername,
                 absent.join(", ")
             )));
         }
@@ -1501,7 +1507,7 @@ async fn require_bundle_inner(
 async fn fallback_branch_candidates(
     repo: &impl SpecRepository,
     service_id: i64,
-    servicename: &str,
+    producername: &str,
     branch: &str,
 ) -> Result<Vec<String>, RepositoryError> {
     let mut candidates = Vec::new();
@@ -1511,7 +1517,7 @@ async fn fallback_branch_candidates(
     {
         candidates.push(spb);
     }
-    if let Ok(Some(sfb)) = repo.get_fallback_branch(servicename).await
+    if let Ok(Some(sfb)) = repo.get_fallback_branch(producername).await
         && sfb != branch
         && !candidates.contains(&sfb)
     {
@@ -1523,7 +1529,7 @@ async fn fallback_branch_candidates(
     // wildcard-protected branches actually participate in fallback resolution.
     let patterns = repo.list_protected_branches().await?;
     let mut protected: Vec<String> = repo
-        .list_branches(servicename)
+        .list_branches(producername)
         .await?
         .into_iter()
         .filter(|b| branch_matches_any(b, &patterns))
@@ -1542,7 +1548,7 @@ async fn fallback_branch_candidates(
 #[derive(Clone, Copy)]
 struct BranchLookup<'a> {
     service_id: i64,
-    servicename: &'a str,
+    producername: &'a str,
     branch: &'a str,
     api_type: ApiType,
 }
@@ -1595,7 +1601,7 @@ async fn resolve_endpoint(
 ) -> Result<EndpointResolution, RepositoryError> {
     let BranchLookup {
         service_id,
-        servicename,
+        producername,
         branch,
         api_type,
     } = lookup;
@@ -1628,7 +1634,7 @@ async fn resolve_endpoint(
         return Ok(EndpointResolution::unknown());
     }
 
-    let candidates = resolve_candidates(repo, service_id, servicename, branch, candidates).await?;
+    let candidates = resolve_candidates(repo, service_id, producername, branch, candidates).await?;
     for candidate in candidates.iter() {
         if let Some((id, yaml_content, deprecated, external)) = repo
             .find_endpoint(service_id, candidate, api_type, path, method_to_use)
@@ -1653,12 +1659,12 @@ async fn resolve_endpoint(
 async fn resolve_candidates<'a>(
     repo: &impl SpecRepository,
     service_id: i64,
-    servicename: &str,
+    producername: &str,
     branch: &str,
     cache: &'a mut Option<Vec<String>>,
 ) -> Result<&'a Vec<String>, RepositoryError> {
     if cache.is_none() {
-        let resolved = fallback_branch_candidates(repo, service_id, servicename, branch).await?;
+        let resolved = fallback_branch_candidates(repo, service_id, producername, branch).await?;
         *cache = Some(resolved);
     }
     Ok(cache.as_ref().unwrap_or(const { &Vec::new() }))
@@ -1688,7 +1694,7 @@ async fn resolve_endpoints_bulk(
 ) -> Result<BulkResolution, RepositoryError> {
     let BranchLookup {
         service_id,
-        servicename,
+        producername,
         branch,
         api_type,
     } = lookup;
@@ -1733,7 +1739,7 @@ async fn resolve_endpoints_bulk(
         });
     }
 
-    let candidates = resolve_candidates(repo, service_id, servicename, branch, candidates).await?;
+    let candidates = resolve_candidates(repo, service_id, producername, branch, candidates).await?;
     for candidate in candidates.iter() {
         let fallback_results = repo
             .find_endpoints_bulk(service_id, candidate, api_type, &missing)
@@ -2020,7 +2026,7 @@ paths:
         .unwrap();
 
         // 3. List endpoints on the feature branch
-        let endpoints = list_service_endpoints(&repo, "svc", "feat").await.unwrap();
+        let endpoints = list_producer_endpoints(&repo, "svc", "feat").await.unwrap();
         assert!(endpoints.iter().any(|e| e.path == "/hello"));
         assert!(endpoints.iter().any(|e| e.path == "/world"));
     }
@@ -2095,7 +2101,7 @@ paths:
         .unwrap();
         assert_eq!(resp.changes.inserts, 1);
         // Dry run should not persist
-        let services = repo.list_services().await.unwrap();
+        let services = repo.list_producers().await.unwrap();
         assert!(services.is_empty());
     }
 
