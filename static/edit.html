@@ -153,7 +153,7 @@
     async function loadCurrentSpec() {
         try {
             // Load latest YAML
-            const yamlRes = await apiCall(`/admin/endpoints/yaml?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
+            const yamlRes = await apiCall(`/admin/endpoint-yaml?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
             if (yamlRes.ok) {
                 yamlEditor.value = await yamlRes.text();
             }
