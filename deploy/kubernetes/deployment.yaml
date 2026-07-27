@@ -24,7 +24,7 @@ spec:
         fsGroup: 1000
       containers:
       - name: sanshain
-        image: ghcr.io/sanshain/sanshain-service:v1.5.2
+        image: ghcr.io/sanshain/sanshain-service:v1.6.0
         ports:
         - containerPort: 3000
         envFrom:
