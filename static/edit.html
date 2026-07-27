@@ -39,8 +39,8 @@
             </a>
         </div>
         <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-            <a href="/services.html" class="text-white hover:text-indigo-100 transition-colors font-bold underline underline-offset-4">Services</a>
-            <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors font-bold underline underline-offset-4">Producers</a>
+            <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
             <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
             <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
@@ -51,7 +51,7 @@
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
             <div class="text-sm text-slate-500 flex items-center gap-2 mb-1">
-                <span id="breadcrumb-service" class="font-semibold text-slate-700">Service</span>
+                <span id="breadcrumb-service" class="font-semibold text-slate-700">Producer</span>
                 <span>&mdash;</span>
                 <span id="breadcrumb-branch" class="text-slate-600 font-medium">branch</span>
             </div>
@@ -153,14 +153,20 @@
     async function loadCurrentSpec() {
         try {
             // Load latest YAML
-            const yamlRes = await apiCall(`/admin/endpoints/yaml?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
+            const yamlRes = await apiCall(`/admin/endpoint-yaml?producername=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
             if (yamlRes.ok) {
-                yamlEditor.value = await yamlRes.text();
+                // Editing is always about *this* branch's own spec, so only load
+                // the yaml when the branch actually published it. An inherited or
+                // absent endpoint has nothing here to edit.
+                const view = await yamlRes.json();
+                if (view.state === 'published' && view.yaml) {
+                    yamlEditor.value = view.yaml;
+                }
             }
 
             // Load endpoint details (deprecated/external)
             // We can get this from the endpoints list for the branch
-            const epsRes = await apiCall(`/admin/services/${encodeURIComponent(serviceName)}/branches/${encodeURIComponent(branchName)}/endpoints`);
+            const epsRes = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/branches/${encodeURIComponent(branchName)}/endpoints`);
             if (epsRes.ok) {
                 const endpoints = await epsRes.json();
                 const ep = endpoints.find(e => e.path === endpointPath && e.method === endpointMethod);
@@ -183,7 +189,7 @@
             const res = await apiCall('/admin/endpoints/update', {
                 method: 'POST',
                 body: {
-                    servicename: serviceName,
+                    producername: serviceName,
                     branch: branchName,
                     api_type: apiType,
                     path: endpointPath,

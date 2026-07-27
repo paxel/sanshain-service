@@ -20,7 +20,7 @@ pub struct CachedSpecRepository {
     branch_endpoints_cache: Cache<i64, Arc<Vec<EndpointRecord>>>,
     // Reports (20%)
     report_cache: Cache<String, Arc<DependencyReport>>,
-    services_cache: Cache<String, Arc<Vec<ServiceSummary>>>,
+    services_cache: Cache<String, Arc<Vec<ProducerSummary>>>,
     // ID lookups (10%)
     service_id_cache: Cache<String, i64>,
     branch_id_cache: Cache<(i64, String), i64>,
@@ -45,7 +45,7 @@ struct RepoCaches {
     endpoint_cache: Cache<EndpointKey, Arc<(i64, String, bool, bool)>>,
     branch_endpoints_cache: Cache<i64, Arc<Vec<EndpointRecord>>>,
     report_cache: Cache<String, Arc<DependencyReport>>,
-    services_cache: Cache<String, Arc<Vec<ServiceSummary>>>,
+    services_cache: Cache<String, Arc<Vec<ProducerSummary>>>,
     service_id_cache: Cache<String, i64>,
     branch_id_cache: Cache<(i64, String), i64>,
     protected_branches_cache: Cache<String, Arc<Vec<String>>>,
@@ -124,7 +124,7 @@ impl CachedSpecRepository {
 
         let services_cache = Cache::builder()
             .max_capacity(report_budget / 2)
-            .weigher(|_k: &String, v: &Arc<Vec<ServiceSummary>>| {
+            .weigher(|_k: &String, v: &Arc<Vec<ProducerSummary>>| {
                 let size: usize = v
                     .iter()
                     .map(|s| {
@@ -777,8 +777,8 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
-    async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {
-        let result = self.inner.delete_service(name).await?;
+    async fn delete_producer(&self, name: &str) -> Result<bool, RepositoryError> {
+        let result = self.inner.delete_producer(name).await?;
         if !self.is_disabled() {
             self.service_id_cache.invalidate(&name.to_string()).await;
             self.branch_id_cache.invalidate_all();
@@ -809,8 +809,8 @@ impl SpecRepository for CachedSpecRepository {
         Ok(result)
     }
 
-    async fn delete_client(&self, name: &str) -> Result<bool, RepositoryError> {
-        let result = self.inner.delete_client(name).await?;
+    async fn delete_consumer(&self, name: &str) -> Result<bool, RepositoryError> {
+        let result = self.inner.delete_consumer(name).await?;
         if !self.is_disabled() {
             self.clients_list_cache.invalidate_all();
             self.report_cache.invalidate_all();
@@ -818,7 +818,7 @@ impl SpecRepository for CachedSpecRepository {
         Ok(result)
     }
 
-    async fn list_services(&self) -> Result<Vec<String>, RepositoryError> {
+    async fn list_producers(&self) -> Result<Vec<String>, RepositoryError> {
         let sentinel = "_all_".to_string();
         if !self.is_disabled()
             && let Some(cached) = self.services_list_cache.get(&sentinel).await
@@ -827,7 +827,7 @@ impl SpecRepository for CachedSpecRepository {
             return Ok((*cached).clone());
         }
         self.record_miss();
-        let result = self.inner.list_services().await?;
+        let result = self.inner.list_producers().await?;
         if !self.is_disabled() {
             self.services_list_cache
                 .insert(sentinel, Arc::new(result.clone()))
@@ -836,7 +836,7 @@ impl SpecRepository for CachedSpecRepository {
         Ok(result)
     }
 
-    async fn list_services_detailed(&self) -> Result<Vec<ServiceSummary>, RepositoryError> {
+    async fn list_producers_detailed(&self) -> Result<Vec<ProducerSummary>, RepositoryError> {
         let sentinel = "_all_".to_string();
         if !self.is_disabled()
             && let Some(cached) = self.services_cache.get(&sentinel).await
@@ -845,7 +845,7 @@ impl SpecRepository for CachedSpecRepository {
             return Ok((*cached).clone());
         }
         self.record_miss();
-        let result = self.inner.list_services_detailed().await?;
+        let result = self.inner.list_producers_detailed().await?;
         if !self.is_disabled() {
             self.services_cache
                 .insert(sentinel, Arc::new(result.clone()))
@@ -869,14 +869,14 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
-    async fn update_service_metadata(
+    async fn update_producer_metadata(
         &self,
         service_name: &str,
         icon: Option<&str>,
         domain: Option<&str>,
     ) -> Result<(), RepositoryError> {
         self.inner
-            .update_service_metadata(service_name, icon, domain)
+            .update_producer_metadata(service_name, icon, domain)
             .await?;
         if !self.is_disabled() {
             self.services_cache.invalidate_all();
@@ -961,7 +961,7 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.list_all_branches().await
     }
 
-    async fn list_clients(&self) -> Result<Vec<String>, RepositoryError> {
+    async fn list_consumers(&self) -> Result<Vec<String>, RepositoryError> {
         let sentinel = "_all_".to_string();
         if !self.is_disabled()
             && let Some(cached) = self.clients_list_cache.get(&sentinel).await
@@ -970,7 +970,7 @@ impl SpecRepository for CachedSpecRepository {
             return Ok((*cached).clone());
         }
         self.record_miss();
-        let result = self.inner.list_clients().await?;
+        let result = self.inner.list_consumers().await?;
         if !self.is_disabled() {
             self.clients_list_cache
                 .insert(sentinel, Arc::new(result.clone()))
@@ -979,19 +979,21 @@ impl SpecRepository for CachedSpecRepository {
         Ok(result)
     }
 
-    async fn list_client_branches(
+    async fn list_consumer_branches(
         &self,
         client_name: &str,
     ) -> Result<Vec<String>, RepositoryError> {
-        self.inner.list_client_branches(client_name).await
+        self.inner.list_consumer_branches(client_name).await
     }
 
-    async fn list_client_endpoints(
+    async fn list_consumer_endpoints(
         &self,
         client_name: &str,
         branch: &str,
-    ) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
-        self.inner.list_client_endpoints(client_name, branch).await
+    ) -> Result<Vec<ConsumerEndpointInfo>, RepositoryError> {
+        self.inner
+            .list_consumer_endpoints(client_name, branch)
+            .await
     }
 
     // --- Non-cached pass-through (auth/session/settings/user) ---
@@ -1353,7 +1355,7 @@ mod tests {
         let _id = repo.ensure_service("svc").await.unwrap();
         let found = repo.find_service("svc").await.unwrap();
         assert!(found.is_some());
-        repo.delete_service("svc").await.unwrap();
+        repo.delete_producer("svc").await.unwrap();
         let found = repo.find_service("svc").await.unwrap();
         assert_eq!(found, None);
     }
@@ -1438,12 +1440,12 @@ mod tests {
         repo.ensure_branch(sid_b, "main").await.unwrap();
 
         // First call populates cache
-        let services = repo.list_services().await.unwrap();
+        let services = repo.list_producers().await.unwrap();
         assert_eq!(services.len(), 2);
         let miss_count = repo.cache_stats().await.miss_count;
 
         // Second call should hit cache
-        let services = repo.list_services().await.unwrap();
+        let services = repo.list_producers().await.unwrap();
         assert_eq!(services.len(), 2);
         assert_eq!(repo.cache_stats().await.miss_count, miss_count);
     }

@@ -1,8 +1,8 @@
 # Sanshain Service — Agent Instructions
 
 Sanshain ("Sunshine" in Japanese) is a Rust service that manages, splits, and distributes API
-specifications (OpenAPI, AsyncAPI, gRPC/Proto). Microservices "provide" their full spec; clients
-"require" only the snippets they need.
+specifications (OpenAPI, AsyncAPI, gRPC/Proto). **Producers** "provide" their full spec; **Consumers**
+"require" only the snippets they need (see `CONTEXT.md`).
 
 ## Core Technologies
 - **Backend**: Rust (2024 edition), [Axum](https://github.com/tokio-rs/axum).

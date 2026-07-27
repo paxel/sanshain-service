@@ -36,7 +36,7 @@ async fn record_audit_log(
 
 #[derive(Deserialize)]
 pub struct ProvideRequest {
-    pub servicename: String,
+    pub producername: String,
     pub branch: String,
     pub openapi_yaml: String,
     pub base_version: Option<String>,
@@ -70,7 +70,7 @@ pub async fn provide(
     let res = if payload.dry_run {
         services::provide_spec_dry_run(
             &state.repo,
-            &payload.servicename,
+            &payload.producername,
             &payload.branch,
             ApiType::OpenApi,
             &payload.openapi_yaml,
@@ -81,7 +81,7 @@ pub async fn provide(
         services::provide_spec_with_actor(
             &state.repo,
             services::ProvideSpecParams {
-                servicename: &payload.servicename,
+                producername: &payload.producername,
                 branch: &payload.branch,
                 api_type: ApiType::OpenApi,
                 content: &payload.openapi_yaml,
@@ -107,14 +107,14 @@ pub async fn provide(
                     action: "PROVIDE_SPEC",
                     details: &format!(
                         "Uploaded OpenApi spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
-                        payload.servicename,
+                        payload.producername,
                         payload.branch,
                         res.version,
                         res.changes.inserts,
                         res.changes.updates,
                         res.changes.deletes
                     ),
-                    service: Some(&payload.servicename),
+                    service: Some(&payload.producername),
                     branch: Some(&payload.branch),
                     action_type: Some("WRITE"),
                     diff: None,
@@ -129,7 +129,7 @@ pub async fn provide(
 
 #[derive(Deserialize)]
 pub struct ProvideAsyncApiRequest {
-    pub servicename: String,
+    pub producername: String,
     pub branch: String,
     pub asyncapi_yaml: String,
     pub base_version: Option<String>,
@@ -155,7 +155,7 @@ pub async fn provide_asyncapi(
     let res = services::provide_spec_with_actor(
         &state.repo,
         services::ProvideSpecParams {
-            servicename: &payload.servicename,
+            producername: &payload.producername,
             branch: &payload.branch,
             api_type: ApiType::AsyncApi,
             content: &payload.asyncapi_yaml,
@@ -177,14 +177,14 @@ pub async fn provide_asyncapi(
                 action: "PROVIDE_SPEC",
                 details: &format!(
                     "Uploaded AsyncApi spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
-                    payload.servicename,
+                    payload.producername,
                     payload.branch,
                     res.version,
                     res.changes.inserts,
                     res.changes.updates,
                     res.changes.deletes
                 ),
-                service: Some(&payload.servicename),
+                service: Some(&payload.producername),
                 branch: Some(&payload.branch),
                 action_type: Some("WRITE"),
                 diff: None,
@@ -197,7 +197,7 @@ pub async fn provide_asyncapi(
 
 #[derive(Deserialize)]
 pub struct ProvideProtoRequest {
-    pub servicename: String,
+    pub producername: String,
     pub branch: String,
     pub proto_content: String,
     pub base_version: Option<String>,
@@ -223,7 +223,7 @@ pub async fn provide_proto(
     let res = services::provide_spec_with_actor(
         &state.repo,
         services::ProvideSpecParams {
-            servicename: &payload.servicename,
+            producername: &payload.producername,
             branch: &payload.branch,
             api_type: ApiType::Proto,
             content: &payload.proto_content,
@@ -245,14 +245,14 @@ pub async fn provide_proto(
                 action: "PROVIDE_SPEC",
                 details: &format!(
                     "Uploaded Proto spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
-                    payload.servicename,
+                    payload.producername,
                     payload.branch,
                     res.version,
                     res.changes.inserts,
                     res.changes.updates,
                     res.changes.deletes
                 ),
-                service: Some(&payload.servicename),
+                service: Some(&payload.producername),
                 branch: Some(&payload.branch),
                 action_type: Some("WRITE"),
                 diff: None,
@@ -265,8 +265,8 @@ pub async fn provide_proto(
 
 #[derive(Deserialize)]
 pub struct RequireQuery {
-    pub clientname: String,
-    pub servicename: String,
+    pub consumername: String,
+    pub producername: String,
     pub branch: String,
     pub path: String,
     pub method: String,
@@ -283,6 +283,24 @@ pub struct RequireQuery {
     pub pull_from_branch: Option<String>,
 }
 
+/// Report how a require was resolved, so a Consumer can tell a branch's own
+/// spec from one inherited off an ancestor without parsing the body.
+///
+/// The served branch is Producer-supplied and unvalidated, so a name carrying
+/// control characters cannot become a header value — in that case the header is
+/// omitted rather than the response failing.
+fn insert_resolution_headers(headers: &mut HeaderMap, res: &services::RequireResponse) {
+    headers.insert(
+        "X-Sanshain-Resolution",
+        HeaderValue::from_static(res.state.as_str()),
+    );
+    if let Some(branch) = &res.served_branch
+        && let Ok(value) = HeaderValue::from_str(branch)
+    {
+        headers.insert("X-Sanshain-Served-Branch", value);
+    }
+}
+
 pub async fn require(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
@@ -290,8 +308,8 @@ pub async fn require(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
     let params = services::RequireEndpointParams {
-        clientname: &query.clientname,
-        servicename: &query.servicename,
+        consumername: &query.consumername,
+        producername: &query.producername,
         branch: &query.branch,
         api_type: ApiType::OpenApi,
         path: &query.path,
@@ -322,9 +340,9 @@ pub async fn require(
                 action: "REQUIRE_SPEC",
                 details: &format!(
                     "Client '{}' requested OpenApi spec for service '{}' on branch '{}' ({} {})",
-                    query.clientname, query.servicename, query.branch, query.method, query.path
+                    query.consumername, query.producername, query.branch, query.method, query.path
                 ),
-                service: Some(&query.servicename),
+                service: Some(&query.producername),
                 branch: Some(&query.branch),
                 action_type: Some("READ"),
                 diff: None,
@@ -350,6 +368,7 @@ pub async fn require(
     if res.deprecated {
         headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
     }
+    insert_resolution_headers(&mut headers, &res);
     Ok((headers, res.yaml).into_response())
 }
 
@@ -363,8 +382,8 @@ pub async fn require_asyncapi(
         &state.repo,
         Some(state.spec_updated_tx.subscribe()),
         services::RequireEndpointParams {
-            clientname: &query.clientname,
-            servicename: &query.servicename,
+            consumername: &query.consumername,
+            producername: &query.producername,
             branch: &query.branch,
             api_type: ApiType::AsyncApi,
             path: &query.path,
@@ -383,9 +402,9 @@ pub async fn require_asyncapi(
             action: "REQUIRE_SPEC",
             details: &format!(
                 "Client '{}' requested AsyncApi spec for service '{}' on branch '{}' ({} {})",
-                query.clientname, query.servicename, query.branch, query.method, query.path
+                query.consumername, query.producername, query.branch, query.method, query.path
             ),
-            service: Some(&query.servicename),
+            service: Some(&query.producername),
             branch: Some(&query.branch),
             action_type: Some("READ"),
             diff: None,
@@ -408,6 +427,7 @@ pub async fn require_asyncapi(
     if res.deprecated {
         headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
     }
+    insert_resolution_headers(&mut headers, &res);
     Ok((headers, res.yaml).into_response())
 }
 
@@ -421,8 +441,8 @@ pub async fn require_proto(
         &state.repo,
         Some(state.spec_updated_tx.subscribe()),
         services::RequireEndpointParams {
-            clientname: &query.clientname,
-            servicename: &query.servicename,
+            consumername: &query.consumername,
+            producername: &query.producername,
             branch: &query.branch,
             api_type: ApiType::Proto,
             path: &query.path,
@@ -441,9 +461,9 @@ pub async fn require_proto(
             action: "REQUIRE_SPEC",
             details: &format!(
                 "Client '{}' requested Proto spec for service '{}' on branch '{}' ({} {})",
-                query.clientname, query.servicename, query.branch, query.method, query.path
+                query.consumername, query.producername, query.branch, query.method, query.path
             ),
-            service: Some(&query.servicename),
+            service: Some(&query.producername),
             branch: Some(&query.branch),
             action_type: Some("READ"),
             diff: None,
@@ -466,6 +486,7 @@ pub async fn require_proto(
     if res.deprecated {
         headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
     }
+    insert_resolution_headers(&mut headers, &res);
     Ok((headers, res.yaml).into_response())
 }
 
@@ -477,8 +498,8 @@ pub struct BundleEndpoint {
 
 #[derive(Deserialize)]
 pub struct RequireBundleRequest {
-    pub clientname: String,
-    pub servicename: String,
+    pub consumername: String,
+    pub producername: String,
     pub branch: String,
     pub api_type: Option<ApiType>,
     pub endpoints: Vec<BundleEndpoint>,
@@ -506,8 +527,8 @@ pub async fn require_bundle(
         &state.repo,
         Some(state.spec_updated_tx.subscribe()),
         services::RequireBundleParams {
-            clientname: &payload.clientname,
-            servicename: &payload.servicename,
+            consumername: &payload.consumername,
+            producername: &payload.producername,
             branch: &payload.branch,
             api_type: payload.api_type.unwrap_or(ApiType::OpenApi),
             endpoints: &endpoints,
@@ -525,12 +546,12 @@ pub async fn require_bundle(
             action: "REQUIRE_SPEC",
             details: &format!(
                 "Client '{}' requested bundle for service '{}' on branch '{}' ({} endpoints)",
-                payload.clientname,
-                payload.servicename,
+                payload.consumername,
+                payload.producername,
                 payload.branch,
                 endpoints.len()
             ),
-            service: Some(&payload.servicename),
+            service: Some(&payload.producername),
             branch: Some(&payload.branch),
             action_type: Some("READ"),
             diff: None,
@@ -553,6 +574,7 @@ pub async fn require_bundle(
     if res.deprecated {
         headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
     }
+    insert_resolution_headers(&mut headers, &res);
     Ok((headers, res.yaml).into_response())
 }
 

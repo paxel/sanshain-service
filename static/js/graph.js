@@ -1172,7 +1172,7 @@ function renderCustomGraph(report, svgElement, direction) {
         </div>
       </div>
       <div class="space-y-3">
-        <a href="/services.html?service=${encodeURIComponent(name)}&branch=${encodeURIComponent(branch)}" class="flex items-center justify-center gap-2 w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-all shadow-lg shadow-indigo-500/20">
+        <a href="/producers.html?service=${encodeURIComponent(name)}&branch=${encodeURIComponent(branch)}" class="flex items-center justify-center gap-2 w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-all shadow-lg shadow-indigo-500/20">
           <span>View Service Details</span>
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
         </a>

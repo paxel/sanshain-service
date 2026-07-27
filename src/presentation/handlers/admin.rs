@@ -27,12 +27,12 @@ async fn record_audit_log(
         .map_err(|e| AppError::Internal(e.to_string()))
 }
 
-pub async fn admin_list_services(
+pub async fn admin_list_producers(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
 ) -> Result<impl IntoResponse, AppError> {
     let user_id = user.map(|axum::Extension(u)| u.id);
-    let res = services::list_services_detailed(&state.repo, user_id).await?;
+    let res = services::list_producers_detailed(&state.repo, user_id).await?;
     Ok(Json(res))
 }
 
@@ -44,36 +44,36 @@ pub async fn admin_list_branches(
     Ok(Json(res))
 }
 
-pub async fn admin_list_clients(
+pub async fn admin_list_consumers(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
 ) -> Result<impl IntoResponse, AppError> {
     let user_id = user.map(|axum::Extension(u)| u.id);
-    let res = services::list_clients(&state.repo, user_id).await?;
+    let res = services::list_consumers(&state.repo, user_id).await?;
     Ok(Json(res))
 }
 
-pub async fn admin_list_client_branches(
+pub async fn admin_list_consumer_branches(
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_client_branches(&state.repo, &name).await?;
+    let res = services::list_consumer_branches(&state.repo, &name).await?;
     Ok(Json(res))
 }
 
-pub async fn admin_list_client_endpoints(
+pub async fn admin_list_consumer_endpoints(
     State(state): State<AppState>,
     Path((name, branch)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_client_endpoints(&state.repo, &name, &branch).await?;
+    let res = services::list_consumer_endpoints(&state.repo, &name, &branch).await?;
     Ok(Json(res))
 }
 
-pub async fn admin_list_service_endpoints(
+pub async fn admin_list_producer_endpoints(
     State(state): State<AppState>,
     Path((name, branch)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_service_endpoints(&state.repo, &name, &branch).await?;
+    let res = services::list_producer_endpoints(&state.repo, &name, &branch).await?;
     Ok(Json(res))
 }
 
@@ -150,7 +150,7 @@ pub async fn admin_list_all_branches(
 
 #[derive(Deserialize)]
 pub struct AdminEndpointYamlQuery {
-    pub servicename: String,
+    pub producername: String,
     pub branch: String,
     pub api_type: ApiType,
     pub path: String,
@@ -163,14 +163,17 @@ pub async fn admin_get_endpoint_yaml(
 ) -> Result<impl IntoResponse, AppError> {
     let res = services::get_endpoint_yaml(
         &state.repo,
-        &query.servicename,
+        &query.producername,
         &query.branch,
         query.api_type,
         &query.path,
         &query.method,
     )
     .await?;
-    Ok(res)
+    // Always 200 with a discriminated body: the view is told what happened
+    // (published / absent / inherited / unknown) and which branch served it,
+    // instead of having to infer a state from an error.
+    Ok(Json(res))
 }
 
 pub async fn admin_get_endpoint_versions(
@@ -179,7 +182,7 @@ pub async fn admin_get_endpoint_versions(
 ) -> Result<impl IntoResponse, AppError> {
     let res = services::get_endpoint_version_history(
         &state.repo,
-        &query.servicename,
+        &query.producername,
         &query.branch,
         query.api_type,
         &query.path,
@@ -251,12 +254,12 @@ pub async fn delete_protected_branch(
     }
 }
 
-pub async fn admin_delete_service(
+pub async fn admin_delete_producer(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    if services::delete_service(&state.repo, &name).await? {
+    if services::delete_producer(&state.repo, &name).await? {
         let _ = state.spec_updated_tx.send(());
         record_audit_log(
             &state.repo,
@@ -401,12 +404,12 @@ pub async fn admin_set_source_protected_branch(
     Ok(StatusCode::OK)
 }
 
-pub async fn admin_delete_client(
+pub async fn admin_delete_consumer(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    if services::delete_client(&state.repo, &name).await? {
+    if services::delete_consumer(&state.repo, &name).await? {
         record_audit_log(
             &state.repo,
             user,
@@ -765,7 +768,7 @@ pub struct NukeConfirmPayload {
     pub confirmation: String,
 }
 
-pub async fn admin_nuke_services(
+pub async fn admin_nuke_producers(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<NukeConfirmPayload>,
@@ -791,7 +794,7 @@ pub async fn admin_nuke_services(
     Ok(Json(json!({ "deleted": res })))
 }
 
-pub async fn admin_nuke_clients(
+pub async fn admin_nuke_consumers(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<NukeConfirmPayload>,
@@ -932,18 +935,18 @@ pub async fn admin_nuke_branch(
 }
 
 #[derive(Deserialize)]
-pub struct UpdateServiceMetadataRequest {
+pub struct UpdateProducerMetadataRequest {
     pub name: String,
     pub icon: Option<String>,
     pub domain: Option<String>,
 }
 
-pub async fn admin_update_service_metadata(
+pub async fn admin_update_producer_metadata(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
-    Json(payload): Json<UpdateServiceMetadataRequest>,
+    Json(payload): Json<UpdateProducerMetadataRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    services::update_service_metadata(
+    services::update_producer_metadata(
         &state.repo,
         &payload.name,
         payload.icon.as_deref(),
@@ -1090,6 +1093,83 @@ pub async fn set_debug_config(
     Ok(StatusCode::OK)
 }
 
+#[derive(serde::Serialize)]
+pub struct DatabaseInfoResponse {
+    pub backend: &'static str,
+    pub url: String,
+}
+
+/// Which database this instance is connected to, for the admin "Database
+/// Configuration" panel. The URL is credential-stripped — see
+/// [`redact_database_url`]; the raw `DATABASE_URL` never leaves the process.
+pub async fn get_database_info(State(state): State<AppState>) -> impl IntoResponse {
+    let backend =
+        if state.db_url.starts_with("postgres://") || state.db_url.starts_with("postgresql://") {
+            "postgres"
+        } else {
+            "sqlite"
+        };
+    Json(DatabaseInfoResponse {
+        backend,
+        url: redact_database_url(&state.db_url),
+    })
+}
+
+/// Remove credentials from a database connection string so it can be displayed.
+///
+/// A `DATABASE_URL` normally carries the database password
+/// (`postgres://user:password@host:5432/dbname`). This keeps the parts that make
+/// the value useful as a diagnostic — scheme, user, host, port, database — and
+/// drops anything secret:
+///
+/// - the password in the userinfo section (`user:password@` becomes `user@`)
+/// - any query parameter whose name contains `password` (e.g. `?sslpassword=`)
+///
+/// Splits userinfo at the *last* `@` in the authority, so a password that itself
+/// contains `@` cannot smuggle part of itself into the host.
+fn redact_database_url(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        // No authority section (e.g. `sqlite:sanshain.db`, `sqlite::memory:`),
+        // so there are no userinfo credentials — only query params to check.
+        return redact_query_password(url);
+    };
+
+    // The authority ends at the first '/', '?' or '#'.
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at(end);
+
+    let authority = match authority.rsplit_once('@') {
+        Some((userinfo, host)) => {
+            let user = userinfo.split_once(':').map_or(userinfo, |(u, _)| u);
+            if user.is_empty() {
+                host.to_string()
+            } else {
+                format!("{}@{}", user, host)
+            }
+        }
+        None => authority.to_string(),
+    };
+
+    format!("{}://{}{}", scheme, authority, redact_query_password(tail))
+}
+
+/// Replace the value of any query parameter whose name mentions `password`.
+fn redact_query_password(s: &str) -> String {
+    let Some((before, query)) = s.split_once('?') else {
+        return s.to_string();
+    };
+    let redacted: Vec<String> = query
+        .split('&')
+        .map(|pair| match pair.split_once('=') {
+            Some((key, _)) if key.to_lowercase().contains("password") => {
+                format!("{}=***", key)
+            }
+            _ => pair.to_string(),
+        })
+        .collect();
+    format!("{}?{}", before, redacted.join("&"))
+}
+
 pub async fn get_cache_config(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -1163,7 +1243,7 @@ pub async fn get_observability_audit_logs(
 
 #[derive(Deserialize)]
 pub struct UpdateEndpointRequest {
-    pub servicename: String,
+    pub producername: String,
     pub branch: String,
     pub api_type: ApiType,
     pub path: String,
@@ -1181,8 +1261,8 @@ pub async fn admin_update_endpoint(
     services::update_endpoint_manual(
         &state.repo,
         services::RequireEndpointParams {
-            clientname: "_admin",
-            servicename: &payload.servicename,
+            consumername: "_admin",
+            producername: &payload.producername,
             branch: &payload.branch,
             api_type: payload.api_type,
             path: &payload.path,
@@ -1207,9 +1287,9 @@ pub async fn admin_update_endpoint(
             action: "MANUAL_UPDATE_ENDPOINT",
             details: &format!(
                 "Manually updated endpoint {} {} in {} ({})",
-                payload.method, payload.path, payload.servicename, payload.branch
+                payload.method, payload.path, payload.producername, payload.branch
             ),
-            service: Some(&payload.servicename),
+            service: Some(&payload.producername),
             branch: Some(&payload.branch),
             action_type: Some("WRITE"),
             diff: None,
@@ -1218,4 +1298,85 @@ pub async fn admin_update_endpoint(
     .await?;
 
     Ok(StatusCode::OK)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_database_url;
+
+    #[test]
+    fn strips_the_password_from_a_postgres_url() {
+        assert_eq!(
+            redact_database_url("postgres://user:secret@db.example.com:5432/sanshain"),
+            "postgres://user@db.example.com:5432/sanshain"
+        );
+        assert_eq!(
+            redact_database_url("postgresql://admin:hunter2@localhost/app"),
+            "postgresql://admin@localhost/app"
+        );
+    }
+
+    #[test]
+    fn keeps_urls_that_carry_no_credentials_intact() {
+        assert_eq!(
+            redact_database_url("postgres://db.example.com:5432/sanshain"),
+            "postgres://db.example.com:5432/sanshain"
+        );
+        assert_eq!(
+            redact_database_url("postgres://user@localhost/app"),
+            "postgres://user@localhost/app"
+        );
+        assert_eq!(
+            redact_database_url("sqlite:sanshain.db?mode=rwc"),
+            "sqlite:sanshain.db?mode=rwc"
+        );
+        assert_eq!(redact_database_url("sqlite::memory:"), "sqlite::memory:");
+    }
+
+    #[test]
+    fn a_password_containing_an_at_sign_cannot_leak_into_the_host() {
+        // Userinfo must split at the LAST '@' of the authority; splitting at the
+        // first would leave "ss@host" as the host and emit the rest of the
+        // password verbatim.
+        let redacted = redact_database_url("postgres://user:p@ss@db.example.com/app");
+        assert_eq!(redacted, "postgres://user@db.example.com/app");
+        assert!(
+            !redacted.contains("ss"),
+            "password fragment leaked: {redacted}"
+        );
+    }
+
+    #[test]
+    fn redacts_password_query_parameters() {
+        assert_eq!(
+            redact_database_url("postgres://user:secret@host/app?sslmode=require&password=p1"),
+            "postgres://user@host/app?sslmode=require&password=***"
+        );
+        // Also on schemes with no authority section.
+        assert_eq!(
+            redact_database_url("sqlite:app.db?password=p1&mode=rwc"),
+            "sqlite:app.db?password=***&mode=rwc"
+        );
+        // Case-insensitive, and matches embedded names like `sslpassword`.
+        assert_eq!(
+            redact_database_url("postgres://host/app?SSLPassword=p1"),
+            "postgres://host/app?SSLPassword=***"
+        );
+    }
+
+    #[test]
+    fn never_emits_a_known_secret_for_any_shape() {
+        for url in [
+            "postgres://user:sup3rsecret@host:5432/db",
+            "postgres://user:sup3rsecret@host/db?password=sup3rsecret",
+            "postgres://:sup3rsecret@host/db",
+            "postgresql://u:sup3rsecret@h/d?sslpassword=sup3rsecret&x=1",
+        ] {
+            let redacted = redact_database_url(url);
+            assert!(
+                !redacted.contains("sup3rsecret"),
+                "secret survived redaction of {url}: {redacted}"
+            );
+        }
+    }
 }

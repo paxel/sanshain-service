@@ -48,7 +48,7 @@ provide() {
   local svc="$1" branch="$2" yaml="$3"
   echo ">>> PROVIDE  $svc @ $branch"
   PAYLOAD=$(jq -n --arg s "$svc" --arg b "$branch" --arg y "$yaml" \
-    '{servicename:$s, branch:$b, openapi_yaml:$y}')
+    '{producername:$s, branch:$b, openapi_yaml:$y}')
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST "$BASE_URL/provide" \
     -H "Content-Type: application/json" \
@@ -62,7 +62,7 @@ provide_expect() {
   local svc="$1" branch="$2" yaml="$3" expected="$4"
   echo ">>> PROVIDE  $svc @ $branch  (expect $expected)"
   PAYLOAD=$(jq -n --arg s "$svc" --arg b "$branch" --arg y "$yaml" \
-    '{servicename:$s, branch:$b, openapi_yaml:$y}')
+    '{producername:$s, branch:$b, openapi_yaml:$y}')
   RESPONSE=$(curl -s -w "\n%{http_code}" \
     -X POST "$BASE_URL/provide" \
     -H "Content-Type: application/json" \
@@ -88,8 +88,8 @@ require_endpoint() {
   echo ">>> REQUIRE  $client -> $svc $method $path ($branch)"
   RESPONSE=$(curl -s -w "\n%{http_code}" \
     -G "$BASE_URL/require" \
-    --data-urlencode "clientname=$client" \
-    --data-urlencode "servicename=$svc" \
+    --data-urlencode "consumername=$client" \
+    --data-urlencode "producername=$svc" \
     --data-urlencode "branch=$branch" \
     --data-urlencode "path=$path" \
     --data-urlencode "method=$method" \
@@ -116,7 +116,7 @@ require_bundle() {
       '. + [{path:$p, method:$m}]')
   done
   PAYLOAD=$(jq -n --arg c "$client" --arg s "$svc" --arg b "$branch" --argjson e "$endpoints" \
-    '{clientname:$c, servicename:$s, branch:$b, endpoints:$e}')
+    '{consumername:$c, producername:$s, branch:$b, endpoints:$e}')
   RESPONSE=$(curl -s -w "\n%{http_code}" \
     -X POST "$BASE_URL/require-bundle" \
     -H "Content-Type: application/json" \
@@ -889,7 +889,7 @@ section "11. Dry-run mode"
 
 echo ">>> DRY-RUN provide (validate without persisting)..."
 PAYLOAD=$(jq -n --arg s "dry-run-test" --arg b "main" --arg y "$USER_SERVICE_V1" \
-  '{servicename:$s, branch:$b, openapi_yaml:$y, dry_run:true}')
+  '{producername:$s, branch:$b, openapi_yaml:$y, dry_run:true}')
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
   -X POST "$BASE_URL/provide" \
   -H "Content-Type: application/json" \
@@ -901,8 +901,8 @@ echo ""
 echo ">>> DRY-RUN require (validate without recording dependency)..."
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
   -G "$BASE_URL/require" \
-  --data-urlencode "clientname=dry-run-client" \
-  --data-urlencode "servicename=user-service" \
+  --data-urlencode "consumername=dry-run-client" \
+  --data-urlencode "producername=user-service" \
   --data-urlencode "branch=main" \
   --data-urlencode "path=/users" \
   --data-urlencode "method=GET" \

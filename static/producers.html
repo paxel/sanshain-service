@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/png" href="/images/sonne.png">
-    <title>Sanshain - Services</title>
+    <title>Sanshain - Producers</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/js/common.js"></script>
     <script src="/js/discovery.js"></script>
@@ -48,8 +48,8 @@
             <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
         <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-            <a href="/services.html" class="text-white hover:text-indigo-100 transition-colors">Services</a>
-            <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors">Producers</a>
+            <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
             <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
             <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
             <a href="/audit.html" class="text-white hover:text-indigo-100 transition-colors">Audit</a>
@@ -75,7 +75,7 @@
                               d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
                     </svg>
                 </span>
-                Provided Services & Branches
+                Producers & Branches
             </h2>
             <div class="relative w-64">
                 <input type="text" id="service-search" placeholder="Search services..."
@@ -222,7 +222,7 @@
         const breadcrumb = document.getElementById('service-breadcrumb');
         breadcrumb.classList.remove('hidden');
         breadcrumb.innerHTML = `
-            <button onclick="goBackToServices()" class="hover:text-indigo-600 font-medium">Services</button>
+            <button onclick="goBackToServices()" class="hover:text-indigo-600 font-medium">Producers</button>
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
             <span class="text-slate-800 font-semibold">${escapeHtml(serviceName)}</span>`;
 
@@ -285,7 +285,7 @@
 
     async function downloadFullApi(service, branch, apiType) {
         try {
-            const res = await apiCall(`/admin/services/${encodeURIComponent(service)}/branches/${encodeURIComponent(branch)}/full-spec?api_type=${encodeURIComponent(apiType)}`);
+            const res = await apiCall(`/admin/producers/${encodeURIComponent(service)}/branches/${encodeURIComponent(branch)}/full-spec?api_type=${encodeURIComponent(apiType)}`);
             if (!res.ok) {
                 alert('Failed to load the full API spec for this branch.');
                 return;
@@ -315,7 +315,7 @@
         // markup — escape text, and attach handlers as listeners rather than
         // building `onclick="..."` attributes out of them.
         breadcrumb.innerHTML = `
-            <button onclick="goBackToServices()" class="hover:text-indigo-600 font-medium">Services</button>
+            <button onclick="goBackToServices()" class="hover:text-indigo-600 font-medium">Producers</button>
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
             <button type="button" data-back-to-branches class="hover:text-indigo-600 font-medium">${escapeHtml(serviceName)}</button>
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
@@ -326,7 +326,7 @@
         list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading endpoints...</div>';
 
         try {
-            const providedEndpoints = await fetchJSON(`/admin/services/${encodeURIComponent(serviceName)}/branches/${encodeURIComponent(branchName)}/endpoints`);
+            const providedEndpoints = await fetchJSON(`/admin/producers/${encodeURIComponent(serviceName)}/branches/${encodeURIComponent(branchName)}/endpoints`);
             if (providedEndpoints && providedEndpoints.length > 0) {
                 const apiType = providedEndpoints[0].api_type || 'openapi';
                 const dlBtn = document.createElement('button');
@@ -457,7 +457,7 @@
 
     function navigateToClient(clientName) {
         document.querySelectorAll('.client-popover').forEach(p => p.remove());
-        window.location.href = `/clients.html?name=${encodeURIComponent(clientName)}`;
+        window.location.href = `/consumers.html?name=${encodeURIComponent(clientName)}`;
     }
 
     async function handleDeepLink() {

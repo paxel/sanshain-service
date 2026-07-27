@@ -145,7 +145,7 @@ pub async fn api_auth(
 pub struct LogVisitor<'a> {
     pub message: &'a mut String,
     /// Captured from an event field literally named `service`, if present
-    /// (e.g. `tracing::info!(service = servicename, branch = branch, "...")`
+    /// (e.g. `tracing::info!(service = producername, branch = branch, "...")`
     /// on the provide/require paths). Lets the observability log viewer show
     /// which service/branch a line refers to.
     pub service: &'a mut Option<String>,

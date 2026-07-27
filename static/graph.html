@@ -61,8 +61,8 @@
             <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
         <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-            <a href="/services.html" class="text-white hover:text-indigo-100 transition-colors">Services</a>
-            <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors">Producers</a>
+            <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
             <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
             <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
             <a href="/audit.html" class="text-white hover:text-indigo-100 transition-colors">Audit</a>
@@ -175,15 +175,15 @@
                 <div class="space-y-3 text-[11px] font-medium text-slate-600">
                     <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:client">
                         <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#ccfbf1;border:2px solid #14b8a6"></span>
-                        <span>Client only</span>
+                        <span>Consumer only</span>
                     </div>
                     <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:service">
                         <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#e0e7ff;border:2px solid #6366f1"></span>
-                        <span>Service only</span>
+                        <span>Producer only</span>
                     </div>
                     <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:both">
                         <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#fef3c7;border:2px solid #f59e0b"></span>
-                        <span>Client &amp; Service</span>
+                        <span>Consumer &amp; Producer</span>
                     </div>
                     <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:external">
                         <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#d1fae5;border:2px solid #10b981"></span>
@@ -222,7 +222,7 @@
                         <span>Conflict</span>
                     </div>
                     <div class="pt-2 border-t border-slate-100">
-                        <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">Service Tags</p>
+                        <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">Producer Tags</p>
                         <div class="space-y-2">
                             <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:tag-messaging">
                                 <span class="w-4 text-center text-[10px]">🛢️</span>
@@ -397,7 +397,7 @@
             
             // Fetch service details for icons and domains
             try {
-                const servicesDetailed = await fetchJSON('/admin/services');
+                const servicesDetailed = await fetchJSON('/admin/producers');
                 report.services_detailed = servicesDetailed;
             } catch (e) {
                 console.warn('Could not load service details:', e);

@@ -10,6 +10,11 @@ pub enum AppError {
     Conflict(String),
     #[error("Not Found: {0}")]
     NotFound(String),
+    /// The branch is authoritative and deliberately does not carry this
+    /// endpoint — distinct from `NotFound`, which means nobody has it. Maps to
+    /// `410 Gone`.
+    #[error("Gone: {0}")]
+    Gone(String),
     #[error("Unauthorized")]
     Unauthorized,
     #[error("Forbidden")]
@@ -306,6 +311,99 @@ pub struct EndpointRecord {
     pub external: bool,
 }
 
+/// How a request for an endpoint on a branch was answered.
+///
+/// See `CONTEXT.md` and `docs/adr/0001-endpoint-resolution-model.md`. The states
+/// are exhaustive: every resolution is exactly one of them, and every response
+/// names the branch that actually served it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ResolutionState {
+    /// The requested branch is authoritative and published this endpoint.
+    Published,
+    /// The requested branch is authoritative and did not publish this endpoint,
+    /// so it is deliberately not part of that branch's API. A definitive "no":
+    /// resolution stops here and must not inherit an ancestor's version.
+    Absent,
+    /// The requested branch has never published, so the answer comes from
+    /// another branch — always named in `served_branch`.
+    Inherited,
+    /// No branch of the producer has this endpoint. Unlike `Absent` it may
+    /// appear later, so it is the only state a long-poll waits on.
+    Unknown,
+}
+
+impl ResolutionState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ResolutionState::Published => "published",
+            ResolutionState::Absent => "absent",
+            ResolutionState::Inherited => "inherited",
+            ResolutionState::Unknown => "unknown",
+        }
+    }
+
+    /// True when no endpoint was produced. `Absent` and `Unknown` both mean
+    /// "nothing to serve", but they are *not* interchangeable: only `Unknown`
+    /// may become available later.
+    pub fn is_empty(&self) -> bool {
+        matches!(self, ResolutionState::Absent | ResolutionState::Unknown)
+    }
+}
+
+/// The endpoint a resolution produced, when it produced one.
+#[derive(Clone, Debug)]
+pub struct ResolvedEndpoint {
+    pub id: i64,
+    pub yaml_content: String,
+    pub deprecated: bool,
+    pub external: bool,
+}
+
+/// The outcome of resolving one endpoint against one branch.
+#[derive(Clone, Debug)]
+pub struct EndpointResolution {
+    pub state: ResolutionState,
+    /// The branch that actually served the endpoint. Set for `Published` and
+    /// `Inherited`; `None` when nothing was served.
+    pub served_branch: Option<String>,
+    pub endpoint: Option<ResolvedEndpoint>,
+}
+
+impl EndpointResolution {
+    pub fn published(branch: &str, endpoint: ResolvedEndpoint) -> Self {
+        Self {
+            state: ResolutionState::Published,
+            served_branch: Some(branch.to_string()),
+            endpoint: Some(endpoint),
+        }
+    }
+
+    pub fn inherited(branch: &str, endpoint: ResolvedEndpoint) -> Self {
+        Self {
+            state: ResolutionState::Inherited,
+            served_branch: Some(branch.to_string()),
+            endpoint: Some(endpoint),
+        }
+    }
+
+    pub fn absent() -> Self {
+        Self {
+            state: ResolutionState::Absent,
+            served_branch: None,
+            endpoint: None,
+        }
+    }
+
+    pub fn unknown() -> Self {
+        Self {
+            state: ResolutionState::Unknown,
+            served_branch: None,
+            endpoint: None,
+        }
+    }
+}
+
 /// A message-level AsyncAPI channel contract (ai/improvements.md item #20).
 ///
 /// Kafka topic names share a global namespace, so contract identity is the
@@ -404,7 +502,7 @@ pub struct DependencyInfo {
 }
 
 #[derive(Serialize, Clone, Debug)]
-pub struct ClientEndpointInfo {
+pub struct ConsumerEndpointInfo {
     pub api_type: ApiType,
     pub service: String,
     pub branch: String,
@@ -418,7 +516,7 @@ pub struct ClientEndpointInfo {
 }
 
 #[derive(Serialize, Clone, Debug)]
-pub struct ServiceSummary {
+pub struct ProducerSummary {
     pub name: String,
     pub fallback_branch: Option<String>,
     pub branches: Vec<String>,

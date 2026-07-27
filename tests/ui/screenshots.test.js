@@ -108,17 +108,17 @@ test.describe('Sanshain Screenshot Capture', () => {
   });
 
   test('Capture services and drill-down', async ({ page }) => {
-    await page.goto('/services.html', { waitUntil: 'domcontentloaded' });
+    await page.goto('/producers.html', { waitUntil: 'domcontentloaded' });
     await ensureLoaderHidden(page);
     await page.waitForSelector('.endpoint-card', { timeout: 30000 });
-    await page.screenshot({ path: path.join(screenshotDir, 'services_list.png') });
+    await page.screenshot({ path: path.join(screenshotDir, 'producers_list.png') });
 
     // Click on config-service (from demo2)
     const svcCard = page.locator('.endpoint-card', { hasText: 'config-service' }).first();
     await svcCard.click();
     await page.waitForFunction(() => document.body.innerText.includes('config-service'), { timeout: 20000 });
     await page.waitForTimeout(1000);
-    await page.screenshot({ path: path.join(screenshotDir, 'service_branches.png') });
+    await page.screenshot({ path: path.join(screenshotDir, 'producer_branches.png') });
 
     // Click on main branch
     const branchCard = page.locator('.endpoint-card', { hasText: 'main' }).first();
@@ -244,10 +244,10 @@ test.describe('Sanshain Screenshot Capture', () => {
   });
 
   test('Capture clients list', async ({ page }) => {
-    await page.goto('/clients.html', { waitUntil: 'domcontentloaded' });
+    await page.goto('/consumers.html', { waitUntil: 'domcontentloaded' });
     await ensureLoaderHidden(page);
     await page.waitForSelector('.endpoint-card', { timeout: 20000 });
-    await page.screenshot({ path: path.join(screenshotDir, 'clients_list.png') });
+    await page.screenshot({ path: path.join(screenshotDir, 'consumers_list.png') });
     
     // Click on a client to show its requirements
     const clientCard = page.locator('.endpoint-card', { hasText: 'InventoryService' }).first();

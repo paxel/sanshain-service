@@ -196,7 +196,7 @@ async fn test_admin_reset_history_api() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/admin/services/{}/branches/{}/reset-history",
+                    "/admin/producers/{}/branches/{}/reset-history",
                     service_name, branch_name
                 ))
                 .header("Authorization", format!("Bearer {}", session.token))

@@ -11,8 +11,8 @@ use std::collections::{HashMap, HashSet};
 use tracing::instrument;
 
 pub struct RequireEndpointParams<'a> {
-    pub clientname: &'a str,
-    pub servicename: &'a str,
+    pub consumername: &'a str,
+    pub producername: &'a str,
     pub branch: &'a str,
     pub api_type: ApiType,
     pub path: &'a str,
@@ -25,8 +25,8 @@ pub struct RequireEndpointParams<'a> {
 }
 
 pub struct RequireBundleParams<'a> {
-    pub clientname: &'a str,
-    pub servicename: &'a str,
+    pub consumername: &'a str,
+    pub producername: &'a str,
     pub branch: &'a str,
     pub api_type: ApiType,
     pub endpoints: &'a [(String, String)],
@@ -42,7 +42,7 @@ pub struct RequireBundleParams<'a> {
 #[instrument(skip_all)]
 pub async fn provide_spec(
     repo: &impl SpecRepository,
-    servicename: &str,
+    producername: &str,
     branch: &str,
     api_type: ApiType,
     content: &str,
@@ -52,7 +52,7 @@ pub async fn provide_spec(
     provide_spec_inner(
         repo,
         ProvideInternalParams {
-            servicename,
+            producername,
             branch,
             api_type,
             content,
@@ -70,7 +70,7 @@ pub async fn provide_spec(
 
 pub async fn provide_spec_dry_run(
     repo: &impl SpecRepository,
-    servicename: &str,
+    producername: &str,
     branch: &str,
     api_type: ApiType,
     content: &str,
@@ -79,7 +79,7 @@ pub async fn provide_spec_dry_run(
     provide_spec_inner(
         repo,
         ProvideInternalParams {
-            servicename,
+            producername,
             branch,
             api_type,
             content,
@@ -98,7 +98,7 @@ pub async fn provide_spec_dry_run(
 /// Inputs describing the spec a service provides for a branch. Grouped so the
 /// public provide entry points stay within a sane argument count.
 pub struct ProvideSpecParams<'a> {
-    pub servicename: &'a str,
+    pub producername: &'a str,
     pub branch: &'a str,
     pub api_type: ApiType,
     pub content: &'a str,
@@ -118,7 +118,7 @@ pub async fn provide_spec_with_tags(
     provide_spec_inner(
         repo,
         ProvideInternalParams {
-            servicename: params.servicename,
+            producername: params.producername,
             branch: params.branch,
             api_type: params.api_type,
             content: params.content,
@@ -142,7 +142,7 @@ pub async fn provide_spec_with_actor(
     provide_spec_inner(
         repo,
         ProvideInternalParams {
-            servicename: params.servicename,
+            producername: params.producername,
             branch: params.branch,
             api_type: params.api_type,
             content: params.content,
@@ -159,7 +159,7 @@ pub async fn provide_spec_with_actor(
 }
 
 struct ProvideInternalParams<'a> {
-    pub servicename: &'a str,
+    pub producername: &'a str,
     pub branch: &'a str,
     pub api_type: ApiType,
     pub content: &'a str,
@@ -191,14 +191,14 @@ fn spec_content_fingerprint(content: &str) -> String {
 fn parse_spec_endpoints(
     api_type: ApiType,
     content: &str,
-    servicename: &str,
+    producername: &str,
     branch: &str,
 ) -> Result<Vec<openapi::EndpointSpec>, AppError> {
     match api_type {
         ApiType::OpenApi => openapi::split_openapi(content).map_err(|e| {
             tracing::warn!(
                 "Failed to split OpenAPI for service '{}' branch '{}' ({}): {}",
-                servicename,
+                producername,
                 branch,
                 spec_content_fingerprint(content),
                 e
@@ -209,7 +209,7 @@ fn parse_spec_endpoints(
             let all_specs = crate::asyncapi::split_asyncapi(content).map_err(|e| {
                 tracing::warn!(
                     "Failed to split AsyncAPI for service '{}' branch '{}' ({}): {}",
-                    servicename,
+                    producername,
                     branch,
                     spec_content_fingerprint(content),
                     e
@@ -226,7 +226,7 @@ fn parse_spec_endpoints(
                 tracing::warn!(
                     "Skipping {} SUB operation(s) for service '{}' branch '{}': subscribe channels {:?} are not stored via /provide. Declare them as 'requires' in sanshain.yaml instead.",
                     sub_count,
-                    servicename,
+                    producername,
                     branch,
                     sub_channels
                 );
@@ -247,7 +247,7 @@ fn parse_spec_endpoints(
             .map_err(|e| {
                 tracing::warn!(
                     "Failed to split Proto for service '{}' branch '{}' ({}): {}",
-                    servicename,
+                    producername,
                     branch,
                     spec_content_fingerprint(content),
                     e
@@ -272,7 +272,7 @@ async fn provide_spec_inner(
     params: ProvideInternalParams<'_>,
 ) -> Result<ProvideResponse, AppError> {
     let ProvideInternalParams {
-        servicename,
+        producername,
         branch,
         api_type,
         content,
@@ -293,7 +293,7 @@ async fn provide_spec_inner(
     tracing::debug!(
         "Providing {:?} for service '{}' branch '{}' (dry_run: {}, base_version: {:?})",
         api_type,
-        servicename,
+        producername,
         branch,
         dry_run,
         base_version
@@ -305,17 +305,17 @@ async fn provide_spec_inner(
         format!("sha256:{}", hex::encode(hasher.finalize()))
     };
 
-    let endpoints = parse_spec_endpoints(api_type, content, servicename, branch)?;
+    let endpoints = parse_spec_endpoints(api_type, content, producername, branch)?;
 
     tracing::debug!(
         "Successfully split {:?} into {} endpoints for service '{}'",
         api_type,
         endpoints.len(),
-        servicename
+        producername
     );
 
     let (sid, bid) = if dry_run {
-        match repo.find_service(servicename).await? {
+        match repo.find_service(producername).await? {
             Some(sid) => match repo.find_branch(sid, branch).await? {
                 Some(bid) => (sid, bid),
                 None => (sid, 0),
@@ -323,7 +323,7 @@ async fn provide_spec_inner(
             None => (0, 0),
         }
     } else {
-        let sid = repo.ensure_service(servicename).await?;
+        let sid = repo.ensure_service(producername).await?;
         let bid = repo.ensure_branch(sid, branch).await?;
 
         // Auto-tag based on API type
@@ -346,8 +346,14 @@ async fn provide_spec_inner(
     };
 
     if !dry_run {
-        apply_source_protected_branch_hint(repo, bid, servicename, branch, source_protected_branch)
-            .await?;
+        apply_source_protected_branch_hint(
+            repo,
+            bid,
+            producername,
+            branch,
+            source_protected_branch,
+        )
+        .await?;
     }
 
     let (current_version, last_hash) = if sid != 0 && bid != 0 {
@@ -401,13 +407,13 @@ async fn provide_spec_inner(
         if let Err(reason) = openapi::check_backward_compatibility(old_yaml, content) {
             tracing::warn!(
                 "Rejected update for service '{}' branch '{}': breaking changes: {}",
-                servicename,
+                producername,
                 branch,
                 reason
             );
             return Err(AppError::BreakingChange(format!(
                 "Breaking changes detected on protected branch '{}' of service '{}': {}",
-                branch, servicename, reason
+                branch, producername, reason
             )));
         }
         tracing::info!(
@@ -451,13 +457,13 @@ async fn provide_spec_inner(
                 {
                     tracing::warn!(
                         "Rejected update for service '{}' branch '{}': breaking changes: {}",
-                        servicename,
+                        producername,
                         branch,
                         reason
                     );
                     return Err(AppError::BreakingChange(format!(
                         "Breaking changes detected on protected branch '{}' of service '{}': {}",
-                        branch, servicename, reason
+                        branch, producername, reason
                     )));
                 }
                 if api_type == ApiType::AsyncApi {
@@ -605,7 +611,7 @@ async fn provide_spec_inner(
         .await?;
 
     tracing::info!(
-        service = servicename,
+        service = producername,
         branch = branch,
         "Provided {:?} spec (version {}, changes: +{} ~{} -{})",
         api_type,
@@ -638,7 +644,7 @@ async fn provide_spec_inner(
 async fn apply_source_protected_branch_hint(
     repo: &impl SpecRepository,
     branch_id: i64,
-    servicename: &str,
+    producername: &str,
     branch: &str,
     hint: Option<&str>,
 ) -> Result<(), AppError> {
@@ -655,7 +661,7 @@ async fn apply_source_protected_branch_hint(
         && stored != hint
     {
         tracing::warn!(
-            service = servicename,
+            service = producername,
             branch = branch,
             "source_protected_branch mismatch: caller supplied '{}' but branch already has '{}' recorded; keeping the stored value",
             hint,
@@ -782,25 +788,54 @@ fn new_contract(
     }
 }
 
+/// An endpoint as shown in the UI: what was served, where it came from, and how
+/// that was decided. Always answers — the caller never has to infer a state from
+/// an error, which is what forced the UI to guess before.
+#[derive(Debug, serde::Serialize)]
+pub struct EndpointView {
+    pub state: ResolutionState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub served_branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<SemVer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub yaml: Option<String>,
+    pub deprecated: bool,
+    pub external: bool,
+}
+
 pub async fn get_endpoint_yaml(
     repo: &impl SpecRepository,
-    servicename: &str,
+    producername: &str,
     branch: &str,
     api_type: ApiType,
     path: &str,
     method: &str,
-) -> Result<String, AppError> {
-    let service_id = repo.ensure_service(servicename).await?;
+) -> Result<EndpointView, AppError> {
+    let unknown = || EndpointView {
+        state: ResolutionState::Unknown,
+        served_branch: None,
+        version: None,
+        yaml: None,
+        deprecated: false,
+        external: false,
+    };
+
+    // Read path: resolve, never create. An unknown producer has no endpoint,
+    // which is `Unknown` rather than an error — the view always gets an answer.
+    let Some(service_id) = repo.find_service(producername).await? else {
+        return Ok(unknown());
+    };
     let method_to_use = match api_type {
         ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
         ApiType::Proto => method.to_string(),
     };
 
-    let endpoint = find_endpoint_with_fallback(
+    let resolution = resolve_endpoint(
         repo,
         BranchLookup {
             service_id,
-            servicename,
+            producername,
             branch,
             api_type,
         },
@@ -809,22 +844,53 @@ pub async fn get_endpoint_yaml(
         &mut None,
     )
     .await?;
-    endpoint.map(|(_, yaml, _, _)| yaml).ok_or_else(|| {
-        AppError::NotFound(format!(
-            "Endpoint not found: {} {} (service: {}, branch: {})",
-            method_to_use, path, servicename, branch
-        ))
+
+    let Some(endpoint) = resolution.endpoint else {
+        return Ok(EndpointView {
+            state: resolution.state,
+            ..unknown()
+        });
+    };
+
+    // The version of the branch that actually served it, not the one requested.
+    let version = match &resolution.served_branch {
+        Some(served) => match repo.find_branch(service_id, served).await? {
+            Some(bid) => repo
+                .get_spec_version(service_id, bid)
+                .await?
+                .map(|(v, _)| v),
+            None => None,
+        },
+        None => None,
+    };
+
+    Ok(EndpointView {
+        state: resolution.state,
+        served_branch: resolution.served_branch,
+        version,
+        yaml: Some(endpoint.yaml_content),
+        deprecated: endpoint.deprecated,
+        external: endpoint.external,
     })
 }
 
 #[instrument(skip_all)]
-pub async fn list_service_endpoints(
+pub async fn list_producer_endpoints(
     repo: &impl SpecRepository,
-    servicename: &str,
+    producername: &str,
     branch: &str,
 ) -> Result<Vec<EndpointRecord>, AppError> {
-    let service_id = repo.ensure_service(servicename).await?;
-    let branch_id = repo.ensure_branch(service_id, branch).await?;
+    // Read path: resolve, never create. This previously called
+    // `ensure_service`/`ensure_branch`, so merely browsing a mistyped or stale
+    // branch URL minted a permanent empty branch that then showed up in listings
+    // and cleanup. An unknown service or branch serves nothing, which is the
+    // same empty list callers already handled.
+    let Some(service_id) = repo.find_service(producername).await? else {
+        return Ok(Vec::new());
+    };
+    let Some(branch_id) = repo.find_branch(service_id, branch).await? else {
+        return Ok(Vec::new());
+    };
     Ok(repo.get_endpoints_for_branch(branch_id).await?)
 }
 
@@ -834,11 +900,11 @@ pub async fn list_service_endpoints(
 /// ordered deterministically so the output is stable.
 pub async fn get_full_spec(
     repo: &impl SpecRepository,
-    servicename: &str,
+    producername: &str,
     branch: &str,
     api_type: ApiType,
 ) -> Result<String, AppError> {
-    let mut endpoints: Vec<EndpointRecord> = list_service_endpoints(repo, servicename, branch)
+    let mut endpoints: Vec<EndpointRecord> = list_producer_endpoints(repo, producername, branch)
         .await?
         .into_iter()
         .filter(|e| e.api_type == api_type)
@@ -847,7 +913,7 @@ pub async fn get_full_spec(
         return Err(AppError::NotFound(format!(
             "No {} endpoints for service '{}' on branch '{}'",
             api_type.as_str(),
-            servicename,
+            producername,
             branch
         )));
     }
@@ -863,86 +929,71 @@ pub async fn get_full_spec(
 
 pub async fn get_endpoint_version_history(
     repo: &impl SpecRepository,
-    servicename: &str,
+    producername: &str,
     branch: &str,
     api_type: ApiType,
     path: &str,
     method: &str,
 ) -> Result<Vec<EndpointVersion>, AppError> {
-    let service_id = repo.ensure_service(servicename).await?;
+    // Read path: resolve, never create. An unknown service has no history,
+    // which is the same 404 this produced before creating the row.
+    let Some(service_id) = repo.find_service(producername).await? else {
+        return Err(AppError::NotFound("Endpoint not found".to_string()));
+    };
     let method_to_use = match api_type {
         ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
         ApiType::Proto => method.to_string(),
     };
 
-    // Prefer the requested branch's own history, but only if it actually has any:
-    // version rows are only written on protected branches (see
-    // `apply_spec_changes`), so a feature branch can genuinely hold the endpoint
-    // (e.g. branched from `master` with identical content) yet have zero version
-    // rows of its own. Checking existence alone (as `find_endpoint_with_fallback`
-    // does, and would do again below) would stop right there and hand back that
-    // same empty history.
+    // The branch's own endpoint wins outright — including when it has no
+    // recorded versions. Version rows are only written on protected branches, so
+    // a feature branch legitimately holds a published endpoint with an empty
+    // history; returning that empty history is correct, because the caller then
+    // shows the branch's *own* current spec. Falling through to an ancestor here
+    // would display another branch's API under this branch's name.
     if let Some(branch_id) = repo.find_branch(service_id, branch).await?
         && let Some(endpoint_id) = repo
             .get_endpoint_id(branch_id, api_type, path, &method_to_use)
             .await?
     {
-        let versions = repo.get_endpoint_versions(endpoint_id).await?;
-        if !versions.is_empty() {
-            return Ok(versions);
-        }
+        return Ok(repo.get_endpoint_versions(endpoint_id).await?);
     }
 
+    // The branch doesn't have the endpoint. If it is authoritative, that is
+    // deliberate and there is no history to show from anywhere else.
+    if branch_is_authoritative(repo, service_id, branch).await? {
+        return Err(AppError::Gone(format!(
+            "Branch '{}' publishes a spec that does not include {} {}",
+            branch, method_to_use, path
+        )));
+    }
+
+    // Never published: inherit. Prefer a candidate with real history, then any
+    // candidate that merely has the endpoint. The returned versions carry the
+    // branch they live on (`branch_name`), so the caller can say where from.
     let mut candidates: Option<Vec<String>> = None;
-
-    // No local history — look for real history on the branch's source_protected_branch
-    // hint (item #17), then the service's configured fallback branch, then any
-    // protected branch (in priority order), explicitly skipping the branch
-    // already checked above (existence there isn't enough).
-    //
-    // Skipped entirely when the requested branch is itself protected: a
-    // protected branch is authoritative for its own line, so showing another
-    // protected branch's history under its name would misattribute it. This
-    // mirrors the guard `find_endpoint_with_fallback` applies below.
-    if !repo.is_branch_protected(branch).await? {
-        let chain =
-            resolve_candidates(repo, service_id, servicename, branch, &mut candidates).await?;
-        for candidate in chain.clone() {
-            if let Some(candidate_branch_id) = repo.find_branch(service_id, &candidate).await?
-                && let Some(endpoint_id) = repo
-                    .get_endpoint_id(candidate_branch_id, api_type, path, &method_to_use)
-                    .await?
-            {
-                let versions = repo.get_endpoint_versions(endpoint_id).await?;
-                if !versions.is_empty() {
-                    return Ok(versions);
-                }
+    let chain = resolve_candidates(repo, service_id, producername, branch, &mut candidates)
+        .await?
+        .clone();
+    let mut first_without_history: Option<i64> = None;
+    for candidate in &chain {
+        if let Some(candidate_branch_id) = repo.find_branch(service_id, candidate).await?
+            && let Some(endpoint_id) = repo
+                .get_endpoint_id(candidate_branch_id, api_type, path, &method_to_use)
+                .await?
+        {
+            let versions = repo.get_endpoint_versions(endpoint_id).await?;
+            if !versions.is_empty() {
+                return Ok(versions);
             }
+            first_without_history.get_or_insert(endpoint_id);
         }
     }
 
-    // Nobody has real history — fall back to whatever endpoint exists at all
-    // (e.g. a client-required branch the server never published, or the local
-    // branch's own content with no recorded history). The returned versions
-    // carry the branch they actually live on (`branch_name`), so the caller can
-    // tell a fallback happened.
-    let endpoint_id = find_endpoint_with_fallback(
-        repo,
-        BranchLookup {
-            service_id,
-            servicename,
-            branch,
-            api_type,
-        },
-        path,
-        &method_to_use,
-        &mut candidates,
-    )
-    .await?
-    .map(|(id, _, _, _)| id)
-    .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
-
-    Ok(repo.get_endpoint_versions(endpoint_id).await?)
+    match first_without_history {
+        Some(endpoint_id) => Ok(repo.get_endpoint_versions(endpoint_id).await?),
+        None => Err(AppError::NotFound("Endpoint not found".to_string())),
+    }
 }
 
 pub async fn get_audit_timeline(
@@ -957,6 +1008,12 @@ pub struct RequireResponse {
     pub yaml: String,
     pub deprecated: bool,
     pub external: bool,
+    /// How this was resolved, surfaced to Consumers as `X-Sanshain-Resolution`.
+    pub state: ResolutionState,
+    /// The branch that actually served the spec, surfaced as
+    /// `X-Sanshain-Served-Branch`. For a bundle this is the set of branches the
+    /// endpoints came from, joined — usually one.
+    pub served_branch: Option<String>,
 }
 
 pub async fn require_endpoint(
@@ -985,14 +1042,14 @@ async fn require_endpoint_inner(
     let client_id = if dry_run {
         0
     } else {
-        repo.ensure_client(params.clientname).await?
+        repo.ensure_client(params.consumername).await?
     };
     let service_id = if dry_run {
-        repo.find_service(params.servicename)
+        repo.find_service(params.producername)
             .await?
             .ok_or_else(|| AppError::NotFound("Service not found".to_string()))?
     } else {
-        repo.ensure_service(params.servicename).await?
+        repo.ensure_service(params.producername).await?
     };
 
     let method_to_use = match params.api_type {
@@ -1015,7 +1072,7 @@ async fn require_endpoint_inner(
         apply_source_protected_branch_hint(
             repo,
             bid,
-            params.servicename,
+            params.producername,
             params.branch,
             Some(hint),
         )
@@ -1033,21 +1090,35 @@ async fn require_endpoint_inner(
     let mut candidates: Option<Vec<String>> = None;
 
     loop {
-        let endpoint = if let Some(pull_from_branch) = params.pull_from_branch {
-            repo.find_endpoint(
-                service_id,
-                pull_from_branch,
-                params.api_type,
-                params.path,
-                &method_to_use,
-            )
-            .await?
+        let resolution = if let Some(pull_from_branch) = params.pull_from_branch {
+            // A one-shot pin: resolve against exactly this branch, no inheritance.
+            match repo
+                .find_endpoint(
+                    service_id,
+                    pull_from_branch,
+                    params.api_type,
+                    params.path,
+                    &method_to_use,
+                )
+                .await?
+            {
+                Some((id, yaml_content, deprecated, external)) => EndpointResolution::published(
+                    pull_from_branch,
+                    ResolvedEndpoint {
+                        id,
+                        yaml_content,
+                        deprecated,
+                        external,
+                    },
+                ),
+                None => EndpointResolution::unknown(),
+            }
         } else {
-            find_endpoint_with_fallback(
+            resolve_endpoint(
                 repo,
                 BranchLookup {
                     service_id,
-                    servicename: params.servicename,
+                    producername: params.producername,
                     branch: params.branch,
                     api_type: params.api_type,
                 },
@@ -1058,7 +1129,42 @@ async fn require_endpoint_inner(
             .await?
         };
 
-        if let Some((id, yaml, deprecated, external)) = endpoint {
+        // Absent is definitive: the branch published a spec and this endpoint is
+        // not in it. Waiting cannot change that, so fail immediately even when a
+        // timeout was supplied — only Unknown is worth long-polling on.
+        if resolution.state == ResolutionState::Absent {
+            // Record the unmet dependency first, exactly as the not-found path
+            // below does: a Consumer wanting an endpoint its Producer has
+            // deliberately dropped is precisely the breakage the dependency
+            // views exist to surface, so it must not vanish from them.
+            if !dry_run {
+                repo.record_dependency(RecordDependencyParams {
+                    client_id,
+                    endpoint_id: None,
+                    api_type: params.api_type,
+                    service_id,
+                    branch_name: params.branch,
+                    path: params.path,
+                    method: &method_to_use,
+                })
+                .await?;
+            }
+            return Err(AppError::Gone(format!(
+                "Branch '{}' of service '{}' publishes a spec that does not include {} {}. \
+                 It was not inherited from another branch because this branch is authoritative.",
+                params.branch, params.producername, method_to_use, params.path
+            )));
+        }
+
+        let served_branch = resolution.served_branch.clone();
+        if let Some(ResolvedEndpoint {
+            id,
+            yaml_content: yaml,
+            deprecated,
+            external,
+        }) = resolution.endpoint
+        {
+            let _ = &served_branch;
             if !dry_run {
                 repo.record_dependency(RecordDependencyParams {
                     client_id,
@@ -1071,10 +1177,10 @@ async fn require_endpoint_inner(
                 })
                 .await?;
                 tracing::info!(
-                    service = params.servicename,
+                    service = params.producername,
                     branch = params.branch,
                     "Client '{}' required {:?} {} {} on branch '{}'",
-                    params.clientname,
+                    params.consumername,
                     params.api_type,
                     method_to_use,
                     params.path,
@@ -1085,6 +1191,8 @@ async fn require_endpoint_inner(
                 yaml,
                 deprecated,
                 external,
+                state: resolution.state,
+                served_branch,
             });
         }
 
@@ -1118,7 +1226,7 @@ async fn require_endpoint_inner(
         }
         return Err(AppError::NotFound(format!(
             "Endpoint not found: {} {} (service: {}, branch: {})",
-            method_to_use, params.path, params.servicename, params.branch
+            method_to_use, params.path, params.producername, params.branch
         )));
     }
 }
@@ -1148,7 +1256,7 @@ pub async fn update_endpoint_manual(
     external: bool,
 ) -> Result<(), AppError> {
     let service_id = repo
-        .find_service(params.servicename)
+        .find_service(params.producername)
         .await?
         .ok_or_else(|| AppError::NotFound("Service not found".to_string()))?;
     let branch_id = repo
@@ -1183,14 +1291,14 @@ async fn require_bundle_inner(
     let client_id = if dry_run {
         0
     } else {
-        repo.ensure_client(params.clientname).await?
+        repo.ensure_client(params.consumername).await?
     };
     let service_id = if dry_run {
-        repo.find_service(params.servicename)
+        repo.find_service(params.producername)
             .await?
             .ok_or_else(|| AppError::NotFound("Service not found".to_string()))?
     } else {
-        repo.ensure_service(params.servicename).await?
+        repo.ensure_service(params.producername).await?
     };
 
     // Same lineage handling as the single-endpoint `/require` (item #17):
@@ -1206,7 +1314,7 @@ async fn require_bundle_inner(
         apply_source_protected_branch_hint(
             repo,
             bid,
-            params.servicename,
+            params.producername,
             params.branch,
             Some(hint),
         )
@@ -1243,20 +1351,31 @@ async fn require_bundle_inner(
 
         // `pull_from_branch` pins this request to an exact branch, bypassing
         // fallback resolution entirely (and persisting nothing).
-        let found_endpoints = if let Some(pull_from_branch) = params.pull_from_branch {
-            repo.find_endpoints_bulk(
-                service_id,
-                pull_from_branch,
-                params.api_type,
-                &normalized_endpoints,
-            )
-            .await?
+        let resolution = if let Some(pull_from_branch) = params.pull_from_branch {
+            let endpoints = repo
+                .find_endpoints_bulk(
+                    service_id,
+                    pull_from_branch,
+                    params.api_type,
+                    &normalized_endpoints,
+                )
+                .await?;
+            let served = if endpoints.is_empty() {
+                Vec::new()
+            } else {
+                vec![pull_from_branch.to_string()]
+            };
+            BulkResolution {
+                endpoints,
+                served_branches: served,
+                authoritative: true,
+            }
         } else {
-            find_endpoints_bulk_with_fallback(
+            resolve_endpoints_bulk(
                 repo,
                 BranchLookup {
                     service_id,
-                    servicename: params.servicename,
+                    producername: params.producername,
                     branch: params.branch,
                     api_type: params.api_type,
                 },
@@ -1265,6 +1384,27 @@ async fn require_bundle_inner(
             )
             .await?
         };
+        let found_endpoints = resolution.endpoints;
+
+        // Anything still missing on an authoritative branch is deliberately not
+        // part of its API. Definitive, so fail immediately rather than waiting
+        // out a timeout that cannot change the answer.
+        if found_endpoints.len() != params.endpoints.len() && resolution.authoritative {
+            let mut absent = Vec::new();
+            for (path, method) in &normalized_endpoints {
+                if !found_endpoints.contains_key(&(path.clone(), method.clone())) {
+                    absent.push(format!("{} {}", method, path));
+                }
+            }
+            absent.sort();
+            return Err(AppError::Gone(format!(
+                "Branch '{}' of service '{}' publishes a spec that does not include: {}. \
+                 These were not inherited from another branch because this branch is authoritative.",
+                params.branch,
+                params.producername,
+                absent.join(", ")
+            )));
+        }
 
         if found_endpoints.len() == params.endpoints.len() {
             let mut yamls = Vec::new();
@@ -1306,10 +1446,26 @@ async fn require_bundle_inner(
                 }
                 _ => yamls.join("\n---\n"),
             };
+            // A bundle can legitimately draw from more than one branch, so name
+            // them all; the state reflects whether any inheritance happened.
+            let inherited = resolution
+                .served_branches
+                .iter()
+                .any(|b| b != params.branch);
             return Ok(RequireResponse {
                 yaml: merged_yaml,
                 deprecated: any_deprecated,
                 external: any_external,
+                state: if inherited {
+                    ResolutionState::Inherited
+                } else {
+                    ResolutionState::Published
+                },
+                served_branch: if resolution.served_branches.is_empty() {
+                    None
+                } else {
+                    Some(resolution.served_branches.join(","))
+                },
             });
         }
 
@@ -1351,7 +1507,7 @@ async fn require_bundle_inner(
 async fn fallback_branch_candidates(
     repo: &impl SpecRepository,
     service_id: i64,
-    servicename: &str,
+    producername: &str,
     branch: &str,
 ) -> Result<Vec<String>, RepositoryError> {
     let mut candidates = Vec::new();
@@ -1361,7 +1517,7 @@ async fn fallback_branch_candidates(
     {
         candidates.push(spb);
     }
-    if let Ok(Some(sfb)) = repo.get_fallback_branch(servicename).await
+    if let Ok(Some(sfb)) = repo.get_fallback_branch(producername).await
         && sfb != branch
         && !candidates.contains(&sfb)
     {
@@ -1373,7 +1529,7 @@ async fn fallback_branch_candidates(
     // wildcard-protected branches actually participate in fallback resolution.
     let patterns = repo.list_protected_branches().await?;
     let mut protected: Vec<String> = repo
-        .list_branches(servicename)
+        .list_branches(producername)
         .await?
         .into_iter()
         .filter(|b| branch_matches_any(b, &patterns))
@@ -1387,56 +1543,115 @@ async fn fallback_branch_candidates(
     Ok(candidates)
 }
 
-/// Resolve a single endpoint, falling back over the branch's candidate chain
-/// when `branch` doesn't have it.
-///
-/// `candidates` is a lazily-filled cache, not an input: the chain is resolved
-/// only once the fallback is actually reached, and then reused. That keeps the
-/// common cases free — an endpoint present on the requested branch, or a
-/// request against a protected branch, both return before any chain lookup —
-/// while a long-poll that waits out its timeout still resolves the chain once
-/// rather than on every 500ms iteration. (The chain cannot change in a way this
-/// caller could observe mid-poll.)
-/// Which service/branch (and API flavour) a fallback lookup is resolving
-/// against. Grouped so the two resolvers stay within a sane argument count.
+/// Which service/branch (and API flavour) a lookup is resolving against.
+/// Grouped so the resolvers stay within a sane argument count.
 #[derive(Clone, Copy)]
 struct BranchLookup<'a> {
     service_id: i64,
-    servicename: &'a str,
+    producername: &'a str,
     branch: &'a str,
     api_type: ApiType,
 }
 
-async fn find_endpoint_with_fallback(
+/// Whether a branch's spec is the complete statement of its own API.
+///
+/// A `/provide` submits a *complete* spec, so once a branch has published
+/// anything, an endpoint missing from it is missing by choice. Only a branch
+/// that has never published inherits.
+///
+/// Protection does *not* confer authority. A protected branch that has never
+/// published has said nothing about its API, and a Consumer asking for it is in
+/// the ordinary first-publish race that long-polling exists to absorb — the
+/// producer's first build simply hasn't run yet. Treating it as authoritative
+/// would answer `Absent` and fail fast, breaking every new producer's first CI
+/// run.
+async fn branch_is_authoritative(
+    repo: &impl SpecRepository,
+    service_id: i64,
+    branch: &str,
+) -> Result<bool, RepositoryError> {
+    let Some(branch_id) = repo.find_branch(service_id, branch).await? else {
+        return Ok(false);
+    };
+    Ok(repo
+        .get_spec_version(service_id, branch_id)
+        .await?
+        .is_some())
+}
+
+/// Resolve one endpoint against one branch, reporting *how* it was answered.
+///
+/// The order matters and is the whole point of the model:
+/// 1. the branch has it            → `Published`
+/// 2. else the branch is authoritative → `Absent` — stop, never inherit
+/// 3. else walk the candidate chain    → `Inherited`, naming the branch
+/// 4. else                             → `Unknown`
+///
+/// `candidates` is a lazily-filled cache, not an input: the chain is resolved
+/// only once step 3 is actually reached, and then reused. That keeps the common
+/// cases free, while a long-poll that waits out its timeout still resolves the
+/// chain once rather than on every 500ms iteration. (It cannot change in a way
+/// this caller could observe mid-poll.)
+async fn resolve_endpoint(
     repo: &impl SpecRepository,
     lookup: BranchLookup<'_>,
     path: &str,
     method_to_use: &str,
     candidates: &mut Option<Vec<String>>,
-) -> Result<Option<(i64, String, bool, bool)>, RepositoryError> {
+) -> Result<EndpointResolution, RepositoryError> {
     let BranchLookup {
         service_id,
-        servicename,
+        producername,
         branch,
         api_type,
     } = lookup;
-    let endpoint = repo
+
+    if let Some((id, yaml_content, deprecated, external)) = repo
         .find_endpoint(service_id, branch, api_type, path, method_to_use)
-        .await?;
-    if endpoint.is_some() || repo.is_branch_protected(branch).await? {
-        return Ok(endpoint);
+        .await?
+    {
+        return Ok(EndpointResolution::published(
+            branch,
+            ResolvedEndpoint {
+                id,
+                yaml_content,
+                deprecated,
+                external,
+            },
+        ));
     }
 
-    let candidates = resolve_candidates(repo, service_id, servicename, branch, candidates).await?;
+    if branch_is_authoritative(repo, service_id, branch).await? {
+        return Ok(EndpointResolution::absent());
+    }
+
+    // Authority and inheritance are separate questions. A protected branch that
+    // has not published yet is not authoritative — the answer may still arrive,
+    // so a long-poll should wait — but it must never *inherit*: it is a declared
+    // release line of its own, and serving another line's diverged API under its
+    // name is the wrong-branch-served bug this whole model exists to prevent.
+    if repo.is_branch_protected(branch).await? {
+        return Ok(EndpointResolution::unknown());
+    }
+
+    let candidates = resolve_candidates(repo, service_id, producername, branch, candidates).await?;
     for candidate in candidates.iter() {
-        if let Some(ep) = repo
+        if let Some((id, yaml_content, deprecated, external)) = repo
             .find_endpoint(service_id, candidate, api_type, path, method_to_use)
             .await?
         {
-            return Ok(Some(ep));
+            return Ok(EndpointResolution::inherited(
+                candidate,
+                ResolvedEndpoint {
+                    id,
+                    yaml_content,
+                    deprecated,
+                    external,
+                },
+            ));
         }
     }
-    Ok(None)
+    Ok(EndpointResolution::unknown())
 }
 
 /// Fill `cache` with the branch's fallback chain on first use, then hand back
@@ -1444,51 +1659,94 @@ async fn find_endpoint_with_fallback(
 async fn resolve_candidates<'a>(
     repo: &impl SpecRepository,
     service_id: i64,
-    servicename: &str,
+    producername: &str,
     branch: &str,
     cache: &'a mut Option<Vec<String>>,
 ) -> Result<&'a Vec<String>, RepositoryError> {
     if cache.is_none() {
-        let resolved = fallback_branch_candidates(repo, service_id, servicename, branch).await?;
+        let resolved = fallback_branch_candidates(repo, service_id, producername, branch).await?;
         *cache = Some(resolved);
     }
     Ok(cache.as_ref().unwrap_or(const { &Vec::new() }))
 }
 
-/// Bulk counterpart of `find_endpoint_with_fallback`, resolving whatever the
-/// requested branch is missing over the same ordered `candidates`. It must use
-/// the identical chain — a bundle require that resolved differently from the
-/// single-endpoint require would silently hand a client a different branch's
+/// What a bulk resolution produced: the endpoints found, the branch each came
+/// from, and whether the requested branch is authoritative (in which case
+/// anything still missing is `Absent`, not `Unknown`).
+struct BulkResolution {
+    endpoints: crate::domain::ports::EndpointMap,
+    /// Branches that actually served endpoints, in the order they were consulted.
+    served_branches: Vec<String>,
+    /// True when the requested branch's own spec is the complete answer, so the
+    /// caller must report anything missing as deliberately absent.
+    authoritative: bool,
+}
+
+/// Bulk counterpart of `resolve_endpoint`, applying the identical rule to a set
+/// of endpoints. It must resolve the same way — a bundle require that disagreed
+/// with the single-endpoint require would hand a Consumer a different branch's
 /// API for the same lineage.
-async fn find_endpoints_bulk_with_fallback(
+async fn resolve_endpoints_bulk(
     repo: &impl SpecRepository,
     lookup: BranchLookup<'_>,
     endpoints: &[(String, String)],
     candidates: &mut Option<Vec<String>>,
-) -> Result<crate::domain::ports::EndpointMap, RepositoryError> {
+) -> Result<BulkResolution, RepositoryError> {
     let BranchLookup {
         service_id,
-        servicename,
+        producername,
         branch,
         api_type,
     } = lookup;
     let mut results = repo
         .find_endpoints_bulk(service_id, branch, api_type, endpoints)
         .await?;
+    let mut served_branches = Vec::new();
+    if !results.is_empty() {
+        served_branches.push(branch.to_string());
+    }
     let mut missing: Vec<(String, String)> = endpoints
         .iter()
         .filter(|e| !results.contains_key(&(e.0.clone(), e.1.clone())))
         .cloned()
         .collect();
-    if missing.is_empty() || repo.is_branch_protected(branch).await? {
-        return Ok(results);
+
+    if missing.is_empty() {
+        return Ok(BulkResolution {
+            endpoints: results,
+            served_branches,
+            authoritative: true,
+        });
     }
 
-    let candidates = resolve_candidates(repo, service_id, servicename, branch, candidates).await?;
+    // The branch published its own spec, so what it omits it omits on purpose.
+    if branch_is_authoritative(repo, service_id, branch).await? {
+        return Ok(BulkResolution {
+            endpoints: results,
+            served_branches,
+            authoritative: true,
+        });
+    }
+
+    // Not authoritative, but a protected branch still never inherits another
+    // release line's API — see `resolve_endpoint`. Anything missing stays
+    // missing (Unknown), so a long-poll can wait for its first publish.
+    if repo.is_branch_protected(branch).await? {
+        return Ok(BulkResolution {
+            endpoints: results,
+            served_branches,
+            authoritative: false,
+        });
+    }
+
+    let candidates = resolve_candidates(repo, service_id, producername, branch, candidates).await?;
     for candidate in candidates.iter() {
         let fallback_results = repo
             .find_endpoints_bulk(service_id, candidate, api_type, &missing)
             .await?;
+        if !fallback_results.is_empty() {
+            served_branches.push(candidate.clone());
+        }
         for (key, val) in fallback_results {
             results.insert(key.clone(), val);
             missing.retain(|m| m.0 != key.0 || m.1 != key.1);
@@ -1497,7 +1755,11 @@ async fn find_endpoints_bulk_with_fallback(
             break;
         }
     }
-    Ok(results)
+    Ok(BulkResolution {
+        endpoints: results,
+        served_branches,
+        authoritative: false,
+    })
 }
 
 pub fn check_compatibility(
@@ -1764,7 +2026,7 @@ paths:
         .unwrap();
 
         // 3. List endpoints on the feature branch
-        let endpoints = list_service_endpoints(&repo, "svc", "feat").await.unwrap();
+        let endpoints = list_producer_endpoints(&repo, "svc", "feat").await.unwrap();
         assert!(endpoints.iter().any(|e| e.path == "/hello"));
         assert!(endpoints.iter().any(|e| e.path == "/world"));
     }
@@ -1839,7 +2101,7 @@ paths:
         .unwrap();
         assert_eq!(resp.changes.inserts, 1);
         // Dry run should not persist
-        let services = repo.list_services().await.unwrap();
+        let services = repo.list_producers().await.unwrap();
         assert!(services.is_empty());
     }
 

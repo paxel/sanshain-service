@@ -52,7 +52,7 @@ async fn asyncapi_dry_run_counts_only_pub() {
     assert_eq!(resp.changes.updates, 0);
     assert_eq!(resp.changes.deletes, 0);
     // Dry-run should not persist any services
-    assert!(repo.list_services().await.unwrap().is_empty());
+    assert!(repo.list_producers().await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -75,7 +75,7 @@ async fn provide_with_tags_persists_and_auto_tag() {
     let resp = spec_service::provide_spec_with_tags(
         &repo,
         spec_service::ProvideSpecParams {
-            servicename: "orders",
+            producername: "orders",
             branch: "main",
             api_type: ApiType::AsyncApi,
             content: ASYNCAPI_V2,
@@ -104,8 +104,8 @@ async fn provide_with_tags_persists_and_auto_tag() {
 async fn require_bundle_dry_run_empty_is_bad_request() {
     let repo = MockRepo::new();
     let params = spec_service::RequireBundleParams {
-        clientname: "cli",
-        servicename: "svc",
+        consumername: "cli",
+        producername: "svc",
         branch: "main",
         api_type: ApiType::OpenApi,
         endpoints: &[],
@@ -130,8 +130,8 @@ async fn require_bundle_dry_run_reports_missing() {
         ("/y".to_string(), "POST".to_string()),
     ];
     let params = spec_service::RequireBundleParams {
-        clientname: "cli",
-        servicename: "svc",
+        consumername: "cli",
+        producername: "svc",
         branch: "main",
         api_type: ApiType::OpenApi,
         endpoints: &eps,
@@ -151,14 +151,13 @@ async fn require_bundle_dry_run_reports_missing() {
 }
 
 #[tokio::test]
-async fn get_endpoint_yaml_not_found() {
+async fn get_endpoint_yaml_unknown_when_nobody_has_the_endpoint() {
     let repo = MockRepo::new();
-    let res =
-        spec_service::get_endpoint_yaml(&repo, "svc", "main", ApiType::OpenApi, "/x", "get").await;
-    match res {
-        Err(AppError::NotFound(msg)) => assert!(msg.contains("Endpoint not found")),
-        other => panic!("expected NotFound, got {:?}", other),
-    }
+    let view = spec_service::get_endpoint_yaml(&repo, "svc", "main", ApiType::OpenApi, "/x", "get")
+        .await
+        .unwrap();
+    assert_eq!(view.state.as_str(), "unknown");
+    assert!(view.yaml.is_none());
 }
 
 #[tokio::test]
@@ -167,8 +166,8 @@ async fn require_endpoint_dry_run_not_found() {
     // Ensure service exists for dry-run path
     let _ = repo.ensure_service("svc").await.unwrap();
     let params = spec_service::RequireEndpointParams {
-        clientname: "cli",
-        servicename: "svc",
+        consumername: "cli",
+        producername: "svc",
         branch: "main",
         api_type: ApiType::OpenApi,
         path: "/nope",
@@ -216,7 +215,7 @@ async fn list_service_endpoints_empty_branch() {
     // Ensure service/branch exist but no endpoints yet
     let _sid = repo.ensure_service("svc").await.unwrap();
     let _bid = repo.ensure_branch(_sid, "main").await.unwrap();
-    let list = spec_service::list_service_endpoints(&repo, "svc", "main")
+    let list = spec_service::list_producer_endpoints(&repo, "svc", "main")
         .await
         .unwrap();
     assert!(list.is_empty());

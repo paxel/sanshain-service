@@ -83,20 +83,20 @@ pub fn create_app(state: AppState) -> Router {
         // Admin (Flat list to avoid double nesting issues)
         .route("/admin/protected-branches", get(admin::list_protected_branches).post(admin::add_protected_branch).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/protected-branches/{pattern}", delete(admin::delete_protected_branch).layer(from_fn_with_state(state.clone(), admin_auth)))
-        .route("/admin/services", get(admin::admin_list_services).layer(from_fn_with_state(state.clone(), authenticated_auth)))
-        .route("/admin/services/{name}", delete(admin::admin_delete_service).layer(from_fn_with_state(state.clone(), admin_auth)))
-        .route("/admin/services/metadata", post(admin::admin_update_service_metadata).layer(from_fn_with_state(state.clone(), admin_auth)))
+        .route("/admin/producers", get(admin::admin_list_producers).layer(from_fn_with_state(state.clone(), authenticated_auth)))
+        .route("/admin/producers/{name}", delete(admin::admin_delete_producer).layer(from_fn_with_state(state.clone(), admin_auth)))
+        .route("/admin/producers/metadata", post(admin::admin_update_producer_metadata).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/endpoints/update", post(admin::admin_update_endpoint).layer(from_fn_with_state(state.clone(), admin_auth)))
-        .route("/admin/services/{name}/branches", get(admin::admin_list_branches).layer(from_fn_with_state(state.clone(), authenticated_auth)))
-        .route("/admin/services/{name}/branches/{branch}", delete(admin::admin_delete_branch).layer(from_fn_with_state(state.clone(), admin_auth)))
-        .route("/admin/services/{name}/branches/{branch}/reset-history", post(admin::admin_reset_branch_history).layer(from_fn_with_state(state.clone(), admin_auth)))
-        .route("/admin/services/{name}/branches/{branch}/source-protected-branch", get(admin::admin_get_source_protected_branch).put(admin::admin_set_source_protected_branch).layer(from_fn_with_state(state.clone(), admin_auth)))
-        .route("/admin/services/{name}/branches/{branch}/endpoints", get(admin::admin_list_service_endpoints).layer(from_fn_with_state(state.clone(), authenticated_auth)))
-        .route("/admin/services/{name}/branches/{branch}/full-spec", get(admin::admin_get_full_spec).layer(from_fn_with_state(state.clone(), authenticated_auth)))
-        .route("/admin/clients", get(admin::admin_list_clients).layer(from_fn_with_state(state.clone(), authenticated_auth)))
-        .route("/admin/clients/{name}", delete(admin::admin_delete_client).layer(from_fn_with_state(state.clone(), admin_auth)))
-        .route("/admin/clients/{name}/branches", get(admin::admin_list_client_branches).layer(from_fn_with_state(state.clone(), authenticated_auth)))
-        .route("/admin/clients/{name}/branches/{branch}/endpoints", get(admin::admin_list_client_endpoints).layer(from_fn_with_state(state.clone(), authenticated_auth)))
+        .route("/admin/producers/{name}/branches", get(admin::admin_list_branches).layer(from_fn_with_state(state.clone(), authenticated_auth)))
+        .route("/admin/producers/{name}/branches/{branch}", delete(admin::admin_delete_branch).layer(from_fn_with_state(state.clone(), admin_auth)))
+        .route("/admin/producers/{name}/branches/{branch}/reset-history", post(admin::admin_reset_branch_history).layer(from_fn_with_state(state.clone(), admin_auth)))
+        .route("/admin/producers/{name}/branches/{branch}/source-protected-branch", get(admin::admin_get_source_protected_branch).put(admin::admin_set_source_protected_branch).layer(from_fn_with_state(state.clone(), admin_auth)))
+        .route("/admin/producers/{name}/branches/{branch}/endpoints", get(admin::admin_list_producer_endpoints).layer(from_fn_with_state(state.clone(), authenticated_auth)))
+        .route("/admin/producers/{name}/branches/{branch}/full-spec", get(admin::admin_get_full_spec).layer(from_fn_with_state(state.clone(), authenticated_auth)))
+        .route("/admin/consumers", get(admin::admin_list_consumers).layer(from_fn_with_state(state.clone(), authenticated_auth)))
+        .route("/admin/consumers/{name}", delete(admin::admin_delete_consumer).layer(from_fn_with_state(state.clone(), admin_auth)))
+        .route("/admin/consumers/{name}/branches", get(admin::admin_list_consumer_branches).layer(from_fn_with_state(state.clone(), authenticated_auth)))
+        .route("/admin/consumers/{name}/branches/{branch}/endpoints", get(admin::admin_list_consumer_endpoints).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/endpoint-yaml", get(admin::admin_get_endpoint_yaml).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/endpoint-versions", get(admin::admin_get_endpoint_versions).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/admin/settings/dev-mode", get(admin::get_dev_mode).post(admin::set_dev_mode).layer(from_fn_with_state(state.clone(), admin_auth)))
@@ -104,8 +104,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/auth-config", get(admin::get_auth_config).put(admin::set_auth_config).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/auth-config/test", post(admin::test_auth_config).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/nuke/database", post(admin::admin_nuke_database).layer(from_fn_with_state(state.clone(), admin_auth)))
-        .route("/admin/nuke/services", post(admin::admin_nuke_services).layer(from_fn_with_state(state.clone(), admin_auth)))
-        .route("/admin/nuke/clients", post(admin::admin_nuke_clients).layer(from_fn_with_state(state.clone(), admin_auth)))
+        .route("/admin/nuke/producers", post(admin::admin_nuke_producers).layer(from_fn_with_state(state.clone(), admin_auth)))
+        .route("/admin/nuke/consumers", post(admin::admin_nuke_consumers).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/nuke/users", post(admin::admin_nuke_users).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/nuke/branch/{branch}", post(admin::admin_nuke_branch).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/settings/branch-max-age", get(admin::get_branch_max_age).post(admin::set_branch_max_age).layer(from_fn_with_state(state.clone(), admin_auth)))
@@ -118,6 +118,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/users/{id}/approve", post(admin::admin_approve_user).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/users/{id}", delete(admin::admin_delete_user_handler).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/settings/cache", get(admin::get_cache_config).post(admin::set_cache_config).layer(from_fn_with_state(state.clone(), admin_auth)))
+        .route("/admin/settings/database", get(admin::get_database_info).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/cache/clear", post(admin::clear_cache).layer(from_fn_with_state(state.clone(), admin_auth)))
 
         // Observability (GET routes accessible to any authenticated user, POST requires admin)
@@ -289,16 +290,16 @@ mod tests {
             "/admin/cache/clear",
             "/admin/cleanup/branches",
             "/admin/cleanup/dependencies",
-            "/admin/clients",
-            "/admin/clients/{name}",
-            "/admin/clients/{name}/branches",
-            "/admin/clients/{name}/branches/{branch}/endpoints",
+            "/admin/consumers",
+            "/admin/consumers/{name}",
+            "/admin/consumers/{name}/branches",
+            "/admin/consumers/{name}/branches/{branch}/endpoints",
             "/admin/endpoint-versions",
             "/admin/endpoint-yaml",
             "/admin/endpoints/update",
-            "/admin/nuke/clients",
+            "/admin/nuke/consumers",
             "/admin/nuke/database",
-            "/admin/nuke/services",
+            "/admin/nuke/producers",
             "/admin/nuke/users",
             "/admin/observability/audit-logs",
             "/admin/observability/audit-logs/export",
@@ -308,17 +309,18 @@ mod tests {
             "/admin/observability/stats",
             "/admin/protected-branches",
             "/admin/protected-branches/{pattern}",
-            "/admin/services",
-            "/admin/services/metadata",
-            "/admin/services/{name}",
-            "/admin/services/{name}/branches",
-            "/admin/services/{name}/branches/{branch}",
-            "/admin/services/{name}/branches/{branch}/endpoints",
-            "/admin/services/{name}/branches/{branch}/full-spec",
-            "/admin/services/{name}/branches/{branch}/reset-history",
-            "/admin/services/{name}/branches/{branch}/source-protected-branch",
+            "/admin/producers",
+            "/admin/producers/metadata",
+            "/admin/producers/{name}",
+            "/admin/producers/{name}/branches",
+            "/admin/producers/{name}/branches/{branch}",
+            "/admin/producers/{name}/branches/{branch}/endpoints",
+            "/admin/producers/{name}/branches/{branch}/full-spec",
+            "/admin/producers/{name}/branches/{branch}/reset-history",
+            "/admin/producers/{name}/branches/{branch}/source-protected-branch",
             "/admin/settings/branch-cleanup",
             "/admin/settings/cache",
+            "/admin/settings/database",
             "/admin/settings/dependency-cleanup",
             // Reports, live updates, and other UI-facing read APIs
             "/api/audit/timeline",

@@ -409,7 +409,7 @@ impl SpecRepository for MockRepo {
         Ok(())
     }
 
-    async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {
+    async fn delete_producer(&self, name: &str) -> Result<bool, RepositoryError> {
         let mut services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
         Ok(services.remove(name).is_some())
     }
@@ -422,12 +422,12 @@ impl SpecRepository for MockRepo {
         Ok(true)
     }
 
-    async fn delete_client(&self, name: &str) -> Result<bool, RepositoryError> {
+    async fn delete_consumer(&self, name: &str) -> Result<bool, RepositoryError> {
         let mut clients = self.clients.lock().unwrap_or_else(PoisonError::into_inner);
         Ok(clients.remove(name).is_some())
     }
 
-    async fn list_services(&self) -> Result<Vec<String>, RepositoryError> {
+    async fn list_producers(&self) -> Result<Vec<String>, RepositoryError> {
         Ok(self
             .services
             .lock()
@@ -437,7 +437,7 @@ impl SpecRepository for MockRepo {
             .collect())
     }
 
-    async fn list_services_detailed(&self) -> Result<Vec<ServiceSummary>, RepositoryError> {
+    async fn list_producers_detailed(&self) -> Result<Vec<ProducerSummary>, RepositoryError> {
         let services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
         let branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
         let fallback_branches = self
@@ -454,7 +454,7 @@ impl SpecRepository for MockRepo {
                 }
             }
             svc_branches.sort();
-            result.push(ServiceSummary {
+            result.push(ProducerSummary {
                 name: name.clone(),
                 fallback_branch: fallback_branches.get(name).cloned(),
                 branches: svc_branches,
@@ -487,7 +487,7 @@ impl SpecRepository for MockRepo {
         Ok(())
     }
 
-    async fn update_service_metadata(
+    async fn update_producer_metadata(
         &self,
         _service_name: &str,
         _icon: Option<&str>,
@@ -564,7 +564,7 @@ impl SpecRepository for MockRepo {
         Ok(Vec::new())
     }
 
-    async fn list_clients(&self) -> Result<Vec<String>, RepositoryError> {
+    async fn list_consumers(&self) -> Result<Vec<String>, RepositoryError> {
         let mut clients: Vec<String> = self
             .clients
             .lock()
@@ -576,18 +576,18 @@ impl SpecRepository for MockRepo {
         Ok(clients)
     }
 
-    async fn list_client_branches(
+    async fn list_consumer_branches(
         &self,
         _client_name: &str,
     ) -> Result<Vec<String>, RepositoryError> {
         Ok(Vec::new())
     }
 
-    async fn list_client_endpoints(
+    async fn list_consumer_endpoints(
         &self,
         _client_name: &str,
         _branch: &str,
-    ) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
+    ) -> Result<Vec<ConsumerEndpointInfo>, RepositoryError> {
         // This is a simplified mock implementation
         // Real implementation joins dependencies, services, and endpoints
         Ok(Vec::new())

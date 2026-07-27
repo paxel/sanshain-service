@@ -273,13 +273,13 @@ async fn admin_fallback_branch() {
 async fn admin_list_services_clients_empty() {
     let repo = MockRepo::new();
     assert!(
-        admin_service::list_services(&repo)
+        admin_service::list_producers(&repo)
             .await
             .unwrap()
             .is_empty()
     );
     assert!(
-        admin_service::list_clients(&repo, None)
+        admin_service::list_consumers(&repo, None)
             .await
             .unwrap()
             .is_empty()
@@ -290,8 +290,8 @@ async fn admin_list_services_clients_empty() {
 #[tokio::test]
 async fn admin_delete_non_existing() {
     let repo = MockRepo::new();
-    assert!(!admin_service::delete_service(&repo, "nope").await.unwrap());
-    assert!(!admin_service::delete_client(&repo, "nope").await.unwrap());
+    assert!(!admin_service::delete_producer(&repo, "nope").await.unwrap());
+    assert!(!admin_service::delete_consumer(&repo, "nope").await.unwrap());
 }
 
 // 23. admin: delete_all_* return counts
@@ -366,7 +366,7 @@ paths:
     let _ = spec_service::provide_spec_with_tags(
         &repo,
         spec_service::ProvideSpecParams {
-            servicename: "svc",
+            producername: "svc",
             branch: "main",
             api_type: ApiType::OpenApi,
             content: yaml,

@@ -4,7 +4,7 @@
 
 # [Sanshain Service](https://github.com/paxel/sanshain-service)
 
-Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and distribute API specifications. Microservices **provide** their full API definitions; clients **require** only the specific snippets (endpoints, channels, or methods) they actually use at build time.
+Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and distribute API specifications. **Producers** provide their full API definitions; **Consumers** require only the specific snippets (endpoints, channels, or methods) they actually use at build time. A system is usually both.
 
 ### TL;DR
 - **Centralized Specs**: Unified registry for OpenAPI, AsyncAPI, and gRPC/Proto.

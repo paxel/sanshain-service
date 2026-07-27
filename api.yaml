@@ -1,10 +1,12 @@
 openapi: "3.0.3"
 info:
-  title: Sanshain Client API
+  title: Sanshain API
   description: |
-    API contract for Sanshain clients (build plugins, CLIs).
-    Covers core operations: providing specifications (OpenAPI, AsyncAPI, gRPC/Proto) and requiring endpoint snippets.
-  version: "1.5.2"
+    API contract for tooling that talks to Sanshain (build plugins, CLIs).
+    A **Producer** provides its full specification for a branch; a **Consumer** requires
+    only the endpoint snippets it uses. Covers providing specifications (OpenAPI, AsyncAPI,
+    gRPC/Proto) and requiring endpoint snippets. See CONTEXT.md for the vocabulary.
+  version: "1.6.0"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt
@@ -334,13 +336,13 @@ paths:
           description: SHA-256 hash (in double quotes) of the currently cached specification. Returns 304 Not Modified if it matches the server version.
           schema:
             type: string
-        - name: clientname
+        - name: consumername
           in: query
           required: true
           description: Name of the client registering the dependency.
           schema:
             type: string
-        - name: servicename
+        - name: producername
           in: query
           required: true
           description: Name of the service that provides the endpoint.
@@ -411,15 +413,39 @@ paths:
               description: SHA-256 hash of the returned content.
               schema:
                 type: string
+            X-Sanshain-Resolution:
+              description: |
+                How this request was resolved: `published` (this branch published it)
+                or `inherited` (this branch has never published, so it came from the
+                branch named in `X-Sanshain-Served-Branch`).
+              schema:
+                type: string
+                enum: [published, inherited]
+            X-Sanshain-Served-Branch:
+              description: The branch the returned spec actually came from.
+              schema:
+                type: string
           content:
             text/plain:
               schema:
                 type: string
         "304":
           description: Not Modified. The specification hasn't changed since the version provided in `If-None-Match`.
+        "410":
+          description: |
+            The requested branch has published a spec that does not include this
+            endpoint, so it is deliberately not part of that branch's API. Definitive:
+            returned immediately even when `timeout` is set, because no later publish
+            of the *current* spec can change it. Distinct from `404`, which means no
+            branch has the endpoint and it may still appear.
+          content:
+            text/plain:
+              schema:
+                type: string
         "404":
           description: |
-            Endpoint not found (after timeout, if specified).
+            No branch of this service has the endpoint (after timeout, if specified).
+            May still appear later, which is why a long-poll waits on this state but not on `410`.
             The response body contains a descriptive error message with the service name, branch, and endpoint details.
           content:
             text/plain:
@@ -437,8 +463,8 @@ paths:
           description: SHA-256 hash (in double quotes) of the currently cached specification.
           schema:
             type: string
-        - $ref: "#/components/parameters/clientname"
-        - $ref: "#/components/parameters/servicename"
+        - $ref: "#/components/parameters/consumername"
+        - $ref: "#/components/parameters/producername"
         - $ref: "#/components/parameters/branch"
         - name: path
           in: query
@@ -464,8 +490,30 @@ paths:
               description: SHA-256 hash of the returned content.
               schema:
                 type: string
+            X-Sanshain-Resolution:
+              description: |
+                How this request was resolved: `published` (this branch published it)
+                or `inherited` (this branch has never published, so it came from the
+                branch named in `X-Sanshain-Served-Branch`).
+              schema:
+                type: string
+                enum: [published, inherited]
+            X-Sanshain-Served-Branch:
+              description: The branch the returned spec actually came from.
+              schema:
+                type: string
         "304":
           description: Not Modified.
+        "410":
+          description: |
+            The requested branch has published a spec that does not include the requested
+            endpoint(s), so they are deliberately not part of that branch's API. Definitive:
+            returned immediately even when `timeout` is set. Distinct from `404`, which means
+            no branch has it and it may still appear.
+          content:
+            text/plain:
+              schema:
+                type: string
         "404":
           description: Not found.
 
@@ -480,8 +528,8 @@ paths:
           description: SHA-256 hash (in double quotes) of the currently cached specification.
           schema:
             type: string
-        - $ref: "#/components/parameters/clientname"
-        - $ref: "#/components/parameters/servicename"
+        - $ref: "#/components/parameters/consumername"
+        - $ref: "#/components/parameters/producername"
         - $ref: "#/components/parameters/branch"
         - name: path
           in: query
@@ -507,8 +555,30 @@ paths:
               description: SHA-256 hash of the returned content.
               schema:
                 type: string
+            X-Sanshain-Resolution:
+              description: |
+                How this request was resolved: `published` (this branch published it)
+                or `inherited` (this branch has never published, so it came from the
+                branch named in `X-Sanshain-Served-Branch`).
+              schema:
+                type: string
+                enum: [published, inherited]
+            X-Sanshain-Served-Branch:
+              description: The branch the returned spec actually came from.
+              schema:
+                type: string
         "304":
           description: Not Modified.
+        "410":
+          description: |
+            The requested branch has published a spec that does not include the requested
+            endpoint(s), so they are deliberately not part of that branch's API. Definitive:
+            returned immediately even when `timeout` is set. Distinct from `404`, which means
+            no branch has it and it may still appear.
+          content:
+            text/plain:
+              schema:
+                type: string
         "404":
           description: Not found.
 
@@ -555,6 +625,18 @@ paths:
               description: SHA-256 hash of the returned content.
               schema:
                 type: string
+            X-Sanshain-Resolution:
+              description: |
+                How this request was resolved: `published` (this branch published it)
+                or `inherited` (this branch has never published, so it came from the
+                branch named in `X-Sanshain-Served-Branch`).
+              schema:
+                type: string
+                enum: [published, inherited]
+            X-Sanshain-Served-Branch:
+              description: The branch the returned spec actually came from.
+              schema:
+                type: string
           content:
             text/plain:
               schema:
@@ -563,6 +645,16 @@ paths:
           description: Not Modified.
         "400":
           description: Invalid request (e.g. empty endpoints list or missing fields).
+          content:
+            text/plain:
+              schema:
+                type: string
+        "410":
+          description: |
+            The requested branch has published a spec that does not include the requested
+            endpoint(s), so they are deliberately not part of that branch's API. Definitive:
+            returned immediately even when `timeout` is set. Distinct from `404`, which means
+            no branch has it and it may still appear.
           content:
             text/plain:
               schema:
@@ -585,14 +677,14 @@ components:
       scheme: bearer
       bearerFormat: JWT
   parameters:
-    clientname:
-      name: clientname
+    consumername:
+      name: consumername
       in: query
       required: true
       schema:
         type: string
-    servicename:
-      name: servicename
+    producername:
+      name: producername
       in: query
       required: true
       schema:
@@ -644,11 +736,11 @@ components:
     ProvidePayload:
       type: object
       required:
-        - servicename
+        - producername
         - branch
         - openapi_yaml
       properties:
-        servicename:
+        producername:
           type: string
           description: Name of the service providing the specification.
         branch:
@@ -702,11 +794,11 @@ components:
     ProvideAsyncApiPayload:
       type: object
       required:
-        - servicename
+        - producername
         - branch
         - asyncapi_yaml
       properties:
-        servicename:
+        producername:
           type: string
         branch:
           type: string
@@ -736,11 +828,11 @@ components:
     ProvideProtoPayload:
       type: object
       required:
-        - servicename
+        - producername
         - branch
         - proto_content
       properties:
-        servicename:
+        producername:
           type: string
         branch:
           type: string
@@ -794,15 +886,15 @@ components:
     RequireBundlePayload:
       type: object
       required:
-        - clientname
-        - servicename
+        - consumername
+        - producername
         - branch
         - endpoints
       properties:
-        clientname:
+        consumername:
           type: string
           description: Name of the client registering the dependencies.
-        servicename:
+        producername:
           type: string
           description: Name of the service that provides the endpoints.
         branch:

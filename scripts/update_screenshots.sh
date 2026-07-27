@@ -12,9 +12,11 @@ echo "Starting Sanshain Service Release Screenshot Capture..."
 mkdir -p docs/images
 mkdir -p test-results
 
-# Cleanup old database and stale processes
+# Cleanup old database and stale processes. `pkill` truncates comm names to 15
+# chars, which silently drops the match for a name this long; `-f` matches the
+# full command line instead.
 rm -f sanshain.db
-pkill sanshain_service || true
+pkill -f sanshain_service || true
 sleep 1
 
 # Start service in background
@@ -29,15 +31,18 @@ SVC_PID=$!
 # Ensure cleanup on exit
 trap "kill $SVC_PID || true" EXIT
 
-# Wait for service to be healthy
+# Wait for service to be healthy. Checks the response *body*, not just that
+# curl got something back — port $PORT may already be bound by an unrelated
+# local process (e.g. another dev server), which would otherwise answer this
+# loop immediately and send every later request to the wrong service.
 echo "Waiting for service to start on port $PORT..."
 MAX_RETRIES=30
 RETRY_COUNT=0
-until curl -s http://localhost:$PORT/health > /dev/null; do
+until [ "$(curl -s http://localhost:$PORT/health)" == "OK" ]; do
   sleep 2
   RETRY_COUNT=$((RETRY_COUNT + 1))
   if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-    echo "Service failed to start."
+    echo "Service failed to start on port $PORT (or the port is held by a different process)."
     exit 1
   fi
 done
@@ -76,22 +81,22 @@ export SANSHAIN_PASSWORD=$INITIAL_ADMIN_PASSWORD
 
 echo "Applying service metadata for better graph visualization..."
 # config-service -> Infrastructure
-curl -s -X POST http://localhost:$PORT/admin/services/metadata \
+curl -s -X POST http://localhost:$PORT/admin/producers/metadata \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"config-service", "icon":"⚙️", "domain":"Infrastructure"}'
 
 # auth-service -> Core
-curl -s -X POST http://localhost:$PORT/admin/services/metadata \
+curl -s -X POST http://localhost:$PORT/admin/producers/metadata \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"auth-service", "icon":"🔑", "domain":"Core"}'
 
 # ml-inference -> AI
-curl -s -X POST http://localhost:$PORT/admin/services/metadata \
+curl -s -X POST http://localhost:$PORT/admin/producers/metadata \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"ml-inference", "icon":"🧠", "domain":"AI"}'
 
 # etl-orchestrator -> Data
-curl -s -X POST http://localhost:$PORT/admin/services/metadata \
+curl -s -X POST http://localhost:$PORT/admin/producers/metadata \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"etl-orchestrator", "icon":"🏗️", "domain":"Data"}'
 

@@ -232,8 +232,8 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, nuke_database(keep_user_id))
     }
 
-    async fn delete_service(&self, name: &str) -> Result<bool, RepositoryError> {
-        delegate!(self, delete_service(name))
+    async fn delete_producer(&self, name: &str) -> Result<bool, RepositoryError> {
+        delegate!(self, delete_producer(name))
     }
 
     async fn delete_branch(
@@ -244,16 +244,16 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, delete_branch(service_name, branch_name))
     }
 
-    async fn delete_client(&self, name: &str) -> Result<bool, RepositoryError> {
-        delegate!(self, delete_client(name))
+    async fn delete_consumer(&self, name: &str) -> Result<bool, RepositoryError> {
+        delegate!(self, delete_consumer(name))
     }
 
-    async fn list_services(&self) -> Result<Vec<String>, RepositoryError> {
-        delegate!(self, list_services())
+    async fn list_producers(&self) -> Result<Vec<String>, RepositoryError> {
+        delegate!(self, list_producers())
     }
 
-    async fn list_services_detailed(&self) -> Result<Vec<ServiceSummary>, RepositoryError> {
-        delegate!(self, list_services_detailed())
+    async fn list_producers_detailed(&self) -> Result<Vec<ProducerSummary>, RepositoryError> {
+        delegate!(self, list_producers_detailed())
     }
 
     async fn set_fallback_branch(
@@ -264,13 +264,13 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, set_fallback_branch(service_name, branch))
     }
 
-    async fn update_service_metadata(
+    async fn update_producer_metadata(
         &self,
         service_name: &str,
         icon: Option<&str>,
         domain: Option<&str>,
     ) -> Result<(), RepositoryError> {
-        delegate!(self, update_service_metadata(service_name, icon, domain))
+        delegate!(self, update_producer_metadata(service_name, icon, domain))
     }
 
     async fn get_fallback_branch(
@@ -311,23 +311,23 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, list_all_branches())
     }
 
-    async fn list_clients(&self) -> Result<Vec<String>, RepositoryError> {
-        delegate!(self, list_clients())
+    async fn list_consumers(&self) -> Result<Vec<String>, RepositoryError> {
+        delegate!(self, list_consumers())
     }
 
-    async fn list_client_branches(
+    async fn list_consumer_branches(
         &self,
         client_name: &str,
     ) -> Result<Vec<String>, RepositoryError> {
-        delegate!(self, list_client_branches(client_name))
+        delegate!(self, list_consumer_branches(client_name))
     }
 
-    async fn list_client_endpoints(
+    async fn list_consumer_endpoints(
         &self,
         client_name: &str,
         branch: &str,
-    ) -> Result<Vec<ClientEndpointInfo>, RepositoryError> {
-        delegate!(self, list_client_endpoints(client_name, branch))
+    ) -> Result<Vec<ConsumerEndpointInfo>, RepositoryError> {
+        delegate!(self, list_consumer_endpoints(client_name, branch))
     }
 
     async fn user_count(&self) -> Result<i64, RepositoryError> {
