@@ -75,13 +75,14 @@ test.describe('Sanshain UI Smoke Test', () => {
     await page.locator('button:has-text("Save Authentication Settings")').click();
     await page.waitForTimeout(1000); // Wait for API call
     
-    // Refresh to verify persistence
+    // Refresh to verify persistence.
+    // The radios are populated by loadAuthConfig(), an async fetch that resolves
+    // *after* #admin-dashboard is rendered, so reading isChecked() once races it.
+    // toBeChecked() auto-retries until the fetch lands.
     await page.reload();
     await page.waitForSelector('#admin-dashboard');
-    const isDevChecked = await page.locator('input[name="auth-mode"][value="dev"]').isChecked();
-    
-    expect(isDevChecked).toBe(true);
-    
+    await expect(page.locator('input[name="auth-mode"][value="dev"]')).toBeChecked();
+
     // Restore Local mode
     await page.locator('input[name="auth-mode"][value="local"]').click();
     await page.locator('button:has-text("Save Authentication Settings")').click();

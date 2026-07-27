@@ -237,7 +237,7 @@ pub async fn create_token(
         Some(&user),
         NewAuditLog {
             action: "CREATE_TOKEN",
-            details: &format!("Created API token '{}' with ID '{}'", payload.name, id),
+            details: "Created an API token",
             service: None,
             branch: None,
             action_type: Some("ADMIN"),
@@ -257,13 +257,15 @@ pub async fn revoke_token(
     axum::Extension(user): axum::Extension<User>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    services::revoke_api_token(&state.repo, &id, user.id).await?;
+    if !services::revoke_api_token(&state.repo, &id, user.id).await? {
+        return Err(AppError::NotFound("API token not found".to_string()));
+    }
     record_audit_log(
         &state.repo,
         Some(&user),
         NewAuditLog {
             action: "REVOKE_TOKEN",
-            details: &format!("Revoked API token with ID '{}'", id),
+            details: "Revoked an API token",
             service: None,
             branch: None,
             action_type: Some("ADMIN"),

@@ -203,6 +203,13 @@ pub struct ProvideChanges {
     pub deletes: usize,
 }
 
+impl ProvideChanges {
+    /// True when a provide produced no endpoint changes (a no-op re-upload).
+    pub fn is_empty(&self) -> bool {
+        self.inserts == 0 && self.updates == 0 && self.deletes == 0
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LdapConfig {
     pub server_url: String,
@@ -415,6 +422,22 @@ pub struct ServiceSummary {
     pub name: String,
     pub fallback_branch: Option<String>,
     pub branches: Vec<String>,
+    /// Last-published time per branch name (ISO 8601). Populated by the
+    /// application layer; empty in raw repository results.
+    #[serde(default)]
+    pub branches_last_published: std::collections::HashMap<String, String>,
+    /// Stale-cleanup expiry time per branch name (ISO 8601), only for
+    /// non-protected branches when cleanup is enabled. Populated by the
+    /// application layer; empty in raw repository results.
+    #[serde(default)]
+    pub branches_expire_at: std::collections::HashMap<String, String>,
+    /// Non-deleted endpoint count per branch name (0 for a branch with no
+    /// provided spec content, e.g. from an OpenAPI document with no paths).
+    /// `branches` above lists every branch regardless of this count — callers
+    /// that only want branches serving something should filter on it being > 0.
+    /// Populated by the application layer; empty in raw repository results.
+    #[serde(default)]
+    pub branches_endpoint_count: std::collections::HashMap<String, i64>,
     pub is_favorite: bool,
     pub icon: Option<String>,
     pub domain: Option<String>,
@@ -488,6 +511,11 @@ pub struct LogEntry {
     pub level: String,
     pub target: String,
     pub message: String,
+    /// Service name, when the emitting event attached a `service` field
+    /// (e.g. a provide/require log line). `None` for events with no such context.
+    pub service: Option<String>,
+    /// Branch name, when the emitting event attached a `branch` field.
+    pub branch: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -553,6 +581,35 @@ pub struct AuditLogFilter {
 mod tests {
     use super::*;
     use std::str::FromStr;
+
+    #[test]
+    fn provide_changes_is_empty_only_when_all_zero() {
+        assert!(ProvideChanges::default().is_empty());
+        assert!(
+            ProvideChanges {
+                inserts: 0,
+                updates: 0,
+                deletes: 0
+            }
+            .is_empty()
+        );
+        assert!(
+            !ProvideChanges {
+                inserts: 1,
+                updates: 0,
+                deletes: 0
+            }
+            .is_empty()
+        );
+        assert!(
+            !ProvideChanges {
+                inserts: 0,
+                updates: 0,
+                deletes: 3
+            }
+            .is_empty()
+        );
+    }
 
     #[test]
     fn api_type_accepts_canonical_names_and_legacy_aliases() {

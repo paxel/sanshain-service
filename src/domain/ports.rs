@@ -311,6 +311,31 @@ pub trait SpecRepository: Send + Sync {
         service_name: &str,
     ) -> impl Future<Output = Result<Option<String>, RepositoryError>> + Send;
 
+    /// Atomically set a branch's `source_protected_branch` (item #17), but only
+    /// if it is currently unset. Returns `true` if this call set it, `false` if
+    /// the branch already had a value (left untouched) — callers use this to
+    /// distinguish "I set it" from "someone already had a different answer",
+    /// for mismatch logging.
+    fn set_source_protected_branch_if_unset(
+        &self,
+        branch_id: i64,
+        value: &str,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Get a branch's current `source_protected_branch`, if any.
+    fn get_source_protected_branch(
+        &self,
+        branch_id: i64,
+    ) -> impl Future<Output = Result<Option<String>, RepositoryError>> + Send;
+
+    /// Admin-only: unconditionally set (or clear, with `None`) a branch's
+    /// `source_protected_branch`, overwriting any existing value.
+    fn admin_set_source_protected_branch(
+        &self,
+        branch_id: i64,
+        value: Option<&str>,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
     /// List all branches for a service.
     fn list_branches(
         &self,
@@ -439,7 +464,14 @@ pub trait SpecRepository: Send + Sync {
         user_id: i64,
     ) -> impl Future<Output = Result<Vec<ApiToken>, RepositoryError>> + Send;
 
-    /// Delete an API token by ID (only if owned by user_id).
+    /// Delete an API token by ID (only if owned by user_id). Returns whether a
+    /// token was actually deleted, so the caller can answer 404 rather than
+    /// reporting success for a token that never existed.
+    ///
+    /// Deliberately does *not* return the token's name: audit entries for token
+    /// revocation must not record it (a name its creator considered private
+    /// cannot be redacted from a permanent audit log afterwards), so the name
+    /// is not handed to callers who might log it.
     fn delete_api_token(
         &self,
         token_id: &str,
@@ -577,6 +609,22 @@ pub trait SpecRepository: Send + Sync {
     fn list_branches_with_metadata(
         &self,
     ) -> impl Future<Output = Result<Vec<BranchMetadata>, RepositoryError>> + Send;
+
+    /// Last-published time per `(service_name, branch_name)`.
+    ///
+    /// Returns `(service_name, branch_name, updated_at)` rows. `updated_at` tracks
+    /// the last publishing change to the branch (see `apply_spec_changes`), not reads.
+    fn list_branch_last_published(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(String, String, String)>, RepositoryError>> + Send;
+
+    /// Non-deleted endpoint count per `(service_name, branch_name)`, for every
+    /// branch (including ones with zero endpoints — callers filter as needed).
+    ///
+    /// Returns `(service_name, branch_name, count)` rows.
+    fn list_branch_endpoint_counts(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(String, String, i64)>, RepositoryError>> + Send;
 
     // --- AsyncAPI Channel Message Contracts (item #20) ---
 

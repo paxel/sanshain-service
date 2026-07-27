@@ -77,6 +77,70 @@ pub async fn admin_list_service_endpoints(
     Ok(Json(res))
 }
 
+#[derive(Deserialize)]
+pub struct FullSpecQuery {
+    pub api_type: Option<ApiType>,
+}
+
+pub async fn admin_get_full_spec(
+    State(state): State<AppState>,
+    Path((name, branch)): Path<(String, String)>,
+    Query(query): Query<FullSpecQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let api_type = query.api_type.unwrap_or(ApiType::OpenApi);
+    let spec = services::get_full_spec(&state.repo, &name, &branch, api_type).await?;
+    // Served as a download: name the file after the service/branch it came from,
+    // and use the media type matching the reassembled document.
+    let extension = match api_type {
+        ApiType::Proto => "proto",
+        _ => "yaml",
+    };
+    let content_type = match api_type {
+        ApiType::Proto => "text/plain; charset=utf-8",
+        _ => "application/yaml; charset=utf-8",
+    };
+    let filename = format!(
+        "{}-{}.{}",
+        sanitize_filename_part(&name),
+        sanitize_filename_part(&branch),
+        extension
+    );
+    Ok((
+        [
+            (axum::http::header::CONTENT_TYPE, content_type.to_string()),
+            (
+                axum::http::header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", filename),
+            ),
+        ],
+        spec,
+    ))
+}
+
+/// Reduce a service or branch name to characters that are safe in a
+/// `Content-Disposition` filename. Service and branch names are client-supplied
+/// and unvalidated, so anything outside this set — quotes, path separators, and
+/// notably control characters like CR/LF, which would make the header value
+/// invalid and fail the response — becomes `-`. Whitelisted rather than
+/// blacklisted so a character nobody thought of cannot slip through.
+fn sanitize_filename_part(value: &str) -> String {
+    let cleaned: String = value
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if cleaned.is_empty() {
+        "spec".to_string()
+    } else {
+        cleaned
+    }
+}
+
 pub async fn admin_list_all_branches(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -271,6 +335,70 @@ pub async fn admin_reset_branch_history(
             branch, name
         )))
     }
+}
+
+#[derive(serde::Serialize)]
+pub struct SourceProtectedBranchResponse {
+    pub source_protected_branch: Option<String>,
+}
+
+/// Item #17: view a branch's `source_protected_branch` — the protected branch
+/// it defers to when it has no data of its own (either caller-supplied on a
+/// first `/provide`/`/require`, or admin-corrected).
+pub async fn admin_get_source_protected_branch(
+    State(state): State<AppState>,
+    Path((name, branch)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let value = services::get_source_protected_branch(&state.repo, &name, &branch).await?;
+    Ok(Json(SourceProtectedBranchResponse {
+        source_protected_branch: value,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct SetSourceProtectedBranchRequest {
+    pub source_protected_branch: Option<String>,
+}
+
+/// Item #17, admin-only: unconditionally set (or clear, with `null`) a
+/// branch's `source_protected_branch`, overwriting whatever is currently
+/// stored — the only way to correct a wrong or missing caller-supplied value.
+pub async fn admin_set_source_protected_branch(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Path((name, branch)): Path<(String, String)>,
+    Json(payload): Json<SetSourceProtectedBranchRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    services::admin_set_source_protected_branch(
+        &state.repo,
+        &name,
+        &branch,
+        payload.source_protected_branch.as_deref(),
+    )
+    .await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "SET_SOURCE_PROTECTED_BRANCH",
+            details: &match &payload.source_protected_branch {
+                Some(v) => format!(
+                    "Set source_protected_branch of branch '{}' of service '{}' to '{}'",
+                    branch, name, v
+                ),
+                None => format!(
+                    "Cleared source_protected_branch of branch '{}' of service '{}'",
+                    branch, name
+                ),
+            },
+            service: Some(&name),
+            branch: Some(&branch),
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
+    )
+    .await?;
+    Ok(StatusCode::OK)
 }
 
 pub async fn admin_delete_client(
@@ -1060,6 +1188,8 @@ pub async fn admin_update_endpoint(
             path: &payload.path,
             method: &payload.method,
             timeout_secs: None,
+            source_protected_branch: None,
+            pull_from_branch: None,
         },
         payload.api_type,
         payload.yaml,

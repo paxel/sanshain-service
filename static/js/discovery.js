@@ -4,8 +4,26 @@
  */
 
 let allServices = [];
-let allServiceBranches = {}; // cache: serviceName -> branches[]
+let allServiceBranches = {}; // cache: serviceName -> branches[] (unfiltered — every branch, including empty ones)
+let allServiceLastPublished = {}; // cache: serviceName -> { branch: isoTimestamp }
+let allServiceExpireAt = {}; // cache: serviceName -> { branch: isoTimestamp } (stale-cleanup TTL)
+let allServiceEndpointCount = {}; // cache: serviceName -> { branch: count } (0 = branch serves nothing)
 let userFavorites = { services: [], clients: [] };
+
+// A branch "serves something" once it has at least one endpoint. Used by the
+// discovery view (services.html) to hide branches/services that provide
+// nothing — e.g. an OpenAPI spec published with no paths. Other consumers of
+// allServiceBranches (reports.html, graph.html branch selectors) intentionally
+// keep offering every branch, including empty ones.
+function branchHasEndpoints(serviceName, branch) {
+  const counts = allServiceEndpointCount[serviceName] || {};
+  return (counts[branch] || 0) > 0;
+}
+
+function serviceHasAnyEndpoints(serviceName) {
+  const branches = allServiceBranches[serviceName] || [];
+  return branches.some((b) => branchHasEndpoints(serviceName, b));
+}
 const YAML_PAGE_SIZE = 80; // lines per page for YAML viewer
 
 async function fetchJSON(url) {
@@ -18,8 +36,14 @@ async function loadAllServiceBranches() {
   const services = await fetchJSON("/admin/services");
   allServices = services || [];
   allServiceBranches = {};
+  allServiceLastPublished = {};
+  allServiceExpireAt = {};
+  allServiceEndpointCount = {};
   for (const svc of allServices) {
     allServiceBranches[svc.name] = svc.branches || [];
+    allServiceLastPublished[svc.name] = svc.branches_last_published || {};
+    allServiceExpireAt[svc.name] = svc.branches_expire_at || {};
+    allServiceEndpointCount[svc.name] = svc.branches_endpoint_count || {};
   }
 }
 

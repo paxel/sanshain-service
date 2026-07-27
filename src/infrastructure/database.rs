@@ -280,6 +280,29 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, get_fallback_branch(service_name))
     }
 
+    async fn set_source_protected_branch_if_unset(
+        &self,
+        branch_id: i64,
+        value: &str,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(self, set_source_protected_branch_if_unset(branch_id, value))
+    }
+
+    async fn get_source_protected_branch(
+        &self,
+        branch_id: i64,
+    ) -> Result<Option<String>, RepositoryError> {
+        delegate!(self, get_source_protected_branch(branch_id))
+    }
+
+    async fn admin_set_source_protected_branch(
+        &self,
+        branch_id: i64,
+        value: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, admin_set_source_protected_branch(branch_id, value))
+    }
+
     async fn list_branches(&self, service_name: &str) -> Result<Vec<String>, RepositoryError> {
         delegate!(self, list_branches(service_name))
     }
@@ -585,5 +608,17 @@ impl SpecRepository for DatabaseRepo {
 
     async fn list_branches_with_metadata(&self) -> Result<Vec<BranchMetadata>, RepositoryError> {
         delegate!(self, list_branches_with_metadata())
+    }
+
+    async fn list_branch_last_published(
+        &self,
+    ) -> Result<Vec<(String, String, String)>, RepositoryError> {
+        delegate!(self, list_branch_last_published())
+    }
+
+    async fn list_branch_endpoint_counts(
+        &self,
+    ) -> Result<Vec<(String, String, i64)>, RepositoryError> {
+        delegate!(self, list_branch_endpoint_counts())
     }
 }

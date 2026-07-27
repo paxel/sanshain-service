@@ -44,6 +44,16 @@ pub struct ProvideRequest {
     pub dry_run: bool,
     #[serde(default)]
     pub force: bool,
+    /// Best-effort hint: which protected branch this branch defers to when it
+    /// has no data of its own (item #17). Only takes effect the first time it
+    /// is supplied for a given branch — see `services::apply_source_protected_branch_hint`.
+    pub source_protected_branch: Option<String>,
+    /// Client-supplied override for who authored this change, for blame/version
+    /// history display only (item #15). Sanshain has no git access, so this is a
+    /// pure client hint — e.g. a CI pipeline forwarding the real commit author
+    /// instead of its own service-account identity. Does **not** affect the
+    /// audit log, which always records the real authenticated caller.
+    pub author: Option<String>,
 }
 
 pub async fn provide(
@@ -77,6 +87,8 @@ pub async fn provide(
                 content: &payload.openapi_yaml,
                 base_version: payload.base_version,
                 force: payload.force,
+                source_protected_branch: payload.source_protected_branch.as_deref(),
+                author: payload.author.as_deref(),
             },
             Some(&actor),
         )
@@ -85,23 +97,31 @@ pub async fn provide(
 
     if !payload.dry_run {
         let _ = state.spec_updated_tx.send(());
-        record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "PROVIDE_SPEC",
-            details: &format!(
-                "Uploaded OpenApi spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
-                payload.servicename, payload.branch, res.version,
-                res.changes.inserts, res.changes.updates, res.changes.deletes
-            ),
-            service: Some(&payload.servicename),
-            branch: Some(&payload.branch),
-            action_type: Some("WRITE"),
-            diff: None,
-        },
-    )
-        .await?;
+        // Skip the audit entry for a no-op re-upload (no endpoint changes) to keep
+        // the audit timeline focused on actual spec changes.
+        if !res.changes.is_empty() {
+            record_audit_log(
+                &state.repo,
+                user,
+                NewAuditLog {
+                    action: "PROVIDE_SPEC",
+                    details: &format!(
+                        "Uploaded OpenApi spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
+                        payload.servicename,
+                        payload.branch,
+                        res.version,
+                        res.changes.inserts,
+                        res.changes.updates,
+                        res.changes.deletes
+                    ),
+                    service: Some(&payload.servicename),
+                    branch: Some(&payload.branch),
+                    action_type: Some("WRITE"),
+                    diff: None,
+                },
+            )
+            .await?;
+        }
     }
 
     Ok((StatusCode::ACCEPTED, Json(res)))
@@ -115,6 +135,10 @@ pub struct ProvideAsyncApiRequest {
     pub base_version: Option<String>,
     #[serde(default)]
     pub force: bool,
+    /// See `ProvideRequest::source_protected_branch`.
+    pub source_protected_branch: Option<String>,
+    /// See `ProvideRequest::author`.
+    pub author: Option<String>,
 }
 
 pub async fn provide_asyncapi(
@@ -137,28 +161,37 @@ pub async fn provide_asyncapi(
             content: &payload.asyncapi_yaml,
             base_version: payload.base_version,
             force: payload.force,
+            source_protected_branch: payload.source_protected_branch.as_deref(),
+            author: payload.author.as_deref(),
         },
         Some(&actor),
     )
     .await?;
     let _ = state.spec_updated_tx.send(());
-    record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "PROVIDE_SPEC",
-            details: &format!(
-            "Uploaded AsyncApi spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
-            payload.servicename, payload.branch, res.version,
-            res.changes.inserts, res.changes.updates, res.changes.deletes
-        ),
-            service: Some(&payload.servicename),
-            branch: Some(&payload.branch),
-            action_type: Some("WRITE"),
-            diff: None,
-        },
-    )
-    .await?;
+    // Skip the audit entry for a no-op re-upload (no endpoint changes).
+    if !res.changes.is_empty() {
+        record_audit_log(
+            &state.repo,
+            user,
+            NewAuditLog {
+                action: "PROVIDE_SPEC",
+                details: &format!(
+                    "Uploaded AsyncApi spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
+                    payload.servicename,
+                    payload.branch,
+                    res.version,
+                    res.changes.inserts,
+                    res.changes.updates,
+                    res.changes.deletes
+                ),
+                service: Some(&payload.servicename),
+                branch: Some(&payload.branch),
+                action_type: Some("WRITE"),
+                diff: None,
+            },
+        )
+        .await?;
+    }
     Ok((StatusCode::ACCEPTED, Json(res)))
 }
 
@@ -170,6 +203,10 @@ pub struct ProvideProtoRequest {
     pub base_version: Option<String>,
     #[serde(default)]
     pub force: bool,
+    /// See `ProvideRequest::source_protected_branch`.
+    pub source_protected_branch: Option<String>,
+    /// See `ProvideRequest::author`.
+    pub author: Option<String>,
 }
 
 pub async fn provide_proto(
@@ -192,28 +229,37 @@ pub async fn provide_proto(
             content: &payload.proto_content,
             base_version: payload.base_version,
             force: payload.force,
+            source_protected_branch: payload.source_protected_branch.as_deref(),
+            author: payload.author.as_deref(),
         },
         Some(&actor),
     )
     .await?;
     let _ = state.spec_updated_tx.send(());
-    record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "PROVIDE_SPEC",
-            details: &format!(
-            "Uploaded Proto spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
-            payload.servicename, payload.branch, res.version,
-            res.changes.inserts, res.changes.updates, res.changes.deletes
-        ),
-            service: Some(&payload.servicename),
-            branch: Some(&payload.branch),
-            action_type: Some("WRITE"),
-            diff: None,
-        },
-    )
-    .await?;
+    // Skip the audit entry for a no-op re-upload (no endpoint changes).
+    if !res.changes.is_empty() {
+        record_audit_log(
+            &state.repo,
+            user,
+            NewAuditLog {
+                action: "PROVIDE_SPEC",
+                details: &format!(
+                    "Uploaded Proto spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
+                    payload.servicename,
+                    payload.branch,
+                    res.version,
+                    res.changes.inserts,
+                    res.changes.updates,
+                    res.changes.deletes
+                ),
+                service: Some(&payload.servicename),
+                branch: Some(&payload.branch),
+                action_type: Some("WRITE"),
+                diff: None,
+            },
+        )
+        .await?;
+    }
     Ok((StatusCode::ACCEPTED, Json(res)))
 }
 
@@ -227,6 +273,14 @@ pub struct RequireQuery {
     pub timeout: Option<u64>,
     #[serde(default)]
     pub dry_run: bool,
+    /// Sticky hint (item #17): which protected branch this branch defers to
+    /// when it has no data of its own. Only takes effect the first time it is
+    /// supplied for this branch.
+    pub source_protected_branch: Option<String>,
+    /// One-shot override (item #17): resolve this specific request against
+    /// exactly this branch, bypassing `source_protected_branch` and all other
+    /// fallback resolution. Never persisted.
+    pub pull_from_branch: Option<String>,
 }
 
 pub async fn require(
@@ -243,6 +297,8 @@ pub async fn require(
         path: &query.path,
         method: &query.method,
         timeout_secs: query.timeout,
+        source_protected_branch: query.source_protected_branch.as_deref(),
+        pull_from_branch: query.pull_from_branch.as_deref(),
     };
     let res = if query.dry_run {
         services::require_endpoint_dry_run(
@@ -314,6 +370,8 @@ pub async fn require_asyncapi(
             path: &query.path,
             method: &query.method,
             timeout_secs: query.timeout,
+            source_protected_branch: query.source_protected_branch.as_deref(),
+            pull_from_branch: query.pull_from_branch.as_deref(),
         },
     )
     .await?;
@@ -370,6 +428,8 @@ pub async fn require_proto(
             path: &query.path,
             method: &query.method,
             timeout_secs: query.timeout,
+            source_protected_branch: query.source_protected_branch.as_deref(),
+            pull_from_branch: query.pull_from_branch.as_deref(),
         },
     )
     .await?;
@@ -423,6 +483,11 @@ pub struct RequireBundleRequest {
     pub api_type: Option<ApiType>,
     pub endpoints: Vec<BundleEndpoint>,
     pub timeout: Option<u64>,
+    /// See `RequireQuery::source_protected_branch`. Supplied in the body here
+    /// because `/require-bundle` is a POST.
+    pub source_protected_branch: Option<String>,
+    /// See `RequireQuery::pull_from_branch`.
+    pub pull_from_branch: Option<String>,
 }
 
 pub async fn require_bundle(
@@ -447,6 +512,8 @@ pub async fn require_bundle(
             api_type: payload.api_type.unwrap_or(ApiType::OpenApi),
             endpoints: &endpoints,
             timeout_secs: payload.timeout,
+            source_protected_branch: payload.source_protected_branch.as_deref(),
+            pull_from_branch: payload.pull_from_branch.as_deref(),
         },
     )
     .await?;
@@ -496,23 +563,12 @@ pub struct ReportQuery {
 
 pub async fn report(
     State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
     Query(query): Query<ReportQuery>,
 ) -> Result<impl IntoResponse, AppError> {
+    // Not audited: this JSON report is fetched to render the branch view in the UI,
+    // so auditing it turns every branch view into a "Generated report" audit entry.
+    // Explicit report exports (markdown/isolation/merged) are still audited below.
     let res = services::generate_report(&state.repo, &query.branch).await?;
-    let _ = record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "REPORT",
-            details: &format!("Generated report for branch '{}'", query.branch),
-            service: None,
-            branch: Some(&query.branch),
-            action_type: Some("READ"),
-            diff: None,
-        },
-    )
-    .await;
     Ok(Json(res))
 }
 

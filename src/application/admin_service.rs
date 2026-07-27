@@ -1,3 +1,4 @@
+use crate::domain::branch_pattern::branch_matches_any;
 use crate::domain::models::*;
 use crate::domain::ports::SpecRepository;
 use chrono::Utc;
@@ -90,6 +91,96 @@ pub async fn list_services_detailed(
     user_id: Option<i64>,
 ) -> Result<Vec<ServiceSummary>, AppError> {
     let mut services = repo.list_services_detailed().await?;
+
+    // Last-published time and endpoint count, keyed service -> branch -> value.
+    // Nested rather than keyed by a `(String, String)` tuple so lookups below
+    // borrow instead of allocating a fresh key pair each time.
+    let mut last_published: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, String>,
+    > = std::collections::HashMap::new();
+    for (svc, branch, ts) in repo.list_branch_last_published().await? {
+        last_published.entry(svc).or_default().insert(branch, ts);
+    }
+
+    // The endpoint count lets the discovery UI tell a branch that serves nothing
+    // (e.g. an OpenAPI spec provided with no paths) apart from one that does.
+    // `branches` itself is left unfiltered — admin management needs to see and
+    // clean up empty branches too.
+    let mut endpoint_count: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, i64>,
+    > = std::collections::HashMap::new();
+    for (svc, branch, count) in repo.list_branch_endpoint_counts().await? {
+        endpoint_count.entry(svc).or_default().insert(branch, count);
+    }
+
+    // Stale-cleanup horizon: non-protected branches are culled once their last
+    // publish is older than this many days (0 = disabled). Used to surface a TTL.
+    let max_age_days = get_branch_max_age_days(repo).await?;
+
+    let patterns = repo.list_protected_branches().await?;
+    let empty_times = std::collections::HashMap::new();
+    let empty_counts = std::collections::HashMap::new();
+    for svc in &mut services {
+        let times = last_published.get(&svc.name).unwrap_or(&empty_times);
+        let counts = endpoint_count.get(&svc.name).unwrap_or(&empty_counts);
+
+        // Attach the last-published time per branch, for display in the overview.
+        svc.branches_last_published = svc
+            .branches
+            .iter()
+            .filter_map(|b| times.get(b).map(|ts| (b.clone(), ts.clone())))
+            .collect();
+        // Attach the endpoint count per branch, for filtering in the discovery UI.
+        svc.branches_endpoint_count = svc
+            .branches
+            .iter()
+            .map(|b| (b.clone(), counts.get(b).copied().unwrap_or(0)))
+            .collect();
+        // Attach the stale-cleanup expiry per branch (non-protected only), so the UI
+        // can warn when a branch is about to be culled. Protection is glob-matched,
+        // so a wildcard-protected branch correctly shows no expiry badge.
+        if max_age_days > 0 {
+            svc.branches_expire_at = svc
+                .branches
+                .iter()
+                .filter(|b| !branch_matches_any(b, &patterns))
+                .filter_map(|b| {
+                    let ts = times.get(b)?;
+                    let published =
+                        chrono::NaiveDateTime::parse_from_str(ts, "%Y-%m-%dT%H:%M:%SZ").ok()?;
+                    let expire = published + chrono::Duration::days(max_age_days as i64);
+                    Some((b.clone(), expire.format("%Y-%m-%dT%H:%M:%SZ").to_string()))
+                })
+                .collect();
+        }
+
+        // Order branches deterministically: protected first (e.g. master/main),
+        // then most recently published, then alphabetically — the underlying
+        // GROUP_CONCAT returns them in an unspecified order otherwise. Sort keys
+        // are computed once per branch rather than inside the comparator, which
+        // would otherwise re-derive them on every comparison.
+        let mut keyed: Vec<(bool, &str, &String)> = svc
+            .branches
+            .iter()
+            .map(|b| {
+                (
+                    branch_matches_any(b, &patterns),
+                    times.get(b).map(String::as_str).unwrap_or(""),
+                    b,
+                )
+            })
+            .collect();
+        keyed.sort_by(|a, b| {
+            b.0.cmp(&a.0)
+                .then_with(|| b.1.cmp(a.1)) // newest publish first
+                .then_with(|| a.2.cmp(b.2))
+        });
+        let ordered: Vec<String> = keyed.into_iter().map(|(_, _, name)| name.clone()).collect();
+        svc.branches = ordered;
+    }
+
     if let Some(uid) = user_id {
         let favorites = repo.get_user_favorites(uid, "service").await?;
         for svc in &mut services {
@@ -127,6 +218,45 @@ pub async fn get_fallback_branch(
     service_name: &str,
 ) -> Result<Option<String>, AppError> {
     Ok(repo.get_fallback_branch(service_name).await?)
+}
+
+async fn resolve_branch_id(
+    repo: &impl SpecRepository,
+    service_name: &str,
+    branch_name: &str,
+) -> Result<i64, AppError> {
+    let service_id = repo
+        .find_service(service_name)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Service '{}' not found", service_name)))?;
+    repo.find_branch(service_id, branch_name)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Branch '{}' not found", branch_name)))
+}
+
+/// Item #17: get a branch's `source_protected_branch`, if any.
+pub async fn get_source_protected_branch(
+    repo: &impl SpecRepository,
+    service_name: &str,
+    branch_name: &str,
+) -> Result<Option<String>, AppError> {
+    let branch_id = resolve_branch_id(repo, service_name, branch_name).await?;
+    Ok(repo.get_source_protected_branch(branch_id).await?)
+}
+
+/// Item #17, admin-only: unconditionally set (or clear, with `None`) a
+/// branch's `source_protected_branch`, overwriting whatever caller-supplied
+/// or previously-admin-set value is currently stored.
+pub async fn admin_set_source_protected_branch(
+    repo: &impl SpecRepository,
+    service_name: &str,
+    branch_name: &str,
+    value: Option<&str>,
+) -> Result<(), AppError> {
+    let branch_id = resolve_branch_id(repo, service_name, branch_name).await?;
+    repo.admin_set_source_protected_branch(branch_id, value)
+        .await?;
+    Ok(())
 }
 
 pub async fn list_branches(
@@ -407,5 +537,21 @@ mod tests {
             .unwrap();
         let svcs_removed = list_services_detailed(&repo, Some(42)).await.unwrap();
         assert_eq!(svcs_removed[0].name, "svc-a");
+    }
+
+    #[tokio::test]
+    async fn test_branches_ordered_protected_first_then_alphabetical() {
+        let repo = MockRepo::new();
+        // MockRepo seeds "main" and "master" as protected branches.
+        let s = repo.ensure_service("svc").await.unwrap();
+        // Insert in a deliberately unsorted order.
+        for b in ["zebra", "master", "alpha", "main"] {
+            repo.ensure_branch(s, b).await.unwrap();
+        }
+
+        let svcs = list_services_detailed(&repo, None).await.unwrap();
+        let svc = svcs.iter().find(|s| s.name == "svc").unwrap();
+        // Protected first (alphabetical among themselves), then the rest alphabetically.
+        assert_eq!(svc.branches, vec!["main", "master", "alpha", "zebra"]);
     }
 }

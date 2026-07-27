@@ -26,6 +26,7 @@ pub struct MockRepo {
     pub user_favorites: Mutex<Vec<(i64, String, String)>>,
     pub branch_timestamps: Mutex<HashMap<String, String>>,
     pub channel_message_contracts: Mutex<Vec<ChannelMessageContract>>,
+    pub source_protected_branches: Mutex<HashMap<i64, String>>,
 }
 
 impl Default for MockRepo {
@@ -58,6 +59,7 @@ impl MockRepo {
             user_favorites: Mutex::new(Vec::new()),
             branch_timestamps: Mutex::new(HashMap::new()),
             channel_message_contracts: Mutex::new(Vec::new()),
+            source_protected_branches: Mutex::new(HashMap::new()),
         }
     }
 
@@ -263,11 +265,16 @@ impl SpecRepository for MockRepo {
     }
 
     async fn is_branch_protected(&self, branch_name: &str) -> Result<bool, RepositoryError> {
+        // Uses the same shared matcher as the SQL repositories, so wildcard
+        // patterns behave identically in mock-based tests.
         let pb = self
             .protected_branches
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        Ok(pb.contains(&branch_name.to_string()))
+        Ok(crate::domain::branch_pattern::branch_matches_any(
+            branch_name,
+            &pb,
+        ))
     }
 
     async fn add_protected_branch(&self, pattern: &str) -> Result<(), RepositoryError> {
@@ -451,6 +458,9 @@ impl SpecRepository for MockRepo {
                 name: name.clone(),
                 fallback_branch: fallback_branches.get(name).cloned(),
                 branches: svc_branches,
+                branches_last_published: std::collections::HashMap::new(),
+                branches_expire_at: std::collections::HashMap::new(),
+                branches_endpoint_count: std::collections::HashMap::new(),
                 is_favorite: false,
                 icon: None,
                 domain: None,
@@ -496,6 +506,54 @@ impl SpecRepository for MockRepo {
             .unwrap_or_else(PoisonError::into_inner)
             .get(service_name)
             .cloned())
+    }
+
+    async fn set_source_protected_branch_if_unset(
+        &self,
+        branch_id: i64,
+        value: &str,
+    ) -> Result<bool, RepositoryError> {
+        let mut spb = self
+            .source_protected_branches
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if spb.contains_key(&branch_id) {
+            return Ok(false);
+        }
+        spb.insert(branch_id, value.to_string());
+        Ok(true)
+    }
+
+    async fn get_source_protected_branch(
+        &self,
+        branch_id: i64,
+    ) -> Result<Option<String>, RepositoryError> {
+        Ok(self
+            .source_protected_branches
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&branch_id)
+            .cloned())
+    }
+
+    async fn admin_set_source_protected_branch(
+        &self,
+        branch_id: i64,
+        value: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        let mut spb = self
+            .source_protected_branches
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        match value {
+            Some(v) => {
+                spb.insert(branch_id, v.to_string());
+            }
+            None => {
+                spb.remove(&branch_id);
+            }
+        }
+        Ok(())
     }
 
     async fn list_branches(&self, _service_name: &str) -> Result<Vec<String>, RepositoryError> {
@@ -1072,5 +1130,21 @@ impl SpecRepository for MockRepo {
             }
         }
         Ok(result)
+    }
+
+    async fn list_branch_last_published(
+        &self,
+    ) -> Result<Vec<(String, String, String)>, RepositoryError> {
+        // MockRepo does not track per-branch publish times, so recency ordering is
+        // exercised by the sqlite-backed integration tests instead.
+        Ok(Vec::new())
+    }
+
+    async fn list_branch_endpoint_counts(
+        &self,
+    ) -> Result<Vec<(String, String, i64)>, RepositoryError> {
+        // MockRepo does not track per-branch endpoint counts; exercised by the
+        // sqlite-backed integration tests instead.
+        Ok(Vec::new())
     }
 }

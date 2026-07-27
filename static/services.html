@@ -114,7 +114,7 @@
             hideLoader();
         } catch (err) {
             hideLoader();
-            list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${err.message}</div>`;
+            list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(err.message)}</div>`;
         }
     }
 
@@ -128,11 +128,17 @@
         showServiceBranches(serviceName);
     }
 
-    function renderServiceList(services) {
+    function renderServiceList(allServicesIn) {
         const list = document.getElementById('services-list');
         const breadcrumb = document.getElementById('service-breadcrumb');
         breadcrumb.classList.add('hidden');
         breadcrumb.innerHTML = '';
+
+        // Only show services that serve something: at least one of their
+        // branches must have at least one endpoint. A service whose only
+        // branches are empty (e.g. an OpenAPI spec provided with no paths)
+        // provides no benefit to list here.
+        const services = (allServicesIn || []).filter(svc => serviceHasAnyEndpoints(svc.name));
 
         if (!services || services.length === 0) {
             list.innerHTML = `
@@ -151,7 +157,7 @@
         list.innerHTML = '';
         for (const svc of services) {
             const name = svc.name;
-            const branches = svc.branches || [];
+            const branches = (svc.branches || []).filter(b => branchHasEndpoints(name, b));
             const isFav = !!svc.is_favorite;
             const icon = svc.icon || null;
             const domain = svc.domain || null;
@@ -165,16 +171,16 @@
                 <div class="flex items-center justify-between">
                     <div class="flex items-center">
                         <span class="bg-indigo-100 text-indigo-700 p-2 rounded-lg mr-3 flex items-center justify-center w-10 h-10">
-                            ${icon ? `<span class="text-xl">${icon}</span>` : `
+                            ${icon ? `<span class="text-xl">${escapeHtml(icon)}</span>` : `
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
                             </svg>`}
                         </span>
                         <div>
                             <div class="flex items-center gap-2">
-                                <h3 class="font-bold text-lg text-slate-800">${name}</h3>
-                                ${domain ? `<span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100 font-bold uppercase">${domain}</span>` : ''}
-                                <button onclick="toggleFavorite(event, 'service', '${name}', ${isFav})" class="text-amber-400 hover:text-amber-500 p-1 focus:outline-none rounded transition-colors" title="${isFav ? 'Remove from favorites' : 'Mark as favorite'}">
+                                <h3 class="font-bold text-lg text-slate-800">${escapeHtml(name)}</h3>
+                                ${domain ? `<span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100 font-bold uppercase">${escapeHtml(domain)}</span>` : ''}
+                                <button type="button" data-toggle-favorite class="text-amber-400 hover:text-amber-500 p-1 focus:outline-none rounded transition-colors" title="${isFav ? 'Remove from favorites' : 'Mark as favorite'}">
                                     ${isFav ? `
                                         <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
                                     ` : `
@@ -192,6 +198,11 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                     </svg>
                 </div>`;
+            // Bound as a listener rather than an `onclick` attribute so the
+            // service name (client-supplied, unvalidated) is never spliced into
+            // markup.
+            card.querySelector('[data-toggle-favorite]')
+                .addEventListener('click', (event) => toggleFavorite(event, 'service', name, isFav));
             list.appendChild(card);
         }
     }
@@ -213,9 +224,11 @@
         breadcrumb.innerHTML = `
             <button onclick="goBackToServices()" class="hover:text-indigo-600 font-medium">Services</button>
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-            <span class="text-slate-800 font-semibold">${serviceName}</span>`;
+            <span class="text-slate-800 font-semibold">${escapeHtml(serviceName)}</span>`;
 
-        const branches = allServiceBranches[serviceName] || [];
+        // Only branches that actually serve something belong in the server view —
+        // an empty branch (e.g. an OpenAPI spec with no paths) gives no benefit here.
+        const branches = (allServiceBranches[serviceName] || []).filter(b => branchHasEndpoints(serviceName, b));
         list.innerHTML = '';
 
         if (branches.length === 0) {
@@ -223,7 +236,23 @@
             return;
         }
 
+        const lastPublishedMap = allServiceLastPublished[serviceName] || {};
+        const expireMap = allServiceExpireAt[serviceName] || {};
         for (const branch of branches) {
+            const iso = lastPublishedMap[branch];
+            const lastPublished = iso
+                ? `Last published ${iso.slice(0, 16).replace('T', ' ')}`
+                : 'No publishes yet';
+            // Stale-cleanup TTL: warn when a non-protected branch is due to be culled soon.
+            let ttlBadge = '';
+            const expireIso = expireMap[branch];
+            if (expireIso) {
+                const daysLeft = Math.ceil((new Date(expireIso).getTime() - Date.now()) / 86400000);
+                if (daysLeft <= 3) {
+                    const label = daysLeft <= 0 ? 'Expiring' : `Expires in ${daysLeft}d`;
+                    ttlBadge = `<span class="text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter mr-2" title="This branch has had no publish recently and will be removed by stale-branch cleanup.">${label}</span>`;
+                }
+            }
             const card = document.createElement('div');
             card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
             card.onclick = () => {
@@ -238,13 +267,41 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
                             </svg>
                         </span>
-                        <h3 class="font-semibold text-slate-800">${branch}</h3>
+                        <div>
+                            <h3 class="font-semibold text-slate-800">${escapeHtml(branch)}</h3>
+                            <p class="text-xs text-slate-400 mt-0.5">${escapeHtml(lastPublished)}</p>
+                        </div>
                     </div>
-                    <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                    </svg>
+                    <div class="flex items-center">
+                        ${ttlBadge}
+                        <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </div>
                 </div>`;
             list.appendChild(card);
+        }
+    }
+
+    async function downloadFullApi(service, branch, apiType) {
+        try {
+            const res = await apiCall(`/admin/services/${encodeURIComponent(service)}/branches/${encodeURIComponent(branch)}/full-spec?api_type=${encodeURIComponent(apiType)}`);
+            if (!res.ok) {
+                alert('Failed to load the full API spec for this branch.');
+                return;
+            }
+            const text = await res.text();
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${service}-${branch}.yaml`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            alert('Failed to download the full API: ' + e.message);
         }
     }
 
@@ -253,17 +310,32 @@
         const list = document.getElementById('services-list');
         const breadcrumb = document.getElementById('service-breadcrumb');
         breadcrumb.classList.remove('hidden');
+        // Service and branch names come straight from client `/provide` payloads
+        // and are not validated, so they must never be interpolated raw into
+        // markup — escape text, and attach handlers as listeners rather than
+        // building `onclick="..."` attributes out of them.
         breadcrumb.innerHTML = `
             <button onclick="goBackToServices()" class="hover:text-indigo-600 font-medium">Services</button>
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-            <button onclick="goBackToBranches('${serviceName.replace(/'/g, "\\'")}')" class="hover:text-indigo-600 font-medium">${serviceName}</button>
+            <button type="button" data-back-to-branches class="hover:text-indigo-600 font-medium">${escapeHtml(serviceName)}</button>
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-            <span class="text-slate-800 font-semibold">${branchName}</span>`;
+            <span class="text-slate-800 font-semibold">${escapeHtml(branchName)}</span>`;
+        breadcrumb.querySelector('[data-back-to-branches]')
+            .addEventListener('click', () => goBackToBranches(serviceName));
 
         list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading endpoints...</div>';
 
         try {
             const providedEndpoints = await fetchJSON(`/admin/services/${encodeURIComponent(serviceName)}/branches/${encodeURIComponent(branchName)}/endpoints`);
+            if (providedEndpoints && providedEndpoints.length > 0) {
+                const apiType = providedEndpoints[0].api_type || 'openapi';
+                const dlBtn = document.createElement('button');
+                dlBtn.type = 'button';
+                dlBtn.className = 'ml-4 px-2.5 py-1 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700';
+                dlBtn.textContent = 'Download full API';
+                dlBtn.addEventListener('click', () => downloadFullApi(serviceName, branchName, apiType));
+                breadcrumb.appendChild(dlBtn);
+            }
             let report = { dependency_graph: [], unused_endpoints: [] };
             try {
                 report = await fetchJSON(`/report?branch=${encodeURIComponent(branchName)}`);
@@ -328,19 +400,19 @@
                     <div class="flex items-center justify-between">
                         <div class="flex items-center">
                             <span class="px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider mr-2 bg-slate-100 text-slate-500 border border-slate-200">
-                                ${ep.api_type || 'REST'}
+                                ${escapeHtml(ep.api_type || 'REST')}
                             </span>
                             <span class="px-2 py-1 rounded text-[10px] font-bold uppercase mr-3 ${getMethodColor(ep.method)}">
-                                ${ep.method}
+                                ${escapeHtml(ep.method)}
                             </span>
-                            <span class="font-mono text-sm text-slate-700">${ep.path}</span>
+                            <span class="font-mono text-sm text-slate-700">${escapeHtml(ep.path)}</span>
                             ${ep.deprecated ? '<span class="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">deprecated</span>' : ''}
                             ${ep.external ? '<span class="text-[10px] text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">external</span>' : ''}
                         </div>
                         <div class="flex items-center">
                             ${isUnused
                                 ? '<span class="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full mr-2">unused</span>'
-                                : `<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2 relative client-badge-wrapper" data-clients="${clients.map(c => c).join(',')}" onclick="event.stopPropagation(); toggleClientPopover(this)">${clients.length} client${clients.length !== 1 ? 's' : ''} ▾</span>`}
+                                : `<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2 relative client-badge-wrapper" data-clients="${escapeHtml(clients.join(','))}" onclick="event.stopPropagation(); toggleClientPopover(this)">${clients.length} client${clients.length !== 1 ? 's' : ''} ▾</span>`}
                             <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                             </svg>
@@ -350,7 +422,7 @@
             }
         } catch (err) {
             hideLoader();
-            list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${err.message}</div>`;
+            list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(err.message)}</div>`;
         }
     }
 
@@ -361,9 +433,20 @@
         if (clients.length === 0) return;
         const popover = document.createElement('div');
         popover.className = 'client-popover absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 py-1 min-w-[180px]';
-        popover.innerHTML = clients.map(c =>
-            `<button class="block w-full text-left px-3 py-1.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700" onclick="event.stopPropagation(); navigateToClient('${c}')">${c}</button>`
-        ).join('');
+        // Client names are client-supplied and unvalidated: build each entry as
+        // a node with textContent and a bound listener, never as interpolated
+        // markup.
+        for (const c of clients) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'block w-full text-left px-3 py-1.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700';
+            btn.textContent = c;
+            btn.addEventListener('click', (event) => {
+                event.stopPropagation();
+                navigateToClient(c);
+            });
+            popover.appendChild(btn);
+        }
         badge.style.position = 'relative';
         badge.appendChild(popover);
         setTimeout(() => {

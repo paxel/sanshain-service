@@ -907,6 +907,36 @@ impl SpecRepository for CachedSpecRepository {
         Ok(result)
     }
 
+    // Not cached: this field directly drives fallback-resolution correctness
+    // (item #17), so a stale read would risk reintroducing the exact
+    // wrong-branch-served bug the feature exists to fix.
+    async fn set_source_protected_branch_if_unset(
+        &self,
+        branch_id: i64,
+        value: &str,
+    ) -> Result<bool, RepositoryError> {
+        self.inner
+            .set_source_protected_branch_if_unset(branch_id, value)
+            .await
+    }
+
+    async fn get_source_protected_branch(
+        &self,
+        branch_id: i64,
+    ) -> Result<Option<String>, RepositoryError> {
+        self.inner.get_source_protected_branch(branch_id).await
+    }
+
+    async fn admin_set_source_protected_branch(
+        &self,
+        branch_id: i64,
+        value: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .admin_set_source_protected_branch(branch_id, value)
+            .await
+    }
+
     async fn list_branches(&self, service_name: &str) -> Result<Vec<String>, RepositoryError> {
         if !self.is_disabled()
             && let Some(cached) = self
@@ -1265,6 +1295,18 @@ impl SpecRepository for CachedSpecRepository {
 
     async fn list_branches_with_metadata(&self) -> Result<Vec<BranchMetadata>, RepositoryError> {
         self.inner.list_branches_with_metadata().await
+    }
+
+    async fn list_branch_last_published(
+        &self,
+    ) -> Result<Vec<(String, String, String)>, RepositoryError> {
+        self.inner.list_branch_last_published().await
+    }
+
+    async fn list_branch_endpoint_counts(
+        &self,
+    ) -> Result<Vec<(String, String, i64)>, RepositoryError> {
+        self.inner.list_branch_endpoint_counts().await
     }
 }
 

@@ -290,18 +290,14 @@ impl SpecRepository for PostgresSpecRepository {
         branch_name: &str,
     ) -> Result<i64, RepositoryError> {
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        // Only create the branch here; do NOT bump `updated_at` on existing branches.
+        // `ensure_branch` is called on read paths too, so bumping here would make
+        // `updated_at` mean "last touched" instead of "last published". The publish
+        // write-path (`apply_spec_changes`) advances `updated_at`.
         sqlx::query("INSERT INTO branches (service_id, name, updated_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING")
             .bind(service_id)
             .bind(branch_name)
             .bind(&now)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        sqlx::query("UPDATE branches SET updated_at = $1 WHERE service_id = $2 AND name = $3")
-            .bind(&now)
-            .bind(service_id)
-            .bind(branch_name)
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -678,14 +674,16 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn is_branch_protected(&self, branch_name: &str) -> Result<bool, RepositoryError> {
-        let row: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM protected_branches WHERE pattern = $1")
-                .bind(branch_name)
-                .fetch_one(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        Ok(row.0 > 0)
+        // Matching runs in Rust (`branch_pattern`) rather than in SQL so both
+        // backends agree on what a pattern means. Using `LIKE` here would make
+        // `_` a single-character wildcard on this backend only, so a pattern
+        // like `feature_x` would silently protect `featureAx` on PostgreSQL
+        // and not on SQLite.
+        let patterns = self.list_protected_branches().await?;
+        Ok(crate::domain::branch_pattern::branch_matches_any(
+            branch_name,
+            &patterns,
+        ))
     }
 
     async fn add_protected_branch(&self, pattern: &str) -> Result<(), RepositoryError> {
@@ -728,6 +726,15 @@ impl SpecRepository for PostgresSpecRepository {
             .bind(params.api_type.as_str())
             .bind(params.path)
             .bind(params.method)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // An admin manual edit is branch activity — advance the branch's
+        // last-published time so it does not look stale (and is not culled).
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        sqlx::query("UPDATE branches SET updated_at = $1 WHERE id = $2")
+            .bind(&now)
+            .bind(params.branch_id)
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -1214,6 +1221,9 @@ impl SpecRepository for PostgresSpecRepository {
                     name,
                     fallback_branch,
                     branches: branches.unwrap_or_default(),
+                    branches_last_published: std::collections::HashMap::new(),
+                    branches_expire_at: std::collections::HashMap::new(),
+                    branches_endpoint_count: std::collections::HashMap::new(),
                     is_favorite: false,
                     icon,
                     domain,
@@ -1263,6 +1273,49 @@ impl SpecRepository for PostgresSpecRepository {
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(row.and_then(|r| r.0))
+    }
+
+    async fn set_source_protected_branch_if_unset(
+        &self,
+        branch_id: i64,
+        value: &str,
+    ) -> Result<bool, RepositoryError> {
+        let result = sqlx::query(
+            "UPDATE branches SET source_protected_branch = $1 WHERE id = $2 AND source_protected_branch IS NULL",
+        )
+        .bind(value)
+        .bind(branch_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn get_source_protected_branch(
+        &self,
+        branch_id: i64,
+    ) -> Result<Option<String>, RepositoryError> {
+        let row: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT source_protected_branch FROM branches WHERE id = $1")
+                .bind(branch_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.and_then(|r| r.0))
+    }
+
+    async fn admin_set_source_protected_branch(
+        &self,
+        branch_id: i64,
+        value: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE branches SET source_protected_branch = $1 WHERE id = $2")
+            .bind(value)
+            .bind(branch_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
     }
 
     async fn list_branches(&self, service_name: &str) -> Result<Vec<String>, RepositoryError> {
@@ -1631,20 +1684,27 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn delete_stale_branches(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
-        let stale_branch_ids: Vec<(i64,)> = sqlx::query_as(
+        // Protection is decided in Rust (`branch_pattern`), the same way
+        // `is_branch_protected` does it, so a branch can never be culled here
+        // while counting as protected elsewhere.
+        let patterns = self.list_protected_branches().await?;
+        let candidates: Vec<(i64, String)> = sqlx::query_as(
             r#"
-            SELECT b.id FROM branches b
+            SELECT b.id, b.name FROM branches b
             JOIN services s ON b.service_id = s.id
             WHERE b.updated_at < $1
-            AND NOT EXISTS (
-                SELECT 1 FROM protected_branches pb WHERE b.name LIKE pb.pattern OR b.name = pb.pattern
-            )
             "#,
         )
         .bind(cutoff_iso)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        let stale_branch_ids: Vec<(i64,)> = candidates
+            .into_iter()
+            .filter(|(_, name)| !crate::domain::branch_pattern::branch_matches_any(name, &patterns))
+            .map(|(id, _)| (id,))
+            .collect();
 
         if stale_branch_ids.is_empty() {
             return Ok(0);
@@ -1900,6 +1960,15 @@ impl SpecRepository for PostgresSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+
+        // Advance the branch's `updated_at` on every publish (provide), so it
+        // reflects the last-published time. Read paths no longer bump it.
+        sqlx::query("UPDATE branches SET updated_at = $1 WHERE id = $2")
+            .bind(&now)
+            .bind(branch_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         for change in changes {
             match change {
@@ -2419,5 +2488,32 @@ impl SpecRepository for PostgresSpecRepository {
                 last_modified,
             })
             .collect())
+    }
+
+    async fn list_branch_last_published(
+        &self,
+    ) -> Result<Vec<(String, String, String)>, RepositoryError> {
+        sqlx::query_as(
+            "SELECT s.name, b.name, b.updated_at
+             FROM branches b JOIN services s ON s.id = b.service_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))
+    }
+
+    async fn list_branch_endpoint_counts(
+        &self,
+    ) -> Result<Vec<(String, String, i64)>, RepositoryError> {
+        sqlx::query_as(
+            "SELECT s.name, b.name, COUNT(e.id)
+             FROM branches b
+             JOIN services s ON s.id = b.service_id
+             LEFT JOIN endpoints e ON e.branch_id = b.id AND e.deleted = FALSE
+             GROUP BY s.id, b.id, s.name, b.name",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))
     }
 }
