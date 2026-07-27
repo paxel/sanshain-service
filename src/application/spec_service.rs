@@ -790,7 +790,15 @@ pub async fn get_endpoint_yaml(
     path: &str,
     method: &str,
 ) -> Result<String, AppError> {
-    let service_id = repo.ensure_service(servicename).await?;
+    // Read path: resolve, never create. `ensure_service` here would mint a
+    // service row for any mistyped or stale URL. An unknown service simply has
+    // no such endpoint, which is the same answer it gave before.
+    let Some(service_id) = repo.find_service(servicename).await? else {
+        return Err(AppError::NotFound(format!(
+            "Endpoint not found: {} {} (service: {}, branch: {})",
+            method, path, servicename, branch
+        )));
+    };
     let method_to_use = match api_type {
         ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
         ApiType::Proto => method.to_string(),
@@ -823,8 +831,17 @@ pub async fn list_service_endpoints(
     servicename: &str,
     branch: &str,
 ) -> Result<Vec<EndpointRecord>, AppError> {
-    let service_id = repo.ensure_service(servicename).await?;
-    let branch_id = repo.ensure_branch(service_id, branch).await?;
+    // Read path: resolve, never create. This previously called
+    // `ensure_service`/`ensure_branch`, so merely browsing a mistyped or stale
+    // branch URL minted a permanent empty branch that then showed up in listings
+    // and cleanup. An unknown service or branch serves nothing, which is the
+    // same empty list callers already handled.
+    let Some(service_id) = repo.find_service(servicename).await? else {
+        return Ok(Vec::new());
+    };
+    let Some(branch_id) = repo.find_branch(service_id, branch).await? else {
+        return Ok(Vec::new());
+    };
     Ok(repo.get_endpoints_for_branch(branch_id).await?)
 }
 
@@ -869,7 +886,11 @@ pub async fn get_endpoint_version_history(
     path: &str,
     method: &str,
 ) -> Result<Vec<EndpointVersion>, AppError> {
-    let service_id = repo.ensure_service(servicename).await?;
+    // Read path: resolve, never create. An unknown service has no history,
+    // which is the same 404 this produced before creating the row.
+    let Some(service_id) = repo.find_service(servicename).await? else {
+        return Err(AppError::NotFound("Endpoint not found".to_string()));
+    };
     let method_to_use = match api_type {
         ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
         ApiType::Proto => method.to_string(),

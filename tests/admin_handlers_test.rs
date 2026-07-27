@@ -2046,3 +2046,84 @@ async fn wildcard_protected_pattern_resolves_as_fallback() {
         "a wildcard-protected branch must be reachable as a fallback target"
     );
 }
+
+// --- Read paths must resolve, never create ---
+
+// Browsing a service/branch that does not exist must not bring it into
+// existence. `list_service_endpoints` used to call ensure_service/ensure_branch,
+// so a mistyped or stale URL minted a permanent empty branch that then appeared
+// in the services overview and the stale-cleanup horizon.
+#[tokio::test]
+async fn browsing_an_unknown_branch_does_not_create_it() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let repo = spb_test_repo().await;
+    services::provide_spec(
+        &repo,
+        "svc",
+        "main",
+        ApiType::OpenApi,
+        SPB_SPEC,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    // A branch that was never published, on a real service.
+    let listed = services::list_service_endpoints(&repo, "svc", "ghost-branch")
+        .await
+        .unwrap();
+    assert!(listed.is_empty(), "an unknown branch serves nothing");
+
+    let sid = repo.ensure_service("svc").await.unwrap();
+    assert!(
+        repo.find_branch(sid, "ghost-branch")
+            .await
+            .unwrap()
+            .is_none(),
+        "browsing a branch must not create it"
+    );
+
+    // A service that does not exist at all.
+    let listed = services::list_service_endpoints(&repo, "no-such-svc", "main")
+        .await
+        .unwrap();
+    assert!(listed.is_empty());
+    assert!(
+        repo.find_service("no-such-svc").await.unwrap().is_none(),
+        "browsing a service must not create it"
+    );
+}
+
+// The endpoint spec and history views are reads too: an unknown service must
+// 404 without being created as a side effect.
+#[tokio::test]
+async fn viewing_an_unknown_service_does_not_create_it() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let repo = spb_test_repo().await;
+
+    let yaml =
+        services::get_endpoint_yaml(&repo, "ghost-svc", "main", ApiType::OpenApi, "/p", "get")
+            .await;
+    assert!(yaml.is_err(), "unknown service has no endpoint yaml");
+
+    let history = services::get_endpoint_version_history(
+        &repo,
+        "ghost-svc-2",
+        "main",
+        ApiType::OpenApi,
+        "/p",
+        "GET",
+    )
+    .await;
+    assert!(history.is_err(), "unknown service has no history");
+
+    for name in ["ghost-svc", "ghost-svc-2"] {
+        assert!(
+            repo.find_service(name).await.unwrap().is_none(),
+            "{name} must not have been created by a read"
+        );
+    }
+}
