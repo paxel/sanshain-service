@@ -55,6 +55,7 @@ pub async fn provide_spec(
             force,
             username: None,
             source_protected_branch: None,
+            author: None,
         },
     )
     .await
@@ -81,6 +82,7 @@ pub async fn provide_spec_dry_run(
             force,
             username: None,
             source_protected_branch: None,
+            author: None,
         },
     )
     .await
@@ -97,6 +99,8 @@ pub struct ProvideSpecParams<'a> {
     pub force: bool,
     /// Sticky hint (item #17): see `RequireQuery::source_protected_branch`.
     pub source_protected_branch: Option<&'a str>,
+    /// Client-supplied blame override (item #15): see `ProvideRequest::author`.
+    pub author: Option<&'a str>,
 }
 
 pub async fn provide_spec_with_tags(
@@ -117,6 +121,7 @@ pub async fn provide_spec_with_tags(
             force: params.force,
             username: None,
             source_protected_branch: params.source_protected_branch,
+            author: params.author,
         },
     )
     .await
@@ -140,6 +145,7 @@ pub async fn provide_spec_with_actor(
             force: params.force,
             username,
             source_protected_branch: params.source_protected_branch,
+            author: params.author,
         },
     )
     .await
@@ -154,8 +160,13 @@ struct ProvideInternalParams<'a> {
     pub extra_tags: &'a [String],
     pub base_version: Option<String>,
     pub force: bool,
+    /// The real authenticated actor — always used for the audit log.
     pub username: Option<&'a str>,
     pub source_protected_branch: Option<&'a str>,
+    /// Client-supplied blame override (item #15) — used for version-history
+    /// attribution only, in place of `username`, when present. Never affects
+    /// the audit log.
+    pub author: Option<&'a str>,
 }
 
 /// A compact fingerprint of submitted spec content for diagnostics: its byte
@@ -264,7 +275,13 @@ async fn provide_spec_inner(
         force,
         username,
         source_protected_branch,
+        author,
     } = params;
+    // Blame attribution (item #15): a client-supplied author overrides the real
+    // authenticated actor for version-history display only. The audit log
+    // (recorded separately, in the presentation-layer handler) always uses the
+    // real actor and is untouched by this.
+    let blame_username = author.or(username);
 
     tracing::debug!(
         "Providing {:?} for service '{}' branch '{}' (dry_run: {}, base_version: {:?})",
@@ -542,7 +559,7 @@ async fn provide_spec_inner(
         });
     }
 
-    repo.apply_spec_changes(bid, changes, is_protected, username, Some(branch))
+    repo.apply_spec_changes(bid, changes, is_protected, blame_username, Some(branch))
         .await?;
 
     // Apply the planned channel-message-contract mutations after the endpoint

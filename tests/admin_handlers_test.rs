@@ -1123,6 +1123,7 @@ async fn source_protected_branch_first_write_sets_it() {
             base_version: None,
             force: false,
             source_protected_branch: Some("release/1.0"),
+            author: None,
         },
         Some("ci-bot"),
     )
@@ -1166,6 +1167,7 @@ async fn source_protected_branch_mismatch_is_logged_and_ignored() {
             base_version: None,
             force: false,
             source_protected_branch: Some("release/1.0"),
+            author: None,
         },
         Some("ci-bot"),
     )
@@ -1197,6 +1199,7 @@ async fn source_protected_branch_mismatch_is_logged_and_ignored() {
                 base_version: None,
                 force: false,
                 source_protected_branch: Some("master"),
+                author: None,
             },
             Some("ci-bot"),
         )
@@ -1244,6 +1247,7 @@ async fn source_protected_branch_matching_resupply_is_noop_no_log() {
             base_version: None,
             force: false,
             source_protected_branch: Some("release/1.0"),
+            author: None,
         },
         Some("ci-bot"),
     )
@@ -1276,6 +1280,7 @@ async fn source_protected_branch_matching_resupply_is_noop_no_log() {
                 base_version: None,
                 force: false,
                 source_protected_branch: Some("release/1.0"),
+                author: None,
             },
             Some("ci-bot"),
         )
@@ -1320,6 +1325,7 @@ async fn admin_correction_always_overwrites_source_protected_branch() {
             base_version: None,
             force: false,
             source_protected_branch: Some("release/1.0"),
+            author: None,
         },
         Some("ci-bot"),
     )
@@ -1356,6 +1362,7 @@ async fn admin_correction_always_overwrites_source_protected_branch() {
             base_version: None,
             force: false,
             source_protected_branch: Some("master"),
+            author: None,
         },
         Some("ci-bot"),
     )
@@ -1632,4 +1639,134 @@ async fn admin_source_protected_branch_endpoint_is_admin_only_and_works() {
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+// --- Item #15: `author` provide override (blame only, not the audit log) ---
+
+// A client-supplied `author` overrides who gets credited in the endpoint's
+// version history (blame), but the audit log must still record the real
+// authenticated caller — the two must never be conflated.
+#[tokio::test]
+async fn author_override_affects_blame_but_not_audit_log() {
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let (app, repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+
+    let spec = r#"openapi: 3.0.0
+info: {title: demo, version: v1}
+paths:
+  /hello:
+    get:
+      responses:
+        '200': { description: ok }
+  /blame-test:
+    get:
+      responses:
+        '200': { description: ok }
+"#;
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "servicename": "demo-svc",
+                        "branch": "main",
+                        "openapi_yaml": spec,
+                        "author": "external.author@example.com",
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+
+    // Blame: the version history for the new endpoint must credit the
+    // client-supplied author, not the real authenticated caller ("root").
+    let versions = services::get_endpoint_version_history(
+        &repo,
+        "demo-svc",
+        "main",
+        ApiType::OpenApi,
+        "/blame-test",
+        "GET",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        versions[0].username.as_deref(),
+        Some("external.author@example.com"),
+        "author override must be used for version-history blame"
+    );
+
+    // Audit log: must still record the real authenticated caller, never the
+    // client-supplied author.
+    let logs = repo.get_audit_logs(all_audit_logs_filter()).await.unwrap();
+    let provide_log = logs
+        .iter()
+        .find(|l| l.action == "PROVIDE_SPEC" && l.service.as_deref() == Some("demo-svc"))
+        .expect("provide must be audited");
+    assert_eq!(
+        provide_log.username, "root",
+        "the audit log must record the real authenticated caller, not the author override"
+    );
+}
+
+// Without an `author` override, blame falls back to the real authenticated
+// caller — unchanged prior behavior.
+#[tokio::test]
+async fn author_absent_falls_back_to_real_username_for_blame() {
+    let (app, repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+
+    let spec = r#"openapi: 3.0.0
+info: {title: demo, version: v1}
+paths:
+  /hello:
+    get:
+      responses:
+        '200': { description: ok }
+  /no-author:
+    get:
+      responses:
+        '200': { description: ok }
+"#;
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "servicename": "demo-svc",
+                        "branch": "main",
+                        "openapi_yaml": spec,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+
+    let versions = services::get_endpoint_version_history(
+        &repo,
+        "demo-svc",
+        "main",
+        ApiType::OpenApi,
+        "/no-author",
+        "GET",
+    )
+    .await
+    .unwrap();
+    assert_eq!(versions[0].username.as_deref(), Some("root"));
 }

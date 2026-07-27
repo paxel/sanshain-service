@@ -475,22 +475,41 @@ mirrors that per-backend, but the cross-backend divergence in what a pattern *me
 work and should be reconciled separately (pick one canonical wildcard syntax, translate at the
 boundary).
 
-### 15. Blame on master: attribute to the real author, not the CI
+### 15. Blame on master: attribute to the real author, not the CI — DONE 2026-07-27
 
 **Symptom:** On `master`, the CI is always the provider, so all master history is blamed on the CI
 account/token (e.g. the `maven` token). The human who actually authored the change is lost.
 
-**Plan (feature, DECISION NEEDED on the mechanism):** let a provide carry an *author* distinct from
-the *actor* — e.g. an optional author field (git commit author / a header the CI forwards), stored
-in `endpoint_version_metadata` alongside the existing `username`/`source_branch`. Fallback: if the
-same change was first seen on a feature branch provided by a human, attribute master's adoption to
-that human. Record both "pushed by (actor)" and "authored by (author)" and show the author as the
-blame. Requires: metadata schema addition (migration), provide API/param change, and blame
-rendering in `yaml.html`.
+**Resolved as a pure client-side override**, simpler than the original plan below: no fallback
+heuristics, no dual "pushed by / authored by" storage, no schema change. A `/provide` request may
+carry an optional `author` field; when present, it overrides the real authenticated caller *only*
+in `endpoint_version_metadata.username` (what `yaml.html`'s blame view shows). The audit log —
+recorded separately, in the presentation-layer handler — always uses the real authenticated caller
+and is untouched by `author`. Sanshain has no git access, so this is an unverified client hint by
+design (e.g. a CI pipeline forwarding the real commit author instead of its own service-account
+identity), not an attempt at server-side attribution.
 
-**Relevant areas:** `endpoint_version_metadata` schema (migration),
-`src/application/spec_service.rs` (provide flow, blame), provide handlers + `api.yaml`,
-`static/yaml.html` (blame view).
+**Implementation:**
+- `ProvideRequest`/`ProvideAsyncApiRequest`/`ProvideProtoRequest`/`ProvideSpecParams` gained an
+  `author: Option<String>` field, threaded through to `ProvideInternalParams`.
+- `provide_spec_inner` (`src/application/spec_service.rs`) computes
+  `let blame_username = author.or(username);` and passes `blame_username` (not `username`) to
+  `repo.apply_spec_changes`, which writes it into `endpoint_version_metadata.username` — the real
+  `username` is left untouched everywhere else (audit log call sites in the handlers still use the
+  real authenticated actor).
+- No migration needed — reuses the existing `endpoint_version_metadata.username` column.
+- `api.yaml`: `author` added to `ProvidePayload`/`ProvideAsyncApiPayload`/`ProvideProtoPayload`.
+- Tests (`tests/admin_handlers_test.rs`): `author_override_affects_blame_but_not_audit_log`
+  (override changes blame, audit log still shows the real caller) and
+  `author_absent_falls_back_to_real_username_for_blame` (unchanged prior behavior when omitted).
+
+**Original plan (not pursued, kept for context):** attribute master's adoption of a change to
+whichever human first provided it on a feature branch, and record both "pushed by" and "authored
+by" separately. Deferred as unnecessary complexity — the client-supplied `author` hint is
+sufficient and keeps the audit trail's actor field unambiguous.
+
+**Relevant areas:** `src/application/spec_service.rs` (provide flow, blame), provide handlers +
+`api.yaml`, `static/yaml.html` (blame view, unchanged — already renders `username`).
 
 ### 17. No real notion of which protected branch a feature branch descends from — DONE 2026-07-26
 

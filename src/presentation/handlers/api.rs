@@ -48,6 +48,12 @@ pub struct ProvideRequest {
     /// has no data of its own (item #17). Only takes effect the first time it
     /// is supplied for a given branch — see `services::apply_source_protected_branch_hint`.
     pub source_protected_branch: Option<String>,
+    /// Client-supplied override for who authored this change, for blame/version
+    /// history display only (item #15). Sanshain has no git access, so this is a
+    /// pure client hint — e.g. a CI pipeline forwarding the real commit author
+    /// instead of its own service-account identity. Does **not** affect the
+    /// audit log, which always records the real authenticated caller.
+    pub author: Option<String>,
 }
 
 pub async fn provide(
@@ -82,6 +88,7 @@ pub async fn provide(
                 base_version: payload.base_version,
                 force: payload.force,
                 source_protected_branch: payload.source_protected_branch.as_deref(),
+                author: payload.author.as_deref(),
             },
             Some(&actor),
         )
@@ -126,6 +133,8 @@ pub struct ProvideAsyncApiRequest {
     pub force: bool,
     /// See `ProvideRequest::source_protected_branch`.
     pub source_protected_branch: Option<String>,
+    /// See `ProvideRequest::author`.
+    pub author: Option<String>,
 }
 
 pub async fn provide_asyncapi(
@@ -149,6 +158,7 @@ pub async fn provide_asyncapi(
             base_version: payload.base_version,
             force: payload.force,
             source_protected_branch: payload.source_protected_branch.as_deref(),
+            author: payload.author.as_deref(),
         },
         Some(&actor),
     )
@@ -187,6 +197,8 @@ pub struct ProvideProtoRequest {
     pub force: bool,
     /// See `ProvideRequest::source_protected_branch`.
     pub source_protected_branch: Option<String>,
+    /// See `ProvideRequest::author`.
+    pub author: Option<String>,
 }
 
 pub async fn provide_proto(
@@ -210,6 +222,7 @@ pub async fn provide_proto(
             base_version: payload.base_version,
             force: payload.force,
             source_protected_branch: payload.source_protected_branch.as_deref(),
+            author: payload.author.as_deref(),
         },
         Some(&actor),
     )

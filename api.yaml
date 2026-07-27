@@ -689,6 +689,14 @@ components:
             takes effect the first time it is supplied for a given branch — once set
             (by any caller, or an admin), later differing values are ignored (and logged
             as a mismatch); only an admin can change it afterward.
+        author:
+          type: string
+          description: |
+            Client-supplied override for who authored this change, used for blame/version
+            history display only (e.g. a CI pipeline forwarding the real commit author
+            instead of its own service-account identity). Sanshain has no git access, so
+            this is a pure client hint with no verification. Never affects the audit log,
+            which always records the real authenticated caller.
     ProvideAsyncApiPayload:
       type: object
       required:
@@ -720,6 +728,9 @@ components:
         source_protected_branch:
           type: string
           description: See `ProvidePayload.source_protected_branch`.
+        author:
+          type: string
+          description: See `ProvidePayload.author`.
     ProvideProtoPayload:
       type: object
       required:
@@ -751,6 +762,9 @@ components:
         source_protected_branch:
           type: string
           description: See `ProvidePayload.source_protected_branch`.
+        author:
+          type: string
+          description: See `ProvidePayload.author`.
     ProvideResponse:
       type: object
       properties:

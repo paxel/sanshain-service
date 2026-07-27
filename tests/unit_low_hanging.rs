@@ -373,6 +373,7 @@ paths:
             base_version: None,
             force: false,
             source_protected_branch: None,
+            author: None,
         },
         &tags,
     )

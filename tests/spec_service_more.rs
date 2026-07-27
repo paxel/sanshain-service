@@ -82,6 +82,7 @@ async fn provide_with_tags_persists_and_auto_tag() {
             base_version: None,
             force: false,
             source_protected_branch: None,
+            author: None,
         },
         &["custom".to_string()],
     )
