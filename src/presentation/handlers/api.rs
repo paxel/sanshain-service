@@ -36,6 +36,7 @@ async fn record_audit_log(
 
 #[derive(Deserialize)]
 pub struct ProvideRequest {
+    #[serde(alias = "servicename")]
     pub producername: String,
     pub branch: String,
     pub openapi_yaml: String,
@@ -129,6 +130,7 @@ pub async fn provide(
 
 #[derive(Deserialize)]
 pub struct ProvideAsyncApiRequest {
+    #[serde(alias = "servicename")]
     pub producername: String,
     pub branch: String,
     pub asyncapi_yaml: String,
@@ -197,6 +199,7 @@ pub async fn provide_asyncapi(
 
 #[derive(Deserialize)]
 pub struct ProvideProtoRequest {
+    #[serde(alias = "servicename")]
     pub producername: String,
     pub branch: String,
     pub proto_content: String,
@@ -265,7 +268,9 @@ pub async fn provide_proto(
 
 #[derive(Deserialize)]
 pub struct RequireQuery {
+    #[serde(alias = "clientname")]
     pub consumername: String,
+    #[serde(alias = "servicename")]
     pub producername: String,
     pub branch: String,
     pub path: String,
@@ -498,7 +503,9 @@ pub struct BundleEndpoint {
 
 #[derive(Deserialize)]
 pub struct RequireBundleRequest {
+    #[serde(alias = "clientname")]
     pub consumername: String,
+    #[serde(alias = "servicename")]
     pub producername: String,
     pub branch: String,
     pub api_type: Option<ApiType>,

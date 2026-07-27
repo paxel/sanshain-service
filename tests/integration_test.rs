@@ -5110,3 +5110,238 @@ paths:
         .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 }
+
+// --- Backward compat: legacy `servicename`/`clientname` field names (issue #4) ---
+//
+// 1.6.0 renamed servicename -> producername and clientname -> consumername on
+// every /provide* and /require* payload, described as breaking with no aliases.
+// Every known client (Go/JS/Rust/Conan/Maven) still sends the old names, so this
+// restores acceptance of both, with no other behavior change.
+
+#[tokio::test]
+async fn legacy_servicename_accepted_on_provide() {
+    let app = setup_app_dev_mode().await;
+
+    let openapi_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Legacy Test API
+  version: 1.0.0
+paths:
+  /legacy:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+    let payload = json!({
+        "servicename": "legacy-provide-svc",
+        "branch": "main",
+        "openapi_yaml": openapi_yaml
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+}
+
+#[tokio::test]
+async fn legacy_servicename_accepted_on_provide_asyncapi() {
+    let app = setup_app_dev_mode().await;
+
+    let asyncapi_yaml = r#"
+asyncapi: 2.6.0
+info:
+  title: Legacy Async API
+  version: 1.0.0
+channels:
+  legacy/channel:
+    subscribe:
+      message:
+        payload:
+          type: object
+"#;
+    let payload = json!({
+        "servicename": "legacy-async-svc",
+        "branch": "main",
+        "asyncapi_yaml": asyncapi_yaml
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide/asyncapi")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+}
+
+#[tokio::test]
+async fn legacy_servicename_accepted_on_provide_proto() {
+    let app = setup_app_dev_mode().await;
+
+    let proto_content = r#"syntax = "proto3";
+package legacy;
+
+service LegacyService {
+  rpc Ping (PingRequest) returns (PingResponse);
+}
+
+message PingRequest {}
+message PingResponse {}
+"#;
+    let payload = json!({
+        "servicename": "legacy-proto-svc",
+        "branch": "main",
+        "proto_content": proto_content
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide/grpc")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+}
+
+#[tokio::test]
+async fn legacy_clientname_and_servicename_accepted_on_require() {
+    let app = setup_app_dev_mode().await;
+
+    let openapi_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Legacy Require API
+  version: 1.0.0
+paths:
+  /legacy-require:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+    let provide_payload = json!({
+        "producername": "legacy-require-svc",
+        "branch": "main",
+        "openapi_yaml": openapi_yaml
+    });
+    let provide_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&provide_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(provide_res.status(), StatusCode::ACCEPTED);
+
+    let require_res = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require?clientname=legacy-client&servicename=legacy-require-svc&branch=main&path=/legacy-require&method=GET")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(require_res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn legacy_clientname_and_servicename_accepted_on_require_bundle() {
+    let app = setup_app_dev_mode().await;
+
+    let openapi_yaml = r#"
+openapi: 3.0.0
+info:
+  title: Legacy Bundle API
+  version: 1.0.0
+paths:
+  /legacy-bundle-a:
+    get:
+      responses:
+        '200':
+          description: OK
+  /legacy-bundle-b:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+    let provide_payload = json!({
+        "producername": "legacy-bundle-svc",
+        "branch": "main",
+        "openapi_yaml": openapi_yaml
+    });
+    let provide_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&provide_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(provide_res.status(), StatusCode::ACCEPTED);
+
+    let bundle_payload = json!({
+        "clientname": "legacy-bundle-client",
+        "servicename": "legacy-bundle-svc",
+        "branch": "main",
+        "endpoints": [
+            { "path": "/legacy-bundle-a", "method": "GET" },
+            { "path": "/legacy-bundle-b", "method": "GET" }
+        ]
+    });
+    let bundle_res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/require-bundle")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&bundle_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(bundle_res.status(), StatusCode::OK);
+}

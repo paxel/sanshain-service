@@ -681,12 +681,20 @@ components:
       name: consumername
       in: query
       required: true
+      description: |
+        Name of the client registering the dependency.
+        (Also accepted as `clientname` for backward compatibility with clients
+        built before 1.6.0.)
       schema:
         type: string
     producername:
       name: producername
       in: query
       required: true
+      description: |
+        Name of the service that provides the endpoint.
+        (Also accepted as `servicename` for backward compatibility with clients
+        built before 1.6.0.)
       schema:
         type: string
     branch:
@@ -742,7 +750,10 @@ components:
       properties:
         producername:
           type: string
-          description: Name of the service providing the specification.
+          description: |
+            Name of the service providing the specification.
+            (Also accepted as `servicename` for backward compatibility with
+            clients built before 1.6.0.)
         branch:
           type: string
           description: Branch name for the specification.
@@ -800,6 +811,9 @@ components:
       properties:
         producername:
           type: string
+          description: |
+            (Also accepted as `servicename` for backward compatibility with
+            clients built before 1.6.0.)
         branch:
           type: string
         asyncapi_yaml:
@@ -834,6 +848,9 @@ components:
       properties:
         producername:
           type: string
+          description: |
+            (Also accepted as `servicename` for backward compatibility with
+            clients built before 1.6.0.)
         branch:
           type: string
         proto_content:
@@ -893,10 +910,16 @@ components:
       properties:
         consumername:
           type: string
-          description: Name of the client registering the dependencies.
+          description: |
+            Name of the client registering the dependencies.
+            (Also accepted as `clientname` for backward compatibility with
+            clients built before 1.6.0.)
         producername:
           type: string
-          description: Name of the service that provides the endpoints.
+          description: |
+            Name of the service that provides the endpoints.
+            (Also accepted as `servicename` for backward compatibility with
+            clients built before 1.6.0.)
         branch:
           type: string
           description: Branch name to retrieve the endpoints from.
