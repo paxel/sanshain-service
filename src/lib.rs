@@ -118,6 +118,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/users/{id}/approve", post(admin::admin_approve_user).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/users/{id}", delete(admin::admin_delete_user_handler).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/settings/cache", get(admin::get_cache_config).post(admin::set_cache_config).layer(from_fn_with_state(state.clone(), admin_auth)))
+        .route("/admin/settings/database", get(admin::get_database_info).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/admin/cache/clear", post(admin::clear_cache).layer(from_fn_with_state(state.clone(), admin_auth)))
 
         // Observability (GET routes accessible to any authenticated user, POST requires admin)
@@ -319,6 +320,7 @@ mod tests {
             "/admin/services/{name}/branches/{branch}/source-protected-branch",
             "/admin/settings/branch-cleanup",
             "/admin/settings/cache",
+            "/admin/settings/database",
             "/admin/settings/dependency-cleanup",
             // Reports, live updates, and other UI-facing read APIs
             "/api/audit/timeline",

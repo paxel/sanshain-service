@@ -1090,6 +1090,83 @@ pub async fn set_debug_config(
     Ok(StatusCode::OK)
 }
 
+#[derive(serde::Serialize)]
+pub struct DatabaseInfoResponse {
+    pub backend: &'static str,
+    pub url: String,
+}
+
+/// Which database this instance is connected to, for the admin "Database
+/// Configuration" panel. The URL is credential-stripped — see
+/// [`redact_database_url`]; the raw `DATABASE_URL` never leaves the process.
+pub async fn get_database_info(State(state): State<AppState>) -> impl IntoResponse {
+    let backend =
+        if state.db_url.starts_with("postgres://") || state.db_url.starts_with("postgresql://") {
+            "postgres"
+        } else {
+            "sqlite"
+        };
+    Json(DatabaseInfoResponse {
+        backend,
+        url: redact_database_url(&state.db_url),
+    })
+}
+
+/// Remove credentials from a database connection string so it can be displayed.
+///
+/// A `DATABASE_URL` normally carries the database password
+/// (`postgres://user:password@host:5432/dbname`). This keeps the parts that make
+/// the value useful as a diagnostic — scheme, user, host, port, database — and
+/// drops anything secret:
+///
+/// - the password in the userinfo section (`user:password@` becomes `user@`)
+/// - any query parameter whose name contains `password` (e.g. `?sslpassword=`)
+///
+/// Splits userinfo at the *last* `@` in the authority, so a password that itself
+/// contains `@` cannot smuggle part of itself into the host.
+fn redact_database_url(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        // No authority section (e.g. `sqlite:sanshain.db`, `sqlite::memory:`),
+        // so there are no userinfo credentials — only query params to check.
+        return redact_query_password(url);
+    };
+
+    // The authority ends at the first '/', '?' or '#'.
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at(end);
+
+    let authority = match authority.rsplit_once('@') {
+        Some((userinfo, host)) => {
+            let user = userinfo.split_once(':').map_or(userinfo, |(u, _)| u);
+            if user.is_empty() {
+                host.to_string()
+            } else {
+                format!("{}@{}", user, host)
+            }
+        }
+        None => authority.to_string(),
+    };
+
+    format!("{}://{}{}", scheme, authority, redact_query_password(tail))
+}
+
+/// Replace the value of any query parameter whose name mentions `password`.
+fn redact_query_password(s: &str) -> String {
+    let Some((before, query)) = s.split_once('?') else {
+        return s.to_string();
+    };
+    let redacted: Vec<String> = query
+        .split('&')
+        .map(|pair| match pair.split_once('=') {
+            Some((key, _)) if key.to_lowercase().contains("password") => {
+                format!("{}=***", key)
+            }
+            _ => pair.to_string(),
+        })
+        .collect();
+    format!("{}?{}", before, redacted.join("&"))
+}
+
 pub async fn get_cache_config(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -1218,4 +1295,85 @@ pub async fn admin_update_endpoint(
     .await?;
 
     Ok(StatusCode::OK)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_database_url;
+
+    #[test]
+    fn strips_the_password_from_a_postgres_url() {
+        assert_eq!(
+            redact_database_url("postgres://user:secret@db.example.com:5432/sanshain"),
+            "postgres://user@db.example.com:5432/sanshain"
+        );
+        assert_eq!(
+            redact_database_url("postgresql://admin:hunter2@localhost/app"),
+            "postgresql://admin@localhost/app"
+        );
+    }
+
+    #[test]
+    fn keeps_urls_that_carry_no_credentials_intact() {
+        assert_eq!(
+            redact_database_url("postgres://db.example.com:5432/sanshain"),
+            "postgres://db.example.com:5432/sanshain"
+        );
+        assert_eq!(
+            redact_database_url("postgres://user@localhost/app"),
+            "postgres://user@localhost/app"
+        );
+        assert_eq!(
+            redact_database_url("sqlite:sanshain.db?mode=rwc"),
+            "sqlite:sanshain.db?mode=rwc"
+        );
+        assert_eq!(redact_database_url("sqlite::memory:"), "sqlite::memory:");
+    }
+
+    #[test]
+    fn a_password_containing_an_at_sign_cannot_leak_into_the_host() {
+        // Userinfo must split at the LAST '@' of the authority; splitting at the
+        // first would leave "ss@host" as the host and emit the rest of the
+        // password verbatim.
+        let redacted = redact_database_url("postgres://user:p@ss@db.example.com/app");
+        assert_eq!(redacted, "postgres://user@db.example.com/app");
+        assert!(
+            !redacted.contains("ss"),
+            "password fragment leaked: {redacted}"
+        );
+    }
+
+    #[test]
+    fn redacts_password_query_parameters() {
+        assert_eq!(
+            redact_database_url("postgres://user:secret@host/app?sslmode=require&password=p1"),
+            "postgres://user@host/app?sslmode=require&password=***"
+        );
+        // Also on schemes with no authority section.
+        assert_eq!(
+            redact_database_url("sqlite:app.db?password=p1&mode=rwc"),
+            "sqlite:app.db?password=***&mode=rwc"
+        );
+        // Case-insensitive, and matches embedded names like `sslpassword`.
+        assert_eq!(
+            redact_database_url("postgres://host/app?SSLPassword=p1"),
+            "postgres://host/app?SSLPassword=***"
+        );
+    }
+
+    #[test]
+    fn never_emits_a_known_secret_for_any_shape() {
+        for url in [
+            "postgres://user:sup3rsecret@host:5432/db",
+            "postgres://user:sup3rsecret@host/db?password=sup3rsecret",
+            "postgres://:sup3rsecret@host/db",
+            "postgresql://u:sup3rsecret@h/d?sslpassword=sup3rsecret&x=1",
+        ] {
+            let redacted = redact_database_url(url);
+            assert!(
+                !redacted.contains("sup3rsecret"),
+                "secret survived redaction of {url}: {redacted}"
+            );
+        }
+    }
 }
