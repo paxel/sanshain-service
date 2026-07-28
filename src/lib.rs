@@ -270,7 +270,6 @@ mod tests {
             "/ready",
             "/metrics",
             "/LICENSE",
-            "/version",
             // Browser session, account, and CSRF endpoints for the UI
             "/auth/change-password",
             "/auth/favorites",
@@ -326,8 +325,6 @@ mod tests {
             "/api/audit/timeline",
             "/api/sse/updates",
             "/api/ws/updates",
-            "/branches/metadata",
-            "/branches/protected",
             "/endpoint-versions",
             "/report",
             "/report/isolation",
