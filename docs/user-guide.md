@@ -72,6 +72,8 @@ full rules.
 - Export as high-resolution PNG.
 
 #### Audit Timeline (`/audit.html`)
+- **Administrators only.** The page and the data behind it are restricted, and
+  the Audit link is hidden from the navigation for everyone else.
 - Global log of all spec updates.
 - Side-by-side diff viewer for every change.
 

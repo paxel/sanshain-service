@@ -76,7 +76,10 @@ pub fn create_app(state: AppState) -> Router {
         .route("/branches/protected", get(api::list_protected_branches_public).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/branches/metadata", get(api::list_branches_metadata).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/endpoint-versions", get(api::endpoint_versions).layer(from_fn_with_state(state.clone(), api_auth)))
-        .route("/api/audit/timeline", get(api::audit_timeline).layer(from_fn_with_state(state.clone(), api_auth)))
+        // Admin-only: the audit trail records the Actor behind every change, across
+        // every Producer. `admin_auth` validates sessions only, so API tokens cannot
+        // read it — deliberate, and safe because this route is outside `api.yaml`.
+        .route("/api/audit/timeline", get(api::audit_timeline).layer(from_fn_with_state(state.clone(), admin_auth)))
         .route("/api/sse/updates", get(api::sse_updates).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/api/ws/updates", get(api::ws_updates).layer(from_fn_with_state(state.clone(), api_auth)))
 

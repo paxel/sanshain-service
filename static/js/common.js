@@ -24,6 +24,10 @@ function updateBannerAuth(user) {
   const logoutEl = document.getElementById("banner-logout");
   const signinEl = document.getElementById("banner-signin");
   const adminLink = document.getElementById("nav-admin-link");
+  // The audit timeline is admin-only on the server; hiding the link keeps the
+  // interface from advertising a view that would refuse the visitor.
+  const auditLink = document.getElementById("nav-audit-link");
+  const adminOnlyLinks = [adminLink, auditLink];
   if (!usernameEl || !logoutEl || !signinEl) return;
 
   if (user && user.username) {
@@ -31,17 +35,21 @@ function updateBannerAuth(user) {
     usernameEl.classList.remove("hidden");
     logoutEl.classList.remove("hidden");
     signinEl.classList.add("hidden");
-    if (adminLink) {
-      adminLink.classList.toggle("hidden", !user.is_admin);
-    }
+    adminOnlyLinks.forEach((link) => {
+      if (link) {
+        link.classList.toggle("hidden", !user.is_admin);
+      }
+    });
   } else {
     usernameEl.textContent = "";
     usernameEl.classList.add("hidden");
     logoutEl.classList.add("hidden");
     signinEl.classList.remove("hidden");
-    if (adminLink) {
-      adminLink.classList.add("hidden");
-    }
+    adminOnlyLinks.forEach((link) => {
+      if (link) {
+        link.classList.add("hidden");
+      }
+    });
   }
 }
 

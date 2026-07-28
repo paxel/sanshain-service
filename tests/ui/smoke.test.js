@@ -88,4 +88,50 @@ test.describe('Sanshain UI Smoke Test', () => {
     await page.locator('button:has-text("Save Authentication Settings")').click();
     await page.waitForTimeout(500);
   });
+
+  test('Audit nav link is admin-only', async ({ page }) => {
+    // The audit timeline is admin-only on the server. The nav link must not
+    // advertise it to visitors who would be refused.
+    if (!adminPassword) {
+      throw new Error('INITIAL_ADMIN_PASSWORD environment variable is required for tests');
+    }
+
+    page.on('dialog', async (dialog) => await dialog.dismiss());
+
+    // Signed out: hidden.
+    await page.goto('/producers.html');
+    await page.evaluate(() => {
+      sessionStorage.clear();
+      localStorage.clear();
+    });
+    await page.reload();
+    await expect(page.locator('#nav-audit-link')).toBeHidden();
+
+    // Signed in as an admin: visible.
+    await page.goto('/account.html');
+    await page.waitForSelector('#login-username', { state: 'visible' });
+    await page.fill('input[id="login-username"]', 'root');
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator('#account-dashboard')).toBeVisible({ timeout: 10000 });
+
+    await page.goto('/producers.html');
+    await expect(page.locator('#nav-audit-link')).toBeVisible();
+
+    // Signed in as a NON-admin: hidden. This is the case the change exists for,
+    // and the only one the other two cannot catch — a regression that ignored
+    // is_admin in the signed-in branch would still pass both of them.
+    //
+    // The banner state is driven directly rather than by registering a second
+    // account, so the assertion does not depend on the registration or
+    // auto-approve settings. That /auth/me reports is_admin correctly is a
+    // separate concern, covered server-side.
+    await page.evaluate(() => window.updateBannerAuth({ username: 'plain', is_admin: false }));
+    await expect(page.locator('#nav-audit-link')).toBeHidden();
+
+    // ...and the same call with is_admin true brings it back, so the assertion
+    // above is about the flag and not about the call having any effect at all.
+    await page.evaluate(() => window.updateBannerAuth({ username: 'root', is_admin: true }));
+    await expect(page.locator('#nav-audit-link')).toBeVisible();
+  });
 });

@@ -5606,3 +5606,195 @@ async fn both_legacy_and_current_names_rejected_on_require() {
         "expected a duplicate-field error, got: {err}"
     );
 }
+
+// --- Audit timeline is administrator-only (issue #5) ---------------------------
+//
+// The timeline records the Actor behind every state-changing request, across
+// every Producer. Access is declared once, on the route, so these assert the
+// status a given credential receives rather than reaching into the middleware.
+
+/// Credentials for the audit-access tests.
+///
+/// Named fields rather than a tuple: with three same-typed token strings,
+/// positional destructuring would let the admin and non-admin credentials be
+/// swapped silently, and the test would still compile while asserting the
+/// opposite of what it claims.
+#[cfg(test)]
+struct AuditAccessFixture {
+    app: axum::Router,
+    admin_session: String,
+    user_session: String,
+    /// API token owned by the non-admin user.
+    api_token: String,
+    /// The action of the single audit entry seeded below.
+    seeded_action: &'static str,
+}
+
+#[cfg(test)]
+async fn setup_audit_access_fixture() -> AuditAccessFixture {
+    use sanshain_service::domain::ports::{NewAuditLog, SpecRepository};
+
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+
+    let hash = services::hash_password("admin-pass").unwrap();
+    let admin = repo.create_user("admin", &hash, true, true).await.unwrap();
+    let admin_session = repo
+        .create_session(admin.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap();
+
+    let hash = services::hash_password("user-pass").unwrap();
+    let user = repo.create_user("plain", &hash, false, true).await.unwrap();
+    let user_session = repo
+        .create_session(user.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap();
+
+    // Returns (id, raw_token) — the second element is the credential.
+    let (_, api_token) = services::create_api_token(&repo, user.id, "ci", 30)
+        .await
+        .unwrap();
+
+    // Seed one entry, so "the payload is unchanged" is asserted against actual
+    // content rather than against an empty array that would satisfy any shape.
+    let seeded_action = "PROVIDE_SPEC";
+    repo.insert_audit_log(
+        "admin",
+        NewAuditLog {
+            action: seeded_action,
+            details: "seeded for the audit access tests",
+            service: Some("orders"),
+            branch: Some("main"),
+            action_type: Some(seeded_action),
+            diff: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    services::set_auth_mode(&repo, &AuthMode::Local)
+        .await
+        .unwrap();
+
+    let app = create_app(test_app_state(repo));
+    AuditAccessFixture {
+        app,
+        admin_session: admin_session.token,
+        user_session: user_session.token,
+        api_token,
+        seeded_action,
+    }
+}
+
+// `cfg(test)` is always true here; the attribute marks the helper as test code
+// for clippy's `allow-unwrap-in-tests`, matching the idiom in middleware_test.rs.
+#[cfg(test)]
+async fn audit_timeline_status(app: axum::Router, authorization: Option<&str>) -> StatusCode {
+    let mut builder = Request::builder().uri("/api/audit/timeline?limit=5");
+    if let Some(value) = authorization {
+        builder = builder.header("Authorization", value);
+    }
+    app.oneshot(builder.body(Body::empty()).unwrap())
+        .await
+        .unwrap()
+        .status()
+}
+
+#[tokio::test]
+async fn audit_timeline_serves_an_admin_session_unchanged() {
+    // Both that an administrator is allowed through, and that the payload they
+    // get is the same one as before — asserted against a seeded entry, since an
+    // empty array would satisfy any shape check.
+    let f = setup_audit_access_fixture().await;
+
+    let res = f
+        .app
+        .oneshot(
+            Request::builder()
+                .uri("/api/audit/timeline?limit=5")
+                .header("Authorization", format!("Bearer {}", f.admin_session))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    let entries = json.as_array().expect("the timeline is a JSON array");
+    assert_eq!(
+        entries.len(),
+        1,
+        "the seeded entry is returned, got: {json}"
+    );
+    assert_eq!(entries[0]["action"], f.seeded_action);
+    assert_eq!(entries[0]["service"], "orders");
+    assert_eq!(entries[0]["branch"], "main");
+    assert_eq!(entries[0]["username"], "admin");
+}
+
+#[tokio::test]
+async fn audit_timeline_refuses_a_non_admin_session() {
+    let f = setup_audit_access_fixture().await;
+
+    let status = audit_timeline_status(f.app, Some(&format!("Bearer {}", f.user_session))).await;
+
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "an authenticated non-administrator must not read the audit trail"
+    );
+}
+
+#[tokio::test]
+async fn audit_timeline_refuses_an_api_token_that_is_otherwise_valid() {
+    // Deliberate: the administrator middleware validates sessions only, so no
+    // token reaches the timeline. Nothing outside api.yaml is consumed as a
+    // REST API, and this route is outside it.
+    //
+    // The token is first shown to work on a route that still accepts tokens, so
+    // this cannot pass merely because the credential was malformed — which is
+    // exactly how an earlier version of this test passed for the wrong reason.
+    let f = setup_audit_access_fixture().await;
+    let bearer = format!("Bearer {}", f.api_token);
+
+    let control = f
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/branches/protected")
+                .header("Authorization", &bearer)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        control.status(),
+        StatusCode::OK,
+        "positive control: the API token must be a working credential elsewhere"
+    );
+
+    let status = audit_timeline_status(f.app, Some(&bearer)).await;
+
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn audit_timeline_refuses_anonymous_callers() {
+    let f = setup_audit_access_fixture().await;
+
+    let status = audit_timeline_status(f.app, None).await;
+
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
