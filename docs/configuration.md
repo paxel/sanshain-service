@@ -27,3 +27,43 @@ Sanshain Service can be configured using environment variables.
 | `LOG_FORMAT`                   | `text`                                    | Log output format (`text` or `json`).                                                                     |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`  | `http://localhost:4317`                   | OTLP/gRPC collector endpoint for distributed tracing.                                                     |
 | `RUST_LOG`                     | `sanshain_service=info,tower_http=info`   | Log level filter (e.g., `sanshain_service=debug,tower_http=debug` for verbose output).                    |
+| `EXTRA_CA_CERTS_DIR`           | *unset*                                   | Directory of additional CA certificates to trust for outbound TLS. See below.                             |
+
+## Additional CA certificates
+
+Set `EXTRA_CA_CERTS_DIR` to a directory of PEM certificates when Sanshain must
+trust a private or corporate certificate authority — typically for LDAPS against
+an internal directory server.
+
+Every `*.pem`, `*.crt` and `*.cer` file in the directory is read at startup and
+**added** to the platform trust store, never substituted for it, so public
+authorities keep working alongside an internal one. A file may hold a single
+certificate or a chain. `.crt` is accepted because a Kubernetes Secret is
+conventionally keyed `ca.crt`. Files with any other extension are ignored, so
+the incidental entries a projected volume creates (`..data` and friends) do not
+interfere.
+
+Startup fails, rather than continuing with an incomplete trust store, when:
+
+- the directory does not exist,
+- the directory cannot be read,
+- a certificate file cannot be parsed, or
+- a certificate file contains no certificate at all — which means something
+  other than a certificate bundle was mounted.
+
+On success Sanshain logs the directory, how many files it read and how many
+certificates it added. Certificate contents are never logged.
+
+Certificates are read once, at startup. Rotating them means restarting the
+process, which is the normal lifecycle for mounted secrets.
+
+Leaving `EXTRA_CA_CERTS_DIR` unset changes nothing observable: Sanshain uses the
+platform trust store, which is what it would have used anyway.
+
+> This currently applies to **LDAP** connections. Database and OTLP exporter TLS
+> have their own configuration and do not yet consult this directory.
+
+Sanshain builds the TLS trust store for LDAP itself in all cases, configured or
+not. That is deliberate: left to build its own, the LDAP library substitutes an
+**empty** root store if reading the platform certificates produces any error,
+which rejects every certificate and reports nothing.

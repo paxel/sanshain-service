@@ -1,6 +1,24 @@
 use crate::domain::models::{AuthenticatedUser, LdapConfig};
 use crate::domain::ports::{AuthProvider, AuthProviderError};
-use ldap3::{LdapConnAsync, Scope, SearchEntry};
+use ldap3::{LdapConnAsync, LdapConnSettings, Scope, SearchEntry};
+
+/// Open an LDAP connection using the trust store built at startup.
+///
+/// The configuration is supplied for every connection, not only when extra CA
+/// certificates were mounted. Leaving ldap3 to build its own means two things
+/// go wrong: it calls `ClientConfig::builder()`, which panics here because two
+/// crypto providers are linked in, and its root store collapses to *empty* if
+/// reading the platform certificates hiccups — trusting nothing, silently.
+async fn open_connection(url: &str) -> ldap3::result::Result<(LdapConnAsync, ldap3::Ldap)> {
+    match crate::infrastructure::tls::ldap_client_config() {
+        Some(config) => {
+            LdapConnAsync::with_settings(LdapConnSettings::new().set_config(config), url).await
+        }
+        // Only when the configuration could not be built at all, which is
+        // already logged as an error. Plain LDAP still works on this path.
+        None => LdapConnAsync::new(url).await,
+    }
+}
 
 /// LDAP authentication provider.
 pub struct LdapAuthProvider {
@@ -28,7 +46,7 @@ impl LdapAuthProvider {
     }
 
     async fn connect(&self) -> Result<ldap3::Ldap, AuthProviderError> {
-        let (conn, mut ldap) = LdapConnAsync::new(&self.config.server_url)
+        let (conn, mut ldap) = open_connection(&self.config.server_url)
             .await
             .map_err(|e| {
                 AuthProviderError::ConnectionFailed(format!(
@@ -100,7 +118,7 @@ impl AuthProvider for LdapAuthProvider {
         let user_dn = entry.dn;
 
         // Attempt bind as the user to verify password
-        let (conn2, mut user_ldap) = LdapConnAsync::new(&self.config.server_url)
+        let (conn2, mut user_ldap) = open_connection(&self.config.server_url)
             .await
             .map_err(|e| AuthProviderError::ConnectionFailed(format!("LDAP connect: {}", e)))?;
         ldap3::drive!(conn2);

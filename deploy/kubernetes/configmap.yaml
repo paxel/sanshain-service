@@ -19,3 +19,7 @@ data:
   STATIC_DIR: "static"
   LOGIN_SESSION_DURATION_HOURS: "24"
   INITIAL_ADMIN_USERNAME: "root"
+  # Directory of additional CA certificates (*.pem) to trust for outbound TLS.
+  # Unset means platform certificates only. See the ca-certs mount in
+  # deployment.yaml.
+  # EXTRA_CA_CERTS_DIR: "/certs"

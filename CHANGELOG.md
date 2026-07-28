@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [Unreleased]
+
+### Added
+- `EXTRA_CA_CERTS_DIR` points Sanshain at a directory of PEM certificates to trust for outbound TLS, so an operator can authenticate against an LDAPS directory server that uses a private or corporate CA. Previously (1.6.2) there was no configuration option for certificates of any kind, and no way to make LDAPS work against an internal CA short of rebuilding the image. The certificates are *added* to the platform trust store rather than replacing it, so public authorities keep working alongside an internal one. Startup fails — naming the offending file — when the directory is missing or unreadable, when a `*.pem` file cannot be parsed, or when one contains no certificate at all; the alternative, continuing with a trust store that silently lacks the mounted certificates, is the failure this feature exists to prevent. On success the directory, file count and certificate count are logged; certificate contents never are. Applies to LDAP connections only — database and OTLP exporter TLS keep their own configuration. See [Configuration](docs/configuration.md).
+- The Helm chart takes `extraVolumes` and `extraVolumeMounts`, so arbitrary volumes can be mounted into the Sanshain container. Previously (1.6.2) the chart rendered exactly one volume — the database PVC — and offered no way to add another, which made a mounted certificate directory impossible to configure without editing the chart. Charts that set neither value render byte-identically to 1.6.2.
+
+### Fixed
+- LDAPS authentication no longer aborts Sanshain. Previously (1.6.2) the first LDAPS connection panicked with *"Could not automatically determine the process-level CryptoProvider from Rustls crate features"*, terminating the process: two TLS crypto providers are linked in — `ring` by way of `ldap3`, `aws-lc-rs` by way of `metrics-exporter-prometheus` → `hyper-rustls` — and with both present `rustls` refuses to choose and panics rather than returning an error. Sanshain now builds the TLS client configuration itself, naming `ring` explicitly to match the provider `ldap3` is built against, and supplies it for every LDAP connection. Deployments using local authentication were unaffected, as were LDAP connections without TLS.
+- LDAPS no longer risks trusting nothing without saying so. Previously (1.6.2) `ldap3` built its own root store and substituted an **empty** one if reading the platform certificates produced any error — rejecting every certificate, once per process, with no diagnostic. Sanshain now builds the store, keeping whichever platform certificates did load and logging the ones that did not.
+
 ## [1.6.2] - 2026-07-28
 
 ### Added

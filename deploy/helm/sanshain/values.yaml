@@ -89,6 +89,12 @@ config:
   staticDir: "static"
   loginSessionDurationHours: 24
   initialAdminUsername: "root"
+  # Directory of additional CA certificates (*.pem) to trust for outbound TLS,
+  # e.g. LDAPS against a directory server using a corporate CA. They are added
+  # to the platform trust store, not substituted for it. Leave empty to disable.
+  # Mount the certificates with extraVolumes/extraVolumeMounts below and point
+  # this at the same mountPath. A malformed certificate fails startup.
+  extraCaCertsDir: ""
 
 secrets:
   # DATABASE_URL: "sqlite:///data/sanshain.db"
@@ -104,3 +110,24 @@ persistence:
   accessMode: ReadWriteOnce
   size: 1Gi
   mountPath: /data
+
+# Additional volumes and mounts for the Sanshain container. Generic on purpose:
+# the data volume above is database-only and goes away with external PostgreSQL,
+# so anything else you need to mount belongs here.
+#
+# Example — trust a corporate CA for LDAPS, alongside config.extraCaCertsDir: /certs
+#
+# extraVolumes:
+#   - name: ca-certs
+#     persistentVolumeClaim:
+#       claimName: corporate-ca-certs
+#   # ...or from a Secret:
+#   # - name: ca-certs
+#   #   secret:
+#   #     secretName: corporate-ca-certs
+# extraVolumeMounts:
+#   - name: ca-certs
+#     mountPath: /certs
+#     readOnly: true
+extraVolumes: []
+extraVolumeMounts: []

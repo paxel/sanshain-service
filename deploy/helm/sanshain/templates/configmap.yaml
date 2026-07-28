@@ -19,3 +19,6 @@ data:
   STATIC_DIR: {{ .Values.config.staticDir | quote }}
   LOGIN_SESSION_DURATION_HOURS: {{ .Values.config.loginSessionDurationHours | quote }}
   INITIAL_ADMIN_USERNAME: {{ .Values.config.initialAdminUsername | quote }}
+  {{- with .Values.config.extraCaCertsDir }}
+  EXTRA_CA_CERTS_DIR: {{ . | quote }}
+  {{- end }}

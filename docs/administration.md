@@ -105,6 +105,12 @@ The **Authentication** section on the admin dashboard lets you choose how users 
 3. Click **Test Connection** to verify that Sanshain can reach the LDAP server and bind with the service account.
 4. Click **Save Authentication Settings** to apply.
 
+> **Using `ldaps://` with a private or corporate CA?** Mount the CA certificates
+> and set `EXTRA_CA_CERTS_DIR` to that directory — see
+> [Additional CA certificates](configuration.md#additional-ca-certificates).
+> Without it, **Test Connection** fails on certificate verification against a CA
+> the platform does not already trust.
+
 ### How LDAP Login Works
 
 When LDAP mode is active:

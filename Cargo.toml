@@ -44,6 +44,11 @@ hex = "0.4"
 sha2 = "0.11"
 askama = "0.15"
 ldap3 = { version = "0.12", default-features = false, features = ["tls-rustls-ring"] }
+# Feature set mirrors what ldap3's `tls-rustls-ring` enables, so both crates
+# resolve to the same `rustls` build and the same `ClientConfig` type.
+rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12", "ring"] }
+rustls-native-certs = "0.8"
+rustls-pki-types = { version = "1", features = ["std"] }
 regex = "1"
 indexmap = "2"
 similar = "3"

@@ -92,6 +92,16 @@ pub async fn main() {
             .init();
     }
 
+    // Build the outbound TLS trust store, including any CA certificates the
+    // operator mounted. Runs before the listener binds and so before any LDAPS
+    // connection, and is fatal on failure: starting with a trust store that
+    // silently lacks the mounted certificates is the failure this prevents.
+    if let Err(e) = sanshain_service::infrastructure::tls::init_from_env() {
+        tracing::error!("Can't build the TLS trust store: {}", e);
+        eprintln!("ERROR: Can't build the TLS trust store: {}", e);
+        std::process::exit(1);
+    }
+
     let db_connection_str =
         std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:sanshain.db?mode=rwc".into());
 
