@@ -478,8 +478,8 @@ For each entry in `requires`:
 1. If the entry has **multiple endpoints**: call `POST /require-bundle` with:
    ```json
    {
-     "clientname": "<root.serviceName>",
-     "servicename": "<requires[i].serviceName>",
+     "consumername": "<root.serviceName>",
+     "producername": "<requires[i].serviceName>",
      "branch": "<requires[i].branch>",
      "endpoints": [
        { "path": "/api/v1/users", "method": "GET" },

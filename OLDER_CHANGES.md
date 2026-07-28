@@ -3,7 +3,12 @@
 This file contains historical changelog entries for the Sanshain Service.
 For recent changes, see [CHANGELOG.md](CHANGELOG.md).
 
-## [1.6.0]
+## [1.6.1] - 2026-07-27
+
+### Fixed
+- `/provide*` and `/require*` accept `servicename`/`clientname` again, as aliases for `producername`/`consumername`. The 1.6.0 rename shipped with no alias and broke every existing client. Documented in `api.yaml`. The renamed admin routes and discovery pages are **not** aliased and still 404 under their old paths.
+
+## [1.6.0] - 2026-07-27
 
 ### Fixed
 - Viewing an endpoint's spec works again. Previously (1.5.2) `yaml.html` and `edit.html` requested `/admin/endpoints/yaml`, but the route is `/admin/endpoint-yaml`, so that fetch always returned 404. A branch with no recorded version history — which includes every freshly created service, since history is only kept on protected branches — therefore reported *"This endpoint isn't available on the server"* even though the spec had been published successfully. Master appeared unaffected only because it renders from version history rather than that fetch. The endpoint editor was loading an empty document for the same reason.
@@ -13,8 +18,8 @@ For recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - The Admin page's **Database Configuration** panel now shows the backend and connection URL. Previously (1.5.2) it requested `/admin/settings/database`, which was never implemented, and both fields showed `—`. The URL is credential-stripped: the password is removed from the connection string and from any `password`-style query parameter, so it is never sent to the browser.
 
 ### Changed
-- **The two roles are now called Producer and Consumer.** "Service" and "client" each meant two things: a service was both something that publishes an API and Sanshain itself, and a client was both something that requires endpoints and the tooling that talks to Sanshain (`api.yaml` was titled *"Sanshain Client API"* while `clientname` on the same page meant the consuming system). Sanshain is a spec registry, so it now uses the registry vocabulary its users already have. A **Producer** provides a spec; a **Consumer** requires endpoints; the Maven plugin and CLIs are **tooling**, not clients. These are roles, not entity types — one system is normally both. `/provide` and `/require` keep their names, and `publish`/`subscribe` were deliberately not reused as verbs because AsyncAPI channel operations already own those words. Breaking, with no aliases, since nothing consumes the API yet:
-  - Request/query parameters: `servicename` → `producername`, `clientname` → `consumername`.
+- **The two roles are now called Producer and Consumer.** "Service" and "client" each meant two things: a service was both something that publishes an API and Sanshain itself, and a client was both something that requires endpoints and the tooling that talks to Sanshain (`api.yaml` was titled *"Sanshain Client API"* while `clientname` on the same page meant the consuming system). Sanshain is a spec registry, so it now uses the registry vocabulary its users already have. A **Producer** provides a spec; a **Consumer** requires endpoints; the Maven plugin and CLIs are **tooling**, not clients. These are roles, not entity types — one system is normally both. `/provide` and `/require` keep their names, and `publish`/`subscribe` were deliberately not reused as verbs because AsyncAPI channel operations already own those words. Breaking, and shipped with no aliases on the assumption that nothing consumed the API yet — which was wrong: every known client (Go/JS/Rust/Conan/Maven) sent the old field names, so 1.6.1 restored them as aliases. The route and page renames have no aliases and stand:
+  - Request/query parameters: `servicename` → `producername`, `clientname` → `consumername` (aliased again since 1.6.1).
   - Routes: `/admin/services*` → `/admin/producers*`, `/admin/clients*` → `/admin/consumers*`, `/admin/nuke/services` → `/admin/nuke/producers`, `/admin/nuke/clients` → `/admin/nuke/consumers`.
   - The UI's tabs, headings and breadcrumbs.
   - The database schema is deliberately **unchanged**: tables and columns stay `services`/`clients`, with the mapping recorded in `CONTEXT.md`. Renaming them would cost a migration against live data and buy nothing.

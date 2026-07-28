@@ -56,7 +56,7 @@ curl -f -X POST http://localhost:3000/provide \
   -H "Authorization: Bearer $SANSHAIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{
-    \"servicename\": \"UserService\",
+    \"producername\": \"UserService\",
     \"branch\": \"main\",
     \"openapi_yaml\": $(cat openapi.yaml | jq -Rs .),
     \"dry_run\": true
@@ -69,7 +69,7 @@ If the spec would cause a conflict (e.g. a DTO change on a protected branch), th
 
 ```bash
 # In the client's CI pipeline (e.g. on PR)
-curl -f "http://localhost:3000/require?clientname=WebApp&servicename=UserService&branch=main&path=/users&method=GET&dry_run=true" \
+curl -f "http://localhost:3000/require?consumername=WebApp&producername=UserService&branch=main&path=/users&method=GET&dry_run=true" \
   -H "Authorization: Bearer $SANSHAIN_TOKEN"
 ```
 
@@ -85,8 +85,8 @@ curl -f -X POST http://localhost:3000/require-bundle \
   -H "Authorization: Bearer $SANSHAIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "clientname": "WebApp",
-    "servicename": "UserService",
+    "consumername": "WebApp",
+    "producername": "UserService",
     "branch": "main",
     "endpoints": [
       {"path": "/users", "method": "GET"},
@@ -128,7 +128,7 @@ To prevent overwriting concurrent changes, you can send a `base_version` in your
 curl -X POST http://localhost:3000/provide \
   -H "Content-Type: application/json" \
   -d "{
-    \"servicename\": \"UserService\",
+    \"producername\": \"UserService\",
     \"branch\": \"main\",
     \"openapi_yaml\": \"...\",
     \"base_version\": $VERSION
@@ -189,7 +189,7 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.SANSHAIN_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d "{
-              \"servicename\": \"my-service\",
+              \"producername\": \"my-service\",
               \"branch\": \"main\",
               \"openapi_yaml\": $(cat openapi.yaml | jq -Rs .),
               \"dry_run\": true

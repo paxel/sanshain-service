@@ -6,7 +6,13 @@ info:
     A **Producer** provides its full specification for a branch; a **Consumer** requires
     only the endpoint snippets it uses. Covers providing specifications (OpenAPI, AsyncAPI,
     gRPC/Proto) and requiring endpoint snippets. See CONTEXT.md for the vocabulary.
-  version: "1.6.0"
+
+    **Legacy names**: callers written before 1.6.0 may send `servicename` in place of
+    `producername` and `clientname` in place of `consumername` on any `/provide*` or
+    `/require*` request. Send one spelling or the other — supplying both for the same
+    value is rejected as a duplicate field, not resolved by precedence. The renamed
+    admin routes (`/admin/services*`, `/admin/clients*`) have no such alias.
+  version: "1.6.2"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt
@@ -670,6 +676,75 @@ paths:
         "413":
           description: Request body exceeds the configured size limit.
 
+  /branches/protected:
+    get:
+      operationId: listProtectedBranches
+      summary: List the protected-branch patterns
+      description: |
+        Returns the configured protected-branch patterns, not the branch names that match them:
+        an entry may be an exact name (`master`) or a wildcard (`release/*`, where `*` matches any
+        sequence and `?` exactly one character). A Consumer uses this to decide whether the branch
+        it is building is protected — and therefore whether breaking-change rejection and endpoint
+        version history apply to it.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The protected-branch patterns.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                example: ["master", "release/*"]
+        "401":
+          description: Missing or invalid token.
+
+  /branches/metadata:
+    get:
+      operationId: listBranchesMetadata
+      summary: List every known branch with its last-modified time
+      description: |
+        Returns one entry per branch known to Sanshain, across all Producers. `last_modified`
+        reflects the last spec change published to that branch, not when it was last read.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The known branches.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BranchMetadata"
+        "401":
+          description: Missing or invalid token.
+
+  /version:
+    get:
+      operationId: getVersion
+      summary: Report the running Sanshain version and instance
+      description: |
+        Unauthenticated. `instance_id` is regenerated on every start, so a change in it means the
+        server restarted — useful for tooling that caches per-instance state.
+      responses:
+        "200":
+          description: Version and instance identity.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, instance_id]
+                properties:
+                  version:
+                    type: string
+                    description: The service's package version, e.g. `1.6.2`.
+                  instance_id:
+                    type: string
+                    description: Identifier for this running instance; changes on restart.
+
 components:
   securitySchemes:
     bearerAuth:
@@ -741,6 +816,19 @@ components:
         type: string
 
   schemas:
+    BranchMetadata:
+      type: object
+      required:
+        - name
+        - last_modified
+      properties:
+        name:
+          type: string
+          description: Branch name.
+        last_modified:
+          type: string
+          description: |
+            When a spec change was last published to this branch. Reads do not advance it.
     ProvidePayload:
       type: object
       required:

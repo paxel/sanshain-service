@@ -27,7 +27,7 @@ Upload a specification for a service branch.
 - `/provide/grpc` (Protocol Buffers)
 
 **Key Fields:**
-- `servicename`: Name of the service.
+- `producername`: Name of the producer providing the spec.
 - `branch`: Branch name (e.g., `main`).
 - `openapi_yaml` / `asyncapi_yaml` / `proto_content`: Spec content.
 - `dry_run`: If `true`, validates without storing.
@@ -41,8 +41,8 @@ Upload a specification for a service branch.
 Request the snippet for a single endpoint.
 
 **Query Parameters:**
-- `clientname`: Your service name.
-- `servicename`: Target service name.
+- `consumername`: Your own name (the consumer recording the dependency).
+- `producername`: Name of the producer that provides the endpoint.
 - `branch`: Target branch.
 - `path`: Endpoint path or channel.
 - `method`: HTTP method or operation.
@@ -57,8 +57,8 @@ Request multiple endpoints in a single call. Returns a merged specification with
 **Payload:**
 ```json
 {
-  "clientname": "WebApp",
-  "servicename": "UserService",
+  "consumername": "WebApp",
+  "producername": "UserService",
   "branch": "main",
   "endpoints": [
     {"path": "/users", "method": "GET"},
@@ -66,6 +66,25 @@ Request multiple endpoints in a single call. Returns a merged specification with
   ]
 }
 ```
+
+---
+
+## Naming: Producer and Consumer
+
+Since 1.6.0 the two roles are called **Producer** (provides a spec) and **Consumer** (requires
+endpoints); see [`CONTEXT.md`](../CONTEXT.md). Two things follow for callers written against 1.5.x
+or earlier:
+
+- **Request fields are aliased.** `/provide`, `/provide/asyncapi`, `/provide/grpc`, `/require`,
+  `/require/asyncapi`, `/require/grpc` and `/require-bundle` still accept `servicename` for
+  `producername` and `clientname` for `consumername`. Send one or the other, not both — supplying
+  both spellings of the same value is rejected as a duplicate field. Prefer the new names; the
+  aliases exist for compatibility only.
+- **Admin routes are not aliased.** `/admin/services*` became `/admin/producers*`,
+  `/admin/clients*` became `/admin/consumers*`, and `/admin/nuke/services` / `/admin/nuke/clients`
+  became `/admin/nuke/producers` / `/admin/nuke/consumers`. The old paths return `404`. The same
+  applies to the discovery pages: `services.html` → `producers.html`, `clients.html` →
+  `consumers.html`.
 
 ---
 

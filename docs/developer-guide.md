@@ -69,7 +69,7 @@ sequenceDiagram
     participant Splitter as openapi.rs
     participant Repo as Repository
 
-    Client->>Handler: POST /provide {service, branch, yaml, dry_run?, api_type?}
+    Client->>Handler: POST /provide {producername, branch, yaml, dry_run?, api_type?}
     Handler->>Service: provide_spec(..., api_type)
     Service->>Splitter: split_spec(yaml, api_type)
     Splitter-->>Service: Vec<EndpointSpec>
@@ -126,7 +126,7 @@ sequenceDiagram
     participant Service as Application Service
     participant Repo as Repository
 
-    Consumer->>Handler: GET /require?service=X&branch=main&path=/foo&method=GET&dry_run=false
+    Consumer->>Handler: GET /require?consumername=A&producername=X&branch=main&path=/foo&method=GET&dry_run=false
     Handler->>Service: require_endpoint(...)
     Service->>Repo: lookup endpoint
     alt Found
@@ -203,14 +203,14 @@ sequenceDiagram
     participant Service
     participant Repo
 
-    User->>Handler: POST /login {username, password}
+    User->>Handler: POST /auth/login {username, password}
     Handler->>Service: login(username, password)
     Service->>Service: Verify password (Argon2 or LDAP)
     Service->>Repo: Create session (random token, 24h expiry)
     Service-->>Handler: Session token
     Handler-->>User: Set-Cookie: session=<token>
 
-    User->>Handler: GET /api/admin/... (Cookie: session=<token>)
+    User->>Handler: GET /admin/... (Cookie: session=<token>)
     Handler->>Repo: Lookup session by token
     alt Valid & not expired
         Handler->>Handler: Proceed
@@ -327,16 +327,21 @@ flowchart TD
 
 ### Admin Endpoints
 
-All admin endpoints require an authenticated session with `is_admin = true`:
+Every `/admin/*` route requires an authenticated session; the state-changing ones additionally
+require `is_admin = true` (read-only listings are open to any authenticated user). The split is
+enforced by the `all_admin_routes_have_auth_middleware` test in `src/lib.rs`.
 
-| Endpoint                                | Purpose                      |
-|-----------------------------------------|------------------------------|
-| `GET/POST /api/admin/protected-branches` | Manage protected branches    |
-| `DELETE /api/admin/services/:name`       | Delete service (cascade)     |
-| `GET/POST /api/admin/users`             | List/approve users           |
-| `GET/PUT /api/admin/auth-config`         | Auth mode & LDAP config      |
-| `POST /api/admin/auth-config/test`      | Test LDAP connectivity       |
-| `PUT /api/admin/settings`                | Dev-mode, local-users toggles |
+| Endpoint                                | Purpose                       |
+|-----------------------------------------|-------------------------------|
+| `GET/POST /admin/protected-branches`    | Manage protected branches     |
+| `DELETE /admin/producers/{name}`        | Delete producer (cascade)     |
+| `DELETE /admin/consumers/{name}`        | Delete consumer (cascade)     |
+| `GET /admin/users`                      | List users                    |
+| `POST /admin/users/{id}/approve`        | Approve a user                |
+| `GET/PUT /admin/auth-config`            | Auth mode & LDAP config       |
+| `POST /admin/auth-config/test`          | Test LDAP connectivity        |
+| `GET/POST /admin/settings/dev-mode`     | Dev-mode toggle               |
+| `GET/POST /admin/settings/auto-approve` | Auto-approve new users toggle |
 
 ---
 

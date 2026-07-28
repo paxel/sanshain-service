@@ -5117,9 +5117,24 @@ paths:
 // every /provide* and /require* payload, described as breaking with no aliases.
 // Every known client (Go/JS/Rust/Conan/Maven) still sends the old names, so this
 // restores acceptance of both, with no other behavior change.
+//
+// Each test sends the legacy name on one side of a round trip and the current
+// name on the other, so a pass proves the alias resolved to the *same* producer
+// or consumer — not merely that the payload deserialized.
+
+/// Read a response body as UTF-8, for asserting on the returned snippet.
+/// A helper outside a `#[test]` fn, so it must not `unwrap`: an unreadable body
+/// becomes a marker string that fails the caller's `contains` assertion with a
+/// readable message.
+async fn body_text(response: Response) -> String {
+    match axum::body::to_bytes(response.into_body(), 1_000_000).await {
+        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+        Err(e) => format!("<unreadable body: {e}>"),
+    }
+}
 
 #[tokio::test]
-async fn legacy_servicename_accepted_on_provide() {
+async fn legacy_servicename_on_provide_stores_under_producername() {
     let app = setup_app_dev_mode().await;
 
     let openapi_yaml = r#"
@@ -5141,6 +5156,7 @@ paths:
     });
 
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -5154,10 +5170,27 @@ paths:
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // Ask for it back under the *current* name: proves `servicename` landed in
+    // `producername` rather than in some other field.
+    let require_res = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require?consumername=legacy-consumer&producername=legacy-provide-svc&branch=main&path=/legacy&method=GET")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(require_res.status(), StatusCode::OK);
+    let yaml = body_text(require_res).await;
+    assert!(yaml.contains("/legacy"), "unexpected snippet: {yaml}");
 }
 
 #[tokio::test]
-async fn legacy_servicename_accepted_on_provide_asyncapi() {
+async fn legacy_servicename_on_provide_asyncapi_stores_under_producername() {
     let app = setup_app_dev_mode().await;
 
     let asyncapi_yaml = r#"
@@ -5167,7 +5200,7 @@ info:
   version: 1.0.0
 channels:
   legacy/channel:
-    subscribe:
+    publish:
       message:
         payload:
           type: object
@@ -5179,6 +5212,7 @@ channels:
     });
 
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -5192,10 +5226,28 @@ channels:
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    let require_res = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require/asyncapi?consumername=legacy-consumer&producername=legacy-async-svc&branch=main&path=legacy/channel&method=PUB")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(require_res.status(), StatusCode::OK);
+    let yaml = body_text(require_res).await;
+    assert!(
+        yaml.contains("legacy/channel"),
+        "unexpected snippet: {yaml}"
+    );
 }
 
 #[tokio::test]
-async fn legacy_servicename_accepted_on_provide_proto() {
+async fn legacy_servicename_on_provide_proto_stores_under_producername() {
     let app = setup_app_dev_mode().await;
 
     let proto_content = r#"syntax = "proto3";
@@ -5215,6 +5267,7 @@ message PingResponse {}
     });
 
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -5228,6 +5281,21 @@ message PingResponse {}
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    let require_res = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require/grpc?consumername=legacy-consumer&producername=legacy-proto-svc&branch=main&path=LegacyService&method=Ping")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(require_res.status(), StatusCode::OK);
+    let proto = body_text(require_res).await;
+    assert!(proto.contains("Ping"), "unexpected snippet: {proto}");
 }
 
 #[tokio::test]
@@ -5267,6 +5335,7 @@ paths:
     assert_eq!(provide_res.status(), StatusCode::ACCEPTED);
 
     let require_res = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -5278,6 +5347,135 @@ paths:
         .unwrap();
 
     assert_eq!(require_res.status(), StatusCode::OK);
+    let yaml = body_text(require_res).await;
+    assert!(
+        yaml.contains("/legacy-require"),
+        "unexpected snippet: {yaml}"
+    );
+
+    // The legacy `clientname` must record the dependency under that consumer,
+    // not under an empty or defaulted name.
+    let consumers_res = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/consumers")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(consumers_res.status(), StatusCode::OK);
+    let consumers = body_text(consumers_res).await;
+    assert!(
+        consumers.contains("legacy-client"),
+        "consumer not recorded: {consumers}"
+    );
+}
+
+#[tokio::test]
+async fn legacy_names_accepted_on_require_asyncapi() {
+    let app = setup_app_dev_mode().await;
+
+    let asyncapi_yaml = r#"
+asyncapi: 2.6.0
+info:
+  title: Legacy Async Require API
+  version: 1.0.0
+channels:
+  legacy/require-channel:
+    publish:
+      message:
+        payload:
+          type: object
+"#;
+    let provide_payload = json!({
+        "producername": "legacy-async-require-svc",
+        "branch": "main",
+        "asyncapi_yaml": asyncapi_yaml
+    });
+    let provide_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide/asyncapi")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&provide_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(provide_res.status(), StatusCode::ACCEPTED);
+
+    let require_res = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require/asyncapi?clientname=legacy-async-client&servicename=legacy-async-require-svc&branch=main&path=legacy/require-channel&method=PUB")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(require_res.status(), StatusCode::OK);
+    let yaml = body_text(require_res).await;
+    assert!(
+        yaml.contains("legacy/require-channel"),
+        "unexpected snippet: {yaml}"
+    );
+}
+
+#[tokio::test]
+async fn legacy_names_accepted_on_require_grpc() {
+    let app = setup_app_dev_mode().await;
+
+    let proto_content = r#"syntax = "proto3";
+package legacy;
+
+service LegacyRequireService {
+  rpc Echo (EchoRequest) returns (EchoResponse);
+}
+
+message EchoRequest {}
+message EchoResponse {}
+"#;
+    let provide_payload = json!({
+        "producername": "legacy-proto-require-svc",
+        "branch": "main",
+        "proto_content": proto_content
+    });
+    let provide_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide/grpc")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&provide_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(provide_res.status(), StatusCode::ACCEPTED);
+
+    let require_res = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require/grpc?clientname=legacy-proto-client&servicename=legacy-proto-require-svc&branch=main&path=LegacyRequireService&method=Echo")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(require_res.status(), StatusCode::OK);
+    let proto = body_text(require_res).await;
+    assert!(proto.contains("Echo"), "unexpected snippet: {proto}");
 }
 
 #[tokio::test]
@@ -5344,4 +5542,67 @@ paths:
         .unwrap();
 
     assert_eq!(bundle_res.status(), StatusCode::OK);
+    let yaml = body_text(bundle_res).await;
+    assert!(
+        yaml.contains("/legacy-bundle-a") && yaml.contains("/legacy-bundle-b"),
+        "unexpected bundle: {yaml}"
+    );
+}
+
+#[tokio::test]
+async fn both_legacy_and_current_names_rejected_on_provide() {
+    let app = setup_app_dev_mode().await;
+
+    // serde's `alias` makes the two spellings the *same* field, so supplying
+    // both is a duplicate field rather than a precedence question. Documented in
+    // docs/api-usage.md: send one or the other.
+    let payload = json!({
+        "producername": "dup-svc",
+        "servicename": "dup-svc-other",
+        "branch": "main",
+        "openapi_yaml": "openapi: 3.0.0\ninfo:\n  title: Dup\n  version: 1.0.0\npaths: {}\n"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let err = body_text(response).await;
+    assert!(
+        err.contains("duplicate field") && err.contains("producername"),
+        "expected a duplicate-field error, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn both_legacy_and_current_names_rejected_on_require() {
+    let app = setup_app_dev_mode().await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/require?consumername=dup-client&clientname=dup-client-other&producername=dup-svc&branch=main&path=/x&method=GET")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let err = body_text(response).await;
+    assert!(
+        err.contains("duplicate field") && err.contains("consumername"),
+        "expected a duplicate-field error, got: {err}"
+    );
 }
