@@ -6164,3 +6164,310 @@ async fn first_provide_establishes_a_version_even_with_no_endpoints() {
         provide_and_read_version(&app, "/provide", issue6_openapi_payload(empty)).await;
     assert_eq!(again, "1.0.0", "re-providing an empty spec does not bump");
 }
+
+// --- Protected-branch rejections are audited (issue #8) ------------------------
+//
+// A refusal on a Protected branch is the most consequential thing the registry
+// does, and it used to leave only a transient log line. These drive a real
+// rejection through the API and then read it back from the audit timeline as an
+// administrator, which is the only way to see it.
+
+#[cfg(test)]
+const ISSUE8_V1: &str = r#"
+openapi: 3.0.0
+info:
+  title: Billing
+  version: 1.0.0
+paths:
+  /invoices:
+    get:
+      responses:
+        '200':
+          description: OK
+        '404':
+          description: Not found
+"#;
+
+/// Removes the `404` response, which is a breaking change.
+#[cfg(test)]
+const ISSUE8_V2_BREAKING: &str = r#"
+openapi: 3.0.0
+info:
+  title: Billing
+  version: 1.0.0
+paths:
+  /invoices:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+
+#[cfg(test)]
+async fn provide_as(app: &axum::Router, token: &str, payload: Value) -> StatusCode {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+}
+
+/// Read the audit timeline as an administrator. `query` is appended verbatim.
+#[cfg(test)]
+async fn timeline_as_admin(app: &axum::Router, token: &str, query: &str) -> Vec<Value> {
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/audit/timeline?limit=100{query}"))
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK, "admin may read the timeline");
+    let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    serde_json::from_slice::<Value>(&body)
+        .unwrap()
+        .as_array()
+        .expect("the timeline is an array")
+        .clone()
+}
+
+#[tokio::test]
+async fn a_rejected_provide_on_a_protected_branch_is_audited() {
+    let (app, token, _repo) = setup_app_with_admin().await;
+
+    let seed = json!({ "producername": "billing", "branch": "main", "openapi_yaml": ISSUE8_V1 });
+    assert_eq!(provide_as(&app, &token, seed).await, StatusCode::ACCEPTED);
+
+    let breaking =
+        json!({ "producername": "billing", "branch": "main", "openapi_yaml": ISSUE8_V2_BREAKING });
+    assert_eq!(
+        provide_as(&app, &token, breaking).await,
+        StatusCode::CONFLICT,
+        "the caller's response is unchanged by this feature"
+    );
+
+    let rejections: Vec<Value> = timeline_as_admin(&app, &token, "")
+        .await
+        .into_iter()
+        .filter(|e| e["action"] == "REJECTED_SPEC")
+        .collect();
+
+    assert_eq!(rejections.len(), 1, "exactly one rejection recorded");
+    let entry = &rejections[0];
+    assert_eq!(entry["service"], "billing");
+    assert_eq!(entry["branch"], "main");
+    assert_eq!(entry["username"], "admin", "the real Actor is recorded");
+    let details = entry["details"].as_str().unwrap_or_default();
+    assert!(
+        details.contains("404") || details.to_lowercase().contains("breaking"),
+        "the reason must be stored, got: {details}"
+    );
+}
+
+#[tokio::test]
+async fn rejections_are_filterable_by_action_type_and_producer() {
+    let (app, token, _repo) = setup_app_with_admin().await;
+
+    let seed = json!({ "producername": "billing", "branch": "main", "openapi_yaml": ISSUE8_V1 });
+    provide_as(&app, &token, seed).await;
+    let breaking =
+        json!({ "producername": "billing", "branch": "main", "openapi_yaml": ISSUE8_V2_BREAKING });
+    provide_as(&app, &token, breaking).await;
+
+    let by_type = timeline_as_admin(&app, &token, "&action_type=REJECT").await;
+    assert!(
+        !by_type.is_empty() && by_type.iter().all(|e| e["action"] == "REJECTED_SPEC"),
+        "filtering by the rejection action type returns only rejections, got: {by_type:?}"
+    );
+
+    let by_producer = timeline_as_admin(&app, &token, "&action_type=REJECT&service=billing").await;
+    assert_eq!(by_producer.len(), 1, "filterable by Producer as well");
+}
+
+#[tokio::test]
+async fn a_successful_provide_records_no_rejection() {
+    let (app, token, _repo) = setup_app_with_admin().await;
+
+    let seed = json!({ "producername": "billing", "branch": "main", "openapi_yaml": ISSUE8_V1 });
+    assert_eq!(provide_as(&app, &token, seed).await, StatusCode::ACCEPTED);
+
+    let entries = timeline_as_admin(&app, &token, "").await;
+    assert!(
+        entries.iter().all(|e| e["action"] != "REJECTED_SPEC"),
+        "a successful Provide must not look like a rejection"
+    );
+}
+
+#[tokio::test]
+async fn a_breaking_change_on_a_feature_branch_records_no_rejection() {
+    // Feature branches accept breaking changes, so nothing was refused and
+    // nothing should be recorded.
+    let (app, token, _repo) = setup_app_with_admin().await;
+
+    let seed = json!({ "producername": "billing", "branch": "feat-x", "openapi_yaml": ISSUE8_V1 });
+    assert_eq!(provide_as(&app, &token, seed).await, StatusCode::ACCEPTED);
+
+    let breaking = json!({ "producername": "billing", "branch": "feat-x", "openapi_yaml": ISSUE8_V2_BREAKING });
+    assert_eq!(
+        provide_as(&app, &token, breaking).await,
+        StatusCode::ACCEPTED
+    );
+
+    let entries = timeline_as_admin(&app, &token, "").await;
+    assert!(
+        entries.iter().all(|e| e["action"] != "REJECTED_SPEC"),
+        "an accepted change on a feature branch is not a rejection"
+    );
+}
+
+#[tokio::test]
+async fn a_dry_run_rejection_is_not_audited() {
+    // A dry run asks "would this be refused?". Recording it would fill the
+    // timeline with refusals that never happened.
+    let (app, token, _repo) = setup_app_with_admin().await;
+
+    let seed = json!({ "producername": "billing", "branch": "main", "openapi_yaml": ISSUE8_V1 });
+    provide_as(&app, &token, seed).await;
+
+    let dry = json!({
+        "producername": "billing",
+        "branch": "main",
+        "openapi_yaml": ISSUE8_V2_BREAKING,
+        "dry_run": true
+    });
+    provide_as(&app, &token, dry).await;
+
+    let entries = timeline_as_admin(&app, &token, "").await;
+    assert!(
+        entries.iter().all(|e| e["action"] != "REJECTED_SPEC"),
+        "a dry run must not record a rejection"
+    );
+
+    // Positive control: the same content, provided for real, IS recorded — so
+    // the assertion above is about the dry run and not about rejection
+    // recording being broken or absent altogether.
+    let real =
+        json!({ "producername": "billing", "branch": "main", "openapi_yaml": ISSUE8_V2_BREAKING });
+    assert_eq!(provide_as(&app, &token, real).await, StatusCode::CONFLICT);
+
+    let after = timeline_as_admin(&app, &token, "").await;
+    assert_eq!(
+        after
+            .iter()
+            .filter(|e| e["action"] == "REJECTED_SPEC")
+            .count(),
+        1,
+        "the real refusal is recorded, so the dry run genuinely added nothing"
+    );
+}
+
+/// Two AsyncAPI channels; removing one from a Protected branch is refused by the
+/// endpoint-removal path, which is the site that used to be entirely silent.
+#[cfg(test)]
+const ISSUE8_ASYNC_TWO: &str = r#"
+asyncapi: '2.6.0'
+info:
+  title: Billing Events
+  version: '1.0'
+channels:
+  invoice/created:
+    publish:
+      message:
+        name: InvoiceCreated
+  invoice/paid:
+    publish:
+      message:
+        name: InvoicePaid
+"#;
+
+#[cfg(test)]
+const ISSUE8_ASYNC_ONE: &str = r#"
+asyncapi: '2.6.0'
+info:
+  title: Billing Events
+  version: '1.0'
+channels:
+  invoice/created:
+    publish:
+      message:
+        name: InvoiceCreated
+"#;
+
+#[cfg(test)]
+async fn provide_asyncapi_as(app: &axum::Router, token: &str, payload: Value) -> StatusCode {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide/asyncapi")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+}
+
+#[tokio::test]
+async fn refusing_to_remove_a_non_deprecated_endpoint_is_audited() {
+    // The third rejection site. It is unreachable for OpenAPI — the whole-spec
+    // compatibility check refuses a removed path first — so it is exercised
+    // through AsyncAPI, and it is the path that previously produced no record
+    // and no log line at all.
+    let (app, token, _repo) = setup_app_with_admin().await;
+
+    let seed = json!({
+        "producername": "billing-events",
+        "branch": "main",
+        "asyncapi_yaml": ISSUE8_ASYNC_TWO
+    });
+    assert_eq!(
+        provide_asyncapi_as(&app, &token, seed).await,
+        StatusCode::ACCEPTED
+    );
+
+    let removal = json!({
+        "producername": "billing-events",
+        "branch": "main",
+        "asyncapi_yaml": ISSUE8_ASYNC_ONE
+    });
+    assert_eq!(
+        provide_asyncapi_as(&app, &token, removal).await,
+        StatusCode::CONFLICT,
+        "removing a non-deprecated endpoint from a Protected branch is refused"
+    );
+
+    let rejections: Vec<Value> = timeline_as_admin(&app, &token, "&action_type=REJECT")
+        .await
+        .into_iter()
+        .filter(|e| e["action"] == "REJECTED_SPEC")
+        .collect();
+
+    assert_eq!(rejections.len(), 1, "the removal refusal is recorded");
+    let entry = &rejections[0];
+    assert_eq!(entry["service"], "billing-events");
+    assert_eq!(entry["branch"], "main");
+    let details = entry["details"].as_str().unwrap_or_default();
+    assert!(
+        details.contains("deprecated"),
+        "the reason must name the deprecation requirement, got: {details}"
+    );
+}

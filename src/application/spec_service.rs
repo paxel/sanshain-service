@@ -2,7 +2,7 @@ use crate::asyncapi;
 use crate::domain::branch_pattern::branch_matches_any;
 use crate::domain::models::*;
 use crate::domain::ports::{
-    RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
+    NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
 };
 use crate::openapi;
 use sha2::{Digest, Sha256};
@@ -285,9 +285,11 @@ async fn provide_spec_inner(
         author,
     } = params;
     // Blame attribution (item #15): a client-supplied author overrides the real
-    // authenticated actor for version-history display only. The audit log
-    // (recorded separately, in the presentation-layer handler) always uses the
-    // real actor and is untouched by this.
+    // authenticated actor for version-history display only. The audit log always
+    // uses the real actor (`username`) and is untouched by this — for a
+    // successful provide it is written by the presentation-layer handler, for a
+    // protected-branch refusal by `record_rejection` below, which the handler
+    // never reaches because the refusal returns `Err`.
     let blame_username = author.or(username);
 
     tracing::debug!(
@@ -411,11 +413,17 @@ async fn provide_spec_inner(
     if let (Some(old_yaml), true) = (&old_full_yaml, is_protected && api_type == ApiType::OpenApi) {
         if let Err(reason) = openapi::check_backward_compatibility(old_yaml, content) {
             tracing::warn!(
+                service = producername,
+                branch = branch,
                 "Rejected update for service '{}' branch '{}': breaking changes: {}",
                 producername,
                 branch,
                 reason
             );
+            // A dry run asks whether this *would* be refused; nothing was.
+            if !dry_run {
+                record_rejection(repo, username, api_type, producername, branch, &reason).await;
+            }
             return Err(AppError::BreakingChange(format!(
                 "Breaking changes detected on protected branch '{}' of service '{}': {}",
                 branch, producername, reason
@@ -462,11 +470,17 @@ async fn provide_spec_inner(
                         check_compatibility(api_type, &existing_yaml, &endpoint.yaml_content)
                 {
                     tracing::warn!(
+                        service = producername,
+                        branch = branch,
                         "Rejected update for service '{}' branch '{}': breaking changes: {}",
                         producername,
                         branch,
                         reason
                     );
+                    if !dry_run {
+                        record_rejection(repo, username, api_type, producername, branch, &reason)
+                            .await;
+                    }
                     return Err(AppError::BreakingChange(format!(
                         "Breaking changes detected on protected branch '{}' of service '{}': {}",
                         branch, producername, reason
@@ -524,10 +538,20 @@ async fn provide_spec_inner(
         }
 
         if is_protected && !dry_run && !was_deprecated {
-            return Err(AppError::BreakingChange(format!(
+            let reason = format!(
                 "Removing non-deprecated endpoint {} {} is a breaking change on a protected branch; mark it deprecated first",
                 method, path
-            )));
+            );
+            tracing::warn!(
+                service = producername,
+                branch = branch,
+                "Rejected update for service '{}' branch '{}': {}",
+                producername,
+                branch,
+                reason
+            );
+            record_rejection(repo, username, api_type, producername, branch, &reason).await;
+            return Err(AppError::BreakingChange(reason));
         }
 
         if api_type == ApiType::AsyncApi {
@@ -707,22 +731,52 @@ enum ContractOp {
     },
 }
 
-/// Plan the channel-message-contract changes for an AsyncAPI provide.
+/// Record a Protected-branch refusal in the audit log.
 ///
-/// For every named PUB message in the submitted document:
-/// - no contract yet → insert, owned by this service;
-/// - owned by this service (or by a service that no longer exists) → this
-///   service (re)owns it, after the owner-widen payload compatibility check;
-/// - owned by a *different* live service → accepted only if the payload schema
-///   is semantically identical, otherwise rejected `409` naming the owner.
-///
-/// Messages this service currently owns on the branch but no longer provides
-/// are planned for deletion. Protected-branch removal of a non-deprecated
-/// message is already rejected by the per-endpoint compatibility check before
-/// this runs, so a delete reaching here is always permitted.
-///
-/// Enforced identically on all branches; `force` does not bypass it. Performs no
-/// writes — it only reads and returns the planned [`ContractOp`]s (or an error).
+/// Recorded here rather than in the handler because a refusal returns `Err` and
+/// never reaches the handler's audit write, and because all three provide
+/// handlers would otherwise each need to catch it. Best-effort: a failure to
+/// record is logged and swallowed, since losing the audit entry must not turn a
+/// clean 409 into a 500.
+async fn record_rejection(
+    repo: &impl SpecRepository,
+    actor: Option<&str>,
+    api_type: ApiType,
+    producername: &str,
+    branch: &str,
+    reason: &str,
+) {
+    // Matches the fallback the presentation layer uses for an unauthenticated
+    // caller in dev mode.
+    let actor = actor.unwrap_or("DevMode/Anonymous");
+    let details = format!(
+        "Rejected {:?} spec for service '{}' on protected branch '{}': {}",
+        api_type, producername, branch, reason
+    );
+
+    if let Err(e) = repo
+        .insert_audit_log(
+            actor,
+            NewAuditLog {
+                action: "REJECTED_SPEC",
+                details: &details,
+                service: Some(producername),
+                branch: Some(branch),
+                action_type: Some("REJECT"),
+                diff: None,
+            },
+        )
+        .await
+    {
+        tracing::warn!(
+            service = producername,
+            branch = branch,
+            "Could not record the rejection in the audit log: {}",
+            e
+        );
+    }
+}
+
 /// Apply planned channel-message-contract mutations.
 ///
 /// Runs on both the changed and the unchanged path, so contract reconciliation
@@ -749,6 +803,22 @@ async fn apply_contract_ops(
     Ok(())
 }
 
+/// Plan the channel-message-contract changes for an AsyncAPI provide.
+///
+/// For every named PUB message in the submitted document:
+/// - no contract yet → insert, owned by this service;
+/// - owned by this service (or by a service that no longer exists) → this
+///   service (re)owns it, after the owner-widen payload compatibility check;
+/// - owned by a *different* live service → accepted only if the payload schema
+///   is semantically identical, otherwise rejected `409` naming the owner.
+///
+/// Messages this service currently owns on the branch but no longer provides
+/// are planned for deletion. Protected-branch removal of a non-deprecated
+/// message is already rejected by the per-endpoint compatibility check before
+/// this runs, so a delete reaching here is always permitted.
+///
+/// Enforced identically on all branches; `force` does not bypass it. Performs no
+/// writes — it only reads and returns the planned [`ContractOp`]s (or an error).
 async fn plan_channel_message_contracts(
     repo: &impl SpecRepository,
     branch: &str,

@@ -412,6 +412,13 @@ PAYLOAD_FB_BREAK_MAIN=$(jq -n --arg svc "$FB_SVC" --arg branch "main" --arg yaml
 call_api POST "/provide" "$PAYLOAD_FB_BREAK_MAIN"
 assert_status 409 "Breaking change still rejected on protected branch"
 
+# ...and that refusal is recorded, so it can be reviewed after the logs roll over.
+call_api GET "/api/audit/timeline?limit=100&action_type=REJECT&service=$FB_SVC"
+assert_status 200 "Read rejections from the audit timeline"
+assert_json ".[0].action" "REJECTED_SPEC" "Protected-branch refusal is audited"
+assert_json ".[0].branch" "main" "Rejection records the protected branch"
+assert_json ".[0].service" "$FB_SVC" "Rejection records the producer"
+
 # 9. Cross-service Independence (Same Path, Different Services)
 header "Cross-service Independence Tests"
 

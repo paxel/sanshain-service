@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - `EXTRA_CA_CERTS_DIR`: directory of CA certificates to trust for LDAPS, added to the platform trust store. Startup fails, naming the file, on a bad certificate. See [Configuration](docs/configuration.md).
 - Helm chart: `extraVolumes` and `extraVolumeMounts`. Unset, the chart renders as in 1.6.2.
+- Rejected Provides on a Protected branch are recorded in the audit log as `REJECTED_SPEC`, with the Producer, Branch and reason, and are filterable in the timeline under the new "Rejected" type. Previously (1.6.2) a refusal left only a transient log line — and the refusal to remove a non-deprecated endpoint left nothing at all — so there was no way to review what a Protected branch had blocked. The caller still receives the same `409` and message.
 
 ### Security
 - The audit timeline (`GET /api/audit/timeline`) is now admin-only; previously (1.6.2) any signed-in account or API token could read it. Non-admins now get `403`, anonymous `401`, and API tokens no longer work on this route. The Audit nav link is hidden from non-admins.

@@ -418,6 +418,27 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 
 ## P2 — Maintainability and quality
 
+### 22. Observability audit panel shows only the last 30 rows, now shared with rejections
+
+**Problem:** The Database Audit Log panel on `observability.html` loads a fixed
+`get_recent_audit_logs(30)`. Since 1.7.0 protected-branch rejections (`REJECTED_SPEC`)
+are written to the same table, so a burst of refusals — a CI job retrying a breaking
+change — pushes real changes out of that window.
+
+**Impact:** An operator looking at the observability page can miss recent settings
+changes or provides because refusals crowded them out. The data is not lost; only this
+panel's view of it is truncated.
+
+**Accepted deliberately** when rejection auditing was added (issue #8): the audit
+timeline at `/audit.html` supports filtering by action type, Producer and Branch and is
+the intended place to investigate refusals in depth.
+
+**Relevant areas:**
+- `src/presentation/handlers/admin.rs` — `get_observability_audit_logs`, the hardcoded 30
+- `static/observability.html` — the panel and its heading
+
+**Options:** raise the limit, paginate, or add an action-type filter to the panel.
+
 ### 16. Split large service modules into focused use cases
 
 **Problem:** `src/application/spec_service.rs` is large and mixes provide, require, bundle, compatibility, versioning, tests, and shared-contract logic.

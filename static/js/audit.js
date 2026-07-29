@@ -50,7 +50,10 @@ function renderTimeline(logs) {
       });
 
       let actionColor = "bg-slate-100 text-slate-600";
-      if (log.action_type === "WRITE") actionColor = "bg-green-100 text-green-700";
+      // Checked first: a rejection is a refusal, not a write, and must not be
+      // coloured like one.
+      if (log.action_type === "REJECT") actionColor = "bg-red-100 text-red-700";
+      else if (log.action_type === "WRITE") actionColor = "bg-green-100 text-green-700";
       else if (log.action_type === "READ") actionColor = "bg-blue-100 text-blue-700";
       else if (log.action_type === "ADMIN") actionColor = "bg-amber-100 text-amber-700";
       else if (
