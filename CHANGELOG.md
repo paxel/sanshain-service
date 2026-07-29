@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - A Provide that changes no endpoint no longer bumps the version, stores a revision, or notifies listeners. Previously (1.6.2) every Provide bumped the patch version, so re-publishing an unchanged spec produced a version per build.
 - Consequently, an edit confined to `info`, `servers` or other document-level fields is no longer versioned or stored. The first Provide still establishes `1.0.0`.
+- The logo images shrank from 3.2 MB to ~123 KB combined, and the favicon is its own small file. Previously (1.6.2) both logos were roughly 20x oversized for how they are drawn and the icon link pointed at the full-resolution logo, so every page load fetched 865 KB and the first dark-mode toggle a further 2.3 MB.
 
 ### Fixed
 - The **Edit** button on the endpoint view now appears for admins, and the editor opens instead of answering "Admin access required." Editing an endpoint from the UI has never worked since the button was added; the auth helper resolved the signed-in Actor but did not pass it to the code gating the button.
