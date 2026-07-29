@@ -135,3 +135,100 @@ test.describe('Sanshain UI Smoke Test', () => {
     await expect(page.locator('#nav-audit-link')).toBeVisible();
   });
 });
+
+// The endpoint editor is reachable only through an admin-gated button on
+// yaml.html, and edit.html re-checks the same flag on entry. Both gates read the
+// user handed to the checkDiscoveryAuth callback, so a callback invoked without
+// that argument leaves `user` undefined, reads as not-an-admin, and disables the
+// whole feature for everyone — root included — with no error anywhere.
+test.describe('Endpoint editor access', () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+
+  const SERVICE = 'edit-access-fixture';
+  const YAML_URL =
+    `/yaml.html?service=${SERVICE}&branch=main&path=%2Fhello&method=GET&api_type=OpenApi`;
+  const EDIT_URL =
+    `/edit.html?service=${SERVICE}&branch=main&path=%2Fhello&method=GET&api_type=OpenApi`;
+
+  const SPEC = [
+    'openapi: 3.0.0',
+    'info:',
+    '  title: Edit Access Fixture',
+    '  version: 1.0.0',
+    'paths:',
+    '  /hello:',
+    '    get:',
+    '      responses:',
+    "        '200':",
+    '          description: OK',
+    '',
+  ].join('\n');
+
+  async function loginAs(page, username, password) {
+    await page.goto('/account.html');
+    await page.waitForSelector('#login-username', { state: 'visible' });
+    await page.fill('input[id="login-username"]', username);
+    await page.fill('input[id="login-password"]', password);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator('#account-dashboard')).toBeVisible({ timeout: 10000 });
+  }
+
+  test.beforeAll(async ({ request }) => {
+    if (!adminPassword) {
+      throw new Error('INITIAL_ADMIN_PASSWORD environment variable is required for tests');
+    }
+    const login = await request.post('/auth/login', {
+      data: { username: 'root', password: adminPassword },
+    });
+    const { token } = await login.json();
+
+    // Seed one endpoint for the editor to open.
+    await request.post('/provide', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { producername: SERVICE, branch: 'main', openapi_yaml: SPEC },
+    });
+
+    // A non-admin account, approved so it can sign in.
+    await request.post('/auth/register', {
+      data: { username: 'edit-access-plain', password: 'plain-pass-12345' },
+    });
+    const users = await (
+      await request.get('/admin/users', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+    const plain = users.find((u) => u.username === 'edit-access-plain');
+    if (plain && !plain.approved) {
+      await request.post(`/admin/users/${plain.id}/approve`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }
+  });
+
+  test('an admin can reach the editor', async ({ page }) => {
+    page.on('dialog', async (d) => await d.dismiss());
+    await loginAs(page, 'root', adminPassword);
+
+    // The Edit button must actually be offered.
+    await page.goto(YAML_URL);
+    await expect(page.locator('#edit-btn')).toBeVisible();
+
+    // ...and following it must land on the editor rather than bouncing back.
+    await page.locator('#edit-btn').click();
+    await page.waitForURL('**/edit.html**');
+    await expect(page.locator('#yaml-editor')).toBeVisible();
+  });
+
+  test('a non-admin is offered no editor and cannot open it directly', async ({ page }) => {
+    page.on('dialog', async (d) => await d.dismiss());
+    await loginAs(page, 'edit-access-plain', 'plain-pass-12345');
+
+    await page.goto(YAML_URL);
+    // The page itself still loads; only the admin affordance is withheld.
+    await expect(page.locator('#edit-btn')).toBeHidden();
+
+    // Typing the editor URL directly is refused and returns to the viewer.
+    await page.goto(EDIT_URL);
+    await page.waitForURL('**/yaml.html**');
+  });
+});

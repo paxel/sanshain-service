@@ -405,10 +405,17 @@ function renderVersionHistory(container, versions) {
   });
 }
 
+/// Resolve who the caller is, then hand that to `onSuccess`.
+///
+/// The callback ALWAYS receives the resolved user, or `null` when the caller is
+/// not identified. Callers that gate admin-only affordances — the Edit button on
+/// yaml.html, the editor on edit.html — depend on it: invoking the callback with
+/// no argument leaves their `user` parameter `undefined`, which reads as
+/// not-an-admin and silently disables the feature for everyone.
 async function checkDiscoveryAuth(onSuccess) {
   if (window.SANSHAIN_FAST_SCREENSHOT) {
     console.log("Fast screenshot mode: bypassing auth check");
-    if (onSuccess) await onSuccess();
+    if (onSuccess) await onSuccess(null);
     return;
   }
   const token = getSanshainToken();
@@ -420,7 +427,7 @@ async function checkDiscoveryAuth(onSuccess) {
       if (res.ok) {
         const user = await res.json();
         renderBanner(user);
-        if (onSuccess) await onSuccess();
+        if (onSuccess) await onSuccess(user);
         return;
       }
     } catch (err) {
@@ -434,8 +441,13 @@ async function checkDiscoveryAuth(onSuccess) {
     if (devRes.ok) {
       const devData = await devRes.json();
       if (devData.enabled) {
+        // Deliberately `null`: dev mode is an unauthenticated local convenience,
+        // so the interface presents no identity and offers no admin-only
+        // affordance. The server would accept the write — its dev user is an
+        // admin — but that is a bypass for local work, not a signed-in session,
+        // and the UI stays fail-closed rather than inventing an identity.
         renderBanner(null);
-        if (onSuccess) await onSuccess();
+        if (onSuccess) await onSuccess(null);
         return;
       }
     }
