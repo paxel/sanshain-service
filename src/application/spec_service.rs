@@ -356,14 +356,19 @@ async fn provide_spec_inner(
         .await?;
     }
 
-    let (current_version, last_hash) = if sid != 0 && bid != 0 {
-        match repo.get_spec_version(sid, bid).await? {
-            Some((v, h)) => (v, h),
-            None => (SemVer::default(), String::new()),
-        }
+    // Only the version is read. The stored fingerprint is written but never
+    // compared against: one record serves a producer and branch across all API
+    // types, so it cannot tell whether *this* type's content changed.
+    //
+    // `None` means no version has been established for this producer and branch
+    // yet, which is distinct from a version of 0.0.0 and is what the no-op guard
+    // below keys on.
+    let existing_version = if sid != 0 && bid != 0 {
+        repo.get_spec_version(sid, bid).await?.map(|(v, _)| v)
     } else {
-        (SemVer::default(), String::new())
+        None
     };
+    let current_version = existing_version.unwrap_or_default();
 
     if let Some(base_v_str) = base_version {
         let base_v = base_v_str
@@ -435,8 +440,9 @@ async fn provide_spec_inner(
     let mut changes = Vec::new();
     let mut inserts = 0;
     let mut updates = 0;
-    // Aggregated SemVer impact for AsyncAPI provides (OpenAPI uses the merged
-    // whole-spec `analyze_impact` below; proto keeps hash-based classification).
+    // Aggregated SemVer impact for AsyncAPI provides. OpenAPI additionally
+    // consults the merged whole-spec `analyze_impact` below; every API type
+    // takes at least the impact implied by the endpoint diff.
     let mut async_impact = Impact::None;
 
     for endpoint in endpoints {
@@ -560,7 +566,24 @@ async fn provide_spec_inner(
         });
     }
 
-    if inserts == 0 && updates == 0 && deletes == 0 && content_hash == last_hash {
+    // The counts alone decide whether anything changed. The stored fingerprint
+    // is deliberately not consulted: one version record serves a producer and
+    // branch across *all* API types, so on a producer that provides both
+    // OpenAPI and AsyncAPI each provide would compare its own hash against the
+    // other type's, never match, and fall through here forever.
+    //
+    // `existing_version.is_some()` keeps the *first* provide out of this branch.
+    // A spec with no endpoints at all (`paths: {}`) produces no diff, and must
+    // still establish 1.0.0 rather than report a version that was never stored.
+    if inserts == 0 && updates == 0 && deletes == 0 && existing_version.is_some() {
+        // Channel-message contracts are still reconciled. The endpoint diff
+        // being empty does not mean the contracts are settled: ownership moves
+        // when the owning producer is deleted, and a contract can be missing
+        // for endpoints that already exist. Those upserts are idempotent, so
+        // running them here costs nothing and skipping them would strand
+        // ownership on a producer that only ever re-provides unchanged specs.
+        apply_contract_ops(repo, branch, contract_ops).await?;
+
         return Ok(ProvideResponse {
             version: current_version,
             content_hash,
@@ -575,35 +598,38 @@ async fn provide_spec_inner(
     repo.apply_spec_changes(bid, changes, is_protected, blame_username, Some(branch))
         .await?;
 
-    // Apply the planned channel-message-contract mutations after the endpoint
-    // changes commit (endpoints are the source of truth).
-    for op in contract_ops {
-        match op {
-            ContractOp::Upsert(contract) => {
-                repo.upsert_channel_message_contract(&contract).await?;
-            }
-            ContractOp::Delete {
-                channel,
-                message_name,
-            } => {
-                repo.delete_channel_message_contract(branch, &channel, &message_name)
-                    .await?;
-            }
-        }
-    }
+    // Applied after the endpoint changes commit (endpoints are the source of truth).
+    apply_contract_ops(repo, branch, contract_ops).await?;
 
-    let impact = if api_type == ApiType::AsyncApi {
-        async_impact
-    } else if let Some(old_yaml) = old_full_yaml {
-        openapi::analyze_impact(&old_yaml, content)
-    } else if !last_hash.is_empty() {
-        if content_hash != last_hash {
-            Impact::Patch
-        } else {
-            Impact::None
-        }
+    // Impact implied by the endpoint diff alone.
+    //
+    // This is what catches a modification the parsed API surface does not
+    // distinguish — a changed description or example, say. `analyze_impact`
+    // cannot see those: it compares parsed documents, and its "old" side is a
+    // lossy reconstruction rather than what was provided last time. The diff is
+    // fragment-against-fragment and is the comparison that holds.
+    //
+    // Note this is *not* simply the negation of the guard above: the first
+    // provide for a producer and branch reaches here with an empty diff, which
+    // is why the `None` arm exists.
+    let diff_impact = if inserts > 0 {
+        // A new endpoint is additive. `has_additions` normally reports this,
+        // but it only runs when there are already OpenAPI endpoints to
+        // reconstruct an "old" document from — not, for instance, on a branch
+        // that so far holds only AsyncAPI endpoints.
+        Impact::Minor
+    } else if updates > 0 || deletes > 0 {
+        Impact::Patch
     } else {
         Impact::None
+    };
+
+    let impact = if api_type == ApiType::AsyncApi {
+        async_impact.max(diff_impact)
+    } else if let Some(old_yaml) = old_full_yaml {
+        openapi::analyze_impact(&old_yaml, content).max(diff_impact)
+    } else {
+        diff_impact
     };
 
     let new_version = repo
@@ -697,6 +723,32 @@ enum ContractOp {
 ///
 /// Enforced identically on all branches; `force` does not bypass it. Performs no
 /// writes — it only reads and returns the planned [`ContractOp`]s (or an error).
+/// Apply planned channel-message-contract mutations.
+///
+/// Runs on both the changed and the unchanged path, so contract reconciliation
+/// does not depend on whether the endpoint diff happened to find anything.
+async fn apply_contract_ops(
+    repo: &impl SpecRepository,
+    branch: &str,
+    ops: Vec<ContractOp>,
+) -> Result<(), AppError> {
+    for op in ops {
+        match op {
+            ContractOp::Upsert(contract) => {
+                repo.upsert_channel_message_contract(&contract).await?;
+            }
+            ContractOp::Delete {
+                channel,
+                message_name,
+            } => {
+                repo.delete_channel_message_contract(branch, &channel, &message_name)
+                    .await?;
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn plan_channel_message_contracts(
     repo: &impl SpecRepository,
     branch: &str,

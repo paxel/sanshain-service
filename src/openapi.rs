@@ -442,6 +442,18 @@ pub fn check_backward_compatibility(old_yaml: &str, new_yaml: &str) -> Result<()
 }
 
 /// Analyze the impact of a specification change to determine the SemVer increment.
+///
+/// Deliberately says nothing about the documents as text. `old_yaml` is not the
+/// document previously provided — it is a reconstruction merged back together
+/// from the stored per-endpoint fragments, taking the document header from
+/// whichever fragment sorts first and re-serialising it. Comparing that against
+/// a producer's original is comparing two different artefacts, and it never
+/// matches, so a textual fallback here reported a change on every provide.
+///
+/// The caller already computes a per-endpoint diff, fragment against fragment,
+/// which is the comparison that actually holds. Patch-level impact is derived
+/// from that; anything this function cannot see in the parsed API surface is
+/// not its business.
 pub fn analyze_impact(old_yaml: &str, new_yaml: &str) -> Impact {
     let old: OpenAPI = match serde_yaml_ng::from_str(old_yaml) {
         Ok(o) => o,
@@ -458,10 +470,6 @@ pub fn analyze_impact(old_yaml: &str, new_yaml: &str) -> Impact {
 
     if has_additions(&old, &new) {
         return Impact::Minor;
-    }
-
-    if old_yaml != new_yaml {
-        return Impact::Patch;
     }
 
     Impact::None

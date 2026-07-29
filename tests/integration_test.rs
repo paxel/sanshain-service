@@ -4168,8 +4168,13 @@ paths:
 #[tokio::test]
 async fn test_problem_3_optimistic_concurrency_integration() {
     let app = setup_app_dev_mode().await;
-    let yaml1 = "openapi: 3.0.0\ninfo:\n  title: T1\n  version: 1.0.0\npaths: {}";
-    let yaml2 = "openapi: 3.0.0\ninfo:\n  title: T2\n  version: 1.0.0\npaths: {}";
+    // These differ by an endpoint, not just by `info.title`. The subject here is
+    // optimistic concurrency, which needs the version to actually move so that
+    // step 3's stale `base_version` conflicts. Since issue #6 a document-level
+    // edit with no endpoint effect deliberately does not bump the version, so
+    // the original `paths: {}` pair could no longer drive this test.
+    let yaml1 = "openapi: 3.0.0\ninfo:\n  title: T\n  version: 1.0.0\npaths:\n  /a:\n    get:\n      responses:\n        '200':\n          description: OK";
+    let yaml2 = "openapi: 3.0.0\ninfo:\n  title: T\n  version: 1.0.0\npaths:\n  /a:\n    get:\n      responses:\n        '200':\n          description: Fine";
 
     // 1. First provide
     let payload1 = json!({ "producername": "svc", "branch": "main", "openapi_yaml": yaml1 });
@@ -5797,4 +5802,365 @@ async fn audit_timeline_refuses_anonymous_callers() {
     let status = audit_timeline_status(f.app, None).await;
 
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+// --- Version moves only when the API moved (issue #6) --------------------------
+//
+// A Provide that changes no endpoint must leave the version alone: no bump, no
+// record written, no update broadcast. Asserted through the same interface a
+// Producer uses, on the version string a Consumer would observe.
+
+#[cfg(test)]
+const ISSUE6_OPENAPI: &str = r#"
+openapi: 3.0.0
+info:
+  title: Orders API
+  version: 1.0.0
+paths:
+  /orders:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+
+#[cfg(test)]
+const ISSUE6_ASYNCAPI: &str = r#"
+asyncapi: 2.6.0
+info:
+  title: Orders Events
+  version: 1.0.0
+channels:
+  order/created:
+    publish:
+      message:
+        name: OrderCreated
+        payload:
+          type: object
+          properties:
+            id:
+              type: string
+"#;
+
+/// POST a Provide and return (status, version string).
+#[cfg(test)]
+async fn provide_and_read_version(
+    app: &axum::Router,
+    uri: &str,
+    payload: Value,
+) -> (StatusCode, String) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("Content-Type", "application/json")
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let version = json
+        .get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    (status, version)
+}
+
+#[cfg(test)]
+fn issue6_openapi_payload(yaml: &str) -> Value {
+    json!({ "producername": "orders", "branch": "main", "openapi_yaml": yaml })
+}
+
+#[tokio::test]
+async fn identical_reprovide_does_not_bump_the_version() {
+    let app = setup_app_dev_mode().await;
+    let payload = issue6_openapi_payload(ISSUE6_OPENAPI);
+
+    let (status, first) = provide_and_read_version(&app, "/provide", payload.clone()).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    let (status, second) = provide_and_read_version(&app, "/provide", payload).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    assert_eq!(
+        second, first,
+        "re-providing identical content must leave the version alone"
+    );
+}
+
+#[tokio::test]
+async fn reprovide_differing_only_in_formatting_does_not_bump_the_version() {
+    let app = setup_app_dev_mode().await;
+
+    let (_, first) =
+        provide_and_read_version(&app, "/provide", issue6_openapi_payload(ISSUE6_OPENAPI)).await;
+
+    // Same document, different bytes: reordered top-level keys, extra blank
+    // lines, and a trailing comment. No endpoint is affected.
+    let reformatted = r#"
+paths:
+  /orders:
+    get:
+      responses:
+        '200':
+          description: OK
+
+info:
+  version: 1.0.0
+  title: Orders API
+
+openapi: 3.0.0
+"#;
+    let (status, second) =
+        provide_and_read_version(&app, "/provide", issue6_openapi_payload(reformatted)).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    assert_eq!(
+        second, first,
+        "byte differences that leave every endpoint identical must not bump the version"
+    );
+}
+
+#[tokio::test]
+async fn alternating_openapi_and_asyncapi_provides_do_not_bump_each_other() {
+    // The regression the shared version record caused: one row serves both API
+    // types, so each Provide used to compare its fingerprint against the other
+    // type's, never match, and bump. This is the case from the original report.
+    let app = setup_app_dev_mode().await;
+
+    let openapi = issue6_openapi_payload(ISSUE6_OPENAPI);
+    let asyncapi = json!({
+        "producername": "orders",
+        "branch": "main",
+        "asyncapi_yaml": ISSUE6_ASYNCAPI
+    });
+
+    // Establish both.
+    provide_and_read_version(&app, "/provide", openapi.clone()).await;
+    let (_, settled) = provide_and_read_version(&app, "/provide/asyncapi", asyncapi.clone()).await;
+
+    // Now alternate several times with no content change at all.
+    for _ in 0..3 {
+        let (status, v) = provide_and_read_version(&app, "/provide", openapi.clone()).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert_eq!(v, settled, "OpenAPI re-provide must not bump");
+
+        let (status, v) =
+            provide_and_read_version(&app, "/provide/asyncapi", asyncapi.clone()).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert_eq!(v, settled, "AsyncAPI re-provide must not bump");
+    }
+}
+
+#[tokio::test]
+async fn adding_an_endpoint_still_bumps_the_minor_version() {
+    let app = setup_app_dev_mode().await;
+
+    let (_, first) =
+        provide_and_read_version(&app, "/provide", issue6_openapi_payload(ISSUE6_OPENAPI)).await;
+    assert_eq!(first, "1.0.0");
+
+    let with_extra = r#"
+openapi: 3.0.0
+info:
+  title: Orders API
+  version: 1.0.0
+paths:
+  /orders:
+    get:
+      responses:
+        '200':
+          description: OK
+  /invoices:
+    get:
+      responses:
+        '200':
+          description: OK
+"#;
+    let (status, second) =
+        provide_and_read_version(&app, "/provide", issue6_openapi_payload(with_extra)).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(second, "1.1.0", "an added endpoint is a minor change");
+}
+
+#[tokio::test]
+async fn modifying_an_endpoint_still_bumps_the_patch_version() {
+    let app = setup_app_dev_mode().await;
+
+    let (_, first) =
+        provide_and_read_version(&app, "/provide", issue6_openapi_payload(ISSUE6_OPENAPI)).await;
+    assert_eq!(first, "1.0.0");
+
+    // Same path and method, changed description: an endpoint modification.
+    let modified = r#"
+openapi: 3.0.0
+info:
+  title: Orders API
+  version: 1.0.0
+paths:
+  /orders:
+    get:
+      responses:
+        '200':
+          description: All orders, newest first
+"#;
+    let (status, second) =
+        provide_and_read_version(&app, "/provide", issue6_openapi_payload(modified)).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(
+        second, "1.0.1",
+        "a modified endpoint is a patch change, got {second}"
+    );
+}
+
+#[tokio::test]
+async fn no_op_reprovide_writes_no_audit_entry_and_sends_no_update() {
+    // Absence matters as much as the version: a build loop must not generate
+    // write load or wake every connected browser.
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+    services::ensure_initial_admin(&repo).await.unwrap();
+    services::set_auth_mode(&repo, &AuthMode::Dev)
+        .await
+        .unwrap();
+    let dev_user = services::ensure_dev_user(&repo).await.ok();
+
+    let mut state = test_app_state(repo.clone());
+    state.dev_user = dev_user;
+    let mut updates = state.spec_updated_tx.subscribe();
+    let app = create_app(state);
+
+    let payload = issue6_openapi_payload(ISSUE6_OPENAPI);
+
+    // First Provide: a real change, so it does notify.
+    provide_and_read_version(&app, "/provide", payload.clone()).await;
+    assert!(
+        updates.try_recv().is_ok(),
+        "a Provide that changes endpoints must notify listeners"
+    );
+    while updates.try_recv().is_ok() {}
+
+    use sanshain_service::domain::ports::SpecRepository;
+    let audit_before = repo
+        .get_audit_logs(sanshain_service::domain::models::AuditLogFilter {
+            from_date: None,
+            to_date: None,
+            action_type: None,
+            service_wildcard: None,
+            branch_wildcard: None,
+            limit: 100,
+        })
+        .await
+        .unwrap()
+        .len();
+
+    // Second Provide: identical, so nothing at all should happen.
+    provide_and_read_version(&app, "/provide", payload).await;
+
+    assert!(
+        updates.try_recv().is_err(),
+        "a no-op Provide must not broadcast a spec update"
+    );
+
+    let audit_after = repo
+        .get_audit_logs(sanshain_service::domain::models::AuditLogFilter {
+            from_date: None,
+            to_date: None,
+            action_type: None,
+            service_wildcard: None,
+            branch_wildcard: None,
+            limit: 100,
+        })
+        .await
+        .unwrap()
+        .len();
+    assert_eq!(
+        audit_after, audit_before,
+        "a no-op Provide must not write an audit entry"
+    );
+}
+
+#[tokio::test]
+async fn no_op_reprovide_does_not_rewrite_the_version_record() {
+    // The returned SemVer staying put is not sufficient evidence. The version
+    // row is upserted with `version = version + 1` and a fresh `updated_at`, so
+    // a no-op that reached the write would bump that internal counter and touch
+    // the timestamp while still reporting the same SemVer.
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = SqliteSpecRepository::new(pool.clone());
+    repo.run_migrations().await.unwrap();
+    services::ensure_initial_admin(&repo).await.unwrap();
+    services::set_auth_mode(&repo, &AuthMode::Dev)
+        .await
+        .unwrap();
+    let dev_user = services::ensure_dev_user(&repo).await.ok();
+
+    let mut state = test_app_state(repo.clone());
+    state.dev_user = dev_user;
+    let app = create_app(state);
+
+    let payload = issue6_openapi_payload(ISSUE6_OPENAPI);
+    provide_and_read_version(&app, "/provide", payload.clone()).await;
+
+    let read_record = || async {
+        sqlx::query_as::<_, (i64, String)>(
+            "SELECT version, updated_at FROM service_spec_versions LIMIT 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    };
+
+    let before = read_record().await;
+
+    // Re-provide the identical spec.
+    provide_and_read_version(&app, "/provide", payload).await;
+
+    let after = read_record().await;
+
+    assert_eq!(
+        after.0, before.0,
+        "a no-op Provide must not bump the internal revision counter"
+    );
+    assert_eq!(
+        after.1, before.1,
+        "a no-op Provide must not touch updated_at"
+    );
+}
+
+#[tokio::test]
+async fn first_provide_establishes_a_version_even_with_no_endpoints() {
+    // A spec with no paths produces no endpoint diff, so the no-op guard would
+    // short-circuit it. The first Provide must still establish a version:
+    // returning one that was never stored would break optimistic concurrency,
+    // which sends the version back as `base_version`.
+    let app = setup_app_dev_mode().await;
+    let empty = "openapi: 3.0.0\ninfo:\n  title: Empty\n  version: 1.0.0\npaths: {}";
+
+    let (status, version) =
+        provide_and_read_version(&app, "/provide", issue6_openapi_payload(empty)).await;
+
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(version, "1.0.0", "the first Provide establishes 1.0.0");
+
+    // ...and re-providing it is still a no-op.
+    let (_, again) =
+        provide_and_read_version(&app, "/provide", issue6_openapi_payload(empty)).await;
+    assert_eq!(again, "1.0.0", "re-providing an empty spec does not bump");
 }

@@ -91,7 +91,7 @@ or earlier:
 ## Advanced Behaviors
 
 ### Optimistic Concurrency & Caching
-- **Content-Based Skipping**: Identical specs are detected by hash and skipped (no version bump).
+- **No-Op Skipping**: A Provide that adds, changes and removes no endpoint is skipped entirely — no version bump, no stored revision, no update notification, and `changes` comes back all zero. Reformatting counts as a no-op (reordered keys, whitespace, comments), as does an edit confined to document-level fields such as `info` or `servers`. The version tracks the API surface, so a version change always means an endpoint changed.
 - **Conflict Detection**: Use `base_version` to prevent overwriting concurrent updates. Returns `409 Conflict` on mismatch.
 
 ### Backward Compatibility

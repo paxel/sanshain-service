@@ -97,10 +97,11 @@ pub async fn provide(
     };
 
     if !payload.dry_run {
-        let _ = state.spec_updated_tx.send(());
-        // Skip the audit entry for a no-op re-upload (no endpoint changes) to keep
-        // the audit timeline focused on actual spec changes.
+        // Skip both the broadcast and the audit entry for a no-op re-upload (no
+        // endpoint changes): nothing changed, so there is nothing for a listener
+        // to refetch and nothing worth recording.
         if !res.changes.is_empty() {
+            let _ = state.spec_updated_tx.send(());
             record_audit_log(
                 &state.repo,
                 user,
@@ -169,9 +170,11 @@ pub async fn provide_asyncapi(
         Some(&actor),
     )
     .await?;
-    let _ = state.spec_updated_tx.send(());
-    // Skip the audit entry for a no-op re-upload (no endpoint changes).
+    // Skip both the broadcast and the audit entry for a no-op re-upload (no
+    // endpoint changes): nothing changed, so there is nothing for a listener to
+    // refetch and nothing worth recording.
     if !res.changes.is_empty() {
+        let _ = state.spec_updated_tx.send(());
         record_audit_log(
             &state.repo,
             user,
@@ -238,9 +241,11 @@ pub async fn provide_proto(
         Some(&actor),
     )
     .await?;
-    let _ = state.spec_updated_tx.send(());
-    // Skip the audit entry for a no-op re-upload (no endpoint changes).
+    // Skip both the broadcast and the audit entry for a no-op re-upload (no
+    // endpoint changes): nothing changed, so there is nothing for a listener to
+    // refetch and nothing worth recording.
     if !res.changes.is_empty() {
+        let _ = state.spec_updated_tx.send(());
         record_audit_log(
             &state.repo,
             user,

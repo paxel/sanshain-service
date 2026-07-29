@@ -197,11 +197,36 @@ PAYLOAD=$(jq -n --arg svc "$SVC_NAME" --arg branch "main" --arg yaml "$OPENAPI_S
 call_api POST "/provide" "$PAYLOAD"
 assert_status 202 "Provide OpenAPI specification"
 assert_json ".changes.inserts" "2" "Injected 2 new endpoints"
+VERSION_AFTER_FIRST=$(echo "$LAST_BODY" | jq -r .version)
 
 # Idempotency check
 call_api POST "/provide" "$PAYLOAD"
 assert_status 202 "Provide same spec again (idempotent)"
 assert_json ".changes.inserts" "0" "Zero new endpoints injected (idempotent)"
+assert_json ".version" "$VERSION_AFTER_FIRST" "Version unchanged by an idempotent re-provide"
+
+# Reformatting is a no-op too: same endpoints, different bytes (reordered
+# top-level keys). The version tracks the API surface, not the document text.
+REFORMATTED_SPEC="paths:
+  /hello:
+    get:
+      responses:
+        '200':
+          description: OK
+  /world:
+    post:
+      responses:
+        '201':
+          description: Created
+info:
+  version: '1.0'
+  title: Test Service
+openapi: '3.0.0'"
+PAYLOAD_REFORMATTED=$(jq -n --arg svc "$SVC_NAME" --arg branch "main" --arg yaml "$REFORMATTED_SPEC" \
+    '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
+call_api POST "/provide" "$PAYLOAD_REFORMATTED"
+assert_status 202 "Provide reformatted spec (same endpoints, different bytes)"
+assert_json ".version" "$VERSION_AFTER_FIRST" "Version unchanged by reformatting"
 
 # Provide AsyncAPI
 ASYNC_SPEC="asyncapi: '2.6.0'
@@ -298,8 +323,24 @@ assert_status 202 "First provide"
 V1=$(echo "$LAST_BODY" | jq -r .version)
 
 # Step 2: Second provide (increment version)
-OPENAPI_SPEC_V2="$OPENAPI_SPEC
-# Change V2"
+# Must change an *endpoint*, not just the bytes. Since issue #6 the version
+# follows the per-endpoint diff, so appending a comment is a no-op and would
+# leave the version untouched — with nothing to be outdated against in step 3.
+OPENAPI_SPEC_V2="openapi: '3.0.0'
+info:
+  title: Test Service
+  version: '1.0'
+paths:
+  /hello:
+    get:
+      responses:
+        '200':
+          description: Greeting
+  /world:
+    post:
+      responses:
+        '201':
+          description: Created"
 PAYLOAD_C2=$(jq -n --arg svc "$CONCURRENCY_SVC" --arg branch "main" --arg yaml "$OPENAPI_SPEC_V2" \
     '{producername:$svc, branch:$branch, openapi_yaml:$yaml}')
 call_api POST "/provide" "$PAYLOAD_C2"

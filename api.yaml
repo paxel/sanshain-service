@@ -30,8 +30,12 @@ paths:
         Parses the provided OpenAPI YAML, splits it into individual endpoint snippets,
         and stores them for the given service and branch.
 
-        **Idempotency**: Re-uploading identical YAML for the same service/branch succeeds without modification.
-        The server detects identical content via SHA-256 hash and skips updates/version bumps.
+        **Idempotency**: Re-uploading YAML that changes no endpoint succeeds without modification.
+        The server compares the uploaded spec endpoint by endpoint; when nothing was added, changed or
+        removed it skips the write and the version bump, and reports `changes` as all zero. This covers
+        byte-for-byte re-uploads and also reformatting — reordered keys, whitespace, comments. A change
+        confined to document-level fields such as `info` or `servers`, with no effect on any endpoint,
+        is likewise not versioned and not stored.
 
         **Optimistic Concurrency**: Clients can provide a `base_version`. If the current version on the
         branch differs from `base_version`, the request is rejected with 409 Conflict.
