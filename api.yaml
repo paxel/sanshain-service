@@ -12,7 +12,7 @@ info:
     `/require*` request. Send one spelling or the other — supplying both for the same
     value is rejected as a duplicate field, not resolved by precedence. The renamed
     admin routes (`/admin/services*`, `/admin/clients*`) have no such alias.
-  version: "1.6.2"
+  version: "1.7.0"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt
@@ -744,7 +744,7 @@ paths:
                 properties:
                   version:
                     type: string
-                    description: The service's package version, e.g. `1.6.2`.
+                    description: The service's package version, e.g. `1.7.0`.
                   instance_id:
                     type: string
                     description: Identifier for this running instance; changes on restart.
