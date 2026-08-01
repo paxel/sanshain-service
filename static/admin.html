@@ -278,6 +278,23 @@
                 </div>
             </section>
 
+            <!-- Held Provides -->
+            <section class="bg-white rounded-xl border border-amber-300 shadow-sm p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-amber-700">
+                            Held Provides <span id="pending-count" class="ml-1 text-sm font-normal text-slate-500"></span>
+                        </h2>
+                        <p class="text-sm text-slate-500 mt-1">
+                            Breaking changes refused on a protected branch, kept for review. The
+                            Producer's build is failing until one of these is decided.
+                        </p>
+                    </div>
+                    <button onclick="loadPendingSpecs()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                </div>
+                <div id="pending-list" class="space-y-2"></div>
+            </section>
+
             <!-- Users -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="flex justify-between items-center mb-4">
@@ -292,6 +309,52 @@
                     </div>
                 </div>
                 <div id="users-list" class="space-y-2"></div>
+                <p class="text-xs text-slate-500 mt-3">
+                    Roles are fixed bundles of permissions. <span id="root-note"></span>
+                </p>
+            </section>
+
+            <!-- Groups -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-800">Groups</h2>
+                        <p class="text-sm text-slate-500 mt-1">
+                            Roles attach to groups. Sanshain's own groups are yours to edit; groups
+                            mirrored from the directory keep their membership there — only the roles
+                            you attach are stored here.
+                        </p>
+                    </div>
+                    <button onclick="loadGroups()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                </div>
+                <div class="flex items-center gap-2 mb-4">
+                    <input id="new-group-name" type="text" placeholder="New group name"
+                        class="flex-1 rounded-lg border-slate-200 text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    <button onclick="createGroup()"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium">Create</button>
+                </div>
+                <div id="groups-list" class="space-y-2"></div>
+            </section>
+
+            <!-- Maintainers -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-800">Maintainers</h2>
+                        <p class="text-sm text-slate-500 mt-1">
+                            Who is responsible for a Producer. A maintainer may administer that
+                            Producer, set its onboarding and review its held specs — and no other's.
+                        </p>
+                    </div>
+                    <button onclick="loadMaintainers()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                </div>
+                <div class="flex items-center gap-2 mb-4">
+                    <select id="maintainer-producer" class="flex-1 rounded-lg border-slate-200 text-sm"></select>
+                    <select id="maintainer-subject" class="flex-1 rounded-lg border-slate-200 text-sm"></select>
+                    <button onclick="assignMaintainer()"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium">Assign</button>
+                </div>
+                <div id="maintainers-list" class="space-y-2"></div>
             </section>
 
             <!-- Manual Service Addition -->
@@ -490,7 +553,10 @@
                 const res = await apiCall('/auth/me');
                 if (res.ok) {
                     const data = await res.json();
-                    if (!data.is_admin) {
+                    // Anyone holding at least one administrative permission has
+                    // something to do here; the individual sections gate
+                    // themselves.
+                    if (!canSeeAdminDashboard(data)) {
                         await renderBanner(data);
                         showNotAdmin();
                         return;
@@ -506,7 +572,7 @@
         }
 
         // --- Load All ---
-        function loadAll() {
+        async function loadAll() {
             loadDatabaseInfo();
             loadCacheConfig();
             loadBranchMaxAge();
@@ -515,8 +581,15 @@
             loadServices();
             loadClients();
             loadAutoApproveUsers();
-            loadUsers();
             loadAuthConfig();
+            loadPendingSpecs();
+            // Ordered: the catalogue tells the user and group rows which roles
+            // exist, the user list feeds the maintainer picker, and groups feed
+            // it too — so each waits for what it needs.
+            await loadRoleCatalogue();
+            await loadUsers();
+            await loadGroups();
+            await loadMaintainers();
         }
 
         // --- Database Info ---
@@ -769,6 +842,354 @@
             } catch (_) {}
         }
 
+
+
+        // --- Held Provides ---
+        //
+        // The list is already filtered by the server to what this caller may act
+        // on, so everything shown here is actionable.
+        async function loadPendingSpecs() {
+            const list = document.getElementById('pending-list');
+            const count = document.getElementById('pending-count');
+            if (!list) return;
+            try {
+                const res = await apiCall('/admin/pending-specs');
+                if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
+                const data = await res.json();
+                const pending = data.pending || [];
+                if (count) {
+                    count.textContent = pending.length ? `(${pending.length} awaiting review)` : '(none)';
+                }
+                if (pending.length === 0) {
+                    list.innerHTML = '<p class="text-sm text-slate-500 italic">Nothing held for review.</p>';
+                    return;
+                }
+                list.innerHTML = pending.map(p => `
+                    <div class="bg-amber-50 border border-amber-200 px-4 py-3 rounded-lg fade-in">
+                        <div class="flex justify-between items-start gap-4">
+                            <div class="min-w-0">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="font-medium text-slate-800">${escapeHtml(p.producer)}</span>
+                                    <span class="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">${escapeHtml(p.branch)}</span>
+                                    <span class="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">${escapeHtml(p.api_type)}</span>
+                                    <span class="text-xs text-slate-500">by ${escapeHtml(p.submitted_by)}</span>
+                                </div>
+                                <p class="text-sm text-amber-800 mt-1">${escapeHtml(p.reason)}</p>
+                            </div>
+                            <div class="flex items-center gap-2 shrink-0">
+                                <button onclick="togglePendingSpec(${p.id})" class="text-slate-600 hover:text-slate-800 text-sm">View spec</button>
+                                <button onclick="acceptPendingSpec(${p.id})" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded-lg text-sm font-medium">Accept</button>
+                                <button onclick="confirmDelete('Discard the held spec for <strong>${escapeHtml(p.producer)}</strong>?', () => rejectPendingSpec(${p.id}))" class="text-red-500 hover:text-red-700 text-sm">Reject</button>
+                            </div>
+                        </div>
+                        <pre id="pending-body-${p.id}" class="hidden mt-3 p-3 bg-slate-900 text-slate-200 text-xs rounded-lg overflow-x-auto">${escapeHtml(p.content)}</pre>
+                    </div>
+                `).join('');
+            } catch (_) {
+                list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
+            }
+        }
+
+        function togglePendingSpec(id) {
+            const el = document.getElementById(`pending-body-${id}`);
+            if (el) el.classList.toggle('hidden');
+        }
+
+        async function acceptPendingSpec(id) {
+            const res = await apiCall(`/admin/pending-specs/${id}/accept`, { method: 'POST' });
+            if (!res.ok) {
+                alert('Failed to accept: ' + (await errorMessage(res)));
+                return;
+            }
+            loadPendingSpecs();
+            loadServices();
+        }
+
+        async function rejectPendingSpec(id) {
+            const res = await apiCall(`/admin/pending-specs/${id}`, { method: 'DELETE' });
+            if (!res.ok) {
+                alert('Failed to reject: ' + (await errorMessage(res)));
+                return;
+            }
+            loadPendingSpecs();
+        }
+
+        // --- Roles, groups and maintainers ---
+        //
+        // Roles are fixed in the service, so this screen assigns them; it cannot
+        // compose new ones. What each role confers is shown so an administrator
+        // can see what they are handing over.
+        let roleCatalogue = [];
+        let knownUsers = [];
+        let knownGroups = [];
+
+        async function loadRoleCatalogue() {
+            try {
+                const res = await apiCall('/admin/roles');
+                if (!res.ok) return;
+                const data = await res.json();
+                roleCatalogue = data.roles || [];
+                const note = document.getElementById('root-note');
+                if (note) {
+                    note.textContent =
+                        'Root is held by configuration (SANSHAIN_ROOT_USERS) and cannot be granted or revoked here.';
+                }
+            } catch (_) {}
+        }
+
+        function grantableRoles() {
+            return roleCatalogue.filter(r => r.globally_grantable);
+        }
+
+        function roleTitle(roleName) {
+            const entry = roleCatalogue.find(r => r.role === roleName);
+            return entry ? `Confers: ${entry.permissions.join(', ')}` : '';
+        }
+
+        function roleControls(user) {
+            const held = user.roles || [];
+            const options = grantableRoles()
+                .filter(r => !held.includes(r.role))
+                .map(r => `<option value="${escapeAttr(r.role)}" title="${escapeAttr(roleTitle(r.role))}">${escapeHtml(r.role)}</option>`)
+                .join('');
+            const grant = options
+                ? `<select id="grant-role-${user.id}" class="text-xs rounded border-slate-200">
+                       <option value="">grant role…</option>${options}
+                   </select>
+                   <button onclick="grantRole(${user.id})" class="text-indigo-600 hover:text-indigo-800 text-sm">Grant</button>`
+                : '';
+            const revoke = held
+                .map(r => `<button onclick="revokeRole(${user.id}, '${escapeAttr(r)}')"
+                        title="Revoke ${escapeAttr(r)}"
+                        class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(r)}</button>`)
+                .join(' ');
+            return grant + revoke;
+        }
+
+        async function grantRole(userId) {
+            const select = document.getElementById(`grant-role-${userId}`);
+            const role = select ? select.value : '';
+            if (!role) return;
+            const res = await apiCall(`/admin/users/${userId}/roles`, {
+                method: 'POST',
+                body: { role },
+            });
+            if (!res.ok) {
+                alert('Failed to grant: ' + (await errorMessage(res)));
+                return;
+            }
+            loadUsers();
+        }
+
+        async function revokeRole(userId, role) {
+            // Warn rather than block: root is configured outside the database and
+            // is the recovery path, so this is recoverable — but it is easy to do
+            // by accident and hard to notice.
+            const me = await currentActor();
+            if (me && me.id === userId && (me.roles || []).length === 1) {
+                if (!window.confirm(
+                    `Revoke your own last role (${role})? You will lose access to this page.`)) {
+                    return;
+                }
+            }
+            const res = await apiCall(`/admin/users/${userId}/roles/${encodeURIComponent(role)}`, {
+                method: 'DELETE',
+            });
+            if (!res.ok) {
+                alert('Failed to revoke: ' + (await errorMessage(res)));
+                return;
+            }
+            loadUsers();
+        }
+
+        async function currentActor() {
+            try {
+                const res = await apiCall('/auth/me');
+                return res.ok ? await res.json() : null;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        async function loadGroups() {
+            const list = document.getElementById('groups-list');
+            if (!list) return;
+            try {
+                const res = await apiCall('/admin/groups');
+                if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
+                const data = await res.json();
+                knownGroups = data.groups || [];
+                if (knownGroups.length === 0) {
+                    list.innerHTML = '<p class="text-sm text-slate-500 italic">No groups yet.</p>';
+                    refreshMaintainerPickers();
+                    return;
+                }
+                list.innerHTML = knownGroups.map(g => {
+                    const directory = g.source === 'ldap';
+                    const badge = directory
+                        ? '<span class="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">directory</span>'
+                        : '<span class="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">sanshain</span>';
+                    const roles = (g.roles || [])
+                        .map(r => `<button onclick="setGroupRoles(${g.id}, '${escapeAttr(r)}', false)"
+                                title="Remove ${escapeAttr(r)}"
+                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(r)}</button>`)
+                        .join(' ');
+                    const addable = grantableRoles()
+                        .filter(r => !(g.roles || []).includes(r.role))
+                        .map(r => `<option value="${escapeAttr(r.role)}" title="${escapeAttr(roleTitle(r.role))}">${escapeHtml(r.role)}</option>`)
+                        .join('');
+                    const members = directory
+                        ? '<span class="text-xs text-slate-400 italic">membership from the directory</span>'
+                        : `<span class="text-xs text-slate-500">${(g.member_ids || []).length} member(s)</span>`;
+                    return `
+                    <div class="bg-slate-50 px-4 py-2 rounded-lg fade-in">
+                        <div class="flex justify-between items-center">
+                            <div class="flex items-center space-x-3">
+                                <span class="font-medium text-slate-800">${escapeHtml(g.name)}</span>
+                                ${badge}
+                                ${members}
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                ${addable ? `<select id="group-role-${g.id}" class="text-xs rounded border-slate-200">
+                                    <option value="">add role…</option>${addable}
+                                </select>
+                                <button onclick="addGroupRole(${g.id})" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>` : ''}
+                                ${directory ? '' : `<button onclick="confirmDelete('Delete group <strong>${escapeHtml(g.name)}</strong>?', () => deleteGroup(${g.id}))" class="text-red-500 hover:text-red-700 text-sm">Delete</button>`}
+                            </div>
+                        </div>
+                        <div class="mt-1 space-x-2">${roles || '<span class="text-xs text-slate-400 italic">no roles attached</span>'}</div>
+                    </div>`;
+                }).join('');
+                refreshMaintainerPickers();
+            } catch (_) {
+                list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
+            }
+        }
+
+        async function createGroup() {
+            const input = document.getElementById('new-group-name');
+            const name = input ? input.value.trim() : '';
+            if (!name) return;
+            const res = await apiCall('/admin/groups', { method: 'POST', body: { name } });
+            if (!res.ok) {
+                alert('Failed to create: ' + (await errorMessage(res)));
+                return;
+            }
+            input.value = '';
+            loadGroups();
+        }
+
+        async function addGroupRole(groupId) {
+            const select = document.getElementById(`group-role-${groupId}`);
+            const role = select ? select.value : '';
+            if (!role) return;
+            await setGroupRoles(groupId, role, true);
+        }
+
+        // The endpoint replaces the whole set, so the current roles are read and
+        // the one change applied to them.
+        async function setGroupRoles(groupId, role, add) {
+            const group = knownGroups.find(g => g.id === groupId);
+            const current = group ? (group.roles || []) : [];
+            const roles = add
+                ? current.concat([role])
+                : current.filter(r => r !== role);
+            const res = await apiCall(`/admin/groups/${groupId}`, { method: 'PUT', body: { roles } });
+            if (!res.ok) {
+                alert('Failed to update roles: ' + (await errorMessage(res)));
+                return;
+            }
+            loadGroups();
+        }
+
+        async function deleteGroup(groupId) {
+            const res = await apiCall(`/admin/groups/${groupId}`, { method: 'DELETE' });
+            if (!res.ok) {
+                alert('Failed to delete: ' + (await errorMessage(res)));
+                return;
+            }
+            loadGroups();
+        }
+
+        function refreshMaintainerPickers() {
+            const subject = document.getElementById('maintainer-subject');
+            if (!subject) return;
+            const users = knownUsers.map(u => `<option value="user:${u.id}">user: ${escapeHtml(u.username)}</option>`);
+            const groups = knownGroups.map(g => `<option value="group:${g.id}">group: ${escapeHtml(g.name)}${g.source === 'ldap' ? ' (directory)' : ''}</option>`);
+            subject.innerHTML = users.concat(groups).join('');
+        }
+
+        // One request fills the whole section: /admin/maintainers answers for
+        // every Producer at once. Asking per Producer meant 26 sequential
+        // round-trips for 25 Producers.
+        async function loadMaintainers() {
+            const list = document.getElementById('maintainers-list');
+            const picker = document.getElementById('maintainer-producer');
+            if (!list || !picker) return;
+            try {
+                const res = await apiCall('/admin/maintainers');
+                if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
+                const data = await res.json();
+                const producers = data.producers || [];
+                picker.innerHTML = producers
+                    .map(p => `<option value="${escapeAttr(p.producer)}">${escapeHtml(p.producer)}</option>`)
+                    .join('');
+
+                const rows = producers
+                    .filter(p => (p.user_ids || []).length || (p.group_ids || []).length)
+                    .map(p => {
+                        const users = (p.user_ids || []).map(id => {
+                            const u = knownUsers.find(x => x.id === id);
+                            return `<button onclick="unassignMaintainer('${escapeAttr(p.producer)}', 'users', ${id})"
+                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(u ? u.username : ('user ' + id))}</button>`;
+                        });
+                        const groups = (p.group_ids || []).map(id => {
+                            const g = knownGroups.find(x => x.id === id);
+                            return `<button onclick="unassignMaintainer('${escapeAttr(p.producer)}', 'groups', ${id})"
+                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(g ? g.name : ('group ' + id))}</button>`;
+                        });
+                        return `
+                        <div class="bg-slate-50 px-4 py-2 rounded-lg fade-in">
+                            <span class="font-medium text-slate-800">${escapeHtml(p.producer)}</span>
+                            <span class="ml-3 space-x-2">${users.concat(groups).join(' ')}</span>
+                        </div>`;
+                    });
+                list.innerHTML = rows.length
+                    ? rows.join('')
+                    : '<p class="text-sm text-slate-500 italic">No Producer has a maintainer yet.</p>';
+            } catch (_) {
+                list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
+            }
+        }
+
+        async function assignMaintainer() {
+            const producer = document.getElementById('maintainer-producer').value;
+            const subject = document.getElementById('maintainer-subject').value;
+            if (!producer || !subject) return;
+            const [kind, id] = subject.split(':');
+            const body = kind === 'user' ? { user_id: Number(id) } : { group_id: Number(id) };
+            const res = await apiCall(`/admin/producers/${encodeURIComponent(producer)}/maintainers`, {
+                method: 'POST',
+                body,
+            });
+            if (!res.ok) {
+                alert('Failed to assign: ' + (await errorMessage(res)));
+                return;
+            }
+            loadMaintainers();
+        }
+
+        async function unassignMaintainer(producer, kind, id) {
+            const res = await apiCall(
+                `/admin/producers/${encodeURIComponent(producer)}/maintainers/${kind}/${id}`,
+                { method: 'DELETE' });
+            if (!res.ok) {
+                alert('Failed to unassign: ' + (await errorMessage(res)));
+                return;
+            }
+            loadMaintainers();
+        }
+
         // --- Users ---
         async function loadUsers() {
             const list = document.getElementById('users-list');
@@ -776,6 +1197,7 @@
                 const res = await apiCall('/admin/users');
                 if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
                 const users = await res.json();
+                knownUsers = users;
                 if (users.length === 0) {
                     list.innerHTML = '<p class="text-sm text-slate-500 italic">No users registered.</p>';
                     return;
@@ -784,14 +1206,15 @@
                     <div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
                         <div class="flex items-center space-x-3">
                             <span class="font-medium text-slate-800">${escapeHtml(u.username)}</span>
-                            ${u.is_admin ? '<span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">admin</span>' : ''}
+                            ${(u.roles || []).map(r => `<span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">${escapeHtml(r)}</span>`).join(' ')}
                             ${u.approved
                                 ? '<span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">approved</span>'
                                 : '<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">pending</span>'}
                         </div>
                         <div class="flex items-center space-x-2">
+                            ${roleControls(u)}
                             ${!u.approved ? `<button onclick="approveUser(${u.id})" class="text-green-600 hover:text-green-800 text-sm">Approve</button>` : ''}
-                            ${!u.is_admin ? `<button onclick="confirmDelete('Delete user <strong>${escapeHtml(u.username)}</strong>?', () => deleteUser(${u.id}))" class="text-red-500 hover:text-red-700 text-sm">Delete</button>` : ''}
+                            ${!(u.roles || []).includes('admin') ? `<button onclick="confirmDelete('Delete user <strong>${escapeHtml(u.username)}</strong>?', () => deleteUser(${u.id}))" class="text-red-500 hover:text-red-700 text-sm">Delete</button>` : ''}
                         </div>
                     </div>
                 `).join('');
@@ -836,7 +1259,7 @@
                     document.getElementById('manual-service-name').value = '';
                     loadServices();
                 } else {
-                    const err = await res.text();
+                    const err = await errorMessage(res);
                     resultEl.classList.remove('hidden');
                     resultEl.className = 'mt-3 text-sm text-red-600';
                     resultEl.textContent = 'Failed to create service: ' + err;
@@ -1092,7 +1515,7 @@
                     resultEl.textContent = '✓ Connection successful';
                     resultEl.classList.add('bg-green-50', 'text-green-700');
                 } else {
-                    const errorText = await res.text();
+                    const errorText = await errorMessage(res);
                     resultEl.textContent = '✗ Connection failed: ' + errorText;
                     resultEl.classList.add('bg-red-50', 'text-red-700');
                     troubleEl.classList.remove('hidden');

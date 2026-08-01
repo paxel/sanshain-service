@@ -42,3 +42,10 @@ Integrate Sanshain directly into your build tools:
 - [**Gradle Plugin**](https://github.com/paxel/sanshain-gradle-plugin)
 - [**Cargo Plugin**](https://github.com/paxel/sanshain-cargo-plugin)
 - [**CLI**](https://github.com/paxel/sanshain-cli)
+
+## API contracts
+
+- **`api.yaml`** — the contract Producers and Consumers speak: providing specifications and requiring
+  endpoint snippets. This is what build plugins and CLIs are written against.
+- **`maintenance.yaml`** — the `/admin/*` administrative surface, including the permission each
+  endpoint requires. See [Administration](administration.md).

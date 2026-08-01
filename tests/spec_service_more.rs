@@ -269,8 +269,10 @@ async fn protected_branch_rejects_breaking_change() {
     .await
     .unwrap_err();
     match err {
-        AppError::BreakingChange(msg) => assert!(msg.contains("Breaking changes detected")),
-        other => panic!("expected BreakingChange, got {:?}", other),
+        AppError::Quarantined { message, .. } => {
+            assert!(message.contains("Breaking changes detected"))
+        }
+        other => panic!("expected the submission to be held, got {:?}", other),
     }
 }
 
@@ -345,10 +347,10 @@ async fn protected_branch_rejects_breaking_asyncapi_change() {
     .await
     .unwrap_err();
     match err {
-        AppError::BreakingChange(msg) => {
+        AppError::Quarantined { message: msg, .. } => {
             assert!(msg.contains("was removed"), "{msg}");
         }
-        other => panic!("expected BreakingChange, got {:?}", other),
+        other => panic!("expected the submission to be held, got {:?}", other),
     }
 }
 
@@ -430,13 +432,13 @@ async fn protected_branch_rejects_breaking_proto_change() {
     .await
     .unwrap_err();
     match err {
-        AppError::BreakingChange(msg) => {
+        AppError::Quarantined { message: msg, .. } => {
             assert!(
                 msg.contains("changed type from 'string' to 'int64'"),
                 "{msg}"
             );
         }
-        other => panic!("expected BreakingChange, got {:?}", other),
+        other => panic!("expected the submission to be held, got {:?}", other),
     }
 }
 
@@ -487,10 +489,10 @@ async fn protected_branch_allows_removing_deprecated_proto_rpc() {
     .await
     .unwrap_err();
     match err {
-        AppError::BreakingChange(msg) => {
+        AppError::Quarantined { message: msg, .. } => {
             assert!(msg.contains("mark it deprecated first"), "{msg}");
         }
-        other => panic!("expected BreakingChange, got {:?}", other),
+        other => panic!("expected the submission to be held, got {:?}", other),
     }
 }
 

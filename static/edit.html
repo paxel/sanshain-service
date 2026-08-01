@@ -141,7 +141,10 @@
     document.getElementById('endpoint-path').textContent = endpointPath;
 
     checkDiscoveryAuth(async (user) => {
-        if (!user || !user.is_admin) {
+        // Global permission, or maintainership of this Producer — the server
+        // enforces the same rule on save.
+        const maintainsThis = (user?.maintains || []).includes(serviceName) || user?.is_root;
+        if (!hasPermission(user, 'manage_producers') && !maintainsThis) {
             alert("Admin access required.");
             window.location.href = `/yaml.html${window.location.search}`;
             return;
@@ -203,7 +206,7 @@
             if (res.ok) {
                 window.location.href = `/yaml.html?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}&api_type=${encodeURIComponent(apiType)}`;
             } else {
-                const err = await res.text();
+                const err = await errorMessage(res);
                 alert("Failed to save: " + err);
                 saveBtn.disabled = false;
                 saveBtn.textContent = "Save Changes";

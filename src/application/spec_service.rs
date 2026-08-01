@@ -63,6 +63,7 @@ pub async fn provide_spec(
             username: None,
             source_protected_branch: None,
             author: None,
+            waived: false,
         },
     )
     .await
@@ -90,6 +91,7 @@ pub async fn provide_spec_dry_run(
             username: None,
             source_protected_branch: None,
             author: None,
+            waived: false,
         },
     )
     .await
@@ -129,6 +131,7 @@ pub async fn provide_spec_with_tags(
             username: None,
             source_protected_branch: params.source_protected_branch,
             author: params.author,
+            waived: false,
         },
     )
     .await
@@ -153,6 +156,7 @@ pub async fn provide_spec_with_actor(
             username,
             source_protected_branch: params.source_protected_branch,
             author: params.author,
+            waived: false,
         },
     )
     .await
@@ -174,6 +178,9 @@ struct ProvideInternalParams<'a> {
     /// attribution only, in place of `username`, when present. Never affects
     /// the audit log.
     pub author: Option<&'a str>,
+    /// Set when an approver is applying a previously refused Provide. Suspends
+    /// the refusals for this call only.
+    pub waived: bool,
 }
 
 /// A compact fingerprint of submitted spec content for diagnostics: its byte
@@ -283,13 +290,14 @@ async fn provide_spec_inner(
         username,
         source_protected_branch,
         author,
+        waived,
     } = params;
     // Blame attribution (item #15): a client-supplied author overrides the real
     // authenticated actor for version-history display only. The audit log always
     // uses the real actor (`username`) and is untouched by this — for a
     // successful provide it is written by the presentation-layer handler, for a
-    // protected-branch refusal by `record_rejection` below, which the handler
-    // never reaches because the refusal returns `Err`.
+    // protected-branch refusal by `quarantine` below, which the handler never
+    // reaches because the refusal returns `Err`.
     let blame_username = author.or(username);
 
     tracing::debug!(
@@ -386,7 +394,31 @@ async fn provide_spec_inner(
 
     let is_protected = repo.is_branch_protected(branch).await?;
 
-    if force && is_protected {
+    // Onboarding suspends the gatekeeping, not the record-keeping. `is_protected`
+    // still drives soft deletes and version history below; `enforce_protection`
+    // is what the five refusals consult, so a Producer whose API is not yet
+    // stable keeps its history instead of having its branch deleted by hand.
+    let onboarding = if sid != 0 {
+        repo.is_producer_onboarding(sid).await?
+    } else {
+        false
+    };
+    // `waived` is set only when an approver applies a Provide they have read and
+    // accepted. It joins onboarding at the same seam rather than getting its own,
+    // so there is one place that decides whether the refusals apply.
+    let enforce_protection = is_protected && !onboarding && !waived;
+
+    let refusal = RefusalContext {
+        service_id: sid,
+        actor: username,
+        api_type,
+        producername,
+        branch,
+        content,
+        dry_run,
+    };
+
+    if force && enforce_protection {
         return Err(AppError::BadRequest(
             "Force mode is not allowed on protected branches.".to_string(),
         ));
@@ -410,29 +442,23 @@ async fn provide_spec_inner(
         None
     };
 
+    // The check runs whenever the branch is protected, even in onboarding: the
+    // refusal is suspended, but the *reason* is what the audit entry carries, and
+    // it only exists if the comparison is actually made.
     if let (Some(old_yaml), true) = (&old_full_yaml, is_protected && api_type == ApiType::OpenApi) {
         if let Err(reason) = openapi::check_backward_compatibility(old_yaml, content) {
-            tracing::warn!(
-                service = producername,
-                branch = branch,
-                "Rejected update for service '{}' branch '{}': breaking changes: {}",
-                producername,
-                branch,
-                reason
-            );
-            // A dry run asks whether this *would* be refused; nothing was.
-            if !dry_run {
-                record_rejection(repo, username, api_type, producername, branch, &reason).await;
+            if enforce_protection {
+                return Err(quarantine(repo, &refusal, &reason).await);
             }
-            return Err(AppError::BreakingChange(format!(
-                "Breaking changes detected on protected branch '{}' of service '{}': {}",
-                branch, producername, reason
-            )));
+            if !dry_run {
+                record_accepted_breaking(repo, &refusal, &reason).await;
+            }
+        } else {
+            tracing::info!(
+                "Spec update is backward-compatible for protected branch '{}'",
+                branch
+            );
         }
-        tracing::info!(
-            "Spec update is backward-compatible for protected branch '{}'",
-            branch
-        );
     }
 
     let mut existing_map: HashMap<(ApiType, String, String), (String, String, bool)> = existing
@@ -469,22 +495,12 @@ async fn provide_spec_inner(
                     && let Err(reason) =
                         check_compatibility(api_type, &existing_yaml, &endpoint.yaml_content)
                 {
-                    tracing::warn!(
-                        service = producername,
-                        branch = branch,
-                        "Rejected update for service '{}' branch '{}': breaking changes: {}",
-                        producername,
-                        branch,
-                        reason
-                    );
-                    if !dry_run {
-                        record_rejection(repo, username, api_type, producername, branch, &reason)
-                            .await;
+                    if enforce_protection {
+                        return Err(quarantine(repo, &refusal, &reason).await);
                     }
-                    return Err(AppError::BreakingChange(format!(
-                        "Breaking changes detected on protected branch '{}' of service '{}': {}",
-                        branch, producername, reason
-                    )));
+                    if !dry_run {
+                        record_accepted_breaking(repo, &refusal, &reason).await;
+                    }
                 }
                 if api_type == ApiType::AsyncApi {
                     async_impact = async_impact.max(asyncapi::analyze_impact(
@@ -504,7 +520,7 @@ async fn provide_spec_inner(
                 updates += 1;
             }
         } else {
-            if is_protected
+            if enforce_protection
                 && repo
                     .is_endpoint_deleted(bid, api_type, &endpoint.path, &endpoint.method)
                     .await?
@@ -542,16 +558,10 @@ async fn provide_spec_inner(
                 "Removing non-deprecated endpoint {} {} is a breaking change on a protected branch; mark it deprecated first",
                 method, path
             );
-            tracing::warn!(
-                service = producername,
-                branch = branch,
-                "Rejected update for service '{}' branch '{}': {}",
-                producername,
-                branch,
-                reason
-            );
-            record_rejection(repo, username, api_type, producername, branch, &reason).await;
-            return Err(AppError::BreakingChange(reason));
+            if enforce_protection {
+                return Err(quarantine(repo, &refusal, &reason).await);
+            }
+            record_accepted_breaking(repo, &refusal, &reason).await;
         }
 
         if api_type == ApiType::AsyncApi {
@@ -656,6 +666,14 @@ async fn provide_spec_inner(
         diff_impact
     };
 
+    // The Producer fixed it themselves, so whatever was being held for this key
+    // is dead. Leaving it would let an approver later apply a stale submission
+    // over the top of the change that resolved the problem — a silent revert,
+    // invisible until a Consumer noticed an endpoint had come back.
+    if !dry_run && sid != 0 {
+        repo.clear_pending_spec(sid, branch, api_type).await?;
+    }
+
     let new_version = repo
         .increment_spec_version(sid, bid, &content_hash, impact)
         .await?;
@@ -731,37 +749,108 @@ enum ContractOp {
     },
 }
 
-/// Record a Protected-branch refusal in the audit log.
+/// The parts of a Provide a refusal needs, fixed for the whole call.
 ///
-/// Recorded here rather than in the handler because a refusal returns `Err` and
-/// never reaches the handler's audit write, and because all three provide
-/// handlers would otherwise each need to catch it. Best-effort: a failure to
-/// record is logged and swallowed, since losing the audit entry must not turn a
-/// clean 409 into a 500.
-async fn record_rejection(
-    repo: &impl SpecRepository,
-    actor: Option<&str>,
+/// Grouped so `quarantine` stays within a sane argument count while still
+/// having everything it needs to hold the submission — in particular the
+/// content, which is the thing the old refusal path threw away.
+struct RefusalContext<'a> {
+    service_id: i64,
+    actor: Option<&'a str>,
     api_type: ApiType,
-    producername: &str,
-    branch: &str,
+    producername: &'a str,
+    branch: &'a str,
+    content: &'a str,
+    dry_run: bool,
+}
+
+impl RefusalContext<'_> {
+    fn actor(&self) -> &str {
+        // Matches the fallback the presentation layer uses for an
+        // unauthenticated caller in dev mode.
+        self.actor.unwrap_or("DevMode/Anonymous")
+    }
+}
+
+/// Hold a refused Provide for review and build the error the caller sees.
+///
+/// Refusal used to discard the submission, leaving only an audit line saying
+/// that *something* was rejected. Nothing retained what was actually submitted,
+/// so there was no way for anyone to look at it and decide it was fine. The
+/// submission is now kept — one entry per Producer, branch and API type, latest
+/// replacing previous — and the caller is told which entry theirs became.
+///
+/// Still a `409`: the spec is not live and no Consumer can resolve it, so a
+/// build must stay red. A green build for a spec nobody can see would be the
+/// worst outcome.
+///
+/// A dry run asks whether a Provide *would* be refused. Nothing was submitted,
+/// so nothing is held and nothing is audited.
+async fn quarantine(
+    repo: &impl SpecRepository,
+    ctx: &RefusalContext<'_>,
     reason: &str,
-) {
-    // Matches the fallback the presentation layer uses for an unauthenticated
-    // caller in dev mode.
-    let actor = actor.unwrap_or("DevMode/Anonymous");
-    let details = format!(
-        "Rejected {:?} spec for service '{}' on protected branch '{}': {}",
-        api_type, producername, branch, reason
+) -> AppError {
+    tracing::warn!(
+        service = ctx.producername,
+        branch = ctx.branch,
+        "Held {:?} spec for service '{}' branch '{}': breaking changes: {}",
+        ctx.api_type,
+        ctx.producername,
+        ctx.branch,
+        reason
     );
 
+    let message = format!(
+        "Breaking changes detected on protected branch '{}' of service '{}': {}",
+        ctx.branch, ctx.producername, reason
+    );
+
+    if ctx.dry_run || ctx.service_id == 0 {
+        return AppError::BreakingChange(message);
+    }
+
+    let actor = ctx.actor();
+    let pending_id = match repo
+        .upsert_pending_spec(
+            ctx.service_id,
+            ctx.branch,
+            ctx.api_type,
+            ctx.content,
+            reason,
+            actor,
+        )
+        .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            // Failing to hold the submission must not turn a clean refusal into
+            // a 500 — the caller's build fails either way, and the refusal is
+            // the more useful answer.
+            tracing::error!(
+                service = ctx.producername,
+                branch = ctx.branch,
+                "Could not hold the refused spec for review: {}",
+                e
+            );
+            return AppError::BreakingChange(message);
+        }
+    };
+
+    let details = format!(
+        "Held {:?} spec for service '{}' on protected branch '{}' as #{} pending review: {}",
+        ctx.api_type, ctx.producername, ctx.branch, pending_id, reason
+    );
     if let Err(e) = repo
         .insert_audit_log(
             actor,
             NewAuditLog {
-                action: "REJECTED_SPEC",
+                action: "QUARANTINED_SPEC",
                 details: &details,
-                service: Some(producername),
-                branch: Some(branch),
+                service: Some(ctx.producername),
+                branch: Some(ctx.branch),
+                // Keeps the existing "Rejected (Blocked)" timeline filter
+                // working: a held Provide is still a Provide that did not land.
                 action_type: Some("REJECT"),
                 diff: None,
             },
@@ -769,9 +858,53 @@ async fn record_rejection(
         .await
     {
         tracing::warn!(
-            service = producername,
-            branch = branch,
-            "Could not record the rejection in the audit log: {}",
+            service = ctx.producername,
+            branch = ctx.branch,
+            "Could not record the quarantine in the audit log: {}",
+            e
+        );
+    }
+
+    AppError::Quarantined {
+        message,
+        pending_id,
+    }
+}
+
+/// Record a breaking change that onboarding let through.
+///
+/// Mirrors [`quarantine`] deliberately: the same reason string, so the audit log
+/// reads as a record of what each Producer broke rather than a separate
+/// vocabulary. Best-effort — losing the entry must not turn an accepted Provide
+/// into a 500.
+async fn record_accepted_breaking(
+    repo: &impl SpecRepository,
+    ctx: &RefusalContext<'_>,
+    reason: &str,
+) {
+    let details = format!(
+        "Accepted {:?} spec for service '{}' on protected branch '{}' while onboarding: {}",
+        ctx.api_type, ctx.producername, ctx.branch, reason
+    );
+
+    if let Err(e) = repo
+        .insert_audit_log(
+            ctx.actor(),
+            NewAuditLog {
+                action: "ACCEPTED_BREAKING",
+                details: &details,
+                service: Some(ctx.producername),
+                branch: Some(ctx.branch),
+                action_type: Some("ACCEPT"),
+                diff: None,
+            },
+        )
+        .await
+    {
+        tracing::warn!(
+            service = ctx.producername,
+            branch = ctx.branch,
+            "Could not record the accepted breaking change in the audit log: {}",
             e
         );
     }
@@ -1893,6 +2026,136 @@ pub fn check_compatibility(
         ApiType::OpenApi => openapi::check_backward_compatibility(old_yaml, new_yaml),
         ApiType::AsyncApi => crate::asyncapi::check_backward_compatibility(old_yaml, new_yaml),
         ApiType::Proto => crate::proto::check_backward_compatibility(old_yaml, new_yaml),
+    }
+}
+
+// --- Reviewing held Provides ---
+
+/// Apply a held Provide.
+///
+/// Replays the submission exactly as it was received, with the refusals
+/// suspended. Two things are deliberately skipped:
+///
+/// - **The stale-base-version check.** It exists to stop a Producer overwriting
+///   work it had not seen. An approver applying a specific submission they have
+///   just read is a different act, and failing after review would make approval
+///   unreliable for reasons the approver cannot see.
+/// - **Nothing else.** Everything a normal Provide records — version bump, soft
+///   deletes, version history — happens as usual, because the change really is
+///   landing.
+///
+/// The held entry is cleared by the successful Provide itself, on the same rule
+/// that clears it when a Producer fixes the problem on its own.
+pub async fn apply_pending_spec(
+    repo: &impl SpecRepository,
+    pending_id: i64,
+    actor: Option<&str>,
+) -> Result<ProvideResponse, AppError> {
+    let pending = repo
+        .get_pending_spec(pending_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("No held spec #{}", pending_id)))?;
+
+    let response = provide_spec_inner(
+        repo,
+        ProvideInternalParams {
+            producername: &pending.producer,
+            branch: &pending.branch,
+            api_type: pending.api_type,
+            content: &pending.content,
+            dry_run: false,
+            extra_tags: &[],
+            base_version: None,
+            force: false,
+            username: actor,
+            source_protected_branch: None,
+            author: Some(&pending.submitted_by),
+            waived: true,
+        },
+    )
+    .await?;
+
+    record_review(
+        repo,
+        actor,
+        "ACCEPTED_PENDING",
+        &pending,
+        &format!(
+            "Applied held {:?} spec #{} for service '{}' on branch '{}': {}",
+            pending.api_type, pending.id, pending.producer, pending.branch, pending.reason
+        ),
+    )
+    .await;
+
+    Ok(response)
+}
+
+/// Discard a held Provide without applying it.
+///
+/// The Producer's next Provide is evaluated fresh, so this is a decision about
+/// one submission rather than a standing refusal.
+pub async fn reject_pending_spec(
+    repo: &impl SpecRepository,
+    pending_id: i64,
+    actor: Option<&str>,
+) -> Result<(), AppError> {
+    let pending = repo
+        .get_pending_spec(pending_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("No held spec #{}", pending_id)))?;
+
+    repo.delete_pending_spec(pending_id).await?;
+    record_review(
+        repo,
+        actor,
+        "REJECTED_PENDING",
+        &pending,
+        &format!(
+            "Discarded held {:?} spec #{} for service '{}' on branch '{}'",
+            pending.api_type, pending.id, pending.producer, pending.branch
+        ),
+    )
+    .await;
+    Ok(())
+}
+
+pub async fn list_pending_specs(repo: &impl SpecRepository) -> Result<Vec<PendingSpec>, AppError> {
+    Ok(repo.list_pending_specs().await?)
+}
+
+pub async fn get_pending_spec(
+    repo: &impl SpecRepository,
+    pending_id: i64,
+) -> Result<PendingSpec, AppError> {
+    repo.get_pending_spec(pending_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("No held spec #{}", pending_id)))
+}
+
+/// Record a review decision. Best effort, like the other audit writes on this
+/// path: losing the entry must not undo the decision.
+async fn record_review(
+    repo: &impl SpecRepository,
+    actor: Option<&str>,
+    action: &str,
+    pending: &PendingSpec,
+    details: &str,
+) {
+    if let Err(e) = repo
+        .insert_audit_log(
+            actor.unwrap_or("DevMode/Anonymous"),
+            NewAuditLog {
+                action,
+                details,
+                service: Some(&pending.producer),
+                branch: Some(&pending.branch),
+                action_type: Some("ADMIN"),
+                diff: None,
+            },
+        )
+        .await
+    {
+        tracing::warn!("Could not record the review decision: {}", e);
     }
 }
 

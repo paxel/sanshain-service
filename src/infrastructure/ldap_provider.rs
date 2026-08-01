@@ -1,5 +1,5 @@
 use crate::domain::models::{AuthenticatedUser, LdapConfig};
-use crate::domain::ports::{AuthProvider, AuthProviderError};
+use crate::domain::ports::{AuthProvider, AuthProviderError, DirectoryGroups};
 use ldap3::{LdapConnAsync, LdapConnSettings, Scope, SearchEntry};
 
 /// Open an LDAP connection using the trust store built at startup.
@@ -131,23 +131,14 @@ impl AuthProvider for LdapAuthProvider {
             .map_err(|_| AuthProviderError::InvalidCredentials)?;
 
         let _ = user_ldap.unbind().await;
-
-        // Determine admin status from group membership
-        let is_admin = if !self.config.admin_group.is_empty() {
-            entry
-                .attrs
-                .get("memberOf")
-                .map(|groups| groups.iter().any(|g| g == &self.config.admin_group))
-                .unwrap_or(false)
-        } else {
-            false
-        };
-
         let _ = ldap.unbind().await;
 
+        // Authentication ends here. What this user may do comes from their
+        // directory groups, read through `groups_for` on every authorisation
+        // check — not captured now and frozen, which is what used to leave a
+        // promotion or demotion in the directory with no effect.
         Ok(AuthenticatedUser {
             username: username.to_string(),
-            is_admin,
         })
     }
 
@@ -155,6 +146,44 @@ impl AuthProvider for LdapAuthProvider {
         let mut ldap = self.connect().await?;
         let _ = ldap.unbind().await;
         Ok(())
+    }
+}
+
+impl DirectoryGroups for LdapAuthProvider {
+    /// The directory groups a user belongs to, read through the service account.
+    ///
+    /// Deliberately does not need the user's password: privileges have to stay
+    /// current between logins, and Sanshain does not retain credentials. The
+    /// bind DN the configuration already carries is what makes that possible.
+    async fn groups_for(&self, username: &str) -> Result<Vec<String>, AuthProviderError> {
+        let mut ldap = self.connect().await?;
+
+        let escaped_username = escape_ldap_filter(username);
+        let filter = self
+            .config
+            .user_filter
+            .replace("{username}", &escaped_username);
+        let (rs, _result) = ldap
+            .search(
+                &self.config.base_dn,
+                Scope::Subtree,
+                &filter,
+                vec!["dn", "memberOf"],
+            )
+            .await
+            .map_err(|e| AuthProviderError::Internal(format!("LDAP search: {}", e)))?
+            .success()
+            .map_err(|e| AuthProviderError::Internal(format!("LDAP search failed: {}", e)))?;
+
+        let groups = rs
+            .into_iter()
+            .next()
+            .map(SearchEntry::construct)
+            .and_then(|entry| entry.attrs.get("memberOf").cloned())
+            .unwrap_or_default();
+
+        let _ = ldap.unbind().await;
+        Ok(groups)
     }
 }
 

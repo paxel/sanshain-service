@@ -12,20 +12,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::str::FromStr;
 
-async fn record_audit_log(
-    repo: &impl crate::domain::ports::SpecRepository,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    log: NewAuditLog<'_>,
-) -> Result<(), AppError> {
-    let actor = if let Some(axum::Extension(u)) = user {
-        u.username.clone()
-    } else {
-        "DevMode/Anonymous".to_string()
-    };
-    repo.insert_audit_log(&actor, log)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))
-}
+use super::record_audit_log;
 
 pub async fn admin_list_producers(
     State(state): State<AppState>,
@@ -686,11 +673,26 @@ pub async fn trigger_dependency_cleanup(
     Ok(Json(json!({ "deleted": res })))
 }
 
+/// Users, each with the roles granted to them.
+///
+/// The roles come along because the management UI shows them as badges; without
+/// them the list could only say whether someone was an administrator, which is
+/// the distinction the permission model replaced.
 pub async fn admin_list_users(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_users(&state.repo).await?;
-    Ok(Json(res))
+    let users = services::list_users(&state.repo).await?;
+    let mut out = Vec::with_capacity(users.len());
+    for user in users {
+        let roles = crate::application::authz::list_user_roles(&state.repo, user.id).await?;
+        out.push(json!({
+            "id": user.id,
+            "username": user.username,
+            "approved": user.approved,
+            "roles": roles,
+        }));
+    }
+    Ok(Json(out))
 }
 
 pub async fn admin_approve_user(
@@ -1061,11 +1063,8 @@ pub async fn set_debug_config(
     user: Option<axum::Extension<crate::domain::models::User>>,
     Json(config): Json<crate::domain::models::DebugConfig>,
 ) -> Result<impl IntoResponse, AppError> {
-    if let Some(axum::Extension(ref u)) = user
-        && !u.is_admin
-    {
-        return Err(AppError::Forbidden);
-    }
+    // Authorisation is the route guard's job; the handler only records who
+    // acted. Leaving a second check here would be a place for the two to drift.
     state.business_logic_debug.store(
         config.business_logic_debug,
         std::sync::atomic::Ordering::Relaxed,
@@ -1256,8 +1255,21 @@ pub struct UpdateEndpointRequest {
 pub async fn admin_update_endpoint(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
     Json(payload): Json<UpdateEndpointRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    // Editing a Producer's spec is the maintainer's own work, so their scoped
+    // `manage_producers` counts here — checked against the Producer the payload
+    // names, before anything is touched.
+    let acting = actor_of(actor)?;
+    crate::application::authz::require_producer_permission(
+        &state.repo,
+        &acting,
+        crate::domain::permissions::Permission::ManageProducers,
+        &payload.producername,
+    )
+    .await?;
+
     services::update_endpoint_manual(
         &state.repo,
         services::RequireEndpointParams {
@@ -1379,4 +1391,166 @@ mod tests {
             );
         }
     }
+}
+
+// --- Producer Onboarding ---
+
+#[derive(Deserialize)]
+pub struct SetOnboardingRequest {
+    pub onboarding: bool,
+}
+
+pub async fn admin_get_producer_onboarding(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let onboarding = services::is_producer_onboarding(&state.repo, &name).await?;
+    Ok(Json(json!({ "producer": name, "onboarding": onboarding })))
+}
+
+pub async fn admin_set_producer_onboarding(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Path(name): Path<String>,
+    Json(payload): Json<SetOnboardingRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    services::set_producer_onboarding(&state.repo, &name, payload.onboarding).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: if payload.onboarding {
+                "START_ONBOARDING"
+            } else {
+                "END_ONBOARDING"
+            },
+            details: &format!(
+                "Producer '{}' {} onboarding",
+                name,
+                if payload.onboarding {
+                    "entered"
+                } else {
+                    "left"
+                }
+            ),
+            service: Some(&name),
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
+    )
+    .await?;
+    Ok(StatusCode::OK)
+}
+
+/// Which Producers are currently in onboarding.
+///
+/// Onboarding never expires, so without this an operator has no way of noticing
+/// that a Producer stopped being gatekept months ago.
+pub async fn admin_list_onboarding_producers(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let producers = services::list_onboarding_producers(&state.repo).await?;
+    Ok(Json(json!({ "producers": producers })))
+}
+
+// --- Reviewing held Provides ---
+
+/// The Actor behind the request, for the Producer-scoped checks below.
+///
+/// These routes are not gated on a Producer by the router: which Producer a held
+/// spec belongs to is only known once the entry is loaded, so the check lives
+/// here instead.
+fn actor_of(
+    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
+) -> Result<crate::domain::permissions::Actor, AppError> {
+    actor
+        .map(|axum::Extension(a)| a)
+        .ok_or(AppError::Unauthorized)
+}
+
+/// Held Provides the caller may act on.
+///
+/// Filtered rather than refused: an administrator sees everything, a maintainer
+/// sees the Producers they are responsible for, and anyone else sees an empty
+/// inbox rather than a 403 on a page they are allowed to open.
+pub async fn admin_list_pending_specs(
+    State(state): State<AppState>,
+    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
+) -> Result<impl IntoResponse, AppError> {
+    let actor = actor_of(actor)?;
+    let all = services::list_pending_specs(&state.repo).await?;
+
+    let mut visible = Vec::new();
+    for pending in all {
+        if crate::application::authz::require_producer_permission(
+            &state.repo,
+            &actor,
+            crate::domain::permissions::Permission::ReviewPendingSpecs,
+            &pending.producer,
+        )
+        .await
+        .is_ok()
+        {
+            visible.push(pending);
+        }
+    }
+
+    Ok(Json(json!({ "count": visible.len(), "pending": visible })))
+}
+
+pub async fn admin_get_pending_spec(
+    State(state): State<AppState>,
+    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, AppError> {
+    let actor = actor_of(actor)?;
+    let pending = services::get_pending_spec(&state.repo, id).await?;
+    crate::application::authz::require_producer_permission(
+        &state.repo,
+        &actor,
+        crate::domain::permissions::Permission::ReviewPendingSpecs,
+        &pending.producer,
+    )
+    .await?;
+    Ok(Json(pending))
+}
+
+pub async fn admin_accept_pending_spec(
+    State(state): State<AppState>,
+    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, AppError> {
+    let actor = actor_of(actor)?;
+    let pending = services::get_pending_spec(&state.repo, id).await?;
+    crate::application::authz::require_producer_permission(
+        &state.repo,
+        &actor,
+        crate::domain::permissions::Permission::ReviewPendingSpecs,
+        &pending.producer,
+    )
+    .await?;
+
+    let response = services::apply_pending_spec(&state.repo, id, Some(&actor.username)).await?;
+    let _ = state.spec_updated_tx.send(());
+    Ok(Json(response))
+}
+
+pub async fn admin_reject_pending_spec(
+    State(state): State<AppState>,
+    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, AppError> {
+    let actor = actor_of(actor)?;
+    let pending = services::get_pending_spec(&state.repo, id).await?;
+    crate::application::authz::require_producer_permission(
+        &state.repo,
+        &actor,
+        crate::domain::permissions::Permission::ReviewPendingSpecs,
+        &pending.producer,
+    )
+    .await?;
+
+    services::reject_pending_spec(&state.repo, id, Some(&actor.username)).await?;
+    Ok(StatusCode::OK)
 }

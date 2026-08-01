@@ -31,6 +31,8 @@ pub struct CachedSpecRepository {
     services_list_cache: Cache<String, Arc<Vec<String>>>,
     branches_list_cache: Cache<String, Arc<Vec<String>>>,
     clients_list_cache: Cache<String, Arc<Vec<String>>>,
+    // Authorisation (entry-count bounded, short TTL)
+    effective_roles_cache: Cache<i64, Arc<Vec<String>>>,
     // Stats
     hits: Arc<AtomicU64>,
     misses: Arc<AtomicU64>,
@@ -40,6 +42,11 @@ pub struct CachedSpecRepository {
 fn mb_to_bytes(mb: u64) -> u64 {
     mb * 1024 * 1024
 }
+
+/// Safety net for the effective-roles cache: writes that bypass this
+/// repository (direct SQL) take effect within this window. Writes *through*
+/// the repository invalidate immediately and never wait on it.
+const EFFECTIVE_ROLES_TTL_SECS: u64 = 10;
 
 struct RepoCaches {
     endpoint_cache: Cache<EndpointKey, Arc<(i64, String, bool, bool)>>,
@@ -54,6 +61,7 @@ struct RepoCaches {
     services_list_cache: Cache<String, Arc<Vec<String>>>,
     branches_list_cache: Cache<String, Arc<Vec<String>>>,
     clients_list_cache: Cache<String, Arc<Vec<String>>>,
+    effective_roles_cache: Cache<i64, Arc<Vec<String>>>,
 }
 
 impl CachedSpecRepository {
@@ -73,6 +81,7 @@ impl CachedSpecRepository {
             services_list_cache: caches.services_list_cache,
             branches_list_cache: caches.branches_list_cache,
             clients_list_cache: caches.clients_list_cache,
+            effective_roles_cache: caches.effective_roles_cache,
             hits: Arc::new(AtomicU64::new(0)),
             misses: Arc::new(AtomicU64::new(0)),
             memory_limit_mb: Arc::new(AtomicU64::new(memory_limit_mb)),
@@ -198,6 +207,16 @@ impl CachedSpecRepository {
             })
             .build();
 
+        // Stored roles are consulted on every authenticated request, which made
+        // them the one uncached query on the hot path. Every grant, revocation
+        // and membership change through this repository invalidates explicitly,
+        // so a revocation still bites immediately; the TTL only bounds how long
+        // an edit made directly against the database can go unnoticed.
+        let effective_roles_cache = Cache::builder()
+            .max_capacity(10_000)
+            .time_to_live(std::time::Duration::from_secs(EFFECTIVE_ROLES_TTL_SECS))
+            .build();
+
         RepoCaches {
             endpoint_cache,
             branch_endpoints_cache,
@@ -211,6 +230,7 @@ impl CachedSpecRepository {
             services_list_cache,
             branches_list_cache,
             clients_list_cache,
+            effective_roles_cache,
         }
     }
 
@@ -228,6 +248,7 @@ impl CachedSpecRepository {
         self.services_list_cache.run_pending_tasks().await;
         self.branches_list_cache.run_pending_tasks().await;
         self.clients_list_cache.run_pending_tasks().await;
+        self.effective_roles_cache.run_pending_tasks().await;
 
         let hits = self.hits.load(Ordering::Relaxed);
         let misses = self.misses.load(Ordering::Relaxed);
@@ -328,6 +349,7 @@ impl CachedSpecRepository {
         self.protected_branches_cache.invalidate_all();
         self.fallback_branch_cache.invalidate_all();
         self.branch_protected_cache.invalidate_all();
+        self.effective_roles_cache.invalidate_all();
     }
 }
 
@@ -1010,11 +1032,10 @@ impl SpecRepository for CachedSpecRepository {
         &self,
         username: &str,
         password_hash: &str,
-        is_admin: bool,
         approved: bool,
     ) -> Result<User, RepositoryError> {
         self.inner
-            .create_user(username, password_hash, is_admin, approved)
+            .create_user(username, password_hash, approved)
             .await
     }
 
@@ -1182,6 +1203,240 @@ impl SpecRepository for CachedSpecRepository {
             self.report_cache.invalidate_all();
         }
         Ok(())
+    }
+
+    // --- Roles and Groups ---
+    //
+    // `effective_stored_roles` runs on every authenticated request, so it is
+    // cached — with every write below invalidating explicitly, which keeps
+    // revocation immediate. The management reads (listing roles, groups,
+    // members) stay uncached: they render admin pages, not the hot path.
+
+    async fn grant_user_role(&self, user_id: i64, role: &str) -> Result<(), RepositoryError> {
+        self.inner.grant_user_role(user_id, role).await?;
+        self.effective_roles_cache.invalidate(&user_id).await;
+        Ok(())
+    }
+
+    async fn revoke_user_role(&self, user_id: i64, role: &str) -> Result<bool, RepositoryError> {
+        let removed = self.inner.revoke_user_role(user_id, role).await?;
+        self.effective_roles_cache.invalidate(&user_id).await;
+        Ok(removed)
+    }
+
+    async fn list_user_roles(&self, user_id: i64) -> Result<Vec<String>, RepositoryError> {
+        self.inner.list_user_roles(user_id).await
+    }
+
+    async fn effective_stored_roles(&self, user_id: i64) -> Result<Vec<String>, RepositoryError> {
+        if !self.is_disabled()
+            && let Some(roles) = self.effective_roles_cache.get(&user_id).await
+        {
+            self.record_hit();
+            return Ok(roles.as_ref().clone());
+        }
+        self.record_miss();
+        let roles = self.inner.effective_stored_roles(user_id).await?;
+        if !self.is_disabled() {
+            self.effective_roles_cache
+                .insert(user_id, Arc::new(roles.clone()))
+                .await;
+        }
+        Ok(roles)
+    }
+
+    async fn create_group(
+        &self,
+        name: &str,
+        source: GroupSource,
+    ) -> Result<Group, RepositoryError> {
+        self.inner.create_group(name, source).await
+    }
+
+    async fn rename_group(&self, group_id: i64, name: &str) -> Result<bool, RepositoryError> {
+        self.inner.rename_group(group_id, name).await
+    }
+
+    async fn delete_group(&self, group_id: i64) -> Result<bool, RepositoryError> {
+        let removed = self.inner.delete_group(group_id).await?;
+        // Which users held roles through this group is not tracked here, so
+        // everyone's entry goes rather than guessing.
+        self.effective_roles_cache.invalidate_all();
+        Ok(removed)
+    }
+
+    async fn list_groups(&self) -> Result<Vec<Group>, RepositoryError> {
+        self.inner.list_groups().await
+    }
+
+    async fn set_group_roles(
+        &self,
+        group_id: i64,
+        roles: &[String],
+    ) -> Result<(), RepositoryError> {
+        self.inner.set_group_roles(group_id, roles).await?;
+        // Affects every member of the group; membership is not tracked here.
+        self.effective_roles_cache.invalidate_all();
+        Ok(())
+    }
+
+    async fn list_group_roles(&self, group_id: i64) -> Result<Vec<String>, RepositoryError> {
+        self.inner.list_group_roles(group_id).await
+    }
+
+    async fn add_group_member(&self, group_id: i64, user_id: i64) -> Result<(), RepositoryError> {
+        self.inner.add_group_member(group_id, user_id).await?;
+        self.effective_roles_cache.invalidate(&user_id).await;
+        Ok(())
+    }
+
+    async fn remove_group_member(
+        &self,
+        group_id: i64,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        let removed = self.inner.remove_group_member(group_id, user_id).await?;
+        self.effective_roles_cache.invalidate(&user_id).await;
+        Ok(removed)
+    }
+
+    async fn list_group_member_ids(&self, group_id: i64) -> Result<Vec<i64>, RepositoryError> {
+        self.inner.list_group_member_ids(group_id).await
+    }
+
+    // --- Pending Specs ---
+    //
+    // Uncached: a held spec is read when a human is about to act on it, and
+    // written on a path that has already failed. Neither is hot.
+
+    async fn upsert_pending_spec(
+        &self,
+        service_id: i64,
+        branch: &str,
+        api_type: ApiType,
+        content: &str,
+        reason: &str,
+        submitted_by: &str,
+    ) -> Result<i64, RepositoryError> {
+        self.inner
+            .upsert_pending_spec(service_id, branch, api_type, content, reason, submitted_by)
+            .await
+    }
+
+    async fn get_pending_spec(&self, id: i64) -> Result<Option<PendingSpec>, RepositoryError> {
+        self.inner.get_pending_spec(id).await
+    }
+
+    async fn list_pending_specs(&self) -> Result<Vec<PendingSpec>, RepositoryError> {
+        self.inner.list_pending_specs().await
+    }
+
+    async fn delete_pending_spec(&self, id: i64) -> Result<bool, RepositoryError> {
+        self.inner.delete_pending_spec(id).await
+    }
+
+    async fn clear_pending_spec(
+        &self,
+        service_id: i64,
+        branch: &str,
+        api_type: ApiType,
+    ) -> Result<bool, RepositoryError> {
+        self.inner
+            .clear_pending_spec(service_id, branch, api_type)
+            .await
+    }
+
+    // --- Producer Onboarding ---
+    //
+    // Uncached: this decides whether a Provide is gatekept, so a stale answer
+    // would either refuse a change that should land or accept one that should
+    // not.
+
+    async fn set_producer_onboarding(
+        &self,
+        service_id: i64,
+        onboarding: bool,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .set_producer_onboarding(service_id, onboarding)
+            .await?;
+        if !self.is_disabled() {
+            self.services_cache.invalidate_all();
+        }
+        Ok(())
+    }
+
+    async fn is_producer_onboarding(&self, service_id: i64) -> Result<bool, RepositoryError> {
+        self.inner.is_producer_onboarding(service_id).await
+    }
+
+    async fn list_onboarding_producers(&self) -> Result<Vec<String>, RepositoryError> {
+        self.inner.list_onboarding_producers().await
+    }
+
+    // --- Maintainer Scope ---
+    //
+    // Deliberately uncached, for the same reason as roles: an unassignment must
+    // take effect at once, not when a cache entry happens to expire.
+
+    async fn add_user_maintainer(
+        &self,
+        service_id: i64,
+        user_id: i64,
+    ) -> Result<(), RepositoryError> {
+        self.inner.add_user_maintainer(service_id, user_id).await
+    }
+
+    async fn remove_user_maintainer(
+        &self,
+        service_id: i64,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        self.inner.remove_user_maintainer(service_id, user_id).await
+    }
+
+    async fn add_group_maintainer(
+        &self,
+        service_id: i64,
+        group_id: i64,
+    ) -> Result<(), RepositoryError> {
+        self.inner.add_group_maintainer(service_id, group_id).await
+    }
+
+    async fn remove_group_maintainer(
+        &self,
+        service_id: i64,
+        group_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        self.inner
+            .remove_group_maintainer(service_id, group_id)
+            .await
+    }
+
+    async fn list_user_maintainer_ids(&self, service_id: i64) -> Result<Vec<i64>, RepositoryError> {
+        self.inner.list_user_maintainer_ids(service_id).await
+    }
+
+    async fn list_group_maintainer_ids(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<i64>, RepositoryError> {
+        self.inner.list_group_maintainer_ids(service_id).await
+    }
+
+    async fn maintains_producer(
+        &self,
+        user_id: i64,
+        service_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        self.inner.maintains_producer(user_id, service_id).await
+    }
+
+    async fn list_maintained_producers(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<String>, RepositoryError> {
+        self.inner.list_maintained_producers(user_id).await
     }
 
     async fn add_service_tags(
@@ -1461,5 +1716,124 @@ mod tests {
         repo.set_fallback_branch("svc", Some("main")).await.unwrap();
         let fb = repo.get_fallback_branch("svc").await.unwrap();
         assert_eq!(fb, Some("main".to_string()));
+    }
+
+    /// The cache must never delay a revocation: every write path invalidates,
+    /// so the answer after a change is correct immediately, not after the TTL.
+    #[tokio::test]
+    async fn effective_roles_cache_reflects_writes_immediately() {
+        let repo = setup_cached_repo(256).await;
+        let user = repo.create_user("alice", "hash", true).await.unwrap();
+
+        // Warm the cache, then prove a second read is served from it.
+        repo.grant_user_role(user.id, "viewer").await.unwrap();
+        assert_eq!(
+            repo.effective_stored_roles(user.id).await.unwrap(),
+            vec!["viewer".to_string()]
+        );
+        let misses_before = repo.cache_stats().await.miss_count;
+        assert_eq!(
+            repo.effective_stored_roles(user.id).await.unwrap(),
+            vec!["viewer".to_string()]
+        );
+        assert_eq!(
+            repo.cache_stats().await.miss_count,
+            misses_before,
+            "the second read must come from the cache"
+        );
+
+        // Revocation bites immediately despite the warm cache.
+        repo.revoke_user_role(user.id, "viewer").await.unwrap();
+        assert!(
+            repo.effective_stored_roles(user.id)
+                .await
+                .unwrap()
+                .is_empty(),
+            "a revoked role must disappear at once, not after the TTL"
+        );
+    }
+
+    #[tokio::test]
+    async fn effective_roles_cache_tracks_group_membership() {
+        let repo = setup_cached_repo(256).await;
+        let user = repo.create_user("bob", "hash", true).await.unwrap();
+        let group = repo
+            .create_group("platform", crate::domain::models::GroupSource::Native)
+            .await
+            .unwrap();
+        repo.set_group_roles(group.id, &["admin".to_string()])
+            .await
+            .unwrap();
+
+        // Warm with the empty answer, then join the group.
+        assert!(
+            repo.effective_stored_roles(user.id)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        repo.add_group_member(group.id, user.id).await.unwrap();
+        assert_eq!(
+            repo.effective_stored_roles(user.id).await.unwrap(),
+            vec!["admin".to_string()],
+            "joining a group must grant its roles immediately"
+        );
+
+        // Changing the group's roles reaches every member immediately.
+        repo.set_group_roles(group.id, &["viewer".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(
+            repo.effective_stored_roles(user.id).await.unwrap(),
+            vec!["viewer".to_string()]
+        );
+
+        // Leaving the group, likewise.
+        repo.remove_group_member(group.id, user.id).await.unwrap();
+        assert!(
+            repo.effective_stored_roles(user.id)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn effective_roles_cache_tracks_group_deletion() {
+        let repo = setup_cached_repo(256).await;
+        let user = repo.create_user("carol", "hash", true).await.unwrap();
+        let group = repo
+            .create_group("temp", crate::domain::models::GroupSource::Native)
+            .await
+            .unwrap();
+        repo.set_group_roles(group.id, &["viewer".to_string()])
+            .await
+            .unwrap();
+        repo.add_group_member(group.id, user.id).await.unwrap();
+        assert_eq!(
+            repo.effective_stored_roles(user.id).await.unwrap(),
+            vec!["viewer".to_string()]
+        );
+
+        repo.delete_group(group.id).await.unwrap();
+        assert!(
+            repo.effective_stored_roles(user.id)
+                .await
+                .unwrap()
+                .is_empty(),
+            "deleting the group must strip its roles from members immediately"
+        );
+    }
+
+    /// With caching disabled entirely, every read goes to the database.
+    #[tokio::test]
+    async fn effective_roles_bypass_when_cache_disabled() {
+        let repo = setup_cached_repo(0).await;
+        let user = repo.create_user("dave", "hash", true).await.unwrap();
+        repo.grant_user_role(user.id, "viewer").await.unwrap();
+        assert_eq!(
+            repo.effective_stored_roles(user.id).await.unwrap(),
+            vec!["viewer".to_string()]
+        );
     }
 }

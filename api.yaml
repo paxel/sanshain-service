@@ -59,17 +59,22 @@ paths:
         "400":
           description: Invalid request (e.g. malformed YAML or missing fields).
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/ErrorBody"
         "409":
           description: |
-            Conflict — an endpoint on a protected branch already exists with different content.
-            The response body includes the method, path, branch, and service name.
+            Conflict — the Provide was not applied. Either an endpoint on a protected branch already
+            exists with different content, or the submission carries a breaking change.
+
+            A breaking change on a protected branch is **retained for review** rather than discarded
+            (unless the Producer is in onboarding, in which case it is applied). The response then
+            carries `pending_id` and `status: awaiting_review`. The status stays `409` because the
+            spec is not live and no Consumer can resolve it.
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/ErrorBody"
         "413":
           description: Request body exceeds the configured size limit (`MAX_SPEC_BODY_BYTES`, default 4 MiB).
 
@@ -132,195 +137,6 @@ paths:
           description: Conflict on protected branch.
         "413":
           description: Request body exceeds the configured size limit.
-
-  /admin/settings/dev-mode:
-    get:
-      summary: Get developer mode status
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Developer mode status
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  dev_mode:
-                    type: boolean
-    post:
-      summary: Set developer mode status
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EnabledPayload"
-      responses:
-        "200":
-          description: Status updated
-
-  /admin/settings/auto-approve:
-    get:
-      summary: Get auto-approve status
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Auto-approve status
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  auto_approve_users:
-                    type: boolean
-    post:
-      summary: Set auto-approve status
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EnabledPayload"
-      responses:
-        "200":
-          description: Status updated
-
-  /admin/settings/branch-max-age:
-    get:
-      summary: Get branch max age
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Max age in days
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  days:
-                    type: integer
-    post:
-      summary: Set branch max age
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/MaxAgePayload"
-      responses:
-        "200":
-          description: Status updated
-
-  /admin/settings/dependency-max-age:
-    get:
-      summary: Get dependency max age
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Max age in days
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  days:
-                    type: integer
-    post:
-      summary: Set dependency max age
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/MaxAgePayload"
-      responses:
-        "200":
-          description: Status updated
-
-  /admin/users:
-    get:
-      summary: List all users
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: List of users
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/User"
-
-  /admin/users/{id}/approve:
-    post:
-      summary: Approve a user
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: User approved
-
-  /admin/users/{id}:
-    delete:
-      summary: Delete a user
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: User deleted
-
-  /admin/nuke/branch/{branch}:
-    post:
-      summary: Delete a branch from all services
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: branch
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/NukeConfirmPayload"
-      responses:
-        "200":
-          description: Branch deleted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  deleted:
-                    type: integer
 
   /require:
     get:
@@ -449,18 +265,18 @@ paths:
             of the *current* spec can change it. Distinct from `404`, which means no
             branch has the endpoint and it may still appear.
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/ErrorBody"
         "404":
           description: |
             No branch of this service has the endpoint (after timeout, if specified).
             May still appear later, which is why a long-poll waits on this state but not on `410`.
             The response body contains a descriptive error message with the service name, branch, and endpoint details.
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/ErrorBody"
 
   /require/asyncapi:
     get:
@@ -521,9 +337,9 @@ paths:
             returned immediately even when `timeout` is set. Distinct from `404`, which means
             no branch has it and it may still appear.
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/ErrorBody"
         "404":
           description: Not found.
 
@@ -586,9 +402,9 @@ paths:
             returned immediately even when `timeout` is set. Distinct from `404`, which means
             no branch has it and it may still appear.
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/ErrorBody"
         "404":
           description: Not found.
 
@@ -656,9 +472,9 @@ paths:
         "400":
           description: Invalid request (e.g. empty endpoints list or missing fields).
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/ErrorBody"
         "410":
           description: |
             The requested branch has published a spec that does not include the requested
@@ -666,17 +482,17 @@ paths:
             returned immediately even when `timeout` is set. Distinct from `404`, which means
             no branch has it and it may still appear.
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/ErrorBody"
         "404":
           description: |
             One or more requested endpoints not found (after timeout, if specified).
             The response body lists all missing endpoints with service name, branch, and endpoint details.
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/ErrorBody"
         "413":
           description: Request body exceeds the configured size limit.
 
@@ -820,6 +636,29 @@ components:
         type: string
 
   schemas:
+    ErrorBody:
+      type: object
+      description: |
+        The body every error response carries. `error` holds the human-readable
+        message; the remaining fields appear only on the errors that have
+        something structured to report.
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Human-readable description of what went wrong.
+        pending_id:
+          type: integer
+          format: int64
+          description: |
+            Identifies a refused specification that was retained for review
+            rather than discarded. Present only on a 409 refusing a breaking
+            change.
+        status:
+          type: string
+          description: |
+            Machine-readable state accompanying `pending_id`.
     BranchMetadata:
       type: object
       required:
@@ -1091,14 +930,19 @@ components:
       required:
         - id
         - username
-        - is_admin
         - approved
       properties:
         id:
           type: integer
         username:
           type: string
-        is_admin:
-          type: boolean
         approved:
           type: boolean
+        roles:
+          type: array
+          description: |
+            Roles granted directly to this user. What the user may do is the
+            union of these, the roles their groups confer, and — for an account
+            named in `SANSHAIN_ROOT_USERS` — everything.
+          items:
+            type: string

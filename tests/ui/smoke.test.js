@@ -89,8 +89,8 @@ test.describe('Sanshain UI Smoke Test', () => {
     await page.waitForTimeout(500);
   });
 
-  test('Audit nav link is admin-only', async ({ page }) => {
-    // The audit timeline is admin-only on the server. The nav link must not
+  test('Audit nav link requires the audit permission', async ({ page }) => {
+    // The audit timeline needs `view_audit` on the server. The nav link must not
     // advertise it to visitors who would be refused.
     if (!adminPassword) {
       throw new Error('INITIAL_ADMIN_PASSWORD environment variable is required for tests');
@@ -118,21 +118,35 @@ test.describe('Sanshain UI Smoke Test', () => {
     await page.goto('/producers.html');
     await expect(page.locator('#nav-audit-link')).toBeVisible();
 
-    // Signed in as a NON-admin: hidden. This is the case the change exists for,
-    // and the only one the other two cannot catch — a regression that ignored
-    // is_admin in the signed-in branch would still pass both of them.
+    // Signed in WITHOUT the permission: hidden. This is the case the change
+    // exists for, and the only one the other two cannot catch — a regression
+    // that ignored permissions in the signed-in branch would still pass both.
     //
     // The banner state is driven directly rather than by registering a second
     // account, so the assertion does not depend on the registration or
-    // auto-approve settings. That /auth/me reports is_admin correctly is a
+    // auto-approve settings. That /auth/me reports permissions correctly is a
     // separate concern, covered server-side.
-    await page.evaluate(() => window.updateBannerAuth({ username: 'plain', is_admin: false }));
+    await page.evaluate(() =>
+      window.updateBannerAuth({ username: 'plain', permissions: [] })
+    );
     await expect(page.locator('#nav-audit-link')).toBeHidden();
 
-    // ...and the same call with is_admin true brings it back, so the assertion
-    // above is about the flag and not about the call having any effect at all.
-    await page.evaluate(() => window.updateBannerAuth({ username: 'root', is_admin: true }));
+    // ...and the same call with the permission brings it back, so the assertion
+    // above is about the permission and not about the call having no effect.
+    await page.evaluate(() =>
+      window.updateBannerAuth({ username: 'root', permissions: ['view_audit'] })
+    );
     await expect(page.locator('#nav-audit-link')).toBeVisible();
+
+    // A partial administrator — someone who administers users but may not read
+    // the audit trail — still does not get the link. This is the arrangement the
+    // permission model makes possible and the old all-or-nothing gate could not
+    // express: holding *an* administrative permission is no longer the same as
+    // holding this one.
+    await page.evaluate(() =>
+      window.updateBannerAuth({ username: 'manager', permissions: ['manage_users'] })
+    );
+    await expect(page.locator('#nav-audit-link')).toBeHidden();
   });
 });
 
@@ -230,5 +244,83 @@ test.describe('Endpoint editor access', () => {
     // Typing the editor URL directly is refused and returns to the viewer.
     await page.goto(EDIT_URL);
     await page.waitForURL('**/yaml.html**');
+  });
+});
+
+test.describe('Role, group and maintainer management', () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+
+  test.beforeEach(async ({ page }) => {
+    if (!adminPassword) {
+      throw new Error('INITIAL_ADMIN_PASSWORD environment variable is required for tests');
+    }
+    page.on('dialog', async (dialog) => await dialog.accept());
+    await page.goto('/account.html');
+    await page.waitForSelector('#login-username', { state: 'visible' });
+    await page.fill('input[id="login-username"]', 'root');
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator('#account-dashboard')).toBeVisible({ timeout: 10000 });
+    await page.goto('/admin.html');
+    await expect(page.locator('#admin-dashboard')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('the management sections render', async ({ page }) => {
+    await expect(page.locator('#users-list')).toBeVisible();
+    await expect(page.locator('#groups-list')).toBeVisible();
+    await expect(page.locator('#maintainers-list')).toBeVisible();
+    // Root is configuration-held; the page must not offer to change that.
+    await expect(page.locator('#root-note')).toContainText('cannot be granted or revoked here');
+  });
+
+  // The round trip that matters: a group created here can carry a role, and the
+  // origin badge distinguishes it from one mirrored from the directory.
+  test('a group can be created and given a role', async ({ page }) => {
+    const name = 'ui-test-group';
+    await page.fill('#new-group-name', name);
+    await page.click('button:has-text("Create")');
+
+    const row = page.locator('#groups-list > div', { hasText: name });
+    await expect(row).toBeVisible({ timeout: 10000 });
+    await expect(row).toContainText('sanshain');
+    await expect(row).toContainText('no roles attached');
+
+    await row.locator('select').selectOption('viewer');
+    await row.locator('button:has-text("Add")').click();
+    await expect(page.locator('#groups-list > div', { hasText: name })).toContainText('viewer', {
+      timeout: 10000,
+    });
+  });
+
+  test('the root account shows its admin role and offers no delete', async ({ page }) => {
+    const row = page.locator('#users-list > div', { hasText: 'root' });
+    await expect(row).toBeVisible();
+    await expect(row).toContainText('admin');
+    await expect(row.locator('button:has-text("Delete")')).toHaveCount(0);
+  });
+});
+
+test.describe('Held Provides inbox', () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+
+  test('the inbox is visible on the dashboard with its count', async ({ page }) => {
+    if (!adminPassword) {
+      throw new Error('INITIAL_ADMIN_PASSWORD environment variable is required for tests');
+    }
+    page.on('dialog', async (dialog) => await dialog.accept());
+    await page.goto('/account.html');
+    await page.waitForSelector('#login-username', { state: 'visible' });
+    await page.fill('input[id="login-username"]', 'root');
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator('#account-dashboard')).toBeVisible({ timeout: 10000 });
+
+    await page.goto('/admin.html');
+    await expect(page.locator('#admin-dashboard')).toBeVisible({ timeout: 10000 });
+
+    // Discoverability is the point: a held Provide means somebody's build is red,
+    // so the count has to be where an administrator will encounter it.
+    await expect(page.locator('#pending-list')).toBeVisible();
+    await expect(page.locator('#pending-count')).toContainText('none');
   });
 });

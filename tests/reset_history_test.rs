@@ -50,6 +50,13 @@ fn test_app_state(repo: SqliteSpecRepository) -> AppState {
         prometheus_handle: get_test_prometheus_handle(),
         system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
         max_body_bytes: sanshain_service::DEFAULT_MAX_BODY_BYTES,
+        directory_roles: sanshain_service::application::directory_roles::DirectoryRoleCache::new(
+            std::time::Duration::from_secs(300),
+        ),
+        root_users: std::sync::Arc::new(sanshain_service::domain::permissions::RootUsers::resolve(
+            Some("root"),
+            None,
+        )),
     }
 }
 
@@ -166,7 +173,10 @@ async fn test_admin_reset_history_api() {
 
     // Create admin user manually
     let hash = services::hash_password("admin-pass").unwrap();
-    let user = repo.create_user("admin", &hash, true, true).await.unwrap();
+    let user = repo.create_user("admin", &hash, true).await.unwrap();
+    repo.grant_user_role(user.id, "admin")
+        .await
+        .expect("admin grant");
     let session = repo
         .create_session(user.id, "2099-12-31T23:59:59")
         .await

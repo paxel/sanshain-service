@@ -413,6 +413,47 @@ pub async fn remove_user_favorite(
         .await?;
     Ok(())
 }
+// --- Producer Onboarding ---
+
+/// Put a Producer into onboarding, or take it out.
+///
+/// While it is on, a Provide to a protected branch is not gatekept: none of the
+/// five refusals apply. Deletes stay soft and version history is still written,
+/// so this is strictly less destructive than the workaround it replaces —
+/// deleting the branch by hand, which throws that history away.
+pub async fn set_producer_onboarding(
+    repo: &impl SpecRepository,
+    producer: &str,
+    onboarding: bool,
+) -> Result<(), AppError> {
+    let service_id = repo
+        .find_service(producer)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Producer '{}' not found", producer)))?;
+    repo.set_producer_onboarding(service_id, onboarding).await?;
+    Ok(())
+}
+
+pub async fn is_producer_onboarding(
+    repo: &impl SpecRepository,
+    producer: &str,
+) -> Result<bool, AppError> {
+    let service_id = repo
+        .find_service(producer)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Producer '{}' not found", producer)))?;
+    Ok(repo.is_producer_onboarding(service_id).await?)
+}
+
+/// Producers currently in onboarding.
+///
+/// The flag has no expiry, so nothing else will ever mention that it is still
+/// on. This listing is that reminder.
+pub async fn list_onboarding_producers(
+    repo: &impl SpecRepository,
+) -> Result<Vec<String>, AppError> {
+    Ok(repo.list_onboarding_producers().await?)
+}
 
 #[cfg(test)]
 mod tests {

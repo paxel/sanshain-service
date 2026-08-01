@@ -59,6 +59,93 @@ By default `main` and `master` are protected. You can add or remove patterns:
 
 On non-protected (feature) branches, endpoint definitions can be freely overwritten.
 
+## Held Provides
+
+Outside onboarding, a Provide carrying a breaking change on a protected branch is **held for review**
+rather than discarded. Refusal used to destroy the very thing you would need in order to overrule it:
+the audit log recorded that something was rejected and why, but the submitted spec was gone.
+
+The submission is now kept in full, with the reason it was refused and who pushed it. One entry per
+Producer, branch and API type — a new refusal replaces the previous one, so CI pushing on every commit
+files one problem rather than dozens, and what you review is at most one push old.
+
+If the Producer fixes the problem itself and pushes something acceptable, the held entry is discarded.
+That is what stops an approver later applying a stale submission over the top of the change that
+resolved it.
+
+**What the pushing Producer sees.** Still `409`. The spec is not live and no Consumer can resolve it,
+so the build must stay red — a green build for a spec nobody can see would be worse than a failure.
+The response body now identifies the held entry:
+
+```json
+{
+  "error": "Breaking changes detected on protected branch 'master' of service 'orders': ...",
+  "pending_id": 42,
+  "status": "awaiting_review"
+}
+```
+
+Holding is audited as `QUARANTINED_SPEC`, under the existing **Rejected (Blocked)** timeline type.
+
+### Reviewing them
+
+The **Held Provides** section of the admin dashboard lists what is waiting, with the reason, who
+pushed it, and the submitted spec itself — so you decide with the content in front of you rather than
+from a one-line reason.
+
+- **Accept** applies the held spec. The stale-base-version check is skipped: it exists to stop a
+  Producer overwriting work it had not seen, and an approver applying a spec they have just read is a
+  different act. Everything else happens as usual — version bump, soft deletes, version history.
+- **Reject** discards the entry. The Producer's next Provide is evaluated fresh.
+
+Both write an audit entry naming who decided. An administrator may act on any Producer; a maintainer
+only on the Producers they maintain, and the list is filtered accordingly rather than refusing to open.
+
+There is deliberately no second-pair-of-eyes rule: a maintainer may approve a change they pushed
+themselves.
+
+| Method   | Endpoint                             | Description                                |
+|----------|--------------------------------------|--------------------------------------------|
+| `GET`    | `/admin/pending-specs`               | Held Provides you may act on, with a count.|
+| `GET`    | `/admin/pending-specs/{id}`          | One held Provide, including its spec.      |
+| `POST`   | `/admin/pending-specs/{id}/accept`   | Apply it.                                  |
+| `DELETE` | `/admin/pending-specs/{id}`          | Discard it.                                |
+
+## Producer Onboarding
+
+A Producer whose API is not yet stable can be put into **onboarding**. While it is on, a Provide to a
+protected branch is not gatekept: none of the five refusals apply — the OpenAPI compatibility check,
+the AsyncAPI and proto checks, the refusal to remove a non-deprecated endpoint, and the refusal to
+re-introduce a removed one.
+
+It applies unconditionally: the Producer does not pass a `force` flag. These pushes come from CI with
+no special handling, and requiring a flag would leave the problem where it started.
+
+**What onboarding does not do.** The branch stays protected in every sense that preserves data.
+Deletes remain soft and version history is still written — so onboarding is strictly less destructive
+than the workaround it replaces, deleting the branch by hand, which throws that history away.
+
+**Versions keep telling the truth.** A breaking change bumps the major version as normal. That is
+deliberate: the flag has no expiry, so the major number is the signal of who is still thrashing and
+who has settled. A Producer sitting at `14.0.0` is visibly not ready; one that has held `2.x` for a
+month is ready to have onboarding switched off.
+
+Every breaking change let through writes an `ACCEPTED_BREAKING` audit entry carrying the reason the
+refusal would have given — so instead of a stream of failures you get a reviewable record of exactly
+what each Producer broke.
+
+> Onboarding **never expires**. Nothing will remind you that it is still on, so
+> `GET /admin/producers/onboarding` lists which Producers are currently lenient. Check it before you
+> rely on protection.
+
+An administrator, or a maintainer of that Producer, may turn it on and off.
+
+| Method | Endpoint                              | Description                                          |
+|--------|---------------------------------------|------------------------------------------------------|
+| `GET`  | `/admin/producers/onboarding`         | Producers currently in onboarding.                   |
+| `GET`  | `/admin/producers/{name}/onboarding`  | Whether one Producer is in onboarding.               |
+| `PUT`  | `/admin/producers/{name}/onboarding`  | Set it. Body: `{"onboarding": true}`.                |
+
 ## Local User Management
 
 Sanshain supports local user accounts with the following settings in the **User Management** tab:
@@ -100,7 +187,7 @@ The **Authentication** section on the admin dashboard lets you choose how users 
 | **Bind Password**  | Password for the service account.                                                          | *(stored encrypted, shown as `****`)*    |
 | **Base DN**        | Search base for user lookups.                                                              | `dc=example,dc=com`                     |
 | **User Filter**    | LDAP filter to find users. `{username}` is replaced with the login name.                   | `(uid={username})`                      |
-| **Admin Group DN** | Users who are members of this group get admin privileges. Leave empty to disable.          | `cn=admins,ou=groups,dc=example,dc=com` |
+| **Admin Group DN** | Members of this group get the `admin` role. Saved as a directory group in the group mapping, where you can attach further roles or add more groups. Leave empty to disable. | `cn=admins,ou=groups,dc=example,dc=com` |
 
 3. Click **Test Connection** to verify that Sanshain can reach the LDAP server and bind with the service account.
 4. Click **Save Authentication Settings** to apply.
@@ -158,6 +245,71 @@ Available actions:
 
 - **Approve** — grant a pending user access to the service.
 - **Delete** — permanently remove a user and revoke all their sessions and API tokens.
+
+## Roles and Groups
+
+Authorisation is expressed in **permissions** — the unit every check tests. **Roles** are fixed
+bundles of permissions, defined in the service rather than composed by an operator, so what a role
+confers cannot drift from what the code enforces.
+
+| Role           | Confers                                                                      |
+|----------------|------------------------------------------------------------------------------|
+| `admin`        | Every permission. This is the role an existing administrator account holds.  |
+| `user_manager` | User administration and role/group administration, and nothing else.         |
+| `viewer`       | Read access to the audit log and observability.                              |
+| `maintainer`   | Producer administration, onboarding and pending-spec review — **scoped**.    |
+
+`maintainer` cannot be granted instance-wide: it is meaningless without the set of Producers it is
+over, so it is assigned as a scope rather than granted as a role.
+
+### Groups
+
+A **group** is a set of users that roles attach to. Groups carry a source, which records where their
+membership comes from:
+
+- **native** — Sanshain's own. Membership is yours to edit.
+- **ldap** — mirrors a directory group. Membership belongs to the directory and is not stored here;
+  only the roles you attach to it are. Membership is re-read from the directory through the configured
+  service account, cached briefly — see
+  [Directory group caching](configuration.md#directory-group-caching) — so a change in the directory
+  takes effect without the user signing in again.
+
+A native and a directory group may share a name without colliding — they are distinct entities, and
+the UI shows the origin.
+
+### Maintainers
+
+A **maintainer** is responsible for a set of Producers. It is an assignment rather than a role,
+because it means nothing without the Producers it is over — so it is never granted instance-wide.
+
+A user or a group can be assigned. Group assignment is what makes this scale: put a team's group on
+the Producers that team owns, and responsibility follows membership.
+
+A Producer-scoped action admits either the matching instance-wide permission **or** maintainership of
+that Producer. So an administrator can act on any Producer, while a maintainer can act on theirs and
+is refused on everybody else's. This covers branch administration, onboarding, held-spec review — and
+editing the Producer's endpoints through the spec editor.
+
+### API Endpoints
+
+| Method   | Endpoint                                  | Description                                     |
+|----------|-------------------------------------------|-------------------------------------------------|
+| `GET`    | `/admin/roles`                            | The role catalogue and what each role confers.  |
+| `GET`    | `/admin/users/{id}/roles`                 | Roles granted directly to a user.               |
+| `POST`   | `/admin/users/{id}/roles`                 | Grant a role. Body: `{"role": "user_manager"}`. |
+| `DELETE` | `/admin/users/{id}/roles/{role}`          | Revoke a role.                                  |
+| `GET`    | `/admin/groups`                           | All groups with their origin, roles and members.|
+| `POST`   | `/admin/groups`                           | Create a native group. Body: `{"name": "..."}`. |
+| `PUT`    | `/admin/groups/{id}`                      | Rename it, replace its roles, or both.          |
+| `DELETE` | `/admin/groups/{id}`                      | Delete a group and its grants.                  |
+| `POST`   | `/admin/groups/{id}/members`              | Add a member. Body: `{"user_id": 3}`.           |
+| `DELETE` | `/admin/groups/{id}/members/{user_id}`    | Remove a member.                                |
+| `GET`    | `/admin/maintainers`                      | Every Producer with its maintainers, in one response. |
+| `GET`    | `/admin/producers/{name}/maintainers`     | Users and groups maintaining a Producer. Readable by that Producer's maintainers too. |
+| `POST`   | `/admin/producers/{name}/maintainers`     | Assign one. Body: `{"user_id": 3}` **or** `{"group_id": 1}`. |
+| `DELETE` | `/admin/producers/{name}/maintainers/users/{user_id}`   | Unassign a user.                  |
+| `DELETE` | `/admin/producers/{name}/maintainers/groups/{group_id}` | Unassign a group.                 |
+| `GET`    | `/admin/users/{id}/maintains`             | The Producers a user is responsible for.        |
 
 ## Service Management
 

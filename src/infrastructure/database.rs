@@ -342,13 +342,9 @@ impl SpecRepository for DatabaseRepo {
         &self,
         username: &str,
         password_hash: &str,
-        is_admin: bool,
         approved: bool,
     ) -> Result<User, RepositoryError> {
-        delegate!(
-            self,
-            create_user(username, password_hash, is_admin, approved)
-        )
+        delegate!(self, create_user(username, password_hash, approved))
     }
 
     async fn update_password(&self, user_id: i64, new_hash: &str) -> Result<(), RepositoryError> {
@@ -496,6 +492,188 @@ impl SpecRepository for DatabaseRepo {
             self,
             apply_spec_changes(branch_id, changes, is_protected, username, source_branch)
         )
+    }
+
+    // --- Roles and Groups ---
+
+    async fn grant_user_role(&self, user_id: i64, role: &str) -> Result<(), RepositoryError> {
+        delegate!(self, grant_user_role(user_id, role))
+    }
+
+    async fn revoke_user_role(&self, user_id: i64, role: &str) -> Result<bool, RepositoryError> {
+        delegate!(self, revoke_user_role(user_id, role))
+    }
+
+    async fn list_user_roles(&self, user_id: i64) -> Result<Vec<String>, RepositoryError> {
+        delegate!(self, list_user_roles(user_id))
+    }
+
+    async fn effective_stored_roles(&self, user_id: i64) -> Result<Vec<String>, RepositoryError> {
+        delegate!(self, effective_stored_roles(user_id))
+    }
+
+    async fn create_group(
+        &self,
+        name: &str,
+        source: GroupSource,
+    ) -> Result<Group, RepositoryError> {
+        delegate!(self, create_group(name, source))
+    }
+
+    async fn rename_group(&self, group_id: i64, name: &str) -> Result<bool, RepositoryError> {
+        delegate!(self, rename_group(group_id, name))
+    }
+
+    async fn delete_group(&self, group_id: i64) -> Result<bool, RepositoryError> {
+        delegate!(self, delete_group(group_id))
+    }
+
+    async fn list_groups(&self) -> Result<Vec<Group>, RepositoryError> {
+        delegate!(self, list_groups())
+    }
+
+    async fn set_group_roles(
+        &self,
+        group_id: i64,
+        roles: &[String],
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, set_group_roles(group_id, roles))
+    }
+
+    async fn list_group_roles(&self, group_id: i64) -> Result<Vec<String>, RepositoryError> {
+        delegate!(self, list_group_roles(group_id))
+    }
+
+    async fn add_group_member(&self, group_id: i64, user_id: i64) -> Result<(), RepositoryError> {
+        delegate!(self, add_group_member(group_id, user_id))
+    }
+
+    async fn remove_group_member(
+        &self,
+        group_id: i64,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(self, remove_group_member(group_id, user_id))
+    }
+
+    async fn list_group_member_ids(&self, group_id: i64) -> Result<Vec<i64>, RepositoryError> {
+        delegate!(self, list_group_member_ids(group_id))
+    }
+
+    // --- Pending Specs ---
+
+    async fn upsert_pending_spec(
+        &self,
+        service_id: i64,
+        branch: &str,
+        api_type: ApiType,
+        content: &str,
+        reason: &str,
+        submitted_by: &str,
+    ) -> Result<i64, RepositoryError> {
+        delegate!(
+            self,
+            upsert_pending_spec(service_id, branch, api_type, content, reason, submitted_by)
+        )
+    }
+
+    async fn get_pending_spec(&self, id: i64) -> Result<Option<PendingSpec>, RepositoryError> {
+        delegate!(self, get_pending_spec(id))
+    }
+
+    async fn list_pending_specs(&self) -> Result<Vec<PendingSpec>, RepositoryError> {
+        delegate!(self, list_pending_specs())
+    }
+
+    async fn delete_pending_spec(&self, id: i64) -> Result<bool, RepositoryError> {
+        delegate!(self, delete_pending_spec(id))
+    }
+
+    async fn clear_pending_spec(
+        &self,
+        service_id: i64,
+        branch: &str,
+        api_type: ApiType,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(self, clear_pending_spec(service_id, branch, api_type))
+    }
+
+    // --- Producer Onboarding ---
+
+    async fn set_producer_onboarding(
+        &self,
+        service_id: i64,
+        onboarding: bool,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, set_producer_onboarding(service_id, onboarding))
+    }
+
+    async fn is_producer_onboarding(&self, service_id: i64) -> Result<bool, RepositoryError> {
+        delegate!(self, is_producer_onboarding(service_id))
+    }
+
+    async fn list_onboarding_producers(&self) -> Result<Vec<String>, RepositoryError> {
+        delegate!(self, list_onboarding_producers())
+    }
+
+    // --- Maintainer Scope ---
+
+    async fn add_user_maintainer(
+        &self,
+        service_id: i64,
+        user_id: i64,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, add_user_maintainer(service_id, user_id))
+    }
+
+    async fn remove_user_maintainer(
+        &self,
+        service_id: i64,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(self, remove_user_maintainer(service_id, user_id))
+    }
+
+    async fn add_group_maintainer(
+        &self,
+        service_id: i64,
+        group_id: i64,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, add_group_maintainer(service_id, group_id))
+    }
+
+    async fn remove_group_maintainer(
+        &self,
+        service_id: i64,
+        group_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(self, remove_group_maintainer(service_id, group_id))
+    }
+
+    async fn list_user_maintainer_ids(&self, service_id: i64) -> Result<Vec<i64>, RepositoryError> {
+        delegate!(self, list_user_maintainer_ids(service_id))
+    }
+
+    async fn list_group_maintainer_ids(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<i64>, RepositoryError> {
+        delegate!(self, list_group_maintainer_ids(service_id))
+    }
+
+    async fn maintains_producer(
+        &self,
+        user_id: i64,
+        service_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(self, maintains_producer(user_id, service_id))
+    }
+
+    async fn list_maintained_producers(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<String>, RepositoryError> {
+        delegate!(self, list_maintained_producers(user_id))
     }
 
     async fn add_service_tags(

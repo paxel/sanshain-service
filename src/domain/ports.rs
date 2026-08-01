@@ -27,6 +27,19 @@ pub trait AuthProvider: Send + Sync {
     fn test_connection(&self) -> impl Future<Output = Result<(), AuthProviderError>> + Send;
 }
 
+/// Port for reading a user's group membership from the directory.
+///
+/// Separate from [`AuthProvider`] because it answers a different question at a
+/// different time: authentication happens once, at login, with the user's
+/// password; membership has to be re-read afterwards, without one, or a change
+/// in the directory would never take effect.
+pub trait DirectoryGroups: Send + Sync {
+    fn groups_for(
+        &self,
+        username: &str,
+    ) -> impl Future<Output = Result<Vec<String>, AuthProviderError>> + Send;
+}
+
 #[derive(Error, Debug)]
 pub enum RepositoryError {
     #[error("Not Found")]
@@ -379,7 +392,6 @@ pub trait SpecRepository: Send + Sync {
         &self,
         username: &str,
         password_hash: &str,
-        is_admin: bool,
         approved: bool,
     ) -> impl Future<Output = Result<User, RepositoryError>> + Send;
 
@@ -390,7 +402,7 @@ pub trait SpecRepository: Send + Sync {
         new_hash: &str,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
-    /// List all users (id, username, is_admin, approved).
+    /// List all users (id, username, approved).
     fn list_users(&self) -> impl Future<Output = Result<Vec<User>, RepositoryError>> + Send;
 
     /// Approve a user by ID.
@@ -544,6 +556,223 @@ pub trait SpecRepository: Send + Sync {
         username: Option<&str>,
         source_branch: Option<&str>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    // --- Roles and Groups ---
+
+    /// Grant a role to a user. Granting a role already held is a no-op.
+    fn grant_user_role(
+        &self,
+        user_id: i64,
+        role: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Revoke a role from a user. Returns whether a grant was actually removed.
+    fn revoke_user_role(
+        &self,
+        user_id: i64,
+        role: &str,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Roles granted directly to a user, ignoring any held via a group.
+    fn list_user_roles(
+        &self,
+        user_id: i64,
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    /// Every role name a user holds from stored grants — directly, or through a
+    /// group whose membership Sanshain stores.
+    ///
+    /// Directory-sourced groups are deliberately absent: their membership is not
+    /// stored, so it is resolved above the repository where the directory can be
+    /// consulted.
+    fn effective_stored_roles(
+        &self,
+        user_id: i64,
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    /// Create a group, or return the existing one with the same name and source.
+    fn create_group(
+        &self,
+        name: &str,
+        source: GroupSource,
+    ) -> impl Future<Output = Result<Group, RepositoryError>> + Send;
+
+    /// Rename a group. Returns whether the group existed.
+    fn rename_group(
+        &self,
+        group_id: i64,
+        name: &str,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Delete a group along with its membership and role grants. Returns whether
+    /// the group existed.
+    fn delete_group(
+        &self,
+        group_id: i64,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// All groups, of every source.
+    fn list_groups(&self) -> impl Future<Output = Result<Vec<Group>, RepositoryError>> + Send;
+
+    /// Replace a group's role grants with exactly `roles`.
+    fn set_group_roles(
+        &self,
+        group_id: i64,
+        roles: &[String],
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Roles granted to a group.
+    fn list_group_roles(
+        &self,
+        group_id: i64,
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    /// Add a user to a group. Adding an existing member is a no-op.
+    fn add_group_member(
+        &self,
+        group_id: i64,
+        user_id: i64,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Remove a user from a group. Returns whether they were a member.
+    fn remove_group_member(
+        &self,
+        group_id: i64,
+        user_id: i64,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Ids of the users stored as members of a group. Empty for a
+    /// directory-sourced group, which stores no membership.
+    fn list_group_member_ids(
+        &self,
+        group_id: i64,
+    ) -> impl Future<Output = Result<Vec<i64>, RepositoryError>> + Send;
+
+    // --- Pending Specs ---
+
+    /// Hold a refused Provide, replacing any entry already held for the same
+    /// Producer, branch and API type. Returns the entry's id.
+    fn upsert_pending_spec(
+        &self,
+        service_id: i64,
+        branch: &str,
+        api_type: ApiType,
+        content: &str,
+        reason: &str,
+        submitted_by: &str,
+    ) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
+
+    /// A held Provide by id.
+    fn get_pending_spec(
+        &self,
+        id: i64,
+    ) -> impl Future<Output = Result<Option<PendingSpec>, RepositoryError>> + Send;
+
+    /// Every held Provide, newest first.
+    fn list_pending_specs(
+        &self,
+    ) -> impl Future<Output = Result<Vec<PendingSpec>, RepositoryError>> + Send;
+
+    /// Discard a held Provide by id. Returns whether one was held.
+    fn delete_pending_spec(
+        &self,
+        id: i64,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Discard whatever is held for a Producer, branch and API type.
+    ///
+    /// Called when a Provide succeeds for that key: the Producer has moved on,
+    /// so the held submission is dead and must not survive to be applied later
+    /// over the top of the change that fixed it.
+    fn clear_pending_spec(
+        &self,
+        service_id: i64,
+        branch: &str,
+        api_type: ApiType,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    // --- Producer Onboarding ---
+
+    /// Put a Producer into onboarding, or take it out.
+    fn set_producer_onboarding(
+        &self,
+        service_id: i64,
+        onboarding: bool,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Whether a Producer is in onboarding. Unknown Producers are not.
+    fn is_producer_onboarding(
+        &self,
+        service_id: i64,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Names of the Producers currently in onboarding.
+    ///
+    /// The flag never expires, so this listing is the only thing that will
+    /// remind an operator it is still on.
+    fn list_onboarding_producers(
+        &self,
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    // --- Maintainer Scope ---
+
+    /// Assign a user as maintainer of a Producer. Reassigning is a no-op.
+    fn add_user_maintainer(
+        &self,
+        service_id: i64,
+        user_id: i64,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Remove a user's maintainership. Returns whether they held it.
+    fn remove_user_maintainer(
+        &self,
+        service_id: i64,
+        user_id: i64,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Assign a group as maintainer of a Producer. Reassigning is a no-op.
+    fn add_group_maintainer(
+        &self,
+        service_id: i64,
+        group_id: i64,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Remove a group's maintainership. Returns whether it held it.
+    fn remove_group_maintainer(
+        &self,
+        service_id: i64,
+        group_id: i64,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Users assigned directly as maintainers of a Producer.
+    fn list_user_maintainer_ids(
+        &self,
+        service_id: i64,
+    ) -> impl Future<Output = Result<Vec<i64>, RepositoryError>> + Send;
+
+    /// Groups assigned as maintainers of a Producer.
+    fn list_group_maintainer_ids(
+        &self,
+        service_id: i64,
+    ) -> impl Future<Output = Result<Vec<i64>, RepositoryError>> + Send;
+
+    /// Whether a user maintains a Producer, directly or through a group whose
+    /// membership Sanshain stores.
+    ///
+    /// Directory-sourced groups are resolved above the repository, where the
+    /// directory can be consulted, and combined with this answer.
+    fn maintains_producer(
+        &self,
+        user_id: i64,
+        service_id: i64,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Names of the Producers a user maintains, directly or through a stored
+    /// group membership.
+    fn list_maintained_producers(
+        &self,
+        user_id: i64,
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
     // --- Service Tags ---
 

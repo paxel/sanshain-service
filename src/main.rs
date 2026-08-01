@@ -197,6 +197,18 @@ pub async fn main() {
         std::process::exit(1);
     }
 
+    // Carry a previously configured directory admin group into the group
+    // mapping. Best effort: an instance that has never used the directory has
+    // nothing to migrate, and failing to migrate must not stop the service from
+    // starting — it would leave the operator with neither the old behaviour nor
+    // a running instance.
+    if let Err(e) = services::migrate_stored_admin_group(&repo).await {
+        tracing::warn!(
+            "Could not carry the configured directory admin group into the group mapping: {}",
+            e
+        );
+    }
+
     // Dev mode lets any caller reach protected endpoints without a token and
     // must never be left enabled in production. It only takes effect when
     // explicitly requested AND permitted by the `ALLOW_INSECURE_DEV_MODE` safety
@@ -249,6 +261,19 @@ pub async fn main() {
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(100);
 
+    // Root is resolved from configuration and never stored, so no stored grant
+    // can revoke it. Falling back to the bootstrap administrator's name keeps an
+    // existing deployment with a root account without being reconfigured.
+    let root_users =
+        std::sync::Arc::new(sanshain_service::domain::permissions::RootUsers::resolve(
+            std::env::var("SANSHAIN_ROOT_USERS").ok().as_deref(),
+            std::env::var("INITIAL_ADMIN_USERNAME").ok().as_deref(),
+        ));
+    tracing::info!(
+        "Root users (configuration-held, cannot be revoked in-app): {}",
+        root_users.usernames().collect::<Vec<_>>().join(", ")
+    );
+
     let (spec_updated_tx, _) = tokio::sync::broadcast::channel(spec_updated_channel_size);
     let mut system = sysinfo::System::new_all();
     system.refresh_all();
@@ -272,6 +297,9 @@ pub async fn main() {
         prometheus_handle,
         system: Arc::new(std::sync::Mutex::new(system)),
         max_body_bytes,
+        root_users,
+        directory_roles:
+            sanshain_service::application::directory_roles::DirectoryRoleCache::from_env(),
     };
 
     // Spawn background branch cleanup task

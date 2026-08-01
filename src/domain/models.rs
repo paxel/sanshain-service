@@ -23,6 +23,11 @@ pub enum AppError {
     Internal(String),
     #[error("Breaking Change: {0}")]
     BreakingChange(String),
+    /// A breaking change that was retained for review rather than discarded.
+    /// Answers the same `409` as `BreakingChange`; the id lets tooling say which
+    /// held submission it belongs to.
+    #[error("Breaking Change: {message}")]
+    Quarantined { message: String, pending_id: i64 },
 }
 
 impl From<crate::domain::ports::RepositoryError> for AppError {
@@ -263,10 +268,13 @@ impl LdapConfig {
 }
 
 /// Represents an authenticated user from any auth provider.
+///
+/// Carries identity only. What the user may do is resolved separately, from
+/// role grants and directory group membership — an auth provider's job ends at
+/// establishing who somebody is.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AuthenticatedUser {
     pub username: String,
-    pub is_admin: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -286,8 +294,65 @@ pub struct User {
     pub username: String,
     #[serde(skip_serializing, default)]
     pub password_hash: String,
-    pub is_admin: bool,
     pub approved: bool,
+}
+
+/// A Provide that was held for review instead of applied.
+///
+/// Retained in full so it can be judged on its content rather than on a
+/// one-line reason. Not part of any branch's API until accepted.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PendingSpec {
+    pub id: i64,
+    pub producer: String,
+    pub branch: String,
+    pub api_type: ApiType,
+    pub content: String,
+    /// The reason the Provide would have been refused.
+    pub reason: String,
+    /// The authenticated Actor who submitted it.
+    pub submitted_by: String,
+    pub created_at: String,
+}
+
+/// Where a Group's membership comes from.
+///
+/// The distinction is not cosmetic: a `Native` group's membership is Sanshain's
+/// to edit, while an `Ldap` group's belongs to the directory and is resolved
+/// when a caller is authorised rather than stored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GroupSource {
+    Native,
+    Ldap,
+}
+
+impl GroupSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            GroupSource::Native => "native",
+            GroupSource::Ldap => "ldap",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<GroupSource> {
+        match value {
+            "native" => Some(GroupSource::Native),
+            "ldap" => Some(GroupSource::Ldap),
+            _ => None,
+        }
+    }
+}
+
+/// A set of users that roles attach to.
+///
+/// Two groups may share a name provided they differ in source, so a directory
+/// group and a Sanshain group called the same thing stay distinct entities.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Group {
+    pub id: i64,
+    pub name: String,
+    pub source: GroupSource,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
