@@ -234,7 +234,8 @@
     // Auth load
     checkDiscoveryAuth(async (user) => {
         await renderBanner();
-        if (hasPermission(user, 'manage_producers')) {
+        const maintainsThis = (user?.maintains || []).includes(serviceName) || user?.is_root;
+        if (hasPermission(user, 'manage_producers') || maintainsThis) {
             editBtn.classList.remove('hidden');
         }
         await loadEndpointVersions();

@@ -287,7 +287,8 @@ the Producers that team owns, and responsibility follows membership.
 
 A Producer-scoped action admits either the matching instance-wide permission **or** maintainership of
 that Producer. So an administrator can act on any Producer, while a maintainer can act on theirs and
-is refused on everybody else's.
+is refused on everybody else's. This covers branch administration, onboarding, held-spec review — and
+editing the Producer's endpoints through the spec editor.
 
 ### API Endpoints
 
@@ -303,7 +304,8 @@ is refused on everybody else's.
 | `DELETE` | `/admin/groups/{id}`                      | Delete a group and its grants.                  |
 | `POST`   | `/admin/groups/{id}/members`              | Add a member. Body: `{"user_id": 3}`.           |
 | `DELETE` | `/admin/groups/{id}/members/{user_id}`    | Remove a member.                                |
-| `GET`    | `/admin/producers/{name}/maintainers`     | Users and groups maintaining a Producer.        |
+| `GET`    | `/admin/maintainers`                      | Every Producer with its maintainers, in one response. |
+| `GET`    | `/admin/producers/{name}/maintainers`     | Users and groups maintaining a Producer. Readable by that Producer's maintainers too. |
 | `POST`   | `/admin/producers/{name}/maintainers`     | Assign one. Body: `{"user_id": 3}` **or** `{"group_id": 1}`. |
 | `DELETE` | `/admin/producers/{name}/maintainers/users/{user_id}`   | Unassign a user.                  |
 | `DELETE` | `/admin/producers/{name}/maintainers/groups/{group_id}` | Unassign a group.                 |

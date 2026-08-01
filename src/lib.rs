@@ -107,7 +107,11 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/pending-specs/{id}/accept", post(admin::admin_accept_pending_spec).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/onboarding", get(admin::admin_list_onboarding_producers).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/onboarding", get(admin::admin_get_producer_onboarding).put(admin::admin_set_producer_onboarding).layer(require(state.clone(), RouteGuard::Producer(Permission::SetOnboarding))))
-        .route("/admin/producers/{name}/maintainers", get(roles::list_maintainers).post(roles::assign_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
+        .route("/admin/maintainers", get(roles::list_all_maintainers).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
+        // Split so a maintainer can see who shares responsibility for their own
+        // Producer, while changing the assignment stays who-may-do-what work.
+        .route("/admin/producers/{name}/maintainers", get(roles::list_maintainers).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
+        .route("/admin/producers/{name}/maintainers", post(roles::assign_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/producers/{name}/maintainers/users/{user_id}", delete(roles::unassign_user_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/producers/{name}/maintainers/groups/{group_id}", delete(roles::unassign_group_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/users/{id}/maintains", get(roles::list_maintained_producers).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
@@ -116,7 +120,10 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/producers", get(admin::admin_list_producers).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}", delete(admin::admin_delete_producer).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
         .route("/admin/producers/metadata", post(admin::admin_update_producer_metadata).layer(require(state.clone(), RouteGuard::Global(Permission::ManageProducers))))
-        .route("/admin/endpoints/update", post(admin::admin_update_endpoint).layer(require(state.clone(), RouteGuard::Global(Permission::ManageProducers))))
+        // The Producer this edits is named in the request body, so the scoped
+        // check lives in the handler (like the pending-specs inbox): global
+        // `manage_producers`, or maintainership of that Producer.
+        .route("/admin/endpoints/update", post(admin::admin_update_endpoint).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/branches", get(admin::admin_list_branches).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/branches/{branch}", delete(admin::admin_delete_branch).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
         .route("/admin/producers/{name}/branches/{branch}/reset-history", post(admin::admin_reset_branch_history).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))

@@ -819,3 +819,272 @@ async fn acting_on_an_unknown_entry_is_not_found() {
         StatusCode::NOT_FOUND
     );
 }
+
+// --- Maintainers listing: readable by that Producer's maintainers ---
+
+/// The GET was split from the POST so a maintainer can see who shares
+/// responsibility for their Producer, while changing the assignment stays
+/// admin-only. Both directions are asserted, and the split itself is exercised:
+/// axum merges two `.route()` calls for one path at router build time, so these
+/// requests also prove the merge holds.
+#[tokio::test]
+async fn a_maintainer_may_read_their_own_producers_maintainers_but_not_assign() {
+    let w = world().await;
+
+    assert_eq!(
+        status(
+            &w.app,
+            "GET",
+            "/admin/producers/orders/maintainers",
+            &w.maintainer
+        )
+        .await,
+        StatusCode::OK,
+        "the maintainer of orders may see who maintains orders"
+    );
+
+    assert_eq!(
+        status(
+            &w.app,
+            "GET",
+            "/admin/producers/billing/maintainers",
+            &w.maintainer
+        )
+        .await,
+        StatusCode::FORBIDDEN,
+        "but not who maintains billing"
+    );
+
+    // Assignment is still who-may-do-what work: admin (ManageRoles), not scope.
+    let request = Request::builder()
+        .method("POST")
+        .uri("/admin/producers/orders/maintainers")
+        .header("Authorization", format!("Bearer {}", w.maintainer))
+        .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+        .header("Content-Type", "application/json")
+        .body(Body::from(r#"{"user_id": 1}"#))
+        .expect("request");
+    let response = w.app.clone().oneshot(request).await.expect("response");
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "a maintainer must not assign maintainers, even on their own Producer"
+    );
+
+    // The admin still reaches both methods.
+    assert_eq!(
+        status(
+            &w.app,
+            "GET",
+            "/admin/producers/orders/maintainers",
+            &w.admin
+        )
+        .await,
+        StatusCode::OK
+    );
+}
+
+// --- Endpoint editing: a maintainer's own work ---
+
+/// Editing a Producer's spec admits the maintainer of that Producer. The
+/// Producer is named in the request *body*, so the scoped check lives in the
+/// handler rather than the route guard — these tests pin that it actually runs.
+#[tokio::test]
+async fn a_maintainer_may_edit_their_own_producers_endpoints_and_no_others() {
+    let w = world().await;
+
+    // Give both Producers a real endpoint on a feature branch.
+    const SPEC: &str = "openapi: 3.0.0\ninfo: { title: T, version: 1.0.0 }\npaths:\n  /a:\n    get:\n      responses:\n        \"200\": { description: ok }\n";
+    for producer in ["orders", "billing"] {
+        sanshain_service::application::spec_service::provide_spec(
+            &w.repo,
+            producer,
+            "dev",
+            sanshain_service::domain::models::ApiType::OpenApi,
+            SPEC,
+            None,
+            false,
+        )
+        .await
+        .expect("provide");
+    }
+
+    let edit = |token: String, producer: &'static str| {
+        let app = w.app.clone();
+        async move {
+            let payload = serde_json::json!({
+                "producername": producer,
+                "branch": "dev",
+                "api_type": "openapi",
+                "path": "/a",
+                "method": "GET",
+                "yaml": "get:\n  responses:\n    \"200\": { description: edited }\n",
+                "deprecated": true,
+                "external": false,
+            });
+            let request = Request::builder()
+                .method("POST")
+                .uri("/admin/endpoints/update")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .header("Content-Type", "application/json")
+                .body(Body::from(payload.to_string()))
+                .expect("request");
+            app.oneshot(request).await.expect("response").status()
+        }
+    };
+
+    assert_eq!(
+        edit(w.maintainer.clone(), "orders").await,
+        StatusCode::OK,
+        "the maintainer of orders edits orders"
+    );
+    assert_eq!(
+        edit(w.maintainer.clone(), "billing").await,
+        StatusCode::FORBIDDEN,
+        "but not billing"
+    );
+    assert_eq!(
+        edit(w.plain.clone(), "orders").await,
+        StatusCode::FORBIDDEN,
+        "a plain user edits nothing"
+    );
+    assert_eq!(
+        edit(w.admin.clone(), "billing").await,
+        StatusCode::OK,
+        "an administrator still edits anything"
+    );
+
+    // The maintainer's edit actually landed.
+    let service = w
+        .repo
+        .find_service("orders")
+        .await
+        .expect("lookup")
+        .expect("orders");
+    let (_, _, deprecated, _) = w
+        .repo
+        .find_endpoint(
+            service,
+            "dev",
+            sanshain_service::domain::models::ApiType::OpenApi,
+            "/a",
+            "GET",
+        )
+        .await
+        .expect("lookup")
+        .expect("endpoint");
+    assert!(deprecated, "the edit was applied, not just authorised");
+}
+
+/// The editor UI decides what to offer from `/auth/me`, so the maintained
+/// Producers have to be reported there.
+#[tokio::test]
+async fn auth_me_reports_maintained_producers() {
+    let w = world().await;
+    let request = Request::builder()
+        .method("GET")
+        .uri("/auth/me")
+        .header("Authorization", format!("Bearer {}", w.maintainer))
+        .body(Body::empty())
+        .expect("request");
+    let response = w.app.clone().oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let me: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+    assert_eq!(me["maintains"], serde_json::json!(["orders"]));
+}
+
+/// The aggregate behind the dashboard's Maintainers section: one response for
+/// every Producer, so the page stops asking per Producer.
+#[tokio::test]
+async fn the_maintainers_aggregate_answers_for_every_producer_at_once() {
+    let w = world().await;
+    let group = w
+        .repo
+        .create_group("platform", GroupSource::Native)
+        .await
+        .expect("group");
+    let billing = w
+        .repo
+        .find_service("billing")
+        .await
+        .expect("lookup")
+        .expect("billing");
+    w.repo
+        .add_group_maintainer(billing, group.id)
+        .await
+        .expect("assign");
+
+    // A Producer only appears in listings once it has a branch, so give both
+    // one — the fixture registers the services bare.
+    for name in ["orders", "billing"] {
+        let sid = w
+            .repo
+            .find_service(name)
+            .await
+            .expect("lookup")
+            .expect("exists");
+        w.repo.ensure_branch(sid, "master").await.expect("branch");
+    }
+
+    let read = |token: String| {
+        let app = w.app.clone();
+        async move {
+            let request = Request::builder()
+                .method("GET")
+                .uri("/admin/maintainers")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .expect("request");
+            app.oneshot(request).await.expect("response")
+        }
+    };
+
+    let response = read(w.admin.clone()).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let data: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+    let producers = data["producers"].as_array().expect("array");
+    assert_eq!(
+        producers.len(),
+        2,
+        "every Producer appears, so the same payload fills the picker"
+    );
+
+    let by_name = |name: &str| {
+        producers
+            .iter()
+            .find(|p| p["producer"] == name)
+            .unwrap_or_else(|| panic!("{name} listed"))
+            .clone()
+    };
+    let maintainer_id = w
+        .repo
+        .find_user("maintainer")
+        .await
+        .expect("lookup")
+        .expect("exists")
+        .id;
+    assert_eq!(
+        by_name("orders")["user_ids"],
+        serde_json::json!([maintainer_id])
+    );
+    assert_eq!(
+        by_name("billing")["group_ids"],
+        serde_json::json!([group.id])
+    );
+
+    // Who-may-do-what work: user managers read it, maintainers and plain users
+    // do not.
+    assert_eq!(read(w.user_manager.clone()).await.status(), StatusCode::OK);
+    assert_eq!(
+        read(w.maintainer.clone()).await.status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(read(w.plain.clone()).await.status(), StatusCode::FORBIDDEN);
+}

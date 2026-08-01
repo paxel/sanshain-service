@@ -1119,39 +1119,41 @@
             subject.innerHTML = users.concat(groups).join('');
         }
 
+        // One request fills the whole section: /admin/maintainers answers for
+        // every Producer at once. Asking per Producer meant 26 sequential
+        // round-trips for 25 Producers.
         async function loadMaintainers() {
             const list = document.getElementById('maintainers-list');
             const picker = document.getElementById('maintainer-producer');
             if (!list || !picker) return;
             try {
-                const res = await apiCall('/admin/producers');
+                const res = await apiCall('/admin/maintainers');
                 if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
-                const producers = await res.json();
-                const names = producers.map(p => (typeof p === 'string' ? p : p.name)).filter(Boolean);
-                picker.innerHTML = names.map(n => `<option value="${escapeAttr(n)}">${escapeHtml(n)}</option>`).join('');
+                const data = await res.json();
+                const producers = data.producers || [];
+                picker.innerHTML = producers
+                    .map(p => `<option value="${escapeAttr(p.producer)}">${escapeHtml(p.producer)}</option>`)
+                    .join('');
 
-                const rows = [];
-                for (const name of names) {
-                    const r = await apiCall(`/admin/producers/${encodeURIComponent(name)}/maintainers`);
-                    if (!r.ok) continue;
-                    const m = await r.json();
-                    if ((m.user_ids || []).length === 0 && (m.group_ids || []).length === 0) continue;
-                    const users = (m.user_ids || []).map(id => {
-                        const u = knownUsers.find(x => x.id === id);
-                        return `<button onclick="unassignMaintainer('${escapeAttr(name)}', 'users', ${id})"
-                            class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(u ? u.username : ('user ' + id))}</button>`;
-                    });
-                    const groups = (m.group_ids || []).map(id => {
-                        const g = knownGroups.find(x => x.id === id);
-                        return `<button onclick="unassignMaintainer('${escapeAttr(name)}', 'groups', ${id})"
-                            class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(g ? g.name : ('group ' + id))}</button>`;
-                    });
-                    rows.push(`
+                const rows = producers
+                    .filter(p => (p.user_ids || []).length || (p.group_ids || []).length)
+                    .map(p => {
+                        const users = (p.user_ids || []).map(id => {
+                            const u = knownUsers.find(x => x.id === id);
+                            return `<button onclick="unassignMaintainer('${escapeAttr(p.producer)}', 'users', ${id})"
+                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(u ? u.username : ('user ' + id))}</button>`;
+                        });
+                        const groups = (p.group_ids || []).map(id => {
+                            const g = knownGroups.find(x => x.id === id);
+                            return `<button onclick="unassignMaintainer('${escapeAttr(p.producer)}', 'groups', ${id})"
+                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(g ? g.name : ('group ' + id))}</button>`;
+                        });
+                        return `
                         <div class="bg-slate-50 px-4 py-2 rounded-lg fade-in">
-                            <span class="font-medium text-slate-800">${escapeHtml(name)}</span>
+                            <span class="font-medium text-slate-800">${escapeHtml(p.producer)}</span>
                             <span class="ml-3 space-x-2">${users.concat(groups).join(' ')}</span>
-                        </div>`);
-                }
+                        </div>`;
+                    });
                 list.innerHTML = rows.length
                     ? rows.join('')
                     : '<p class="text-sm text-slate-500 italic">No Producer has a maintainer yet.</p>';

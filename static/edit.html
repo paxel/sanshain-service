@@ -141,7 +141,10 @@
     document.getElementById('endpoint-path').textContent = endpointPath;
 
     checkDiscoveryAuth(async (user) => {
-        if (!hasPermission(user, 'manage_producers')) {
+        // Global permission, or maintainership of this Producer — the server
+        // enforces the same rule on save.
+        const maintainsThis = (user?.maintains || []).includes(serviceName) || user?.is_root;
+        if (!hasPermission(user, 'manage_producers') && !maintainsThis) {
             alert("Admin access required.");
             window.location.href = `/yaml.html${window.location.search}`;
             return;

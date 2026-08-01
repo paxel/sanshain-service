@@ -111,6 +111,7 @@ pub async fn auth_logout(
 /// encode the role bundles a second time and cannot drift from what the server
 /// enforces. `roles` is reported for display only.
 pub async fn auth_me(
+    State(state): State<AppState>,
     axum::Extension(user): axum::Extension<User>,
     actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -127,6 +128,12 @@ pub async fn auth_me(
         None => (Vec::new(), Vec::new(), false),
     };
 
+    // The Producers this caller maintains, so pages tied to one Producer (the
+    // endpoint editor) can admit a maintainer whose permission is scoped rather
+    // than global. Root is not expanded: it maintains everything, and the UI
+    // already knows that from `is_root`.
+    let maintains = crate::application::authz::maintained_producers(&state.repo, user.id).await?;
+
     Ok(Json(serde_json::json!({
         "id": user.id,
         "username": user.username,
@@ -134,6 +141,7 @@ pub async fn auth_me(
         "roles": roles,
         "permissions": permissions,
         "is_root": is_root,
+        "maintains": maintains,
     })))
 }
 

@@ -297,7 +297,9 @@ paths:
     post:
       summary: "Create or run: endpoints/update"
       description: |
-        Requires the `manage_producers` permission.
+        Requires the `manage_producers` permission, **or** maintainership of the Producer
+        named in the request body. The Producer is not in the path, so the scoped check
+        runs in the handler.
       responses:
         "200":
           description: Success.
@@ -445,6 +447,30 @@ paths:
           required: true
           schema:
             type: integer
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/maintainers:
+    get:
+      summary: "Read: maintainers (all Producers)"
+      description: |
+        Requires the `manage_roles` permission.
+
+        Every Producer with its maintainer user and group ids, in one response —
+        the aggregate behind the dashboard's Maintainers section, so it does not
+        ask per Producer.
       responses:
         "200":
           description: Success.
@@ -1084,7 +1110,8 @@ paths:
     get:
       summary: "Read: producers/name/maintainers"
       description: |
-        Requires the `manage_roles` permission.
+        Requires the `manage_producers` permission, **or** maintainership of the Producer
+        named in the path.
       parameters:
         - name: name
           in: path

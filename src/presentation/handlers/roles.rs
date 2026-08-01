@@ -7,7 +7,7 @@ use crate::AppState;
 use crate::application::authz;
 use crate::application::services::AppError;
 use crate::domain::permissions::{Permission, Role};
-use crate::domain::ports::{NewAuditLog, SpecRepository};
+use crate::domain::ports::NewAuditLog;
 use axum::{
     Json,
     extract::{Path, State},
@@ -16,30 +16,28 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Every entry from this module is administrative and Producer-agnostic, so
+/// only the action and its details vary; attribution goes through the shared
+/// helper in `handlers`.
 async fn record(
     state: &AppState,
     user: Option<axum::Extension<crate::domain::models::User>>,
     action: &str,
     details: &str,
 ) -> Result<(), AppError> {
-    let actor = user
-        .map(|axum::Extension(u)| u.username)
-        .unwrap_or_else(|| "DevMode/Anonymous".to_string());
-    state
-        .repo
-        .insert_audit_log(
-            &actor,
-            NewAuditLog {
-                action,
-                details,
-                service: None,
-                branch: None,
-                action_type: Some("ADMIN"),
-                diff: None,
-            },
-        )
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))
+    super::record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action,
+            details,
+            service: None,
+            branch: None,
+            action_type: Some("ADMIN"),
+            diff: None,
+        },
+    )
+    .await
 }
 
 #[derive(Serialize)]
@@ -251,6 +249,14 @@ pub async fn remove_group_member(
 }
 
 // --- Maintainer scope ---
+
+/// Every Producer with its maintainer sets, in one response.
+pub async fn list_all_maintainers(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let producers = authz::all_maintainers(&state.repo).await?;
+    Ok(Json(serde_json::json!({ "producers": producers })))
+}
 
 pub async fn list_maintainers(
     State(state): State<AppState>,

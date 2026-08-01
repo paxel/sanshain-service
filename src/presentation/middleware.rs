@@ -231,19 +231,23 @@ pub async fn permission_auth(
                 let producer = producer_from_path(&mut parts).await;
                 req = Request::from_parts(parts, body);
 
-                let allowed = match producer {
-                    Some(producer) => crate::application::authz::maintains_producer(
-                        &state.repo,
-                        &actor,
-                        &producer,
-                    )
-                    .await
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-                    None => false,
-                };
-                if !allowed {
-                    return Err(StatusCode::FORBIDDEN);
-                }
+                // Delegated rather than re-implemented: the application layer's
+                // check also requires the maintainer *bundle* to include the
+                // permission. Duplicating the logic here once omitted that, so a
+                // route declared with a permission outside the bundle would have
+                // over-granted to maintainers.
+                let producer = producer.ok_or(StatusCode::FORBIDDEN)?;
+                crate::application::authz::require_producer_permission(
+                    &state.repo,
+                    &actor,
+                    permission,
+                    &producer,
+                )
+                .await
+                .map_err(|e| match e {
+                    crate::domain::models::AppError::Forbidden => StatusCode::FORBIDDEN,
+                    _ => StatusCode::INTERNAL_SERVER_ERROR,
+                })?;
             }
         }
     }

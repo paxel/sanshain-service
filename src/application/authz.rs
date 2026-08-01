@@ -235,6 +235,37 @@ pub async fn require_producer_permission(
     Err(AppError::Forbidden)
 }
 
+/// One Producer's maintainer sets, named, for the aggregate listing.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProducerMaintainers {
+    pub producer: String,
+    pub user_ids: Vec<i64>,
+    pub group_ids: Vec<i64>,
+}
+
+/// Who maintains what, across every Producer, in one answer.
+///
+/// Exists for the dashboard: filling its Maintainers section by asking per
+/// Producer meant one HTTP round-trip each — 26 requests for 25 Producers,
+/// sequentially. Producers with no maintainers are included, so the same
+/// payload also populates the assignment picker.
+pub async fn all_maintainers(
+    repo: &impl SpecRepository,
+) -> Result<Vec<ProducerMaintainers>, AppError> {
+    let mut out = Vec::new();
+    for producer in repo.list_producers().await? {
+        let Some(service_id) = repo.find_service(&producer).await? else {
+            continue;
+        };
+        out.push(ProducerMaintainers {
+            user_ids: repo.list_user_maintainer_ids(service_id).await?,
+            group_ids: repo.list_group_maintainer_ids(service_id).await?,
+            producer,
+        });
+    }
+    Ok(out)
+}
+
 pub async fn list_maintainers(
     repo: &impl SpecRepository,
     producer: &str,

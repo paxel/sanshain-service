@@ -12,20 +12,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::str::FromStr;
 
-async fn record_audit_log(
-    repo: &impl crate::domain::ports::SpecRepository,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    log: NewAuditLog<'_>,
-) -> Result<(), AppError> {
-    let actor = if let Some(axum::Extension(u)) = user {
-        u.username.clone()
-    } else {
-        "DevMode/Anonymous".to_string()
-    };
-    repo.insert_audit_log(&actor, log)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))
-}
+use super::record_audit_log;
 
 pub async fn admin_list_producers(
     State(state): State<AppState>,
@@ -1268,8 +1255,21 @@ pub struct UpdateEndpointRequest {
 pub async fn admin_update_endpoint(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
     Json(payload): Json<UpdateEndpointRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    // Editing a Producer's spec is the maintainer's own work, so their scoped
+    // `manage_producers` counts here — checked against the Producer the payload
+    // names, before anything is touched.
+    let acting = actor_of(actor)?;
+    crate::application::authz::require_producer_permission(
+        &state.repo,
+        &acting,
+        crate::domain::permissions::Permission::ManageProducers,
+        &payload.producername,
+    )
+    .await?;
+
     services::update_endpoint_manual(
         &state.repo,
         services::RequireEndpointParams {
