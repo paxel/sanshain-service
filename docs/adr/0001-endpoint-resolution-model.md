@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0003
 ---
 
 # A branch that has published owns its API; only a branch that never published inherits
