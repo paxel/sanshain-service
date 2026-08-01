@@ -7,20 +7,13 @@ use sanshain_service::domain::ports::SpecRepository;
 // `cfg(test)` is always true in this crate; the attribute marks the helper as
 // test code for clippy's `allow-unwrap-in-tests`.
 #[cfg(test)]
-fn add_user(
-    repo: &MockRepo,
-    username: &str,
-    password_hash: &str,
-    approved: bool,
-    is_admin: bool,
-) -> i64 {
+fn add_user(repo: &MockRepo, username: &str, password_hash: &str, approved: bool) -> i64 {
     let mut users = repo.users.lock().unwrap();
     let id = repo.next_id();
     users.push(User {
         id,
         username: username.to_string(),
         password_hash: password_hash.to_string(),
-        is_admin,
         approved,
     });
     id
@@ -147,22 +140,23 @@ async fn auto_approve_users_toggle() {
 async fn ensure_initial_admin_creates() {
     let repo = MockRepo::new();
     auth_service::ensure_initial_admin(&repo).await.unwrap();
-    let users = repo.users.lock().unwrap();
-    assert_eq!(users.len(), 1);
-    assert!(users[0].is_admin);
+    // The guard is dropped before the await: holding a lock across one is a
+    // deadlock waiting to happen, and clippy denies it.
+    let user_id = {
+        let users = repo.users.lock().unwrap();
+        assert_eq!(users.len(), 1);
+        users[0].id
+    };
+    // The bootstrap account's authority is now an explicit role grant.
+    let roles = repo.list_user_roles(user_id).await.expect("roles readable");
+    assert_eq!(roles, vec!["admin".to_string()]);
 }
 
 // 14. ensure_initial_admin skips when users exist
 #[tokio::test]
 async fn ensure_initial_admin_skips() {
     let repo = MockRepo::new();
-    add_user(
-        &repo,
-        "u",
-        &auth_service::hash_password("p").unwrap(),
-        true,
-        true,
-    );
+    add_user(&repo, "u", &auth_service::hash_password("p").unwrap(), true);
     auth_service::ensure_initial_admin(&repo).await.unwrap();
     let users = repo.users.lock().unwrap();
     assert_eq!(users.len(), 1);
@@ -173,7 +167,7 @@ async fn ensure_initial_admin_skips() {
 async fn login_not_approved() {
     let repo = MockRepo::new();
     let hash = auth_service::hash_password("p").unwrap();
-    add_user(&repo, "u", &hash, false, false);
+    add_user(&repo, "u", &hash, false);
     let res = auth_service::login(&repo, "u", "p").await;
     assert!(matches!(res, Err(AppError::Forbidden)));
 }
@@ -183,7 +177,7 @@ async fn login_not_approved() {
 async fn login_ok() {
     let repo = MockRepo::new();
     let hash = auth_service::hash_password("p").unwrap();
-    let id = add_user(&repo, "u", &hash, true, false);
+    let id = add_user(&repo, "u", &hash, true);
     let (session, user) = auth_service::login(&repo, "u", "p").await.unwrap();
     assert_eq!(session.user_id, id);
     assert_eq!(user.id, id);
@@ -194,7 +188,7 @@ async fn login_ok() {
 async fn change_password_no_token() {
     let repo = MockRepo::new();
     let hash = auth_service::hash_password("old").unwrap();
-    let id = add_user(&repo, "u", &hash, true, false);
+    let id = add_user(&repo, "u", &hash, true);
     let user = {
         let users = repo.users.lock().unwrap();
         users.iter().find(|u| u.id == id).unwrap().clone()
@@ -210,7 +204,7 @@ async fn change_password_no_token() {
 async fn change_password_with_token() {
     let repo = MockRepo::new();
     let hash = auth_service::hash_password("old").unwrap();
-    let id = add_user(&repo, "u", &hash, true, false);
+    let id = add_user(&repo, "u", &hash, true);
     // create a session manually to delete later
     let expires = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
     let token = {
@@ -421,7 +415,6 @@ async fn admin_nuke_database_keep_user() {
         &repo,
         "keep",
         &auth_service::hash_password("x").unwrap(),
-        true,
         true,
     );
     admin_service::nuke_database(&repo, Some(id)).await.unwrap();

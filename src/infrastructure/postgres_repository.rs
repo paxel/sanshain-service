@@ -173,6 +173,29 @@ impl PostgresSpecRepository {
     }
 }
 
+/// A joined `pending_specs` row: id, Producer name, branch, API type, content,
+/// reason, submitter, created-at.
+type PendingSpecRow = (i64, String, String, String, String, String, String, String);
+
+/// Build a [`PendingSpec`] from a joined row.
+///
+/// Returns `None` for an unparseable API type rather than guessing: a held spec
+/// whose type is unknown cannot be replayed, so surfacing it would offer the
+/// reviewer a button that could not work.
+fn pending_from_row(row: PendingSpecRow) -> Option<PendingSpec> {
+    let (id, producer, branch, api_type, content, reason, submitted_by, created_at) = row;
+    Some(PendingSpec {
+        id,
+        producer,
+        branch,
+        api_type: api_type.parse().ok()?,
+        content,
+        reason,
+        submitted_by,
+        created_at,
+    })
+}
+
 impl SpecRepository for PostgresSpecRepository {
     async fn ping(&self) -> Result<(), RepositoryError> {
         sqlx::query("SELECT 1")
@@ -950,18 +973,18 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn delete_all_non_admin_users(&self) -> Result<u64, RepositoryError> {
         sqlx::query(
-            "DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE is_admin = false)",
+            "DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = users.id AND r.role = 'admin'))",
         )
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query(
-            "DELETE FROM api_tokens WHERE user_id IN (SELECT id FROM users WHERE is_admin = false)",
+            "DELETE FROM api_tokens WHERE user_id IN (SELECT id FROM users WHERE NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = users.id AND r.role = 'admin'))",
         )
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        let result = sqlx::query("DELETE FROM users WHERE is_admin = false")
+        let result = sqlx::query("DELETE FROM users WHERE NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = users.id AND r.role = 'admin')")
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -1424,43 +1447,38 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn find_user(&self, username: &str) -> Result<Option<User>, RepositoryError> {
-        let row: Option<(i64, String, String, bool, bool)> = sqlx::query_as(
-            "SELECT id, username, password_hash, is_admin, approved FROM users WHERE username = $1",
+        let row: Option<(i64, String, String, bool)> = sqlx::query_as(
+            "SELECT id, username, password_hash, approved FROM users WHERE username = $1",
         )
         .bind(username)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        Ok(
-            row.map(|(id, username, password_hash, is_admin, approved)| User {
-                id,
-                username,
-                password_hash,
-                is_admin,
-                approved,
-            }),
-        )
+        Ok(row.map(|(id, username, password_hash, approved)| User {
+            id,
+            username,
+            password_hash,
+            approved,
+        }))
     }
 
     async fn create_user(
         &self,
         username: &str,
         password_hash: &str,
-        is_admin: bool,
         approved: bool,
     ) -> Result<User, RepositoryError> {
-        sqlx::query("INSERT INTO users (username, password_hash, is_admin, approved) VALUES ($1, $2, $3, $4)")
+        sqlx::query("INSERT INTO users (username, password_hash, approved) VALUES ($1, $2, $3)")
             .bind(username)
             .bind(password_hash)
-            .bind(is_admin)
             .bind(approved)
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        let row: (i64, String, String, bool, bool) = sqlx::query_as(
-            "SELECT id, username, password_hash, is_admin, approved FROM users WHERE username = $1",
+        let row: (i64, String, String, bool) = sqlx::query_as(
+            "SELECT id, username, password_hash, approved FROM users WHERE username = $1",
         )
         .bind(username)
         .fetch_one(&self.pool)
@@ -1471,14 +1489,13 @@ impl SpecRepository for PostgresSpecRepository {
             id: row.0,
             username: row.1,
             password_hash: row.2,
-            is_admin: row.3,
-            approved: row.4,
+            approved: row.3,
         })
     }
 
     async fn list_users(&self) -> Result<Vec<User>, RepositoryError> {
-        let rows: Vec<(i64, String, String, bool, bool)> = sqlx::query_as(
-            "SELECT id, username, password_hash, is_admin, approved FROM users ORDER BY username",
+        let rows: Vec<(i64, String, String, bool)> = sqlx::query_as(
+            "SELECT id, username, password_hash, approved FROM users ORDER BY username",
         )
         .fetch_all(&self.pool)
         .await
@@ -1486,11 +1503,10 @@ impl SpecRepository for PostgresSpecRepository {
 
         Ok(rows
             .into_iter()
-            .map(|(id, username, password_hash, is_admin, approved)| User {
+            .map(|(id, username, password_hash, approved)| User {
                 id,
                 username,
                 password_hash,
-                is_admin,
                 approved,
             })
             .collect())
@@ -1566,13 +1582,13 @@ impl SpecRepository for PostgresSpecRepository {
         &self,
         token: &str,
     ) -> Result<Option<(User, Session)>, RepositoryError> {
-        let row: Option<(i64, i64, String, String, String, bool, bool)> = sqlx::query_as(
+        let row: Option<(i64, i64, String, String, String, bool)> = sqlx::query_as(
             r#"
-            SELECT s.user_id, u.id, u.username, u.password_hash, s.expires_at::text, u.is_admin, u.approved
+            SELECT s.user_id, u.id, u.username, u.password_hash, s.expires_at::text, u.approved
             FROM sessions s
             JOIN users u ON s.user_id = u.id
             WHERE s.token = $1 AND s.expires_at > NOW()
-            "#
+            "#,
         )
         .bind(hash_session_token(token))
         .fetch_optional(&self.pool)
@@ -1580,12 +1596,11 @@ impl SpecRepository for PostgresSpecRepository {
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         Ok(row.map(
-            |(_, user_id, username, password_hash, expires_at, is_admin, approved)| {
+            |(_, user_id, username, password_hash, expires_at, approved)| {
                 let user = User {
                     id: user_id,
                     username,
                     password_hash,
-                    is_admin,
                     approved,
                 };
                 let session = Session {
@@ -1745,9 +1760,9 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn validate_api_token(&self, token_hash: &str) -> Result<Option<User>, RepositoryError> {
-        let row: Option<(i64, String, String, bool, bool)> = sqlx::query_as(
+        let row: Option<(i64, String, String, bool)> = sqlx::query_as(
             r#"
-            SELECT u.id, u.username, u.password_hash, u.is_admin, u.approved
+            SELECT u.id, u.username, u.password_hash, u.approved
             FROM api_tokens t
             JOIN users u ON t.user_id = u.id
             WHERE t.token_hash = $1 AND t.expires_at > TO_CHAR(NOW(), 'YYYY-MM-DD HH24:MI:SS')
@@ -1765,15 +1780,12 @@ impl SpecRepository for PostgresSpecRepository {
                 .await;
         }
 
-        Ok(
-            row.map(|(id, username, password_hash, is_admin, approved)| User {
-                id,
-                username,
-                password_hash,
-                is_admin,
-                approved,
-            }),
-        )
+        Ok(row.map(|(id, username, password_hash, approved)| User {
+            id,
+            username,
+            password_hash,
+            approved,
+        }))
     }
 
     async fn delete_stale_dependencies(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
@@ -2133,6 +2145,470 @@ impl SpecRepository for PostgresSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(())
+    }
+
+    // --- Roles and Groups ---
+
+    async fn grant_user_role(&self, user_id: i64, role: &str) -> Result<(), RepositoryError> {
+        sqlx::query("INSERT INTO user_roles (user_id, role) VALUES ($1, $2) ON CONFLICT (user_id, role) DO NOTHING")
+            .bind(user_id)
+            .bind(role)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn revoke_user_role(&self, user_id: i64, role: &str) -> Result<bool, RepositoryError> {
+        let result = sqlx::query("DELETE FROM user_roles WHERE user_id = $1 AND role = $2")
+            .bind(user_id)
+            .bind(role)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_user_roles(&self, user_id: i64) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT role FROM user_roles WHERE user_id = $1 ORDER BY role")
+                .bind(user_id)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn effective_stored_roles(&self, user_id: i64) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT role FROM user_roles WHERE user_id = $1
+             UNION
+             SELECT gr.role FROM user_group_roles gr
+               JOIN user_group_members gm ON gm.group_id = gr.group_id
+             WHERE gm.user_id = $2
+             ORDER BY role",
+        )
+        .bind(user_id)
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn create_group(
+        &self,
+        name: &str,
+        source: GroupSource,
+    ) -> Result<Group, RepositoryError> {
+        sqlx::query("INSERT INTO user_groups (name, source) VALUES ($1, $2) ON CONFLICT (name, source) DO NOTHING")
+            .bind(name)
+            .bind(source.as_str())
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let row: (i64,) =
+            sqlx::query_as("SELECT id FROM user_groups WHERE name = $1 AND source = $2")
+                .bind(name)
+                .bind(source.as_str())
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(Group {
+            id: row.0,
+            name: name.to_string(),
+            source,
+        })
+    }
+
+    async fn rename_group(&self, group_id: i64, name: &str) -> Result<bool, RepositoryError> {
+        let result = sqlx::query("UPDATE user_groups SET name = $1 WHERE id = $2")
+            .bind(name)
+            .bind(group_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn delete_group(&self, group_id: i64) -> Result<bool, RepositoryError> {
+        // Cascade would handle these, but removing them explicitly keeps the
+        // two backends behaving identically.
+        sqlx::query("DELETE FROM user_group_members WHERE group_id = $1")
+            .bind(group_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM user_group_roles WHERE group_id = $1")
+            .bind(group_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let result = sqlx::query("DELETE FROM user_groups WHERE id = $1")
+            .bind(group_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_groups(&self) -> Result<Vec<Group>, RepositoryError> {
+        let rows: Vec<(i64, String, String)> =
+            sqlx::query_as("SELECT id, name, source FROM user_groups ORDER BY source, name")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(id, name, source)| {
+                GroupSource::parse(&source).map(|source| Group { id, name, source })
+            })
+            .collect())
+    }
+
+    async fn set_group_roles(
+        &self,
+        group_id: i64,
+        roles: &[String],
+    ) -> Result<(), RepositoryError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM user_group_roles WHERE group_id = $1")
+            .bind(group_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        for role in roles {
+            sqlx::query("INSERT INTO user_group_roles (group_id, role) VALUES ($1, $2) ON CONFLICT (group_id, role) DO NOTHING")
+                .bind(group_id)
+                .bind(role)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn list_group_roles(&self, group_id: i64) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT role FROM user_group_roles WHERE group_id = $1 ORDER BY role")
+                .bind(group_id)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn add_group_member(&self, group_id: i64, user_id: i64) -> Result<(), RepositoryError> {
+        sqlx::query("INSERT INTO user_group_members (group_id, user_id) VALUES ($1, $2) ON CONFLICT (group_id, user_id) DO NOTHING")
+            .bind(group_id)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn remove_group_member(
+        &self,
+        group_id: i64,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        let result =
+            sqlx::query("DELETE FROM user_group_members WHERE group_id = $1 AND user_id = $2")
+                .bind(group_id)
+                .bind(user_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_group_member_ids(&self, group_id: i64) -> Result<Vec<i64>, RepositoryError> {
+        let rows: Vec<(i64,)> = sqlx::query_as(
+            "SELECT user_id FROM user_group_members WHERE group_id = $1 ORDER BY user_id",
+        )
+        .bind(group_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    // --- Pending Specs ---
+
+    async fn upsert_pending_spec(
+        &self,
+        service_id: i64,
+        branch: &str,
+        api_type: ApiType,
+        content: &str,
+        reason: &str,
+        submitted_by: &str,
+    ) -> Result<i64, RepositoryError> {
+        // Replace rather than accumulate: one entry per key, latest wins.
+        sqlx::query(
+            "INSERT INTO pending_specs (service_id, branch, api_type, content, reason, submitted_by)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (service_id, branch, api_type) DO UPDATE SET
+               content = excluded.content,
+               reason = excluded.reason,
+               submitted_by = excluded.submitted_by,
+               created_at = CURRENT_TIMESTAMP",
+        )
+        .bind(service_id)
+        .bind(branch)
+        .bind(api_type.as_str())
+        .bind(content)
+        .bind(reason)
+        .bind(submitted_by)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        let row: (i64,) = sqlx::query_as(
+            "SELECT id FROM pending_specs WHERE service_id = $1 AND branch = $2 AND api_type = $3",
+        )
+        .bind(service_id)
+        .bind(branch)
+        .bind(api_type.as_str())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.0)
+    }
+
+    async fn get_pending_spec(&self, id: i64) -> Result<Option<PendingSpec>, RepositoryError> {
+        let row: Option<PendingSpecRow> = sqlx::query_as(
+            "SELECT p.id, s.name, p.branch, p.api_type, p.content, p.reason, p.submitted_by,
+                        CAST(p.created_at AS TEXT)
+                   FROM pending_specs p JOIN services s ON s.id = p.service_id
+                  WHERE p.id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.and_then(pending_from_row))
+    }
+
+    async fn list_pending_specs(&self) -> Result<Vec<PendingSpec>, RepositoryError> {
+        let rows: Vec<PendingSpecRow> = sqlx::query_as(
+            "SELECT p.id, s.name, p.branch, p.api_type, p.content, p.reason, p.submitted_by,
+                        CAST(p.created_at AS TEXT)
+                   FROM pending_specs p JOIN services s ON s.id = p.service_id
+                  ORDER BY p.created_at DESC, p.id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().filter_map(pending_from_row).collect())
+    }
+
+    async fn delete_pending_spec(&self, id: i64) -> Result<bool, RepositoryError> {
+        let result = sqlx::query("DELETE FROM pending_specs WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn clear_pending_spec(
+        &self,
+        service_id: i64,
+        branch: &str,
+        api_type: ApiType,
+    ) -> Result<bool, RepositoryError> {
+        let result = sqlx::query(
+            "DELETE FROM pending_specs WHERE service_id = $1 AND branch = $2 AND api_type = $3",
+        )
+        .bind(service_id)
+        .bind(branch)
+        .bind(api_type.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    // --- Producer Onboarding ---
+
+    async fn set_producer_onboarding(
+        &self,
+        service_id: i64,
+        onboarding: bool,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE services SET onboarding = $1 WHERE id = $2")
+            .bind(onboarding)
+            .bind(service_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn is_producer_onboarding(&self, service_id: i64) -> Result<bool, RepositoryError> {
+        let row: Option<(bool,)> = sqlx::query_as("SELECT onboarding FROM services WHERE id = $1")
+            .bind(service_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.map(|r| r.0).unwrap_or(false))
+    }
+
+    async fn list_onboarding_producers(&self) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT name FROM services WHERE onboarding = TRUE ORDER BY name")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    // --- Maintainer Scope ---
+
+    async fn add_user_maintainer(
+        &self,
+        service_id: i64,
+        user_id: i64,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT INTO producer_user_maintainers (service_id, user_id) VALUES ($1, $2) ON CONFLICT (service_id, user_id) DO NOTHING",
+        )
+        .bind(service_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn remove_user_maintainer(
+        &self,
+        service_id: i64,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        let result = sqlx::query(
+            "DELETE FROM producer_user_maintainers WHERE service_id = $1 AND user_id = $2",
+        )
+        .bind(service_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn add_group_maintainer(
+        &self,
+        service_id: i64,
+        group_id: i64,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT INTO producer_group_maintainers (service_id, group_id) VALUES ($1, $2) ON CONFLICT (service_id, group_id) DO NOTHING",
+        )
+        .bind(service_id)
+        .bind(group_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn remove_group_maintainer(
+        &self,
+        service_id: i64,
+        group_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        let result = sqlx::query(
+            "DELETE FROM producer_group_maintainers WHERE service_id = $1 AND group_id = $2",
+        )
+        .bind(service_id)
+        .bind(group_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_user_maintainer_ids(&self, service_id: i64) -> Result<Vec<i64>, RepositoryError> {
+        let rows: Vec<(i64,)> = sqlx::query_as(
+            "SELECT user_id FROM producer_user_maintainers WHERE service_id = $1 ORDER BY user_id",
+        )
+        .bind(service_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn list_group_maintainer_ids(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<i64>, RepositoryError> {
+        let rows: Vec<(i64,)> = sqlx::query_as(
+            "SELECT group_id FROM producer_group_maintainers WHERE service_id = $1 ORDER BY group_id",
+        )
+        .bind(service_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn maintains_producer(
+        &self,
+        user_id: i64,
+        service_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM (
+                 SELECT 1 FROM producer_user_maintainers
+                  WHERE service_id = $1 AND user_id = $2
+                 UNION ALL
+                 SELECT 1 FROM producer_group_maintainers pgm
+                   JOIN user_group_members gm ON gm.group_id = pgm.group_id
+                  WHERE pgm.service_id = $3 AND gm.user_id = $4
+             ) AS assignments",
+        )
+        .bind(service_id)
+        .bind(user_id)
+        .bind(service_id)
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.0 > 0)
+    }
+
+    async fn list_maintained_producers(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT s.name FROM services s
+               JOIN producer_user_maintainers m ON m.service_id = s.id
+              WHERE m.user_id = $1
+             UNION
+             SELECT s.name FROM services s
+               JOIN producer_group_maintainers pgm ON pgm.service_id = s.id
+               JOIN user_group_members gm ON gm.group_id = pgm.group_id
+              WHERE gm.user_id = $2
+             ORDER BY name",
+        )
+        .bind(user_id)
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
     async fn add_service_tags(

@@ -31,6 +31,35 @@ _Avoid_: client, Sanshain client
 > its own spec and consumes others'. Sanshain records the two roles separately, so such a system
 > appears once in each list.
 
+### Who may do what
+
+**Permission**:
+The unit an authorisation check tests — a single thing an Actor may do. Checks name permissions,
+never roles, so what a route requires stays readable without knowing who holds what.
+_Avoid_: right, privilege, capability
+
+**Role**:
+A named bundle of permissions, held instance-wide. Fixed: the set of roles is part of the product,
+not something an operator composes.
+_Avoid_: profile, permission set, access level (also: not a Producer/Consumer role — those are
+positions in an exchange, not grants)
+
+**Group**:
+A set of users that roles and maintainer scopes attach to. Membership either originates in the
+directory Sanshain authenticates against, or is Sanshain's own; a group always knows which.
+_Avoid_: team, org unit
+
+**Maintainer**:
+An Actor responsible for a set of Producers, holding powers over those and no others. Scoped by
+definition — unlike a role, it means nothing without the Producers it is over.
+_Avoid_: owner, admin, service owner
+
+**Root**:
+The Actor whose authority comes from configuration rather than from stored grants, and which
+therefore cannot be revoked from inside Sanshain. Holds every permission, including permissions
+that do not exist yet.
+_Avoid_: superuser, owner, initial admin
+
 ### Publishing and requiring
 
 **Provide**:
@@ -41,6 +70,18 @@ _Avoid_: push, upload, publish
 **Require**:
 A Consumer's request for specific endpoints, which also records the dependency.
 _Avoid_: fetch, pull, consume
+
+**Onboarding**:
+A Producer lifecycle state in which breaking changes are accepted rather than gatekept. A Producer
+whose API is not yet stable passes through it; nothing about its branches changes, only whether
+Sanshain refuses what they publish.
+_Avoid_: dev mode, grace period, unprotected
+
+**Pending spec**:
+A Provide that was held for review instead of applied, retained in full so it can be judged on its
+content. Not part of any branch's API until accepted — until then the branch answers as if it had
+never been submitted.
+_Avoid_: draft, queued spec, rejected spec
 
 **Author**:
 Consumer-supplied, unverified attribution for who wrote a change, used for blame display only.

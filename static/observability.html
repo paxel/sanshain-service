@@ -220,7 +220,9 @@
             const res = await apiCall('/auth/me');
             if (res.ok) {
                 const data = await res.json();
-                isAdmin = !!data.is_admin;
+                // Reading logs and stats needs only `view_observability`;
+                // changing the debug configuration is a settings change.
+                isAdmin = hasPermission(data, 'manage_settings');
                 await renderBanner(data);
                 applyAdminState();
                 hideLoader();
@@ -494,10 +496,14 @@
             let actionBadgeColor = 'bg-slate-100 text-slate-700';
             if (log.action === 'NUKE_DATABASE') {
                 actionBadgeColor = 'bg-red-100 text-red-700';
-            } else if (log.action === 'REJECTED_SPEC') {
-                // Distinct from NUKE_DATABASE's red: a refusal is the registry
-                // protecting a branch, not a destructive act.
+            } else if (log.action === 'QUARANTINED_SPEC') {
+                // Distinct from NUKE_DATABASE's red: holding a Provide is the
+                // registry protecting a branch, not a destructive act.
                 actionBadgeColor = 'bg-orange-100 text-orange-700';
+            } else if (log.action === 'ACCEPTED_BREAKING') {
+                // A breaking change that landed because the Producer is
+                // onboarding — worth noticing, but it was allowed.
+                actionBadgeColor = 'bg-amber-100 text-amber-700';
             } else if (log.action === 'PROVIDE_SPEC') {
                 actionBadgeColor = 'bg-green-100 text-green-700';
             } else if (log.action === 'UPDATE_SETTINGS' || log.action === 'SET_DEV_MODE' || log.action === 'SET_LOCAL_USERS' || log.action === 'SET_AUTO_APPROVE') {

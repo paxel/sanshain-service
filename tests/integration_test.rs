@@ -74,6 +74,13 @@ fn test_app_state(repo: SqliteSpecRepository) -> AppState {
         prometheus_handle: get_test_prometheus_handle(),
         system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
         max_body_bytes: sanshain_service::DEFAULT_MAX_BODY_BYTES,
+        directory_roles: sanshain_service::application::directory_roles::DirectoryRoleCache::new(
+            std::time::Duration::from_secs(300),
+        ),
+        root_users: std::sync::Arc::new(sanshain_service::domain::permissions::RootUsers::resolve(
+            Some("root"),
+            None,
+        )),
     }
 }
 
@@ -127,7 +134,10 @@ async fn setup_app_with_admin() -> (axum::Router, String, SqliteSpecRepository) 
 
     // Create admin user manually with known password
     let hash = services::hash_password("admin-pass").unwrap();
-    let user = repo.create_user("admin", &hash, true, true).await.unwrap();
+    let user = repo.create_user("admin", &hash, true).await.unwrap();
+    repo.grant_user_role(user.id, "admin")
+        .await
+        .expect("admin grant");
     use sanshain_service::domain::ports::SpecRepository;
     let session = repo
         .create_session(user.id, "2099-12-31T23:59:59")
@@ -1486,7 +1496,9 @@ async fn test_auth_login_and_session() {
         .unwrap();
     let login_resp: Value = serde_json::from_slice(&body).unwrap();
     assert!(login_resp["token"].is_string());
-    assert_eq!(login_resp["is_admin"], true);
+    // Login answers with a token only; what the caller may do comes from
+    // /auth/me, which can express a partial administrator.
+    assert!(login_resp["token"].is_string());
     let new_token = login_resp["token"].as_str().unwrap();
 
     // Use new token to access /auth/me
@@ -1508,7 +1520,7 @@ async fn test_auth_login_and_session() {
         .unwrap();
     let me: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(me["username"], "admin");
-    assert_eq!(me["is_admin"], true);
+    assert_eq!(me["roles"], serde_json::json!(["admin"]));
 
     // Login with wrong password -> 401
     let response: Response = app
@@ -1622,7 +1634,10 @@ async fn test_auth_change_password_route_updates_credentials() {
 async fn test_root_change_password_keeps_session_and_allows_relogin() {
     let (app, repo) = setup_app().await;
     let hash = services::hash_password("root-pass").unwrap();
-    let user = repo.create_user("root", &hash, true, true).await.unwrap();
+    let user = repo.create_user("root", &hash, true).await.unwrap();
+    repo.grant_user_role(user.id, "admin")
+        .await
+        .expect("admin grant");
 
     use sanshain_service::domain::ports::SpecRepository;
     let session = repo
@@ -2004,7 +2019,7 @@ async fn test_role_based_access_control() {
         .unwrap();
     let login_resp: Value = serde_json::from_slice(&body).unwrap();
     let staff_token = login_resp["token"].as_str().unwrap().to_string();
-    assert_eq!(login_resp["is_admin"], false);
+    assert!(login_resp["token"].is_string());
 
     // 1. Staff should be able to see stats
     let response = app
@@ -5647,14 +5662,17 @@ async fn setup_audit_access_fixture() -> AuditAccessFixture {
     repo.run_migrations().await.unwrap();
 
     let hash = services::hash_password("admin-pass").unwrap();
-    let admin = repo.create_user("admin", &hash, true, true).await.unwrap();
+    let admin = repo.create_user("admin", &hash, true).await.unwrap();
+    repo.grant_user_role(admin.id, "admin")
+        .await
+        .expect("admin grant");
     let admin_session = repo
         .create_session(admin.id, "2099-12-31T23:59:59")
         .await
         .unwrap();
 
     let hash = services::hash_password("user-pass").unwrap();
-    let user = repo.create_user("plain", &hash, false, true).await.unwrap();
+    let user = repo.create_user("plain", &hash, true).await.unwrap();
     let user_session = repo
         .create_session(user.id, "2099-12-31T23:59:59")
         .await
@@ -6264,10 +6282,10 @@ async fn a_rejected_provide_on_a_protected_branch_is_audited() {
     let rejections: Vec<Value> = timeline_as_admin(&app, &token, "")
         .await
         .into_iter()
-        .filter(|e| e["action"] == "REJECTED_SPEC")
+        .filter(|e| e["action"] == "QUARANTINED_SPEC")
         .collect();
 
-    assert_eq!(rejections.len(), 1, "exactly one rejection recorded");
+    assert_eq!(rejections.len(), 1, "exactly one held submission recorded");
     let entry = &rejections[0];
     assert_eq!(entry["service"], "billing");
     assert_eq!(entry["branch"], "main");
@@ -6291,8 +6309,8 @@ async fn rejections_are_filterable_by_action_type_and_producer() {
 
     let by_type = timeline_as_admin(&app, &token, "&action_type=REJECT").await;
     assert!(
-        !by_type.is_empty() && by_type.iter().all(|e| e["action"] == "REJECTED_SPEC"),
-        "filtering by the rejection action type returns only rejections, got: {by_type:?}"
+        !by_type.is_empty() && by_type.iter().all(|e| e["action"] == "QUARANTINED_SPEC"),
+        "filtering by the rejection action type returns only held Provides, got: {by_type:?}"
     );
 
     let by_producer = timeline_as_admin(&app, &token, "&action_type=REJECT&service=billing").await;
@@ -6308,7 +6326,7 @@ async fn a_successful_provide_records_no_rejection() {
 
     let entries = timeline_as_admin(&app, &token, "").await;
     assert!(
-        entries.iter().all(|e| e["action"] != "REJECTED_SPEC"),
+        entries.iter().all(|e| e["action"] != "QUARANTINED_SPEC"),
         "a successful Provide must not look like a rejection"
     );
 }
@@ -6330,7 +6348,7 @@ async fn a_breaking_change_on_a_feature_branch_records_no_rejection() {
 
     let entries = timeline_as_admin(&app, &token, "").await;
     assert!(
-        entries.iter().all(|e| e["action"] != "REJECTED_SPEC"),
+        entries.iter().all(|e| e["action"] != "QUARANTINED_SPEC"),
         "an accepted change on a feature branch is not a rejection"
     );
 }
@@ -6354,7 +6372,7 @@ async fn a_dry_run_rejection_is_not_audited() {
 
     let entries = timeline_as_admin(&app, &token, "").await;
     assert!(
-        entries.iter().all(|e| e["action"] != "REJECTED_SPEC"),
+        entries.iter().all(|e| e["action"] != "QUARANTINED_SPEC"),
         "a dry run must not record a rejection"
     );
 
@@ -6369,7 +6387,7 @@ async fn a_dry_run_rejection_is_not_audited() {
     assert_eq!(
         after
             .iter()
-            .filter(|e| e["action"] == "REJECTED_SPEC")
+            .filter(|e| e["action"] == "QUARANTINED_SPEC")
             .count(),
         1,
         "the real refusal is recorded, so the dry run genuinely added nothing"
@@ -6458,7 +6476,7 @@ async fn refusing_to_remove_a_non_deprecated_endpoint_is_audited() {
     let rejections: Vec<Value> = timeline_as_admin(&app, &token, "&action_type=REJECT")
         .await
         .into_iter()
-        .filter(|e| e["action"] == "REJECTED_SPEC")
+        .filter(|e| e["action"] == "QUARANTINED_SPEC")
         .collect();
 
     assert_eq!(rejections.len(), 1, "the removal refusal is recorded");

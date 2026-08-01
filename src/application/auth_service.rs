@@ -1,4 +1,5 @@
 use crate::domain::models::*;
+use crate::domain::permissions::Role;
 use crate::domain::ports::{AuthProvider, SpecRepository};
 use argon2::{
     Argon2,
@@ -41,7 +42,11 @@ pub async fn ensure_initial_admin(repo: &impl SpecRepository) -> Result<(), AppE
         let password =
             std::env::var("INITIAL_ADMIN_PASSWORD").unwrap_or_else(|_| generate_random_password());
         let hash = hash_password(&password)?;
-        repo.create_user(&username, &hash, true, true).await?;
+        let admin = repo.create_user(&username, &hash, true).await?;
+        // The flag is gone, so the bootstrap account's authority comes from an
+        // explicit grant. `SANSHAIN_ROOT_USERS` covers it as well by default,
+        // but the grant is what makes it visible in the UI as an ordinary role.
+        repo.grant_user_role(admin.id, Role::Admin.as_str()).await?;
         if repo.get_setting("auth_mode").await?.is_none() {
             repo.set_setting("auth_mode", "local").await?;
         }
@@ -145,7 +150,8 @@ pub async fn ensure_dev_user(repo: &impl SpecRepository) -> Result<User, AppErro
         return Ok(user);
     }
     let hash = hash_password("dev_user_internal")?;
-    let user = repo.create_user("dev_user", &hash, true, true).await?;
+    let user = repo.create_user("dev_user", &hash, true).await?;
+    repo.grant_user_role(user.id, Role::Admin.as_str()).await?;
     Ok(user)
 }
 
@@ -180,8 +186,7 @@ pub async fn register_user(
         .await?
         .unwrap_or("false".to_string())
         == "true";
-    repo.create_user(username, &hash, false, auto_approve)
-        .await?;
+    repo.create_user(username, &hash, auto_approve).await?;
     Ok(())
 }
 
@@ -258,6 +263,23 @@ pub async fn set_ldap_config(
     let json = serde_json::to_string(config)
         .map_err(|e| AppError::Internal(format!("LDAP config serialize error: {}", e)))?;
     repo.set_setting("ldap_config", &json).await?;
+    // The admin-group setting is no longer consulted directly — a directory
+    // group grants roles through the group mapping. Carrying it over keeps an
+    // operator who configures it here from finding their directory
+    // administrators locked out.
+    crate::application::directory_roles::migrate_admin_group(repo, &config.admin_group).await?;
+    Ok(())
+}
+
+/// Bring a stored configuration's admin group into the group mapping.
+///
+/// Runs at startup so an instance upgrading from a release where `admin_group`
+/// was consulted directly keeps its directory-backed administrators, without
+/// anyone having to re-save the configuration first.
+pub async fn migrate_stored_admin_group(repo: &impl SpecRepository) -> Result<(), AppError> {
+    if let Some(config) = get_ldap_config(repo).await? {
+        crate::application::directory_roles::migrate_admin_group(repo, &config.admin_group).await?;
+    }
     Ok(())
 }
 
@@ -274,7 +296,9 @@ pub async fn login_with_provider(
     username: &str,
     password: &str,
 ) -> Result<Session, AppError> {
-    let auth_user = provider
+    // The provider's answer establishes identity; the username is all that is
+    // needed from it, since privileges are resolved separately.
+    let _authenticated = provider
         .authenticate(username, password)
         .await
         .map_err(|_| AppError::Unauthorized)?;
@@ -285,8 +309,9 @@ pub async fn login_with_provider(
         None => {
             // Create a stub user with a random password that can't be used for local login easily
             let hash = hash_password(&generate_random_password())?;
-            repo.create_user(username, &hash, auth_user.is_admin, true)
-                .await?
+            // A directory user's privileges come from their directory groups,
+            // resolved on every check. Nothing about them is captured here.
+            repo.create_user(username, &hash, true).await?
         }
     };
 
@@ -388,15 +413,21 @@ mod tests {
         let users = repo.list_users().await.unwrap();
         assert_eq!(users.len(), 1);
         assert_eq!(users[0].username, "root");
-        assert!(users[0].is_admin);
+        let roles = repo
+            .list_user_roles(users[0].id)
+            .await
+            .expect("roles readable");
+        assert_eq!(
+            roles,
+            vec!["admin".to_string()],
+            "the bootstrap account's authority is an explicit grant now"
+        );
     }
 
     #[tokio::test]
     async fn test_ensure_initial_admin_skips_when_users_exist() {
         let repo = MockRepo::new();
-        repo.create_user("existing", "hash", false, true)
-            .await
-            .unwrap();
+        repo.create_user("existing", "hash", true).await.unwrap();
         ensure_initial_admin(&repo).await.unwrap();
         let users = repo.list_users().await.unwrap();
         assert_eq!(users.len(), 1);
@@ -407,7 +438,7 @@ mod tests {
     async fn test_login_success() {
         let repo = MockRepo::new();
         let hash = hash_password("pass").unwrap();
-        repo.create_user("alice", &hash, false, true).await.unwrap();
+        repo.create_user("alice", &hash, true).await.unwrap();
         let (session, user) = login(&repo, "alice", "pass").await.unwrap();
         assert!(!session.token.is_empty());
         assert_eq!(user.username, "alice");
@@ -417,7 +448,7 @@ mod tests {
     async fn test_login_wrong_password() {
         let repo = MockRepo::new();
         let hash = hash_password("pass").unwrap();
-        repo.create_user("alice", &hash, false, true).await.unwrap();
+        repo.create_user("alice", &hash, true).await.unwrap();
         let err = login(&repo, "alice", "wrong").await.unwrap_err();
         assert!(matches!(err, AppError::Unauthorized));
     }
@@ -426,7 +457,7 @@ mod tests {
     async fn test_login_unapproved_user() {
         let repo = MockRepo::new();
         let hash = hash_password("pass").unwrap();
-        repo.create_user("bob", &hash, false, false).await.unwrap();
+        repo.create_user("bob", &hash, false).await.unwrap();
         let err = login(&repo, "bob", "pass").await.unwrap_err();
         assert!(matches!(err, AppError::Forbidden));
     }
@@ -453,7 +484,7 @@ mod tests {
     async fn test_change_password() {
         let repo = MockRepo::new();
         let hash = hash_password("old").unwrap();
-        let user = repo.create_user("u", &hash, false, true).await.unwrap();
+        let user = repo.create_user("u", &hash, true).await.unwrap();
         change_password(&repo, &user, None, "old", "new")
             .await
             .unwrap();

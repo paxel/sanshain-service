@@ -86,7 +86,9 @@ async fn protected_branch_rejects_breaking_change() {
     )
     .await
     .unwrap_err();
-    assert!(matches!(err, AppError::BreakingChange(_)));
+    // Refused *and* retained: the submission is held for review rather than
+    // discarded, which is what `Quarantined` carries over `BreakingChange`.
+    assert!(matches!(err, AppError::Quarantined { .. }), "got {err:?}");
 }
 
 #[tokio::test]

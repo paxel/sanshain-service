@@ -5,7 +5,7 @@ use axum::{
     extract::{Request, State},
     http::{StatusCode, header},
     middleware::Next,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
 };
 use chrono::Utc;
 use std::collections::VecDeque;
@@ -19,6 +19,78 @@ async fn resolve_dev_user(state: &AppState) -> Option<crate::domain::models::Use
     services::ensure_dev_user(&state.repo).await.ok()
 }
 
+/// The directory groups a caller is currently in.
+///
+/// Consulted on every authorisation check rather than captured at login, so a
+/// promotion or demotion in the directory takes effect without the user signing
+/// in again. The cache is checked first precisely so the common path builds no
+/// directory connection at all.
+///
+/// Returns nothing when the instance does not use the directory for
+/// authentication — there is then no directory to ask.
+async fn directory_groups_for(state: &AppState, username: &str) -> Vec<String> {
+    if let Some(cached) = state.directory_roles.cached(username).await {
+        return cached.as_ref().clone();
+    }
+
+    if !matches!(
+        services::get_auth_mode(&state.repo).await,
+        Ok(crate::domain::models::AuthMode::Ldap)
+    ) {
+        return Vec::new();
+    }
+
+    let Ok(Some(config)) = services::get_ldap_config(&state.repo).await else {
+        return Vec::new();
+    };
+    let provider = crate::infrastructure::ldap_provider::LdapAuthProvider::new(config);
+    state
+        .directory_roles
+        .groups_for(&provider, username)
+        .await
+        .as_ref()
+        .clone()
+}
+
+/// Attach the authenticated caller to the request.
+///
+/// Both the stored record and the resolved [`Actor`] go in: handlers that only
+/// need an identity keep taking the record, while authorisation reads the
+/// Actor. Every entry point goes through here so no path can supply one without
+/// the other.
+///
+/// [`Actor`]: crate::domain::permissions::Actor
+/// Returns `Err` when the caller's roles cannot be resolved.
+///
+/// A request whose authorisation could not be determined must not proceed as if
+/// the answer were "no permissions": that is indistinguishable from a genuine
+/// refusal, so a transient database fault would look like a policy decision.
+async fn attach_caller(
+    req: &mut Request,
+    state: &AppState,
+    user: crate::domain::models::User,
+) -> Result<(), StatusCode> {
+    let directory_groups = directory_groups_for(state, &user.username).await;
+    let actor = crate::application::authz::resolve_actor(
+        &state.repo,
+        &user,
+        &state.root_users,
+        &directory_groups,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(
+            "Could not resolve roles for user {}, refusing the request: {}",
+            user.id,
+            e
+        );
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    req.extensions_mut().insert(actor);
+    req.extensions_mut().insert(user);
+    Ok(())
+}
+
 pub async fn authenticated_auth(
     State(state): State<AppState>,
     req: Request,
@@ -28,7 +100,7 @@ pub async fn authenticated_auth(
         && let Some(dev_user) = resolve_dev_user(&state).await
     {
         let mut req = req;
-        req.extensions_mut().insert(dev_user);
+        attach_caller(&mut req, &state, dev_user).await?;
         return Ok(next.run(req).await);
     }
     let auth_header = req
@@ -42,7 +114,7 @@ pub async fn authenticated_auth(
             match services::validate_session(&state.repo, token).await {
                 Ok(Some((user, _session))) => {
                     let mut req = req;
-                    req.extensions_mut().insert(user);
+                    attach_caller(&mut req, &state, user).await?;
                     Ok(next.run(req).await)
                 }
                 _ => Err(StatusCode::UNAUTHORIZED),
@@ -52,41 +124,131 @@ pub async fn authenticated_auth(
     }
 }
 
-pub async fn admin_auth(
-    State(state): State<AppState>,
+/// What a route requires of its caller.
+///
+/// Declared per route and attached as a request extension, so `permission_auth`
+/// enforces one rule for every route rather than each route growing its own
+/// check. Making it an explicit value — rather than the absence of one meaning
+/// "administrator" — is what lets a build-time check see that a route stated its
+/// requirement at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RouteGuard {
+    /// Any signed-in caller. Used by the read-only listings the dashboard needs
+    /// before it knows who is looking.
+    Authenticated,
+    /// The caller must hold this permission instance-wide.
+    Global(crate::domain::permissions::Permission),
+    /// The caller must hold this permission instance-wide, **or** maintain the
+    /// Producer named by the route's `name` path parameter.
+    Producer(crate::domain::permissions::Permission),
+}
+
+/// The Producer a Producer-scoped route is acting on.
+///
+/// Read from the matched route's path parameters rather than parsed out of the
+/// URI, so percent-encoding and the exact route shape stay the router's problem.
+async fn producer_from_path(parts: &mut axum::http::request::Parts) -> Option<String> {
+    use axum::extract::FromRequestParts;
+    let params = axum::extract::RawPathParams::from_request_parts(parts, &())
+        .await
+        .ok()?;
+    params
+        .iter()
+        .find(|(key, _)| *key == "name")
+        .map(|(_, value)| value.to_string())
+}
+
+/// Build the middleware enforcing `guard` for one route.
+///
+/// The guard is captured here rather than attached as a request extension, so a
+/// route carries exactly one layer and the requirement is visible on the same
+/// line as the route it protects.
+/// The future the guard middleware returns.
+///
+/// Boxed so `require`'s return type can be written down at all: the layer's type
+/// mentions the closure's future, and an `async fn`'s future is unnameable.
+type GuardFuture =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, StatusCode>> + Send>>;
+
+/// The middleware layer `require` produces.
+type GuardLayer<F> = axum::middleware::FromFnLayer<F, AppState, (State<AppState>, Request)>;
+
+pub fn require(
+    state: AppState,
+    guard: RouteGuard,
+) -> GuardLayer<impl Fn(State<AppState>, Request, Next) -> GuardFuture + Clone> {
+    axum::middleware::from_fn_with_state(
+        state,
+        move |State(state): State<AppState>, req: Request, next: Next| {
+            Box::pin(permission_auth(state, guard, req, next)) as GuardFuture
+        },
+    )
+}
+
+/// Authenticate the caller and enforce the route's declared requirement.
+pub async fn permission_auth(
+    state: AppState,
+    guard: RouteGuard,
     req: Request,
     next: Next,
-) -> Result<impl IntoResponse, StatusCode> {
-    if services::get_dev_mode(&state.repo).await.unwrap_or(false)
+) -> Result<Response, StatusCode> {
+    let user = if services::get_dev_mode(&state.repo).await.unwrap_or(false)
         && let Some(dev_user) = resolve_dev_user(&state).await
     {
-        let mut req = req;
-        req.extensions_mut().insert(dev_user);
-        return Ok(next.run(req).await);
-    }
-    let auth_header = req
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|h| h.to_str().ok());
+        dev_user
+    } else {
+        let token = req
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|h| h.to_str().ok())
+            .and_then(|t| t.strip_prefix("Bearer "))
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+        match services::validate_session(&state.repo, token).await {
+            Ok(Some((user, _session))) => user,
+            _ => return Err(StatusCode::UNAUTHORIZED),
+        }
+    };
 
-    match auth_header {
-        Some(token) if token.starts_with("Bearer ") => {
-            let token = &token[7..];
-            match services::validate_session(&state.repo, token).await {
-                Ok(Some((user, _session))) => {
-                    if user.is_admin {
-                        let mut req = req;
-                        req.extensions_mut().insert(user);
-                        Ok(next.run(req).await)
-                    } else {
-                        Err(StatusCode::FORBIDDEN)
-                    }
-                }
-                _ => Err(StatusCode::UNAUTHORIZED),
+    let mut req = req;
+    attach_caller(&mut req, &state, user).await?;
+
+    let actor = req
+        .extensions()
+        .get::<crate::domain::permissions::Actor>()
+        .cloned()
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    match guard {
+        RouteGuard::Authenticated => {}
+        RouteGuard::Global(permission) => {
+            if !actor.has_permission(permission) {
+                return Err(StatusCode::FORBIDDEN);
             }
         }
-        _ => Err(StatusCode::UNAUTHORIZED),
+        RouteGuard::Producer(permission) => {
+            if !actor.has_permission(permission) {
+                let (mut parts, body) = req.into_parts();
+                let producer = producer_from_path(&mut parts).await;
+                req = Request::from_parts(parts, body);
+
+                let allowed = match producer {
+                    Some(producer) => crate::application::authz::maintains_producer(
+                        &state.repo,
+                        &actor,
+                        &producer,
+                    )
+                    .await
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+                    None => false,
+                };
+                if !allowed {
+                    return Err(StatusCode::FORBIDDEN);
+                }
+            }
+        }
     }
+
+    Ok(next.run(req).await.into_response())
 }
 
 pub async fn api_auth(
@@ -117,13 +279,17 @@ pub async fn api_auth(
 
         if let Ok(Some((user, _))) = services::validate_session(&state.repo, token).await {
             let mut req = req;
-            req.extensions_mut().insert(user);
+            attach_caller(&mut req, &state, user)
+                .await
+                .map_err(IntoResponse::into_response)?;
             return Ok(next.run(req).await);
         }
 
         if let Ok(Some(user)) = services::validate_api_token(&state.repo, token).await {
             let mut req = req;
-            req.extensions_mut().insert(user);
+            attach_caller(&mut req, &state, user)
+                .await
+                .map_err(IntoResponse::into_response)?;
             return Ok(next.run(req).await);
         }
 
@@ -135,7 +301,9 @@ pub async fn api_auth(
         && let Some(dev_user) = resolve_dev_user(&state).await
     {
         let mut req = req;
-        req.extensions_mut().insert(dev_user);
+        attach_caller(&mut req, &state, dev_user)
+            .await
+            .map_err(IntoResponse::into_response)?;
         return Ok(next.run(req).await);
     }
 

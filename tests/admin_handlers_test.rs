@@ -5,6 +5,7 @@ use axum::{
 use chrono::Utc;
 use sanshain_service::application::services;
 use sanshain_service::domain::models::ApiType;
+use sanshain_service::domain::ports::SpecRepository;
 use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
 use sanshain_service::infrastructure::database::DatabaseRepo;
 use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
@@ -50,6 +51,13 @@ fn test_state(repo: SqliteSpecRepository) -> AppState {
         prometheus_handle: get_test_prometheus_handle(),
         system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
         max_body_bytes: sanshain_service::DEFAULT_MAX_BODY_BYTES,
+        directory_roles: sanshain_service::application::directory_roles::DirectoryRoleCache::new(
+            std::time::Duration::from_secs(300),
+        ),
+        root_users: std::sync::Arc::new(sanshain_service::domain::permissions::RootUsers::resolve(
+            Some("root"),
+            None,
+        )),
     }
 }
 
@@ -944,7 +952,13 @@ async fn audit_logs_are_admin_only() {
         .unwrap();
     let users = auth_service::list_users(&repo).await.unwrap();
     let regular = users.iter().find(|u| u.username == "regular-user").unwrap();
-    assert!(!regular.is_admin, "newly registered users are not admins");
+    assert!(
+        repo.list_user_roles(regular.id)
+            .await
+            .expect("roles readable")
+            .is_empty(),
+        "newly registered users hold no roles"
+    );
     auth_service::approve_user(&repo, regular.id).await.unwrap();
     let (session, _user) = auth_service::login(&repo, "regular-user", "password123")
         .await

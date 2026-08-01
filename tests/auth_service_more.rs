@@ -75,7 +75,6 @@ async fn change_password_wrong_old_password() {
         id: 1,
         username: "u".into(),
         password_hash: hash,
-        is_admin: false,
         approved: true,
     };
     let res = auth::change_password(&repo, &user, None, "bad", "new").await;
@@ -124,7 +123,7 @@ async fn register_user_conflict() {
     // enable and no auto-approve just for path
     auth::set_auth_mode(&repo, &AuthMode::Local).await.unwrap();
     let hash = auth::hash_password("pw").unwrap();
-    repo.create_user("bob", &hash, false, true).await.unwrap();
+    repo.create_user("bob", &hash, true).await.unwrap();
     let res = auth::register_user(&repo, "bob", "pw").await;
     match res {
         Err(AppError::Conflict(_)) => {}

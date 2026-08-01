@@ -27,6 +27,14 @@ pub struct MockRepo {
     pub branch_timestamps: Mutex<HashMap<String, String>>,
     pub channel_message_contracts: Mutex<Vec<ChannelMessageContract>>,
     pub source_protected_branches: Mutex<HashMap<i64, String>>,
+    pub user_roles: Mutex<Vec<(i64, String)>>,
+    pub groups: Mutex<Vec<Group>>,
+    pub group_members: Mutex<Vec<(i64, i64)>>,
+    pub group_roles: Mutex<Vec<(i64, String)>>,
+    pub user_maintainers: Mutex<Vec<(i64, i64)>>,
+    pub group_maintainers: Mutex<Vec<(i64, i64)>>,
+    pub onboarding: Mutex<Vec<i64>>,
+    pub pending_specs: Mutex<Vec<PendingSpec>>,
 }
 
 impl Default for MockRepo {
@@ -60,6 +68,14 @@ impl MockRepo {
             branch_timestamps: Mutex::new(HashMap::new()),
             channel_message_contracts: Mutex::new(Vec::new()),
             source_protected_branches: Mutex::new(HashMap::new()),
+            user_roles: Mutex::new(Vec::new()),
+            groups: Mutex::new(Vec::new()),
+            group_members: Mutex::new(Vec::new()),
+            group_roles: Mutex::new(Vec::new()),
+            user_maintainers: Mutex::new(Vec::new()),
+            group_maintainers: Mutex::new(Vec::new()),
+            onboarding: Mutex::new(Vec::new()),
+            pending_specs: Mutex::new(Vec::new()),
         }
     }
 
@@ -397,9 +413,17 @@ impl SpecRepository for MockRepo {
     }
 
     async fn delete_all_non_admin_users(&self) -> Result<u64, RepositoryError> {
+        let admins: Vec<i64> = self
+            .user_roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|(_, role)| role == "admin")
+            .map(|(user_id, _)| *user_id)
+            .collect();
         let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
         let initial_count = users.len() as u64;
-        users.retain(|u| u.is_admin);
+        users.retain(|u| admins.contains(&u.id));
         Ok(initial_count - users.len() as u64)
     }
 
@@ -615,14 +639,12 @@ impl SpecRepository for MockRepo {
         &self,
         username: &str,
         password_hash: &str,
-        is_admin: bool,
         approved: bool,
     ) -> Result<User, RepositoryError> {
         let user = User {
             id: self.next_id(),
             username: username.to_string(),
             password_hash: password_hash.to_string(),
-            is_admin,
             approved,
         };
         self.users
@@ -889,6 +911,489 @@ impl SpecRepository for MockRepo {
             }
         }
         Ok(())
+    }
+
+    // --- Roles and Groups ---
+
+    async fn grant_user_role(&self, user_id: i64, role: &str) -> Result<(), RepositoryError> {
+        let mut roles = self
+            .user_roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let entry = (user_id, role.to_string());
+        if !roles.contains(&entry) {
+            roles.push(entry);
+        }
+        Ok(())
+    }
+
+    async fn revoke_user_role(&self, user_id: i64, role: &str) -> Result<bool, RepositoryError> {
+        let mut roles = self
+            .user_roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let before = roles.len();
+        roles.retain(|(id, r)| !(*id == user_id && r == role));
+        Ok(roles.len() != before)
+    }
+
+    async fn list_user_roles(&self, user_id: i64) -> Result<Vec<String>, RepositoryError> {
+        let roles = self
+            .user_roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut out: Vec<String> = roles
+            .iter()
+            .filter(|(id, _)| *id == user_id)
+            .map(|(_, r)| r.clone())
+            .collect();
+        out.sort();
+        Ok(out)
+    }
+
+    async fn effective_stored_roles(&self, user_id: i64) -> Result<Vec<String>, RepositoryError> {
+        let mut out: Vec<String> = self.list_user_roles(user_id).await?;
+        let members = self
+            .group_members
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let group_roles = self
+            .group_roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        for (group_id, member_id) in members.iter() {
+            if *member_id != user_id {
+                continue;
+            }
+            for (gid, role) in group_roles.iter() {
+                if gid == group_id && !out.contains(role) {
+                    out.push(role.clone());
+                }
+            }
+        }
+        out.sort();
+        out.dedup();
+        Ok(out)
+    }
+
+    async fn create_group(
+        &self,
+        name: &str,
+        source: GroupSource,
+    ) -> Result<Group, RepositoryError> {
+        let mut groups = self.groups.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(existing) = groups.iter().find(|g| g.name == name && g.source == source) {
+            return Ok(existing.clone());
+        }
+        let mut next = self.next_id.lock().unwrap_or_else(PoisonError::into_inner);
+        let id = *next;
+        *next += 1;
+        let group = Group {
+            id,
+            name: name.to_string(),
+            source,
+        };
+        groups.push(group.clone());
+        Ok(group)
+    }
+
+    async fn rename_group(&self, group_id: i64, name: &str) -> Result<bool, RepositoryError> {
+        let mut groups = self.groups.lock().unwrap_or_else(PoisonError::into_inner);
+        match groups.iter_mut().find(|g| g.id == group_id) {
+            Some(group) => {
+                group.name = name.to_string();
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
+    async fn delete_group(&self, group_id: i64) -> Result<bool, RepositoryError> {
+        let mut groups = self.groups.lock().unwrap_or_else(PoisonError::into_inner);
+        let before = groups.len();
+        groups.retain(|g| g.id != group_id);
+        self.group_members
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(gid, _)| *gid != group_id);
+        self.group_roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(gid, _)| *gid != group_id);
+        Ok(groups.len() != before)
+    }
+
+    async fn list_groups(&self) -> Result<Vec<Group>, RepositoryError> {
+        let groups = self.groups.lock().unwrap_or_else(PoisonError::into_inner);
+        Ok(groups.clone())
+    }
+
+    async fn set_group_roles(
+        &self,
+        group_id: i64,
+        roles: &[String],
+    ) -> Result<(), RepositoryError> {
+        let mut group_roles = self
+            .group_roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        group_roles.retain(|(gid, _)| *gid != group_id);
+        for role in roles {
+            group_roles.push((group_id, role.clone()));
+        }
+        Ok(())
+    }
+
+    async fn list_group_roles(&self, group_id: i64) -> Result<Vec<String>, RepositoryError> {
+        let group_roles = self
+            .group_roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut out: Vec<String> = group_roles
+            .iter()
+            .filter(|(gid, _)| *gid == group_id)
+            .map(|(_, r)| r.clone())
+            .collect();
+        out.sort();
+        Ok(out)
+    }
+
+    async fn add_group_member(&self, group_id: i64, user_id: i64) -> Result<(), RepositoryError> {
+        let mut members = self
+            .group_members
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if !members.contains(&(group_id, user_id)) {
+            members.push((group_id, user_id));
+        }
+        Ok(())
+    }
+
+    async fn remove_group_member(
+        &self,
+        group_id: i64,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        let mut members = self
+            .group_members
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let before = members.len();
+        members.retain(|entry| *entry != (group_id, user_id));
+        Ok(members.len() != before)
+    }
+
+    async fn list_group_member_ids(&self, group_id: i64) -> Result<Vec<i64>, RepositoryError> {
+        let members = self
+            .group_members
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut out: Vec<i64> = members
+            .iter()
+            .filter(|(gid, _)| *gid == group_id)
+            .map(|(_, uid)| *uid)
+            .collect();
+        out.sort();
+        Ok(out)
+    }
+
+    // --- Pending Specs ---
+
+    async fn upsert_pending_spec(
+        &self,
+        service_id: i64,
+        branch: &str,
+        api_type: ApiType,
+        content: &str,
+        reason: &str,
+        submitted_by: &str,
+    ) -> Result<i64, RepositoryError> {
+        let producer = self
+            .services
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|(_, sid)| **sid == service_id)
+            .map(|(name, _)| name.clone())
+            .unwrap_or_default();
+
+        let mut pending = self
+            .pending_specs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(existing) = pending
+            .iter_mut()
+            .find(|p| p.producer == producer && p.branch == branch && p.api_type == api_type)
+        {
+            existing.content = content.to_string();
+            existing.reason = reason.to_string();
+            existing.submitted_by = submitted_by.to_string();
+            return Ok(existing.id);
+        }
+        let mut next = self.next_id.lock().unwrap_or_else(PoisonError::into_inner);
+        let id = *next;
+        *next += 1;
+        pending.push(PendingSpec {
+            id,
+            producer,
+            branch: branch.to_string(),
+            api_type,
+            content: content.to_string(),
+            reason: reason.to_string(),
+            submitted_by: submitted_by.to_string(),
+            created_at: "2026-07-31T00:00:00Z".to_string(),
+        });
+        Ok(id)
+    }
+
+    async fn get_pending_spec(&self, id: i64) -> Result<Option<PendingSpec>, RepositoryError> {
+        Ok(self
+            .pending_specs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|p| p.id == id)
+            .cloned())
+    }
+
+    async fn list_pending_specs(&self) -> Result<Vec<PendingSpec>, RepositoryError> {
+        Ok(self
+            .pending_specs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone())
+    }
+
+    async fn delete_pending_spec(&self, id: i64) -> Result<bool, RepositoryError> {
+        let mut pending = self
+            .pending_specs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let before = pending.len();
+        pending.retain(|p| p.id != id);
+        Ok(pending.len() != before)
+    }
+
+    async fn clear_pending_spec(
+        &self,
+        service_id: i64,
+        branch: &str,
+        api_type: ApiType,
+    ) -> Result<bool, RepositoryError> {
+        let producer = self
+            .services
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|(_, sid)| **sid == service_id)
+            .map(|(name, _)| name.clone())
+            .unwrap_or_default();
+        let mut pending = self
+            .pending_specs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let before = pending.len();
+        pending
+            .retain(|p| !(p.producer == producer && p.branch == branch && p.api_type == api_type));
+        Ok(pending.len() != before)
+    }
+
+    // --- Producer Onboarding ---
+
+    async fn set_producer_onboarding(
+        &self,
+        service_id: i64,
+        onboarding: bool,
+    ) -> Result<(), RepositoryError> {
+        let mut o = self
+            .onboarding
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if onboarding {
+            if !o.contains(&service_id) {
+                o.push(service_id);
+            }
+        } else {
+            o.retain(|id| *id != service_id);
+        }
+        Ok(())
+    }
+
+    async fn is_producer_onboarding(&self, service_id: i64) -> Result<bool, RepositoryError> {
+        Ok(self
+            .onboarding
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&service_id))
+    }
+
+    async fn list_onboarding_producers(&self) -> Result<Vec<String>, RepositoryError> {
+        let o = self
+            .onboarding
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut out: Vec<String> = services
+            .iter()
+            .filter(|(_, sid)| o.contains(sid))
+            .map(|(name, _)| name.clone())
+            .collect();
+        out.sort();
+        Ok(out)
+    }
+
+    // --- Maintainer Scope ---
+
+    async fn add_user_maintainer(
+        &self,
+        service_id: i64,
+        user_id: i64,
+    ) -> Result<(), RepositoryError> {
+        let mut m = self
+            .user_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if !m.contains(&(service_id, user_id)) {
+            m.push((service_id, user_id));
+        }
+        Ok(())
+    }
+
+    async fn remove_user_maintainer(
+        &self,
+        service_id: i64,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        let mut m = self
+            .user_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let before = m.len();
+        m.retain(|entry| *entry != (service_id, user_id));
+        Ok(m.len() != before)
+    }
+
+    async fn add_group_maintainer(
+        &self,
+        service_id: i64,
+        group_id: i64,
+    ) -> Result<(), RepositoryError> {
+        let mut m = self
+            .group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if !m.contains(&(service_id, group_id)) {
+            m.push((service_id, group_id));
+        }
+        Ok(())
+    }
+
+    async fn remove_group_maintainer(
+        &self,
+        service_id: i64,
+        group_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        let mut m = self
+            .group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let before = m.len();
+        m.retain(|entry| *entry != (service_id, group_id));
+        Ok(m.len() != before)
+    }
+
+    async fn list_user_maintainer_ids(&self, service_id: i64) -> Result<Vec<i64>, RepositoryError> {
+        let m = self
+            .user_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut out: Vec<i64> = m
+            .iter()
+            .filter(|(sid, _)| *sid == service_id)
+            .map(|(_, uid)| *uid)
+            .collect();
+        out.sort();
+        Ok(out)
+    }
+
+    async fn list_group_maintainer_ids(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<i64>, RepositoryError> {
+        let m = self
+            .group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut out: Vec<i64> = m
+            .iter()
+            .filter(|(sid, _)| *sid == service_id)
+            .map(|(_, gid)| *gid)
+            .collect();
+        out.sort();
+        Ok(out)
+    }
+
+    async fn maintains_producer(
+        &self,
+        user_id: i64,
+        service_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        if self
+            .user_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&(service_id, user_id))
+        {
+            return Ok(true);
+        }
+        let group_maintainers = self
+            .group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let members = self
+            .group_members
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Ok(group_maintainers
+            .iter()
+            .any(|(sid, gid)| *sid == service_id && members.contains(&(*gid, user_id))))
+    }
+
+    async fn list_maintained_producers(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut out = Vec::new();
+        for (name, sid) in services.iter() {
+            let maintained = {
+                let direct = self
+                    .user_maintainers
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .contains(&(*sid, user_id));
+                if direct {
+                    true
+                } else {
+                    let group_maintainers = self
+                        .group_maintainers
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner);
+                    let members = self
+                        .group_members
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner);
+                    group_maintainers
+                        .iter()
+                        .any(|(msid, gid)| msid == sid && members.contains(&(*gid, user_id)))
+                }
+            };
+            if maintained {
+                out.push(name.clone());
+            }
+        }
+        out.sort();
+        Ok(out)
     }
 
     async fn add_service_tags(

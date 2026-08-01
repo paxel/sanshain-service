@@ -1010,11 +1010,10 @@ impl SpecRepository for CachedSpecRepository {
         &self,
         username: &str,
         password_hash: &str,
-        is_admin: bool,
         approved: bool,
     ) -> Result<User, RepositoryError> {
         self.inner
-            .create_user(username, password_hash, is_admin, approved)
+            .create_user(username, password_hash, approved)
             .await
     }
 
@@ -1182,6 +1181,210 @@ impl SpecRepository for CachedSpecRepository {
             self.report_cache.invalidate_all();
         }
         Ok(())
+    }
+
+    // --- Roles and Groups ---
+    //
+    // Deliberately uncached: authorisation must reflect a revocation
+    // immediately, and these tables are small and read by primary key.
+
+    async fn grant_user_role(&self, user_id: i64, role: &str) -> Result<(), RepositoryError> {
+        self.inner.grant_user_role(user_id, role).await
+    }
+
+    async fn revoke_user_role(&self, user_id: i64, role: &str) -> Result<bool, RepositoryError> {
+        self.inner.revoke_user_role(user_id, role).await
+    }
+
+    async fn list_user_roles(&self, user_id: i64) -> Result<Vec<String>, RepositoryError> {
+        self.inner.list_user_roles(user_id).await
+    }
+
+    async fn effective_stored_roles(&self, user_id: i64) -> Result<Vec<String>, RepositoryError> {
+        self.inner.effective_stored_roles(user_id).await
+    }
+
+    async fn create_group(
+        &self,
+        name: &str,
+        source: GroupSource,
+    ) -> Result<Group, RepositoryError> {
+        self.inner.create_group(name, source).await
+    }
+
+    async fn rename_group(&self, group_id: i64, name: &str) -> Result<bool, RepositoryError> {
+        self.inner.rename_group(group_id, name).await
+    }
+
+    async fn delete_group(&self, group_id: i64) -> Result<bool, RepositoryError> {
+        self.inner.delete_group(group_id).await
+    }
+
+    async fn list_groups(&self) -> Result<Vec<Group>, RepositoryError> {
+        self.inner.list_groups().await
+    }
+
+    async fn set_group_roles(
+        &self,
+        group_id: i64,
+        roles: &[String],
+    ) -> Result<(), RepositoryError> {
+        self.inner.set_group_roles(group_id, roles).await
+    }
+
+    async fn list_group_roles(&self, group_id: i64) -> Result<Vec<String>, RepositoryError> {
+        self.inner.list_group_roles(group_id).await
+    }
+
+    async fn add_group_member(&self, group_id: i64, user_id: i64) -> Result<(), RepositoryError> {
+        self.inner.add_group_member(group_id, user_id).await
+    }
+
+    async fn remove_group_member(
+        &self,
+        group_id: i64,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        self.inner.remove_group_member(group_id, user_id).await
+    }
+
+    async fn list_group_member_ids(&self, group_id: i64) -> Result<Vec<i64>, RepositoryError> {
+        self.inner.list_group_member_ids(group_id).await
+    }
+
+    // --- Pending Specs ---
+    //
+    // Uncached: a held spec is read when a human is about to act on it, and
+    // written on a path that has already failed. Neither is hot.
+
+    async fn upsert_pending_spec(
+        &self,
+        service_id: i64,
+        branch: &str,
+        api_type: ApiType,
+        content: &str,
+        reason: &str,
+        submitted_by: &str,
+    ) -> Result<i64, RepositoryError> {
+        self.inner
+            .upsert_pending_spec(service_id, branch, api_type, content, reason, submitted_by)
+            .await
+    }
+
+    async fn get_pending_spec(&self, id: i64) -> Result<Option<PendingSpec>, RepositoryError> {
+        self.inner.get_pending_spec(id).await
+    }
+
+    async fn list_pending_specs(&self) -> Result<Vec<PendingSpec>, RepositoryError> {
+        self.inner.list_pending_specs().await
+    }
+
+    async fn delete_pending_spec(&self, id: i64) -> Result<bool, RepositoryError> {
+        self.inner.delete_pending_spec(id).await
+    }
+
+    async fn clear_pending_spec(
+        &self,
+        service_id: i64,
+        branch: &str,
+        api_type: ApiType,
+    ) -> Result<bool, RepositoryError> {
+        self.inner
+            .clear_pending_spec(service_id, branch, api_type)
+            .await
+    }
+
+    // --- Producer Onboarding ---
+    //
+    // Uncached: this decides whether a Provide is gatekept, so a stale answer
+    // would either refuse a change that should land or accept one that should
+    // not.
+
+    async fn set_producer_onboarding(
+        &self,
+        service_id: i64,
+        onboarding: bool,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .set_producer_onboarding(service_id, onboarding)
+            .await?;
+        if !self.is_disabled() {
+            self.services_cache.invalidate_all();
+        }
+        Ok(())
+    }
+
+    async fn is_producer_onboarding(&self, service_id: i64) -> Result<bool, RepositoryError> {
+        self.inner.is_producer_onboarding(service_id).await
+    }
+
+    async fn list_onboarding_producers(&self) -> Result<Vec<String>, RepositoryError> {
+        self.inner.list_onboarding_producers().await
+    }
+
+    // --- Maintainer Scope ---
+    //
+    // Deliberately uncached, for the same reason as roles: an unassignment must
+    // take effect at once, not when a cache entry happens to expire.
+
+    async fn add_user_maintainer(
+        &self,
+        service_id: i64,
+        user_id: i64,
+    ) -> Result<(), RepositoryError> {
+        self.inner.add_user_maintainer(service_id, user_id).await
+    }
+
+    async fn remove_user_maintainer(
+        &self,
+        service_id: i64,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        self.inner.remove_user_maintainer(service_id, user_id).await
+    }
+
+    async fn add_group_maintainer(
+        &self,
+        service_id: i64,
+        group_id: i64,
+    ) -> Result<(), RepositoryError> {
+        self.inner.add_group_maintainer(service_id, group_id).await
+    }
+
+    async fn remove_group_maintainer(
+        &self,
+        service_id: i64,
+        group_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        self.inner
+            .remove_group_maintainer(service_id, group_id)
+            .await
+    }
+
+    async fn list_user_maintainer_ids(&self, service_id: i64) -> Result<Vec<i64>, RepositoryError> {
+        self.inner.list_user_maintainer_ids(service_id).await
+    }
+
+    async fn list_group_maintainer_ids(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<i64>, RepositoryError> {
+        self.inner.list_group_maintainer_ids(service_id).await
+    }
+
+    async fn maintains_producer(
+        &self,
+        user_id: i64,
+        service_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        self.inner.maintains_producer(user_id, service_id).await
+    }
+
+    async fn list_maintained_producers(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<String>, RepositoryError> {
+        self.inner.list_maintained_producers(user_id).await
     }
 
     async fn add_service_tags(

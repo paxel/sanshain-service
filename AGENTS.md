@@ -64,7 +64,13 @@ Update these as part of the same change, not as a follow-up:
 - **`CHANGELOG.md`**: every user-facing change, [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format, under the current unreleased/version heading.
 - **`docs/ai/plan.md`**: check off / update task status when completing backlog items tracked there.
 - **`ai/improvements.md`**: a standing backlog of known risks/gaps (P0 security, P1 features, P2 quality). Pick one item at a time, don't "fix everything" in one PR.
-- **`api.yaml`**: keep in sync with the actual OpenAPI contract exposed by the service.
+- **`api.yaml`**: the contract Producers and Consumers speak (provide/require/report). Keep in sync
+  with what the service exposes. It must stay stable — roughly 25 Producers pin against it.
+- **`maintenance.yaml`**: the `/admin/*` administrative surface, including the permission each
+  endpoint requires. Separate from `api.yaml` because it has a different audience and a different
+  stability promise. Both are enforced by build-time checks in `src/lib.rs`
+  (`router_matches_api_yaml_contract`, `router_matches_maintenance_yaml_contract`): every route must
+  appear in one of them or in the explicit allowlist of routes belonging to neither.
 
 ## Working Agreements
 - Do not "fix everything" in one pass — one focused change, tested, matching the current DDD layout.
@@ -75,7 +81,8 @@ Update these as part of the same change, not as a follow-up:
 | File                                | Purpose                                                     |
 |-------------------------------------|-------------------------------------------------------------|
 | `Cargo.toml`                        | Rust package manifest                                       |
-| `api.yaml`                          | OpenAPI contract for this service's own API                 |
+| `api.yaml`                          | OpenAPI contract for the Producer/Consumer API               |
+| `maintenance.yaml`                  | OpenAPI contract for the `/admin/*` administrative surface   |
 | `justfile` / `package.json`         | Task runner entry points (`just check`, `npm run check`, …) |
 | `CHANGELOG.md` / `OLDER_CHANGES.md` | User-facing change history                                  |
 | `docs/`                             | User and developer documentation (see `docs/README.md`)     |

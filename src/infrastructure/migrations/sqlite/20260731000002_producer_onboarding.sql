@@ -1,0 +1,13 @@
+-- Producer onboarding (GitHub issue #21).
+--
+-- While onboarding is on, a Provide to a protected branch skips every refusal:
+-- the compatibility checks, the refusal to remove a non-deprecated endpoint, and
+-- the refusal to re-introduce a deleted one. It does *not* change what is
+-- recorded — deletes stay soft and version history is still written — so a
+-- Producer in onboarding keeps everything protection was for except the
+-- gatekeeping.
+--
+-- Deliberately has no expiry column. Onboarding ends when an administrator or a
+-- maintainer of the Producer turns it off; the version number is the signal of
+-- whether a Producer has settled.
+ALTER TABLE services ADD COLUMN onboarding BOOLEAN NOT NULL DEFAULT FALSE;

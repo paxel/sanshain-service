@@ -20,6 +20,8 @@ Sanshain Service can be configured using environment variables.
 | `LOGIN_SESSION_DURATION_HOURS` | `24`                                      | Duration of user login sessions in hours.                                                                 |
 | `INITIAL_ADMIN_USERNAME`       | `root`                                    | Username for the initial admin account.                                                                   |
 | `INITIAL_ADMIN_PASSWORD`       | *random*                                  | Pre-defined password for the initial admin account.                                                       |
+| `SANSHAIN_ROOT_USERS`          | `$INITIAL_ADMIN_USERNAME`, else `root`    | Comma-separated usernames holding every permission. Read at startup and never stored — see below.          |
+| `SANSHAIN_DIRECTORY_GROUP_TTL_SECS` | `300`                                | How long directory group membership is cached. `0` re-reads on every check. See below.                     |
 | `SANSHAIN_DEV_MODE`            | `false`                                   | Requests dev mode (unauthenticated API). Only active when `ALLOW_INSECURE_DEV_MODE=true`. Local only.     |
 | `ALLOW_INSECURE_DEV_MODE`      | `false`                                   | Safety gate: dev mode only activates when this is `true`; fails closed otherwise. Not for production.     |
 | `INSTANCE_ID`                  | *random UUID*                             | Unique ID for this service instance.                                                                      |
@@ -28,6 +30,41 @@ Sanshain Service can be configured using environment variables.
 | `OTEL_EXPORTER_OTLP_ENDPOINT`  | `http://localhost:4317`                   | OTLP/gRPC collector endpoint for distributed tracing.                                                     |
 | `RUST_LOG`                     | `sanshain_service=info,tower_http=info`   | Log level filter (e.g., `sanshain_service=debug,tower_http=debug` for verbose output).                    |
 | `EXTRA_CA_CERTS_DIR`           | *unset*                                   | Directory of additional CA certificates to trust for outbound TLS. See below.                             |
+
+## Root users
+
+`SANSHAIN_ROOT_USERS` names the accounts that hold every permission, including permissions added by
+a later release. It is deliberately **not** stored in the database: root's authority comes from
+configuration, so no UI action, role change, migration or direct SQL update can revoke it. That makes
+it the recovery path if an administrator locks themselves out.
+
+It is read once at startup, so changing it requires a restart. When unset it falls back to
+`INITIAL_ADMIN_USERNAME`, and then to `root` — the account `ensure_initial_admin` creates — so an
+existing deployment keeps a root account without being reconfigured.
+
+Naming an account here grants full authority whether or not that account exists, is approved, or holds
+any role. Keep the list short.
+
+```bash
+SANSHAIN_ROOT_USERS=root,breakglass
+```
+
+## Directory group caching
+
+When authentication is delegated to a directory, a user's group membership is read from the directory
+through the configured service account and cached for `SANSHAIN_DIRECTORY_GROUP_TTL_SECS`. Sanshain
+stores which roles a directory group confers, never who is in it — membership stays the directory's.
+
+The TTL is the dial between load on the directory and how long a revocation takes to bite. Setting it
+to `0` disables caching, so every authorisation check reads the directory: correct and immediate, at
+the cost of a lookup per request.
+
+**When the directory is unreachable, directory-derived roles are omitted.** They are purely additive,
+so leaving them out can only remove privilege, never grant it. An outage therefore degrades a
+directory-backed administrator to whatever Sanshain itself has granted them, and `SANSHAIN_ROOT_USERS`
+— held in configuration, not in the directory — still works. The alternative, serving a stale answer
+for the duration of the outage, would mean a revoked administrator kept their access exactly as long
+as the outage lasted.
 
 ## Additional CA certificates
 
