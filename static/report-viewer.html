@@ -93,8 +93,7 @@
 
             // Derive filename from src
             const srcPath = src.split('?')[0].split('/').pop() || 'report';
-            const branch = params.get('branch') || new URLSearchParams(src.split('?')[1] || '').get('branch') || '';
-            reportFilename = branch ? `${srcPath}_${branch}.md` : `${srcPath}.md`;
+            reportFilename = `${srcPath}.md`;
 
             try {
                 const headers = {};

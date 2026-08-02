@@ -11,7 +11,7 @@ use axum::{
 };
 use chrono::Utc;
 use sanshain_service::application::services;
-use sanshain_service::domain::models::GroupSource;
+use sanshain_service::domain::models::{ApiType, GroupSource, Stability};
 use sanshain_service::domain::ports::SpecRepository;
 use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
 use sanshain_service::infrastructure::database::DatabaseRepo;
@@ -93,6 +93,31 @@ struct World {
     root: String,
 }
 
+/// Provide a version-line entry so the version-scoped routes have something to
+/// act on. Versions replaced branches (ADR-0003): the version comes from the
+/// document, the stability from the caller.
+#[cfg(test)]
+async fn provide_version(repo: &SqliteSpecRepository, producer: &str, version: &str) {
+    let spec = format!(
+        "openapi: 3.0.0\ninfo: {{ title: T, version: {version} }}\npaths:\n  /a:\n    get:\n      responses:\n        \"200\": {{ description: ok }}\n"
+    );
+    services::provide_spec(
+        repo,
+        services::ProvideSpecParams {
+            producername: producer,
+            api_type: ApiType::OpenApi,
+            content: &spec,
+            stability: Stability::Snapshot,
+            dry_run: false,
+            extra_tags: &[],
+            username: Some("ci"),
+            author: None,
+        },
+    )
+    .await
+    .expect("provide");
+}
+
 #[cfg(test)]
 async fn world() -> World {
     let pool = SqlitePoolOptions::new()
@@ -137,9 +162,10 @@ async fn world() -> World {
         .await
         .expect("grant user_manager");
 
-    // The maintainer is responsible for `orders` and nothing else.
-    repo.ensure_service("orders").await.expect("orders");
-    repo.ensure_service("billing").await.expect("billing");
+    // The maintainer is responsible for `orders` and nothing else. Both
+    // Producers carry a provided version so version-scoped routes resolve.
+    provide_version(&repo, "orders", "1.0.0").await;
+    provide_version(&repo, "billing", "1.0.0").await;
     let maintainer_id = tokens[3].1;
     let orders_id = repo
         .find_service("orders")
@@ -187,12 +213,13 @@ async fn an_administrator_still_reaches_every_admin_surface() {
         ("GET", "/admin/users"),
         ("GET", "/admin/roles"),
         ("GET", "/admin/groups"),
-        ("GET", "/admin/protected-branches"),
         ("GET", "/admin/producers"),
+        ("GET", "/admin/producers/orders/versions"),
         ("GET", "/admin/consumers"),
         ("GET", "/admin/observability/stats"),
         ("GET", "/admin/observability/audit-logs"),
         ("GET", "/admin/settings/dev-mode"),
+        ("GET", "/admin/settings/snapshot-max-age"),
         ("GET", "/admin/producers/orders/maintainers"),
     ] {
         let got = status(&w.app, method, uri, &w.admin).await;
@@ -219,8 +246,8 @@ async fn a_user_manager_reaches_user_administration_and_nothing_else() {
     }
 
     for uri in [
-        "/admin/protected-branches",
         "/admin/settings/dev-mode",
+        "/admin/settings/snapshot-max-age",
         "/admin/observability/audit-logs",
         "/admin/auth-config",
     ] {
@@ -236,7 +263,11 @@ async fn a_user_manager_reaches_user_administration_and_nothing_else() {
 async fn a_plain_user_reaches_only_the_read_only_listings() {
     let w = world().await;
 
-    for uri in ["/admin/producers", "/admin/consumers"] {
+    for uri in [
+        "/admin/producers",
+        "/admin/consumers",
+        "/admin/producers/orders/versions",
+    ] {
         assert_eq!(
             status(&w.app, "GET", uri, &w.plain).await,
             StatusCode::OK,
@@ -247,8 +278,8 @@ async fn a_plain_user_reaches_only_the_read_only_listings() {
     for uri in [
         "/admin/users",
         "/admin/roles",
-        "/admin/protected-branches",
         "/admin/settings/dev-mode",
+        "/admin/settings/snapshot-max-age",
     ] {
         assert_eq!(
             status(&w.app, "GET", uri, &w.plain).await,
@@ -259,28 +290,30 @@ async fn a_plain_user_reaches_only_the_read_only_listings() {
 }
 
 /// The scoped arm: the same permission, admitted only for the Producers the
-/// caller is actually responsible for.
+/// caller is actually responsible for. Delete-version is the sole escape hatch
+/// from GA immutability (ADR-0003), held by admins and by Maintainers for
+/// their own Producers.
 #[tokio::test]
 async fn a_maintainer_acts_on_their_producer_and_no_other() {
     let w = world().await;
 
-    assert_ne!(
+    assert_eq!(
         status(
             &w.app,
             "DELETE",
-            "/admin/producers/orders/branches/main",
+            "/admin/producers/orders/versions/openapi/1.0.0",
             &w.maintainer
         )
         .await,
-        StatusCode::FORBIDDEN,
-        "the maintainer of orders should not be refused"
+        StatusCode::OK,
+        "the maintainer of orders deletes an orders version"
     );
 
     assert_eq!(
         status(
             &w.app,
             "DELETE",
-            "/admin/producers/billing/branches/main",
+            "/admin/producers/billing/versions/openapi/1.0.0",
             &w.maintainer
         )
         .await,
@@ -324,21 +357,21 @@ async fn maintainership_through_a_group_is_honoured_by_the_router() {
         .await
         .expect("assign");
 
-    assert_ne!(
+    assert_eq!(
         status(
             &w.app,
             "DELETE",
-            "/admin/producers/billing/branches/main",
+            "/admin/producers/billing/versions/openapi/1.0.0",
             &w.plain
         )
         .await,
-        StatusCode::FORBIDDEN,
+        StatusCode::OK,
         "membership of a maintaining group should be enough"
     );
 }
 
-/// Root's authority comes from configuration, so it holds regardless of the
-/// administrator flag or any stored grant.
+/// Root's authority comes from configuration, so it holds regardless of any
+/// stored grant.
 #[tokio::test]
 async fn root_reaches_everything_without_a_grant() {
     let w = world().await;
@@ -372,15 +405,15 @@ async fn root_reaches_everything_without_a_grant() {
         );
     }
 
-    assert_ne!(
+    assert_eq!(
         status(
             &w.app,
             "DELETE",
-            "/admin/producers/billing/branches/main",
+            "/admin/producers/billing/versions/openapi/1.0.0",
             &w.root
         )
         .await,
-        StatusCode::FORBIDDEN,
+        StatusCode::OK,
         "root maintains every Producer"
     );
 }
@@ -422,78 +455,28 @@ async fn destructive_operations_need_their_permission() {
     }
 }
 
-// --- Onboarding toggle ---
-
-/// The onboarding toggle is the one Producer-scoped route a maintainer most
-/// needs, and it guards a different permission from the branch routes above, so
-/// the scoped arm is asserted for it specifically.
+/// Snapshot cleanup and its setting are instance configuration, not a
+/// maintainer's scope: only `ManageSettings` reaches them.
 #[tokio::test]
-async fn a_maintainer_may_toggle_onboarding_on_their_producer_only() {
+async fn snapshot_settings_and_cleanup_are_settings_scoped() {
     let w = world().await;
-
-    assert_ne!(
-        status(
-            &w.app,
-            "PUT",
-            "/admin/producers/orders/onboarding",
-            &w.maintainer
-        )
-        .await,
-        StatusCode::FORBIDDEN,
-        "the maintainer of orders should be able to set its onboarding"
-    );
-
-    assert_eq!(
-        status(
-            &w.app,
-            "PUT",
-            "/admin/producers/billing/onboarding",
-            &w.maintainer
-        )
-        .await,
-        StatusCode::FORBIDDEN,
-        "the maintainer of orders must not touch billing"
-    );
-}
-
-#[tokio::test]
-async fn a_user_without_the_permission_cannot_toggle_onboarding() {
-    let w = world().await;
-    for token in [&w.plain, &w.user_manager] {
-        assert_eq!(
-            status(&w.app, "PUT", "/admin/producers/orders/onboarding", token).await,
-            StatusCode::FORBIDDEN,
-        );
+    for (method, uri) in [
+        ("POST", "/admin/settings/snapshot-max-age"),
+        ("POST", "/admin/cleanup/snapshots"),
+    ] {
+        for token in [&w.plain, &w.maintainer, &w.user_manager] {
+            assert_eq!(
+                status(&w.app, method, uri, token).await,
+                StatusCode::FORBIDDEN,
+                "{method} {uri} must require ManageSettings"
+            );
+        }
     }
-}
-
-#[tokio::test]
-async fn toggling_onboarding_takes_effect_and_is_audited() {
-    let w = world().await;
-
-    let request = Request::builder()
-        .method("PUT")
-        .uri("/admin/producers/orders/onboarding")
-        .header("Authorization", format!("Bearer {}", w.maintainer))
-        .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-        .header("Content-Type", "application/json")
-        .body(Body::from(r#"{"onboarding": true}"#))
-        .expect("request");
-    let response = w.app.clone().oneshot(request).await.expect("response");
-    assert_eq!(response.status(), StatusCode::OK);
-
     assert_eq!(
-        w.repo.list_onboarding_producers().await.expect("listing"),
-        vec!["orders".to_string()]
+        status(&w.app, "POST", "/admin/cleanup/snapshots", &w.admin).await,
+        StatusCode::OK,
+        "an administrator triggers the cleanup"
     );
-
-    let logs = w.repo.get_recent_audit_logs(50).await.expect("audit logs");
-    let entry = logs
-        .iter()
-        .find(|e| e.action == "START_ONBOARDING")
-        .expect("the toggle should be audited");
-    assert_eq!(entry.username, "maintainer");
-    assert_eq!(entry.service.as_deref(), Some("orders"));
 }
 
 // --- What the UI is told ---
@@ -581,245 +564,6 @@ async fn the_user_listing_carries_each_users_roles() {
     assert_eq!(manager["roles"], serde_json::json!(["user_manager"]));
 }
 
-// --- The review inbox ---
-
-#[cfg(test)]
-async fn hold_a_spec(repo: &SqliteSpecRepository, producer: &str) -> i64 {
-    use sanshain_service::application::spec_service;
-    use sanshain_service::domain::models::{ApiType, AppError};
-
-    const V1: &str = "openapi: 3.0.0\ninfo: { title: T, version: 1.0.0 }\npaths:\n  /a:\n    get:\n      responses:\n        \"200\": { description: ok }\n  /b:\n    get:\n      responses:\n        \"200\": { description: ok }\n";
-    const V2: &str = "openapi: 3.0.0\ninfo: { title: T, version: 1.0.0 }\npaths:\n  /a:\n    get:\n      responses:\n        \"200\": { description: ok }\n";
-
-    spec_service::provide_spec(repo, producer, "master", ApiType::OpenApi, V1, None, false)
-        .await
-        .expect("first provide");
-    let err =
-        spec_service::provide_spec(repo, producer, "master", ApiType::OpenApi, V2, None, false)
-            .await
-            .expect_err("breaking change refused");
-    match err {
-        AppError::Quarantined { pending_id, .. } => pending_id,
-        other => panic!("expected the submission to be held, got {other:?}"),
-    }
-}
-
-/// The inbox shows an administrator everything and a maintainer only theirs —
-/// filtered rather than refused, so the page opens for both.
-#[tokio::test]
-async fn the_inbox_shows_only_what_the_caller_may_review() {
-    let w = world().await;
-    hold_a_spec(&w.repo, "orders").await;
-    hold_a_spec(&w.repo, "billing").await;
-
-    let read = |token: String| {
-        let app = w.app.clone();
-        async move {
-            let request = Request::builder()
-                .method("GET")
-                .uri("/admin/pending-specs")
-                .header("Authorization", format!("Bearer {}", token))
-                .body(Body::empty())
-                .expect("request");
-            let response = app.oneshot(request).await.expect("response");
-            assert_eq!(response.status(), StatusCode::OK);
-            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                .expect("body");
-            serde_json::from_slice::<serde_json::Value>(&bytes).expect("json")
-        }
-    };
-
-    let as_admin = read(w.admin.clone()).await;
-    assert_eq!(
-        as_admin["count"], 2,
-        "an administrator sees every held spec"
-    );
-
-    let as_maintainer = read(w.maintainer.clone()).await;
-    assert_eq!(as_maintainer["count"], 1);
-    assert_eq!(as_maintainer["pending"][0]["producer"], "orders");
-
-    let as_plain = read(w.plain.clone()).await;
-    assert_eq!(
-        as_plain["count"], 0,
-        "someone with no review rights gets an empty inbox, not an error"
-    );
-}
-
-#[tokio::test]
-async fn accepting_applies_the_held_spec_and_clears_it() {
-    let w = world().await;
-    let pending_id = hold_a_spec(&w.repo, "orders").await;
-
-    let service = w
-        .repo
-        .find_service("orders")
-        .await
-        .expect("lookup")
-        .expect("orders");
-    assert!(
-        w.repo
-            .find_endpoint(
-                service,
-                "master",
-                sanshain_service::domain::models::ApiType::OpenApi,
-                "/b",
-                "GET"
-            )
-            .await
-            .expect("lookup")
-            .is_some(),
-        "the endpoint the held spec removes is still live before acceptance"
-    );
-
-    assert_eq!(
-        status(
-            &w.app,
-            "POST",
-            &format!("/admin/pending-specs/{}/accept", pending_id),
-            &w.maintainer
-        )
-        .await,
-        StatusCode::OK,
-        "the maintainer of orders may accept it"
-    );
-
-    assert!(
-        w.repo
-            .find_endpoint(
-                service,
-                "master",
-                sanshain_service::domain::models::ApiType::OpenApi,
-                "/b",
-                "GET"
-            )
-            .await
-            .expect("lookup")
-            .is_none(),
-        "accepting must actually apply the change"
-    );
-    assert!(
-        w.repo
-            .list_pending_specs()
-            .await
-            .expect("listing")
-            .is_empty(),
-        "the entry is cleared once applied"
-    );
-}
-
-#[tokio::test]
-async fn rejecting_clears_the_entry_without_applying_it() {
-    let w = world().await;
-    let pending_id = hold_a_spec(&w.repo, "orders").await;
-
-    assert_eq!(
-        status(
-            &w.app,
-            "DELETE",
-            &format!("/admin/pending-specs/{}", pending_id),
-            &w.admin
-        )
-        .await,
-        StatusCode::OK
-    );
-
-    let service = w
-        .repo
-        .find_service("orders")
-        .await
-        .expect("lookup")
-        .expect("orders");
-    assert!(
-        w.repo
-            .find_endpoint(
-                service,
-                "master",
-                sanshain_service::domain::models::ApiType::OpenApi,
-                "/b",
-                "GET"
-            )
-            .await
-            .expect("lookup")
-            .is_some(),
-        "rejecting must apply nothing"
-    );
-    assert!(
-        w.repo
-            .list_pending_specs()
-            .await
-            .expect("listing")
-            .is_empty()
-    );
-}
-
-#[tokio::test]
-async fn a_maintainer_cannot_act_on_another_producers_held_spec() {
-    let w = world().await;
-    let billing = hold_a_spec(&w.repo, "billing").await;
-
-    for (method, uri) in [
-        ("POST", format!("/admin/pending-specs/{}/accept", billing)),
-        ("DELETE", format!("/admin/pending-specs/{}", billing)),
-        ("GET", format!("/admin/pending-specs/{}", billing)),
-    ] {
-        assert_eq!(
-            status(&w.app, method, &uri, &w.maintainer).await,
-            StatusCode::FORBIDDEN,
-            "the maintainer of orders must not reach {method} {uri}"
-        );
-    }
-    assert_eq!(
-        w.repo.list_pending_specs().await.expect("listing").len(),
-        1,
-        "nothing was applied or discarded"
-    );
-}
-
-#[tokio::test]
-async fn review_decisions_are_audited() {
-    let w = world().await;
-    let accepted = hold_a_spec(&w.repo, "orders").await;
-    status(
-        &w.app,
-        "POST",
-        &format!("/admin/pending-specs/{}/accept", accepted),
-        &w.maintainer,
-    )
-    .await;
-
-    let rejected = hold_a_spec(&w.repo, "billing").await;
-    status(
-        &w.app,
-        "DELETE",
-        &format!("/admin/pending-specs/{}", rejected),
-        &w.admin,
-    )
-    .await;
-
-    let logs = w.repo.get_recent_audit_logs(100).await.expect("audit logs");
-    assert!(
-        logs.iter()
-            .any(|e| e.action == "ACCEPTED_PENDING" && e.username == "maintainer"),
-        "the acceptance is attributed to whoever made it"
-    );
-    assert!(
-        logs.iter()
-            .any(|e| e.action == "REJECTED_PENDING" && e.username == "admin"),
-        "so is the rejection"
-    );
-}
-
-#[tokio::test]
-async fn acting_on_an_unknown_entry_is_not_found() {
-    let w = world().await;
-    assert_eq!(
-        status(&w.app, "POST", "/admin/pending-specs/9999/accept", &w.admin).await,
-        StatusCode::NOT_FOUND
-    );
-}
-
 // --- Maintainers listing: readable by that Producer's maintainers ---
 
 /// The GET was split from the POST so a maintainer can see who shares
@@ -884,99 +628,6 @@ async fn a_maintainer_may_read_their_own_producers_maintainers_but_not_assign() 
     );
 }
 
-// --- Endpoint editing: a maintainer's own work ---
-
-/// Editing a Producer's spec admits the maintainer of that Producer. The
-/// Producer is named in the request *body*, so the scoped check lives in the
-/// handler rather than the route guard — these tests pin that it actually runs.
-#[tokio::test]
-async fn a_maintainer_may_edit_their_own_producers_endpoints_and_no_others() {
-    let w = world().await;
-
-    // Give both Producers a real endpoint on a feature branch.
-    const SPEC: &str = "openapi: 3.0.0\ninfo: { title: T, version: 1.0.0 }\npaths:\n  /a:\n    get:\n      responses:\n        \"200\": { description: ok }\n";
-    for producer in ["orders", "billing"] {
-        sanshain_service::application::spec_service::provide_spec(
-            &w.repo,
-            producer,
-            "dev",
-            sanshain_service::domain::models::ApiType::OpenApi,
-            SPEC,
-            None,
-            false,
-        )
-        .await
-        .expect("provide");
-    }
-
-    let edit = |token: String, producer: &'static str| {
-        let app = w.app.clone();
-        async move {
-            let payload = serde_json::json!({
-                "producername": producer,
-                "branch": "dev",
-                "api_type": "openapi",
-                "path": "/a",
-                "method": "GET",
-                "yaml": "get:\n  responses:\n    \"200\": { description: edited }\n",
-                "deprecated": true,
-                "external": false,
-            });
-            let request = Request::builder()
-                .method("POST")
-                .uri("/admin/endpoints/update")
-                .header("Authorization", format!("Bearer {}", token))
-                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
-                .header("Content-Type", "application/json")
-                .body(Body::from(payload.to_string()))
-                .expect("request");
-            app.oneshot(request).await.expect("response").status()
-        }
-    };
-
-    assert_eq!(
-        edit(w.maintainer.clone(), "orders").await,
-        StatusCode::OK,
-        "the maintainer of orders edits orders"
-    );
-    assert_eq!(
-        edit(w.maintainer.clone(), "billing").await,
-        StatusCode::FORBIDDEN,
-        "but not billing"
-    );
-    assert_eq!(
-        edit(w.plain.clone(), "orders").await,
-        StatusCode::FORBIDDEN,
-        "a plain user edits nothing"
-    );
-    assert_eq!(
-        edit(w.admin.clone(), "billing").await,
-        StatusCode::OK,
-        "an administrator still edits anything"
-    );
-
-    // The maintainer's edit actually landed.
-    let service = w
-        .repo
-        .find_service("orders")
-        .await
-        .expect("lookup")
-        .expect("orders");
-    let (_, _, deprecated, _) = w
-        .repo
-        .find_endpoint(
-            service,
-            "dev",
-            sanshain_service::domain::models::ApiType::OpenApi,
-            "/a",
-            "GET",
-        )
-        .await
-        .expect("lookup")
-        .expect("endpoint");
-    assert!(deprecated, "the edit was applied, not just authorised");
-}
-
 /// The editor UI decides what to offer from `/auth/me`, so the maintained
 /// Producers have to be reported there.
 #[tokio::test]
@@ -1017,18 +668,6 @@ async fn the_maintainers_aggregate_answers_for_every_producer_at_once() {
         .add_group_maintainer(billing, group.id)
         .await
         .expect("assign");
-
-    // A Producer only appears in listings once it has a branch, so give both
-    // one — the fixture registers the services bare.
-    for name in ["orders", "billing"] {
-        let sid = w
-            .repo
-            .find_service(name)
-            .await
-            .expect("lookup")
-            .expect("exists");
-        w.repo.ensure_branch(sid, "master").await.expect("branch");
-    }
 
     let read = |token: String| {
         let app = w.app.clone();

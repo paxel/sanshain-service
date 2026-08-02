@@ -317,11 +317,11 @@ pub async fn api_auth(
 pub struct LogVisitor<'a> {
     pub message: &'a mut String,
     /// Captured from an event field literally named `service`, if present
-    /// (e.g. `tracing::info!(service = producername, branch = branch, "...")`
+    /// (e.g. `tracing::info!(service = producername, version = version, "...")`
     /// on the provide/require paths). Lets the observability log viewer show
-    /// which service/branch a line refers to.
+    /// which service/version a line refers to.
     pub service: &'a mut Option<String>,
-    pub branch: &'a mut Option<String>,
+    pub version: &'a mut Option<String>,
 }
 
 impl<'a> tracing::field::Visit for LogVisitor<'a> {
@@ -336,7 +336,7 @@ impl<'a> tracing::field::Visit for LogVisitor<'a> {
         match field.name() {
             "message" => *self.message = formatted(),
             "service" => *self.service = Some(formatted()),
-            "branch" => *self.branch = Some(formatted()),
+            "version" => *self.version = Some(formatted()),
             _ => {}
         }
     }
@@ -344,7 +344,7 @@ impl<'a> tracing::field::Visit for LogVisitor<'a> {
         match field.name() {
             "message" => *self.message = value.to_string(),
             "service" => *self.service = Some(value.to_string()),
-            "branch" => *self.branch = Some(value.to_string()),
+            "version" => *self.version = Some(value.to_string()),
             _ => {}
         }
     }
@@ -396,11 +396,11 @@ where
 
         let mut message = String::new();
         let mut service = None;
-        let mut branch = None;
+        let mut version = None;
         let mut visitor = LogVisitor {
             message: &mut message,
             service: &mut service,
-            branch: &mut branch,
+            version: &mut version,
         };
         event.record(&mut visitor);
 
@@ -414,7 +414,7 @@ where
                 message
             },
             service,
-            branch,
+            version,
         };
 
         let (buf_to_use, max_size) = match *level {
@@ -500,15 +500,15 @@ mod tests {
         (layer, info_buffer)
     }
 
-    // An event carrying `service`/`branch` fields (as used on the provide/require
+    // An event carrying `service`/`version` fields (as used on the provide/require
     // paths) must have them captured on the resulting LogEntry, not silently
     // dropped like every field used to be except "message".
     #[test]
-    fn captures_service_and_branch_fields_from_an_event() {
+    fn captures_service_and_version_fields_from_an_event() {
         let (layer, info_buffer) = test_layer();
         let subscriber = tracing_subscriber::registry().with(layer);
         tracing::subscriber::with_default(subscriber, || {
-            tracing::info!(service = "svc-a", branch = "main", "did a thing");
+            tracing::info!(service = "svc-a", version = "1.2.0", "did a thing");
         });
 
         let buf = info_buffer.lock().unwrap();
@@ -516,13 +516,13 @@ mod tests {
         let entry = &buf[0];
         assert_eq!(entry.message, "did a thing");
         assert_eq!(entry.service.as_deref(), Some("svc-a"));
-        assert_eq!(entry.branch.as_deref(), Some("main"));
+        assert_eq!(entry.version.as_deref(), Some("1.2.0"));
     }
 
-    // An event with no service/branch fields must leave them as None, not
+    // An event with no service/version fields must leave them as None, not
     // fabricate a value or drop the entry.
     #[test]
-    fn leaves_service_and_branch_none_when_absent() {
+    fn leaves_service_and_version_none_when_absent() {
         let (layer, info_buffer) = test_layer();
         let subscriber = tracing_subscriber::registry().with(layer);
         tracing::subscriber::with_default(subscriber, || {
@@ -534,6 +534,6 @@ mod tests {
         let entry = &buf[0];
         assert_eq!(entry.message, "no context here");
         assert_eq!(entry.service, None);
-        assert_eq!(entry.branch, None);
+        assert_eq!(entry.version, None);
     }
 }

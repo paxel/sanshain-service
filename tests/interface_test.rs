@@ -144,7 +144,7 @@ async fn test_admin_settings_interface_consistency() {
 
     check_setting("/admin/settings/dev-mode", "dev_mode").await;
     check_setting("/admin/settings/auto-approve", "auto_approve_users").await;
-    check_setting("/admin/settings/branch-max-age", "days").await;
+    check_setting("/admin/settings/snapshot-max-age", "days").await;
     check_setting("/admin/settings/dependency-max-age", "days").await;
 }
 

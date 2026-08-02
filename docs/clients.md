@@ -30,7 +30,7 @@ The [**cargo-sanshain**](https://github.com/paxel/sanshain) subcommand integrate
 ### Go CLI
 The [**sanshain-go**](https://github.com/paxel/sanshain-go) tool provides a lightweight Go-based CLI.
 - **Installation**: `go install github.com/paxel/sanshain-go/cmd/sanshain-go@latest`.
-- **Features**: Automatic branch detection and native Go integration.
+- **Features**: Automatic stability detection (from the current git branch) and native Go integration.
 - **Config**: Uses `sanshain.yaml`.
 
 ### JavaScript / TypeScript
@@ -57,11 +57,11 @@ serviceName: "my-service"
 # sanshainUrl is omitted: provide via SANSHAIN_URL environment variable
 
 provides:
-  - file: "api/openapi.yaml"
-    baseVersion: 1 # Optional: optimistic concurrency
+  - file: "api/openapi.yaml" # version is read from its info.version
 
 requires:
   - serviceName: "auth-service"
+    version: "1.2.0" # exact pin, MAJOR.MINOR.PATCH
     outputDirectory: "generated/api/auth"
     endpoints:
       - method: GET

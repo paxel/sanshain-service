@@ -731,12 +731,13 @@ mod tests {
             .await
             .expect("roles resolve");
         assert!(
-            require_producer_permission(&repo, &actor, Permission::SetOnboarding, "orders")
+            require_producer_permission(&repo, &actor, Permission::ManageProducers, "orders")
                 .await
                 .is_ok()
         );
         assert!(matches!(
-            require_producer_permission(&repo, &actor, Permission::SetOnboarding, "billing").await,
+            require_producer_permission(&repo, &actor, Permission::ManageProducers, "billing")
+                .await,
             Err(AppError::Forbidden)
         ));
     }
@@ -758,7 +759,7 @@ mod tests {
             require_producer_permission(&repo, &actor, Permission::ManageUsers, "orders").await,
             Err(AppError::Forbidden)
         ));
-        assert!(!actor.has_permission(Permission::SetOnboarding));
+        assert!(!actor.has_permission(Permission::ManageProducers));
     }
 
     #[tokio::test]
@@ -783,7 +784,7 @@ mod tests {
                 .expect("check")
         );
         assert!(
-            require_producer_permission(&repo, &actor, Permission::ReviewPendingSpecs, "orders")
+            require_producer_permission(&repo, &actor, Permission::ManageProducers, "orders")
                 .await
                 .is_ok()
         );
@@ -804,7 +805,7 @@ mod tests {
                 .expect("check")
         );
         assert!(
-            require_producer_permission(&repo, &actor, Permission::SetOnboarding, "orders")
+            require_producer_permission(&repo, &actor, Permission::ManageProducers, "orders")
                 .await
                 .is_ok()
         );
@@ -825,7 +826,7 @@ mod tests {
                 .expect("check")
         );
         assert!(
-            require_producer_permission(&repo, &actor, Permission::SetOnboarding, "orders")
+            require_producer_permission(&repo, &actor, Permission::ManageProducers, "orders")
                 .await
                 .is_ok()
         );

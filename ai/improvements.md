@@ -18,6 +18,11 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 ### 6. AsyncAPI subscribe operations: harvest as requires, validate as expectations — REWRITTEN 2026-07-04
 
+> **2.0 note (ADR-0003):** the branch-era mechanics below are stale — contracts are now keyed
+> `(channel, message name)` (no branch), enforced on GA provides only, and there is no
+> protected-branch fallback in resolution. The SUB-harvesting idea itself still stands; re-scope
+> the steps to version lines before implementing.
+
 **Original approach rejected.** The earlier version of this item ("store and serve SUB operations
 as endpoints") contradicts Sanshain's model: **provide = the contract a service produces,
 require = what it consumes.** Storing SUB operations as provided endpoints would create a second,
@@ -153,6 +158,11 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 
 ### 7. Make protocol removal explicit and clear stale Kafka/gRPC/OpenAPI markers
 
+> **2.0 note (ADR-0003):** the instructions below are written against the branch model
+> (service/branch sync, protected-branch rules, shared contracts) and are obsolete as written.
+> The underlying concern — stale protocol tags/edges when a Producer drops a protocol family —
+> needs re-triage against version lines before any implementation.
+
 **Problem:** Production services can remain marked as Kafka/messaging even after their current `sanshain.yaml` no longer contains an AsyncAPI provide. The current service write paths are protocol-specific (`/provide`, `/provide/asyncapi`, `/provide/grpc`) and `provide_spec_inner()` only deletes endpoints for the same `ApiType` as the submitted spec. If a later Sanshain YAML update omits an entire protocol family, no request necessarily tells the service to delete the old endpoints, shared contracts, dependencies, or auto-tags for that missing family. `provide_spec_inner()` also auto-adds `messaging` for AsyncAPI and `grpc` for proto, but there is no matching tag reconciliation/removal when those protocols disappear.
 
 **Impact:** The UI and reports can show stale Kafka/gRPC/OpenAPI capability labels, stale AsyncAPI dependency edges, and the virtual `KAFKA` graph node for services that no longer publish or require async APIs. This makes production architecture views untrustworthy and can hide real cleanup work.
@@ -213,6 +223,9 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 - Run `cargo test`; run JS/UI checks if graph or services UI code changes.
 
 ### 8. Make admin spec and endpoint editing discoverable and complete
+
+> **2.0 note (ADR-0003):** branch/`base_version`/`force`/`/admin/endpoints/update` references
+> below are 1.x; re-verify the current admin surface (`maintenance.yaml`) before implementing.
 
 **Problem:** Admins can create or update a service by submitting a spec through the API, but the UI does not provide an obvious service/branch-level action for adding endpoints or editing/replacing the source YAML. There is an existing endpoint-level YAML viewer and hidden admin-only edit flow (`static/yaml.html` -> `static/edit.html` -> `POST /admin/endpoints/update`), but it is only reachable after an endpoint already exists and does not help an admin add the first endpoint to a newly-created service.
 
@@ -420,6 +433,10 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 
 ### 22. Observability audit panel shows only the last 30 rows, now shared with rejections
 
+> **2.0 note (ADR-0003):** protected branches and the Branch filter no longer exist; refusals are
+> now 409s from the version rules. The crowding concern stands, but re-check what is audited today
+> before implementing.
+
 **Problem:** The Database Audit Log panel on `observability.html` loads a fixed
 `get_recent_audit_logs(30)`. Since 1.7.0 protected-branch rejections (`REJECTED_SPEC`)
 are written to the same table, so a burst of refusals — a CI job retrying a breaking
@@ -462,7 +479,12 @@ the intended place to investigate refusals in depth.
 - Run the full existing Rust test suite before and after the refactor.
 - Run `cargo fmt` and `cargo clippy -- -D warnings`.
 
-### 17. Add API-level tests for every documented endpoint group
+### 17. Add API-level tests for every documented endpoint group — OBSOLETE AS WRITTEN
+
+> **2.0 note (ADR-0003):** the test matrix below is branch-era (`base_version`, protected-branch
+> breaking change, service/branch lookups — none of which exist anymore), and the route surface is
+> now contract-checked against `api.yaml`/`maintenance.yaml` in `src/lib.rs`. Redo the matrix from
+> the 2.0 docs if API-level coverage gaps remain.
 
 **Problem:** Unit coverage exists for several application helpers, but API-level behavior can drift from docs when handlers, middleware, and services interact.
 

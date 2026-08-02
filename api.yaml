@@ -3,16 +3,33 @@ info:
   title: Sanshain API
   description: |
     API contract for tooling that talks to Sanshain (build plugins, CLIs).
-    A **Producer** provides its full specification for a branch; a **Consumer** requires
-    only the endpoint snippets it uses. Covers providing specifications (OpenAPI, AsyncAPI,
-    gRPC/Proto) and requiring endpoint snippets. See CONTEXT.md for the vocabulary.
+    A **Producer** provides its complete specification under a producer-declared
+    **version**; a **Consumer** pins an exact version and requires only the
+    endpoint snippets it uses. Covers providing specifications (OpenAPI,
+    AsyncAPI, gRPC/Proto) and requiring endpoint snippets. See CONTEXT.md for
+    the vocabulary and docs/adr/0003-versions-replace-branches.md for the model.
 
-    **Legacy names**: callers written before 1.6.0 may send `servicename` in place of
-    `producername` and `clientname` in place of `consumername` on any `/provide*` or
-    `/require*` request. Send one spelling or the other — supplying both for the same
-    value is rejected as a duplicate field, not resolved by precedence. The renamed
-    admin routes (`/admin/services*`, `/admin/clients*`) have no such alias.
-  version: "1.7.0"
+    **The version lives in the spec file.** For OpenAPI and AsyncAPI it is read
+    from `info.version`; for proto from a mandatory
+    `// sanshain-version: MAJOR.MINOR.PATCH` comment. It must be strict
+    three-part semver — no `v` prefix, no `-SNAPSHOT` or other suffixes.
+
+    **Stability** is declared on every Provide: `snapshot` (overwritable
+    work-in-progress, expires when unused) or `ga` (immutable; the number is
+    permanently claimed). Resolution prefers GA, falls back only to the
+    same-numbered snapshot, and otherwise fails immediately — no fallback, no
+    long-polling.
+
+    **2.0 is a clean break** of the 1.x branch-based contract: `branch`,
+    `base_version`, `force`, `timeout`, `source_protected_branch` and
+    `pull_from_branch` are no longer accepted anywhere and are rejected as
+    unknown fields.
+
+    **Legacy names**: callers may send `servicename` in place of `producername`
+    and `clientname` in place of `consumername` on any `/provide*` or
+    `/require*` request. Send one spelling or the other — supplying both for
+    the same value is rejected as a duplicate field.
+  version: "2.0.0"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt
@@ -25,24 +42,32 @@ paths:
   /provide:
     post:
       operationId: provideSpec
-      summary: Upload an OpenAPI specification for a service branch
+      summary: Provide an OpenAPI specification under its declared version
       description: |
-        Parses the provided OpenAPI YAML, splits it into individual endpoint snippets,
-        and stores them for the given service and branch.
+        Parses the provided OpenAPI YAML, reads the version from `info.version`,
+        splits the document into individual endpoint snippets, and stores the
+        full document and the snippets as one version-line entry for the
+        Producer.
 
-        **Idempotency**: Re-uploading YAML that changes no endpoint succeeds without modification.
-        The server compares the uploaded spec endpoint by endpoint; when nothing was added, changed or
-        removed it skips the write and the version bump, and reports `changes` as all zero. This covers
-        byte-for-byte re-uploads and also reformatting — reordered keys, whitespace, comments. A change
-        confined to document-level fields such as `info` or `servers`, with no effect on any endpoint,
-        is likewise not versioned and not stored.
+        **Idempotency**: re-providing byte-identical content is a no-op
+        regardless of stability or caller — CI re-runs of the same commit never
+        fight. `changes` reports all zero.
 
-        **Optimistic Concurrency**: Clients can provide a `base_version`. If the current version on the
-        branch differs from `base_version`, the request is rejected with 409 Conflict.
+        **Snapshots** are overwritable: a snapshot Provide for an existing
+        snapshot version replaces it wholesale (last writer wins; the previous
+        provider is named in the audit trail).
 
-        **Immutability on protected branches**: If an endpoint already exists on a protected branch
-        with different content, the request is rejected with 409 Conflict.
-        Feature (non-protected) branches allow overwrites.
+        **GA is immutable**: a Provide for an existing GA version with
+        different content is rejected 409 with `proposed_version` — the next
+        free number, bumped by what actually changed (breaking → major,
+        additive → minor, shape-identical → patch). A GA Provide for a version
+        that exists as a snapshot **promotes** it in place. A snapshot Provide
+        for a version that has gone GA is rejected — a released number can
+        never carry a snapshot again.
+
+        **Semver honesty**: a GA Provide whose changes relative to the highest
+        GA below it are breaking without a major bump is rejected 409 with the
+        correct `proposed_version`. Snapshots are never compatibility-checked.
       requestBody:
         required: true
         content:
@@ -57,20 +82,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProvideResponse"
         "400":
-          description: Invalid request (e.g. malformed YAML or missing fields).
+          description: |
+            Invalid request — malformed spec YAML, or a missing/non-semver
+            `info.version`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+        "422":
+          description: |
+            Request body has the wrong shape — missing `stability`, or unknown
+            (1.x) fields such as `branch`, `base_version` or `force`, which are
+            rejected by name rather than silently ignored.
         "409":
           description: |
-            Conflict — the Provide was not applied. Either an endpoint on a protected branch already
-            exists with different content, or the submission carries a breaking change.
-
-            A breaking change on a protected branch is **retained for review** rather than discarded
-            (unless the Producer is in onboarding, in which case it is applied). The response then
-            carries `pending_id` and `status: awaiting_review`. The status stays `409` because the
-            spec is not live and no Consumer can resolve it.
+            Rejected by the version rules. The body carries `proposed_version`,
+            the next free version to publish as instead. Every rejection is
+            self-service — fix the version and republish.
           content:
             application/json:
               schema:
@@ -81,12 +109,15 @@ paths:
   /provide/asyncapi:
     post:
       operationId: provideAsyncApi
-      summary: Upload an AsyncAPI specification for a service branch
+      summary: Provide an AsyncAPI specification under its declared version
       description: |
-        Parses the provided AsyncAPI YAML, splits it into individual channel snippets,
-        and stores them for the given service and branch. Each named `publish` message
-        registers a message-level channel contract; contract violations are rejected on
-        every branch (see the 409 response).
+        Same rules as `/provide`, for AsyncAPI 2.x/3.x documents (version
+        auto-detected). The version is read from `info.version`. Only PUB
+        (publish/send) operations are stored; SUB channels belong in a
+        Consumer's requires. On **GA** provides, message-level channel
+        contracts are reconciled: the first Producer to publish a named PUB
+        message owns its payload schema; a different Producer may co-publish
+        only an identical schema.
       requestBody:
         required: true
         content:
@@ -101,23 +132,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProvideResponse"
         "400":
-          description: Invalid request.
+          description: Invalid request (e.g. malformed YAML, bad version).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "409":
           description: |
-            Conflict. Either a breaking change on a protected branch, or a message-level
-            channel-contract violation on any branch: an incompatible change to a message
-            this service owns, or a different payload schema for a channel + message name
-            already owned by another service.
+            Rejected by the version rules (see `/provide`), or by a channel
+            message contract owned by another Producer with a different schema.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "413":
-          description: Request body exceeds the configured size limit.
+          description: Request body exceeds the configured size limit (`MAX_SPEC_BODY_BYTES`, default 4 MiB).
 
   /provide/grpc:
     post:
       operationId: provideGrpc
-      summary: Upload a .proto file for a service branch
+      summary: Provide a .proto file under its declared version
       description: |
-        Parses the provided Proto file, extracts service and method definitions,
-        and stores them as individual endpoints.
+        Same rules as `/provide`, for proto files. Proto has no standard
+        version slot, so the file must carry exactly one
+        `// sanshain-version: MAJOR.MINOR.PATCH` comment (conventionally in the
+        header); a missing, malformed or conflicting marker rejects the
+        Provide. The marker travels into the split files Consumers download.
       requestBody:
         required: true
         content:
@@ -132,147 +172,91 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProvideResponse"
         "400":
-          description: Invalid request.
-        "409":
-          description: Conflict on protected branch.
-        "413":
-          description: Request body exceeds the configured size limit.
-
-  /require:
-    get:
-      operationId: requireEndpoint
-      summary: Retrieve an endpoint snippet and register a client dependency
-      description: |
-        Returns the OpenAPI YAML snippet for a specific endpoint of a service on a given branch.
-        Registers the calling client as a consumer of that endpoint.
-
-        **Long-polling**: If `timeout` is provided and the endpoint is not yet available,
-        the server waits up to `timeout` seconds for it to appear.
-
-        **Branch fallback**: if the endpoint is not found on the requested branch (and that
-        branch is not itself a protected branch — protected branches never substitute another),
-        the server falls back in this order: the branch's `source_protected_branch` (a sticky,
-        persisted hint — see `source_protected_branch` below), then the service's configured
-        fallback branch, then any protected branch. Use `pull_from_branch` to bypass this chain
-        entirely for a single request.
-      parameters:
-        - name: If-None-Match
-          in: header
-          required: false
-          description: SHA-256 hash (in double quotes) of the currently cached specification. Returns 304 Not Modified if it matches the server version.
-          schema:
-            type: string
-        - name: consumername
-          in: query
-          required: true
-          description: Name of the client registering the dependency.
-          schema:
-            type: string
-        - name: producername
-          in: query
-          required: true
-          description: Name of the service that provides the endpoint.
-          schema:
-            type: string
-        - name: branch
-          in: query
-          required: true
-          description: Branch name to retrieve the endpoint from.
-          schema:
-            type: string
-        - name: path
-          in: query
-          required: true
-          description: "API path of the endpoint (e.g. `/api/v1/users`)."
-          schema:
-            type: string
-        - name: method
-          in: query
-          required: true
-          description: "HTTP method (e.g. `GET`, `POST`)."
-          schema:
-            type: string
-        - name: timeout
-          in: query
-          required: false
-          description: |
-            Optional long-polling timeout in seconds. If the endpoint is not yet available,
-            the server waits up to this duration before returning 404.
-          schema:
-            type: integer
-            format: int64
-            minimum: 0
-        - name: dry_run
-          in: query
-          required: false
-          description: |
-            When true, validates the endpoint lookup without recording a dependency.
-            Useful for CI dry-run checks.
-          schema:
-            type: boolean
-            default: false
-        - name: source_protected_branch
-          in: query
-          required: false
-          description: |
-            Best-effort hint: the protected branch this branch defers to when it has no data
-            of its own. Only takes effect the first time it is supplied for a given branch —
-            once set (by any caller, or an admin), later differing values are ignored (and
-            logged as a mismatch); only an admin can change it afterward.
-          schema:
-            type: string
-        - name: pull_from_branch
-          in: query
-          required: false
-          description: |
-            One-shot override: resolve this specific request against exactly this branch,
-            bypassing `source_protected_branch` and all other fallback resolution. Never
-            persisted — use this when the caller's own understanding of its lineage disagrees
-            with the stored `source_protected_branch`.
-          schema:
-            type: string
-      responses:
-        "200":
-          description: The OpenAPI YAML snippet for the requested endpoint.
-          headers:
-            ETag:
-              description: SHA-256 hash of the returned content.
-              schema:
-                type: string
-            X-Sanshain-Resolution:
-              description: |
-                How this request was resolved: `published` (this branch published it)
-                or `inherited` (this branch has never published, so it came from the
-                branch named in `X-Sanshain-Served-Branch`).
-              schema:
-                type: string
-                enum: [published, inherited]
-            X-Sanshain-Served-Branch:
-              description: The branch the returned spec actually came from.
-              schema:
-                type: string
-          content:
-            text/plain:
-              schema:
-                type: string
-        "304":
-          description: Not Modified. The specification hasn't changed since the version provided in `If-None-Match`.
-        "410":
-          description: |
-            The requested branch has published a spec that does not include this
-            endpoint, so it is deliberately not part of that branch's API. Definitive:
-            returned immediately even when `timeout` is set, because no later publish
-            of the *current* spec can change it. Distinct from `404`, which means no
-            branch has the endpoint and it may still appear.
+          description: Invalid request (e.g. missing sanshain-version marker).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+        "409":
+          description: Rejected by the version rules (see `/provide`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "413":
+          description: Request body exceeds the configured size limit (`MAX_SPEC_BODY_BYTES`, default 4 MiB).
+
+  /require:
+    get:
+      operationId: requireEndpoint
+      summary: Retrieve an endpoint snippet at a pinned version
+      description: |
+        Resolves one endpoint of the Producer's line at exactly the pinned
+        version: GA preferred, else the same-numbered snapshot, else an
+        immediate `404`. There is no fallback to any other version and nothing
+        waits — a missing pinned version is a configuration error.
+
+        A successful require records the dependency (this is what the graph
+        shows) and counts as *use* for snapshot expiry. A failed require
+        records nothing — resolution never creates graph entities.
+
+        Responses carry `X-Sanshain-Resolution` (`served`),
+        `X-Sanshain-Version` (the Pin) and `X-Sanshain-Stability`
+        (`ga` or `snapshot` — what actually answered), plus an `ETag`;
+        `If-None-Match` yields `304 Not Modified` when unchanged.
+      parameters:
+        - name: consumername
+          in: query
+          required: true
+          schema: { type: string }
+          description: Name of the requiring Consumer (alias `clientname`).
+        - name: producername
+          in: query
+          required: true
+          schema: { type: string }
+          description: Name of the Producer to require from (alias `servicename`).
+        - name: version
+          in: query
+          required: true
+          schema: { type: string }
+          description: The exact pinned version (`MAJOR.MINOR.PATCH`). No ranges, no `latest`.
+        - name: path
+          in: query
+          required: true
+          schema: { type: string }
+          description: The OpenAPI path (lenient matching normalizes variable names).
+        - name: method
+          in: query
+          required: true
+          schema: { type: string }
+          description: The HTTP verb (case-insensitive).
+        - name: dry_run
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: Resolve without recording the dependency.
+      responses:
+        "200":
+          description: The endpoint snippet as YAML.
+          content:
+            application/yaml:
+              schema: { type: string }
+        "304":
+          description: Not modified (ETag match).
         "404":
           description: |
-            No branch of this service has the endpoint (after timeout, if specified).
-            May still appear later, which is why a long-poll waits on this state but not on `410`.
-            The response body contains a descriptive error message with the service name, branch, and endpoint details.
+            Unknown — the Producer, or the pinned version, does not exist in
+            either stability. Fails in milliseconds; nothing waits for a
+            version to appear.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "410":
+          description: |
+            Absent — the pinned version exists and deliberately does not
+            include this endpoint. Provided specs are complete, so absence is
+            a definitive no, distinct from an unknown version.
           content:
             application/json:
               schema:
@@ -281,162 +265,121 @@ paths:
   /require/asyncapi:
     get:
       operationId: requireAsyncApi
-      summary: Retrieve an AsyncAPI channel snippet and register a dependency
+      summary: Retrieve an AsyncAPI channel snippet at a pinned version
+      description: |
+        Same resolution rules as `/require`. `path` is the channel name
+        (AsyncAPI 2.x channel key / 3.x channel address); `method` is `PUB`
+        or `SUB` from the provider's perspective.
       parameters:
-        - name: If-None-Match
-          in: header
-          required: false
-          description: SHA-256 hash (in double quotes) of the currently cached specification.
-          schema:
-            type: string
-        - $ref: "#/components/parameters/consumername"
-        - $ref: "#/components/parameters/producername"
-        - $ref: "#/components/parameters/branch"
+        - name: consumername
+          in: query
+          required: true
+          schema: { type: string }
+        - name: producername
+          in: query
+          required: true
+          schema: { type: string }
+        - name: version
+          in: query
+          required: true
+          schema: { type: string }
         - name: path
           in: query
           required: true
-          description: "Channel name."
-          schema:
-            type: string
+          schema: { type: string }
         - name: method
           in: query
           required: true
-          description: "Operation (PUB or SUB)."
-          schema:
-            type: string
-        - $ref: "#/components/parameters/timeout"
-        - $ref: "#/components/parameters/dry_run"
-        - $ref: "#/components/parameters/source_protected_branch"
-        - $ref: "#/components/parameters/pull_from_branch"
+          schema: { type: string }
+        - name: dry_run
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
       responses:
         "200":
-          description: The AsyncAPI snippet.
-          headers:
-            ETag:
-              description: SHA-256 hash of the returned content.
-              schema:
-                type: string
-            X-Sanshain-Resolution:
-              description: |
-                How this request was resolved: `published` (this branch published it)
-                or `inherited` (this branch has never published, so it came from the
-                branch named in `X-Sanshain-Served-Branch`).
-              schema:
-                type: string
-                enum: [published, inherited]
-            X-Sanshain-Served-Branch:
-              description: The branch the returned spec actually came from.
-              schema:
-                type: string
+          description: The channel snippet as YAML.
+          content:
+            application/yaml:
+              schema: { type: string }
         "304":
-          description: Not Modified.
-        "410":
-          description: |
-            The requested branch has published a spec that does not include the requested
-            endpoint(s), so they are deliberately not part of that branch's API. Definitive:
-            returned immediately even when `timeout` is set. Distinct from `404`, which means
-            no branch has it and it may still appear.
+          description: Not modified (ETag match).
+        "404":
+          description: Unknown Producer or version.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
-        "404":
-          description: Not found.
+        "410":
+          description: The pinned version deliberately lacks this channel.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
 
   /require/grpc:
     get:
       operationId: requireGrpc
-      summary: Retrieve a gRPC method snippet and register a dependency
+      summary: Retrieve a gRPC method snippet at a pinned version
+      description: |
+        Same resolution rules as `/require`. `path` is the fully qualified
+        service name; `method` is the exact (case-sensitive) RPC name.
       parameters:
-        - name: If-None-Match
-          in: header
-          required: false
-          description: SHA-256 hash (in double quotes) of the currently cached specification.
-          schema:
-            type: string
-        - $ref: "#/components/parameters/consumername"
-        - $ref: "#/components/parameters/producername"
-        - $ref: "#/components/parameters/branch"
+        - name: consumername
+          in: query
+          required: true
+          schema: { type: string }
+        - name: producername
+          in: query
+          required: true
+          schema: { type: string }
+        - name: version
+          in: query
+          required: true
+          schema: { type: string }
         - name: path
           in: query
           required: true
-          description: "Service name."
-          schema:
-            type: string
+          schema: { type: string }
         - name: method
           in: query
           required: true
-          description: "Method name."
-          schema:
-            type: string
-        - $ref: "#/components/parameters/timeout"
-        - $ref: "#/components/parameters/dry_run"
-        - $ref: "#/components/parameters/source_protected_branch"
-        - $ref: "#/components/parameters/pull_from_branch"
+          schema: { type: string }
+        - name: dry_run
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
       responses:
         "200":
-          description: The Proto snippet.
-          headers:
-            ETag:
-              description: SHA-256 hash of the returned content.
-              schema:
-                type: string
-            X-Sanshain-Resolution:
-              description: |
-                How this request was resolved: `published` (this branch published it)
-                or `inherited` (this branch has never published, so it came from the
-                branch named in `X-Sanshain-Served-Branch`).
-              schema:
-                type: string
-                enum: [published, inherited]
-            X-Sanshain-Served-Branch:
-              description: The branch the returned spec actually came from.
-              schema:
-                type: string
+          description: The .proto snippet.
+          content:
+            text/plain:
+              schema: { type: string }
         "304":
-          description: Not Modified.
-        "410":
-          description: |
-            The requested branch has published a spec that does not include the requested
-            endpoint(s), so they are deliberately not part of that branch's API. Definitive:
-            returned immediately even when `timeout` is set. Distinct from `404`, which means
-            no branch has it and it may still appear.
+          description: Not modified (ETag match).
+        "404":
+          description: Unknown Producer or version.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
-        "404":
-          description: Not found.
+        "410":
+          description: The pinned version deliberately lacks this method.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
 
   /require-bundle:
     post:
       operationId: requireBundle
-      summary: Retrieve multiple endpoint snippets as a single merged OpenAPI spec
+      summary: Retrieve multiple endpoint snippets as a single merged spec
       description: |
-        Returns a single merged OpenAPI YAML containing all requested endpoints from one service
-        on a given branch, with deduplicated schemas/components.
-        Registers the calling client as a consumer of each requested endpoint.
-
-        This solves the duplicate DTO problem for typed languages (e.g. Java): instead of
-        downloading separate specs per endpoint with overlapping schemas, clients receive
-        one consistent spec.
-
-        **Long-polling**: If `timeout` is provided and the service spec is not yet available,
-        the server waits up to `timeout` seconds for it to appear.
-
-        **Branch fallback**: identical to `/require` — anything not found on the requested
-        branch (and only when that branch is not itself protected) resolves via the branch's
-        `source_protected_branch`, then the service's configured fallback branch, then any
-        protected branch. Use `pull_from_branch` to bypass the chain for a single request.
-
-        **Caching**: Supports `If-None-Match` and `ETag` headers.
-      parameters:
-        - name: If-None-Match
-          in: header
-          required: false
-          description: SHA-256 hash (in double quotes) of the currently cached specification.
-          schema:
-            type: string
+        Resolves several endpoints of one Producer at one pinned version and
+        returns a single merged document (one copy of each shared schema, so
+        generated DTOs are shared across operations). Resolution rules match
+        `/require`; if *any* requested endpoint is absent from the pinned
+        version the whole bundle fails `410` naming the missing endpoints, and
+        no dependency is recorded.
       requestBody:
         required: true
         content:
@@ -445,504 +388,290 @@ paths:
               $ref: "#/components/schemas/RequireBundlePayload"
       responses:
         "200":
-          description: A single merged OpenAPI YAML containing all requested endpoints with deduplicated schemas.
-          headers:
-            ETag:
-              description: SHA-256 hash of the returned content.
-              schema:
-                type: string
-            X-Sanshain-Resolution:
-              description: |
-                How this request was resolved: `published` (this branch published it)
-                or `inherited` (this branch has never published, so it came from the
-                branch named in `X-Sanshain-Served-Branch`).
-              schema:
-                type: string
-                enum: [published, inherited]
-            X-Sanshain-Served-Branch:
-              description: The branch the returned spec actually came from.
-              schema:
-                type: string
+          description: The merged specification as YAML.
           content:
-            text/plain:
-              schema:
-                type: string
+            application/yaml:
+              schema: { type: string }
         "304":
-          description: Not Modified.
-        "400":
-          description: Invalid request (e.g. empty endpoints list or missing fields).
+          description: Not modified (ETag match).
+        "404":
+          description: Unknown Producer or version.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
         "410":
-          description: |
-            The requested branch has published a spec that does not include the requested
-            endpoint(s), so they are deliberately not part of that branch's API. Definitive:
-            returned immediately even when `timeout` is set. Distinct from `404`, which means
-            no branch has it and it may still appear.
+          description: The pinned version deliberately lacks one or more requested endpoints.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+
+  /producers/{producername}/versions:
+    get:
+      operationId: listProducerVersions
+      summary: List a Producer's version lines
+      description: |
+        Every version-line entry of one Producer — version, stability, content
+        hash, timestamps, last provider, endpoint count, and (for snapshots,
+        when cleanup is enabled) the use-based expiry. What "what can I
+        upgrade to?" tooling reads.
+      parameters:
+        - name: producername
+          in: path
+          required: true
+          schema: { type: string }
+        - name: api_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [openapi, asyncapi, proto]
+          description: Narrow to one API type's line.
+      responses:
+        "200":
+          description: The version-line entries, API types grouped, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProducerVersionInfo"
         "404":
-          description: |
-            One or more requested endpoints not found (after timeout, if specified).
-            The response body lists all missing endpoints with service name, branch, and endpoint details.
+          description: Unknown Producer.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
-        "413":
-          description: Request body exceeds the configured size limit.
-
-  /branches/protected:
-    get:
-      operationId: listProtectedBranches
-      summary: List the protected-branch patterns
-      description: |
-        Returns the configured protected-branch patterns, not the branch names that match them:
-        an entry may be an exact name (`master`) or a wildcard (`release/*`, where `*` matches any
-        sequence and `?` exactly one character). A Consumer uses this to decide whether the branch
-        it is building is protected — and therefore whether breaking-change rejection and endpoint
-        version history apply to it.
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: The protected-branch patterns.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: string
-                example: ["master", "release/*"]
-        "401":
-          description: Missing or invalid token.
-
-  /branches/metadata:
-    get:
-      operationId: listBranchesMetadata
-      summary: List every known branch with its last-modified time
-      description: |
-        Returns one entry per branch known to Sanshain, across all Producers. `last_modified`
-        reflects the last spec change published to that branch, not when it was last read.
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: The known branches.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/BranchMetadata"
-        "401":
-          description: Missing or invalid token.
 
   /version:
     get:
       operationId: getVersion
-      summary: Report the running Sanshain version and instance
+      summary: Report the running Sanshain instance version
       description: |
-        Unauthenticated. `instance_id` is regenerated on every start, so a change in it means the
-        server restarted — useful for tooling that caches per-instance state.
+        The **instance version** — Sanshain's own build — never to be confused
+        with spec versions.
       responses:
         "200":
-          description: Version and instance identity.
+          description: Instance version and id.
           content:
             application/json:
               schema:
                 type: object
-                required: [version, instance_id]
                 properties:
-                  version:
-                    type: string
-                    description: The service's package version, e.g. `1.7.0`.
-                  instance_id:
-                    type: string
-                    description: Identifier for this running instance; changes on restart.
+                  version: { type: string }
+                  instance_id: { type: string }
 
 components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-  parameters:
-    consumername:
-      name: consumername
-      in: query
-      required: true
-      description: |
-        Name of the client registering the dependency.
-        (Also accepted as `clientname` for backward compatibility with clients
-        built before 1.6.0.)
-      schema:
-        type: string
-    producername:
-      name: producername
-      in: query
-      required: true
-      description: |
-        Name of the service that provides the endpoint.
-        (Also accepted as `servicename` for backward compatibility with clients
-        built before 1.6.0.)
-      schema:
-        type: string
-    branch:
-      name: branch
-      in: query
-      required: true
-      schema:
-        type: string
-    timeout:
-      name: timeout
-      in: query
-      required: false
-      schema:
-        type: integer
-        format: int64
-    dry_run:
-      name: dry_run
-      in: query
-      required: false
-      schema:
-        type: boolean
-        default: false
-    source_protected_branch:
-      name: source_protected_branch
-      in: query
-      required: false
-      description: |
-        Best-effort hint: the protected branch this branch defers to when it has no data
-        of its own. Only takes effect the first time it is supplied for a given branch —
-        once set (by any caller, or an admin), later differing values are ignored (and
-        logged as a mismatch); only an admin can change it afterward.
-      schema:
-        type: string
-    pull_from_branch:
-      name: pull_from_branch
-      in: query
-      required: false
-      description: |
-        One-shot override: resolve this specific request against exactly this branch,
-        bypassing `source_protected_branch` and all other fallback resolution. Never
-        persisted — use this when the caller's own understanding of its lineage disagrees
-        with the stored `source_protected_branch`.
-      schema:
-        type: string
-
   schemas:
     ErrorBody:
       type: object
       description: |
         The body every error response carries. `error` holds the human-readable
-        message; the remaining fields appear only on the errors that have
-        something structured to report.
+        message; `proposed_version` appears only on 409s from the version
+        rules.
       required:
         - error
       properties:
         error:
           type: string
           description: Human-readable description of what went wrong.
-        pending_id:
-          type: integer
-          format: int64
-          description: |
-            Identifies a refused specification that was retained for review
-            rather than discarded. Present only on a 409 refusing a breaking
-            change.
-        status:
+        proposed_version:
           type: string
           description: |
-            Machine-readable state accompanying `pending_id`.
-    BranchMetadata:
-      type: object
-      required:
-        - name
-        - last_modified
-      properties:
-        name:
-          type: string
-          description: Branch name.
-        last_modified:
-          type: string
-          description: |
-            When a spec change was last published to this branch. Reads do not advance it.
+            The next free version the Producer should publish as instead.
+            Present only on a 409 refusing a Provide by the version rules.
+
+    Stability:
+      type: string
+      enum: [snapshot, ga]
+      description: |
+        Which of exactly two states a stored version is in. Declared by the
+        caller on every Provide; a state of the stored version, never part of
+        the version string. Snapshots are overwritable and expire when unused;
+        GA is immutable and permanently claims its number.
+
     ProvidePayload:
       type: object
       required:
         - producername
-        - branch
         - openapi_yaml
+        - stability
       properties:
         producername:
           type: string
           description: |
-            Name of the service providing the specification.
-            (Also accepted as `servicename` for backward compatibility with
-            clients built before 1.6.0.)
-        branch:
-          type: string
-          description: Branch name for the specification.
+            Name of the Producer providing the specification (alias
+            `servicename`).
         openapi_yaml:
           type: string
-          description: The full OpenAPI specification as a YAML string.
+          description: |
+            The full OpenAPI specification as a YAML string. Its
+            `info.version` is the authoritative version of this Provide.
+        stability:
+          $ref: "#/components/schemas/Stability"
         dry_run:
           type: boolean
           default: false
-          description: |
-            When true, validates the spec (parsing, conflict detection) without storing anything.
-            Useful for CI dry-run checks.
-        api_type:
-          type: string
-          enum: [openapi, asyncapi, proto]
-          default: openapi
-        tags:
-          type: array
-          items:
-            type: string
-          description: Optional list of tags to associate with this version.
-        base_version:
-          type: integer
-          description: |
-            Optional base version for optimistic concurrency control.
-            If provided, the server will reject the update if the current version doesn't match.
-        force:
-          type: boolean
-          default: false
-          description: |
-            Deprecated: has no effect on non-protected branches (breaking changes are
-            always accepted there). Blocked on protected branches (returns 400).
-        source_protected_branch:
-          type: string
-          description: |
-            Best-effort hint: the protected branch this branch defers to when it has no
-            data of its own (e.g. the release line a hotfix branch was cut from). Only
-            takes effect the first time it is supplied for a given branch — once set
-            (by any caller, or an admin), later differing values are ignored (and logged
-            as a mismatch); only an admin can change it afterward.
+          description: Validate and classify without storing anything.
         author:
           type: string
           description: |
-            Client-supplied override for who authored this change, used for blame/version
-            history display only (e.g. a CI pipeline forwarding the real commit author
-            instead of its own service-account identity). Sanshain has no git access, so
-            this is a pure client hint with no verification. Never affects the audit log,
-            which always records the real authenticated caller.
+            Client-supplied attribution for blame display only — e.g. a CI
+            pipeline forwarding the real commit author. Never affects the
+            audit log, which always records the authenticated caller.
+
     ProvideAsyncApiPayload:
       type: object
       required:
         - producername
-        - branch
         - asyncapi_yaml
+        - stability
       properties:
         producername:
           type: string
-          description: |
-            (Also accepted as `servicename` for backward compatibility with
-            clients built before 1.6.0.)
-        branch:
-          type: string
+          description: Name of the Producer (alias `servicename`).
         asyncapi_yaml:
           type: string
+          description: |
+            The full AsyncAPI document as a YAML string. Its `info.version` is
+            the authoritative version of this Provide.
+        stability:
+          $ref: "#/components/schemas/Stability"
         dry_run:
           type: boolean
           default: false
-        tags:
-          type: array
-          items:
-            type: string
-        base_version:
-          type: integer
-        force:
-          type: boolean
-          default: false
-          description: |
-            Deprecated: has no effect on non-protected branches (breaking changes are
-            always accepted there). Blocked on protected branches (returns 400).
-        source_protected_branch:
-          type: string
-          description: See `ProvidePayload.source_protected_branch`.
         author:
           type: string
-          description: See `ProvidePayload.author`.
+
     ProvideProtoPayload:
       type: object
       required:
         - producername
-        - branch
         - proto_content
+        - stability
       properties:
         producername:
           type: string
-          description: |
-            (Also accepted as `servicename` for backward compatibility with
-            clients built before 1.6.0.)
-        branch:
-          type: string
+          description: Name of the Producer (alias `servicename`).
         proto_content:
           type: string
+          description: |
+            The full .proto file. Must carry exactly one
+            `// sanshain-version: MAJOR.MINOR.PATCH` comment.
+        stability:
+          $ref: "#/components/schemas/Stability"
         dry_run:
           type: boolean
           default: false
-        tags:
-          type: array
-          items:
-            type: string
-        base_version:
-          type: integer
-        force:
-          type: boolean
-          default: false
-          description: |
-            Deprecated: has no effect on non-protected branches (breaking changes are
-            always accepted there). Blocked on protected branches (returns 400).
-        source_protected_branch:
-          type: string
-          description: See `ProvidePayload.source_protected_branch`.
         author:
           type: string
-          description: See `ProvidePayload.author`.
+
     ProvideResponse:
       type: object
+      required:
+        - version
+        - stability
+        - content_hash
+        - changes
       properties:
         version:
-          type: integer
-          description: The new monotonic version of the service specification on this branch.
+          type: string
+          description: The version read from the provided document.
+        stability:
+          $ref: "#/components/schemas/Stability"
         content_hash:
           type: string
-          description: SHA-256 hash of the specification content.
+          description: SHA-256 of the provided document (`sha256:` prefixed).
         changes:
-          $ref: "#/components/schemas/ProvideChanges"
-    ProvideChanges:
-      type: object
-      properties:
-        inserts:
-          type: integer
-          description: Number of new endpoints added.
-        updates:
-          type: integer
-          description: Number of existing endpoints updated.
-        deletes:
-          type: integer
-          description: Number of endpoints removed.
+          type: object
+          description: |
+            Endpoint diff relative to what this exact version stored before
+            (snapshot overwrite / promotion); a brand-new version reports its
+            whole endpoint set as inserts. All zero = idempotent no-op.
+          properties:
+            inserts: { type: integer }
+            updates: { type: integer }
+            deletes: { type: integer }
 
     RequireBundlePayload:
       type: object
       required:
         - consumername
         - producername
-        - branch
+        - version
         - endpoints
       properties:
         consumername:
           type: string
-          description: |
-            Name of the client registering the dependencies.
-            (Also accepted as `clientname` for backward compatibility with
-            clients built before 1.6.0.)
+          description: Name of the requiring Consumer (alias `clientname`).
         producername:
           type: string
-          description: |
-            Name of the service that provides the endpoints.
-            (Also accepted as `servicename` for backward compatibility with
-            clients built before 1.6.0.)
-        branch:
+          description: Name of the Producer (alias `servicename`).
+        version:
           type: string
-          description: Branch name to retrieve the endpoints from.
+          description: The exact pinned version (`MAJOR.MINOR.PATCH`).
         api_type:
           type: string
           enum: [openapi, asyncapi, proto]
           default: openapi
         endpoints:
           type: array
-          description: List of endpoints to include in the merged spec.
+          minItems: 1
           items:
-            $ref: "#/components/schemas/RequireBundleEndpoint"
-        timeout:
-          type: integer
-          format: int64
-          minimum: 0
-          description: |
-            Optional long-polling timeout in seconds. If the service spec is not yet available,
-            the server waits up to this duration before returning 404.
-        source_protected_branch:
-          type: string
-          description: |
-            Best-effort hint: the protected branch this branch defers to when it has no data
-            of its own. Same write-once semantics as on `/provide` and `/require` — only
-            takes effect the first time it is supplied for a given branch.
-        pull_from_branch:
-          type: string
-          description: |
-            One-shot override: resolve this specific request against exactly this branch,
-            bypassing `source_protected_branch` and all other fallback resolution. Never
-            persisted.
+            type: object
+            required: [path, method]
+            properties:
+              path: { type: string }
+              method: { type: string }
         dry_run:
           type: boolean
           default: false
-          description: |
-            When true, validates all endpoint lookups without recording dependencies.
-            Useful for CI dry-run checks.
-    RequireBundleEndpoint:
-      type: object
-      required:
-        - path
-        - method
-      properties:
-        path:
-          type: string
-          description: "API path of the endpoint (e.g. `/api/v1/users`)."
-        method:
-          type: string
-          description: "HTTP method (e.g. `GET`, `POST`)."
 
-    EnabledPayload:
+    ProducerVersionInfo:
       type: object
       required:
-        - enabled
+        - api_type
+        - version
+        - stability
+        - content_hash
+        - provided_by
+        - created_at
+        - updated_at
+        - endpoint_count
       properties:
-        enabled:
-          type: boolean
-
-    MaxAgePayload:
-      type: object
-      required:
-        - days
-      properties:
-        days:
+        api_type:
+          type: string
+          enum: [openapi, asyncapi, proto]
+        version:
+          type: string
+        stability:
+          $ref: "#/components/schemas/Stability"
+        content_hash:
+          type: string
+        author:
+          type: string
+          nullable: true
+          description: Unverified blame attribution recorded with the Provide.
+        provided_by:
+          type: string
+          description: The authenticated Actor behind the last successful Provide.
+        created_at:
+          type: string
+          description: When this version first appeared on the line.
+        updated_at:
+          type: string
+          description: Last successful Provide (overwrite or promotion).
+        last_required_at:
+          type: string
+          nullable: true
+          description: Last successful require against this version.
+        endpoint_count:
           type: integer
-
-    NukeConfirmPayload:
-      type: object
-      required:
-        - confirmation
-      properties:
-        confirmation:
+          format: int64
+        expires_at:
           type: string
-
-    User:
-      type: object
-      required:
-        - id
-        - username
-        - approved
-      properties:
-        id:
-          type: integer
-        username:
-          type: string
-        approved:
-          type: boolean
-        roles:
-          type: array
+          nullable: true
           description: |
-            Roles granted directly to this user. What the user may do is the
-            union of these, the roles their groups confer, and — for an account
-            named in `SANSHAIN_ROOT_USERS` — everything.
-          items:
-            type: string
+            Use-based expiry for snapshots when cleanup is enabled; absent for
+            GA (never age-culled) or when cleanup is off.

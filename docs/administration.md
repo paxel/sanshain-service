@@ -5,8 +5,8 @@ This guide covers the admin dashboard at `/admin.html` and administrative tasks.
 ### TL;DR
 - **Access**: Sign in at `/admin.html`. First-time login uses a random password from logs.
 - **Auth**: Configure **LDAP**, **Local Users**, or **Dev Mode** in the Authentication section.
-- **Protection**: Manage **Protected Branch Patterns** to prevent breaking changes on `main` or `release/*`.
-- **Cleanup**: Delete or reset history for services and clients in the management tabs.
+- **Versions**: Delete a version (the escape hatch from GA immutability — check the dependents first) and tune snapshot cleanup in the settings.
+- **Cleanup**: Delete Producers, Consumers and stale dependencies in the management tabs.
 - **Tokens**: Users create their own API tokens at `/account.html`.
 
 ---
@@ -17,7 +17,7 @@ Open `/admin.html` in your browser and sign in with an admin account. On a fresh
 
 ![Admin login screen](images/Screenshot_20260421_230832.png)
 
-After a successful login the dashboard loads with all management sections organized into tabs: **Observability**, **User Management**, **System Config**, and **Services & Clients**.
+After a successful login the dashboard loads with all management sections organized into tabs.
 
 ![Admin dashboard](images/Screenshot_20260421_230857.png)
 
@@ -32,7 +32,7 @@ The **Observability** tab provides real-time insights into the system's health:
 
 ## Developer Mode
 
-Developer Mode is configured via the unified **Authentication** section of the admin dashboard. Selecting **Dev Mode** allows public API endpoints (`/provide`, `/require`, `/report`) to be accessible without any authentication. This is useful for local development and quick testing, but should not be used in production.
+Developer Mode is configured via the unified **Authentication** section of the admin dashboard. Selecting **Dev Mode** allows public API endpoints (`/provide`, `/require`) to be accessible without any authentication. This is useful for local development and quick testing, but should not be used in production.
 
 ### Enabling Dev Mode (local only)
 
@@ -48,103 +48,35 @@ If Dev Mode is requested without the gate, the service **fails closed**: authent
 ALLOW_INSECURE_DEV_MODE=true SANSHAIN_DEV_MODE=true cargo run
 ```
 
-## Protected Branches
+## Version Administration
 
-Protected branches enforce **immutable endpoint paths**. Once an endpoint is published on a protected branch, its schema cannot change; consumers can rely on it being stable. To evolve an endpoint you must bump the version in the path (e.g. `/api/v1/users` → `/api/v2/users`).
+The unit of administration is the **version line**: the ordered set of versions one Producer has published for one API type. Versions manage themselves for the most part — GA versions are immutable and never age-culled, snapshots expire when unused — so administration is the exceptions.
 
-By default `main` and `master` are protected. You can add or remove patterns:
+### Deleting a Version
 
-- Type a pattern into the text field (e.g. `release/*`) and press **Add**.
-- Click the **×** button next to an existing pattern to remove it.
+Deleting a version is **the sole escape hatch from GA immutability** ([ADR-0003](adr/0003-versions-replace-branches.md)): it removes the version outright and frees its number for republishing. It is deliberately a heavy tool:
 
-On non-protected (feature) branches, endpoint definitions can be freely overwritten.
+- **Consumers pinned to the deleted version hard-fail** (`404`) on their next require — there is no fallback. The UI shows the pinned Consumers (the dependents) before the delete is confirmed; check that listing first and get the Consumers moved off the version where possible.
+- **Audited**: every delete-version writes an audit entry naming the Actor and the Consumers that were still pinned.
+- **Who may**: holders of the `manage_producers` permission on any Producer, and Maintainers on their own Producers.
 
-## Held Provides
+| Method   | Endpoint                                                        | Description                                                    |
+|----------|-----------------------------------------------------------------|----------------------------------------------------------------|
+| `GET`    | `/admin/producers/{name}/versions`                              | One Producer's version lines (optionally filter by `api_type`).|
+| `GET`    | `/admin/producers/{name}/versions/{api_type}/{version}/dependents` | The Consumers pinned to this version — what a delete would break. |
+| `DELETE` | `/admin/producers/{name}/versions/{api_type}/{version}`         | Delete the version. Audited; frees the number.                 |
 
-Outside onboarding, a Provide carrying a breaking change on a protected branch is **held for review**
-rather than discarded. Refusal used to destroy the very thing you would need in order to overrule it:
-the audit log recorded that something was rejected and why, but the submitted spec was gone.
+### Snapshot Cleanup
 
-The submission is now kept in full, with the reason it was refused and who pushed it. One entry per
-Producer, branch and API type — a new refusal replaces the previous one, so CI pushing on every commit
-files one problem rather than dozens, and what you review is at most one push old.
+Snapshots expire **use-based**: a snapshot that is neither provided nor required for `snapshot_max_age_days` is deleted by the background cleanup. Provide-age alone would delete snapshots that pinned Consumers still build against — under no-fallback that is a hard build break, so requiring a snapshot keeps it alive. GA versions are never age-culled.
 
-If the Producer fixes the problem itself and pushes something acceptable, the held entry is discarded.
-That is what stops an approver later applying a stale submission over the top of the change that
-resolved it.
+- **Setting**: `snapshot_max_age_days` (default `30`, `0` disables) — `GET`/`POST /admin/settings/snapshot-max-age`, requires `manage_settings`.
+- **Run now**: `POST /admin/cleanup/snapshots` triggers the expiry immediately.
+- The remaining lifetime of each snapshot is visible on the Producer's version line (`expires_at`).
 
-**What the pushing Producer sees.** Still `409`. The spec is not live and no Consumer can resolve it,
-so the build must stay red — a green build for a spec nobody can see would be worse than a failure.
-The response body now identifies the held entry:
+### Dependency Cleanup
 
-```json
-{
-  "error": "Breaking changes detected on protected branch 'master' of service 'orders': ...",
-  "pending_id": 42,
-  "status": "awaiting_review"
-}
-```
-
-Holding is audited as `QUARANTINED_SPEC`, under the existing **Rejected (Blocked)** timeline type.
-
-### Reviewing them
-
-The **Held Provides** section of the admin dashboard lists what is waiting, with the reason, who
-pushed it, and the submitted spec itself — so you decide with the content in front of you rather than
-from a one-line reason.
-
-- **Accept** applies the held spec. The stale-base-version check is skipped: it exists to stop a
-  Producer overwriting work it had not seen, and an approver applying a spec they have just read is a
-  different act. Everything else happens as usual — version bump, soft deletes, version history.
-- **Reject** discards the entry. The Producer's next Provide is evaluated fresh.
-
-Both write an audit entry naming who decided. An administrator may act on any Producer; a maintainer
-only on the Producers they maintain, and the list is filtered accordingly rather than refusing to open.
-
-There is deliberately no second-pair-of-eyes rule: a maintainer may approve a change they pushed
-themselves.
-
-| Method   | Endpoint                             | Description                                |
-|----------|--------------------------------------|--------------------------------------------|
-| `GET`    | `/admin/pending-specs`               | Held Provides you may act on, with a count.|
-| `GET`    | `/admin/pending-specs/{id}`          | One held Provide, including its spec.      |
-| `POST`   | `/admin/pending-specs/{id}/accept`   | Apply it.                                  |
-| `DELETE` | `/admin/pending-specs/{id}`          | Discard it.                                |
-
-## Producer Onboarding
-
-A Producer whose API is not yet stable can be put into **onboarding**. While it is on, a Provide to a
-protected branch is not gatekept: none of the five refusals apply — the OpenAPI compatibility check,
-the AsyncAPI and proto checks, the refusal to remove a non-deprecated endpoint, and the refusal to
-re-introduce a removed one.
-
-It applies unconditionally: the Producer does not pass a `force` flag. These pushes come from CI with
-no special handling, and requiring a flag would leave the problem where it started.
-
-**What onboarding does not do.** The branch stays protected in every sense that preserves data.
-Deletes remain soft and version history is still written — so onboarding is strictly less destructive
-than the workaround it replaces, deleting the branch by hand, which throws that history away.
-
-**Versions keep telling the truth.** A breaking change bumps the major version as normal. That is
-deliberate: the flag has no expiry, so the major number is the signal of who is still thrashing and
-who has settled. A Producer sitting at `14.0.0` is visibly not ready; one that has held `2.x` for a
-month is ready to have onboarding switched off.
-
-Every breaking change let through writes an `ACCEPTED_BREAKING` audit entry carrying the reason the
-refusal would have given — so instead of a stream of failures you get a reviewable record of exactly
-what each Producer broke.
-
-> Onboarding **never expires**. Nothing will remind you that it is still on, so
-> `GET /admin/producers/onboarding` lists which Producers are currently lenient. Check it before you
-> rely on protection.
-
-An administrator, or a maintainer of that Producer, may turn it on and off.
-
-| Method | Endpoint                              | Description                                          |
-|--------|---------------------------------------|------------------------------------------------------|
-| `GET`  | `/admin/producers/onboarding`         | Producers currently in onboarding.                   |
-| `GET`  | `/admin/producers/{name}/onboarding`  | Whether one Producer is in onboarding.               |
-| `PUT`  | `/admin/producers/{name}/onboarding`  | Set it. Body: `{"onboarding": true}`.                |
+Recorded dependencies go stale when a Consumer stops requiring an endpoint. `dependency_max_age_days` (`GET`/`POST /admin/settings/dependency-max-age`) controls when unused dependencies are removed; `POST /admin/cleanup/dependencies` runs it immediately.
 
 ## Local User Management
 
@@ -257,7 +189,7 @@ confers cannot drift from what the code enforces.
 | `admin`        | Every permission. This is the role an existing administrator account holds.  |
 | `user_manager` | User administration and role/group administration, and nothing else.         |
 | `viewer`       | Read access to the audit log and observability.                              |
-| `maintainer`   | Producer administration, onboarding and pending-spec review — **scoped**.    |
+| `maintainer`   | Producer administration (`manage_producers`) — **scoped**.                   |
 
 `maintainer` cannot be granted instance-wide: it is meaningless without the set of Producers it is
 over, so it is assigned as a scope rather than granted as a role.
@@ -287,8 +219,8 @@ the Producers that team owns, and responsibility follows membership.
 
 A Producer-scoped action admits either the matching instance-wide permission **or** maintainership of
 that Producer. So an administrator can act on any Producer, while a maintainer can act on theirs and
-is refused on everybody else's. This covers branch administration, onboarding, held-spec review — and
-editing the Producer's endpoints through the spec editor.
+is refused on everybody else's. This covers Producer administration — deleting one of its versions
+(the GA escape hatch), or the Producer itself.
 
 ### API Endpoints
 
@@ -311,28 +243,28 @@ editing the Producer's endpoints through the spec editor.
 | `DELETE` | `/admin/producers/{name}/maintainers/groups/{group_id}` | Unassign a group.                 |
 | `GET`    | `/admin/users/{id}/maintains`             | The Producers a user is responsible for.        |
 
-## Service Management
+## Producer Management
 
-The **Services** section lists all services that have provided at least one OpenAPI specification. Each entry shows the service name.
+The **Producers** section lists all Producers that have provided at least one specification, with metadata and their full version lines — version, stability, endpoint count, and (for snapshots) the use-based expiry.
 
-You can expand any service using the ▶ button to view its active branches. Each branch supports the following actions:
+Per version-line entry you can:
 
-- **Reset History** — prunes all old, inactive endpoint versions for the selected branch, renumbers the latest active version of each endpoint to `1`, and resets the branch's version counter. Existing endpoints and client dependencies are fully preserved, ensuring zero disruption for active clients.
-- **Delete** — removes the selected branch and all its associated endpoints.
+- **View** its endpoints, the full provided document, and a diff between any two versions of the line.
+- **Delete** the version — see [Deleting a Version](#deleting-a-version); the dependents are shown before confirming.
 
-At the service level, you can perform:
+At the Producer level:
 
-- **Delete** — removes the service and **cascades** to all its branches, endpoints, and related client dependencies.
+- **Delete** — removes the Producer and **cascades** to all its version lines, endpoints, and related Consumer dependencies.
 
-A confirmation dialog appears before executing any deletion or reset operation.
+A confirmation dialog appears before executing any deletion.
 
-For a detailed view of a service's branches and endpoints, use the [Service Overview](/service.html) page instead.
+For a detailed view of a Producer's version lines and endpoints, use the Producers page (`/producers.html`) instead.
 
-## Client Management
+## Consumer Management
 
-The **Clients** section lists all clients that have registered at least one dependency via `/require`.
+The **Consumers** section lists all Consumers that have recorded at least one dependency via `/require`.
 
-- **Delete** — removes the client and all its recorded dependencies. A confirmation dialog appears before deletion.
+- **Delete** — removes the Consumer and all its recorded dependencies. A confirmation dialog appears before deletion.
 
 ## Changing Your Password
 

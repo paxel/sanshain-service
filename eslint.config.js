@@ -26,10 +26,9 @@ export default [
         apiCall: "readonly",
         getSanshainToken: "readonly",
         // discovery.js globals
-        loadAllServiceBranches: "readonly",
+        loadAllProducers: "readonly",
         getMethodColor: "readonly",
         renderPaginatedYaml: "readonly",
-        renderVersionHistory: "readonly",
         checkDiscoveryAuth: "readonly",
         closeModal: "readonly",
         // graph.js globals

@@ -1,6 +1,7 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
-    NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
+    EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
+    UpsertSpecVersion,
 };
 use crate::infrastructure::postgres_repository::PostgresSpecRepository;
 use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
@@ -37,75 +38,85 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, ping())
     }
 
-    async fn get_spec_version(
+    async fn upsert_spec_version(
         &self,
-        service_id: i64,
-        branch_id: i64,
-    ) -> Result<Option<(SemVer, String)>, RepositoryError> {
-        delegate!(self, get_spec_version(service_id, branch_id))
+        params: UpsertSpecVersion<'_>,
+    ) -> Result<i64, RepositoryError> {
+        delegate!(self, upsert_spec_version(params))
     }
 
-    async fn increment_spec_version(
+    async fn find_spec_version(
         &self,
         service_id: i64,
-        branch_id: i64,
-        content_hash: &str,
-        impact: Impact,
-    ) -> Result<SemVer, RepositoryError> {
-        delegate!(
-            self,
-            increment_spec_version(service_id, branch_id, content_hash, impact)
-        )
+        api_type: ApiType,
+        version: SemVer,
+    ) -> Result<Option<SpecVersionMeta>, RepositoryError> {
+        delegate!(self, find_spec_version(service_id, api_type, version))
+    }
+
+    async fn list_spec_versions(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<SpecVersionMeta>, RepositoryError> {
+        delegate!(self, list_spec_versions(service_id))
+    }
+
+    async fn list_all_spec_versions(
+        &self,
+    ) -> Result<Vec<(String, SpecVersionMeta, i64)>, RepositoryError> {
+        delegate!(self, list_all_spec_versions())
+    }
+
+    async fn get_spec_content(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Option<String>, RepositoryError> {
+        delegate!(self, get_spec_content(spec_version_id))
+    }
+
+    async fn delete_spec_version(&self, spec_version_id: i64) -> Result<bool, RepositoryError> {
+        delegate!(self, delete_spec_version(spec_version_id))
+    }
+
+    async fn touch_spec_version_required(
+        &self,
+        spec_version_id: i64,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, touch_spec_version_required(spec_version_id, now_iso))
+    }
+
+    async fn delete_expired_snapshots(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
+        delegate!(self, delete_expired_snapshots(cutoff_iso))
+    }
+
+    async fn list_version_dependents(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Vec<String>, RepositoryError> {
+        delegate!(self, list_version_dependents(spec_version_id))
     }
 
     async fn ensure_service(&self, name: &str) -> Result<i64, RepositoryError> {
         delegate!(self, ensure_service(name))
     }
+
     async fn find_service(&self, name: &str) -> Result<Option<i64>, RepositoryError> {
         delegate!(self, find_service(name))
     }
+
     async fn get_service_name_by_id(
         &self,
         service_id: i64,
     ) -> Result<Option<String>, RepositoryError> {
         delegate!(self, get_service_name_by_id(service_id))
     }
-    async fn ensure_branch(
-        &self,
-        service_id: i64,
-        branch_name: &str,
-    ) -> Result<i64, RepositoryError> {
-        delegate!(self, ensure_branch(service_id, branch_name))
-    }
-    async fn find_branch(
-        &self,
-        service_id: i64,
-        branch_name: &str,
-    ) -> Result<Option<i64>, RepositoryError> {
-        delegate!(self, find_branch(service_id, branch_name))
-    }
 
-    async fn get_endpoints_for_branch(
+    async fn get_endpoints_for_version(
         &self,
-        branch_id: i64,
+        spec_version_id: i64,
     ) -> Result<Vec<EndpointRecord>, RepositoryError> {
-        delegate!(self, get_endpoints_for_branch(branch_id))
-    }
-
-    async fn insert_endpoint(
-        &self,
-        branch_id: i64,
-        endpoint: &EndpointRecord,
-    ) -> Result<(), RepositoryError> {
-        delegate!(self, insert_endpoint(branch_id, endpoint))
-    }
-
-    async fn reset_branch_history(
-        &self,
-        service_name: &str,
-        branch_name: &str,
-    ) -> Result<bool, RepositoryError> {
-        delegate!(self, reset_branch_history(service_name, branch_name))
+        delegate!(self, get_endpoints_for_version(spec_version_id))
     }
 
     async fn ensure_client(&self, name: &str) -> Result<i64, RepositoryError> {
@@ -114,28 +125,23 @@ impl SpecRepository for DatabaseRepo {
 
     async fn find_endpoint(
         &self,
-        service_id: i64,
-        branch_name: &str,
+        spec_version_id: i64,
         api_type: ApiType,
         path: &str,
         method: &str,
     ) -> Result<Option<(i64, String, bool, bool)>, RepositoryError> {
-        delegate!(
-            self,
-            find_endpoint(service_id, branch_name, api_type, path, method)
-        )
+        delegate!(self, find_endpoint(spec_version_id, api_type, path, method))
     }
 
     async fn find_endpoints_bulk(
         &self,
-        service_id: i64,
-        branch_name: &str,
+        spec_version_id: i64,
         api_type: ApiType,
         endpoints: &[(String, String)],
-    ) -> Result<HashMap<(String, String), (i64, String, bool, bool)>, RepositoryError> {
+    ) -> Result<EndpointMap, RepositoryError> {
         delegate!(
             self,
-            find_endpoints_bulk(service_id, branch_name, api_type, endpoints)
+            find_endpoints_bulk(spec_version_id, api_type, endpoints)
         )
     }
 
@@ -153,67 +159,8 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, record_dependencies_bulk(params))
     }
 
-    async fn get_report(&self, branch: &str) -> Result<DependencyReport, RepositoryError> {
-        delegate!(self, get_report(branch))
-    }
-
-    async fn is_branch_protected(&self, branch_name: &str) -> Result<bool, RepositoryError> {
-        delegate!(self, is_branch_protected(branch_name))
-    }
-
-    async fn add_protected_branch(&self, pattern: &str) -> Result<(), RepositoryError> {
-        delegate!(self, add_protected_branch(pattern))
-    }
-
-    async fn remove_protected_branch(&self, pattern: &str) -> Result<bool, RepositoryError> {
-        delegate!(self, remove_protected_branch(pattern))
-    }
-
-    async fn list_protected_branches(&self) -> Result<Vec<String>, RepositoryError> {
-        delegate!(self, list_protected_branches())
-    }
-
-    async fn update_endpoint(
-        &self,
-        params: UpdateEndpointParams<'_>,
-    ) -> Result<(), RepositoryError> {
-        delegate!(self, update_endpoint(params))
-    }
-
-    async fn soft_delete_endpoint(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<(), RepositoryError> {
-        delegate!(
-            self,
-            soft_delete_endpoint(branch_id, api_type, path, method)
-        )
-    }
-
-    async fn hard_delete_endpoint(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<(), RepositoryError> {
-        delegate!(
-            self,
-            hard_delete_endpoint(branch_id, api_type, path, method)
-        )
-    }
-
-    async fn is_endpoint_deleted(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<bool, RepositoryError> {
-        delegate!(self, is_endpoint_deleted(branch_id, api_type, path, method))
+    async fn get_report(&self) -> Result<DependencyReport, RepositoryError> {
+        delegate!(self, get_report())
     }
 
     async fn delete_all_services(&self) -> Result<u64, RepositoryError> {
@@ -236,14 +183,6 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, delete_producer(name))
     }
 
-    async fn delete_branch(
-        &self,
-        service_name: &str,
-        branch_name: &str,
-    ) -> Result<bool, RepositoryError> {
-        delegate!(self, delete_branch(service_name, branch_name))
-    }
-
     async fn delete_consumer(&self, name: &str) -> Result<bool, RepositoryError> {
         delegate!(self, delete_consumer(name))
     }
@@ -256,14 +195,6 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, list_producers_detailed())
     }
 
-    async fn set_fallback_branch(
-        &self,
-        service_name: &str,
-        branch: Option<&str>,
-    ) -> Result<(), RepositoryError> {
-        delegate!(self, set_fallback_branch(service_name, branch))
-    }
-
     async fn update_producer_metadata(
         &self,
         service_name: &str,
@@ -273,61 +204,15 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, update_producer_metadata(service_name, icon, domain))
     }
 
-    async fn get_fallback_branch(
-        &self,
-        service_name: &str,
-    ) -> Result<Option<String>, RepositoryError> {
-        delegate!(self, get_fallback_branch(service_name))
-    }
-
-    async fn set_source_protected_branch_if_unset(
-        &self,
-        branch_id: i64,
-        value: &str,
-    ) -> Result<bool, RepositoryError> {
-        delegate!(self, set_source_protected_branch_if_unset(branch_id, value))
-    }
-
-    async fn get_source_protected_branch(
-        &self,
-        branch_id: i64,
-    ) -> Result<Option<String>, RepositoryError> {
-        delegate!(self, get_source_protected_branch(branch_id))
-    }
-
-    async fn admin_set_source_protected_branch(
-        &self,
-        branch_id: i64,
-        value: Option<&str>,
-    ) -> Result<(), RepositoryError> {
-        delegate!(self, admin_set_source_protected_branch(branch_id, value))
-    }
-
-    async fn list_branches(&self, service_name: &str) -> Result<Vec<String>, RepositoryError> {
-        delegate!(self, list_branches(service_name))
-    }
-
-    async fn list_all_branches(&self) -> Result<Vec<String>, RepositoryError> {
-        delegate!(self, list_all_branches())
-    }
-
     async fn list_consumers(&self) -> Result<Vec<String>, RepositoryError> {
         delegate!(self, list_consumers())
-    }
-
-    async fn list_consumer_branches(
-        &self,
-        client_name: &str,
-    ) -> Result<Vec<String>, RepositoryError> {
-        delegate!(self, list_consumer_branches(client_name))
     }
 
     async fn list_consumer_endpoints(
         &self,
         client_name: &str,
-        branch: &str,
     ) -> Result<Vec<ConsumerEndpointInfo>, RepositoryError> {
-        delegate!(self, list_consumer_endpoints(client_name, branch))
+        delegate!(self, list_consumer_endpoints(client_name))
     }
 
     async fn user_count(&self) -> Result<i64, RepositoryError> {
@@ -430,71 +315,9 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, validate_api_token(token_hash))
     }
 
-    async fn delete_stale_branches(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
-        delegate!(self, delete_stale_branches(cutoff_iso))
-    }
-
     async fn delete_stale_dependencies(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
         delegate!(self, delete_stale_dependencies(cutoff_iso))
     }
-
-    async fn get_endpoint_id(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<Option<i64>, RepositoryError> {
-        delegate!(self, get_endpoint_id(branch_id, api_type, path, method))
-    }
-
-    async fn insert_endpoint_version(
-        &self,
-        endpoint_id: i64,
-        version: i32,
-        yaml_content: &str,
-        diff: Option<&str>,
-        created_at: &str,
-    ) -> Result<(), RepositoryError> {
-        delegate!(
-            self,
-            insert_endpoint_version(endpoint_id, version, yaml_content, diff, created_at)
-        )
-    }
-
-    async fn get_latest_endpoint_version(&self, endpoint_id: i64) -> Result<i32, RepositoryError> {
-        delegate!(self, get_latest_endpoint_version(endpoint_id))
-    }
-
-    async fn get_endpoint_versions(
-        &self,
-        endpoint_id: i64,
-    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
-        delegate!(self, get_endpoint_versions(endpoint_id))
-    }
-
-    async fn get_global_endpoint_versions(
-        &self,
-        limit: u32,
-    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
-        delegate!(self, get_global_endpoint_versions(limit))
-    }
-
-    async fn apply_spec_changes(
-        &self,
-        branch_id: i64,
-        changes: Vec<SpecChange>,
-        is_protected: bool,
-        username: Option<&str>,
-        source_branch: Option<&str>,
-    ) -> Result<(), RepositoryError> {
-        delegate!(
-            self,
-            apply_spec_changes(branch_id, changes, is_protected, username, source_branch)
-        )
-    }
-
-    // --- Roles and Groups ---
 
     async fn grant_user_role(&self, user_id: i64, role: &str) -> Result<(), RepositoryError> {
         delegate!(self, grant_user_role(user_id, role))
@@ -559,64 +382,6 @@ impl SpecRepository for DatabaseRepo {
     async fn list_group_member_ids(&self, group_id: i64) -> Result<Vec<i64>, RepositoryError> {
         delegate!(self, list_group_member_ids(group_id))
     }
-
-    // --- Pending Specs ---
-
-    async fn upsert_pending_spec(
-        &self,
-        service_id: i64,
-        branch: &str,
-        api_type: ApiType,
-        content: &str,
-        reason: &str,
-        submitted_by: &str,
-    ) -> Result<i64, RepositoryError> {
-        delegate!(
-            self,
-            upsert_pending_spec(service_id, branch, api_type, content, reason, submitted_by)
-        )
-    }
-
-    async fn get_pending_spec(&self, id: i64) -> Result<Option<PendingSpec>, RepositoryError> {
-        delegate!(self, get_pending_spec(id))
-    }
-
-    async fn list_pending_specs(&self) -> Result<Vec<PendingSpec>, RepositoryError> {
-        delegate!(self, list_pending_specs())
-    }
-
-    async fn delete_pending_spec(&self, id: i64) -> Result<bool, RepositoryError> {
-        delegate!(self, delete_pending_spec(id))
-    }
-
-    async fn clear_pending_spec(
-        &self,
-        service_id: i64,
-        branch: &str,
-        api_type: ApiType,
-    ) -> Result<bool, RepositoryError> {
-        delegate!(self, clear_pending_spec(service_id, branch, api_type))
-    }
-
-    // --- Producer Onboarding ---
-
-    async fn set_producer_onboarding(
-        &self,
-        service_id: i64,
-        onboarding: bool,
-    ) -> Result<(), RepositoryError> {
-        delegate!(self, set_producer_onboarding(service_id, onboarding))
-    }
-
-    async fn is_producer_onboarding(&self, service_id: i64) -> Result<bool, RepositoryError> {
-        delegate!(self, is_producer_onboarding(service_id))
-    }
-
-    async fn list_onboarding_producers(&self) -> Result<Vec<String>, RepositoryError> {
-        delegate!(self, list_onboarding_producers())
-    }
-
-    // --- Maintainer Scope ---
 
     async fn add_user_maintainer(
         &self,
@@ -688,54 +453,6 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, get_all_service_tags())
     }
 
-    async fn get_channel_message_contract(
-        &self,
-        branch_name: &str,
-        channel: &str,
-        message_name: &str,
-    ) -> Result<Option<ChannelMessageContract>, RepositoryError> {
-        delegate!(
-            self,
-            get_channel_message_contract(branch_name, channel, message_name)
-        )
-    }
-
-    async fn upsert_channel_message_contract(
-        &self,
-        contract: &ChannelMessageContract,
-    ) -> Result<(), RepositoryError> {
-        delegate!(self, upsert_channel_message_contract(contract))
-    }
-
-    async fn delete_channel_message_contract(
-        &self,
-        branch_name: &str,
-        channel: &str,
-        message_name: &str,
-    ) -> Result<(), RepositoryError> {
-        delegate!(
-            self,
-            delete_channel_message_contract(branch_name, channel, message_name)
-        )
-    }
-
-    async fn list_channel_message_contracts(
-        &self,
-        branch_name: &str,
-    ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
-        delegate!(self, list_channel_message_contracts(branch_name))
-    }
-
-    async fn delete_orphaned_channel_message_contracts(
-        &self,
-        live_branches: &[String],
-    ) -> Result<u64, RepositoryError> {
-        delegate!(
-            self,
-            delete_orphaned_channel_message_contracts(live_branches)
-        )
-    }
-
     async fn insert_audit_log(
         &self,
         username: &str,
@@ -784,19 +501,32 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, remove_user_favorite(user_id, item_type, item_name))
     }
 
-    async fn list_branches_with_metadata(&self) -> Result<Vec<BranchMetadata>, RepositoryError> {
-        delegate!(self, list_branches_with_metadata())
+    async fn get_channel_message_contract(
+        &self,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<Option<ChannelMessageContract>, RepositoryError> {
+        delegate!(self, get_channel_message_contract(channel, message_name))
     }
 
-    async fn list_branch_last_published(
+    async fn upsert_channel_message_contract(
         &self,
-    ) -> Result<Vec<(String, String, String)>, RepositoryError> {
-        delegate!(self, list_branch_last_published())
+        contract: &ChannelMessageContract,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, upsert_channel_message_contract(contract))
     }
 
-    async fn list_branch_endpoint_counts(
+    async fn delete_channel_message_contract(
         &self,
-    ) -> Result<Vec<(String, String, i64)>, RepositoryError> {
-        delegate!(self, list_branch_endpoint_counts())
+        channel: &str,
+        message_name: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, delete_channel_message_contract(channel, message_name))
+    }
+
+    async fn list_channel_message_contracts(
+        &self,
+    ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
+        delegate!(self, list_channel_message_contracts())
     }
 }

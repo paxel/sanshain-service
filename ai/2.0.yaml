@@ -1,0 +1,52 @@
+I thought long and deep.
+
+the branch concept is a mistake. we dont have access to git and making any assumptions about the intentions and versioning makes it a mess.
+
+so restart from scratch Version 2.0
+
+Branches are out.
+
+The producer sends yamls.
+the yamls have versions
+the service checks the version and the full yaml.
+if the version exists and the yaml is different:
+  - the user wanted to change the api but forgot to increment the version.
+  - reject with proposal for new version numbers depending on changes: and what the next version would be
+- the client sends whether this is a feature branch or a protected branch
+- the sanshain allows overrides on featurebranches. versions have snapshot
+- the version on protected branches is GA and can not be modified without updating the version
+- sanshain stores the full api along the splitted by endpoint apis
+
+- consumers define the version they want per sanshain.yaml
+- if no GA for that version exists tries the SNAPSHOT
+- if both dont exist fails. no fallback
+
+producer and consumer and graph display complete overhaul.
+# producer
+- view by version
+ - show the full api with diff view and blame etc. similar to today but also with the full version ordered by date or semantic
+- view by endpoint
+ - show the endpoints
+   - by usage: ordered by latest require. which version used by which cosnumer
+   - by version: every version and which consumer uses it
+
+# consumer
+- similar like producer. both linked by each other
+
+# graph
+- all connections are displayed.
+- highlightable are outdated. consumer that use not latest version
+- removed everything that doesnt make sense anymore like the ghost and branch into
+
+
+admin for branches all removed
+- no protection
+- no nuke
+- not existant
+- snapshotz versions are automatically removed when a ga version is deployed
+- unused snapshots are removed after 30days similar to branch cleanup
+
+
+
+
+

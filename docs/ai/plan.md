@@ -27,11 +27,8 @@
     Consumer contract, because the two have different audiences and different stability promises.
   - Tracked as GitHub issues #16, #17, #24.
 
-### Onboarding and change review
-- [ ] **Producer onboarding**
-  - A per-Producer state in which the five protected-branch refusals are skipped unconditionally,
-    while soft deletes and version history continue as normal. Intended for Producers whose API is
-    not yet stable. Tracked as GitHub issue #21.
-- [ ] **Pending specs and review**
-  - Outside onboarding a breaking Provide is retained in full and reviewed rather than discarded.
-    See `docs/adr/0002-pending-specs-are-retained.md`. Tracked as GitHub issues #22, #23.
+### Onboarding and change review — removed in 2.0
+- ~~**Producer onboarding**~~ (issue #21) and ~~**Pending specs and review**~~ (issues #22, #23)
+  were shipped and then removed by the 2.0 versions-replace-branches rework: without protected
+  branches every rejection is self-service (409 + `proposed_version`), so there is nothing to
+  onboard around or review. See `docs/adr/0003-versions-replace-branches.md` (supersedes ADR 0002).

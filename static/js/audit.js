@@ -7,14 +7,14 @@ async function loadTimeline() {
     const to = document.getElementById("filter-to").value;
     const type = document.getElementById("filter-type").value;
     const service = document.getElementById("filter-service").value.trim();
-    const branch = document.getElementById("filter-branch").value.trim();
+    const version = document.getElementById("filter-version").value.trim();
 
     let url = "/api/audit/timeline?limit=100";
     if (from) url += `&from_date=${from}`;
     if (to) url += `&to_date=${to}`;
     if (type) url += `&action_type=${type}`;
     if (service) url += `&service=${encodeURIComponent(service)}`;
-    if (branch) url += `&branch=${encodeURIComponent(branch)}`;
+    if (version) url += `&version=${encodeURIComponent(version)}`;
 
     const res = await apiCall(url);
     if (!res.ok) {
@@ -84,8 +84,8 @@ function renderTimeline(logs) {
                                     : ""
                                 }
                                 ${
-                                  log.branch
-                                    ? `<span class="px-2 py-0.5 bg-slate-50 text-slate-600 rounded text-[10px] font-mono border border-slate-100">${escapeHtml(log.branch)}</span>`
+                                  log.version
+                                    ? `<span class="px-2 py-0.5 bg-slate-50 text-slate-600 rounded text-[10px] font-mono border border-slate-100">${escapeHtml(log.version)}</span>`
                                     : ""
                                 }
                             </div>

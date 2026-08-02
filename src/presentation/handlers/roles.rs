@@ -32,7 +32,7 @@ async fn record(
             action,
             details,
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },

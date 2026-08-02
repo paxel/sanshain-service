@@ -6,9 +6,9 @@ This document defines the standard `sanshain.yaml` configuration file format use
 
 A `sanshain.yaml` file lives in the root of a project and declares:
 
-1. **Connection settings** — Sanshain server URL (optional in file), timeouts, compression.
-2. **Provide(s)** — Which API spec(s) this project publishes (OpenAPI, AsyncAPI, and/or Proto).
-3. **Requires** — Which endpoints/channels from other services this project depends on.
+1. **Connection settings** — Sanshain server URL (optional in file), compression.
+2. **Provide(s)** — Which API spec(s) this project publishes (OpenAPI, AsyncAPI, and/or Proto). The **version is never configured here** — it lives in the spec file itself (`info.version`, or a `// sanshain-version:` comment for proto). What the file configures is how the plugin decides the **stability** (`snapshot` or `ga`) of each Provide.
+3. **Requires** — Which endpoints/channels from other services this project depends on, each **pinned to an exact version**.
 
 Client plugins read this file and translate it into the appropriate `/provide`, `/provide/asyncapi`, `/provide/grpc`, `/require`, and `/require-bundle` API calls.
 
@@ -20,10 +20,15 @@ This example shows a "Gateway Service" that provides an OpenAPI spec and consume
 
 ```yaml
 serviceName: gateway-service
-timeout: 120
 compression: true
 
-# Provides both OpenAPI and gRPC specifications
+# Builds on these git branches provide as `ga`; every other branch provides as `snapshot`.
+releaseBranches:
+  - main
+  - master
+
+# Provides both OpenAPI and gRPC specifications.
+# The versions are read from the spec files (info.version / // sanshain-version:).
 provides:
   - file: src/main/resources/openapi.yaml
   - file: src/main/resources/gateway.proto
@@ -33,7 +38,7 @@ requires:
   # Requires a REST endpoint from user-service
   - serviceName: user-service
     apiType: openapi
-    branch: main
+    version: 2.3.0
     outputDirectory: target/generated-sources/sanshain/user-service
     endpoints:
       - method: GET
@@ -42,6 +47,7 @@ requires:
   # Requires a Messaging channel from notification-service
   - serviceName: notification-service
     apiType: asyncapi
+    version: 1.1.0
     outputDirectory: target/generated-sources/sanshain/notification-service
     endpoints:
       - method: PUB
@@ -50,6 +56,7 @@ requires:
   # Requires a gRPC method from inventory-service
   - serviceName: inventory-service
     apiType: proto
+    version: 3.0.1
     outputDirectory: target/generated-sources/sanshain/inventory-service
     endpoints:
       - method: GetProduct
@@ -60,12 +67,21 @@ requires:
 
 ### Top-Level Fields
 
-| Field         | Type    | Required | Default | Description                                                                 |
-|---------------|---------|----------|---------|-----------------------------------------------------------------------------|
-| `sanshainUrl` | string  | no       | —       | Base URL of the Sanshain Service instance. Recommended to provide via ENV.   |
-| `serviceName` | string  | **yes**  | —       | Name identifying this project (both for providing and requiring APIs).      |
-| `timeout`     | integer | no       | `30`    | Default timeout in seconds for require/require-bundle calls (long-polling). |
-| `compression` | boolean | no       | `false` | Whether to request gzip-compressed responses.                               |
+| Field             | Type    | Required | Default              | Description                                                                                       |
+|-------------------|---------|----------|----------------------|---------------------------------------------------------------------------------------------------|
+| `sanshainUrl`     | string  | no       | —                    | Base URL of the Sanshain Service instance. Recommended to provide via ENV.                        |
+| `serviceName`     | string  | **yes**  | —                    | Name identifying this project (both for providing and requiring APIs).                            |
+| `releaseBranches` | list    | no       | `["main", "master"]` | VCS branches whose builds provide as `ga`; any other branch provides as `snapshot` (see below).   |
+| `compression`     | boolean | no       | `false`              | Whether to request gzip-compressed responses.                                                     |
+
+### How the plugin decides stability
+
+Sanshain never sees your git repository — **stability is declared on every Provide by the plugin**, and `sanshain.yaml` configures how the plugin decides:
+
+1. An explicit `stability` on the provide entry (or a CI flag such as `-Dsanshain.stability=ga`) always wins.
+2. Otherwise, the plugin checks the current VCS branch against `releaseBranches`: on a listed branch it provides `ga`, on any other branch `snapshot`.
+
+This keeps the everyday workflow hands-off — feature-branch builds publish overwritable snapshots, release-branch builds publish immutable GA versions — while leaving an explicit override for unusual setups.
 
 ## Environment Overrides & Best Practices
 
@@ -87,19 +103,23 @@ Declares the specification(s) this project publishes. Omit entirely if this proj
 
 Plugins should support both a single `provide` object and a `provides` list for services that provide multiple types of endpoints (e.g., REST and gRPC).
 
-| Field           | Type    | Required | Default                  | Description                                                                |
-|-----------------|---------|----------|--------------------------|----------------------------------------------------------------------------|
-| `file`          | string  | **yes**  | —                        | Path to the specification file.                                            |
-| `apiType`       | string  | no       | `openapi`                | Type of API: `openapi`, `asyncapi`, or `proto`.                            |
-| `branch`        | string  | no       | *auto-detected from VCS* | Branch name. Plugins should auto-detect from Git; override here if needed. |
-| `baseVersion`   | integer | no       | —                        | Used for optimistic concurrency to prevent overwriting concurrent changes. |
+| Field       | Type   | Required | Default                          | Description                                                                  |
+|-------------|--------|----------|----------------------------------|------------------------------------------------------------------------------|
+| `file`      | string | **yes**  | —                                | Path to the specification file.                                              |
+| `apiType`   | string | no       | `openapi`                        | Type of API: `openapi`, `asyncapi`, or `proto`.                              |
+| `stability` | string | no       | *derived from `releaseBranches`* | `snapshot` or `ga`. Explicit override of the branch-derived stability.       |
+
+The **version** of a Provide is read from the spec file itself and must be strict `MAJOR.MINOR.PATCH`:
+
+- **OpenAPI / AsyncAPI**: the document's `info.version` field.
+- **Proto**: a mandatory `// sanshain-version: MAJOR.MINOR.PATCH` comment in the file (conventionally in the header). A missing, malformed or conflicting marker rejects the Provide.
 
 **Example (Multiple Protocols):**
 ```yaml
 serviceName: order-service
 provides:
-  - file: specs/openapi.yaml
-  - file: specs/order.proto
+  - file: specs/openapi.yaml        # version read from info.version
+  - file: specs/order.proto         # version read from // sanshain-version:
     apiType: proto
 ```
 
@@ -107,14 +127,15 @@ provides:
 
 A list of service dependencies. Each entry results in a single `POST /require-bundle` call (or `GET /require` if only one endpoint is listed).
 
-| Field             | Type    | Required | Default                  | Description                                                     |
-|-------------------|---------|----------|--------------------------|-----------------------------------------------------------------|
-| `serviceName`     | string  | **yes**  | —                        | Name of the service to require endpoints from.                  |
-| `apiType`         | string  | no       | `openapi`                | Type of API: `openapi`, `asyncapi`, or `proto`.                 |
-| `branch`          | string  | no       | *same as provide branch* | Branch to require from. Defaults to the current project branch. |
-| `outputDirectory` | string  | **yes**  | —                        | Directory where the merged specification file will be written.  |
-| `timeout`         | integer | no       | *top-level timeout*      | Per-service timeout override for long-polling.                  |
-| `endpoints`       | list    | **yes**  | —                        | List of endpoints/channels to require (see below).              |
+| Field             | Type   | Required | Default   | Description                                                              |
+|-------------------|--------|----------|-----------|--------------------------------------------------------------------------|
+| `serviceName`     | string | **yes**  | —         | Name of the service to require endpoints from.                           |
+| `apiType`         | string | no       | `openapi` | Type of API: `openapi`, `asyncapi`, or `proto`.                          |
+| `version`         | string | **yes**  | —         | The exact pinned version (`MAJOR.MINOR.PATCH`). No ranges, no `latest`.  |
+| `outputDirectory` | string | **yes**  | —         | Directory where the merged specification file will be written.           |
+| `endpoints`       | list   | **yes**  | —         | List of endpoints/channels to require (see below).                       |
+
+The **Pin** is the whole contract: what your build downloads changes only when someone edits `version`. There is no fallback to another version and nothing waits for a version to appear — a Pin that does not exist on the server fails the require immediately (`404`).
 
 ### `endpoints` Entry
 
@@ -137,6 +158,8 @@ provide:
 requires:
   - serviceName: auth-service
     apiType: openapi
+    version: 1.2.0
+    outputDirectory: generated/auth-service
     endpoints:
       - method: POST
         path: /v1/login
@@ -158,6 +181,8 @@ provide:
 requires:
   - serviceName: order-service
     apiType: asyncapi
+    version: 2.0.0
+    outputDirectory: generated/order-service
     endpoints:
       - method: SUB
         path: orders.created
@@ -193,6 +218,8 @@ This means that when writing your `sanshain.yaml` requires for a service that pr
 requires:
   - serviceName: order-service
     apiType: asyncapi
+    version: 2.0.0
+    outputDirectory: generated/order-service
     endpoints:
       - method: SUB
         path: orders.created    # ✅ use the address, not the channel key
@@ -206,7 +233,7 @@ If a v3 channel has no `address` field, Sanshain falls back to the channel key n
 1. Update your AsyncAPI spec to v3 format (move operations out of channels, use `send`/`receive` actions).
 2. Ensure each channel has an explicit `address` field matching the topic/path name your consumers expect.
 3. Update all `sanshain.yaml` `requires` entries to use the channel **address** in the `path` field.
-4. Re-provide the updated spec via `POST /provide/asyncapi` — Sanshain will parse it as v3 automatically.
+4. Bump `info.version` and re-provide the updated spec via `POST /provide/asyncapi` — Sanshain will parse it as v3 automatically.
 
 ### gRPC / Proto
 
@@ -216,11 +243,13 @@ For high-performance RPC communication.
 serviceName: inventory-service
 provide:
   apiType: proto
-  file: src/main/proto/inventory.proto
+  file: src/main/proto/inventory.proto   # must carry // sanshain-version: MAJOR.MINOR.PATCH
 
 requires:
   - serviceName: warehouse-service
     apiType: proto
+    version: 1.4.2
+    outputDirectory: generated/warehouse-service
     endpoints:
       - method: GetStock
         path: warehouse.v1.WarehouseService
@@ -231,7 +260,7 @@ The client plugin will download a `.proto` file containing the `WarehouseService
 
 ## How Matching Works Between `sanshain.yaml` and Spec Files
 
-When a service **provides** a spec file, Sanshain splits it into individual endpoints and stores each one indexed by a **path** (or channel/service) and a **method** (or operation/RPC name). When a client **requires** endpoints, Sanshain looks up the stored entries using the `path` and `method` from the `sanshain.yaml`. Understanding this matching is critical — if the values don't align, the require call will return a 404.
+When a service **provides** a spec file, Sanshain splits it into individual endpoints and stores each one indexed by a **path** (or channel/service) and a **method** (or operation/RPC name). When a client **requires** endpoints, Sanshain looks up the stored entries using the `path` and `method` from the `sanshain.yaml` at the pinned `version`. Understanding this matching is critical — if the pinned version exists but the values don't align, the require call fails `410` (the endpoint is Absent from that version).
 
 The table below summarizes what Sanshain extracts from each spec type and what you must write in `sanshain.yaml` to match:
 
@@ -244,7 +273,7 @@ The table below summarizes what Sanshain extracts from each spec type and what y
 
 ### OpenAPI Matching — Detailed Example
 
-Given this OpenAPI spec provided by `user-service`:
+Given this OpenAPI spec provided by `user-service` (its `info.version` makes this version `1.0.0` of the line):
 
 ```yaml
 openapi: 3.0.3
@@ -303,6 +332,7 @@ To require the "get user by ID" and "create user" endpoints, write:
 requires:
   - serviceName: user-service
     apiType: openapi
+    version: 1.0.0
     outputDirectory: generated/user-service
     endpoints:
       - method: GET
@@ -317,7 +347,7 @@ The client plugin calls `POST /require-bundle` and receives a **single merged Op
 
 ### AsyncAPI Matching — Detailed Example
 
-Given this AsyncAPI 2.x spec provided by `order-service`:
+Given this AsyncAPI 2.x spec provided by `order-service` (version `1.0.0` via `info.version`):
 
 ```yaml
 asyncapi: 2.6.0
@@ -360,6 +390,7 @@ To subscribe to new order events, write:
 requires:
   - serviceName: order-service
     apiType: asyncapi
+    version: 1.0.0
     outputDirectory: generated/order-service
     endpoints:
       - method: PUB
@@ -372,10 +403,11 @@ The client receives an AsyncAPI YAML snippet containing only the `orders.created
 
 ### Proto / gRPC Matching — Detailed Example
 
-Given this `.proto` file provided by `inventory-service`:
+Given this `.proto` file provided by `inventory-service` (version `1.0.0` via the mandatory marker):
 
 ```protobuf
 syntax = "proto3";
+// sanshain-version: 1.0.0
 package inventory.v1;
 
 service InventoryService {
@@ -423,6 +455,7 @@ To require `GetProduct` and `ListProducts`, write:
 requires:
   - serviceName: inventory-service
     apiType: proto
+    version: 1.0.0
     outputDirectory: generated/inventory-service
     endpoints:
       - method: GetProduct
@@ -433,7 +466,7 @@ requires:
 
 > **Case-sensitive:** Unlike OpenAPI and AsyncAPI, gRPC method names are **case-sensitive**. `GetProduct` ≠ `getProduct`.
 
-The client receives a `.proto` file containing only the `InventoryService` definition with the two requested methods and all transitively referenced messages (`GetProductRequest`, `Product`, `ListProductsRequest`, `ListProductsResponse`).
+The client receives a `.proto` file containing only the `InventoryService` definition with the two requested methods and all transitively referenced messages (`GetProductRequest`, `Product`, `ListProductsRequest`, `ListProductsResponse`). The `// sanshain-version:` marker travels into the split file, so the version is visible in the artifact itself.
 
 ### Quick Reference: What Goes Where
 
@@ -448,28 +481,31 @@ The client receives a `.proto` file containing only the `InventoryService` defin
 ### Provide Phase
 
 1. For each entry in `provides` (or for the single `provide` object):
-   a. Read the specification file content.
-   b. Detect branch from VCS (or use override).
-   c. Call the appropriate endpoint based on `apiType`:
+   a. Read the specification file content. The version travels inside it (`info.version` / `// sanshain-version:`).
+   b. Determine the stability: explicit `stability` (or CI flag) if set, otherwise `ga` when the current VCS branch is in `releaseBranches`, else `snapshot`.
+   c. Call the appropriate endpoint based on `apiType`, with `stability` in the payload:
       - `openapi`: `POST /provide`
       - `asyncapi`: `POST /provide/asyncapi`
       - `proto`: `POST /provide/grpc`
 
-2. **Handle the Response**: All provide endpoints return `202 Accepted` with a JSON body containing information about the operation:
+2. **Handle the Response**: All provide endpoints return `202 Accepted` with a JSON body describing what was stored:
    ```json
    {
-     "version": 42,
+     "version": "1.4.0",
+     "stability": "ga",
      "content_hash": "sha256:a1b2c3...",
      "changes": {
-       "added": ["GET /new-endpoint"],
-       "updated": ["POST /existing"],
-       "deleted": []
+       "inserts": 1,
+       "updates": 2,
+       "deletes": 0
      }
    }
    ```
-   Plugins should store the returned `version`. In subsequent provide calls, they should include this version as `baseVersion`. If the server's current version has moved ahead (e.g., another developer pushed), the server will return `409 Conflict`, prompting the developer to pull/sync before pushing their spec changes.
+   `changes` is the endpoint diff relative to what that exact version stored before; a brand-new version reports its whole endpoint set as inserts.
 
-   **Idempotency**: If the `content_hash` of the provided spec matches the current version on the server, Sanshain will skip processing and return the current version info without incrementing it.
+   **Idempotency**: re-providing byte-identical content is a no-op — `changes` reports all zero. CI re-runs of the same commit never fight.
+
+3. **Handle a `409` rejection**: the body carries `proposed_version` — the next free version, bumped by what actually changed (breaking → major, additive → minor, shape-identical → patch). Every rejection is self-service: set the spec file's version to `proposed_version` (or an appropriate higher one) and republish. There is nothing to pull or sync — the fix is always a version bump in your own spec file. A `400` means the document itself is invalid — most commonly a missing or non-semver version.
 
 ### Require Phase
 
@@ -480,21 +516,25 @@ For each entry in `requires`:
    {
      "consumername": "<root.serviceName>",
      "producername": "<requires[i].serviceName>",
-     "branch": "<requires[i].branch>",
+     "version": "<requires[i].version>",
      "endpoints": [
        { "path": "/api/v1/users", "method": "GET" },
        { "path": "/api/v1/users/{id}", "method": "GET" }
-     ],
-     "timeout": 60
+     ]
    }
    ```
    The response is a **single merged OpenAPI YAML** with all requested paths and deduplicated schemas.
 
-2. If the entry has **one endpoint**: call `GET /require` with query parameters (backward compatible).
+2. If the entry has **one endpoint**: call `GET /require` with query parameters (including `version`).
 
 3. Write the response YAML to `outputDirectory`.
 
 4. Optionally, run code generation (e.g., OpenAPI Generator) on the output.
+
+Resolution is immediate — GA preferred, else the same-numbered snapshot, else failure. Plugins should surface the two failure modes distinctly:
+
+- **`404` (Unknown)**: the pinned version does not exist on the server in either stability. A configuration error — fix the Pin.
+- **`410` (Absent)**: the pinned version exists but deliberately does not include a requested endpoint. For `/require-bundle`, the whole bundle fails and the body names the missing endpoints.
 
 ## Require-Side Caching
 
@@ -508,7 +548,7 @@ To reduce build times and network traffic, Sanshain supports standard HTTP cachi
     - If the specification has NOT changed, the server returns `304 Not Modified` with an empty body. The plugin uses the cached file.
     - If the specification HAS changed, the server returns `200 OK` with the new content and a new `ETag`. The plugin updates its cache and generates code.
 
-This mechanism is highly recommended for CI/CD pipelines to avoid redundant code generation when upstream dependencies are stable.
+This mechanism is highly recommended for CI/CD pipelines to avoid redundant code generation when upstream dependencies are stable. Note that a Pin on a GA version can never change content; a Pin on a snapshot can, which is exactly what the ETag detects.
 
 ### Why Bundle Matters
 

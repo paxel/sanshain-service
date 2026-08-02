@@ -1,40 +1,83 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
     EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
-    UpdateEndpointParams,
+    UpsertSpecVersion,
 };
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
 
+/// One stored version-line entry: `SpecVersionMeta` plus the provided document
+/// and its endpoint set, mirroring the `spec_versions` + `endpoints` tables.
+#[derive(Clone, Debug)]
+pub struct MockSpecVersion {
+    pub id: i64,
+    pub service_id: i64,
+    pub api_type: ApiType,
+    pub version: SemVer,
+    pub stability: Stability,
+    pub content: String,
+    pub content_hash: String,
+    pub author: Option<String>,
+    pub provided_by: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub last_required_at: Option<String>,
+    pub endpoints: Vec<EndpointRecord>,
+}
+
+impl MockSpecVersion {
+    fn meta(&self) -> SpecVersionMeta {
+        SpecVersionMeta {
+            id: self.id,
+            service_id: self.service_id,
+            api_type: self.api_type,
+            version: self.version,
+            stability: self.stability,
+            content_hash: self.content_hash.clone(),
+            author: self.author.clone(),
+            provided_by: self.provided_by.clone(),
+            created_at: self.created_at.clone(),
+            updated_at: self.updated_at.clone(),
+            last_required_at: self.last_required_at.clone(),
+        }
+    }
+}
+
+/// One recorded Pin, mirroring a `dependencies` row.
+#[derive(Clone, Debug)]
+pub struct MockDependency {
+    pub client_id: i64,
+    pub spec_version_id: i64,
+    pub api_type: ApiType,
+    pub path: String,
+    pub normalized_path: String,
+    pub method: String,
+    pub last_seen_at: String,
+}
+
+/// Producer metadata as stored: (icon, domain).
+type ProducerMetadata = (Option<String>, Option<String>);
+
 pub struct MockRepo {
     pub services: Mutex<HashMap<String, i64>>,
-    pub branches: Mutex<HashMap<(i64, String), i64>>,
-    pub endpoints: Mutex<HashMap<i64, Vec<EndpointRecord>>>,
-    pub deleted_endpoints: Mutex<Vec<(i64, ApiType, String, String)>>,
+    pub producer_metadata: Mutex<HashMap<String, ProducerMetadata>>,
+    pub spec_versions: Mutex<Vec<MockSpecVersion>>,
+    pub dependencies: Mutex<Vec<MockDependency>>,
     pub clients: Mutex<HashMap<String, i64>>,
-    pub protected_branches: Mutex<Vec<String>>,
     pub next_id: Mutex<i64>,
-    pub fallback_branches: Mutex<HashMap<String, String>>,
     pub users: Mutex<Vec<User>>,
     pub sessions: Mutex<Vec<Session>>,
     pub settings: Mutex<HashMap<String, String>>,
-    pub api_tokens: Mutex<Vec<ApiToken>>,
-    pub endpoint_versions: Mutex<Vec<EndpointVersion>>,
     pub service_tags: Mutex<HashMap<i64, Vec<String>>>,
-    pub spec_versions: Mutex<HashMap<(i64, i64), (SemVer, String)>>,
     pub audit_logs: Mutex<Vec<AuditLogEntry>>,
     pub user_favorites: Mutex<Vec<(i64, String, String)>>,
-    pub branch_timestamps: Mutex<HashMap<String, String>>,
     pub channel_message_contracts: Mutex<Vec<ChannelMessageContract>>,
-    pub source_protected_branches: Mutex<HashMap<i64, String>>,
     pub user_roles: Mutex<Vec<(i64, String)>>,
     pub groups: Mutex<Vec<Group>>,
     pub group_members: Mutex<Vec<(i64, i64)>>,
     pub group_roles: Mutex<Vec<(i64, String)>>,
     pub user_maintainers: Mutex<Vec<(i64, i64)>>,
     pub group_maintainers: Mutex<Vec<(i64, i64)>>,
-    pub onboarding: Mutex<Vec<i64>>,
-    pub pending_specs: Mutex<Vec<PendingSpec>>,
 }
 
 impl Default for MockRepo {
@@ -49,33 +92,24 @@ impl MockRepo {
         settings.insert("dev_mode".to_string(), "false".to_string());
         Self {
             services: Mutex::new(HashMap::new()),
-            branches: Mutex::new(HashMap::new()),
-            endpoints: Mutex::new(HashMap::new()),
-            deleted_endpoints: Mutex::new(Vec::new()),
+            producer_metadata: Mutex::new(HashMap::new()),
+            spec_versions: Mutex::new(Vec::new()),
+            dependencies: Mutex::new(Vec::new()),
             clients: Mutex::new(HashMap::new()),
-            protected_branches: Mutex::new(vec!["main".to_string(), "master".to_string()]),
             next_id: Mutex::new(1),
-            fallback_branches: Mutex::new(HashMap::new()),
             users: Mutex::new(Vec::new()),
             sessions: Mutex::new(Vec::new()),
             settings: Mutex::new(settings),
-            api_tokens: Mutex::new(Vec::new()),
-            endpoint_versions: Mutex::new(Vec::new()),
             service_tags: Mutex::new(HashMap::new()),
-            spec_versions: Mutex::new(HashMap::new()),
             audit_logs: Mutex::new(Vec::new()),
             user_favorites: Mutex::new(Vec::new()),
-            branch_timestamps: Mutex::new(HashMap::new()),
             channel_message_contracts: Mutex::new(Vec::new()),
-            source_protected_branches: Mutex::new(HashMap::new()),
             user_roles: Mutex::new(Vec::new()),
             groups: Mutex::new(Vec::new()),
             group_members: Mutex::new(Vec::new()),
             group_roles: Mutex::new(Vec::new()),
             user_maintainers: Mutex::new(Vec::new()),
             group_maintainers: Mutex::new(Vec::new()),
-            onboarding: Mutex::new(Vec::new()),
-            pending_specs: Mutex::new(Vec::new()),
         }
     }
 
@@ -85,6 +119,30 @@ impl MockRepo {
         *id += 1;
         current
     }
+
+    fn service_name(&self, service_id: i64) -> Option<String> {
+        self.services
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|&(_, &id)| id == service_id)
+            .map(|(name, _)| name.clone())
+    }
+
+    fn client_name(&self, client_id: i64) -> Option<String> {
+        self.clients
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|&(_, &id)| id == client_id)
+            .map(|(name, _)| name.clone())
+    }
+}
+
+/// Sort key matching the SQL `ORDER BY api_type, major, minor, patch` — the
+/// api_type column sorts as text, so compare the wire string.
+fn version_sort_key(entry: &MockSpecVersion) -> (&'static str, SemVer) {
+    (entry.api_type.as_str(), entry.version)
 }
 
 impl SpecRepository for MockRepo {
@@ -92,43 +150,206 @@ impl SpecRepository for MockRepo {
         Ok(())
     }
 
-    async fn get_spec_version(
+    async fn upsert_spec_version(
         &self,
-        service_id: i64,
-        branch_id: i64,
-    ) -> Result<Option<(SemVer, String)>, RepositoryError> {
-        let versions = self
-            .spec_versions
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        Ok(versions.get(&(service_id, branch_id)).cloned())
-    }
+        params: UpsertSpecVersion<'_>,
+    ) -> Result<i64, RepositoryError> {
+        let mut endpoints = params.endpoints;
+        for endpoint in &mut endpoints {
+            endpoint.id = Some(self.next_id());
+        }
 
-    async fn increment_spec_version(
-        &self,
-        service_id: i64,
-        branch_id: i64,
-        content_hash: &str,
-        impact: Impact,
-    ) -> Result<SemVer, RepositoryError> {
         let mut versions = self
             .spec_versions
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let (version, _) = versions
-            .entry((service_id, branch_id))
-            .or_insert((SemVer::default(), String::new()));
-        *version = if version.major == 0 {
-            SemVer::initial()
-        } else {
-            version.increment(impact)
-        };
-        let current_version = *version;
-        versions.insert(
-            (service_id, branch_id),
-            (current_version, content_hash.to_string()),
-        );
-        Ok(current_version)
+        if let Some(existing) = versions.iter_mut().find(|v| {
+            v.service_id == params.service_id
+                && v.api_type == params.api_type
+                && v.version == params.version
+        }) {
+            // Overwrite/promotion keeps the row's identity and `created_at`;
+            // the endpoint set is replaced wholesale.
+            existing.stability = params.stability;
+            existing.content = params.content.to_string();
+            existing.content_hash = params.content_hash.to_string();
+            existing.author = params.author.map(|a| a.to_string());
+            existing.provided_by = params.provided_by.to_string();
+            existing.updated_at = params.now_iso.to_string();
+            existing.endpoints = endpoints;
+            return Ok(existing.id);
+        }
+
+        let id = self.next_id();
+        versions.push(MockSpecVersion {
+            id,
+            service_id: params.service_id,
+            api_type: params.api_type,
+            version: params.version,
+            stability: params.stability,
+            content: params.content.to_string(),
+            content_hash: params.content_hash.to_string(),
+            author: params.author.map(|a| a.to_string()),
+            provided_by: params.provided_by.to_string(),
+            created_at: params.now_iso.to_string(),
+            updated_at: params.now_iso.to_string(),
+            last_required_at: None,
+            endpoints,
+        });
+        Ok(id)
+    }
+
+    async fn find_spec_version(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+    ) -> Result<Option<SpecVersionMeta>, RepositoryError> {
+        let versions = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Ok(versions
+            .iter()
+            .find(|v| v.service_id == service_id && v.api_type == api_type && v.version == version)
+            .map(MockSpecVersion::meta))
+    }
+
+    async fn list_spec_versions(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<SpecVersionMeta>, RepositoryError> {
+        let versions = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut entries: Vec<&MockSpecVersion> = versions
+            .iter()
+            .filter(|v| v.service_id == service_id)
+            .collect();
+        entries.sort_by_key(|v| version_sort_key(v));
+        Ok(entries.into_iter().map(MockSpecVersion::meta).collect())
+    }
+
+    async fn list_all_spec_versions(
+        &self,
+    ) -> Result<Vec<(String, SpecVersionMeta, i64)>, RepositoryError> {
+        let versions = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut result: Vec<(String, SpecVersionMeta, i64)> = versions
+            .iter()
+            .map(|v| {
+                (
+                    self.service_name(v.service_id).unwrap_or_default(),
+                    v.meta(),
+                    v.endpoints.len() as i64,
+                )
+            })
+            .collect();
+        result.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| a.1.api_type.as_str().cmp(b.1.api_type.as_str()))
+                .then_with(|| a.1.version.cmp(&b.1.version))
+        });
+        Ok(result)
+    }
+
+    async fn get_spec_content(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Option<String>, RepositoryError> {
+        let versions = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Ok(versions
+            .iter()
+            .find(|v| v.id == spec_version_id)
+            .map(|v| v.content.clone()))
+    }
+
+    async fn delete_spec_version(&self, spec_version_id: i64) -> Result<bool, RepositoryError> {
+        let mut versions = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let before = versions.len();
+        versions.retain(|v| v.id != spec_version_id);
+        let existed = versions.len() != before;
+        if existed {
+            // Endpoints live inside the entry; dependencies cascade explicitly.
+            self.dependencies
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .retain(|d| d.spec_version_id != spec_version_id);
+        }
+        Ok(existed)
+    }
+
+    async fn touch_spec_version_required(
+        &self,
+        spec_version_id: i64,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut versions = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(entry) = versions.iter_mut().find(|v| v.id == spec_version_id) {
+            entry.last_required_at = Some(now_iso.to_string());
+        }
+        Ok(())
+    }
+
+    async fn delete_expired_snapshots(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
+        let mut versions = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut deleted_ids = Vec::new();
+        versions.retain(|v| {
+            let expired = v.stability == Stability::Snapshot
+                && v.updated_at.as_str() < cutoff_iso
+                && v.last_required_at
+                    .as_deref()
+                    .is_none_or(|required| required < cutoff_iso);
+            if expired {
+                deleted_ids.push(v.id);
+            }
+            !expired
+        });
+        if !deleted_ids.is_empty() {
+            self.dependencies
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .retain(|d| !deleted_ids.contains(&d.spec_version_id));
+        }
+        Ok(deleted_ids.len() as u64)
+    }
+
+    async fn list_version_dependents(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let dependencies = self
+            .dependencies
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let client_ids: Vec<i64> = dependencies
+            .iter()
+            .filter(|d| d.spec_version_id == spec_version_id)
+            .map(|d| d.client_id)
+            .collect();
+        drop(dependencies);
+        let mut names: Vec<String> = client_ids
+            .into_iter()
+            .filter_map(|id| self.client_name(id))
+            .collect();
+        names.sort();
+        names.dedup();
+        Ok(names)
     }
 
     async fn ensure_service(&self, name: &str) -> Result<i64, RepositoryError> {
@@ -140,89 +361,32 @@ impl SpecRepository for MockRepo {
         services.insert(name.to_string(), id);
         Ok(id)
     }
+
     async fn find_service(&self, name: &str) -> Result<Option<i64>, RepositoryError> {
         let services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
         Ok(services.get(name).copied())
     }
+
     async fn get_service_name_by_id(
         &self,
         service_id: i64,
     ) -> Result<Option<String>, RepositoryError> {
-        let services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
-        Ok(services
-            .iter()
-            .find(|&(_, &id)| id == service_id)
-            .map(|(name, _)| name.clone()))
-    }
-    async fn ensure_branch(
-        &self,
-        service_id: i64,
-        branch_name: &str,
-    ) -> Result<i64, RepositoryError> {
-        let mut branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
-        let key = (service_id, branch_name.to_string());
-        if let Some(&id) = branches.get(&key) {
-            return Ok(id);
-        }
-        let id = self.next_id();
-        branches.insert(key, id);
-        Ok(id)
-    }
-    async fn find_branch(
-        &self,
-        service_id: i64,
-        branch_name: &str,
-    ) -> Result<Option<i64>, RepositoryError> {
-        let branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
-        let key = (service_id, branch_name.to_string());
-        Ok(branches.get(&key).copied())
+        Ok(self.service_name(service_id))
     }
 
-    async fn get_endpoints_for_branch(
+    async fn get_endpoints_for_version(
         &self,
-        branch_id: i64,
+        spec_version_id: i64,
     ) -> Result<Vec<EndpointRecord>, RepositoryError> {
-        let endpoints = self
-            .endpoints
+        let versions = self
+            .spec_versions
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let deleted = self
-            .deleted_endpoints
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-
-        Ok(endpoints
-            .get(&branch_id)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|ep| {
-                !deleted.contains(&(branch_id, ep.api_type, ep.path.clone(), ep.method.clone()))
-            })
-            .collect())
-    }
-
-    async fn insert_endpoint(
-        &self,
-        branch_id: i64,
-        endpoint: &EndpointRecord,
-    ) -> Result<(), RepositoryError> {
-        let mut endpoints = self
-            .endpoints
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let mut record = endpoint.clone();
-        record.id = Some(self.next_id());
-        endpoints.entry(branch_id).or_default().push(record);
-        Ok(())
-    }
-
-    async fn reset_branch_history(
-        &self,
-        _service_name: &str,
-        _branch_name: &str,
-    ) -> Result<bool, RepositoryError> {
-        Ok(true)
+        Ok(versions
+            .iter()
+            .find(|v| v.id == spec_version_id)
+            .map(|v| v.endpoints.clone())
+            .unwrap_or_default())
     }
 
     async fn ensure_client(&self, name: &str) -> Result<i64, RepositoryError> {
@@ -235,164 +399,202 @@ impl SpecRepository for MockRepo {
         Ok(id)
     }
 
-    async fn record_dependency(
-        &self,
-        _params: RecordDependencyParams<'_>,
-    ) -> Result<(), RepositoryError> {
-        Ok(())
-    }
-
-    async fn record_dependencies_bulk(
-        &self,
-        _params: Vec<RecordDependencyParams<'_>>,
-    ) -> Result<(), RepositoryError> {
-        Ok(())
-    }
-
     async fn find_endpoint(
         &self,
-        _service_id: i64,
-        _branch_name: &str,
-        _api_type: ApiType,
-        _path: &str,
-        _method: &str,
+        spec_version_id: i64,
+        api_type: ApiType,
+        path: &str,
+        method: &str,
     ) -> Result<Option<(i64, String, bool, bool)>, RepositoryError> {
-        Ok(None)
+        let normalized_path = crate::openapi::normalize_path(path);
+        let versions = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Ok(versions
+            .iter()
+            .find(|v| v.id == spec_version_id)
+            .and_then(|v| {
+                v.endpoints.iter().find(|e| {
+                    e.api_type == api_type
+                        && e.normalized_path == normalized_path
+                        && e.method == method
+                })
+            })
+            .map(|e| {
+                (
+                    e.id.unwrap_or_default(),
+                    e.yaml_content.clone(),
+                    e.deprecated,
+                    e.external,
+                )
+            }))
     }
 
     async fn find_endpoints_bulk(
         &self,
-        _service_id: i64,
-        _branch_name: &str,
-        _api_type: ApiType,
-        _endpoints: &[(String, String)],
+        spec_version_id: i64,
+        api_type: ApiType,
+        endpoints: &[(String, String)],
     ) -> Result<EndpointMap, RepositoryError> {
-        Ok(HashMap::new())
+        let versions = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut result = EndpointMap::new();
+        let Some(version) = versions.iter().find(|v| v.id == spec_version_id) else {
+            return Ok(result);
+        };
+        // Key the result by what the caller asked for, matched via the
+        // normalized path, so lenient path matching works for bundles too.
+        for (path, method) in endpoints {
+            let normalized = crate::openapi::normalize_path(path);
+            if let Some(found) = version.endpoints.iter().find(|e| {
+                e.api_type == api_type && e.normalized_path == normalized && e.method == *method
+            }) {
+                result.insert(
+                    (path.clone(), method.clone()),
+                    (
+                        found.id.unwrap_or_default(),
+                        found.yaml_content.clone(),
+                        found.deprecated,
+                        found.external,
+                    ),
+                );
+            }
+        }
+        Ok(result)
     }
 
-    async fn get_report(&self, branch: &str) -> Result<DependencyReport, RepositoryError> {
+    async fn record_dependency(
+        &self,
+        params: RecordDependencyParams<'_>,
+    ) -> Result<(), RepositoryError> {
+        self.record_dependencies_bulk(vec![params]).await
+    }
+
+    async fn record_dependencies_bulk(
+        &self,
+        params: Vec<RecordDependencyParams<'_>>,
+    ) -> Result<(), RepositoryError> {
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        let mut dependencies = self
+            .dependencies
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        for p in params {
+            if let Some(existing) = dependencies.iter_mut().find(|d| {
+                d.client_id == p.client_id
+                    && d.spec_version_id == p.spec_version_id
+                    && d.api_type == p.api_type
+                    && d.path == p.path
+                    && d.method == p.method
+            }) {
+                existing.last_seen_at = now.clone();
+            } else {
+                dependencies.push(MockDependency {
+                    client_id: p.client_id,
+                    spec_version_id: p.spec_version_id,
+                    api_type: p.api_type,
+                    path: p.path.to_string(),
+                    normalized_path: p.normalized_path.to_string(),
+                    method: p.method.to_string(),
+                    last_seen_at: now.clone(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    async fn get_report(&self) -> Result<DependencyReport, RepositoryError> {
+        let versions = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let dependencies = self
+            .dependencies
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+
+        let mut dependency_graph = Vec::new();
+        let mut missing_endpoints = Vec::new();
+        for dep in &dependencies {
+            let Some(version) = versions.iter().find(|v| v.id == dep.spec_version_id) else {
+                continue;
+            };
+            let client = self.client_name(dep.client_id).unwrap_or_default();
+            let service = self.service_name(version.service_id).unwrap_or_default();
+            let endpoint = version.endpoints.iter().find(|e| {
+                e.api_type == dep.api_type
+                    && e.normalized_path == dep.normalized_path
+                    && e.method == dep.method
+            });
+            match endpoint {
+                Some(endpoint) => dependency_graph.push(DependencyInfo {
+                    api_type: dep.api_type,
+                    client,
+                    service,
+                    version: version.version,
+                    stability: version.stability,
+                    path: dep.path.clone(),
+                    method: dep.method.clone(),
+                    deprecated: endpoint.deprecated,
+                }),
+                None => missing_endpoints.push(MissingEndpointInfo {
+                    api_type: dep.api_type,
+                    client,
+                    service,
+                    version: version.version,
+                    path: dep.path.clone(),
+                    method: dep.method.clone(),
+                }),
+            }
+        }
+
+        let mut unused_endpoints = Vec::new();
+        for version in &versions {
+            let service = self.service_name(version.service_id).unwrap_or_default();
+            for endpoint in &version.endpoints {
+                let required = dependencies.iter().any(|d| {
+                    d.spec_version_id == version.id
+                        && d.api_type == endpoint.api_type
+                        && d.normalized_path == endpoint.normalized_path
+                        && d.method == endpoint.method
+                });
+                if !required {
+                    unused_endpoints.push(EndpointInfo {
+                        api_type: endpoint.api_type,
+                        service: service.clone(),
+                        version: version.version,
+                        stability: version.stability,
+                        path: endpoint.path.clone(),
+                        method: endpoint.method.clone(),
+                        deprecated: endpoint.deprecated,
+                    });
+                }
+            }
+        }
+
         Ok(DependencyReport {
-            branch: branch.to_string(),
-            unused_endpoints: Vec::new(),
-            missing_endpoints: Vec::new(),
-            dependency_graph: Vec::new(),
+            unused_endpoints,
+            missing_endpoints,
+            dependency_graph,
             service_tags: HashMap::new(),
         })
     }
 
-    async fn is_branch_protected(&self, branch_name: &str) -> Result<bool, RepositoryError> {
-        // Uses the same shared matcher as the SQL repositories, so wildcard
-        // patterns behave identically in mock-based tests.
-        let pb = self
-            .protected_branches
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        Ok(crate::domain::branch_pattern::branch_matches_any(
-            branch_name,
-            &pb,
-        ))
-    }
-
-    async fn add_protected_branch(&self, pattern: &str) -> Result<(), RepositoryError> {
-        let mut pb = self
-            .protected_branches
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if !pb.contains(&pattern.to_string()) {
-            pb.push(pattern.to_string());
-        }
-        Ok(())
-    }
-
-    async fn remove_protected_branch(&self, pattern: &str) -> Result<bool, RepositoryError> {
-        let mut pb = self
-            .protected_branches
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if let Some(pos) = pb.iter().position(|p| p == pattern) {
-            pb.remove(pos);
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
-    async fn list_protected_branches(&self) -> Result<Vec<String>, RepositoryError> {
-        Ok(self
-            .protected_branches
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone())
-    }
-
-    async fn update_endpoint(
-        &self,
-        _params: UpdateEndpointParams<'_>,
-    ) -> Result<(), RepositoryError> {
-        Ok(())
-    }
-
-    async fn soft_delete_endpoint(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<(), RepositoryError> {
-        let mut deleted = self
-            .deleted_endpoints
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        deleted.push((branch_id, api_type, path.to_string(), method.to_string()));
-        Ok(())
-    }
-
-    async fn hard_delete_endpoint(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<(), RepositoryError> {
-        let mut endpoints = self
-            .endpoints
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if let Some(list) = endpoints.get_mut(&branch_id) {
-            list.retain(|ep| !(ep.api_type == api_type && ep.path == path && ep.method == method));
-        }
-        Ok(())
-    }
-
-    async fn is_endpoint_deleted(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<bool, RepositoryError> {
-        let deleted = self
-            .deleted_endpoints
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        Ok(deleted.contains(&(branch_id, api_type, path.to_string(), method.to_string())))
-    }
-
     async fn delete_all_services(&self) -> Result<u64, RepositoryError> {
-        let count = self
-            .services
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .len() as u64;
-        self.services
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clear();
-        self.branches
+        let mut services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
+        let count = services.len() as u64;
+        services.clear();
+        drop(services);
+        self.spec_versions
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clear();
-        self.endpoints
+        self.dependencies
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clear();
@@ -400,12 +602,11 @@ impl SpecRepository for MockRepo {
     }
 
     async fn delete_all_clients(&self) -> Result<u64, RepositoryError> {
-        let count = self
-            .clients
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .len() as u64;
-        self.clients
+        let mut clients = self.clients.lock().unwrap_or_else(PoisonError::into_inner);
+        let count = clients.len() as u64;
+        clients.clear();
+        drop(clients);
+        self.dependencies
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clear();
@@ -430,162 +631,99 @@ impl SpecRepository for MockRepo {
     async fn nuke_database(&self, _keep_user_id: Option<i64>) -> Result<(), RepositoryError> {
         self.delete_all_services().await?;
         self.delete_all_clients().await?;
+        self.channel_message_contracts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
         Ok(())
     }
 
     async fn delete_producer(&self, name: &str) -> Result<bool, RepositoryError> {
         let mut services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
-        Ok(services.remove(name).is_some())
-    }
-
-    async fn delete_branch(
-        &self,
-        _service_name: &str,
-        _branch_name: &str,
-    ) -> Result<bool, RepositoryError> {
+        let Some(service_id) = services.remove(name) else {
+            return Ok(false);
+        };
+        drop(services);
+        let mut versions = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let deleted_ids: Vec<i64> = versions
+            .iter()
+            .filter(|v| v.service_id == service_id)
+            .map(|v| v.id)
+            .collect();
+        versions.retain(|v| v.service_id != service_id);
+        drop(versions);
+        self.dependencies
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|d| !deleted_ids.contains(&d.spec_version_id));
         Ok(true)
     }
 
     async fn delete_consumer(&self, name: &str) -> Result<bool, RepositoryError> {
         let mut clients = self.clients.lock().unwrap_or_else(PoisonError::into_inner);
-        Ok(clients.remove(name).is_some())
+        let Some(client_id) = clients.remove(name) else {
+            return Ok(false);
+        };
+        drop(clients);
+        self.dependencies
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|d| d.client_id != client_id);
+        Ok(true)
     }
 
     async fn list_producers(&self) -> Result<Vec<String>, RepositoryError> {
-        Ok(self
+        let mut names: Vec<String> = self
             .services
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .keys()
             .cloned()
-            .collect())
+            .collect();
+        names.sort();
+        Ok(names)
     }
 
     async fn list_producers_detailed(&self) -> Result<Vec<ProducerSummary>, RepositoryError> {
         let services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
-        let branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
-        let fallback_branches = self
-            .fallback_branches
+        let metadata = self
+            .producer_metadata
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-
-        let mut result = Vec::new();
-        for (name, id) in services.iter() {
-            let mut svc_branches = Vec::new();
-            for ((bid, bname), _) in branches.iter() {
-                if *bid == *id {
-                    svc_branches.push(bname.clone());
+        let mut result: Vec<ProducerSummary> = services
+            .keys()
+            .map(|name| {
+                let (icon, domain) = metadata.get(name).cloned().unwrap_or((None, None));
+                ProducerSummary {
+                    name: name.clone(),
+                    versions: Vec::new(),
+                    is_favorite: false,
+                    icon,
+                    domain,
                 }
-            }
-            svc_branches.sort();
-            result.push(ProducerSummary {
-                name: name.clone(),
-                fallback_branch: fallback_branches.get(name).cloned(),
-                branches: svc_branches,
-                branches_last_published: std::collections::HashMap::new(),
-                branches_expire_at: std::collections::HashMap::new(),
-                branches_endpoint_count: std::collections::HashMap::new(),
-                is_favorite: false,
-                icon: None,
-                domain: None,
-            });
-        }
+            })
+            .collect();
         result.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(result)
     }
 
-    async fn set_fallback_branch(
-        &self,
-        service_name: &str,
-        branch: Option<&str>,
-    ) -> Result<(), RepositoryError> {
-        let mut fb = self
-            .fallback_branches
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if let Some(b) = branch {
-            fb.insert(service_name.to_string(), b.to_string());
-        } else {
-            fb.remove(service_name);
-        }
-        Ok(())
-    }
-
     async fn update_producer_metadata(
         &self,
-        _service_name: &str,
-        _icon: Option<&str>,
-        _domain: Option<&str>,
-    ) -> Result<(), RepositoryError> {
-        Ok(())
-    }
-
-    async fn get_fallback_branch(
-        &self,
         service_name: &str,
-    ) -> Result<Option<String>, RepositoryError> {
-        Ok(self
-            .fallback_branches
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(service_name)
-            .cloned())
-    }
-
-    async fn set_source_protected_branch_if_unset(
-        &self,
-        branch_id: i64,
-        value: &str,
-    ) -> Result<bool, RepositoryError> {
-        let mut spb = self
-            .source_protected_branches
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if spb.contains_key(&branch_id) {
-            return Ok(false);
-        }
-        spb.insert(branch_id, value.to_string());
-        Ok(true)
-    }
-
-    async fn get_source_protected_branch(
-        &self,
-        branch_id: i64,
-    ) -> Result<Option<String>, RepositoryError> {
-        Ok(self
-            .source_protected_branches
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(&branch_id)
-            .cloned())
-    }
-
-    async fn admin_set_source_protected_branch(
-        &self,
-        branch_id: i64,
-        value: Option<&str>,
+        icon: Option<&str>,
+        domain: Option<&str>,
     ) -> Result<(), RepositoryError> {
-        let mut spb = self
-            .source_protected_branches
+        self.producer_metadata
             .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        match value {
-            Some(v) => {
-                spb.insert(branch_id, v.to_string());
-            }
-            None => {
-                spb.remove(&branch_id);
-            }
-        }
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(
+                service_name.to_string(),
+                (icon.map(|i| i.to_string()), domain.map(|d| d.to_string())),
+            );
         Ok(())
-    }
-
-    async fn list_branches(&self, _service_name: &str) -> Result<Vec<String>, RepositoryError> {
-        Ok(Vec::new())
-    }
-
-    async fn list_all_branches(&self) -> Result<Vec<String>, RepositoryError> {
-        Ok(Vec::new())
     }
 
     async fn list_consumers(&self) -> Result<Vec<String>, RepositoryError> {
@@ -600,21 +738,59 @@ impl SpecRepository for MockRepo {
         Ok(clients)
     }
 
-    async fn list_consumer_branches(
-        &self,
-        _client_name: &str,
-    ) -> Result<Vec<String>, RepositoryError> {
-        Ok(Vec::new())
-    }
-
     async fn list_consumer_endpoints(
         &self,
-        _client_name: &str,
-        _branch: &str,
+        client_name: &str,
     ) -> Result<Vec<ConsumerEndpointInfo>, RepositoryError> {
-        // This is a simplified mock implementation
-        // Real implementation joins dependencies, services, and endpoints
-        Ok(Vec::new())
+        let Some(client_id) = self
+            .clients
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(client_name)
+            .copied()
+        else {
+            return Ok(Vec::new());
+        };
+        let dependencies = self
+            .dependencies
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let versions = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+
+        let mut result = Vec::new();
+        for dep in dependencies.iter().filter(|d| d.client_id == client_id) {
+            let Some(version) = versions.iter().find(|v| v.id == dep.spec_version_id) else {
+                continue;
+            };
+            let endpoint = version.endpoints.iter().find(|e| {
+                e.api_type == dep.api_type
+                    && e.normalized_path == dep.normalized_path
+                    && e.method == dep.method
+            });
+            result.push(ConsumerEndpointInfo {
+                api_type: dep.api_type,
+                service: self.service_name(version.service_id).unwrap_or_default(),
+                version: version.version,
+                stability: version.stability,
+                path: dep.path.clone(),
+                method: dep.method.clone(),
+                yaml_content: endpoint.map(|e| e.yaml_content.clone()),
+                deprecated: endpoint.map(|e| e.deprecated).unwrap_or(false),
+                external: endpoint.map(|e| e.external).unwrap_or(false),
+            });
+        }
+        result.sort_by(|a, b| {
+            a.service
+                .cmp(&b.service)
+                .then_with(|| a.path.cmp(&b.path))
+                .then_with(|| a.method.cmp(&b.method))
+        });
+        Ok(result)
     }
 
     async fn user_count(&self) -> Result<i64, RepositoryError> {
@@ -787,130 +963,14 @@ impl SpecRepository for MockRepo {
         Ok(None)
     }
 
-    async fn delete_stale_branches(&self, _cutoff: &str) -> Result<u64, RepositoryError> {
-        Ok(0)
-    }
-
-    async fn delete_stale_dependencies(&self, _cutoff: &str) -> Result<u64, RepositoryError> {
-        Ok(0)
-    }
-
-    async fn get_endpoint_id(
-        &self,
-        _branch_id: i64,
-        _api_type: ApiType,
-        _path: &str,
-        _method: &str,
-    ) -> Result<Option<i64>, RepositoryError> {
-        Ok(None)
-    }
-
-    async fn insert_endpoint_version(
-        &self,
-        _endpoint_id: i64,
-        _version: i32,
-        _yaml: &str,
-        _diff: Option<&str>,
-        _created: &str,
-    ) -> Result<(), RepositoryError> {
-        Ok(())
-    }
-
-    async fn get_latest_endpoint_version(&self, _endpoint_id: i64) -> Result<i32, RepositoryError> {
-        Ok(0)
-    }
-
-    async fn get_endpoint_versions(
-        &self,
-        _endpoint_id: i64,
-    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
-        Ok(Vec::new())
-    }
-
-    async fn get_global_endpoint_versions(
-        &self,
-        _limit: u32,
-    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
-        Ok(Vec::new())
-    }
-
-    async fn apply_spec_changes(
-        &self,
-        branch_id: i64,
-        changes: Vec<SpecChange>,
-        is_protected: bool,
-        _username: Option<&str>,
-        _source_branch: Option<&str>,
-    ) -> Result<(), RepositoryError> {
-        let mut endpoints = self
-            .endpoints
+    async fn delete_stale_dependencies(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
+        let mut dependencies = self
+            .dependencies
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let mut deleted = self
-            .deleted_endpoints
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let list = endpoints.entry(branch_id).or_default();
-
-        for change in changes {
-            match change {
-                SpecChange::Insert {
-                    api_type,
-                    path,
-                    normalized_path,
-                    method,
-                    yaml_content,
-                    deprecated,
-                    external,
-                } => {
-                    list.push(EndpointRecord {
-                        id: Some(self.next_id()),
-                        api_type,
-                        path,
-                        normalized_path,
-                        method,
-                        yaml_content,
-                        deprecated,
-                        external,
-                    });
-                }
-                SpecChange::Update {
-                    api_type,
-                    path,
-                    normalized_path,
-                    method,
-                    yaml_content,
-                    deprecated,
-                    external,
-                } => {
-                    if let Some(ep) = list.iter_mut().find(|e| {
-                        e.api_type == api_type
-                            && e.normalized_path == normalized_path
-                            && e.method == method
-                    }) {
-                        ep.path = path;
-                        ep.yaml_content = yaml_content;
-                        ep.deprecated = deprecated;
-                        ep.external = external;
-                    }
-                }
-                SpecChange::Delete {
-                    api_type,
-                    path,
-                    method,
-                    soft_delete,
-                } => {
-                    if soft_delete || is_protected {
-                        deleted.push((branch_id, api_type, path, method));
-                    } else {
-                        list.retain(|e| {
-                            !(e.api_type == api_type && e.path == path && e.method == method)
-                        });
-                    }
-                }
-            }
-        }
-        Ok(())
+        let before = dependencies.len();
+        dependencies.retain(|d| d.last_seen_at.as_str() >= cutoff_iso);
+        Ok((before - dependencies.len()) as u64)
     }
 
     // --- Roles and Groups ---
@@ -985,11 +1045,8 @@ impl SpecRepository for MockRepo {
         if let Some(existing) = groups.iter().find(|g| g.name == name && g.source == source) {
             return Ok(existing.clone());
         }
-        let mut next = self.next_id.lock().unwrap_or_else(PoisonError::into_inner);
-        let id = *next;
-        *next += 1;
         let group = Group {
-            id,
+            id: self.next_id(),
             name: name.to_string(),
             source,
         };
@@ -1092,151 +1149,6 @@ impl SpecRepository for MockRepo {
             .iter()
             .filter(|(gid, _)| *gid == group_id)
             .map(|(_, uid)| *uid)
-            .collect();
-        out.sort();
-        Ok(out)
-    }
-
-    // --- Pending Specs ---
-
-    async fn upsert_pending_spec(
-        &self,
-        service_id: i64,
-        branch: &str,
-        api_type: ApiType,
-        content: &str,
-        reason: &str,
-        submitted_by: &str,
-    ) -> Result<i64, RepositoryError> {
-        let producer = self
-            .services
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .find(|(_, sid)| **sid == service_id)
-            .map(|(name, _)| name.clone())
-            .unwrap_or_default();
-
-        let mut pending = self
-            .pending_specs
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if let Some(existing) = pending
-            .iter_mut()
-            .find(|p| p.producer == producer && p.branch == branch && p.api_type == api_type)
-        {
-            existing.content = content.to_string();
-            existing.reason = reason.to_string();
-            existing.submitted_by = submitted_by.to_string();
-            return Ok(existing.id);
-        }
-        let mut next = self.next_id.lock().unwrap_or_else(PoisonError::into_inner);
-        let id = *next;
-        *next += 1;
-        pending.push(PendingSpec {
-            id,
-            producer,
-            branch: branch.to_string(),
-            api_type,
-            content: content.to_string(),
-            reason: reason.to_string(),
-            submitted_by: submitted_by.to_string(),
-            created_at: "2026-07-31T00:00:00Z".to_string(),
-        });
-        Ok(id)
-    }
-
-    async fn get_pending_spec(&self, id: i64) -> Result<Option<PendingSpec>, RepositoryError> {
-        Ok(self
-            .pending_specs
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .find(|p| p.id == id)
-            .cloned())
-    }
-
-    async fn list_pending_specs(&self) -> Result<Vec<PendingSpec>, RepositoryError> {
-        Ok(self
-            .pending_specs
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone())
-    }
-
-    async fn delete_pending_spec(&self, id: i64) -> Result<bool, RepositoryError> {
-        let mut pending = self
-            .pending_specs
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let before = pending.len();
-        pending.retain(|p| p.id != id);
-        Ok(pending.len() != before)
-    }
-
-    async fn clear_pending_spec(
-        &self,
-        service_id: i64,
-        branch: &str,
-        api_type: ApiType,
-    ) -> Result<bool, RepositoryError> {
-        let producer = self
-            .services
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .find(|(_, sid)| **sid == service_id)
-            .map(|(name, _)| name.clone())
-            .unwrap_or_default();
-        let mut pending = self
-            .pending_specs
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let before = pending.len();
-        pending
-            .retain(|p| !(p.producer == producer && p.branch == branch && p.api_type == api_type));
-        Ok(pending.len() != before)
-    }
-
-    // --- Producer Onboarding ---
-
-    async fn set_producer_onboarding(
-        &self,
-        service_id: i64,
-        onboarding: bool,
-    ) -> Result<(), RepositoryError> {
-        let mut o = self
-            .onboarding
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if onboarding {
-            if !o.contains(&service_id) {
-                o.push(service_id);
-            }
-        } else {
-            o.retain(|id| *id != service_id);
-        }
-        Ok(())
-    }
-
-    async fn is_producer_onboarding(&self, service_id: i64) -> Result<bool, RepositoryError> {
-        Ok(self
-            .onboarding
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .contains(&service_id))
-    }
-
-    async fn list_onboarding_producers(&self) -> Result<Vec<String>, RepositoryError> {
-        let o = self
-            .onboarding
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
-        let mut out: Vec<String> = services
-            .iter()
-            .filter(|(_, sid)| o.contains(sid))
-            .map(|(name, _)| name.clone())
             .collect();
         out.sort();
         Ok(out)
@@ -1396,6 +1308,8 @@ impl SpecRepository for MockRepo {
         Ok(out)
     }
 
+    // --- Service Tags ---
+
     async fn add_service_tags(
         &self,
         service_id: i64,
@@ -1415,99 +1329,7 @@ impl SpecRepository for MockRepo {
         Ok(HashMap::new())
     }
 
-    async fn get_channel_message_contract(
-        &self,
-        branch_name: &str,
-        channel: &str,
-        message_name: &str,
-    ) -> Result<Option<ChannelMessageContract>, RepositoryError> {
-        let contracts = self
-            .channel_message_contracts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        Ok(contracts
-            .iter()
-            .find(|c| {
-                c.branch_name == branch_name
-                    && c.channel == channel
-                    && c.message_name == message_name
-            })
-            .cloned())
-    }
-
-    async fn upsert_channel_message_contract(
-        &self,
-        contract: &ChannelMessageContract,
-    ) -> Result<(), RepositoryError> {
-        let mut contracts = self
-            .channel_message_contracts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        match contracts.iter_mut().find(|c| {
-            c.branch_name == contract.branch_name
-                && c.channel == contract.channel
-                && c.message_name == contract.message_name
-        }) {
-            Some(existing) => {
-                existing.owner_service_id = contract.owner_service_id;
-                existing.payload_yaml = contract.payload_yaml.clone();
-            }
-            None => contracts.push(contract.clone()),
-        }
-        Ok(())
-    }
-
-    async fn delete_channel_message_contract(
-        &self,
-        branch_name: &str,
-        channel: &str,
-        message_name: &str,
-    ) -> Result<(), RepositoryError> {
-        let mut contracts = self
-            .channel_message_contracts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        contracts.retain(|c| {
-            !(c.branch_name == branch_name
-                && c.channel == channel
-                && c.message_name == message_name)
-        });
-        Ok(())
-    }
-
-    async fn list_channel_message_contracts(
-        &self,
-        branch_name: &str,
-    ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
-        let contracts = self
-            .channel_message_contracts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let mut result: Vec<ChannelMessageContract> = contracts
-            .iter()
-            .filter(|c| c.branch_name == branch_name)
-            .cloned()
-            .collect();
-        result.sort_by(|a, b| {
-            a.channel
-                .cmp(&b.channel)
-                .then_with(|| a.message_name.cmp(&b.message_name))
-        });
-        Ok(result)
-    }
-
-    async fn delete_orphaned_channel_message_contracts(
-        &self,
-        live_branches: &[String],
-    ) -> Result<u64, RepositoryError> {
-        let mut contracts = self
-            .channel_message_contracts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let before = contracts.len();
-        contracts.retain(|c| live_branches.iter().any(|b| b == &c.branch_name));
-        Ok((before - contracts.len()) as u64)
-    }
+    // --- Audit Logs ---
 
     async fn insert_audit_log(
         &self,
@@ -1527,7 +1349,7 @@ impl SpecRepository for MockRepo {
             action: log.action.to_string(),
             details: log.details.to_string(),
             service: log.service.map(|s| s.to_string()),
-            branch: log.branch.map(|b| b.to_string()),
+            version: log.version.map(|v| v.to_string()),
             action_type: log.action_type.map(|t| t.to_string()),
             diff: log.diff.map(|d| d.to_string()),
         });
@@ -1561,6 +1383,8 @@ impl SpecRepository for MockRepo {
         cloned.truncate(limit as usize);
         Ok(cloned)
     }
+
+    // --- User Favorites ---
 
     async fn get_user_favorites(
         &self,
@@ -1614,42 +1438,70 @@ impl SpecRepository for MockRepo {
         Ok(())
     }
 
-    async fn list_branches_with_metadata(&self) -> Result<Vec<BranchMetadata>, RepositoryError> {
-        let branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
-        let timestamps = self
-            .branch_timestamps
+    // --- AsyncAPI Channel Message Contracts ---
+
+    async fn get_channel_message_contract(
+        &self,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<Option<ChannelMessageContract>, RepositoryError> {
+        let contracts = self
+            .channel_message_contracts
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let mut result = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        for ((_, bname), _) in branches.iter() {
-            if seen.insert(bname.clone()) {
-                let last_modified = timestamps
-                    .get(bname)
-                    .cloned()
-                    .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-                result.push(BranchMetadata {
-                    name: bname.clone(),
-                    last_modified,
-                });
+        Ok(contracts
+            .iter()
+            .find(|c| c.channel == channel && c.message_name == message_name)
+            .cloned())
+    }
+
+    async fn upsert_channel_message_contract(
+        &self,
+        contract: &ChannelMessageContract,
+    ) -> Result<(), RepositoryError> {
+        let mut contracts = self
+            .channel_message_contracts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        match contracts
+            .iter_mut()
+            .find(|c| c.channel == contract.channel && c.message_name == contract.message_name)
+        {
+            Some(existing) => {
+                existing.owner_service_id = contract.owner_service_id;
+                existing.payload_yaml = contract.payload_yaml.clone();
             }
+            None => contracts.push(contract.clone()),
         }
+        Ok(())
+    }
+
+    async fn delete_channel_message_contract(
+        &self,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut contracts = self
+            .channel_message_contracts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        contracts.retain(|c| !(c.channel == channel && c.message_name == message_name));
+        Ok(())
+    }
+
+    async fn list_channel_message_contracts(
+        &self,
+    ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
+        let contracts = self
+            .channel_message_contracts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut result: Vec<ChannelMessageContract> = contracts.clone();
+        result.sort_by(|a, b| {
+            a.channel
+                .cmp(&b.channel)
+                .then_with(|| a.message_name.cmp(&b.message_name))
+        });
         Ok(result)
-    }
-
-    async fn list_branch_last_published(
-        &self,
-    ) -> Result<Vec<(String, String, String)>, RepositoryError> {
-        // MockRepo does not track per-branch publish times, so recency ordering is
-        // exercised by the sqlite-backed integration tests instead.
-        Ok(Vec::new())
-    }
-
-    async fn list_branch_endpoint_counts(
-        &self,
-    ) -> Result<Vec<(String, String, i64)>, RepositoryError> {
-        // MockRepo does not track per-branch endpoint counts; exercised by the
-        // sqlite-backed integration tests instead.
-        Ok(Vec::new())
     }
 }

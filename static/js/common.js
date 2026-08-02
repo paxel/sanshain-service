@@ -47,7 +47,6 @@ const ADMIN_DASHBOARD_PERMISSIONS = [
   "manage_roles",
   "manage_producers",
   "manage_consumers",
-  "manage_protected_branches",
   "manage_settings",
   "manage_auth_config",
   "view_audit",

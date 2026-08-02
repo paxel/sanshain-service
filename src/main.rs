@@ -302,7 +302,7 @@ pub async fn main() {
             sanshain_service::application::directory_roles::DirectoryRoleCache::from_env(),
     };
 
-    // Spawn background branch cleanup task
+    // Spawn background cleanup task (snapshots, dependencies, CSRF tokens)
     let cleanup_repo = state.repo.clone();
     let cleanup_csrf = state.csrf_tokens.clone();
 
@@ -321,22 +321,15 @@ pub async fn main() {
             tokio::time::interval(std::time::Duration::from_secs(cleanup_interval_secs));
         loop {
             interval.tick().await;
-            match services::cleanup_stale_branches(&cleanup_repo).await {
+            match services::cleanup_expired_snapshots(&cleanup_repo).await {
                 Ok(0) => {}
-                Ok(n) => tracing::info!("Branch cleanup: deleted {} stale branches", n),
-                Err(e) => tracing::warn!("Branch cleanup failed: {:?}", e),
+                Ok(n) => tracing::info!("Snapshot cleanup: deleted {} unused snapshots", n),
+                Err(e) => tracing::warn!("Snapshot cleanup failed: {:?}", e),
             }
             match services::cleanup_stale_dependencies(&cleanup_repo).await {
                 Ok(0) => {}
                 Ok(n) => tracing::info!("Dependency cleanup: pruned {} stale dependencies", n),
                 Err(e) => tracing::warn!("Dependency cleanup failed: {:?}", e),
-            }
-            match services::cleanup_orphaned_channel_message_contracts(&cleanup_repo).await {
-                Ok(0) => {}
-                Ok(n) => {
-                    tracing::info!("Contract cleanup: dropped {} orphaned channel contracts", n)
-                }
-                Err(e) => tracing::warn!("Contract cleanup failed: {:?}", e),
             }
 
             // Prune expired CSRF tokens

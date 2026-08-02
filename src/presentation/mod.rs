@@ -18,20 +18,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorBody {
     pub error: String,
-    /// Set when a refused spec was retained for review rather than discarded.
+    /// Set when a Provide was refused by the version rules: the next free
+    /// version the Producer should publish as instead.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pending_id: Option<i64>,
-    /// Machine-readable state accompanying `pending_id`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
+    pub proposed_version: Option<String>,
 }
 
 impl ErrorBody {
     fn message(error: String) -> Self {
         Self {
             error,
-            pending_id: None,
-            status: None,
+            proposed_version: None,
         }
     }
 }
@@ -53,18 +50,13 @@ impl IntoResponse for AppError {
             ),
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, ErrorBody::message(msg)),
             AppError::BreakingChange(msg) => (StatusCode::CONFLICT, ErrorBody::message(msg)),
-            // Still a 409: the spec is not live and no Consumer can resolve it,
-            // so a build must stay red. What changes is that the body says the
-            // submission was kept and can be reviewed.
-            AppError::Quarantined {
-                message,
-                pending_id,
-            } => (
+            // 409 with the remedy machine-readable: the rejection is
+            // self-service, so the body carries the next free version.
+            AppError::VersionConflict { message, proposed } => (
                 StatusCode::CONFLICT,
                 ErrorBody {
                     error: message,
-                    pending_id: Some(pending_id),
-                    status: Some("awaiting_review".to_string()),
+                    proposed_version: Some(proposed.to_string()),
                 },
             ),
         };

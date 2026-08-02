@@ -69,31 +69,32 @@ sequenceDiagram
     participant Splitter as openapi.rs
     participant Repo as Repository
 
-    Client->>Handler: POST /provide {producername, branch, yaml, dry_run?, api_type?}
-    Handler->>Service: provide_spec(..., api_type)
-    Service->>Splitter: split_spec(yaml, api_type)
-    Splitter-->>Service: Vec<EndpointSpec>
-    Service->>Repo: Check idempotency (same version?)
-    alt Version exists on protected branch
-        Service-->>Handler: 409 Conflict (immutable)
-    else Version exists, same content
-        Service-->>Handler: 200 OK (idempotent)
-    else New version
+    Client->>Handler: POST /provide {producername, stability, yaml, dry_run?}
+    Handler->>Service: provide_spec(...)
+    Service->>Splitter: split_spec(yaml, api_type) — reads the version from the document
+    Splitter-->>Service: version + Vec<EndpointSpec>
+    Service->>Repo: Look up the version-line entry
+    alt Version exists as GA, different content
+        Service-->>Handler: 409 Conflict (proposed_version)
+    else Version exists, identical content
+        Service-->>Handler: 202 Accepted (no-op, changes all zero)
+    else Snapshot overwrite / promotion / new version
         alt dry_run = true
             Service-->>Handler: 202 Accepted (validated, not stored)
         else
-            Service->>Repo: upsert_service, insert endpoints
-            Service-->>Handler: 201 Created
+            Service->>Repo: upsert version-line entry, replace endpoints
+            Service-->>Handler: 202 Accepted
         end
     end
     Handler-->>Client: Response
 ```
 
 **Key behaviors:**
-- **Idempotency**: Re-providing the same version with identical content is a no-op (200).
-- **Immutability on protected branches**: Once a version is published on a protected branch (e.g., `main`), it cannot be overwritten. Returns 409 with a descriptive error message (method, path, branch, service name).
-- **Feature-branch override**: Non-protected branches allow version overwrites (useful for CI iteration).
-- **Dry run**: When `dry_run: true`, all validation runs (parsing, splitting, conflict detection) but nothing is persisted. Returns 202 on success.
+- **Version from the spec**: `info.version` (OpenAPI/AsyncAPI) or a mandatory `// sanshain-version:` comment (proto); strict `MAJOR.MINOR.PATCH`, rejected `400` otherwise.
+- **Idempotency**: Re-providing byte-identical content is a no-op regardless of stability or caller.
+- **GA immutability**: A GA version with different content returns `409` with `proposed_version` (breaking → major, additive → minor, shape-identical → patch). A GA whose changes against the highest GA below it are breaking without a major bump is rejected the same way (semver honesty).
+- **Snapshots**: Overwritable, last writer wins, never compatibility-checked. A snapshot Provide for a GA'd number is rejected; a GA Provide for a snapshot number promotes it in place.
+- **Dry run**: When `dry_run: true`, all validation and version-rule classification runs but nothing is persisted. Returns 202 on success.
 
 ### Spec Splitting (`openapi.rs`, `asyncapi.rs`, `proto.rs`)
 
@@ -126,35 +127,27 @@ sequenceDiagram
     participant Service as Application Service
     participant Repo as Repository
 
-    Consumer->>Handler: GET /require?consumername=A&producername=X&branch=main&path=/foo&method=GET&dry_run=false
+    Consumer->>Handler: GET /require?consumername=A&producername=X&version=1.2.0&path=/foo&method=GET&dry_run=false
     Handler->>Service: require_endpoint(...)
-    Service->>Repo: lookup endpoint
-    alt Found
+    Service->>Repo: resolve pinned version (GA preferred, else snapshot)
+    alt Version unknown in either stability
+        Service-->>Handler: 404 Unknown (config error, immediate)
+    else Version exists, endpoint present
         alt dry_run = false
-            Service->>Repo: record dependency
+            Service->>Repo: record dependency, touch snapshot use
         end
         Service-->>Handler: EndpointSpec YAML
-    else Not found, feature branch requested
-        Service->>Repo: fallback to default branch
-        alt Found on default
-            alt dry_run = false
-                Service->>Repo: record dependency
-            end
-            Service-->>Handler: EndpointSpec YAML (fallback)
-        else Still not found
-            Service-->>Handler: 404 (descriptive error message)
-        end
+    else Version exists, endpoint missing
+        Service-->>Handler: 410 Absent (deliberate — provided specs are complete)
     end
-    Handler-->>Consumer: YAML snippet or 404
+    Handler-->>Consumer: YAML snippet, 404 or 410
 ```
 
-**Long-polling**: If the endpoint isn't available yet, the request blocks (with a configurable timeout) until the spec is provided by another service. This enables CI pipelines where provider and consumer jobs run concurrently.
+**No fallback, no waiting**: Resolution answers the exact Pin — GA preferred, the same-numbered snapshot as the only alternative — and fails in milliseconds otherwise. Exact pins are written by a human after the version exists, so nothing long-polls for a version to appear.
 
-**Feature-branch fallback**: If a consumer requests a feature branch that doesn't exist, Sanshain falls back to the default branch. This means consumers on `main` always get `main` specs, while feature branches get their own overrides if available.
+**Dependency tracking**: Every *successful* `require` (unless `dry_run=true`) is recorded, building a dependency graph (Consumer A → Producer X endpoint at version) and counting as *use* for snapshot expiry. A failed require records nothing — resolution never creates graph entities.
 
-**Dependency tracking**: Every `require` call (unless `dry_run=true`) is recorded, building a dependency graph (Service A → Service B endpoint). This powers the report and graph features.
-
-**Descriptive errors**: When an endpoint is not found, the 404 response body includes the service name, branch, and endpoint details. For `/require-bundle`, all missing endpoints are listed.
+**Descriptive errors**: `404` (Unknown) and `410` (Absent) are distinct on purpose: the first is a Pin configuration error, the second a definitive "this version does not have that endpoint". For `/require-bundle`, all missing endpoints are listed.
 
 ---
 
@@ -308,40 +301,49 @@ All state-changing HTML form submissions include a CSRF token:
 
 ---
 
-## Feature: Admin API & Protected Branches
+## Feature: Admin API & Version Administration
 
-### Protected Branches
+### Version Rules
 
-Admins can designate branches as "protected" (e.g., `main`, `release/*`). Protected branches enforce **immutability**: once a version is published, it cannot be overwritten. This prevents accidental or malicious contract changes in production.
+The concurrency control of the whole system is **GA immutability** — there is no branch protection and no review queue. A Provide is classified against the version-line entry it targets:
 
 ```mermaid
 flowchart TD
-    A[POST /provide] --> B{Branch protected?}
-    B -->|No| C[Upsert allowed]
-    B -->|Yes| D{Version exists?}
-    D -->|No| E[Insert new version]
-    D -->|Yes| F{Content identical?}
-    F -->|Yes| G[200 OK - idempotent]
-    F -->|No| H[409 Conflict - immutable]
+    A[POST /provide] --> B{Version exists?}
+    B -->|No| C[Insert new version-line entry]
+    B -->|Yes| D{Stored stability?}
+    D -->|Snapshot| E{Provide stability?}
+    E -->|snapshot| F[Overwrite - last writer wins]
+    E -->|ga| G[Promote in place]
+    D -->|GA| H{Content identical?}
+    H -->|Yes| I[202 - idempotent no-op]
+    H -->|No| J[409 Conflict + proposed_version]
 ```
+
+The admin escape hatch is **delete-version**: it frees the number, is audited naming the Consumers still pinned, and is held by `manage_producers` holders and by Maintainers for their own Producers.
 
 ### Admin Endpoints
 
 Every `/admin/*` route requires an authenticated session; the state-changing ones additionally
-require `is_admin = true` (read-only listings are open to any authenticated user). The split is
-enforced by the `all_admin_routes_have_auth_middleware` test in `src/lib.rs`.
+require a named permission (read-only listings are open to any authenticated user). The split is
+enforced by the `all_admin_routes_have_auth_middleware` test in `src/lib.rs`, and the full surface
+with its permissions is contract-checked against `maintenance.yaml`
+(`router_matches_maintenance_yaml_contract`).
 
-| Endpoint                                | Purpose                       |
-|-----------------------------------------|-------------------------------|
-| `GET/POST /admin/protected-branches`    | Manage protected branches     |
-| `DELETE /admin/producers/{name}`        | Delete producer (cascade)     |
-| `DELETE /admin/consumers/{name}`        | Delete consumer (cascade)     |
-| `GET /admin/users`                      | List users                    |
-| `POST /admin/users/{id}/approve`        | Approve a user                |
-| `GET/PUT /admin/auth-config`            | Auth mode & LDAP config       |
-| `POST /admin/auth-config/test`          | Test LDAP connectivity        |
-| `GET/POST /admin/settings/dev-mode`     | Dev-mode toggle               |
-| `GET/POST /admin/settings/auto-approve` | Auto-approve new users toggle |
+| Endpoint                                                    | Purpose                                  |
+|-------------------------------------------------------------|------------------------------------------|
+| `DELETE /admin/producers/{name}/versions/{api_type}/{version}` | Delete a version (frees the number)   |
+| `GET /admin/producers/{name}/versions/.../dependents`       | Consumers a delete would break           |
+| `GET/POST /admin/settings/snapshot-max-age`                 | Use-based snapshot expiry window         |
+| `POST /admin/cleanup/snapshots`                             | Run snapshot expiry now                  |
+| `DELETE /admin/producers/{name}`                            | Delete producer (cascade)                |
+| `DELETE /admin/consumers/{name}`                            | Delete consumer (cascade)                |
+| `GET /admin/users`                                          | List users                               |
+| `POST /admin/users/{id}/approve`                            | Approve a user                           |
+| `GET/PUT /admin/auth-config`                                | Auth mode & LDAP config                  |
+| `POST /admin/auth-config/test`                              | Test LDAP connectivity                   |
+| `GET/POST /admin/settings/dev-mode`                         | Dev-mode toggle                          |
+| `GET/POST /admin/settings/auto-approve`                     | Auto-approve new users toggle            |
 
 ---
 
@@ -372,21 +374,25 @@ src/infrastructure/migrations/
     └── 20240308000000_initial_schema.sql
 ```
 
-The schema includes tables for: `services`, `branches`, `endpoints`, `clients`, `dependencies`, `users`, `sessions`, `api_tokens`, `settings`, `protected_branches`.
+The schema includes tables for: `services` (Producers), `clients` (Consumers), `spec_versions` (the version-line entries with stability), `endpoints`, `dependencies`, `channel_message_contracts`, `users`, `sessions`, `api_tokens`, `settings`, `audit_logs`, plus the role/group/maintainer tables. The 2.0 migration (`20260801000000_versions_replace_branches`) dropped the branch-era tables (`branches`, `protected_branches`, `pending_specs`, the per-endpoint version history) — see ADR-0003.
+
+> The `services`/`clients` naming is deliberate: Producer maps to `services`, Consumer maps to
+> `clients`, and the translation is confined to the repository layer (see the note on storage in
+> `CONTEXT.md`).
 
 ### Repository Port Trait
 
 ```rust
-#[async_trait]
 pub trait Repository: Send + Sync {
-    async fn upsert_service(&self, name: &str) -> Result<i64>;
-    async fn upsert_branch(&self, service_id: i64, name: &str) -> Result<i64>;
-    async fn insert_endpoint(&self, ...) -> Result<()>;
-    async fn get_endpoint(&self, ...) -> Result<Option<EndpointRecord>>;
-    async fn record_dependency(&self, ...) -> Result<()>;
-    async fn get_setting(&self, key: &str) -> Result<Option<String>>;
-    async fn set_setting(&self, key: &str, value: &str) -> Result<()>;
-    // ... ~25 methods total
+    fn upsert_spec_version(&self, ...) -> ...;   // the version-line entry
+    fn find_spec_version(&self, ...) -> ...;     // GA preferred, else snapshot
+    fn delete_spec_version(&self, ...) -> ...;   // the admin escape hatch
+    fn delete_expired_snapshots(&self, ...) -> ...;
+    fn list_version_dependents(&self, ...) -> ...;
+    fn find_endpoint(&self, ...) -> ...;
+    fn record_dependency(&self, ...) -> ...;
+    fn get_setting(&self, key: &str) -> ...;
+    // ... ~80 methods total, see src/domain/ports.rs
 }
 ```
 
@@ -439,22 +445,15 @@ Domain and application tests use a **mock repository** implementing the `Reposit
 
 ### Integration Tests
 
-Located in `tests/integration_test.rs`. These spin up a real Axum server with an in-memory SQLite database:
+Located in `tests/`. These spin up a real Axum server with an in-memory SQLite database:
 
-| Test                                                      | What's Covered                                   |
-|-----------------------------------------------------------|--------------------------------------------------|
-| `test_provide_and_require`                                | Full provide → require → verify YAML round-trip  |
-| `test_feature_branch_fallback`                            | Require from feature branch falls back to default |
-| `test_protected_branch_immutability`                      | Cannot overwrite version on protected branch     |
-| `test_report_endpoints`                                   | JSON and markdown report generation              |
-| `test_auth_config_api`                                    | Auth mode and LDAP config CRUD                   |
-| `test_require_does_not_create_phantom_service`            | Phantom service prevention                       |
-| `test_delete_service_does_not_create_phantom_client`      | Phantom client prevention                        |
-| `test_require_missing_endpoint_returns_descriptive_error` | Descriptive 404 error messages                   |
-| `test_provide_conflict_returns_descriptive_error`         | Descriptive 409 error messages                   |
-| `test_provide_dry_run_does_not_store_data`                | Dry-run provide validation                       |
-| `test_require_dry_run_does_not_create_dependency`         | Dry-run require validation                       |
-| ... | 26 tests total |
+| Area                                                             | Where                                            |
+|------------------------------------------------------------------|--------------------------------------------------|
+| Full provide → require round-trip, bundles, ETag/304, dry runs   | `integration_test.rs`                            |
+| Version rules: GA immutability, `proposed_version`, promotion    | `spec_version_rules_test.rs`                     |
+| Auth modes, roles, per-route permissions                         | `roles_api_test.rs`, `route_permissions_test.rs` |
+| Route contract vs `api.yaml` / `maintenance.yaml`                | build-time tests in `src/lib.rs`                 |
+| PostgreSQL parity and upgrade paths                              | `postgres_test.rs`, `upgrade_test.rs`            |
 
 ### Running Tests
 

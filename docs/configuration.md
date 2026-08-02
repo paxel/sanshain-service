@@ -9,7 +9,7 @@ Sanshain Service can be configured using environment variables.
 | `MAX_POSTGRES_CONNECTIONS`     | `20`                                      | Max connection pool size for PostgreSQL.                                                                  |
 | `MAX_SQLITE_CONNECTIONS`       | `1`                                       | Max connection pool size for SQLite.                                                                      |
 | `SQLITE_BUSY_TIMEOUT_MS`       | `5000`                                    | SQLite busy timeout in milliseconds.                                                                      |
-| `CLEANUP_INTERVAL_SECS`        | `3600`                                    | Interval for background cleanup tasks (branches, dependencies).                                           |
+| `CLEANUP_INTERVAL_SECS`        | `3600`                                    | Interval for background cleanup tasks (unused snapshots, stale dependencies).                             |
 | `CSRF_MAX_AGE_HOURS`           | `24`                                      | Maximum age of CSRF tokens before they are pruned.                                                        |
 | `LOG_BUFFER_SIZE`              | `100`                                     | Number of messages kept in the in-memory log buffer per level.                                            |
 | `SPEC_UPDATED_CHANNEL_SIZE`    | `100`                                     | Size of the broadcast channel for specification updates.                                                  |
