@@ -859,3 +859,130 @@ async fn a_recently_required_snapshot_survives_cleanup() {
         .unwrap();
     assert_eq!(count.0, 1, "the required snapshot survives");
 }
+
+// ---------------------------------------------------------------------------
+// The free validator: public, stateless, always a 200 verdict.
+// ---------------------------------------------------------------------------
+
+/// Send to /validate with NO auth and NO CSRF token — the endpoint is public.
+#[cfg(test)]
+async fn send_anonymous_validate(ctx: &TestContext, body: Value) -> (StatusCode, String) {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/validate")
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let response = ctx.app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (status, String::from_utf8_lossy(&bytes).to_string())
+}
+
+#[tokio::test]
+async fn validator_is_public_and_previews_the_split() {
+    let ctx = setup().await;
+    let (status, body) = send_anonymous_validate(
+        &ctx,
+        serde_json::json!({
+            "api_type": "openapi",
+            "content": "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.2.0\npaths:\n  /users:\n    get:\n      responses:\n        '200':\n          description: OK\n  /orders:\n    post:\n      responses:\n        '201':\n          description: Created\n",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let verdict = as_json(&body);
+    assert_eq!(verdict["valid"], true);
+    assert_eq!(verdict["version"], "1.2.0");
+    assert_eq!(verdict["endpoint_count"], 2);
+    let endpoints: Vec<String> = verdict["endpoints"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    assert!(
+        endpoints.contains(&"GET /users".to_string()),
+        "{endpoints:?}"
+    );
+    assert!(
+        endpoints.contains(&"POST /orders".to_string()),
+        "{endpoints:?}"
+    );
+}
+
+#[tokio::test]
+async fn validator_reports_version_errors_with_the_split_preview() {
+    let ctx = setup().await;
+    let (status, body) = send_anonymous_validate(
+        &ctx,
+        serde_json::json!({
+            "api_type": "openapi",
+            "content": "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.2.0-SNAPSHOT\npaths:\n  /users:\n    get:\n      responses:\n        '200':\n          description: OK\n",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "verdicts are 200, got: {body}");
+    let verdict = as_json(&body);
+    assert_eq!(verdict["valid"], false);
+    let error = verdict["error"].as_str().unwrap();
+    assert!(
+        error.contains("stability"),
+        "the -SNAPSHOT hint must point at the stability flag: {error}"
+    );
+    // The document itself parses, so the preview still renders.
+    assert_eq!(verdict["endpoint_count"], 1);
+}
+
+#[tokio::test]
+async fn validator_names_the_missing_proto_marker() {
+    let ctx = setup().await;
+    let (status, body) = send_anonymous_validate(
+        &ctx,
+        serde_json::json!({
+            "api_type": "proto",
+            "content": "syntax = \"proto3\";\npackage a.b;\nservice S {\n  rpc Do (In) returns (Out);\n}\nmessage In {}\nmessage Out {}\n",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let verdict = as_json(&body);
+    assert_eq!(verdict["valid"], false);
+    assert!(
+        verdict["error"]
+            .as_str()
+            .unwrap()
+            .contains("// sanshain-version: MAJOR.MINOR.PATCH"),
+        "got: {body}"
+    );
+    assert_eq!(verdict["endpoints"][0], "Do S");
+}
+
+#[tokio::test]
+async fn validator_rejects_unknown_shapes_but_stores_nothing() {
+    let ctx = setup().await;
+    let (status, _) = send_anonymous_validate(
+        &ctx,
+        serde_json::json!({ "api_type": "soap", "content": "x" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    // A valid validation stores nothing: no producer appears.
+    let (_, body) = send_anonymous_validate(
+        &ctx,
+        serde_json::json!({
+            "api_type": "openapi",
+            "content": "openapi: 3.0.3\ninfo:\n  title: T\n  version: 9.9.9\npaths: {}\n",
+        }),
+    )
+    .await;
+    assert_eq!(as_json(&body)["valid"], true);
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM spec_versions WHERE major = 9")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(count.0, 0, "validation must never persist anything");
+}

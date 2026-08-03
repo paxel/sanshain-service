@@ -19,7 +19,7 @@ type SpecVersionKey = (i64, ApiType, String);
 pub struct CachedSpecRepository {
     inner: Box<DatabaseRepo>,
     // Spec data (60% of budget)
-    endpoint_cache: Cache<EndpointKey, Arc<(i64, String, bool, bool)>>,
+    endpoint_cache: Cache<EndpointKey, Arc<(i64, String, bool)>>,
     version_endpoints_cache: Cache<i64, Arc<Vec<EndpointRecord>>>,
     spec_content_cache: Cache<i64, Arc<String>>,
     // Reports (20%)
@@ -49,7 +49,7 @@ fn mb_to_bytes(mb: u64) -> u64 {
 const EFFECTIVE_ROLES_TTL_SECS: u64 = 10;
 
 struct RepoCaches {
-    endpoint_cache: Cache<EndpointKey, Arc<(i64, String, bool, bool)>>,
+    endpoint_cache: Cache<EndpointKey, Arc<(i64, String, bool)>>,
     version_endpoints_cache: Cache<i64, Arc<Vec<EndpointRecord>>>,
     spec_content_cache: Cache<i64, Arc<String>>,
     report_cache: Cache<String, Arc<DependencyReport>>,
@@ -92,7 +92,7 @@ impl CachedSpecRepository {
         // Spec data caches (60%)
         let endpoint_cache = Cache::builder()
             .max_capacity(spec_budget / 3)
-            .weigher(|_k: &EndpointKey, v: &Arc<(i64, String, bool, bool)>| (v.1.len() + 80) as u32)
+            .weigher(|_k: &EndpointKey, v: &Arc<(i64, String, bool)>| (v.1.len() + 80) as u32)
             .build();
 
         let version_endpoints_cache = Cache::builder()
@@ -506,7 +506,7 @@ impl SpecRepository for CachedSpecRepository {
         api_type: ApiType,
         path: &str,
         method: &str,
-    ) -> Result<Option<(i64, String, bool, bool)>, RepositoryError> {
+    ) -> Result<Option<(i64, String, bool)>, RepositoryError> {
         // Keyed by the normalized path, so lenient path variants of the same
         // endpoint share one entry — mirroring how the repository matches.
         let key = (
@@ -519,7 +519,7 @@ impl SpecRepository for CachedSpecRepository {
             && let Some(cached) = self.endpoint_cache.get(&key).await
         {
             self.record_hit();
-            return Ok(Some((cached.0, cached.1.clone(), cached.2, cached.3)));
+            return Ok(Some((cached.0, cached.1.clone(), cached.2)));
         }
         self.record_miss();
         let result = self
@@ -560,7 +560,7 @@ impl SpecRepository for CachedSpecRepository {
                 self.record_hit();
                 result.insert(
                     (path.clone(), method.clone()),
-                    (cached.0, cached.1.clone(), cached.2, cached.3),
+                    (cached.0, cached.1.clone(), cached.2),
                 );
             } else {
                 misses.push((path.clone(), method.clone()));
@@ -1167,7 +1167,6 @@ mod tests {
             method: method.to_string(),
             yaml_content: yaml.to_string(),
             deprecated: false,
-            external: false,
         }
     }
 

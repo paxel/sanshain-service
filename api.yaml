@@ -443,6 +443,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
 
+  /validate:
+    post:
+      operationId: validateSpec
+      summary: Validate a specification without publishing anything
+      description: |
+        The free validator: runs exactly the provide-side pipeline — version
+        extraction (strict `MAJOR.MINOR.PATCH`) and endpoint splitting — with
+        no persistence and no producer context. **Unauthenticated** and
+        stateless; bounded by the request body-size limit. Always answers
+        `200` with a verdict, so callers parse one shape. "Valid here" means
+        "a Provide of this document parses there" — the version-line rules
+        (GA immutability, semver honesty) additionally apply on a real
+        Provide.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [api_type, content]
+              properties:
+                api_type:
+                  type: string
+                  enum: [openapi, asyncapi, proto]
+                content:
+                  type: string
+                  description: The full specification document.
+      responses:
+        "200":
+          description: The verdict.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationReport"
+        "413":
+          description: Request body exceeds the configured size limit.
+
   /version:
     get:
       operationId: getVersion
@@ -614,6 +651,31 @@ components:
         dry_run:
           type: boolean
           default: false
+
+    ValidationReport:
+      type: object
+      required: [valid, api_type]
+      properties:
+        valid:
+          type: boolean
+        api_type:
+          type: string
+          enum: [openapi, asyncapi, proto]
+        version:
+          type: string
+          description: The version the document declares, when parseable.
+        endpoint_count:
+          type: integer
+          description: How many endpoints/channels/RPCs the split found.
+        endpoints:
+          type: array
+          items: { type: string }
+          description: |
+            Preview of the first entries the split would store, as
+            "METHOD path" strings (at most 20).
+        error:
+          type: string
+          description: Why the document is invalid; absent when valid.
 
     ProducerVersionInfo:
       type: object

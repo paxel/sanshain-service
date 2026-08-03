@@ -216,7 +216,7 @@ impl SpecRepository for PostgresSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         for endpoint in &params.endpoints {
             sqlx::query(
-                "INSERT INTO endpoints (spec_version_id, api_type, path, normalized_path, method, yaml_content, deprecated, external) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                "INSERT INTO endpoints (spec_version_id, api_type, path, normalized_path, method, yaml_content, deprecated) VALUES ($1, $2, $3, $4, $5, $6, $7)",
             )
             .bind(id)
             .bind(endpoint.api_type.as_str())
@@ -225,7 +225,6 @@ impl SpecRepository for PostgresSpecRepository {
             .bind(&endpoint.method)
             .bind(&endpoint.yaml_content)
             .bind(endpoint.deprecated)
-            .bind(endpoint.external)
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -457,10 +456,10 @@ impl SpecRepository for PostgresSpecRepository {
         &self,
         spec_version_id: i64,
     ) -> Result<Vec<EndpointRecord>, RepositoryError> {
-        type EndpointRow = (i64, String, String, String, String, String, bool, bool);
+        type EndpointRow = (i64, String, String, String, String, String, bool);
         let rows: Vec<EndpointRow> = sqlx::query_as(
             "SELECT e.id, e.api_type, e.path, e.normalized_path, e.method, e.yaml_content, \
-             e.deprecated, e.external \
+             e.deprecated \
              FROM endpoints e \
              WHERE e.spec_version_id = $1",
         )
@@ -472,16 +471,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(
-                    id,
-                    api_type,
-                    path,
-                    normalized_path,
-                    method,
-                    yaml_content,
-                    deprecated,
-                    external,
-                )| {
+                |(id, api_type, path, normalized_path, method, yaml_content, deprecated)| {
                     EndpointRecord {
                         id: Some(id),
                         api_type: ApiType::from_str(&api_type).unwrap_or_default(),
@@ -490,7 +480,6 @@ impl SpecRepository for PostgresSpecRepository {
                         method,
                         yaml_content,
                         deprecated,
-                        external,
                     }
                 },
             )
@@ -519,11 +508,11 @@ impl SpecRepository for PostgresSpecRepository {
         api_type: ApiType,
         path: &str,
         method: &str,
-    ) -> Result<Option<(i64, String, bool, bool)>, RepositoryError> {
+    ) -> Result<Option<(i64, String, bool)>, RepositoryError> {
         let normalized_path = crate::openapi::normalize_path(path);
-        let row: Option<(i64, String, bool, bool)> = sqlx::query_as(
+        let row: Option<(i64, String, bool)> = sqlx::query_as(
             r#"
-            SELECT e.id, e.yaml_content, e.deprecated, e.external
+            SELECT e.id, e.yaml_content, e.deprecated
             FROM endpoints e
             WHERE e.spec_version_id = $1 AND e.api_type = $2 AND e.normalized_path = $3 AND e.method = $4
             "#,
@@ -553,7 +542,7 @@ impl SpecRepository for PostgresSpecRepository {
 
         let mut query_builder = sqlx::QueryBuilder::new(
             r#"
-            SELECT e.id, e.path, e.normalized_path, e.method, e.yaml_content, e.deprecated, e.external
+            SELECT e.id, e.path, e.normalized_path, e.method, e.yaml_content, e.deprecated
             FROM endpoints e
             WHERE e.spec_version_id = "#,
         );
@@ -574,7 +563,7 @@ impl SpecRepository for PostgresSpecRepository {
         }
         query_builder.push(")");
 
-        type BulkRow = (i64, String, String, String, String, bool, bool);
+        type BulkRow = (i64, String, String, String, String, bool);
         let rows: Vec<BulkRow> = query_builder
             .build_query_as()
             .fetch_all(&self.pool)
@@ -583,13 +572,11 @@ impl SpecRepository for PostgresSpecRepository {
 
         // Key the result by what the caller *asked for*, matched via the
         // normalized path, so lenient path matching works for bundles too.
-        let mut by_normalized: HashMap<(String, String), (i64, String, bool, bool)> = rows
+        let mut by_normalized: HashMap<(String, String), (i64, String, bool)> = rows
             .into_iter()
-            .map(
-                |(id, _path, normalized, method, yaml, deprecated, external)| {
-                    ((normalized, method), (id, yaml, deprecated, external))
-                },
-            )
+            .map(|(id, _path, normalized, method, yaml, deprecated)| {
+                ((normalized, method), (id, yaml, deprecated))
+            })
             .collect();
         for (path, method) in endpoints {
             let normalized = crate::openapi::normalize_path(path);
@@ -1054,11 +1041,10 @@ impl SpecRepository for PostgresSpecRepository {
             String,
             Option<String>,
             bool,
-            bool,
         );
         let rows: Vec<ClientEndpointRow> = sqlx::query_as(
             "SELECT d.api_type, s.name, v.major, v.minor, v.patch, v.stability, d.path, d.method, e.yaml_content, \
-             COALESCE(e.deprecated, FALSE), COALESCE(e.external, FALSE) \
+             COALESCE(e.deprecated, FALSE) \
              FROM dependencies d \
              JOIN clients c ON d.client_id = c.id \
              JOIN spec_versions v ON d.spec_version_id = v.id \
@@ -1085,7 +1071,6 @@ impl SpecRepository for PostgresSpecRepository {
                     method,
                     yaml_content,
                     deprecated,
-                    external,
                 )| {
                     Ok(ConsumerEndpointInfo {
                         api_type: ApiType::from_str(&api_type).unwrap_or_default(),
@@ -1098,7 +1083,6 @@ impl SpecRepository for PostgresSpecRepository {
                         method,
                         yaml_content,
                         deprecated,
-                        external,
                     })
                 },
             )

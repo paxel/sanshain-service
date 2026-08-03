@@ -1177,9 +1177,6 @@ function renderCustomGraph(report, svgElement, direction) {
             const deprecatedBadge = d.deprecated
               ? '<span class="px-1 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[9px] font-bold ml-1">DEPRECATED</span>'
               : "";
-            const externalBadge = d.external
-              ? '<span class="px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold ml-1">EXTERNAL</span>'
-              : "";
 
             return `
             <a href="${url}" class="group block p-1.5 rounded bg-white/5 hover:bg-indigo-500/20 border border-transparent hover:border-indigo-500/30 transition-all">
@@ -1187,7 +1184,6 @@ function renderCustomGraph(report, svgElement, direction) {
                 <div class="flex items-center gap-1">
                   <span class="font-mono text-[11px] ${methodClass} font-bold">${_graphEscapeHtml(method)}</span>
                   ${deprecatedBadge}
-                  ${externalBadge}
                 </div>
                 <span class="text-[10px] text-slate-500 group-hover:text-indigo-300 transition-colors">${_graphEscapeHtml(type)} ${_graphEscapeHtml(String(d.version || ""))}${d.stability === "snapshot" ? ' <span class="text-amber-400 font-bold">SNAP</span>' : ""}</span>
               </div>

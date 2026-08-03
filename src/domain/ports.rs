@@ -60,7 +60,7 @@ pub struct RecordDependencyParams<'a> {
     pub method: &'a str,
 }
 
-pub type EndpointDetails = (i64, String, bool, bool);
+pub type EndpointDetails = (i64, String, bool);
 pub type EndpointMap = HashMap<(String, String), EndpointDetails>;
 
 /// Everything one successful Provide persists, atomically: the version-line
@@ -195,14 +195,14 @@ pub trait SpecRepository: Send + Sync {
 
     /// Find an endpoint of a version-line entry by path and method (lenient
     /// path matching via the normalized path). Returns
-    /// (endpoint_id, yaml_content, deprecated, external).
+    /// (endpoint_id, yaml_content, deprecated).
     fn find_endpoint(
         &self,
         spec_version_id: i64,
         api_type: ApiType,
         path: &str,
         method: &str,
-    ) -> impl Future<Output = Result<Option<(i64, String, bool, bool)>, RepositoryError>> + Send;
+    ) -> impl Future<Output = Result<Option<(i64, String, bool)>, RepositoryError>> + Send;
 
     /// Find multiple endpoints of a version-line entry by path and method.
     /// Returns a map of (path, method) to (endpoint_id, yaml_content).

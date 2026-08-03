@@ -129,7 +129,7 @@ impl SpecRepository for DatabaseRepo {
         api_type: ApiType,
         path: &str,
         method: &str,
-    ) -> Result<Option<(i64, String, bool, bool)>, RepositoryError> {
+    ) -> Result<Option<(i64, String, bool)>, RepositoryError> {
         delegate!(self, find_endpoint(spec_version_id, api_type, path, method))
     }
 

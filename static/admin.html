@@ -324,20 +324,38 @@
                 <div id="maintainers-list" class="space-y-2"></div>
             </section>
 
-            <!-- Manual Service Addition -->
-            <section class="bg-white rounded-xl border border-indigo-300 shadow-sm p-6">
+            <!-- Paste-a-spec Producer Creation -->
+            <section id="paste-spec-section" class="bg-white rounded-xl border border-indigo-300 shadow-sm p-6 hidden">
                 <div class="mb-4">
-                    <h2 class="text-lg font-semibold text-indigo-700">Add Manual / External Producer</h2>
-                    <p class="text-sm text-slate-500 mt-1">Register a new service manually. You can then add endpoints and specs to it.</p>
+                    <h2 class="text-lg font-semibold text-indigo-700">Provide a Spec for a Producer</h2>
+                    <p class="text-sm text-slate-500 mt-1">Paste a complete specification to publish it under the version it declares — the same rules as any client. A Producer that does not exist yet is created by its first provide.</p>
                 </div>
-                <div class="flex items-center space-x-3">
-                    <input type="text" id="manual-service-name" placeholder="e.g. external-api"
-                        class="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                    <input type="text" id="paste-spec-name" placeholder="Producer name, e.g. external-api"
+                        class="px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         autocomplete="off">
-                    <button onclick="addManualService()"
-                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm transition-colors font-medium whitespace-nowrap">Add Producer</button>
+                    <select id="paste-spec-type"
+                        class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="openapi">OpenAPI</option>
+                        <option value="asyncapi">AsyncAPI</option>
+                        <option value="proto">Proto / gRPC</option>
+                    </select>
+                    <label class="flex items-center gap-2 text-sm text-slate-700 px-1">
+                        <input type="checkbox" id="paste-spec-ga" class="rounded border-slate-300">
+                        <span>Publish as <span class="font-semibold">GA</span></span>
+                    </label>
                 </div>
-                <div id="manual-service-result" class="mt-3 hidden text-sm"></div>
+                <p id="paste-spec-ga-warning" class="hidden text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">GA is immutable — the version number is claimed forever. Unchecked, this publishes an overwritable snapshot.</p>
+                <textarea id="paste-spec-content" rows="10" spellcheck="false"
+                    placeholder="Paste the full spec here. The version comes from the document itself (info.version, or a // sanshain-version: comment for proto)."
+                    class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                <div class="flex items-center gap-3 mt-3">
+                    <button onclick="pasteSpecSubmit(true)"
+                        class="border border-indigo-600 text-indigo-700 hover:bg-indigo-50 px-4 py-2 rounded-lg text-sm transition-colors font-medium">Validate (dry run)</button>
+                    <button onclick="pasteSpecSubmit(false)"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm transition-colors font-medium">Publish</button>
+                </div>
+                <div id="paste-spec-result" class="mt-3 hidden text-sm"></div>
             </section>
 
             <!-- Services -->
@@ -514,6 +532,11 @@
                     }
                     await renderBanner(data);
                     showDashboard();
+                    // Providing from the browser is a Producer-administration
+                    // act; the form is shown to those who may do it.
+                    if (hasPermission(data, 'manage_producers')) {
+                        document.getElementById('paste-spec-section').classList.remove('hidden');
+                    }
                 } else {
                     window.location.href = '/account.html';
                 }
@@ -1039,40 +1062,58 @@
             } catch (_) {}
         }
 
-        // --- Manual Service Addition ---
-        async function addManualService() {
-            const name = document.getElementById('manual-service-name').value.trim();
-            if (!name) return;
-            const resultEl = document.getElementById('manual-service-result');
+        // --- Paste-a-spec Producer Creation ---
+        // The same /provide* endpoints every client uses: no placeholder
+        // content, no side door. The signed-in admin is the authenticated
+        // Actor, so attribution lands on their name.
+        document.getElementById('paste-spec-ga').addEventListener('change', (e) => {
+            document.getElementById('paste-spec-ga-warning').classList.toggle('hidden', !e.target.checked);
+        });
+
+        async function pasteSpecSubmit(dryRun) {
+            const name = document.getElementById('paste-spec-name').value.trim();
+            const apiType = document.getElementById('paste-spec-type').value;
+            const content = document.getElementById('paste-spec-content').value;
+            const ga = document.getElementById('paste-spec-ga').checked;
+            const resultEl = document.getElementById('paste-spec-result');
+            const show = (cls, text) => {
+                resultEl.classList.remove('hidden');
+                resultEl.className = 'mt-3 text-sm ' + cls;
+                resultEl.textContent = text;
+            };
+            if (!name) { show('text-red-600', 'Producer name is required.'); return; }
+            if (!content.trim()) { show('text-red-600', 'Paste a specification first.'); return; }
+
+            const route = apiType === 'asyncapi' ? '/provide/asyncapi'
+                : apiType === 'proto' ? '/provide/grpc' : '/provide';
+            const field = apiType === 'asyncapi' ? 'asyncapi_yaml'
+                : apiType === 'proto' ? 'proto_content' : 'openapi_yaml';
+            const body = {
+                producername: name,
+                stability: ga ? 'ga' : 'snapshot',
+                dry_run: dryRun,
+            };
+            body[field] = content;
+
             try {
-                // Using the provide endpoint with a minimal spec to create the
-                // service. The version comes from the spec itself
-                // (info.version); declared as a snapshot so it stays
-                // overwritable by the first real provide.
-                const res = await apiCall('/provide', {
-                    method: 'POST',
-                    body: {
-                        producername: name,
-                        stability: 'snapshot',
-                        openapi_yaml: 'openapi: 3.0.0\ninfo:\n  title: Manual Service\n  version: 0.1.0\npaths:\n  /_manual_init:\n    get:\n      responses:\n        "200":\n          description: OK'
-                    },
-                });
+                const res = await apiCall(route, { method: 'POST', body });
                 if (res.ok) {
-                    resultEl.classList.remove('hidden');
-                    resultEl.className = 'mt-3 text-sm text-green-600';
-                    resultEl.textContent = `✓ Service "${name}" created successfully`;
-                    document.getElementById('manual-service-name').value = '';
-                    loadServices();
+                    const data = await res.json();
+                    const c = data.changes || {};
+                    show('text-green-600',
+                        `${dryRun ? '✓ Valid — would publish' : '✓ Published'} ${name} ` +
+                        `${data.version} as ${data.stability} ` +
+                        `(+${c.inserts ?? 0} ~${c.updates ?? 0} -${c.deletes ?? 0})`);
+                    if (!dryRun) {
+                        document.getElementById('paste-spec-content').value = '';
+                        loadServices();
+                    }
                 } else {
-                    const err = await errorMessage(res);
-                    resultEl.classList.remove('hidden');
-                    resultEl.className = 'mt-3 text-sm text-red-600';
-                    resultEl.textContent = 'Failed to create service: ' + err;
+                    const msg = await errorMessage(res);
+                    show('text-red-600', (dryRun ? 'Rejected (dry run): ' : 'Rejected: ') + msg);
                 }
             } catch (e) {
-                resultEl.classList.remove('hidden');
-                resultEl.className = 'mt-3 text-sm text-red-600';
-                resultEl.textContent = 'Error: ' + e.message;
+                show('text-red-600', 'Error: ' + e.message);
             }
         }
 

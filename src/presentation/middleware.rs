@@ -449,6 +449,11 @@ pub async fn validate_csrf(
     if path == "/auth/login" || path == "/auth/register" {
         return Ok(next.run(req).await);
     }
+    // The public validator is stateless and anonymous: there is no session to
+    // ride and no state to change, so there is nothing for CSRF to protect.
+    if path == "/validate" {
+        return Ok(next.run(req).await);
+    }
 
     let csrf_header = req
         .headers()

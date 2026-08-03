@@ -401,7 +401,7 @@ impl SpecRepository for MockRepo {
         api_type: ApiType,
         path: &str,
         method: &str,
-    ) -> Result<Option<(i64, String, bool, bool)>, RepositoryError> {
+    ) -> Result<Option<(i64, String, bool)>, RepositoryError> {
         let normalized_path = crate::openapi::normalize_path(path);
         let versions = self
             .spec_versions
@@ -422,7 +422,6 @@ impl SpecRepository for MockRepo {
                     e.id.unwrap_or_default(),
                     e.yaml_content.clone(),
                     e.deprecated,
-                    e.external,
                 )
             }))
     }
@@ -454,7 +453,6 @@ impl SpecRepository for MockRepo {
                         found.id.unwrap_or_default(),
                         found.yaml_content.clone(),
                         found.deprecated,
-                        found.external,
                     ),
                 );
             }
@@ -777,7 +775,6 @@ impl SpecRepository for MockRepo {
                 method: dep.method.clone(),
                 yaml_content: endpoint.map(|e| e.yaml_content.clone()),
                 deprecated: endpoint.map(|e| e.deprecated).unwrap_or(false),
-                external: endpoint.map(|e| e.external).unwrap_or(false),
             });
         }
         result.sort_by(|a, b| {

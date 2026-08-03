@@ -442,7 +442,6 @@ pub async fn provide_spec(
                 method: e.method,
                 yaml_content: e.yaml_content,
                 deprecated: e.deprecated,
-                external: false,
             })
             .collect(),
     };
@@ -696,7 +695,6 @@ fn method_for(api_type: ApiType, method: &str) -> String {
 pub struct RequireResponse {
     pub yaml: String,
     pub deprecated: bool,
-    pub external: bool,
     /// How this was resolved, surfaced to Consumers as `X-Sanshain-Resolution`.
     pub state: ResolutionState,
     /// The version that served the request — always the Pin.
@@ -736,7 +734,7 @@ async fn require_endpoint_inner(
     let (_sid, entry) = resolve_pin(repo, producername, api_type, version).await?;
     let method = method_for(api_type, method);
 
-    let Some((_, yaml, deprecated, external)) = repo
+    let Some((_, yaml, deprecated)) = repo
         .find_endpoint(entry.id, api_type, path, &method)
         .await?
     else {
@@ -765,7 +763,6 @@ async fn require_endpoint_inner(
     Ok(RequireResponse {
         yaml,
         deprecated,
-        external,
         state: ResolutionState::Served,
         version,
         stability: entry.stability,
@@ -835,12 +832,10 @@ async fn require_bundle_inner(
     ordered.sort();
     let mut yamls = Vec::with_capacity(ordered.len());
     let mut any_deprecated = false;
-    let mut any_external = false;
     for key in ordered {
-        if let Some((_, yaml, deprecated, external)) = found.get(key) {
+        if let Some((_, yaml, deprecated)) = found.get(key) {
             yamls.push(yaml.clone());
             any_deprecated |= *deprecated;
-            any_external |= *external;
         }
     }
 
@@ -856,7 +851,6 @@ async fn require_bundle_inner(
     Ok(RequireResponse {
         yaml,
         deprecated: any_deprecated,
-        external: any_external,
         state: ResolutionState::Served,
         version,
         stability: entry.stability,
@@ -907,7 +901,6 @@ pub struct EndpointView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub yaml: Option<String>,
     pub deprecated: bool,
-    pub external: bool,
 }
 
 pub async fn get_endpoint_yaml(
@@ -924,7 +917,6 @@ pub async fn get_endpoint_yaml(
         stability: None,
         yaml: None,
         deprecated: false,
-        external: false,
     };
 
     let Some(service_id) = repo.find_service(producername).await? else {
@@ -942,13 +934,12 @@ pub async fn get_endpoint_yaml(
         .find_endpoint(entry.id, api_type, path, &method)
         .await?
     {
-        Some((_, yaml, deprecated, external)) => Ok(EndpointView {
+        Some((_, yaml, deprecated)) => Ok(EndpointView {
             state: ResolutionState::Served,
             version: Some(version),
             stability: Some(entry.stability),
             yaml: Some(yaml),
             deprecated,
-            external,
         }),
         None => Ok(EndpointView {
             state: ResolutionState::Absent,
@@ -956,7 +947,6 @@ pub async fn get_endpoint_yaml(
             stability: Some(entry.stability),
             yaml: None,
             deprecated: false,
-            external: false,
         }),
     }
 }
@@ -1144,6 +1134,70 @@ pub async fn get_provide_timeline(
         .collect())
 }
 
+/// The free validator's verdict: exactly what a Provide of this document
+/// would see, minus persistence. Always a verdict, never an error — a
+/// validator that answers invalid input with HTTP errors makes every caller
+/// parse two shapes.
+#[derive(Debug, serde::Serialize)]
+pub struct ValidationReport {
+    pub valid: bool,
+    pub api_type: ApiType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<SemVer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint_count: Option<usize>,
+    /// The first entries of the split preview ("METHOD path"), so the caller
+    /// sees what Sanshain would store.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub endpoints: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// How many split entries the validator previews.
+const VALIDATE_PREVIEW_LIMIT: usize = 20;
+
+/// Validate a pasted document against the exact provide-side pipeline:
+/// version extraction (strict semver) and splitting. No producer context, no
+/// version-line rules — those need a Provide.
+pub fn validate_spec(api_type: ApiType, content: &str) -> ValidationReport {
+    let version_result = match api_type {
+        ApiType::OpenApi | ApiType::AsyncApi => openapi::extract_info_version(content),
+        ApiType::Proto => crate::proto::extract_sanshain_version(content),
+    };
+    let split_result = parse_spec_endpoints(api_type, content, "validator");
+
+    let (endpoint_count, endpoints) = match &split_result {
+        Ok(split) => (
+            Some(split.len()),
+            split
+                .iter()
+                .take(VALIDATE_PREVIEW_LIMIT)
+                .map(|e| format!("{} {}", e.method, e.path))
+                .collect(),
+        ),
+        Err(_) => (None, Vec::new()),
+    };
+
+    // The version error leads: it is the mistake people actually make, and
+    // the split preview still renders when only the version is wrong.
+    let error = match (&version_result, &split_result) {
+        (Err(e), _) => Some(e.clone()),
+        (_, Err(AppError::BadRequest(e))) => Some(e.clone()),
+        (_, Err(e)) => Some(e.to_string()),
+        _ => None,
+    };
+
+    ValidationReport {
+        valid: error.is_none(),
+        api_type,
+        version: version_result.ok(),
+        endpoint_count,
+        endpoints,
+        error,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1203,7 +1257,6 @@ mod tests {
                 method: "GET".into(),
                 yaml_content: "a".into(),
                 deprecated: false,
-                external: false,
             },
             EndpointRecord {
                 id: None,
@@ -1213,7 +1266,6 @@ mod tests {
                 method: "GET".into(),
                 yaml_content: "b".into(),
                 deprecated: false,
-                external: false,
             },
         ];
         let new = vec![

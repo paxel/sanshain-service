@@ -60,7 +60,6 @@ CREATE TABLE endpoints (
     method TEXT NOT NULL,
     yaml_content TEXT NOT NULL,
     deprecated BOOLEAN NOT NULL DEFAULT FALSE,
-    external BOOLEAN NOT NULL DEFAULT FALSE,
     UNIQUE (spec_version_id, api_type, path, method),
     FOREIGN KEY (spec_version_id) REFERENCES spec_versions(id) ON DELETE CASCADE
 );

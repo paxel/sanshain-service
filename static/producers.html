@@ -513,7 +513,7 @@
                 report = await fetchJSON('/report');
             } catch (_) {}
 
-            const uniqueEndpoints = (providedEndpoints || []).map(e => ({ api_type: e.api_type, path: e.path, method: e.method, service: serviceName, deprecated: e.deprecated, external: e.external }));
+            const uniqueEndpoints = (providedEndpoints || []).map(e => ({ api_type: e.api_type, path: e.path, method: e.method, service: serviceName, deprecated: e.deprecated }));
 
             // Dependencies recorded against exactly this Pin of this line.
             const versionDeps = report.dependency_graph.filter(e =>
@@ -572,7 +572,6 @@
                             </span>
                             <span class="font-mono text-sm text-slate-700">${escapeHtml(ep.path)}</span>
                             ${ep.deprecated ? '<span class="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">deprecated</span>' : ''}
-                            ${ep.external ? '<span class="text-[10px] text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">external</span>' : ''}
                         </div>
                         <div class="flex items-center">
                             ${isUnused

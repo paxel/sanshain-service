@@ -26,6 +26,8 @@ inheritance, not by fallback, not by someone else's push.
 - **Promotion.** Publishing GA for a number that exists as a snapshot releases it in place — iterate on a snapshot, then promote the same version.
 - **Snapshots clean themselves up.** A snapshot neither provided nor required for `snapshot_max_age_days` (default 30, `0` disables) is removed; GA versions are never touched, and anything a Consumer still builds against stays.
 - `GET /producers/{producername}/versions`: every version of a Producer with stability, endpoint count, last provider and snapshot expiry — the "what can I upgrade to?" answer.
+- `POST /validate`: a free, unauthenticated spec validator on the landing page — paste an OpenAPI, AsyncAPI or Protobuf document and get exactly the verdict a publish would produce (strict version check, parse, and a preview of the endpoints Sanshain would store). Stateless; nothing is saved.
+- The admin dashboard's producer creation is now paste-a-spec: name, API type, the full document and a GA toggle go through the same `/provide*` endpoints as any client, with a dry-run Validate button. Previously (1.7.0) manual creation fabricated a placeholder API.
 - **Delete-version** for administrators and maintainers: the one escape hatch from GA immutability. The Consumers pinned to the version are shown before you confirm and named in the audit log.
 - **The dashboard thinks in versions.** Producers show one timeline per API type with GA/SNAPSHOT badges, diff between any two versions, and per-endpoint blame ("last changed in 1.3.0 by …"); Consumers show their pins, cross-linked; the graph highlights **Outdated** (pinned below the latest GA) and **Snapshot-pinned** dependencies with independent toggles.
 - `maintenance.yaml`: the `/admin/*` surface has its own OpenAPI contract naming the permission each endpoint requires, kept in sync with the router by build-time checks.
@@ -45,6 +47,7 @@ inheritance, not by fallback, not by someone else's push.
 - `base_version` optimistic concurrency and require long-polling: GA immutability is the concurrency control, and a missing pinned version is a configuration error that fails immediately.
 - Manual endpoint editing: stored content is immutable; the way out is delete-version and a republish.
 - The pre-1.6 wire aliases `servicename`/`clientname`: only the canonical `producername`/`consumername` are accepted, and the aliases are rejected as unknown fields.
+- The `external` endpoint flag: nothing could set it anymore, and provenance is carried by the version's `provided_by` attribution (an admin's name vs. a CI token) instead of a marker.
 
 ### Fixed
 - A directory user's privileges now follow their directory groups. Previously (1.7.0) membership was read once at first login and never refreshed, so a promotion or demotion in the directory never took effect; it is now re-read and cached for `SANSHAIN_DIRECTORY_GROUP_TTL_SECS` (default 5 minutes).

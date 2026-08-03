@@ -449,8 +449,6 @@ pub struct EndpointRecord {
     pub yaml_content: String,
     #[serde(default)]
     pub deprecated: bool,
-    #[serde(default)]
-    pub external: bool,
 }
 
 /// How a request for an endpoint at a Pin was answered.
@@ -498,7 +496,6 @@ pub struct ResolvedEndpoint {
     pub id: i64,
     pub yaml_content: String,
     pub deprecated: bool,
-    pub external: bool,
 }
 
 /// The outcome of resolving one endpoint against one Pin.
@@ -612,8 +609,6 @@ pub struct ConsumerEndpointInfo {
     pub yaml_content: Option<String>,
     #[serde(default)]
     pub deprecated: bool,
-    #[serde(default)]
-    pub external: bool,
 }
 
 /// One version-line entry as listed on a Producer, UI- and wire-facing.

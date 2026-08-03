@@ -529,6 +529,20 @@ pub async fn audit_timeline(
     Ok(Json(res))
 }
 
+/// The free, unauthenticated spec validator behind the landing page: runs
+/// exactly the provide-side pipeline (version extraction, splitting) with no
+/// persistence and no producer context. Always answers 200 with a verdict.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ValidateRequest {
+    pub api_type: ApiType,
+    pub content: String,
+}
+
+pub async fn validate(Json(payload): Json<ValidateRequest>) -> impl IntoResponse {
+    Json(services::validate_spec(payload.api_type, &payload.content))
+}
+
 pub async fn sse_updates(
     State(state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {

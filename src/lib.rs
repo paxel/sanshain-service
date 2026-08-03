@@ -80,6 +80,9 @@ pub fn create_app(state: AppState) -> Router {
         .route("/report/markdown", get(api::report_markdown).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/report/isolation", get(api::report_isolation).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/producers/{producername}/versions", get(api::producer_versions).layer(from_fn_with_state(state.clone(), api_auth)))
+        // Deliberately unauthenticated: the free validator is stateless,
+        // touches no data, and is bounded by the body-size limit.
+        .route("/validate", post(api::validate))
         .route("/endpoint-versions", get(api::endpoint_versions).layer(from_fn_with_state(state.clone(), api_auth)))
         // The audit trail records the Actor behind every change, across every
         // Producer, so it needs `ViewAudit`. `permission_auth` validates sessions
