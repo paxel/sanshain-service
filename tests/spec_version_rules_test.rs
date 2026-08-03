@@ -986,3 +986,79 @@ async fn validator_rejects_unknown_shapes_but_stores_nothing() {
         .unwrap();
     assert_eq!(count.0, 0, "validation must never persist anything");
 }
+
+// ---------------------------------------------------------------------------
+// VERSION_REJECTED: rejections are self-service but counted.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_version_rule_rejection_is_audited_as_version_rejected() {
+    let ctx = setup().await;
+    provide(&ctx, "svc", "ga", &spec_users_only("1.0.0")).await;
+
+    // Forgot-to-bump: same GA number, different content.
+    let (status, _, _) = send(
+        &ctx,
+        "POST",
+        "/provide",
+        Some(serde_json::json!({
+            "producername": "svc",
+            "stability": "ga",
+            "openapi_yaml": spec_users_only("1.0.0").replace("/users", "/changed"),
+        })),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    let row: (String, String, String, String) = sqlx::query_as(
+        "SELECT username, details, version, action_type FROM audit_logs WHERE action = 'VERSION_REJECTED'",
+    )
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("the rejection must be audited");
+    assert_eq!(row.0, "root", "the audit names the authenticated Actor");
+    assert!(
+        row.1.contains("immutable"),
+        "details carry the reason: {}",
+        row.1
+    );
+    assert_eq!(row.2, "1.0.0");
+    assert_eq!(
+        row.3, "REJECT",
+        "the timeline's Rejected filter must catch it"
+    );
+}
+
+#[tokio::test]
+async fn a_dry_run_rejection_is_previewed_but_not_audited() {
+    let ctx = setup().await;
+    provide(&ctx, "svc", "ga", &spec_users_only("1.0.0")).await;
+
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/provide",
+        Some(serde_json::json!({
+            "producername": "svc",
+            "stability": "ga",
+            "dry_run": true,
+            "openapi_yaml": spec_users_only("1.0.0").replace("/users", "/changed"),
+        })),
+        &[],
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "the preview still answers 409"
+    );
+    assert!(body.contains("proposed_version"));
+
+    let count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM audit_logs WHERE action = 'VERSION_REJECTED'")
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(count.0, 0, "a dry run is a preview and records nothing");
+}

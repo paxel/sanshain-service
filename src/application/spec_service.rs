@@ -245,6 +245,52 @@ fn ga_baseline(line: &[SpecVersionMeta], below: SemVer) -> Option<SpecVersionMet
         .cloned()
 }
 
+/// A version-rule rejection is self-service, but it is also a signal worth
+/// counting: the audit gets a `VERSION_REJECTED` entry and the Prometheus
+/// exposition a `sanshain_version_rejected_total` counter. Dry runs are
+/// previews and record neither. Best-effort — a failed audit write must not
+/// turn a clean 409 into a 500.
+async fn record_version_rejection(
+    repo: &impl SpecRepository,
+    dry_run: bool,
+    username: Option<&str>,
+    producername: &str,
+    version: SemVer,
+    reason: &'static str,
+    message: &str,
+) {
+    if dry_run {
+        return;
+    }
+    metrics::counter!(
+        "sanshain_version_rejected_total",
+        "reason" => reason,
+        "producer" => producername.to_string()
+    )
+    .increment(1);
+    let actor = username.unwrap_or("DevMode/Anonymous");
+    if let Err(e) = repo
+        .insert_audit_log(
+            actor,
+            NewAuditLog {
+                action: "VERSION_REJECTED",
+                details: message,
+                service: Some(producername),
+                version: Some(&version.to_string()),
+                action_type: Some("REJECT"),
+                diff: None,
+            },
+        )
+        .await
+    {
+        tracing::warn!(
+            service = producername,
+            "Could not record the version rejection in the audit log: {}",
+            e
+        );
+    }
+}
+
 #[instrument(skip_all)]
 pub async fn provide_spec(
     repo: &impl SpecRepository,
@@ -344,6 +390,21 @@ pub async fn provide_spec(
                     proposed
                 )
             };
+            let reason = if stability == Stability::Ga {
+                "immutable_ga"
+            } else {
+                "snapshot_on_ga"
+            };
+            record_version_rejection(
+                repo,
+                dry_run,
+                username,
+                producername,
+                version,
+                reason,
+                &message,
+            )
+            .await;
             return Err(AppError::VersionConflict { message, proposed });
         }
         _ => {}
@@ -359,18 +420,26 @@ pub async fn provide_spec(
         && let Err(reason) = check_compatibility(api_type, &baseline_content, content)
     {
         let proposed = propose_free(&line, SemVer::new(baseline.version.major + 1, 0, 0));
-        return Err(AppError::VersionConflict {
-            message: format!(
-                "version {} of {} '{}' is breaking relative to GA {} but does not bump the major — publish as {} instead: {}",
-                version,
-                api_type.as_str(),
-                producername,
-                baseline.version,
-                proposed,
-                reason
-            ),
+        let message = format!(
+            "version {} of {} '{}' is breaking relative to GA {} but does not bump the major — publish as {} instead: {}",
+            version,
+            api_type.as_str(),
+            producername,
+            baseline.version,
             proposed,
-        });
+            reason
+        );
+        record_version_rejection(
+            repo,
+            dry_run,
+            username,
+            producername,
+            version,
+            "breaking_without_major",
+            &message,
+        )
+        .await;
+        return Err(AppError::VersionConflict { message, proposed });
     }
 
     // `changes` counts are relative to what this exact version stored before
@@ -466,7 +535,7 @@ pub async fn provide_spec(
                     details: &details,
                     service: Some(producername),
                     version: Some(&version.to_string()),
-                    action_type: Some("PROVIDE"),
+                    action_type: Some("WRITE"),
                     diff: None,
                 },
             )
@@ -503,7 +572,7 @@ pub async fn provide_spec(
                     details: &details,
                     service: Some(producername),
                     version: Some(&version.to_string()),
-                    action_type: Some("PROVIDE"),
+                    action_type: Some("WRITE"),
                     diff: None,
                 },
             )

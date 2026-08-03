@@ -500,7 +500,9 @@
                 // The audited escape hatch from GA immutability — destructive
                 // for any Consumer pinned to the deleted version.
                 actionBadgeColor = 'bg-orange-100 text-orange-700';
-            } else if (log.action === 'PROVIDE_SPEC') {
+            } else if (log.action === 'VERSION_REJECTED') {
+                actionBadgeColor = 'bg-rose-100 text-rose-700';
+            } else if (log.action === 'PROVIDE_SPEC' || log.action === 'VERSION_PROMOTED') {
                 actionBadgeColor = 'bg-green-100 text-green-700';
             } else if (log.action === 'UPDATE_SETTINGS' || log.action === 'SET_DEV_MODE' || log.action === 'SET_LOCAL_USERS' || log.action === 'SET_AUTO_APPROVE') {
                 actionBadgeColor = 'bg-amber-100 text-amber-700';

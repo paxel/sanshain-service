@@ -2974,6 +2974,7 @@ dependencies = [
  "hex",
  "indexmap 2.14.0",
  "ldap3",
+ "metrics",
  "metrics-exporter-prometheus",
  "moka",
  "openapiv3",
