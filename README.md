@@ -6,6 +6,8 @@
 
 Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and distribute API specifications. **Producers** provide their full API definitions; **Consumers** require only the specific snippets (endpoints, channels, or methods) they actually use at build time. A system is usually both.
 
+![How Sanshain works: Producers publish versioned specs, Sanshain stores them as version lines and splits them into endpoints, Consumers pin exact versions](docs/images/interaction-overview.svg)
+
 ### TL;DR
 - **Centralized Specs**: Unified registry for OpenAPI, AsyncAPI, and gRPC/Proto.
 - **Spec Splitting**: Clients download only the YAML snippets they need, avoiding massive dependency bloat.

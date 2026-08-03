@@ -3,7 +3,7 @@
 ### Going Big (Enterprise & Advanced Scale)
 - [ ] **Top-Layer System Switch**
   - Introduce a system-level isolation switch so that the Sanshain instance can be partitioned and used for entirely separated systems/organizations (e.g., multi-tenancy support).
-- [ ] **User Roles & Groups**
+- [x] **User Roles & Groups** — shipped in 2.0.0; issues #13, #14, #15, #18, #19, #20 closed.
   - Permissions are the unit every authorisation check tests; roles are fixed bundles of them,
     defined in Rust rather than composed by operators. Fixed bundles are what allow a build-time
     check to reason about who can reach a route.
@@ -16,7 +16,7 @@
     on a short cache TTL, so a group change takes effect without the user logging out. Sanshain's
     own membership is read live.
   - Tracked as GitHub issues #13, #14, #15, #18, #19, #20.
-- [ ] **Administrative/Maintenance Roles**
+- [x] **Administrative/Maintenance Roles** — shipped in 2.0.0; issues #16, #17, #24 closed.
   - Separate the two mechanisms rather than flattening them into one role list. `admin`,
     `user_manager` and `viewer` are instance-wide. **Maintainer** is not a role but a scope: an
     assignment of a user or group to a set of Producers, meaningless without them.

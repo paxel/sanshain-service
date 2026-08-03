@@ -222,7 +222,11 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 - Add migration/cleanup dry-run tests against fixtures with stale `service_tags` and stale protocol edges.
 - Run `cargo test`; run JS/UI checks if graph or services UI code changes.
 
-### 8. Make admin spec and endpoint editing discoverable and complete
+### 8. Make admin spec and endpoint editing discoverable and complete — OBSOLETE (2.0.0)
+
+> 2.0.0: manual endpoint editing was removed deliberately — versions are immutable (ADR-0003);
+> `static/edit.html`, `update_endpoint_manual`, and `POST /admin/endpoints/update` no longer exist,
+> only the read-only `/admin/endpoint-yaml` remains (`src/lib.rs`).
 
 > **2.0 note (ADR-0003):** branch/`base_version`/`force`/`/admin/endpoints/update` references
 > below are 1.x; re-verify the current admin surface (`maintenance.yaml`) before implementing.
@@ -277,7 +281,12 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 - Add or update application tests proving the UI route reuses `provide_spec*` behavior and records audit/version history consistently.
 - Run `cargo test`, `npx eslint static/js/` if JavaScript files are changed, and the relevant Playwright/UI checks if available.
 
-### 9. Reconcile README claims with implemented functionality
+### 9. Reconcile README claims with implemented functionality — DONE (2.0.0)
+
+> 2.0.0: README was rewritten for the version-line model — plugins are linked as external
+> ecosystem repos ("Clients & Plugins"), and the contract-safety/multi-protocol claims now hold
+> (`check_compatibility` in `src/application/spec_service.rs` dispatches native compat checks for
+> OpenAPI, AsyncAPI, and Proto).
 
 **Problem:** The README advertises broad features such as client plugins, live graph, auditing, contract safety, and multi-protocol support. Some are present but basic; others depend on external repositories or are partial inside this service.
 
@@ -332,7 +341,11 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 
 ## P1 — Data integrity and operational reliability
 
-### 12. Make spec updates transactional
+### 12. Make spec updates transactional — DONE (2.0.0)
+
+> 2.0.0: `upsert_spec_version` writes the version row and the wholesale endpoint replace in a
+> single `begin()`/`commit()` transaction in both `src/infrastructure/sqlite_repository.rs` and
+> `src/infrastructure/postgres_repository.rs`.
 
 **Problem:** `provide_spec_inner()` performs multiple repository operations: ensure service/branch, tag updates, shared contract updates, endpoint inserts/updates/deletes, version updates, audit entries, and notifications. If one operation fails midway, the database can be left partially updated.
 
@@ -535,10 +548,10 @@ the intended place to investigate refusals in depth.
 1. ~~Message-level AsyncAPI channel contracts (#20).~~ — DONE (1.5.0).
 2. AsyncAPI SUB → requires + drift validation (#6; step 3 drift validation now unblocked by #20).
 3. Protocol removal and stale Kafka/gRPC/OpenAPI cleanup (#7).
-4. Admin spec and endpoint editing workflow (#8).
-5. Transactional spec updates (#12).
+4. ~~Admin spec and endpoint editing workflow (#8).~~ — OBSOLETE (2.0.0).
+5. ~~Transactional spec updates (#12).~~ — DONE (2.0.0).
 6. CSP/static asset hardening (#11).
-7. README reconciliation (#9).
+7. ~~README reconciliation (#9).~~ — DONE (2.0.0).
 8. Operational cleanups and configuration validation (#13–#15).
 9. Module split and architecture checks (#16–#18).
 

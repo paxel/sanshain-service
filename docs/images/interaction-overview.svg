@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" font-family="'Segoe UI', Arial, sans-serif">
+
+  <!-- background -->
+  <rect width="1200" height="620" fill="#fffdf7"/>
+
+  <!-- title -->
+  <text x="600" y="38" text-anchor="middle" font-size="24" font-weight="700" fill="#1f2937">Producers publish versions. Consumers pin them.</text>
+  <text x="600" y="60" text-anchor="middle" font-size="13" fill="#6b7280">Sanshain — one registry for OpenAPI · AsyncAPI · gRPC specs, split into exactly the snippets each build needs</text>
+
+  <!-- ==================== PRODUCER ==================== -->
+  <rect x="30" y="90" width="270" height="360" rx="14" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="165" y="122" text-anchor="middle" font-size="17" font-weight="700" fill="#1d4ed8">PRODUCER</text>
+  <text x="165" y="140" text-anchor="middle" font-size="11" fill="#3b82f6">a service and its CI pipeline</text>
+
+  <!-- spec document card -->
+  <rect x="55" y="155" width="220" height="132" rx="8" fill="#ffffff" stroke="#dbeafe" stroke-width="1.5"/>
+  <rect x="55" y="155" width="220" height="24" rx="8" fill="#dbeafe"/>
+  <text x="67" y="171" font-size="11" font-weight="600" fill="#1e40af" font-family="monospace">openapi.yaml</text>
+  <text x="67" y="197" font-size="11" fill="#374151" font-family="monospace">info:</text>
+  <text x="67" y="213" font-size="11" fill="#374151" font-family="monospace">&#160;&#160;version:</text>
+  <text x="130" y="213" font-size="11" font-weight="700" fill="#1d4ed8" font-family="monospace">1.2.0</text>
+  <text x="67" y="229" font-size="11" fill="#374151" font-family="monospace">paths:</text>
+  <text x="67" y="245" font-size="11" fill="#9ca3af" font-family="monospace">&#160;&#160;/users/{id}: …</text>
+  <text x="67" y="261" font-size="11" fill="#9ca3af" font-family="monospace">&#160;&#160;/orders: …</text>
+  <text x="67" y="278" font-size="10" fill="#6b7280" font-family="monospace">// proto: sanshain-version: 1.2.0</text>
+
+  <!-- stability chips -->
+  <text x="165" y="313" text-anchor="middle" font-size="11.5" font-weight="600" fill="#374151">declares its intent per publish</text>
+  <rect x="55" y="323" width="105" height="26" rx="13" fill="#fef3c7" stroke="#f59e0b"/>
+  <text x="107" y="340" text-anchor="middle" font-size="11.5" font-weight="700" fill="#b45309">snapshot</text>
+  <rect x="170" y="323" width="105" height="26" rx="13" fill="#dcfce7" stroke="#16a34a"/>
+  <text x="222" y="340" text-anchor="middle" font-size="11.5" font-weight="700" fill="#15803d">ga</text>
+  <text x="107" y="366" text-anchor="middle" font-size="10" fill="#92400e">work in progress,</text>
+  <text x="107" y="379" text-anchor="middle" font-size="10" fill="#92400e">overwritable</text>
+  <text x="222" y="366" text-anchor="middle" font-size="10" fill="#166534">released,</text>
+  <text x="222" y="379" text-anchor="middle" font-size="10" fill="#166534">immutable forever</text>
+
+  <text x="165" y="415" text-anchor="middle" font-size="11" fill="#6b7280">The version lives in the spec file —</text>
+  <text x="165" y="430" text-anchor="middle" font-size="11" fill="#6b7280">Sanshain never guesses from branches.</text>
+
+  <!-- ==================== PROVIDE ARROW ==================== -->
+  <line x1="305" y1="205" x2="450" y2="205" stroke="#1d4ed8" stroke-width="2.5"/>
+  <polygon points="450,199 462,205 450,211" fill="#1d4ed8"/>
+  <text x="382" y="192" text-anchor="middle" font-size="13" font-weight="700" fill="#1d4ed8">PROVIDE</text>
+  <text x="382" y="222" text-anchor="middle" font-size="10" fill="#3b82f6">full spec + stability</text>
+
+  <!-- rejection bubble -->
+  <rect x="312" y="242" width="142" height="52" rx="9" fill="#fff1f2" stroke="#fda4af"/>
+  <text x="383" y="260" text-anchor="middle" font-size="10" font-weight="600" fill="#be123c">same number, new content?</text>
+  <text x="383" y="274" text-anchor="middle" font-size="10" fill="#be123c">409 — “publish as 1.3.0”</text>
+  <text x="383" y="287" text-anchor="middle" font-size="9" fill="#e11d48">forgotten bumps can’t slip through</text>
+
+  <!-- ==================== SANSHAIN ==================== -->
+  <rect x="465" y="90" width="270" height="360" rx="14" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+
+  <!-- sun -->
+  <g stroke="#f59e0b" stroke-width="3" stroke-linecap="round">
+    <line x1="600" y1="76" x2="600" y2="66"/>
+    <line x1="576" y1="86" x2="569" y2="79"/>
+    <line x1="624" y1="86" x2="631" y2="79"/>
+    <line x1="566" y1="110" x2="556" y2="110"/>
+    <line x1="634" y1="110" x2="644" y2="110"/>
+  </g>
+  <circle cx="600" cy="110" r="22" fill="#fbbf24" stroke="#f59e0b" stroke-width="2.5"/>
+  <text x="600" y="157" text-anchor="middle" font-size="17" font-weight="700" fill="#b45309">SANSHAIN</text>
+  <text x="600" y="174" text-anchor="middle" font-size="11" fill="#d97706">one version line per producer &amp; API type</text>
+
+  <!-- version timeline -->
+  <line x1="505" y1="196" x2="505" y2="300" stroke="#fcd34d" stroke-width="2.5"/>
+  <circle cx="505" cy="205" r="5" fill="#16a34a"/>
+  <text x="520" y="209" font-size="12" font-family="monospace" fill="#374151">1.0.0</text>
+  <rect x="570" y="195" width="34" height="18" rx="9" fill="#dcfce7" stroke="#16a34a"/>
+  <text x="587" y="208" text-anchor="middle" font-size="10" font-weight="700" fill="#15803d">GA</text>
+
+  <circle cx="505" cy="250" r="5" fill="#16a34a"/>
+  <text x="520" y="254" font-size="12" font-family="monospace" fill="#374151">1.1.0</text>
+  <rect x="570" y="240" width="34" height="18" rx="9" fill="#dcfce7" stroke="#16a34a"/>
+  <text x="587" y="253" text-anchor="middle" font-size="10" font-weight="700" fill="#15803d">GA</text>
+
+  <circle cx="505" cy="295" r="5" fill="#f59e0b"/>
+  <text x="520" y="299" font-size="12" font-family="monospace" fill="#374151">1.2.0</text>
+  <rect x="570" y="285" width="72" height="18" rx="9" fill="#fef3c7" stroke="#f59e0b"/>
+  <text x="606" y="298" text-anchor="middle" font-size="10" font-weight="700" fill="#b45309">SNAPSHOT</text>
+  <text x="650" y="298" font-size="9" fill="#d97706">← promote to GA</text>
+
+  <!-- split into endpoints -->
+  <text x="600" y="333" text-anchor="middle" font-size="11.5" font-weight="600" fill="#374151">every spec is split into endpoints</text>
+  <rect x="481" y="343" width="70" height="20" rx="10" fill="#ffffff" stroke="#fcd34d"/>
+  <text x="516" y="357" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#92400e">GET /users</text>
+  <rect x="558" y="343" width="76" height="20" rx="10" fill="#ffffff" stroke="#fcd34d"/>
+  <text x="596" y="357" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#92400e">POST /orders</text>
+  <rect x="641" y="343" width="78" height="20" rx="10" fill="#ffffff" stroke="#fcd34d"/>
+  <text x="680" y="357" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#92400e">PUB orders.*</text>
+
+  <text x="600" y="393" text-anchor="middle" font-size="11" fill="#6b7280">GA is immutable — a released number is</text>
+  <text x="600" y="408" text-anchor="middle" font-size="11" fill="#6b7280">claimed forever. Snapshots overwrite in place</text>
+  <text x="600" y="423" text-anchor="middle" font-size="11" fill="#6b7280">and expire after 30 days unused.</text>
+
+  <!-- ==================== REQUIRE ARROWS ==================== -->
+  <line x1="893" y1="195" x2="750" y2="195" stroke="#047857" stroke-width="2.5"/>
+  <polygon points="750,189 738,195 750,201" fill="#047857"/>
+  <text x="817" y="182" text-anchor="middle" font-size="13" font-weight="700" fill="#047857">REQUIRE</text>
+  <text x="817" y="211" text-anchor="middle" font-size="10" fill="#059669">exact pin: version 1.1.0</text>
+
+  <line x1="742" y1="240" x2="885" y2="240" stroke="#b45309" stroke-width="2.5"/>
+  <polygon points="885,234 897,240 885,246" fill="#b45309"/>
+  <text x="817" y="257" text-anchor="middle" font-size="10" fill="#b45309">only the snippets it uses</text>
+
+  <!-- failure bubble -->
+  <rect x="747" y="270" width="140" height="40" rx="9" fill="#fff1f2" stroke="#fda4af"/>
+  <text x="817" y="286" text-anchor="middle" font-size="10" font-weight="600" fill="#be123c">no fallback, no waiting:</text>
+  <text x="817" y="300" text-anchor="middle" font-size="10" fill="#be123c">404 unknown · 410 absent</text>
+
+  <!-- ==================== CONSUMER ==================== -->
+  <rect x="900" y="90" width="270" height="360" rx="14" fill="#ecfdf5" stroke="#a7f3d0" stroke-width="1.5"/>
+  <text x="1035" y="122" text-anchor="middle" font-size="17" font-weight="700" fill="#047857">CONSUMER</text>
+  <text x="1035" y="140" text-anchor="middle" font-size="11" fill="#059669">a service that builds against others</text>
+
+  <!-- sanshain.yaml card -->
+  <rect x="925" y="155" width="220" height="132" rx="8" fill="#ffffff" stroke="#d1fae5" stroke-width="1.5"/>
+  <rect x="925" y="155" width="220" height="24" rx="8" fill="#d1fae5"/>
+  <text x="937" y="171" font-size="11" font-weight="600" fill="#065f46" font-family="monospace">sanshain.yaml</text>
+  <text x="937" y="197" font-size="11" fill="#374151" font-family="monospace">requires:</text>
+  <text x="937" y="213" font-size="11" fill="#374151" font-family="monospace">- serviceName: user-service</text>
+  <text x="937" y="229" font-size="11" fill="#374151" font-family="monospace">&#160;&#160;version:</text>
+  <text x="1000" y="229" font-size="11" font-weight="700" fill="#047857" font-family="monospace">1.1.0</text>
+  <text x="937" y="245" font-size="11" fill="#374151" font-family="monospace">&#160;&#160;endpoints:</text>
+  <text x="937" y="261" font-size="11" fill="#9ca3af" font-family="monospace">&#160;&#160;- GET /users/{id}</text>
+  <text x="937" y="278" font-size="10" fill="#6b7280" font-family="monospace"># nothing moves until YOU edit this</text>
+
+  <!-- generated snippet -->
+  <text x="1035" y="313" text-anchor="middle" font-size="11.5" font-weight="600" fill="#374151">the build generates its client from</text>
+  <rect x="937" y="323" width="196" height="26" rx="13" fill="#ffffff" stroke="#6ee7b7"/>
+  <text x="1035" y="340" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#047857">user-service-1.1.0.yaml ✓</text>
+
+  <text x="1035" y="380" text-anchor="middle" font-size="11" fill="#6b7280">Reproducible builds: the same pin</text>
+  <text x="1035" y="395" text-anchor="middle" font-size="11" fill="#6b7280">always yields the same contract.</text>
+  <text x="1035" y="418" text-anchor="middle" font-size="11" fill="#6b7280">Upgrades are deliberate: bump the</text>
+  <text x="1035" y="433" text-anchor="middle" font-size="11" fill="#6b7280">pin when the producer releases.</text>
+
+  <!-- ==================== BOTTOM STRIP ==================== -->
+  <rect x="30" y="480" width="270" height="70" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5"/>
+  <text x="165" y="508" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f2937">GA is immutable</text>
+  <text x="165" y="527" text-anchor="middle" font-size="10.5" fill="#6b7280">the only way out is delete-version —</text>
+  <text x="165" y="541" text-anchor="middle" font-size="10.5" fill="#6b7280">audited, naming the pinned consumers</text>
+
+  <rect x="323" y="480" width="270" height="70" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5"/>
+  <text x="458" y="508" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f2937">Self-service rejections</text>
+  <text x="458" y="527" text-anchor="middle" font-size="10.5" fill="#6b7280">every 409 proposes the next free version —</text>
+  <text x="458" y="541" text-anchor="middle" font-size="10.5" fill="#6b7280">breaking changes must bump the major</text>
+
+  <rect x="616" y="480" width="270" height="70" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5"/>
+  <text x="751" y="508" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f2937">Exact pins, no surprises</text>
+  <text x="751" y="527" text-anchor="middle" font-size="10.5" fill="#6b7280">no inheritance, no “latest”, no fallback —</text>
+  <text x="751" y="541" text-anchor="middle" font-size="10.5" fill="#6b7280">a missing version fails in milliseconds</text>
+
+  <rect x="909" y="480" width="261" height="70" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5"/>
+  <text x="1039" y="508" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f2937">The graph sees risk</text>
+  <text x="1039" y="527" text-anchor="middle" font-size="10.5" fill="#6b7280">highlights consumers that are outdated</text>
+  <text x="1039" y="541" text-anchor="middle" font-size="10.5" fill="#6b7280">or building against a snapshot</text>
+
+  <text x="600" y="595" text-anchor="middle" font-size="10" fill="#9ca3af">Sanshain 2.0 — producer-declared versions · docs/adr/0003-versions-replace-branches.md</text>
+</svg>
