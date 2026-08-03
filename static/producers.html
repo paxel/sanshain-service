@@ -347,7 +347,7 @@
             const urgent = daysLeft <= 3;
             expiryBadge = `<span class="text-[10px] ${urgent ? 'text-red-700 bg-red-100' : 'text-amber-700 bg-amber-100'} px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter" title="This snapshot expires once neither provided nor required for the configured window (${escapeHtml(v.expires_at)}).">${label}</span>`;
         }
-        const author = v.author ? `${v.author} (via ${v.provided_by})` : v.provided_by;
+        const provider = v.provided_by;
 
         const card = document.createElement('div');
         card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
@@ -374,7 +374,7 @@
                         </div>
                         <p class="text-xs text-slate-400 mt-0.5">
                             ${v.endpoint_count} endpoint${v.endpoint_count !== 1 ? 's' : ''}
-                            &middot; <span data-author></span>
+                            &middot; <span data-provider></span>
                             &middot; updated ${escapeHtml(formatTimestamp(v.updated_at))}
                         </p>
                     </div>
@@ -389,7 +389,7 @@
             </div>`;
         // Author is Consumer-supplied, unverified attribution — set as text,
         // never spliced into markup.
-        card.querySelector('[data-author]').textContent = `by ${author}`;
+        card.querySelector('[data-provider]').textContent = `by ${provider}`;
         card.querySelector('[data-download]').addEventListener('click', (e) => {
             e.stopPropagation();
             downloadFullApi(serviceName, apiType, v.version);

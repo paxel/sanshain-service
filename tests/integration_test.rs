@@ -502,11 +502,12 @@ async fn test_disabled_mode_endpoints_return_503() {
 }
 
 // ---------------------------------------------------------------------------
-// 1.x wire-compat: name aliases survive, everything branch-shaped is gone.
+// 1.x wire-compat is gone entirely: the legacy name aliases are rejected by
+// name, like every other branch-era leftover.
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn legacy_servicename_on_provide_stores_under_producername() {
+async fn legacy_servicename_on_provide_is_rejected_by_name() {
     let ctx = setup().await;
     let (status, _, body) = send(
         &ctx,
@@ -520,17 +521,15 @@ async fn legacy_servicename_on_provide_stores_under_producername() {
         &[],
     )
     .await;
-    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
-
-    let (status, _, body) = send(&ctx, "GET", "/producers/legacy-svc/versions", None, &[]).await;
-    assert_eq!(status, StatusCode::OK);
-    let listing = as_json(&body);
-    assert_eq!(listing.as_array().unwrap().len(), 1);
-    assert_eq!(listing[0]["version"], "1.0.0");
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "got: {body}");
+    assert!(
+        body.contains("servicename"),
+        "the rejected field must be named, got: {body}"
+    );
 }
 
 #[tokio::test]
-async fn legacy_clientname_and_servicename_accepted_on_require() {
+async fn legacy_clientname_and_servicename_on_require_are_rejected() {
     let ctx = setup().await;
     let (status, _, _) = send(
         &ctx,
@@ -546,7 +545,7 @@ async fn legacy_clientname_and_servicename_accepted_on_require() {
     .await;
     assert_eq!(status, StatusCode::ACCEPTED);
 
-    let (status, headers, _) = send(
+    let (status, _, body) = send(
         &ctx,
         "GET",
         "/require?clientname=legacy-client&servicename=svc&version=1.0.0&path=/users&method=GET",
@@ -554,54 +553,14 @@ async fn legacy_clientname_and_servicename_accepted_on_require() {
         &[],
     )
     .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(headers.get("X-Sanshain-Version").unwrap(), "1.0.0");
+    assert_eq!(status, StatusCode::BAD_REQUEST, "got: {body}");
 
+    // No dependency may be minted by the failed require.
     let (_, _, body) = send(&ctx, "GET", "/report", None, &[]).await;
     let report = as_json(&body);
-    assert_eq!(report["dependency_graph"][0]["client"], "legacy-client");
-}
-
-#[tokio::test]
-async fn both_legacy_and_current_names_rejected_on_provide() {
-    let ctx = setup().await;
-    // serde's `alias` makes the two spellings the *same* field, so supplying
-    // both is a duplicate field rather than a precedence question.
-    let (status, _, body) = send(
-        &ctx,
-        "POST",
-        "/provide",
-        Some(json!({
-            "producername": "dup-svc",
-            "servicename": "dup-svc-other",
-            "openapi_yaml": users_spec("1.0.0"),
-            "stability": "ga",
-        })),
-        &[],
-    )
-    .await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(
-        body.contains("duplicate field") && body.contains("producername"),
-        "expected a duplicate-field error, got: {body}"
-    );
-}
-
-#[tokio::test]
-async fn both_legacy_and_current_names_rejected_on_require() {
-    let ctx = setup().await;
-    let (status, _, body) = send(
-        &ctx,
-        "GET",
-        "/require?consumername=dup-client&clientname=dup-client-other&producername=svc&version=1.0.0&path=/x&method=GET",
-        None,
-        &[],
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(
-        body.contains("duplicate field") && body.contains("consumername"),
-        "expected a duplicate-field error, got: {body}"
+        report["dependency_graph"].as_array().unwrap().is_empty(),
+        "a rejected require must not record a dependency"
     );
 }
 

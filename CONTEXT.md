@@ -120,13 +120,12 @@ no ranges, no "latest", and no default: what a Consumer builds against changes o
 edits the Pin.
 _Avoid_: requirement, target version, constraint
 
-**Author**:
-Consumer-supplied, unverified attribution for who wrote a change, used for blame display only.
-_Avoid_: user, committer
-
 **Actor**:
 The authenticated caller behind a request. Always what the audit log records; never overridable.
-_Avoid_: user, author
+The Actor is also the attribution shown on a Version — the last provider — with one exception:
+a Promotion carrying byte-identical content keeps the Snapshot's provider, so the person who
+built it stays on the released Version.
+_Avoid_: user, author (a client-supplied author hint no longer exists — the token defines the user)
 
 ### Answering a request
 

@@ -12,7 +12,7 @@ This guide explains how to manage the evolution of your APIs in Sanshain, from t
 ---
 
 ## 1. Iterating on Snapshots
-While an API is in flux, provide it with `stability: snapshot` (plugins typically derive this from being on a feature branch — see [sanshain.yaml](sanshain-yaml.md#how-the-plugin-decides-stability)).
+While an API is in flux, provide it as a snapshot — which is simply the default: every build publishes `snapshot` unless the ga switch is set (see [sanshain.yaml](sanshain-yaml.md#how-stability-is-decided)).
 
 - **Overwritable**: Re-providing the same snapshot number replaces it wholesale. Last writer wins; every overwrite is audited and the previous provider is named.
 - **Never compatibility-checked**: Break whatever you like between snapshot overwrites.

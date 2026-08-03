@@ -17,7 +17,6 @@ pub struct MockSpecVersion {
     pub stability: Stability,
     pub content: String,
     pub content_hash: String,
-    pub author: Option<String>,
     pub provided_by: String,
     pub created_at: String,
     pub updated_at: String,
@@ -34,7 +33,6 @@ impl MockSpecVersion {
             version: self.version,
             stability: self.stability,
             content_hash: self.content_hash.clone(),
-            author: self.author.clone(),
             provided_by: self.provided_by.clone(),
             created_at: self.created_at.clone(),
             updated_at: self.updated_at.clone(),
@@ -173,7 +171,6 @@ impl SpecRepository for MockRepo {
             existing.stability = params.stability;
             existing.content = params.content.to_string();
             existing.content_hash = params.content_hash.to_string();
-            existing.author = params.author.map(|a| a.to_string());
             existing.provided_by = params.provided_by.to_string();
             existing.updated_at = params.now_iso.to_string();
             existing.endpoints = endpoints;
@@ -189,7 +186,6 @@ impl SpecRepository for MockRepo {
             stability: params.stability,
             content: params.content.to_string(),
             content_hash: params.content_hash.to_string(),
-            author: params.author.map(|a| a.to_string()),
             provided_by: params.provided_by.to_string(),
             created_at: params.now_iso.to_string(),
             updated_at: params.now_iso.to_string(),

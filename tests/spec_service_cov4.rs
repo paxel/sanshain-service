@@ -35,9 +35,7 @@ fn params<'a>(
         content,
         stability,
         dry_run: false,
-        extra_tags: &[],
         username: Some("ci"),
-        author: None,
     }
 }
 

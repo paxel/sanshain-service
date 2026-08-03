@@ -33,7 +33,7 @@ The API is formally specified in [`api.yaml`](../api.yaml).
 ## How it Works
 
 ### Providing a Spec
-1. Plugin uploads your spec to `/provide` (or `/provide/asyncapi`, `/provide/grpc`), declaring `snapshot` or `ga` stability (typically derived from your git branch — see [sanshain.yaml](sanshain-yaml.md#how-the-plugin-decides-stability)).
+1. Plugin uploads your spec to `/provide` (or `/provide/asyncapi`, `/provide/grpc`), declaring `snapshot` or `ga` stability (`snapshot` unless the build sets the ga switch — see [sanshain.yaml](sanshain-yaml.md#how-stability-is-decided)).
 2. Sanshain reads the version from the spec and splits the file into standalone snippets per operation.
 3. **Version Rules**: a GA number is immutable — re-providing it with different content returns `409 Conflict` with a `proposed_version` to publish as instead. A GA whose changes against the previous GA are breaking without a major bump is also rejected with the correct proposal.
 4. **Idempotency**: Byte-identical specs are a no-op — CI re-runs never fight.

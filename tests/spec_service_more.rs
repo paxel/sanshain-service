@@ -63,9 +63,7 @@ fn provide_params<'a>(
         content,
         stability,
         dry_run,
-        extra_tags: &[],
         username: Some("ci"),
-        author: None,
     }
 }
 
@@ -117,7 +115,7 @@ async fn proto_provide_extracts_all_rpcs_and_the_marker_version() {
 }
 
 #[tokio::test]
-async fn provide_with_tags_persists_custom_and_auto_tag() {
+async fn provide_persists_the_auto_tag() {
     let repo = MockRepo::new();
     let resp = spec_service::provide_spec(
         &repo,
@@ -127,9 +125,7 @@ async fn provide_with_tags_persists_custom_and_auto_tag() {
             content: ASYNCAPI_V2,
             stability: Stability::Snapshot,
             dry_run: false,
-            extra_tags: &["custom".to_string()],
             username: Some("ci"),
-            author: None,
         },
     )
     .await
@@ -141,8 +137,7 @@ async fn provide_with_tags_persists_custom_and_auto_tag() {
         let map = repo.service_tags.lock().unwrap();
         map.get(&sid).cloned().unwrap_or_default()
     };
-    assert!(svc_tags.contains(&"custom".to_string()), "{svc_tags:?}");
-    assert!(svc_tags.contains(&"messaging".to_string()), "{svc_tags:?}");
+    assert_eq!(svc_tags, vec!["messaging".to_string()], "{svc_tags:?}");
 }
 
 #[tokio::test]

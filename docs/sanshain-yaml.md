@@ -22,12 +22,9 @@ This example shows a "Gateway Service" that provides an OpenAPI spec and consume
 serviceName: gateway-service
 compression: true
 
-# Builds on these git branches provide as `ga`; every other branch provides as `snapshot`.
-releaseBranches:
-  - main
-  - master
-
 # Provides both OpenAPI and gRPC specifications.
+# Stability is NOT configured here: every provide is a `snapshot` unless the
+# build sets the ga switch (e.g. SANSHAIN_GA=true) — see "How stability is decided".
 # The versions are read from the spec files (info.version / // sanshain-version:).
 provides:
   - file: src/main/resources/openapi.yaml
@@ -71,17 +68,20 @@ requires:
 |-------------------|---------|----------|----------------------|---------------------------------------------------------------------------------------------------|
 | `sanshainUrl`     | string  | no       | —                    | Base URL of the Sanshain Service instance. Recommended to provide via ENV.                        |
 | `serviceName`     | string  | **yes**  | —                    | Name identifying this project (both for providing and requiring APIs).                            |
-| `releaseBranches` | list    | no       | `["main", "master"]` | VCS branches whose builds provide as `ga`; any other branch provides as `snapshot` (see below).   |
 | `compression`     | boolean | no       | `false`              | Whether to request gzip-compressed responses.                                                     |
 
-### How the plugin decides stability
+### How stability is decided
 
-Sanshain never sees your git repository — **stability is declared on every Provide by the plugin**, and `sanshain.yaml` configures how the plugin decides:
+Sanshain never sees your git repository, and the plugins do no git detection either. The rule is
+deliberately binary — no guessing, no branch magic:
 
-1. An explicit `stability` on the provide entry (or a CI flag such as `-Dsanshain.stability=ga`) always wins.
-2. Otherwise, the plugin checks the current VCS branch against `releaseBranches`: on a listed branch it provides `ga`, on any other branch `snapshot`.
+- **Every Provide is a `snapshot` by default.** A developer building locally can never
+  accidentally release.
+- **`ga` is an explicit act**: the build sets the ga switch — the environment variable
+  `SANSHAIN_GA=true` (all clients), the Maven property `-Dsanshain.ga=true`, or the CLI flag
+  `--ga`. CI sets it on its protected-branch pipelines; nobody else touches it.
 
-This keeps the everyday workflow hands-off — feature-branch builds publish overwritable snapshots, release-branch builds publish immutable GA versions — while leaving an explicit override for unusual setups.
+`sanshain.yaml` itself carries no stability configuration at all.
 
 ## Environment Overrides & Best Practices
 
@@ -107,7 +107,6 @@ Plugins should support both a single `provide` object and a `provides` list for 
 |-------------|--------|----------|----------------------------------|------------------------------------------------------------------------------|
 | `file`      | string | **yes**  | —                                | Path to the specification file.                                              |
 | `apiType`   | string | no       | `openapi`                        | Type of API: `openapi`, `asyncapi`, or `proto`.                              |
-| `stability` | string | no       | *derived from `releaseBranches`* | `snapshot` or `ga`. Explicit override of the branch-derived stability.       |
 
 The **version** of a Provide is read from the spec file itself and must be strict `MAJOR.MINOR.PATCH`:
 
@@ -482,7 +481,7 @@ The client receives a `.proto` file containing only the `InventoryService` defin
 
 1. For each entry in `provides` (or for the single `provide` object):
    a. Read the specification file content. The version travels inside it (`info.version` / `// sanshain-version:`).
-   b. Determine the stability: explicit `stability` (or CI flag) if set, otherwise `ga` when the current VCS branch is in `releaseBranches`, else `snapshot`.
+   b. Determine the stability: `ga` when the ga switch is set (`SANSHAIN_GA=true` / `-Dsanshain.ga=true` / `--ga`), otherwise `snapshot`.
    c. Call the appropriate endpoint based on `apiType`, with `stability` in the payload:
       - `openapi`: `POST /provide`
       - `asyncapi`: `POST /provide/asyncapi`

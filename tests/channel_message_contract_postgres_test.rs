@@ -148,9 +148,7 @@ async fn postgres_contracts_registered_on_ga_provides_only() {
             content: ASYNCAPI_SPEC,
             stability: Stability::Snapshot,
             dry_run: false,
-            extra_tags: &[],
             username: Some("ci"),
-            author: None,
         },
     )
     .await
@@ -174,9 +172,7 @@ async fn postgres_contracts_registered_on_ga_provides_only() {
             content: &ga_spec,
             stability: Stability::Ga,
             dry_run: false,
-            extra_tags: &[],
             username: Some("ci"),
-            author: None,
         },
     )
     .await

@@ -20,9 +20,7 @@ async fn dry_run(
             content,
             stability: Stability::Snapshot,
             dry_run: true,
-            extra_tags: &[],
             username: Some("ci"),
-            author: None,
         },
     )
     .await

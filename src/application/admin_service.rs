@@ -124,7 +124,6 @@ async fn producer_versions_map(
                 version: meta.version,
                 stability: meta.stability,
                 content_hash: meta.content_hash,
-                author: meta.author,
                 provided_by: meta.provided_by,
                 created_at: meta.created_at,
                 updated_at: meta.updated_at,

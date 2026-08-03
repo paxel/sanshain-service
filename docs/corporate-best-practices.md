@@ -6,7 +6,7 @@ This guide outlines the recommended strategies for deploying and using Sanshain 
 1. **Environment over Hardcoding**: Avoid putting `sanshainUrl` in `sanshain.yaml`.
 2. **Centralized Variables**: Use CI/CD organization variables for the server URL and authentication tokens.
 3. **Honest Semver**: Let the server propose the next version on a `409` — never work around a bump.
-4. **Release Branches → GA**: Configure `releaseBranches` in `sanshain.yaml` so only `main`/`release/*` builds publish immutable GA versions.
+4. **CI Releases GA**: Set the ga switch (`SANSHAIN_GA=true`) only in your protected-branch pipelines, so only those builds publish immutable GA versions — everything else is a snapshot.
 5. **LDAP/OIDC**: Integrate with your corporate identity provider for user management.
 
 ---
@@ -44,7 +44,7 @@ Pinned Consumers can never be broken by a new version — Sanshain's job is keep
 Sanshain never sees your git repository — stability is declared by the build. The mapping from branches to stability belongs in the client plugin.
 
 **Best Practice**:
-- Configure `releaseBranches` in `sanshain.yaml` (e.g., `["main", "master"]`) so release-branch builds publish **GA** and every other branch publishes **snapshots**.
+- Set `SANSHAIN_GA=true` in the release pipeline (and nowhere else) so those builds publish **GA** and every other build — CI or local — publishes **snapshots**. No branch detection, no config: the pipeline is the release authority.
 - Keep feature work on **snapshots**: overwritable, never compatibility-checked, expiring when unused. Consumers can opt in by pinning a snapshot version — the graph flags them as **Snapshot-pinned**.
 - Reserve the explicit `stability:` override (or CI flag) for unusual setups; the branch-derived default keeps day-to-day publishing hands-off.
 

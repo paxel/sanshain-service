@@ -4,7 +4,7 @@ use std::str::FromStr;
 use tracing::instrument;
 
 /// Row shape for `spec_versions` metadata queries (id, service_id, api_type,
-/// major, minor, patch, stability, content_hash, author, provided_by,
+/// major, minor, patch, stability, content_hash, provided_by,
 /// created_at, updated_at, last_required_at) — everything but the document.
 type SpecVersionRow = (
     i64,
@@ -15,7 +15,6 @@ type SpecVersionRow = (
     i64,
     String,
     String,
-    Option<String>,
     String,
     String,
     String,
@@ -32,7 +31,6 @@ fn spec_version_from_row(row: SpecVersionRow) -> Result<SpecVersionMeta, Reposit
         patch,
         stability,
         content_hash,
-        author,
         provided_by,
         created_at,
         updated_at,
@@ -49,7 +47,6 @@ fn spec_version_from_row(row: SpecVersionRow) -> Result<SpecVersionMeta, Reposit
             .parse()
             .map_err(|e: String| RepositoryError::Internal(e))?,
         content_hash,
-        author,
         provided_by,
         created_at,
         updated_at,
@@ -171,13 +168,12 @@ impl SpecRepository for SqliteSpecRepository {
         sqlx::query(
             r#"
             INSERT INTO spec_versions
-              (service_id, api_type, major, minor, patch, stability, content, content_hash, author, provided_by, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (service_id, api_type, major, minor, patch, stability, content, content_hash, provided_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(service_id, api_type, major, minor, patch) DO UPDATE SET
                 stability = excluded.stability,
                 content = excluded.content,
                 content_hash = excluded.content_hash,
-                author = excluded.author,
                 provided_by = excluded.provided_by,
                 updated_at = excluded.updated_at
             "#,
@@ -190,7 +186,6 @@ impl SpecRepository for SqliteSpecRepository {
         .bind(params.stability.as_str())
         .bind(params.content)
         .bind(params.content_hash)
-        .bind(params.author)
         .bind(params.provided_by)
         .bind(params.now_iso)
         .bind(params.now_iso)
@@ -247,7 +242,7 @@ impl SpecRepository for SqliteSpecRepository {
         version: SemVer,
     ) -> Result<Option<SpecVersionMeta>, RepositoryError> {
         let row: Option<SpecVersionRow> = sqlx::query_as(
-            "SELECT id, service_id, api_type, major, minor, patch, stability, content_hash, author, provided_by, created_at, updated_at, last_required_at \
+            "SELECT id, service_id, api_type, major, minor, patch, stability, content_hash, provided_by, created_at, updated_at, last_required_at \
              FROM spec_versions WHERE service_id = ? AND api_type = ? AND major = ? AND minor = ? AND patch = ?",
         )
         .bind(service_id)
@@ -266,7 +261,7 @@ impl SpecRepository for SqliteSpecRepository {
         service_id: i64,
     ) -> Result<Vec<SpecVersionMeta>, RepositoryError> {
         let rows: Vec<SpecVersionRow> = sqlx::query_as(
-            "SELECT id, service_id, api_type, major, minor, patch, stability, content_hash, author, provided_by, created_at, updated_at, last_required_at \
+            "SELECT id, service_id, api_type, major, minor, patch, stability, content_hash, provided_by, created_at, updated_at, last_required_at \
              FROM spec_versions WHERE service_id = ? ORDER BY api_type, major, minor, patch",
         )
         .bind(service_id)
@@ -289,7 +284,6 @@ impl SpecRepository for SqliteSpecRepository {
             i64,
             String,
             String,
-            Option<String>,
             String,
             String,
             String,
@@ -299,7 +293,7 @@ impl SpecRepository for SqliteSpecRepository {
         let rows: Vec<Row> = sqlx::query_as(
             r#"
             SELECT s.name, v.id, v.service_id, v.api_type, v.major, v.minor, v.patch, v.stability,
-                   v.content_hash, v.author, v.provided_by, v.created_at, v.updated_at, v.last_required_at,
+                   v.content_hash, v.provided_by, v.created_at, v.updated_at, v.last_required_at,
                    (SELECT COUNT(*) FROM endpoints e WHERE e.spec_version_id = v.id) AS endpoint_count
             FROM spec_versions v
             JOIN services s ON s.id = v.service_id
@@ -322,7 +316,6 @@ impl SpecRepository for SqliteSpecRepository {
                     patch,
                     stability,
                     content_hash,
-                    author,
                     provided_by,
                     created_at,
                     updated_at,
@@ -338,7 +331,6 @@ impl SpecRepository for SqliteSpecRepository {
                     patch,
                     stability,
                     content_hash,
-                    author,
                     provided_by,
                     created_at,
                     updated_at,
@@ -2108,7 +2100,6 @@ mod tests {
             stability,
             content: "content",
             content_hash: "sha256:x",
-            author: Some("alice"),
             provided_by: "ci",
             now_iso: now,
             endpoints,

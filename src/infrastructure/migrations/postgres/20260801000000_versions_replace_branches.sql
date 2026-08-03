@@ -38,7 +38,6 @@ CREATE TABLE spec_versions (
     stability TEXT NOT NULL CHECK (stability IN ('snapshot', 'ga')),
     content TEXT NOT NULL,
     content_hash TEXT NOT NULL,
-    author TEXT,
     provided_by TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,

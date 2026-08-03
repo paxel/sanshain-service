@@ -109,9 +109,7 @@ async fn provide_version(repo: &SqliteSpecRepository, producer: &str, version: &
             content: &spec,
             stability: Stability::Snapshot,
             dry_run: false,
-            extra_tags: &[],
             username: Some("ci"),
-            author: None,
         },
     )
     .await

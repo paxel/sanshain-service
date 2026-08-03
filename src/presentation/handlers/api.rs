@@ -41,7 +41,6 @@ async fn record_audit_log(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProvideRequest {
-    #[serde(alias = "servicename")]
     pub producername: String,
     pub openapi_yaml: String,
     /// Declared by the caller: `snapshot` (overwritable) or `ga` (immutable).
@@ -50,10 +49,6 @@ pub struct ProvideRequest {
     pub stability: Stability,
     #[serde(default)]
     pub dry_run: bool,
-    /// Client-supplied attribution for blame display only (Sanshain has no git
-    /// access, so this is a pure client hint). Does **not** affect the audit
-    /// log, which always records the real authenticated caller.
-    pub author: Option<String>,
 }
 
 struct ProvideCommon<'a> {
@@ -62,7 +57,6 @@ struct ProvideCommon<'a> {
     content: &'a str,
     stability: Stability,
     dry_run: bool,
-    author: Option<&'a str>,
 }
 
 async fn provide_common(
@@ -76,7 +70,6 @@ async fn provide_common(
         content,
         stability,
         dry_run,
-        author,
     } = params;
     let actor = if let Some(axum::Extension(ref u)) = user {
         u.username.clone()
@@ -92,9 +85,7 @@ async fn provide_common(
             content,
             stability,
             dry_run,
-            extra_tags: &[],
             username: Some(&actor),
-            author,
         },
     )
     .await?;
@@ -148,7 +139,6 @@ pub async fn provide(
             content: &payload.openapi_yaml,
             stability: payload.stability,
             dry_run: payload.dry_run,
-            author: payload.author.as_deref(),
         },
     )
     .await
@@ -157,15 +147,12 @@ pub async fn provide(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProvideAsyncApiRequest {
-    #[serde(alias = "servicename")]
     pub producername: String,
     pub asyncapi_yaml: String,
     /// See `ProvideRequest::stability`.
     pub stability: Stability,
     #[serde(default)]
     pub dry_run: bool,
-    /// See `ProvideRequest::author`.
-    pub author: Option<String>,
 }
 
 pub async fn provide_asyncapi(
@@ -182,7 +169,6 @@ pub async fn provide_asyncapi(
             content: &payload.asyncapi_yaml,
             stability: payload.stability,
             dry_run: payload.dry_run,
-            author: payload.author.as_deref(),
         },
     )
     .await
@@ -191,15 +177,12 @@ pub async fn provide_asyncapi(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProvideProtoRequest {
-    #[serde(alias = "servicename")]
     pub producername: String,
     pub proto_content: String,
     /// See `ProvideRequest::stability`.
     pub stability: Stability,
     #[serde(default)]
     pub dry_run: bool,
-    /// See `ProvideRequest::author`.
-    pub author: Option<String>,
 }
 
 pub async fn provide_proto(
@@ -216,7 +199,6 @@ pub async fn provide_proto(
             content: &payload.proto_content,
             stability: payload.stability,
             dry_run: payload.dry_run,
-            author: payload.author.as_deref(),
         },
     )
     .await
@@ -228,9 +210,7 @@ pub async fn provide_proto(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RequireQuery {
-    #[serde(alias = "clientname")]
     pub consumername: String,
-    #[serde(alias = "servicename")]
     pub producername: String,
     /// The exact pinned version — no ranges, no "latest", no default.
     pub version: SemVer,
@@ -364,9 +344,7 @@ pub struct BundleEndpoint {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RequireBundleRequest {
-    #[serde(alias = "clientname")]
     pub consumername: String,
-    #[serde(alias = "servicename")]
     pub producername: String,
     /// The exact pinned version — see `RequireQuery::version`.
     pub version: SemVer,

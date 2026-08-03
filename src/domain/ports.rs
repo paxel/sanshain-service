@@ -75,9 +75,9 @@ pub struct UpsertSpecVersion<'a> {
     pub stability: Stability,
     pub content: &'a str,
     pub content_hash: &'a str,
-    /// Consumer-supplied, unverified attribution — blame display only.
-    pub author: Option<&'a str>,
-    /// The authenticated Actor behind the Provide.
+    /// The Actor to credit for this version's content. The application layer
+    /// decides: the caller, or — on a same-content promotion — the snapshot's
+    /// original provider.
     pub provided_by: &'a str,
     pub now_iso: &'a str,
     pub endpoints: Vec<EndpointRecord>,

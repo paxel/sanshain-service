@@ -111,9 +111,7 @@ async fn list_version_dependents_unknown_and_empty() {
             content: spec,
             stability: Stability::Ga,
             dry_run: false,
-            extra_tags: &[],
             username: Some("ci"),
-            author: None,
         },
     )
     .await
@@ -143,9 +141,7 @@ async fn delete_version_returns_pinned_consumers() {
             content: spec,
             stability: Stability::Ga,
             dry_run: false,
-            extra_tags: &[],
             username: Some("ci"),
-            author: None,
         },
     )
     .await

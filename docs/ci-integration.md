@@ -45,7 +45,7 @@ Every Provide declares a **stability** — and the pipeline is the natural place
 - **Release-branch builds** (`main`, `master`, release branches) provide with `"stability": "ga"` — the version becomes immutable.
 - **Feature-branch builds** provide with `"stability": "snapshot"` — overwritable work-in-progress that expires when unused.
 
-Client plugins derive this automatically from a `releaseBranches` list in [`sanshain.yaml`](sanshain-yaml.md#how-the-plugin-decides-stability); raw `curl` pipelines set the field themselves. The **version** is never a pipeline concern — it is read from the spec file (`info.version`, or the `// sanshain-version:` comment for proto).
+Every build provides as `snapshot` unless the pipeline sets the ga switch (`SANSHAIN_GA=true`, `-Dsanshain.ga=true`, or `--ga` — see [How stability is decided](sanshain-yaml.md#how-stability-is-decided)); raw `curl` pipelines set the field themselves. The **version** is never a pipeline concern — it is read from the spec file (`info.version`, or the `// sanshain-version:` comment for proto).
 
 ## Dry-Run Mode (PR Validation)
 

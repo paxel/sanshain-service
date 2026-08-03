@@ -20,9 +20,7 @@ async fn dry_run(
             content,
             stability: Stability::Snapshot,
             dry_run: true,
-            extra_tags: &[],
             username: Some("ci"),
-            author: None,
         },
     )
     .await
@@ -394,9 +392,7 @@ channels:
                 content,
                 stability: Stability::Snapshot,
                 dry_run: false,
-                extra_tags: &[],
                 username: Some("ci"),
-                author: None,
             },
         )
         .await

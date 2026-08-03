@@ -103,9 +103,7 @@ async fn provide(repo: &SqliteSpecRepository, producer: &str, content: &str, sta
             content,
             stability,
             dry_run: false,
-            extra_tags: &[],
             username: Some("ci"),
-            author: None,
         },
     )
     .await
@@ -942,18 +940,19 @@ async fn viewing_report_is_not_audited() {
     );
 }
 
-// --- `author` provide override (blame only, not the audit log) ---
+// --- Attribution: the token defines the user (no author field) ---
 
-// A client-supplied `author` overrides who gets credited in the endpoint's
-// blame trail, but the audit log must still record the real authenticated
-// caller — the two must never be conflated.
+// The `author` hint was removed from the contract: attribution is the
+// authenticated Actor. Sending it must fail by name like every other unknown
+// field, and blame credits the token identity.
 #[tokio::test]
-async fn author_override_affects_blame_but_not_audit_log() {
+async fn author_field_is_rejected_and_blame_credits_the_actor() {
     let (app, repo, token) = app_with_seed().await;
     let auth = format!("Bearer {}", token);
 
     let spec = spec_with_paths("1.0.0", &["/blame-test"]);
     let res = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -973,46 +972,12 @@ async fn author_override_affects_blame_but_not_audit_log() {
         )
         .await
         .unwrap();
-    assert_eq!(res.status(), StatusCode::ACCEPTED);
-
-    // Blame: the endpoint history credits the client-supplied author, while
-    // `provided_by` stays the real authenticated Actor.
-    let history =
-        services::get_endpoint_history(&repo, "blame-svc", ApiType::OpenApi, "/blame-test", "GET")
-            .await
-            .unwrap();
-    assert_eq!(history.len(), 1);
     assert_eq!(
-        history[0].author.as_deref(),
-        Some("external.author@example.com"),
-        "author override must be used for blame"
-    );
-    assert_eq!(
-        history[0].provided_by, "root",
-        "the version still records the real Actor behind the Provide"
+        res.status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "the removed author field must be rejected by name"
     );
 
-    // Audit log: must record the real authenticated caller, never the
-    // client-supplied author.
-    let logs = repo.get_audit_logs(all_audit_logs_filter()).await.unwrap();
-    let provide_log = logs
-        .iter()
-        .find(|l| l.action == "PROVIDE_SPEC" && l.service.as_deref() == Some("blame-svc"))
-        .expect("provide must be audited");
-    assert_eq!(
-        provide_log.username, "root",
-        "the audit log must record the real authenticated caller, not the author override"
-    );
-}
-
-// Without an `author` override, blame is empty and the provider attribution
-// falls back to the real authenticated caller — unchanged prior behavior.
-#[tokio::test]
-async fn author_absent_falls_back_to_real_username_for_blame() {
-    let (app, repo, token) = app_with_seed().await;
-    let auth = format!("Bearer {}", token);
-
-    let spec = spec_with_paths("1.0.0", &["/no-author"]);
     let res = app
         .oneshot(
             Request::builder()
@@ -1022,7 +987,7 @@ async fn author_absent_falls_back_to_real_username_for_blame() {
                 .header(axum::http::header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     serde_json::json!({
-                        "producername": "no-author-svc",
+                        "producername": "blame-svc",
                         "stability": "snapshot",
                         "openapi_yaml": spec,
                     })
@@ -1034,16 +999,179 @@ async fn author_absent_falls_back_to_real_username_for_blame() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::ACCEPTED);
 
-    let history = services::get_endpoint_history(
-        &repo,
-        "no-author-svc",
-        ApiType::OpenApi,
-        "/no-author",
-        "GET",
-    )
-    .await
-    .unwrap();
+    let history =
+        services::get_endpoint_history(&repo, "blame-svc", ApiType::OpenApi, "/blame-test", "GET")
+            .await
+            .unwrap();
     assert_eq!(history.len(), 1);
-    assert_eq!(history[0].author, None);
-    assert_eq!(history[0].provided_by, "root");
+    assert_eq!(
+        history[0].provided_by, "root",
+        "blame credits the authenticated Actor"
+    );
+}
+
+// Promoting a snapshot with byte-identical content keeps the snapshot's
+// provider on the version — the human who built it stays credited — while the
+// audit's VERSION_PROMOTED entry names the promoting Actor (e.g. CI).
+#[tokio::test]
+async fn same_content_promotion_preserves_the_snapshot_provider() {
+    let (app, repo, root_token) = app_with_seed().await;
+
+    // The developer pushes the snapshot with their own token.
+    let hash = services::hash_password("pw").unwrap();
+    let dev = repo.create_user("dev-user", &hash, true).await.unwrap();
+    repo.grant_user_role(dev.id, "admin").await.unwrap();
+    let dev_session = repo
+        .create_session(dev.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap();
+
+    let spec = spec_with_paths("3.0.0", &["/promoted"]);
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {}", dev_session.token),
+                )
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "producername": "promo-svc",
+                        "stability": "snapshot",
+                        "openapi_yaml": spec,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+
+    // CI (root's token here) promotes the identical content to GA.
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {}", root_token),
+                )
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "producername": "promo-svc",
+                        "stability": "ga",
+                        "openapi_yaml": spec,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+
+    let sid = repo.find_service("promo-svc").await.unwrap().unwrap();
+    let meta = repo
+        .find_spec_version(sid, ApiType::OpenApi, "3.0.0".parse().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(meta.stability, Stability::Ga, "promotion landed");
+    assert_eq!(
+        meta.provided_by, "dev-user",
+        "identical-content promotion keeps the snapshot's provider"
+    );
+
+    let logs = repo.get_audit_logs(all_audit_logs_filter()).await.unwrap();
+    let promoted = logs
+        .iter()
+        .find(|l| l.action == "VERSION_PROMOTED" && l.service.as_deref() == Some("promo-svc"))
+        .expect("promotion must be audited");
+    assert_eq!(
+        promoted.username, "root",
+        "the audit names the promoting Actor, not the credited provider"
+    );
+}
+
+// A promotion carrying *different* content transfers attribution to the
+// promoter — whoever pushed those bytes owns them.
+#[tokio::test]
+async fn different_content_promotion_transfers_the_provider() {
+    let (app, repo, root_token) = app_with_seed().await;
+
+    let hash = services::hash_password("pw").unwrap();
+    let dev = repo.create_user("dev-user", &hash, true).await.unwrap();
+    repo.grant_user_role(dev.id, "admin").await.unwrap();
+    let dev_session = repo
+        .create_session(dev.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap();
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {}", dev_session.token),
+                )
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "producername": "promo2-svc",
+                        "stability": "snapshot",
+                        "openapi_yaml": spec_with_paths("3.0.0", &["/a"]),
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {}", root_token),
+                )
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "producername": "promo2-svc",
+                        "stability": "ga",
+                        "openapi_yaml": spec_with_paths("3.0.0", &["/a", "/b"]),
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+
+    let sid = repo.find_service("promo2-svc").await.unwrap().unwrap();
+    let meta = repo
+        .find_spec_version(sid, ApiType::OpenApi, "3.0.0".parse().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(meta.stability, Stability::Ga);
+    assert_eq!(
+        meta.provided_by, "root",
+        "different content: the promoter owns what they pushed"
+    );
 }

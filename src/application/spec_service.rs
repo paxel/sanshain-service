@@ -23,12 +23,9 @@ pub struct ProvideSpecParams<'a> {
     /// Declared by the caller: `snapshot` (overwritable) or `ga` (immutable).
     pub stability: Stability,
     pub dry_run: bool,
-    pub extra_tags: &'a [String],
     /// The real authenticated Actor — always used for the audit log and
-    /// recorded as the version's last provider.
+    /// credited as the version's provider.
     pub username: Option<&'a str>,
-    /// Client-supplied blame attribution — display only, never the Actor.
-    pub author: Option<&'a str>,
 }
 
 pub struct RequireEndpointParams<'a> {
@@ -259,9 +256,7 @@ pub async fn provide_spec(
         content,
         stability,
         dry_run,
-        extra_tags,
         username,
-        author,
     } = params;
 
     let version = extract_spec_version(api_type, content)?;
@@ -286,14 +281,8 @@ pub async fn provide_spec(
             ApiType::Proto => Some("grpc".to_string()),
             ApiType::OpenApi => None,
         };
-        let mut all_tags: Vec<String> = extra_tags.to_vec();
-        if let Some(tag) = auto_tag
-            && !all_tags.contains(&tag)
-        {
-            all_tags.push(tag);
-        }
-        if !all_tags.is_empty() {
-            repo.add_service_tags(sid, &all_tags).await?;
+        if let Some(tag) = auto_tag {
+            repo.add_service_tags(sid, &[tag]).await?;
         }
         sid
     };
@@ -421,6 +410,19 @@ pub async fn provide_spec(
     let promoting = existing.as_ref().map(|e| e.stability) == Some(Stability::Snapshot)
         && stability == Stability::Ga;
     let overwriting = existing.as_ref().map(|e| e.provided_by.clone());
+    // Attribution is the authenticated Actor — with one exception: promoting a
+    // snapshot with byte-identical content keeps the snapshot's provider, so
+    // the human who built it stays on the released version (the audit's
+    // VERSION_PROMOTED entry still names the promoting Actor). Different
+    // content means the promoter owns what they pushed.
+    let credited = if promoting && existing.as_ref().is_some_and(|e| e.content_hash == hash) {
+        existing
+            .as_ref()
+            .map(|e| e.provided_by.clone())
+            .unwrap_or_default()
+    } else {
+        username.unwrap_or("").to_string()
+    };
     let record = UpsertSpecVersion {
         service_id: sid,
         api_type,
@@ -428,8 +430,7 @@ pub async fn provide_spec(
         stability,
         content,
         content_hash: &hash,
-        author,
-        provided_by: username.unwrap_or(""),
+        provided_by: &credited,
         now_iso: &now_iso(),
         endpoints: endpoints
             .into_iter()
@@ -1052,7 +1053,6 @@ pub async fn diff_versions(
 pub struct EndpointHistoryEntry {
     pub version: SemVer,
     pub stability: Stability,
-    pub author: Option<String>,
     pub provided_by: String,
     pub updated_at: String,
     /// What this version stored for the endpoint; `None` when the version
@@ -1064,7 +1064,7 @@ pub struct EndpointHistoryEntry {
 }
 
 /// Walk a version line semantically and report, per version, whether it
-/// changed the endpoint — the "last changed in version X, author Y" blame.
+/// changed the endpoint — the "last changed in version X by Y" blame.
 pub async fn get_endpoint_history(
     repo: &impl SpecRepository,
     producername: &str,
@@ -1102,7 +1102,6 @@ pub async fn get_endpoint_history(
         entries.push(EndpointHistoryEntry {
             version: meta.version,
             stability: meta.stability,
-            author: meta.author,
             provided_by: meta.provided_by,
             updated_at: meta.updated_at,
             yaml_content: yaml,
@@ -1119,7 +1118,6 @@ pub struct TimelineEntry {
     pub api_type: ApiType,
     pub version: SemVer,
     pub stability: Stability,
-    pub author: Option<String>,
     pub provided_by: String,
     pub updated_at: String,
     pub endpoint_count: i64,
@@ -1139,7 +1137,6 @@ pub async fn get_provide_timeline(
             api_type: meta.api_type,
             version: meta.version,
             stability: meta.stability,
-            author: meta.author,
             provided_by: meta.provided_by,
             updated_at: meta.updated_at,
             endpoint_count,
@@ -1159,7 +1156,6 @@ mod tests {
             version: version.parse().unwrap(),
             stability,
             content_hash: "sha256:x".into(),
-            author: None,
             provided_by: "ci".into(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),

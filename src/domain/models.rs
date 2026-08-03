@@ -284,9 +284,9 @@ pub struct SpecVersionMeta {
     pub version: SemVer,
     pub stability: Stability,
     pub content_hash: String,
-    /// Consumer-supplied, unverified attribution — blame display only.
-    pub author: Option<String>,
-    /// The authenticated Actor behind the last successful Provide.
+    /// The authenticated Actor credited with this version's content: the last
+    /// provider — preserved across a same-content promotion, so the human who
+    /// built the snapshot stays on the released version.
     pub provided_by: String,
     pub created_at: String,
     pub updated_at: String,
@@ -623,7 +623,6 @@ pub struct ProducerVersionInfo {
     pub version: SemVer,
     pub stability: Stability,
     pub content_hash: String,
-    pub author: Option<String>,
     pub provided_by: String,
     pub created_at: String,
     pub updated_at: String,

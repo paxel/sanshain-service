@@ -234,7 +234,7 @@
     });
 
     function attribution(v) {
-        return v.author || v.provided_by || 'anonymous';
+        return v.provided_by || 'anonymous';
     }
 
     async function loadEndpointVersions() {
@@ -318,7 +318,6 @@
             globalVersions = [{
                 version: view.version || queryVersion,
                 stability: view.stability || 'snapshot',
-                author: null,
                 provided_by: '',
                 updated_at: '',
                 yaml_content: view.yaml,

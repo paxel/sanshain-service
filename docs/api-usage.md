@@ -31,7 +31,6 @@ Upload a specification under its declared version.
 - `stability`: `snapshot` (overwritable, expires when unused) or `ga` (immutable). **Required.**
 - `openapi_yaml` / `asyncapi_yaml` / `proto_content`: Spec content. The version is read from it — `info.version`, or a `// sanshain-version: MAJOR.MINOR.PATCH` comment for proto. Strict three-part semver, no suffixes.
 - `dry_run`: If `true`, validates and classifies without storing.
-- `author`: Optional blame attribution (e.g., the commit author forwarded by CI).
 
 **Response (202 Accepted):** Returns `version`, `stability`, `content_hash`, and a summary of `changes` (`inserts`/`updates`/`deletes`).
 
@@ -80,15 +79,12 @@ If *any* requested endpoint is absent from the pinned version the whole bundle f
 
 ## Naming: Producer and Consumer
 
-Since 1.6.0 the two roles are called **Producer** (provides a spec) and **Consumer** (requires
-endpoints); see [`CONTEXT.md`](../CONTEXT.md). Two things follow for callers written against 1.5.x
-or earlier:
+The two roles are called **Producer** (provides a spec) and **Consumer** (requires endpoints);
+see [`CONTEXT.md`](../CONTEXT.md).
 
-- **Request fields are aliased.** `/provide`, `/provide/asyncapi`, `/provide/grpc`, `/require`,
-  `/require/asyncapi`, `/require/grpc` and `/require-bundle` still accept `servicename` for
-  `producername` and `clientname` for `consumername`. Send one or the other, not both — supplying
-  both spellings of the same value is rejected as a duplicate field. Prefer the new names; the
-  aliases exist for compatibility only.
+- **Only the canonical field names are accepted.** `producername` and `consumername` are the
+  wire names everywhere; the pre-1.6 aliases `servicename` and `clientname` were removed in
+  2.0.0 and are rejected as unknown fields.
 - **Admin routes are not aliased.** `/admin/services*` became `/admin/producers*`,
   `/admin/clients*` became `/admin/consumers*`, and `/admin/nuke/services` / `/admin/nuke/clients`
   became `/admin/nuke/producers` / `/admin/nuke/consumers`. The old paths return `404`. The same

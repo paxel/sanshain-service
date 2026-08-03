@@ -25,10 +25,9 @@ info:
     `pull_from_branch` are no longer accepted anywhere and are rejected as
     unknown fields.
 
-    **Legacy names**: callers may send `servicename` in place of `producername`
-    and `clientname` in place of `consumername` on any `/provide*` or
-    `/require*` request. Send one spelling or the other — supplying both for
-    the same value is rejected as a duplicate field.
+    **Only the canonical names** `producername` and `consumername` are
+    accepted; the 1.x aliases `servicename` and `clientname` are rejected as
+    unknown fields like every other branch-era leftover.
   version: "2.0.0"
   license:
     name: Apache-2.0
@@ -209,12 +208,12 @@ paths:
           in: query
           required: true
           schema: { type: string }
-          description: Name of the requiring Consumer (alias `clientname`).
+          description: Name of the requiring Consumer.
         - name: producername
           in: query
           required: true
           schema: { type: string }
-          description: Name of the Producer to require from (alias `servicename`).
+          description: Name of the Producer to require from.
         - name: version
           in: query
           required: true
@@ -500,9 +499,7 @@ components:
       properties:
         producername:
           type: string
-          description: |
-            Name of the Producer providing the specification (alias
-            `servicename`).
+          description: Name of the Producer providing the specification.
         openapi_yaml:
           type: string
           description: |
@@ -514,12 +511,6 @@ components:
           type: boolean
           default: false
           description: Validate and classify without storing anything.
-        author:
-          type: string
-          description: |
-            Client-supplied attribution for blame display only — e.g. a CI
-            pipeline forwarding the real commit author. Never affects the
-            audit log, which always records the authenticated caller.
 
     ProvideAsyncApiPayload:
       type: object
@@ -530,7 +521,7 @@ components:
       properties:
         producername:
           type: string
-          description: Name of the Producer (alias `servicename`).
+          description: Name of the Producer.
         asyncapi_yaml:
           type: string
           description: |
@@ -541,8 +532,6 @@ components:
         dry_run:
           type: boolean
           default: false
-        author:
-          type: string
 
     ProvideProtoPayload:
       type: object
@@ -553,7 +542,7 @@ components:
       properties:
         producername:
           type: string
-          description: Name of the Producer (alias `servicename`).
+          description: Name of the Producer.
         proto_content:
           type: string
           description: |
@@ -564,8 +553,6 @@ components:
         dry_run:
           type: boolean
           default: false
-        author:
-          type: string
 
     ProvideResponse:
       type: object
@@ -604,10 +591,10 @@ components:
       properties:
         consumername:
           type: string
-          description: Name of the requiring Consumer (alias `clientname`).
+          description: Name of the requiring Consumer.
         producername:
           type: string
-          description: Name of the Producer (alias `servicename`).
+          description: Name of the Producer.
         version:
           type: string
           description: The exact pinned version (`MAJOR.MINOR.PATCH`).
@@ -649,13 +636,12 @@ components:
           $ref: "#/components/schemas/Stability"
         content_hash:
           type: string
-        author:
-          type: string
-          nullable: true
-          description: Unverified blame attribution recorded with the Provide.
         provided_by:
           type: string
-          description: The authenticated Actor behind the last successful Provide.
+          description: |
+            The authenticated Actor credited with this version's content — the
+            last provider. A same-content promotion preserves the snapshot's
+            provider, so the human who built it stays on the released version.
         created_at:
           type: string
           description: When this version first appeared on the line.

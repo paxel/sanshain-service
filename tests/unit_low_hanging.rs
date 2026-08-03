@@ -338,9 +338,7 @@ paths:
             content: yaml,
             stability: Stability::Snapshot,
             dry_run: true,
-            extra_tags: &[],
             username: Some("ci"),
-            author: None,
         },
     )
     .await
@@ -353,41 +351,38 @@ paths:
     );
 }
 
-// 26. spec_service: provide with extra_tags applies tags
+// 26. spec_service: provide auto-tags the service by API type
 #[tokio::test]
-async fn provide_spec_with_tags_adds_tags() {
+async fn provide_spec_auto_tags_by_api_type() {
     let repo = MockRepo::new();
-    let yaml = r#"
-openapi: 3.0.0
-info: { title: x, version: 1.0.0 }
-paths:
-  /a:
-    get:
-      responses:
-        '200': { description: OK }
+    let proto = r#"syntax = "proto3";
+// sanshain-version: 1.0.0
+package svc.v1;
+service AService {
+  rpc Do (In) returns (Out);
+}
+message In {}
+message Out {}
 "#;
-    let tags = vec!["messaging".to_string(), "api".to_string()];
     let _ = spec_service::provide_spec(
         &repo,
         spec_service::ProvideSpecParams {
             producername: "svc",
-            api_type: ApiType::OpenApi,
-            content: yaml,
+            api_type: ApiType::Proto,
+            content: proto,
             stability: Stability::Snapshot,
             dry_run: false,
-            extra_tags: &tags,
             username: Some("ci"),
-            author: None,
         },
     )
     .await
     .unwrap();
-    // verify tags recorded
+    // verify the automatic grpc tag was recorded
     let services = repo.services.lock().unwrap().clone();
     let svc_id = *services.get("svc").unwrap();
     let tag_map = repo.service_tags.lock().unwrap();
     let stored = tag_map.get(&svc_id).cloned().unwrap_or_default();
-    assert!(stored.contains(&"messaging".to_string()) && stored.contains(&"api".to_string()));
+    assert_eq!(stored, vec!["grpc".to_string()]);
 }
 
 // 27. openapi::normalize_path basic behavior via crate function (re-exported in lib)
@@ -421,9 +416,7 @@ paths:
             content: yaml,
             stability: Stability::Ga,
             dry_run: false,
-            extra_tags: &[],
             username: Some("ci"),
-            author: None,
         },
     )
     .await

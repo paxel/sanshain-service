@@ -1185,7 +1185,6 @@ mod tests {
             stability: Stability::Snapshot,
             content: "spec-content",
             content_hash,
-            author: None,
             provided_by: "tester",
             now_iso: "2026-01-01T00:00:00Z",
             endpoints,

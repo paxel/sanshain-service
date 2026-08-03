@@ -34,6 +34,7 @@ inheritance, not by fallback, not by someone else's push.
 
 ### Changed
 - Reports are instance-wide: `GET /report` and the markdown/isolation exports cover every recorded dependency with its pinned version and stability, instead of one branch at a time.
+- Attribution is the authenticated token: the client-supplied `author` hint is gone from the contract. A promotion carrying byte-identical content keeps the snapshot's provider on the released version — the developer who built it stays credited — while the audit records the promoting Actor.
 - Snapshot overwrites are last-writer-wins but never silent: the previous provider is named in the audit trail and shown in the UI.
 - AsyncAPI message contracts are keyed globally by `(channel, message)` and enforced on GA publishes only, so work-in-progress can neither claim nor violate topic ownership.
 - The audit log records the version where it recorded a branch (old entries stay readable), and its timeline filter parameter is `version`.
@@ -43,6 +44,7 @@ inheritance, not by fallback, not by someone else's push.
 - Breaking-change gatekeeping and review: pinned Consumers cannot be broken by a new version, so refusals and held submissions are gone — every rejection is now self-service. (1.7.0's `REJECTED_SPEC` refusals no longer occur.)
 - `base_version` optimistic concurrency and require long-polling: GA immutability is the concurrency control, and a missing pinned version is a configuration error that fails immediately.
 - Manual endpoint editing: stored content is immutable; the way out is delete-version and a republish.
+- The pre-1.6 wire aliases `servicename`/`clientname`: only the canonical `producername`/`consumername` are accepted, and the aliases are rejected as unknown fields.
 
 ### Fixed
 - A directory user's privileges now follow their directory groups. Previously (1.7.0) membership was read once at first login and never refreshed, so a promotion or demotion in the directory never took effect; it is now re-read and cached for `SANSHAIN_DIRECTORY_GROUP_TTL_SECS` (default 5 minutes).
