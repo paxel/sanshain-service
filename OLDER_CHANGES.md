@@ -3,6 +3,27 @@
 This file contains historical changelog entries for the Sanshain Service.
 For recent changes, see [CHANGELOG.md](CHANGELOG.md).
 
+## [1.7.0] - 2026-07-29
+
+### Added
+- `EXTRA_CA_CERTS_DIR`: directory of CA certificates to trust for LDAPS, added to the platform trust store. Startup fails, naming the file, on a bad certificate. See [Configuration](docs/configuration.md).
+- Helm chart: `extraVolumes` and `extraVolumeMounts`. Unset, the chart renders as in 1.6.2.
+- Rejected Provides on a Protected branch are recorded in the audit log as `REJECTED_SPEC`, with the Producer, Branch and reason, and are filterable in the timeline under the new "Rejected" type. Previously (1.6.2) a refusal left only a transient log line — and the refusal to remove a non-deprecated endpoint left nothing at all — so there was no way to review what a Protected branch had blocked. The caller still receives the same `409` and message.
+
+### Security
+- The audit timeline (`GET /api/audit/timeline`) is now admin-only; previously (1.6.2) any signed-in account or API token could read it. Non-admins now get `403`, anonymous `401`, and API tokens no longer work on this route. The Audit nav link is hidden from non-admins.
+
+### Changed
+- A Provide that changes no endpoint no longer bumps the version, stores a revision, or notifies listeners. Previously (1.6.2) every Provide bumped the patch version, so re-publishing an unchanged spec produced a version per build.
+- Consequently, an edit confined to `info`, `servers` or other document-level fields is no longer versioned or stored. The first Provide still establishes `1.0.0`.
+- The logo images shrank from 3.2 MB to ~123 KB combined, and the favicon is its own small file. Previously (1.6.2) both logos were roughly 20x oversized for how they are drawn and the icon link pointed at the full-resolution logo, so every page load fetched 865 KB and the first dark-mode toggle a further 2.3 MB.
+
+### Fixed
+- The **Edit** button on the endpoint view now appears for admins, and the editor opens instead of answering "Admin access required." Editing an endpoint from the UI has never worked since the button was added; the auth helper resolved the signed-in Actor but did not pass it to the code gating the button.
+- LDAPS no longer panics on first use with "Could not automatically determine the process-level CryptoProvider", which terminated the process in 1.6.2. Local authentication and plain LDAP were unaffected.
+- LDAPS no longer silently trusts nothing when reading the platform certificates partly fails; previously (1.6.2) any such error left an empty trust store.
+
+
 ## [1.6.2] - 2026-07-28
 
 ### Added
