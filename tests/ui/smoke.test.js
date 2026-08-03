@@ -245,8 +245,10 @@ test.describe('Role, group and maintainer management', () => {
     await expect(row).toContainText('sanshain');
     await expect(row).toContainText('no roles attached');
 
-    await row.locator('select').selectOption('viewer');
-    await row.locator('button:has-text("Add")').click();
+    // The card carries two selects since 2.0 (role picker + member picker);
+    // target the role one explicitly.
+    await row.locator('select[id^="group-role-"]').selectOption('viewer');
+    await row.locator('select[id^="group-role-"] ~ button:has-text("Add")').click();
     await expect(page.locator('#groups-list > div', { hasText: name })).toContainText('viewer', {
       timeout: 10000,
     });
