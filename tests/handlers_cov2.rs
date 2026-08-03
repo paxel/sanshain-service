@@ -197,25 +197,9 @@ async fn send_empty(
 // --- Admin settings -------------------------------------------------------
 
 #[tokio::test]
-async fn dev_mode_and_auto_approve_settings_roundtrip() {
+async fn auto_approve_settings_roundtrip() {
     let (app, _repo, token) = app_with_seed().await;
     let auth = format!("Bearer {}", token);
-
-    let (status, body) = get_json(&app, "/admin/settings/dev-mode", &auth).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body, json!({ "dev_mode": false }));
-
-    let (status, _) = send_json(
-        &app,
-        "POST",
-        "/admin/settings/dev-mode",
-        &auth,
-        &json!({ "enabled": true }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let (_, body) = get_json(&app, "/admin/settings/dev-mode", &auth).await;
-    assert_eq!(body, json!({ "dev_mode": true }));
 
     let (status, body) = get_json(&app, "/admin/settings/auto-approve", &auth).await;
     assert_eq!(status, StatusCode::OK);

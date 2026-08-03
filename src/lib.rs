@@ -124,7 +124,6 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/consumers/{name}/endpoints", get(admin::admin_list_consumer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/endpoint-yaml", get(admin::admin_get_endpoint_yaml).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/endpoint-versions", get(admin::admin_get_endpoint_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
-        .route("/admin/settings/dev-mode", get(admin::get_dev_mode).post(admin::set_dev_mode).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/settings/auto-approve", get(admin::get_auto_approve_users).post(admin::set_auto_approve_users).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/auth-config", get(admin::get_auth_config).put(admin::set_auth_config).layer(require(state.clone(), RouteGuard::Global(Permission::ManageAuthConfig))))
         .route("/admin/auth-config/test", post(admin::test_auth_config).layer(require(state.clone(), RouteGuard::Global(Permission::ManageAuthConfig))))

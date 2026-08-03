@@ -661,39 +661,27 @@ async fn test_favorites_api_endpoints() {
     assert!(favs["services"].as_array().unwrap().is_empty());
 }
 
-// The dev-mode *settings* endpoint reports the persisted toggle (intent), not the
-// gated effective value: enabling it reads back as `true` even though the
-// ALLOW_INSECURE_DEV_MODE gate is closed in this test process. Regression guard —
-// it briefly returned the gated value, which broke the admin toggle round-trip.
+// The dev-mode toggle (persisted via the auth-config surface) records intent,
+// not the gated effective value: `is_dev_mode_requested` reads back `true`
+// even though the ALLOW_INSECURE_DEV_MODE gate is closed in this test process,
+// while the effective `get_dev_mode` stays `false`.
 #[tokio::test]
-async fn dev_mode_setting_reports_persisted_intent() {
-    let (app, _repo, token) = app_with_seed().await;
-    let auth = format!("Bearer {}", token);
+async fn dev_mode_setting_records_intent_but_stays_gated() {
+    let (_app, repo, _token) = app_with_seed().await;
     assert!(
         !services::dev_mode_gate_open(),
         "gate must be closed for this test to be meaningful"
     );
 
-    // Enable dev mode via the admin settings endpoint (Bearer exempts CSRF).
-    let res = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/admin/settings/dev-mode")
-                .header(axum::http::header::AUTHORIZATION, &auth)
-                .header(axum::http::header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"enabled":true}"#))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-
-    // Read it back: must reflect the persisted setting, not the gated value.
-    let (status, json) = get_json(&app, "/admin/settings/dev-mode", &auth).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["dev_mode"], serde_json::Value::Bool(true));
+    services::set_dev_mode(&repo, true).await.unwrap();
+    assert!(
+        services::is_dev_mode_requested(&repo).await.unwrap(),
+        "the persisted intent must read back"
+    );
+    assert!(
+        !services::get_dev_mode(&repo).await.unwrap(),
+        "the closed gate must keep dev mode ineffective"
+    );
 }
 
 // Revoking a token that doesn't exist (or was already revoked) now correctly

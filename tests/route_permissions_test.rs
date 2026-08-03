@@ -216,7 +216,6 @@ async fn an_administrator_still_reaches_every_admin_surface() {
         ("GET", "/admin/consumers"),
         ("GET", "/admin/observability/stats"),
         ("GET", "/admin/observability/audit-logs"),
-        ("GET", "/admin/settings/dev-mode"),
         ("GET", "/admin/settings/snapshot-max-age"),
         ("GET", "/admin/producers/orders/maintainers"),
     ] {
@@ -244,7 +243,6 @@ async fn a_user_manager_reaches_user_administration_and_nothing_else() {
     }
 
     for uri in [
-        "/admin/settings/dev-mode",
         "/admin/settings/snapshot-max-age",
         "/admin/observability/audit-logs",
         "/admin/auth-config",
@@ -276,7 +274,6 @@ async fn a_plain_user_reaches_only_the_read_only_listings() {
     for uri in [
         "/admin/users",
         "/admin/roles",
-        "/admin/settings/dev-mode",
         "/admin/settings/snapshot-max-age",
     ] {
         assert_eq!(
@@ -392,7 +389,6 @@ async fn root_reaches_everything_without_a_grant() {
     for uri in [
         "/admin/users",
         "/admin/roles",
-        "/admin/settings/dev-mode",
         "/admin/auth-config",
         "/admin/observability/audit-logs",
     ] {

@@ -236,8 +236,8 @@
                                     class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-slate-600 mb-1">Admin Group DN</label>
-                                <input type="text" id="ldap-admin-group" placeholder="cn=admins,ou=groups,dc=example,dc=com"
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Bootstrap Admin Group <span class="font-normal text-slate-400">(directory group granted the admin role)</span></label>
+                                <input type="text" id="ldap-admin-group" placeholder="cn=admins,ou=groups,dc=example,dc=com" title="Convenience for first-time setup: this directory group is created as a Sanshain group holding the admin role. Manage roles per group in the Groups section afterwards."
                                     class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                             </div>
                         </div>
@@ -863,9 +863,21 @@
                         .filter(r => !(g.roles || []).includes(r.role))
                         .map(r => `<option value="${escapeAttr(r.role)}" title="${escapeAttr(roleTitle(r.role))}">${escapeHtml(r.role)}</option>`)
                         .join('');
+                    const memberIds = g.member_ids || [];
                     const members = directory
                         ? '<span class="text-xs text-slate-400 italic">membership from the directory</span>'
-                        : `<span class="text-xs text-slate-500">${(g.member_ids || []).length} member(s)</span>`;
+                        : `<span class="text-xs text-slate-500">${memberIds.length} member(s)</span>`;
+                    const memberChips = directory ? '' : memberIds.map(id => {
+                        const u = knownUsers.find(x => x.id === id);
+                        const label = u ? u.username : `user #${id}`;
+                        return `<button onclick="removeGroupMember(${g.id}, ${id})"
+                                title="Remove ${escapeAttr(label)} from ${escapeAttr(g.name)}"
+                                class="text-xs text-slate-500 hover:text-red-600 bg-white border border-slate-200 rounded-full px-2 py-0.5">✕ ${escapeHtml(label)}</button>`;
+                    }).join(' ');
+                    const addableMembers = directory ? '' : knownUsers
+                        .filter(u => !memberIds.includes(u.id))
+                        .map(u => `<option value="${u.id}">${escapeHtml(u.username)}</option>`)
+                        .join('');
                     return `
                     <div class="bg-slate-50 px-4 py-2 rounded-lg fade-in">
                         <div class="flex justify-between items-center">
@@ -883,6 +895,13 @@
                             </div>
                         </div>
                         <div class="mt-1 space-x-2">${roles || '<span class="text-xs text-slate-400 italic">no roles attached</span>'}</div>
+                        ${directory ? '' : `<div class="mt-2 flex flex-wrap items-center gap-2">
+                            ${memberChips || '<span class="text-xs text-slate-400 italic">no members</span>'}
+                            ${addableMembers ? `<select id="group-member-${g.id}" class="text-xs rounded border-slate-200">
+                                <option value="">add member…</option>${addableMembers}
+                            </select>
+                            <button onclick="addGroupMember(${g.id})" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>` : ''}
+                        </div>`}
                     </div>`;
                 }).join('');
                 refreshMaintainerPickers();
@@ -901,6 +920,30 @@
                 return;
             }
             input.value = '';
+            loadGroups();
+        }
+
+        async function addGroupMember(groupId) {
+            const select = document.getElementById(`group-member-${groupId}`);
+            const userId = select ? parseInt(select.value, 10) : NaN;
+            if (!userId) return;
+            const res = await apiCall(`/admin/groups/${groupId}/members`, {
+                method: 'POST',
+                body: { user_id: userId },
+            });
+            if (!res.ok) {
+                alert('Failed to add member: ' + (await errorMessage(res)));
+                return;
+            }
+            loadGroups();
+        }
+
+        async function removeGroupMember(groupId, userId) {
+            const res = await apiCall(`/admin/groups/${groupId}/members/${userId}`, { method: 'DELETE' });
+            if (!res.ok) {
+                alert('Failed to remove member: ' + (await errorMessage(res)));
+                return;
+            }
             loadGroups();
         }
 

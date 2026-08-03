@@ -313,24 +313,6 @@ async function checkDiscoveryAuth(onSuccess) {
     }
   }
 
-  // Fallback: check if dev mode is enabled
-  try {
-    const devRes = await fetch("/admin/settings/dev-mode");
-    if (devRes.ok) {
-      const devData = await devRes.json();
-      if (devData.enabled) {
-        // Deliberately `null`: dev mode is an unauthenticated local convenience,
-        // so the interface presents no identity and offers no admin-only
-        // affordance. The server would accept the write — its dev user is an
-        // admin — but that is a bypass for local work, not a signed-in session,
-        // and the UI stays fail-closed rather than inventing an identity.
-        renderBanner(null);
-        if (onSuccess) await onSuccess(null);
-        return;
-      }
-    }
-  } catch (e) {}
-
   if (window.SANSHAIN_FAST_SCREENSHOT) {
     console.log("Fast screenshot mode: skipping auth redirect");
     return;

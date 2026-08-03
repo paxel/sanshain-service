@@ -473,22 +473,6 @@ assert_contains "Result Y" "Service Y endpoint preserved"
 # 7. Admin API
 header "Admin API Tests"
 
-# Developer Mode
-call_api GET "/admin/settings/dev-mode"
-assert_status 200 "Get developer mode status"
-INITIAL_DEV_MODE=$(echo "$LAST_BODY" | jq -r .dev_mode)
-
-# Toggle it
-NEW_DEV_MODE=$([ "$INITIAL_DEV_MODE" = "true" ] && echo "false" || echo "true")
-call_api POST "/admin/settings/dev-mode" "{\"enabled\":$NEW_DEV_MODE}"
-assert_status 200 "Set developer mode to $NEW_DEV_MODE"
-
-call_api GET "/admin/settings/dev-mode"
-assert_json ".dev_mode" "$NEW_DEV_MODE" "Developer mode persisted"
-
-# Restore it
-call_api POST "/admin/settings/dev-mode" "{\"enabled\":$INITIAL_DEV_MODE}"
-
 # List Users
 call_api GET "/admin/users"
 assert_status 200 "List users"

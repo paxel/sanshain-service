@@ -1163,45 +1163,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
-  /admin/settings/dev-mode:
-    get:
-      summary: "Read: settings/dev-mode"
-      description: |
-        Requires the `manage_settings` permission.
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-    post:
-      summary: "Create or run: settings/dev-mode"
-      description: |
-        Requires the `manage_settings` permission.
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
   /admin/settings/snapshot-max-age:
     get:
       summary: "Read: settings/snapshot-max-age"

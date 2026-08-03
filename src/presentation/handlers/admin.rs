@@ -327,39 +327,9 @@ pub async fn admin_delete_consumer(
     }
 }
 
-pub async fn get_dev_mode(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    // Report the persisted *setting* (what the admin toggled), not the effective
-    // gated value. Whether dev mode actually bypasses auth additionally depends on
-    // the `ALLOW_INSECURE_DEV_MODE` safety gate, which is enforced in middleware.
-    let res = services::is_dev_mode_requested(&state.repo).await?;
-    Ok(Json(json!({ "dev_mode": res })))
-}
-
 #[derive(Deserialize)]
 pub struct EnabledRequest {
     pub enabled: bool,
-}
-
-pub async fn set_dev_mode(
-    State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    Json(payload): Json<EnabledRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    services::set_dev_mode(&state.repo, payload.enabled).await?;
-    record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "SET_DEV_MODE",
-            details: &format!("Set dev-mode to {}", payload.enabled),
-            service: None,
-            version: None,
-            action_type: Some("ADMIN"),
-            diff: None,
-        },
-    )
-    .await?;
-    Ok(StatusCode::OK)
 }
 
 pub async fn get_auto_approve_users(
