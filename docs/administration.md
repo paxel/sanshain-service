@@ -190,9 +190,26 @@ confers cannot drift from what the code enforces.
 | `user_manager` | User administration and role/group administration, and nothing else.         |
 | `viewer`       | Read access to the audit log and observability.                              |
 | `maintainer`   | Producer administration (`manage_producers`) — **scoped**.                   |
+| `releaser`     | Publishing GA versions (`release_ga`) — **admin-guarded**.                   |
 
 `maintainer` cannot be granted instance-wide: it is meaningless without the set of Producers it is
 over, so it is assigned as a scope rather than granted as a role.
+
+`releaser` and `admin` are **admin-guarded**: only an admin (or root) may grant or revoke them, or
+move them on or off a group. For `admin` that closes self-escalation; for `releaser` it keeps
+`manage_roles` from being a side door to release rights.
+
+### Releasing
+
+Publishing with `stability: ga` — a fresh GA, a promotion of a snapshot, or even an idempotent GA
+re-provide — requires the `release_ga` permission; everything else answers `403` and shows up in the
+audit log as a `VERSION_REJECTED` entry with reason `ga_requires_releaser`. Snapshots stay open to
+every authenticated caller.
+
+Grant `releaser` to whatever performs your releases — typically the CI user whose token sets
+`sanshain.ga=true`. Admins and root hold the permission implicitly. Maintainers do **not**: a
+maintainer can delete a GA version of their Producer (remediation), but releasing is deliberately
+the pipeline's job.
 
 ### Groups
 

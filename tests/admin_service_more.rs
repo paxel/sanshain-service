@@ -112,6 +112,7 @@ async fn list_version_dependents_unknown_and_empty() {
             stability: Stability::Ga,
             dry_run: false,
             username: Some("ci"),
+            caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
         },
     )
     .await
@@ -142,6 +143,7 @@ async fn delete_version_returns_pinned_consumers() {
             stability: Stability::Ga,
             dry_run: false,
             username: Some("ci"),
+            caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
         },
     )
     .await

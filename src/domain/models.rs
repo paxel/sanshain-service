@@ -19,6 +19,11 @@ pub enum AppError {
     Unauthorized,
     #[error("Forbidden")]
     Forbidden,
+    /// A refusal whose remedy the caller should be told — e.g. a GA publish
+    /// without the `releaser` role. Same `403` as [`AppError::Forbidden`],
+    /// with a message.
+    #[error("Forbidden: {0}")]
+    ForbiddenWithReason(String),
     #[error("Internal Error: {0}")]
     Internal(String),
     #[error("Breaking Change: {0}")]

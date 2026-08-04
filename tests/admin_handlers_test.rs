@@ -109,6 +109,7 @@ async fn provide(repo: &SqliteSpecRepository, producer: &str, content: &str, sta
             stability,
             dry_run: false,
             username: Some("ci"),
+            caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
         },
     )
     .await

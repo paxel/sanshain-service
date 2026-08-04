@@ -55,12 +55,15 @@ pub async fn resolve_actor(
 /// Only globally grantable roles are accepted: `maintainer` is a scope over a
 /// set of Producers, not something held instance-wide, so granting it here would
 /// confer its permissions everywhere.
-/// Only an admin (or root) may hand out or take away the admin role itself.
-/// Without this, any holder of `manage_roles` — e.g. a `user_manager` — could
-/// grant admin to themselves or a group they belong to and escalate to every
-/// permission.
-fn require_admin_for_admin_role(actor: Option<&Actor>, roles: &[&str]) -> Result<(), AppError> {
-    if !roles.contains(&Role::Admin.as_str()) {
+/// Only an admin (or root) may hand out or take away an admin-guarded role
+/// ([`Role::ADMIN_GUARDED`]): `admin`, because a `manage_roles` holder could
+/// otherwise escalate themselves to every permission — and `releaser`,
+/// because release rights are exactly what the GA gate exists to control.
+fn require_admin_for_guarded_roles(actor: Option<&Actor>, roles: &[&str]) -> Result<(), AppError> {
+    let touches_guarded = Role::ADMIN_GUARDED
+        .iter()
+        .any(|guarded| roles.contains(&guarded.as_str()));
+    if !touches_guarded {
         return Ok(());
     }
     let allowed = actor.is_some_and(|a| a.is_root || a.roles.contains(&Role::Admin));
@@ -78,7 +81,7 @@ pub async fn grant_user_role(
     role: &str,
 ) -> Result<(), AppError> {
     let parsed = parse_grantable_role(role)?;
-    require_admin_for_admin_role(actor, &[parsed.as_str()])?;
+    require_admin_for_guarded_roles(actor, &[parsed.as_str()])?;
     repo.grant_user_role(user_id, parsed.as_str()).await?;
     Ok(())
 }
@@ -90,7 +93,7 @@ pub async fn revoke_user_role(
     role: &str,
 ) -> Result<bool, AppError> {
     let parsed = Role::parse(role).ok_or_else(|| AppError::BadRequest(unknown_role(role)))?;
-    require_admin_for_admin_role(actor, &[parsed.as_str()])?;
+    require_admin_for_guarded_roles(actor, &[parsed.as_str()])?;
     Ok(repo.revoke_user_role(user_id, parsed.as_str()).await?)
 }
 
@@ -185,13 +188,15 @@ pub async fn set_group_roles(
     }
     parsed.sort();
     parsed.dedup();
-    // Adding admin to the set — or stripping it from a group that holds it —
-    // is an admin-role change and needs an admin behind it.
+    // Adding a guarded role (admin, releaser) to the set — or stripping one
+    // from a group that holds it — needs an admin behind it.
     let current = repo.list_group_roles(group_id).await?;
-    let touches_admin = parsed.iter().any(|r| r == Role::Admin.as_str())
-        != current.iter().any(|r| r == Role::Admin.as_str());
-    if touches_admin {
-        require_admin_for_admin_role(actor, &[Role::Admin.as_str()])?;
+    let touches_guarded = Role::ADMIN_GUARDED.iter().any(|guarded| {
+        parsed.iter().any(|r| r == guarded.as_str())
+            != current.iter().any(|r| r == guarded.as_str())
+    });
+    if touches_guarded {
+        require_admin_for_guarded_roles(actor, &[Role::Admin.as_str()])?;
     }
     repo.set_group_roles(group_id, &parsed).await?;
     Ok(())
@@ -1056,6 +1061,34 @@ mod tests {
         assert!(matches!(
             assign_user_maintainer(&repo, "nope", ida.id).await,
             Err(AppError::NotFound(_))
+        ));
+    }
+
+    /// Releaser is admin-guarded for the same reason admin is: the GA gate
+    /// exists to control release rights, so `manage_roles` must not be a side
+    /// door to them.
+    #[tokio::test]
+    async fn a_user_manager_cannot_grant_or_revoke_releaser() {
+        let repo = MockRepo::new();
+        let bob = user(&repo, "bob", false).await;
+        let user_manager = Actor {
+            user_id: 500,
+            username: "manager".into(),
+            is_root: false,
+            roles: vec![Role::UserManager],
+            directory_groups: vec![],
+        };
+
+        assert!(matches!(
+            grant_user_role(&repo, Some(&user_manager), bob.id, "releaser").await,
+            Err(AppError::Forbidden)
+        ));
+        grant_user_role(&repo, Some(&admin_actor()), bob.id, "releaser")
+            .await
+            .expect("an admin may");
+        assert!(matches!(
+            revoke_user_role(&repo, Some(&user_manager), bob.id, "releaser").await,
+            Err(AppError::Forbidden)
         ));
     }
 

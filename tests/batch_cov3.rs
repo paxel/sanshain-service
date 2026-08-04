@@ -21,6 +21,7 @@ async fn dry_run(
             stability: Stability::Snapshot,
             dry_run: true,
             username: Some("ci"),
+            caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
         },
     )
     .await

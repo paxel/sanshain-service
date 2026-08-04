@@ -48,6 +48,7 @@ impl IntoResponse for AppError {
                 StatusCode::FORBIDDEN,
                 ErrorBody::message("Forbidden".to_string()),
             ),
+            AppError::ForbiddenWithReason(msg) => (StatusCode::FORBIDDEN, ErrorBody::message(msg)),
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, ErrorBody::message(msg)),
             AppError::BreakingChange(msg) => (StatusCode::CONFLICT, ErrorBody::message(msg)),
             // 409 with the remedy machine-readable: the rejection is

@@ -64,6 +64,7 @@ fn provide_params<'a>(
         stability,
         dry_run,
         username: Some("ci"),
+        caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
     }
 }
 
@@ -126,6 +127,7 @@ async fn provide_persists_the_auto_tag() {
             stability: Stability::Snapshot,
             dry_run: false,
             username: Some("ci"),
+            caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
         },
     )
     .await

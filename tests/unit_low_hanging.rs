@@ -339,6 +339,7 @@ paths:
             stability: Stability::Snapshot,
             dry_run: true,
             username: Some("ci"),
+            caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
         },
     )
     .await
@@ -373,6 +374,7 @@ message Out {}
             stability: Stability::Snapshot,
             dry_run: false,
             username: Some("ci"),
+            caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
         },
     )
     .await
@@ -417,6 +419,7 @@ paths:
             stability: Stability::Ga,
             dry_run: false,
             username: Some("ci"),
+            caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
         },
     )
     .await

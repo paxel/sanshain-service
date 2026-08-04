@@ -36,6 +36,7 @@ fn params<'a>(
         stability,
         dry_run: false,
         username: Some("ci"),
+        caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
     }
 }
 

@@ -610,7 +610,18 @@ async fn the_role_catalogue_reports_what_each_role_confers() {
     assert_eq!(status, StatusCode::OK);
 
     let roles = body["roles"].as_array().expect("roles array");
-    assert_eq!(roles.len(), 4);
+    assert_eq!(roles.len(), 5);
+
+    let releaser = roles
+        .iter()
+        .find(|r| r["role"] == "releaser")
+        .expect("releaser listed");
+    assert_eq!(releaser["globally_grantable"], true);
+    assert_eq!(
+        releaser["permissions"],
+        serde_json::json!(["release_ga"]),
+        "the releaser bundle is exactly release_ga"
+    );
 
     let admin = roles
         .iter()
@@ -653,6 +664,134 @@ async fn role_administration_is_recorded_in_the_audit_log() {
             .any(|entry| entry.action == "GRANT_ROLE" && entry.username == "admin"),
         "the grant should be attributed to the admin who made it"
     );
+}
+
+/// `releaser` is admin-guarded like `admin`: `manage_roles` alone must not
+/// be a side door to release rights.
+#[tokio::test]
+async fn granting_releaser_requires_an_admin() {
+    let f = fixture().await;
+    let hash = services::hash_password("um-pass").expect("hash");
+    let um = f
+        .repo
+        .create_user("um", &hash, true)
+        .await
+        .expect("user manager");
+    f.repo
+        .grant_user_role(um.id, "user_manager")
+        .await
+        .expect("grant user_manager");
+    let um_token = f
+        .repo
+        .create_session(um.id, "2099-12-31T23:59:59")
+        .await
+        .expect("session")
+        .token;
+
+    let (status, _) = call(
+        &f.app,
+        "POST",
+        &format!("/admin/users/{}/roles", f.plain_user_id),
+        Some(&um_token),
+        true,
+        Some(serde_json::json!({ "role": "releaser" })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a user_manager must not hand out release rights"
+    );
+
+    // A non-guarded role stays within manage_roles.
+    let (status, _) = call(
+        &f.app,
+        "POST",
+        &format!("/admin/users/{}/roles", f.plain_user_id),
+        Some(&um_token),
+        true,
+        Some(serde_json::json!({ "role": "viewer" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let (status, _) = call(
+        &f.app,
+        "POST",
+        &format!("/admin/users/{}/roles", f.plain_user_id),
+        Some(&f.admin_token),
+        true,
+        Some(serde_json::json!({ "role": "releaser" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "an admin may");
+
+    let (_, body) = call(
+        &f.app,
+        "GET",
+        &format!("/admin/users/{}/roles", f.plain_user_id),
+        Some(&f.admin_token),
+        false,
+        None,
+    )
+    .await;
+    assert_eq!(body["roles"], serde_json::json!(["releaser", "viewer"]));
+}
+
+/// The same guard applies to putting `releaser` on a group.
+#[tokio::test]
+async fn putting_releaser_on_a_group_requires_an_admin() {
+    let f = fixture().await;
+    let hash = services::hash_password("um-pass").expect("hash");
+    let um = f
+        .repo
+        .create_user("um", &hash, true)
+        .await
+        .expect("user manager");
+    f.repo
+        .grant_user_role(um.id, "user_manager")
+        .await
+        .expect("grant user_manager");
+    let um_token = f
+        .repo
+        .create_session(um.id, "2099-12-31T23:59:59")
+        .await
+        .expect("session")
+        .token;
+
+    let (status, group) = call(
+        &f.app,
+        "POST",
+        "/admin/groups",
+        Some(&f.admin_token),
+        true,
+        Some(serde_json::json!({ "name": "ci" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let group_id = group["id"].as_i64().expect("group id");
+
+    let (status, _) = call(
+        &f.app,
+        "PUT",
+        &format!("/admin/groups/{}", group_id),
+        Some(&um_token),
+        true,
+        Some(serde_json::json!({ "roles": ["releaser"] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, _) = call(
+        &f.app,
+        "PUT",
+        &format!("/admin/groups/{}", group_id),
+        Some(&f.admin_token),
+        true,
+        Some(serde_json::json!({ "roles": ["releaser"] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "an admin may");
 }
 
 // --- Maintainer scope ---

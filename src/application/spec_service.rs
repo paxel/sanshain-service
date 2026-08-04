@@ -7,6 +7,7 @@
 
 use crate::asyncapi;
 use crate::domain::models::*;
+use crate::domain::permissions::{Actor, Permission};
 use crate::domain::ports::{
     NewAuditLog, RecordDependencyParams, SpecRepository, UpsertSpecVersion,
 };
@@ -26,6 +27,10 @@ pub struct ProvideSpecParams<'a> {
     /// The real authenticated Actor — always used for the audit log and
     /// credited as the version's provider.
     pub username: Option<&'a str>,
+    /// The resolved caller, for the GA gate: publishing `stability: ga`
+    /// requires [`Permission::ReleaseGa`]. `None` (no authenticated Actor)
+    /// can never release.
+    pub caller: Option<Actor>,
 }
 
 pub struct RequireEndpointParams<'a> {
@@ -303,11 +308,40 @@ pub async fn provide_spec(
         stability,
         dry_run,
         username,
+        caller,
     } = params;
 
     let version = extract_spec_version(api_type, content)?;
     let hash = content_hash(content);
     let endpoints = parse_spec_endpoints(api_type, content, producername)?;
+
+    // The GA gate (#27): releasing is a permission, snapshots are open to any
+    // authenticated caller. Checked after parsing, so the refusal names a real
+    // version and malformed documents keep their 400 — and before any write,
+    // so an unauthorized attempt cannot even create the service. All GA
+    // shapes are gated, including promotions and the idempotent no-op: a 202
+    // must never tell a misconfigured CI that its credentials can release.
+    if stability == Stability::Ga
+        && !caller
+            .as_ref()
+            .is_some_and(|a| a.has_permission(Permission::ReleaseGa))
+    {
+        let message = format!(
+            "publishing GA for '{}' requires the 'releaser' role — publish as a snapshot, or ask an administrator to grant the role",
+            producername
+        );
+        record_version_rejection(
+            repo,
+            dry_run,
+            username,
+            producername,
+            version,
+            "ga_requires_releaser",
+            &message,
+        )
+        .await;
+        return Err(AppError::ForbiddenWithReason(message));
+    }
 
     tracing::debug!(
         "Providing {:?} {} for service '{}' as {} (dry_run: {})",
