@@ -1,27 +1,7 @@
-use crate::domain::branch_pattern::branch_matches_any;
 use crate::domain::models::*;
 use crate::domain::ports::SpecRepository;
 use chrono::Utc;
 use tracing::instrument;
-
-pub async fn list_protected_branches(repo: &impl SpecRepository) -> Result<Vec<String>, AppError> {
-    Ok(repo.list_protected_branches().await?)
-}
-
-pub async fn add_protected_branch(
-    repo: &impl SpecRepository,
-    pattern: &str,
-) -> Result<(), AppError> {
-    repo.add_protected_branch(pattern).await?;
-    Ok(())
-}
-
-pub async fn remove_protected_branch(
-    repo: &impl SpecRepository,
-    pattern: &str,
-) -> Result<bool, AppError> {
-    Ok(repo.remove_protected_branch(pattern).await?)
-}
 
 pub async fn delete_all_services(repo: &impl SpecRepository) -> Result<u64, AppError> {
     Ok(repo.delete_all_services().await?)
@@ -31,8 +11,15 @@ pub async fn delete_all_clients(repo: &impl SpecRepository) -> Result<u64, AppEr
     Ok(repo.delete_all_clients().await?)
 }
 
-pub async fn delete_all_non_admin_users(repo: &impl SpecRepository) -> Result<u64, AppError> {
-    Ok(repo.delete_all_non_admin_users().await?)
+/// Delete every user who is not an effective administrator. Spared alongside
+/// direct/group admins are the configured root usernames, who hold their power
+/// through configuration rather than a stored role.
+pub async fn delete_all_non_admin_users(
+    repo: &impl SpecRepository,
+    root_users: &crate::domain::permissions::RootUsers,
+) -> Result<u64, AppError> {
+    let spare: Vec<String> = root_users.usernames().map(str::to_string).collect();
+    Ok(repo.delete_all_non_admin_users(&spare).await?)
 }
 
 pub async fn nuke_database(
@@ -47,36 +34,6 @@ pub async fn delete_producer(repo: &impl SpecRepository, name: &str) -> Result<b
     Ok(repo.delete_producer(name).await?)
 }
 
-pub async fn delete_branch(
-    repo: &impl SpecRepository,
-    service_name: &str,
-    branch_name: &str,
-) -> Result<bool, AppError> {
-    Ok(repo.delete_branch(service_name, branch_name).await?)
-}
-
-pub async fn reset_branch_history(
-    repo: &impl SpecRepository,
-    service_name: &str,
-    branch_name: &str,
-) -> Result<bool, AppError> {
-    Ok(repo.reset_branch_history(service_name, branch_name).await?)
-}
-
-pub async fn delete_branch_all_services(
-    repo: &impl SpecRepository,
-    branch_name: &str,
-) -> Result<u64, AppError> {
-    let services = repo.list_producers().await?;
-    let mut count = 0;
-    for svc in services {
-        if repo.delete_branch(&svc, branch_name).await? {
-            count += 1;
-        }
-    }
-    Ok(count)
-}
-
 pub async fn delete_consumer(repo: &impl SpecRepository, name: &str) -> Result<bool, AppError> {
     Ok(repo.delete_consumer(name).await?)
 }
@@ -85,100 +42,145 @@ pub async fn list_producers(repo: &impl SpecRepository) -> Result<Vec<String>, A
     Ok(repo.list_producers().await?)
 }
 
+/// Resolve a version-line entry by name. Shared by everything that addresses
+/// a version on the admin surface.
+pub async fn find_version_entry(
+    repo: &impl SpecRepository,
+    producer: &str,
+    api_type: ApiType,
+    version: SemVer,
+) -> Result<SpecVersionMeta, AppError> {
+    let service_id = repo
+        .find_service(producer)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Producer '{}' not found", producer)))?;
+    repo.find_spec_version(service_id, api_type, version)
+        .await?
+        .ok_or_else(|| {
+            AppError::NotFound(format!(
+                "Producer '{}' has no {} version {}",
+                producer,
+                api_type.as_str(),
+                version
+            ))
+        })
+}
+
+/// The Consumers currently pinned to a version — surfaced *before* a
+/// delete-version is confirmed, because deleting a depended-on version means
+/// those builds hard-fail. Visible, not hidden.
+pub async fn list_version_dependents(
+    repo: &impl SpecRepository,
+    producer: &str,
+    api_type: ApiType,
+    version: SemVer,
+) -> Result<Vec<String>, AppError> {
+    let entry = find_version_entry(repo, producer, api_type, version).await?;
+    Ok(repo.list_version_dependents(entry.id).await?)
+}
+
+/// The sole escape hatch from GA immutability (ADR-0003): delete the version
+/// outright, freeing its number. Deliberately *delete*, not edit — content
+/// immutability stays absolute. Returns the Consumers that were pinned to it.
+pub async fn delete_version(
+    repo: &impl SpecRepository,
+    producer: &str,
+    api_type: ApiType,
+    version: SemVer,
+) -> Result<Vec<String>, AppError> {
+    let entry = find_version_entry(repo, producer, api_type, version).await?;
+    let dependents = repo.list_version_dependents(entry.id).await?;
+    repo.delete_spec_version(entry.id).await?;
+    Ok(dependents)
+}
+
+/// Every Producer's version-line entries, decorated with endpoint counts and
+/// snapshot expiry — shared by the producers listing and the per-Producer
+/// versions endpoint.
+async fn producer_versions_map(
+    repo: &impl SpecRepository,
+) -> Result<std::collections::HashMap<String, Vec<ProducerVersionInfo>>, AppError> {
+    let max_age_days = get_snapshot_max_age_days(repo).await?;
+
+    let mut versions_by_service: std::collections::HashMap<String, Vec<ProducerVersionInfo>> =
+        std::collections::HashMap::new();
+    for (service_name, meta, endpoint_count) in repo.list_all_spec_versions().await? {
+        // Use-based expiry: a snapshot dies only when neither provided nor
+        // required for the window, so the surfaced TTL counts from whichever
+        // of the two happened last. GA never expires.
+        let expires_at = if meta.stability == Stability::Snapshot && max_age_days > 0 {
+            let last_use = meta
+                .last_required_at
+                .as_deref()
+                .filter(|r| *r > meta.updated_at.as_str())
+                .unwrap_or(meta.updated_at.as_str());
+            chrono::DateTime::parse_from_rfc3339(last_use)
+                .ok()
+                .map(|t| {
+                    (t + chrono::Duration::days(max_age_days as i64))
+                        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+                })
+        } else {
+            None
+        };
+        versions_by_service
+            .entry(service_name)
+            .or_default()
+            .push(ProducerVersionInfo {
+                api_type: meta.api_type,
+                version: meta.version,
+                stability: meta.stability,
+                content_hash: meta.content_hash,
+                provided_by: meta.provided_by,
+                created_at: meta.created_at,
+                updated_at: meta.updated_at,
+                last_required_at: meta.last_required_at,
+                endpoint_count,
+                expires_at,
+            });
+    }
+
+    // One timeline per line: API types grouped, newest version first.
+    for versions in versions_by_service.values_mut() {
+        versions.sort_by(|a, b| {
+            a.api_type
+                .as_str()
+                .cmp(b.api_type.as_str())
+                .then_with(|| b.version.cmp(&a.version))
+        });
+    }
+    Ok(versions_by_service)
+}
+
+/// The version lines of one Producer, optionally narrowed to one API type.
+pub async fn list_producer_versions(
+    repo: &impl SpecRepository,
+    producer: &str,
+    api_type: Option<ApiType>,
+) -> Result<Vec<ProducerVersionInfo>, AppError> {
+    repo.find_service(producer)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Producer '{}' not found", producer)))?;
+    let mut versions = producer_versions_map(repo)
+        .await?
+        .remove(producer)
+        .unwrap_or_default();
+    if let Some(api_type) = api_type {
+        versions.retain(|v| v.api_type == api_type);
+    }
+    Ok(versions)
+}
+
 #[instrument(skip_all)]
 pub async fn list_producers_detailed(
     repo: &impl SpecRepository,
     user_id: Option<i64>,
 ) -> Result<Vec<ProducerSummary>, AppError> {
     let mut services = repo.list_producers_detailed().await?;
+    let mut versions_by_service = producer_versions_map(repo).await?;
 
-    // Last-published time and endpoint count, keyed service -> branch -> value.
-    // Nested rather than keyed by a `(String, String)` tuple so lookups below
-    // borrow instead of allocating a fresh key pair each time.
-    let mut last_published: std::collections::HashMap<
-        String,
-        std::collections::HashMap<String, String>,
-    > = std::collections::HashMap::new();
-    for (svc, branch, ts) in repo.list_branch_last_published().await? {
-        last_published.entry(svc).or_default().insert(branch, ts);
-    }
-
-    // The endpoint count lets the discovery UI tell a branch that serves nothing
-    // (e.g. an OpenAPI spec provided with no paths) apart from one that does.
-    // `branches` itself is left unfiltered — admin management needs to see and
-    // clean up empty branches too.
-    let mut endpoint_count: std::collections::HashMap<
-        String,
-        std::collections::HashMap<String, i64>,
-    > = std::collections::HashMap::new();
-    for (svc, branch, count) in repo.list_branch_endpoint_counts().await? {
-        endpoint_count.entry(svc).or_default().insert(branch, count);
-    }
-
-    // Stale-cleanup horizon: non-protected branches are culled once their last
-    // publish is older than this many days (0 = disabled). Used to surface a TTL.
-    let max_age_days = get_branch_max_age_days(repo).await?;
-
-    let patterns = repo.list_protected_branches().await?;
-    let empty_times = std::collections::HashMap::new();
-    let empty_counts = std::collections::HashMap::new();
     for svc in &mut services {
-        let times = last_published.get(&svc.name).unwrap_or(&empty_times);
-        let counts = endpoint_count.get(&svc.name).unwrap_or(&empty_counts);
-
-        // Attach the last-published time per branch, for display in the overview.
-        svc.branches_last_published = svc
-            .branches
-            .iter()
-            .filter_map(|b| times.get(b).map(|ts| (b.clone(), ts.clone())))
-            .collect();
-        // Attach the endpoint count per branch, for filtering in the discovery UI.
-        svc.branches_endpoint_count = svc
-            .branches
-            .iter()
-            .map(|b| (b.clone(), counts.get(b).copied().unwrap_or(0)))
-            .collect();
-        // Attach the stale-cleanup expiry per branch (non-protected only), so the UI
-        // can warn when a branch is about to be culled. Protection is glob-matched,
-        // so a wildcard-protected branch correctly shows no expiry badge.
-        if max_age_days > 0 {
-            svc.branches_expire_at = svc
-                .branches
-                .iter()
-                .filter(|b| !branch_matches_any(b, &patterns))
-                .filter_map(|b| {
-                    let ts = times.get(b)?;
-                    let published =
-                        chrono::NaiveDateTime::parse_from_str(ts, "%Y-%m-%dT%H:%M:%SZ").ok()?;
-                    let expire = published + chrono::Duration::days(max_age_days as i64);
-                    Some((b.clone(), expire.format("%Y-%m-%dT%H:%M:%SZ").to_string()))
-                })
-                .collect();
-        }
-
-        // Order branches deterministically: protected first (e.g. master/main),
-        // then most recently published, then alphabetically — the underlying
-        // GROUP_CONCAT returns them in an unspecified order otherwise. Sort keys
-        // are computed once per branch rather than inside the comparator, which
-        // would otherwise re-derive them on every comparison.
-        let mut keyed: Vec<(bool, &str, &String)> = svc
-            .branches
-            .iter()
-            .map(|b| {
-                (
-                    branch_matches_any(b, &patterns),
-                    times.get(b).map(String::as_str).unwrap_or(""),
-                    b,
-                )
-            })
-            .collect();
-        keyed.sort_by(|a, b| {
-            b.0.cmp(&a.0)
-                .then_with(|| b.1.cmp(a.1)) // newest publish first
-                .then_with(|| a.2.cmp(b.2))
-        });
-        let ordered: Vec<String> = keyed.into_iter().map(|(_, _, name)| name.clone()).collect();
-        svc.branches = ordered;
+        svc.versions = versions_by_service.remove(&svc.name).unwrap_or_default();
     }
 
     if let Some(uid) = user_id {
@@ -193,15 +195,6 @@ pub async fn list_producers_detailed(
     Ok(services)
 }
 
-pub async fn set_fallback_branch(
-    repo: &impl SpecRepository,
-    service_name: &str,
-    branch: Option<&str>,
-) -> Result<(), AppError> {
-    repo.set_fallback_branch(service_name, branch).await?;
-    Ok(())
-}
-
 pub async fn update_producer_metadata(
     repo: &impl SpecRepository,
     service_name: &str,
@@ -211,69 +204,6 @@ pub async fn update_producer_metadata(
     repo.update_producer_metadata(service_name, icon, domain)
         .await?;
     Ok(())
-}
-
-pub async fn get_fallback_branch(
-    repo: &impl SpecRepository,
-    service_name: &str,
-) -> Result<Option<String>, AppError> {
-    Ok(repo.get_fallback_branch(service_name).await?)
-}
-
-async fn resolve_branch_id(
-    repo: &impl SpecRepository,
-    service_name: &str,
-    branch_name: &str,
-) -> Result<i64, AppError> {
-    let service_id = repo
-        .find_service(service_name)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Service '{}' not found", service_name)))?;
-    repo.find_branch(service_id, branch_name)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Branch '{}' not found", branch_name)))
-}
-
-/// Item #17: get a branch's `source_protected_branch`, if any.
-pub async fn get_source_protected_branch(
-    repo: &impl SpecRepository,
-    service_name: &str,
-    branch_name: &str,
-) -> Result<Option<String>, AppError> {
-    let branch_id = resolve_branch_id(repo, service_name, branch_name).await?;
-    Ok(repo.get_source_protected_branch(branch_id).await?)
-}
-
-/// Item #17, admin-only: unconditionally set (or clear, with `None`) a
-/// branch's `source_protected_branch`, overwriting whatever caller-supplied
-/// or previously-admin-set value is currently stored.
-pub async fn admin_set_source_protected_branch(
-    repo: &impl SpecRepository,
-    service_name: &str,
-    branch_name: &str,
-    value: Option<&str>,
-) -> Result<(), AppError> {
-    let branch_id = resolve_branch_id(repo, service_name, branch_name).await?;
-    repo.admin_set_source_protected_branch(branch_id, value)
-        .await?;
-    Ok(())
-}
-
-pub async fn list_branches(
-    repo: &impl SpecRepository,
-    service_name: &str,
-) -> Result<Vec<String>, AppError> {
-    Ok(repo.list_branches(service_name).await?)
-}
-
-pub async fn list_all_branches(repo: &impl SpecRepository) -> Result<Vec<String>, AppError> {
-    Ok(repo.list_all_branches().await?)
-}
-
-pub async fn list_branches_with_metadata(
-    repo: &impl SpecRepository,
-) -> Result<Vec<BranchMetadata>, AppError> {
-    Ok(repo.list_branches_with_metadata().await?)
 }
 
 pub async fn list_consumers(
@@ -292,46 +222,40 @@ pub async fn list_consumers(
     Ok(clients)
 }
 
-pub async fn list_consumer_branches(
-    repo: &impl SpecRepository,
-    client_name: &str,
-) -> Result<Vec<String>, AppError> {
-    Ok(repo.list_consumer_branches(client_name).await?)
-}
-
 pub async fn list_consumer_endpoints(
     repo: &impl SpecRepository,
     client_name: &str,
-    branch: &str,
 ) -> Result<Vec<ConsumerEndpointInfo>, AppError> {
-    Ok(repo.list_consumer_endpoints(client_name, branch).await?)
+    Ok(repo.list_consumer_endpoints(client_name).await?)
 }
 
-pub async fn get_branch_max_age_days(repo: &impl SpecRepository) -> Result<u64, AppError> {
+pub async fn get_snapshot_max_age_days(repo: &impl SpecRepository) -> Result<u64, AppError> {
     let val = repo
-        .get_setting("branch_max_age_days")
+        .get_setting("snapshot_max_age_days")
         .await?
         .unwrap_or("30".to_string());
     Ok(val.parse().unwrap_or(30))
 }
 
-pub async fn set_branch_max_age_days(
+pub async fn set_snapshot_max_age_days(
     repo: &impl SpecRepository,
     days: u64,
 ) -> Result<(), AppError> {
-    repo.set_setting("branch_max_age_days", &days.to_string())
+    repo.set_setting("snapshot_max_age_days", &days.to_string())
         .await?;
     Ok(())
 }
 
+/// Use-based snapshot expiry: a snapshot neither provided nor required for
+/// `snapshot_max_age_days` is abandoned work and dies. GA is never age-culled.
 #[instrument(skip_all)]
-pub async fn cleanup_stale_branches(repo: &impl SpecRepository) -> Result<u64, AppError> {
-    let days = get_branch_max_age_days(repo).await?;
+pub async fn cleanup_expired_snapshots(repo: &impl SpecRepository) -> Result<u64, AppError> {
+    let days = get_snapshot_max_age_days(repo).await?;
     if days == 0 {
         return Ok(0);
     }
     let cutoff = Utc::now() - chrono::Duration::days(days as i64);
-    Ok(repo.delete_stale_branches(&cutoff.to_rfc3339()).await?)
+    Ok(repo.delete_expired_snapshots(&cutoff.to_rfc3339()).await?)
 }
 
 pub async fn get_dependency_max_age_days(repo: &impl SpecRepository) -> Result<u64, AppError> {
@@ -359,18 +283,6 @@ pub async fn cleanup_stale_dependencies(repo: &impl SpecRepository) -> Result<u6
     }
     let cutoff = Utc::now() - chrono::Duration::days(days as i64);
     Ok(repo.delete_stale_dependencies(&cutoff.to_rfc3339()).await?)
-}
-
-/// Drop message-level channel contracts (item #20) whose branch no longer
-/// exists on any service — the counterpart of stale-branch/dependency cleanup.
-#[instrument(skip_all)]
-pub async fn cleanup_orphaned_channel_message_contracts(
-    repo: &impl SpecRepository,
-) -> Result<u64, AppError> {
-    let live_branches = repo.list_all_branches().await?;
-    Ok(repo
-        .delete_orphaned_channel_message_contracts(&live_branches)
-        .await?)
 }
 
 pub async fn get_user_favorites(
@@ -413,71 +325,11 @@ pub async fn remove_user_favorite(
         .await?;
     Ok(())
 }
-// --- Producer Onboarding ---
-
-/// Put a Producer into onboarding, or take it out.
-///
-/// While it is on, a Provide to a protected branch is not gatekept: none of the
-/// five refusals apply. Deletes stay soft and version history is still written,
-/// so this is strictly less destructive than the workaround it replaces —
-/// deleting the branch by hand, which throws that history away.
-pub async fn set_producer_onboarding(
-    repo: &impl SpecRepository,
-    producer: &str,
-    onboarding: bool,
-) -> Result<(), AppError> {
-    let service_id = repo
-        .find_service(producer)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Producer '{}' not found", producer)))?;
-    repo.set_producer_onboarding(service_id, onboarding).await?;
-    Ok(())
-}
-
-pub async fn is_producer_onboarding(
-    repo: &impl SpecRepository,
-    producer: &str,
-) -> Result<bool, AppError> {
-    let service_id = repo
-        .find_service(producer)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Producer '{}' not found", producer)))?;
-    Ok(repo.is_producer_onboarding(service_id).await?)
-}
-
-/// Producers currently in onboarding.
-///
-/// The flag has no expiry, so nothing else will ever mention that it is still
-/// on. This listing is that reminder.
-pub async fn list_onboarding_producers(
-    repo: &impl SpecRepository,
-) -> Result<Vec<String>, AppError> {
-    Ok(repo.list_onboarding_producers().await?)
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::application::mock_repo::MockRepo;
-
-    #[tokio::test]
-    async fn test_protected_branch_crud() {
-        let repo = MockRepo::new();
-        // MockRepo starts with ["main", "master"]
-        let initial = list_protected_branches(&repo).await.unwrap();
-        let initial_len = initial.len();
-
-        add_protected_branch(&repo, "release/*").await.unwrap();
-        let branches = list_protected_branches(&repo).await.unwrap();
-        assert_eq!(branches.len(), initial_len + 1);
-
-        assert!(remove_protected_branch(&repo, "main").await.unwrap());
-        assert!(!remove_protected_branch(&repo, "nonexistent").await.unwrap());
-        assert_eq!(
-            list_protected_branches(&repo).await.unwrap().len(),
-            initial_len
-        );
-    }
 
     #[tokio::test]
     async fn test_list_services() {
@@ -497,27 +349,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fallback_branch() {
+    async fn test_cleanup_expired_snapshots_disabled() {
         let repo = MockRepo::new();
-        repo.ensure_service("svc").await.unwrap();
-        assert!(get_fallback_branch(&repo, "svc").await.unwrap().is_none());
-
-        set_fallback_branch(&repo, "svc", Some("main"))
-            .await
-            .unwrap();
-        assert_eq!(
-            get_fallback_branch(&repo, "svc").await.unwrap().unwrap(),
-            "main"
-        );
-
-        set_fallback_branch(&repo, "svc", None).await.unwrap();
-        assert!(get_fallback_branch(&repo, "svc").await.unwrap().is_none());
-    }
-
-    #[tokio::test]
-    async fn test_cleanup_stale_branches_disabled() {
-        let repo = MockRepo::new();
-        let count = cleanup_stale_branches(&repo).await.unwrap();
+        set_snapshot_max_age_days(&repo, 0).await.unwrap();
+        let count = cleanup_expired_snapshots(&repo).await.unwrap();
         assert_eq!(count, 0);
     }
 
@@ -529,15 +364,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_delete_version_unknown_is_not_found() {
+        let repo = MockRepo::new();
+        repo.ensure_service("svc").await.unwrap();
+        let err = delete_version(&repo, "svc", ApiType::OpenApi, "1.0.0".parse().unwrap())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)));
+    }
+
+    #[tokio::test]
     async fn test_favorites_sorting() {
         let repo = MockRepo::new();
-        let s_a = repo.ensure_service("svc-a").await.unwrap();
-        let s_b = repo.ensure_service("svc-b").await.unwrap();
-        let s_c = repo.ensure_service("svc-c").await.unwrap();
-
-        repo.ensure_branch(s_a, "main").await.unwrap();
-        repo.ensure_branch(s_b, "main").await.unwrap();
-        repo.ensure_branch(s_c, "main").await.unwrap();
+        repo.ensure_service("svc-a").await.unwrap();
+        repo.ensure_service("svc-b").await.unwrap();
+        repo.ensure_service("svc-c").await.unwrap();
 
         repo.ensure_client("client-a").await.unwrap();
         repo.ensure_client("client-b").await.unwrap();
@@ -550,8 +391,6 @@ mod tests {
 
         let clients = list_consumers(&repo, None).await.unwrap();
         assert_eq!(clients[0], "client-a");
-        assert_eq!(clients[1], "client-b");
-        assert_eq!(clients[2], "client-c");
 
         add_user_favorite(&repo, 42, "service", "svc-b")
             .await
@@ -563,36 +402,14 @@ mod tests {
         let svcs_fav = list_producers_detailed(&repo, Some(42)).await.unwrap();
         assert_eq!(svcs_fav[0].name, "svc-b");
         assert!(svcs_fav[0].is_favorite);
-        assert_eq!(svcs_fav[1].name, "svc-a");
-        assert!(!svcs_fav[1].is_favorite);
-        assert_eq!(svcs_fav[2].name, "svc-c");
-        assert!(!svcs_fav[2].is_favorite);
 
         let clients_fav = list_consumers(&repo, Some(42)).await.unwrap();
         assert_eq!(clients_fav[0], "client-c");
-        assert_eq!(clients_fav[1], "client-a");
-        assert_eq!(clients_fav[2], "client-b");
 
         remove_user_favorite(&repo, 42, "service", "svc-b")
             .await
             .unwrap();
         let svcs_removed = list_producers_detailed(&repo, Some(42)).await.unwrap();
         assert_eq!(svcs_removed[0].name, "svc-a");
-    }
-
-    #[tokio::test]
-    async fn test_branches_ordered_protected_first_then_alphabetical() {
-        let repo = MockRepo::new();
-        // MockRepo seeds "main" and "master" as protected branches.
-        let s = repo.ensure_service("svc").await.unwrap();
-        // Insert in a deliberately unsorted order.
-        for b in ["zebra", "master", "alpha", "main"] {
-            repo.ensure_branch(s, b).await.unwrap();
-        }
-
-        let svcs = list_producers_detailed(&repo, None).await.unwrap();
-        let svc = svcs.iter().find(|s| s.name == "svc").unwrap();
-        // Protected first (alphabetical among themselves), then the rest alphabetically.
-        assert_eq!(svc.branches, vec!["main", "master", "alpha", "zebra"]);
     }
 }

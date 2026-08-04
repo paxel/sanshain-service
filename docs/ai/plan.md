@@ -3,7 +3,7 @@
 ### Going Big (Enterprise & Advanced Scale)
 - [ ] **Top-Layer System Switch**
   - Introduce a system-level isolation switch so that the Sanshain instance can be partitioned and used for entirely separated systems/organizations (e.g., multi-tenancy support).
-- [ ] **User Roles & Groups**
+- [x] **User Roles & Groups** — shipped in 2.0.0; issues #13, #14, #15, #18, #19, #20 closed.
   - Permissions are the unit every authorisation check tests; roles are fixed bundles of them,
     defined in Rust rather than composed by operators. Fixed bundles are what allow a build-time
     check to reason about who can reach a route.
@@ -16,7 +16,7 @@
     on a short cache TTL, so a group change takes effect without the user logging out. Sanshain's
     own membership is read live.
   - Tracked as GitHub issues #13, #14, #15, #18, #19, #20.
-- [ ] **Administrative/Maintenance Roles**
+- [x] **Administrative/Maintenance Roles** — shipped in 2.0.0; issues #16, #17, #24 closed.
   - Separate the two mechanisms rather than flattening them into one role list. `admin`,
     `user_manager` and `viewer` are instance-wide. **Maintainer** is not a role but a scope: an
     assignment of a user or group to a set of Producers, meaningless without them.
@@ -27,11 +27,8 @@
     Consumer contract, because the two have different audiences and different stability promises.
   - Tracked as GitHub issues #16, #17, #24.
 
-### Onboarding and change review
-- [ ] **Producer onboarding**
-  - A per-Producer state in which the five protected-branch refusals are skipped unconditionally,
-    while soft deletes and version history continue as normal. Intended for Producers whose API is
-    not yet stable. Tracked as GitHub issue #21.
-- [ ] **Pending specs and review**
-  - Outside onboarding a breaking Provide is retained in full and reviewed rather than discarded.
-    See `docs/adr/0002-pending-specs-are-retained.md`. Tracked as GitHub issues #22, #23.
+### Onboarding and change review — removed in 2.0
+- ~~**Producer onboarding**~~ (issue #21) and ~~**Pending specs and review**~~ (issues #22, #23)
+  were shipped and then removed by the 2.0 versions-replace-branches rework: without protected
+  branches every rejection is self-service (409 + `proposed_version`), so there is nothing to
+  onboard around or review. See `docs/adr/0003-versions-replace-branches.md` (supersedes ADR 0002).

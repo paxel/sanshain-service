@@ -75,10 +75,10 @@
                                   d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
                         </svg>
                     </span>
-                Client Dependencies
+                Consumer Dependencies
             </h2>
             <div class="relative w-64">
-                <input type="text" id="client-search" placeholder="Search for clients..."
+                <input type="text" id="client-search" placeholder="Search for consumers..."
                        class="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-teal-500">
                 <div class="absolute left-3 top-2.5 text-slate-500">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -89,7 +89,7 @@
             </div>
         </div>
         <div id="clients-list" class="space-y-4">
-            <div class="text-center py-10 text-slate-500">Loading clients...</div>
+            <div class="text-center py-10 text-slate-500">Loading consumers...</div>
         </div>
     </div>
 </main>
@@ -101,7 +101,7 @@
     async function showClients() {
         showLoader();
         const list = document.getElementById('clients-list');
-        list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading clients...</div>';
+        list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading consumers...</div>';
 
         try {
             await loadUserFavorites();
@@ -112,18 +112,13 @@
             hideLoader();
         } catch (err) {
             hideLoader();
-            list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${err.message}</div>`;
+            list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(err.message)}</div>`;
         }
     }
 
     function goBackToClients() {
         history.pushState({}, '', window.location.pathname);
         showClients();
-    }
-
-    function goBackToClientBranches(clientName) {
-        history.pushState({ name: clientName }, '', `?name=${encodeURIComponent(clientName)}`);
-        showClientBranches(clientName);
     }
 
     function renderClientList(clients) {
@@ -136,7 +131,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
                         </svg>
                     </div>
-                    <h3 class="text-lg font-medium text-slate-900">No clients found</h3>
+                    <h3 class="text-lg font-medium text-slate-900">No consumers found</h3>
                     <p class="text-slate-500 mt-1">Consumers will appear here once they request endpoints via GET /require.</p>
                 </div>`;
             return;
@@ -148,8 +143,10 @@
             card.className = 'bg-white p-5 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
             card.onclick = () => {
                 history.pushState({ name }, '', `?name=${encodeURIComponent(name)}`);
-                showClientBranches(name);
+                showClientDependencies(name);
             };
+            // Consumer names are client-supplied and unvalidated: set as text,
+            // bind handlers as listeners, never splice into markup.
             card.innerHTML = `
                 <div class="flex items-center justify-between">
                     <div class="flex items-center">
@@ -159,8 +156,8 @@
                             </svg>
                         </span>
                         <div class="flex items-center gap-2">
-                            <h3 class="font-bold text-lg text-slate-800">${name}</h3>
-                            <button onclick="toggleFavorite(event, 'client', '${name}', ${isFav})" class="text-amber-400 hover:text-amber-500 p-1 focus:outline-none rounded transition-colors" title="${isFav ? 'Remove from favorites' : 'Mark as favorite'}">
+                            <h3 class="font-bold text-lg text-slate-800" data-client-name></h3>
+                            <button type="button" data-toggle-favorite class="text-amber-400 hover:text-amber-500 p-1 focus:outline-none rounded transition-colors" title="${isFav ? 'Remove from favorites' : 'Mark as favorite'}">
                                 ${isFav ? `
                                     <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
                                 ` : `
@@ -173,17 +170,22 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                     </svg>
                 </div>`;
+            card.querySelector('[data-client-name]').textContent = name;
+            card.querySelector('[data-toggle-favorite]')
+                .addEventListener('click', (event) => toggleFavorite(event, 'client', name, isFav));
             list.appendChild(card);
         }
     }
 
-    async function showClientBranches(clientName) {
+    // A Consumer's dependencies, grouped by the Producer they pin. Each group
+    // header names the Pin (version + stability); each row is one endpoint.
+    async function showClientDependencies(clientName) {
         showLoader();
         const list = document.getElementById('clients-list');
-        list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading branches...</div>';
+        list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading dependencies...</div>';
 
         try {
-            const branches = await fetchJSON(`/admin/consumers/${encodeURIComponent(clientName)}/branches`);
+            const endpoints = await fetchJSON(`/admin/consumers/${encodeURIComponent(clientName)}/endpoints`);
             list.innerHTML = '';
 
             const breadcrumb = document.createElement('div');
@@ -191,117 +193,94 @@
             breadcrumb.innerHTML = `
                 <button onclick="goBackToClients()" class="hover:text-teal-600 font-medium">Consumers</button>
                 <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                <span class="text-slate-800 font-semibold">${clientName}</span>`;
-            list.appendChild(breadcrumb);
-
-            if (!branches || branches.length === 0) {
-                const empty = document.createElement('div');
-                empty.className = 'text-center py-10 text-slate-500 italic';
-                empty.textContent = 'No branches found for this client.';
-                list.appendChild(empty);
-                hideLoader();
-                return;
-            }
-
-            for (const branch of branches) {
-                const card = document.createElement('div');
-                card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
-                card.onclick = () => {
-                    history.pushState({ name: clientName, branch }, '', `?name=${encodeURIComponent(clientName)}&branch=${encodeURIComponent(branch)}`);
-                    showClientEndpoints(clientName, branch);
-                };
-                card.innerHTML = `
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center">
-                            <span class="bg-indigo-100 text-indigo-700 p-2 rounded-lg mr-3">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                                </svg>
-                            </span>
-                            <h3 class="font-semibold text-slate-800">${branch}</h3>
-                        </div>
-                        <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                        </svg>
-                    </div>`;
-                list.appendChild(card);
-            }
-            hideLoader();
-        } catch (err) {
-            hideLoader();
-            list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${err.message}</div>`;
-        }
-    }
-
-    async function showClientEndpoints(clientName, branch) {
-        showLoader();
-        const list = document.getElementById('clients-list');
-        list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading endpoints...</div>';
-
-        try {
-            const endpoints = await fetchJSON(`/admin/consumers/${encodeURIComponent(clientName)}/branches/${encodeURIComponent(branch)}/endpoints`);
-            list.innerHTML = '';
-
-            const breadcrumb = document.createElement('div');
-            breadcrumb.className = 'flex items-center text-sm text-slate-500 mb-4';
-            breadcrumb.innerHTML = `
-                <button onclick="goBackToClients()" class="hover:text-teal-600 font-medium">Consumers</button>
-                <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                <button onclick="goBackToClientBranches('${clientName.replace(/'/g, "\\'")}')" class="hover:text-teal-600 font-medium">${clientName}</button>
-                <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                <span class="text-slate-800 font-semibold">${branch}</span>`;
+                <span class="text-slate-800 font-semibold" data-crumb-client></span>`;
+            breadcrumb.querySelector('[data-crumb-client]').textContent = clientName;
             list.appendChild(breadcrumb);
 
             if (!endpoints || endpoints.length === 0) {
                 const empty = document.createElement('div');
                 empty.className = 'text-center py-10 text-slate-500 italic';
-                empty.textContent = 'No endpoints found for this branch.';
+                empty.textContent = 'No dependencies recorded for this Consumer.';
                 list.appendChild(empty);
                 hideLoader();
                 return;
             }
 
+            // Group by (producer, api_type, pinned version) — one Pin per group.
+            const groups = new Map();
             for (const ep of endpoints) {
-                const card = document.createElement('div');
-                card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card' + (ep.yaml_content ? ' cursor-pointer' : '');
-                if (ep.yaml_content) {
-                    card.onclick = () => {
-                        const api_type = ep.api_type || 'openapi';
-                        window.location.href = `/yaml.html?service=${encodeURIComponent(ep.service)}&branch=${encodeURIComponent(ep.branch || branch)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${encodeURIComponent(api_type)}`;
-                    };
+                const key = `${ep.service} ${ep.api_type} ${ep.version}`;
+                if (!groups.has(key)) groups.set(key, { service: ep.service, api_type: ep.api_type, version: ep.version, stability: ep.stability, endpoints: [] });
+                groups.get(key).endpoints.push(ep);
+            }
+            const sortedGroups = [...groups.values()].sort((a, b) =>
+                a.service.localeCompare(b.service)
+                || String(a.api_type).localeCompare(String(b.api_type))
+                || compareSemver(a.version, b.version));
+
+            for (const group of sortedGroups) {
+                const section = document.createElement('div');
+                section.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm';
+
+                const header = document.createElement('div');
+                header.className = 'flex items-center justify-between gap-2 flex-wrap mb-3';
+                header.innerHTML = `
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="bg-indigo-100 text-indigo-700 p-1.5 rounded-lg">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                            </svg>
+                        </span>
+                        <h3 class="font-semibold text-slate-800" data-group-service></h3>
+                        <span class="px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-slate-100 text-slate-500 border border-slate-200">${escapeHtml(group.api_type || 'REST')}</span>
+                        <span class="text-xs text-slate-500">pinned to</span>
+                        <span class="font-mono text-sm text-slate-700">${escapeHtml(group.version)}</span>
+                        ${stabilityBadge(group.stability)}
+                    </div>
+                    <button type="button" data-view-producer class="text-xs font-semibold text-indigo-600 hover:text-indigo-800">View version →</button>`;
+                header.querySelector('[data-group-service]').textContent = group.service;
+                header.querySelector('[data-view-producer]').addEventListener('click', () => {
+                    window.location.href = `/producers.html?service=${encodeURIComponent(group.service)}&api_type=${encodeURIComponent(group.api_type)}&version=${encodeURIComponent(group.version)}`;
+                });
+                section.appendChild(header);
+
+                const rows = document.createElement('div');
+                rows.className = 'space-y-2';
+                for (const ep of group.endpoints) {
+                    const row = document.createElement('div');
+                    const resolved = !!ep.yaml_content;
+                    row.className = 'bg-slate-50 p-3 rounded-lg border border-slate-100 endpoint-card' + (resolved ? ' cursor-pointer' : '');
+                    if (resolved) {
+                        row.onclick = () => {
+                            window.location.href = `/yaml.html?service=${encodeURIComponent(ep.service)}&api_type=${encodeURIComponent(ep.api_type || 'openapi')}&version=${encodeURIComponent(ep.version)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}`;
+                        };
+                    }
+                    row.innerHTML = `
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center">
+                                <span class="px-2 py-1 rounded text-[10px] font-bold uppercase mr-3 ${getMethodColor(ep.method)}">
+                                    ${escapeHtml(ep.method)}
+                                </span>
+                                <span class="font-mono text-sm text-slate-700">${escapeHtml(ep.path)}</span>
+                                ${ep.deprecated ? '<span class="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">deprecated</span>' : ''}
+                                ${ep.external ? '<span class="text-[10px] text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">external</span>' : ''}
+                            </div>
+                            <div class="flex items-center">
+                                ${resolved
+                                    ? '<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2">served</span><svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>'
+                                    : '<span class="text-xs text-red-600 bg-red-50 px-2 py-1 rounded-full mr-2" title="The pinned version no longer serves this endpoint — the Consumer\'s next require will fail.">not served</span>'}
+                            </div>
+                        </div>`;
+                    rows.appendChild(row);
                 }
-                card.innerHTML = `
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center">
-                            <span class="px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider mr-2 bg-slate-100 text-slate-500 border border-slate-200">
-                                ${ep.api_type || 'REST'}
-                            </span>
-                            <span class="px-2 py-1 rounded text-[10px] font-bold uppercase mr-3 ${getMethodColor(ep.method)}">
-                                ${ep.method}
-                            </span>
-                            <span class="font-mono text-sm text-slate-700">${ep.path}</span>
-                            ${ep.deprecated ? '<span class="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">deprecated</span>' : ''}
-                            ${ep.external ? '<span class="text-[10px] text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">external</span>' : ''}
-                            <span class="ml-3 text-xs text-slate-500">${ep.service}</span>
-                        </div>
-                        <div class="flex items-center">
-                            ${ep.yaml_content
-                                ? `<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2 cursor-pointer hover:bg-green-100" onclick="event.stopPropagation(); navigateToServiceEndpoint('${ep.service}', '${ep.branch}', '${ep.path}', '${ep.method}', '${ep.api_type || 'openapi'}')">resolved → ${ep.service}</span>`
-                                : '<span class="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full mr-2">pending</span>'}
-                            ${ep.yaml_content ? '<svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>' : ''}
-                        </div>
-                    </div>`;
-                list.appendChild(card);
+                section.appendChild(rows);
+                list.appendChild(section);
             }
             hideLoader();
         } catch (err) {
             hideLoader();
-            list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${err.message}</div>`;
+            list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(err.message)}</div>`;
         }
-    }
-
-    function navigateToServiceEndpoint(serviceName, branch, path, method, apiType) {
-        window.location.href = `/yaml.html?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}&api_type=${encodeURIComponent(apiType || 'openapi')}`;
     }
 
     document.getElementById('client-search').addEventListener('input', function() {
@@ -316,21 +295,9 @@
     async function handleDeepLink() {
         const params = new URLSearchParams(window.location.search);
         const name = params.get('name');
-        const branch = params.get('branch');
-        const path = params.get('path');
-        const method = params.get('method');
 
-        if (name && branch && path && method) {
-            await showClientEndpoints(name, branch);
-            const endpoints = await fetchJSON(`/admin/consumers/${encodeURIComponent(name)}/branches/${encodeURIComponent(branch)}/endpoints`);
-            const ep = (endpoints || []).find(e => e.path === path && e.method === method);
-            if (ep && ep.yaml_content) {
-                window.location.href = `/yaml.html?service=${encodeURIComponent(ep.service)}&branch=${encodeURIComponent(ep.branch || branch)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${encodeURIComponent(ep.api_type || 'openapi')}`;
-            }
-        } else if (name && branch) {
-            await showClientEndpoints(name, branch);
-        } else if (name) {
-            await showClientBranches(name);
+        if (name) {
+            await showClientDependencies(name);
         } else {
             await showClients();
         }
@@ -347,7 +314,7 @@
     });
 
     window.addEventListener('sanshain-update', () => {
-        console.log('Live update received, refreshing clients...');
+        console.log('Live update received, refreshing consumers...');
         handleDeepLink();
     });
 </script>

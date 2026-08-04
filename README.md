@@ -6,21 +6,25 @@
 
 Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and distribute API specifications. **Producers** provide their full API definitions; **Consumers** require only the specific snippets (endpoints, channels, or methods) they actually use at build time. A system is usually both.
 
+![How Sanshain works: Producers publish versioned specs, Sanshain stores them as version lines and splits them into endpoints, Consumers pin exact versions](docs/images/interaction-overview.svg)
+
 ### TL;DR
 - **Centralized Specs**: Unified registry for OpenAPI, AsyncAPI, and gRPC/Proto.
 - **Spec Splitting**: Clients download only the YAML snippets they need, avoiding massive dependency bloat.
-- **Contract Safety**: Automatically detects breaking changes on protected branches.
-- **Live Graph**: Visualizes microservice dependencies in real-time.
+- **Versioned, Pinned**: Producers publish immutable GA versions (or overwritable snapshots); Consumers pin the exact version they build against. No fallback, no surprises.
+- **Contract Safety**: A forgotten version bump or a breaking change hiding behind a minor bump is rejected at the door, with the correct next version proposed.
+- **Live Graph**: Visualizes microservice dependencies in real-time, highlighting outdated and snapshot-pinned Consumers.
 - **Client-First**: Designed for CI/CD automation with dedicated plugins.
 
 ---
 
 ## Core Features
 - **Multi-Protocol**: Native support for OpenAPI, AsyncAPI, and Protocol Buffers.
-- **Backward Compatibility**: Rejects breaking changes on protected branches (e.g., `main`) for all three protocols; elements marked deprecated may be removed. See [API Lifecycle](docs/api-lifecycle.md).
-- **Dependency Tracking**: Tracks exactly which client version uses which endpoint.
-- **Web Dashboard**: Navigate services, branches, and dependencies visually.
-- **Auditing**: Full history of spec changes with unified diffs.
+- **Version Lines**: Each spec's version comes from the document itself (`info.version`; proto uses a `// sanshain-version:` comment) with a declared stability — `snapshot` or `ga`. GA permanently claims its number; elements marked deprecated may be removed. See [API Lifecycle](docs/api-lifecycle.md).
+- **Dependency Tracking**: Tracks exactly which Consumer pins which version of which endpoint.
+- **Web Dashboard**: Navigate services, version timelines, diffs and dependencies visually.
+- **Free Spec Validator**: The landing page validates any OpenAPI, AsyncAPI or Protobuf spec against the exact rules a publish would face — no login, nothing stored.
+- **Auditing**: Full history of provides and administrative actions.
 
 ![Dependency Graph](docs/images/graph.png)
 
@@ -36,7 +40,7 @@ Detailed instructions: [**Getting Started**](docs/getting-started.md).
 - [**Client Ecosystem**](docs/clients.md) — Detailed guide for Maven, Cargo, Go, JS, and Conan.
 - [**API Lifecycle**](docs/api-lifecycle.md) — How to handle breaking changes and versioning.
 - [**API Usage**](docs/api-usage.md) — Authentication and detailed endpoint reference.
-- [**Administration**](docs/administration.md) — LDAP setup, protected branches, and user management.
+- [**Administration**](docs/administration.md) — LDAP setup, version administration, and user management.
 - [**Troubleshooting**](docs/troubleshooting.md) — Common issues and how to solve them.
 - [**AI Migration**](docs/ai-migration.md) — Guide for using AI to migrate your services to Sanshain.
 - [**Corporate Best Practices**](docs/corporate-best-practices.md) — Recommendations for enterprise usage.

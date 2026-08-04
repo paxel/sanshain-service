@@ -1,45 +1,63 @@
-use crate::domain::models::*;
-use crate::domain::ports::{
-    EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
-    UpdateEndpointParams,
-};
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::str::FromStr;
 use tracing::instrument;
 
-type EndpointRow = (i64, String, String, String, String, String, bool, bool);
-
-/// Row shape for `list_producers_detailed` (name, fallback_branch, branches,
-/// icon, domain); branches are `array_agg`ed into a `Vec` on PostgreSQL.
-type ServiceSummaryRow = (
+/// Row shape for `spec_versions` metadata queries (id, service_id, api_type,
+/// major, minor, patch, stability, content_hash, provided_by,
+/// created_at, updated_at, last_required_at) — everything but the document.
+/// `service_id` and the version components are `INTEGER` columns on
+/// PostgreSQL: ids are BIGINT (`i64`), version parts INTEGER (`i32`).
+type SpecVersionRow = (
+    i64,
+    i64,
     String,
-    Option<String>,
-    Option<Vec<String>>,
-    Option<String>,
-    Option<String>,
-);
-
-/// Row shape for endpoint-version queries joining metadata, service, branch,
-/// and endpoint columns.
-type EndpointVersionRow = (
-    i64,
-    i64,
+    i32,
+    i32,
     i32,
     String,
+    String,
+    String,
+    String,
+    String,
     Option<String>,
-    String,
-    Option<String>,
-    Option<String>,
-    String,
-    String,
-    String,
-    String,
-    String,
 );
 
+fn spec_version_from_row(row: SpecVersionRow) -> Result<SpecVersionMeta, RepositoryError> {
+    let (
+        id,
+        service_id,
+        api_type,
+        major,
+        minor,
+        patch,
+        stability,
+        content_hash,
+        provided_by,
+        created_at,
+        updated_at,
+        last_required_at,
+    ) = row;
+    Ok(SpecVersionMeta {
+        id,
+        service_id,
+        api_type: api_type
+            .parse()
+            .map_err(|e: String| RepositoryError::Internal(e))?,
+        version: SemVer::new(major as u32, minor as u32, patch as u32),
+        stability: stability
+            .parse()
+            .map_err(|e: String| RepositoryError::Internal(e))?,
+        content_hash,
+        provided_by,
+        created_at,
+        updated_at,
+        last_required_at,
+    })
+}
+
 /// Row shape for audit-log queries (id, timestamp, username, action, details,
-/// service, branch, action_type, diff).
+/// service, version, action_type, diff).
 type AuditLogRow = (
     i64,
     String,
@@ -60,6 +78,12 @@ fn hash_session_token(token: &str) -> String {
     hasher.update(token.as_bytes());
     hex::encode(hasher.finalize())
 }
+
+use crate::domain::models::*;
+use crate::domain::ports::{
+    EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
+    UpsertSpecVersion,
+};
 
 struct ApiTokenRow {
     id: String,
@@ -116,84 +140,8 @@ impl PostgresSpecRepository {
         ))
         .await?;
         migrator.run(&self.pool).await?;
-
-        // Backfill normalized_path
-        self.backfill_normalized_paths().await.map_err(|e| {
-            tracing::error!("Failed to backfill normalized paths: {}", e);
-            sqlx::migrate::MigrateError::Execute(sqlx::Error::Configuration(
-                format!("Backfill failed: {}", e).into(),
-            ))
-        })?;
-
         Ok(())
     }
-
-    async fn backfill_normalized_paths(&self) -> Result<(), RepositoryError> {
-        // Endpoints backfill
-        let rows: Vec<(i64, String)> = sqlx::query_as(
-            "SELECT id, path FROM endpoints WHERE normalized_path = '' OR normalized_path IS NULL",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        if !rows.is_empty() {
-            tracing::info!("Backfilling {} endpoint normalized paths...", rows.len());
-            for (id, path) in rows {
-                let normalized = crate::openapi::normalize_path(&path);
-                sqlx::query("UPDATE endpoints SET normalized_path = $1 WHERE id = $2")
-                    .bind(normalized)
-                    .bind(id)
-                    .execute(&self.pool)
-                    .await
-                    .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-            }
-        }
-
-        // Dependencies backfill
-        let rows: Vec<(i64, String)> = sqlx::query_as("SELECT id, requested_path FROM dependencies WHERE requested_normalized_path = '' OR requested_normalized_path IS NULL")
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        if !rows.is_empty() {
-            tracing::info!("Backfilling {} dependency normalized paths...", rows.len());
-            for (id, path) in rows {
-                let normalized = crate::openapi::normalize_path(&path);
-                sqlx::query("UPDATE dependencies SET requested_normalized_path = $1 WHERE id = $2")
-                    .bind(normalized)
-                    .bind(id)
-                    .execute(&self.pool)
-                    .await
-                    .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-            }
-        }
-
-        Ok(())
-    }
-}
-
-/// A joined `pending_specs` row: id, Producer name, branch, API type, content,
-/// reason, submitter, created-at.
-type PendingSpecRow = (i64, String, String, String, String, String, String, String);
-
-/// Build a [`PendingSpec`] from a joined row.
-///
-/// Returns `None` for an unparseable API type rather than guessing: a held spec
-/// whose type is unknown cannot be replayed, so surfacing it would offer the
-/// reviewer a button that could not work.
-fn pending_from_row(row: PendingSpecRow) -> Option<PendingSpec> {
-    let (id, producer, branch, api_type, content, reason, submitted_by, created_at) = row;
-    Some(PendingSpec {
-        id,
-        producer,
-        branch,
-        api_type: api_type.parse().ok()?,
-        content,
-        reason,
-        submitted_by,
-        created_at,
-    })
 }
 
 impl SpecRepository for PostgresSpecRepository {
@@ -205,57 +153,291 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(())
     }
 
-    async fn get_spec_version(
+    #[instrument(skip_all)]
+    async fn upsert_spec_version(
         &self,
-        service_id: i64,
-        branch_id: i64,
-    ) -> Result<Option<(SemVer, String)>, RepositoryError> {
-        let row: Option<(i32, i32, i32, String)> = sqlx::query_as("SELECT major, minor, patch, content_hash FROM service_spec_versions WHERE service_id = $1 AND branch_id = $2")
-            .bind(service_id)
-            .bind(branch_id)
-            .fetch_optional(&self.pool)
+        params: UpsertSpecVersion<'_>,
+    ) -> Result<i64, RepositoryError> {
+        let mut tx = self
+            .pool
+            .begin()
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        Ok(row.map(|(ma, mi, pa, h)| (SemVer::new(ma as u32, mi as u32, pa as u32), h)))
-    }
-
-    #[instrument(skip_all)]
-    async fn increment_spec_version(
-        &self,
-        service_id: i64,
-        branch_id: i64,
-        content_hash: &str,
-        impact: Impact,
-    ) -> Result<SemVer, RepositoryError> {
-        let current = self.get_spec_version(service_id, branch_id).await?;
-        let next = match current {
-            Some((v, _)) => v.increment(impact),
-            None => SemVer::initial(),
-        };
-
-        sqlx::query("
-            INSERT INTO service_spec_versions (service_id, branch_id, major, minor, patch, version, content_hash, updated_at)
-            VALUES ($1, $2, $3, $4, $5, 1, $6, CURRENT_TIMESTAMP)
-            ON CONFLICT(service_id, branch_id) DO UPDATE SET
-                major = EXCLUDED.major,
-                minor = EXCLUDED.minor,
-                patch = EXCLUDED.patch,
-                version = service_spec_versions.version + 1,
+        // Insert-or-overwrite keeps the row's identity and `created_at` on an
+        // overwrite/promotion; only the content, stability, attribution and
+        // `updated_at` move.
+        let upsert = sqlx::query(
+            r#"
+            INSERT INTO spec_versions
+              (service_id, api_type, major, minor, patch, stability, content, content_hash, provided_by, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            ON CONFLICT(service_id, api_type, major, minor, patch) DO UPDATE SET
+                stability = EXCLUDED.stability,
+                content = EXCLUDED.content,
                 content_hash = EXCLUDED.content_hash,
+                provided_by = EXCLUDED.provided_by,
                 updated_at = EXCLUDED.updated_at
-        ")
-        .bind(service_id)
-        .bind(branch_id)
-        .bind(next.major as i32)
-        .bind(next.minor as i32)
-        .bind(next.patch as i32)
-        .bind(content_hash)
-        .execute(&self.pool)
+            WHERE spec_versions.stability != 'ga'
+            "#,
+        )
+        .bind(params.service_id)
+        .bind(params.api_type.as_str())
+        .bind(params.version.major as i32)
+        .bind(params.version.minor as i32)
+        .bind(params.version.patch as i32)
+        .bind(params.stability.as_str())
+        .bind(params.content)
+        .bind(params.content_hash)
+        .bind(params.provided_by)
+        .bind(params.now_iso)
+        .bind(params.now_iso)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // The `WHERE stability != 'ga'` guard on the upsert is the last line of
+        // defense against two racing writers: if a GA row landed between the
+        // application layer's immutability check and this statement, nothing
+        // was written — surface that as a conflict instead of silently
+        // replacing endpoints under a GA entry.
+        if upsert.rows_affected() == 0 {
+            return Err(RepositoryError::Conflict);
+        }
+
+        let (id,): (i64,) = sqlx::query_as(
+            "SELECT id FROM spec_versions WHERE service_id = $1 AND api_type = $2 AND major = $3 AND minor = $4 AND patch = $5",
+        )
+        .bind(params.service_id)
+        .bind(params.api_type.as_str())
+        .bind(params.version.major as i32)
+        .bind(params.version.minor as i32)
+        .bind(params.version.patch as i32)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        Ok(next)
+        // A version's endpoint set is complete by definition — replace it
+        // wholesale rather than diffing in SQL.
+        sqlx::query("DELETE FROM endpoints WHERE spec_version_id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        for endpoint in &params.endpoints {
+            sqlx::query(
+                "INSERT INTO endpoints (spec_version_id, api_type, path, normalized_path, method, yaml_content, deprecated) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            )
+            .bind(id)
+            .bind(endpoint.api_type.as_str())
+            .bind(&endpoint.path)
+            .bind(&endpoint.normalized_path)
+            .bind(&endpoint.method)
+            .bind(&endpoint.yaml_content)
+            .bind(endpoint.deprecated)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(id)
+    }
+
+    async fn find_spec_version(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+    ) -> Result<Option<SpecVersionMeta>, RepositoryError> {
+        let row: Option<SpecVersionRow> = sqlx::query_as(
+            "SELECT id, service_id, api_type, major, minor, patch, stability, content_hash, provided_by, created_at, updated_at, last_required_at \
+             FROM spec_versions WHERE service_id = $1 AND api_type = $2 AND major = $3 AND minor = $4 AND patch = $5",
+        )
+        .bind(service_id)
+        .bind(api_type.as_str())
+        .bind(version.major as i32)
+        .bind(version.minor as i32)
+        .bind(version.patch as i32)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        row.map(spec_version_from_row).transpose()
+    }
+
+    async fn list_spec_versions(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<SpecVersionMeta>, RepositoryError> {
+        let rows: Vec<SpecVersionRow> = sqlx::query_as(
+            "SELECT id, service_id, api_type, major, minor, patch, stability, content_hash, provided_by, created_at, updated_at, last_required_at \
+             FROM spec_versions WHERE service_id = $1 ORDER BY api_type, major, minor, patch",
+        )
+        .bind(service_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        rows.into_iter().map(spec_version_from_row).collect()
+    }
+
+    async fn list_all_spec_versions(
+        &self,
+    ) -> Result<Vec<(String, SpecVersionMeta, i64)>, RepositoryError> {
+        type Row = (
+            String,
+            i64,
+            i64,
+            String,
+            i32,
+            i32,
+            i32,
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            i64,
+        );
+        let rows: Vec<Row> = sqlx::query_as(
+            r#"
+            SELECT s.name, v.id, v.service_id, v.api_type, v.major, v.minor, v.patch, v.stability,
+                   v.content_hash, v.provided_by, v.created_at, v.updated_at, v.last_required_at,
+                   (SELECT COUNT(*) FROM endpoints e WHERE e.spec_version_id = v.id) AS endpoint_count
+            FROM spec_versions v
+            JOIN services s ON s.id = v.service_id
+            ORDER BY s.name, v.api_type, v.major, v.minor, v.patch
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        rows.into_iter()
+            .map(|row| {
+                let (
+                    name,
+                    id,
+                    service_id,
+                    api_type,
+                    major,
+                    minor,
+                    patch,
+                    stability,
+                    content_hash,
+                    provided_by,
+                    created_at,
+                    updated_at,
+                    last_required_at,
+                    endpoint_count,
+                ) = row;
+                let meta = spec_version_from_row((
+                    id,
+                    service_id,
+                    api_type,
+                    major,
+                    minor,
+                    patch,
+                    stability,
+                    content_hash,
+                    provided_by,
+                    created_at,
+                    updated_at,
+                    last_required_at,
+                ))?;
+                Ok((name, meta, endpoint_count))
+            })
+            .collect()
+    }
+
+    async fn get_spec_content(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Option<String>, RepositoryError> {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT content FROM spec_versions WHERE id = $1")
+                .bind(spec_version_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.map(|r| r.0))
+    }
+
+    async fn delete_spec_version(&self, spec_version_id: i64) -> Result<bool, RepositoryError> {
+        let result = sqlx::query("DELETE FROM spec_versions WHERE id = $1")
+            .bind(spec_version_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn touch_spec_version_required(
+        &self,
+        spec_version_id: i64,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE spec_versions SET last_required_at = $1 WHERE id = $2")
+            .bind(now_iso)
+            .bind(spec_version_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn touch_spec_version_provided(
+        &self,
+        spec_version_id: i64,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE spec_versions SET updated_at = $1 WHERE id = $2")
+            .bind(now_iso)
+            .bind(spec_version_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn delete_expired_snapshots(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
+        // Use-based: a snapshot survives if it was provided (updated_at) OR
+        // required (last_required_at) since the cutoff. GA never expires.
+        let result = sqlx::query(
+            r#"
+            DELETE FROM spec_versions
+            WHERE stability = 'snapshot'
+              AND updated_at < $1
+              AND (last_required_at IS NULL OR last_required_at < $2)
+            "#,
+        )
+        .bind(cutoff_iso)
+        .bind(cutoff_iso)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected())
+    }
+
+    async fn list_version_dependents(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r#"
+            SELECT DISTINCT c.name
+            FROM dependencies d
+            JOIN clients c ON c.id = d.client_id
+            WHERE d.spec_version_id = $1
+            ORDER BY c.name
+            "#,
+        )
+        .bind(spec_version_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
     async fn find_service(&self, name: &str) -> Result<Option<i64>, RepositoryError> {
@@ -277,20 +459,6 @@ impl SpecRepository for PostgresSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(row.map(|r| r.0))
     }
-    async fn find_branch(
-        &self,
-        service_id: i64,
-        branch_name: &str,
-    ) -> Result<Option<i64>, RepositoryError> {
-        let row: Option<(i64,)> =
-            sqlx::query_as("SELECT id FROM branches WHERE service_id = $1 AND name = $2")
-                .bind(service_id)
-                .bind(branch_name)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(row.map(|r| r.0))
-    }
     async fn ensure_service(&self, name: &str) -> Result<i64, RepositoryError> {
         sqlx::query("INSERT INTO services (name) VALUES ($1) ON CONFLICT DO NOTHING")
             .bind(name)
@@ -307,46 +475,18 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(row.0)
     }
 
-    async fn ensure_branch(
+    async fn get_endpoints_for_version(
         &self,
-        service_id: i64,
-        branch_name: &str,
-    ) -> Result<i64, RepositoryError> {
-        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-        // Only create the branch here; do NOT bump `updated_at` on existing branches.
-        // `ensure_branch` is called on read paths too, so bumping here would make
-        // `updated_at` mean "last touched" instead of "last published". The publish
-        // write-path (`apply_spec_changes`) advances `updated_at`.
-        sqlx::query("INSERT INTO branches (service_id, name, updated_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING")
-            .bind(service_id)
-            .bind(branch_name)
-            .bind(&now)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        let row: (i64,) =
-            sqlx::query_as("SELECT id FROM branches WHERE service_id = $1 AND name = $2")
-                .bind(service_id)
-                .bind(branch_name)
-                .fetch_one(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        Ok(row.0)
-    }
-
-    async fn get_endpoints_for_branch(
-        &self,
-        branch_id: i64,
+        spec_version_id: i64,
     ) -> Result<Vec<EndpointRecord>, RepositoryError> {
+        type EndpointRow = (i64, String, String, String, String, String, bool);
         let rows: Vec<EndpointRow> = sqlx::query_as(
             "SELECT e.id, e.api_type, e.path, e.normalized_path, e.method, e.yaml_content, \
-             e.deprecated, e.external \
+             e.deprecated \
              FROM endpoints e \
-             WHERE e.branch_id = $1 AND e.deleted = FALSE",
+             WHERE e.spec_version_id = $1",
         )
-        .bind(branch_id)
+        .bind(spec_version_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -354,16 +494,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(
-                    id,
-                    api_type,
-                    path,
-                    normalized_path,
-                    method,
-                    yaml_content,
-                    deprecated,
-                    external,
-                )| {
+                |(id, api_type, path, normalized_path, method, yaml_content, deprecated)| {
                     EndpointRecord {
                         id: Some(id),
                         api_type: ApiType::from_str(&api_type).unwrap_or_default(),
@@ -372,106 +503,10 @@ impl SpecRepository for PostgresSpecRepository {
                         method,
                         yaml_content,
                         deprecated,
-                        external,
                     }
                 },
             )
             .collect())
-    }
-
-    async fn insert_endpoint(
-        &self,
-        branch_id: i64,
-        endpoint: &EndpointRecord,
-    ) -> Result<(), RepositoryError> {
-        sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deprecated, external) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)")
-            .bind(branch_id)
-            .bind(endpoint.api_type.as_str())
-            .bind(&endpoint.path)
-            .bind(&endpoint.normalized_path)
-            .bind(&endpoint.method)
-            .bind(&endpoint.yaml_content)
-            .bind(endpoint.deprecated)
-            .bind(endpoint.external)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        Ok(())
-    }
-
-    async fn reset_branch_history(
-        &self,
-        service_name: &str,
-        branch_name: &str,
-    ) -> Result<bool, RepositoryError> {
-        let service_id = self
-            .find_service(service_name)
-            .await?
-            .ok_or(RepositoryError::NotFound)?;
-        let branch_id = self
-            .find_branch(service_id, branch_name)
-            .await?
-            .ok_or(RepositoryError::NotFound)?;
-
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        // 1. Delete all versions except the latest for each endpoint in the branch
-        sqlx::query(
-            r#"
-            DELETE FROM endpoint_versions
-            WHERE id IN (
-                SELECT ev.id
-                FROM endpoint_versions ev
-                JOIN endpoints e ON ev.endpoint_id = e.id
-                WHERE e.branch_id = $1
-                AND ev.version < (
-                    SELECT MAX(version)
-                    FROM endpoint_versions
-                    WHERE endpoint_id = ev.endpoint_id
-                )
-            )
-        "#,
-        )
-        .bind(branch_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        // 2. Renumber the remaining version to 1 and clear diff
-        sqlx::query(
-            r#"
-            UPDATE endpoint_versions
-            SET version = 1, diff_from_previous = NULL
-            WHERE endpoint_id IN (
-                SELECT id FROM endpoints WHERE branch_id = $1
-            )
-        "#,
-        )
-        .bind(branch_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        // 3. Reset branch-level version counter
-        sqlx::query(
-            "UPDATE service_spec_versions SET version = 1, major = 1, minor = 0, patch = 0 WHERE service_id = $1 AND branch_id = $2",
-        )
-        .bind(service_id)
-        .bind(branch_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        Ok(true)
     }
 
     async fn ensure_client(&self, name: &str) -> Result<i64, RepositoryError> {
@@ -492,23 +527,20 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn find_endpoint(
         &self,
-        service_id: i64,
-        branch_name: &str,
+        spec_version_id: i64,
         api_type: ApiType,
         path: &str,
         method: &str,
-    ) -> Result<Option<(i64, String, bool, bool)>, RepositoryError> {
-        let normalized_path = crate::openapi::normalize_path(path);
-        let row: Option<(i64, String, bool, bool)> = sqlx::query_as(
+    ) -> Result<Option<(i64, String, bool)>, RepositoryError> {
+        let normalized_path = crate::openapi::lookup_path(api_type, path);
+        let row: Option<(i64, String, bool)> = sqlx::query_as(
             r#"
-            SELECT e.id, e.yaml_content, e.deprecated, e.external
+            SELECT e.id, e.yaml_content, e.deprecated
             FROM endpoints e
-            JOIN branches b ON e.branch_id = b.id
-            WHERE b.service_id = $1 AND b.name = $2 AND e.api_type = $3 AND e.normalized_path = $4 AND e.method = $5 AND e.deleted = FALSE
+            WHERE e.spec_version_id = $1 AND e.api_type = $2 AND e.normalized_path = $3 AND e.method = $4
             "#,
         )
-        .bind(service_id)
-        .bind(branch_name)
+        .bind(spec_version_id)
         .bind(api_type.as_str())
         .bind(normalized_path)
         .bind(method)
@@ -522,8 +554,7 @@ impl SpecRepository for PostgresSpecRepository {
     #[instrument(skip_all)]
     async fn find_endpoints_bulk(
         &self,
-        service_id: i64,
-        branch_name: &str,
+        spec_version_id: i64,
         api_type: ApiType,
         endpoints: &[(String, String)],
     ) -> Result<EndpointMap, RepositoryError> {
@@ -534,38 +565,47 @@ impl SpecRepository for PostgresSpecRepository {
 
         let mut query_builder = sqlx::QueryBuilder::new(
             r#"
-            SELECT e.id, e.path, e.method, e.yaml_content, e.deprecated, e.external
+            SELECT e.id, e.path, e.normalized_path, e.method, e.yaml_content, e.deprecated
             FROM endpoints e
-            JOIN branches b ON e.branch_id = b.id
-            WHERE b.service_id = "#,
+            WHERE e.spec_version_id = "#,
         );
-        query_builder.push_bind(service_id);
-        query_builder.push(" AND b.name = ");
-        query_builder.push_bind(branch_name);
+        query_builder.push_bind(spec_version_id);
         query_builder.push(" AND e.api_type = ");
         query_builder.push_bind(api_type.as_str());
-        query_builder.push(" AND e.deleted = FALSE AND (");
+        query_builder.push(" AND (");
 
         for (i, (path, method)) in endpoints.iter().enumerate() {
             if i > 0 {
                 query_builder.push(" OR ");
             }
             query_builder.push("(e.normalized_path = ");
-            query_builder.push_bind(crate::openapi::normalize_path(path));
+            query_builder.push_bind(crate::openapi::lookup_path(api_type, path));
             query_builder.push(" AND e.method = ");
             query_builder.push_bind(method);
             query_builder.push(")");
         }
         query_builder.push(")");
 
-        let rows: Vec<(i64, String, String, String, bool, bool)> = query_builder
+        type BulkRow = (i64, String, String, String, String, bool);
+        let rows: Vec<BulkRow> = query_builder
             .build_query_as()
             .fetch_all(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        for (id, path, method, yaml, deprecated, external) in rows {
-            result.insert((path, method), (id, yaml, deprecated, external));
+        // Key the result by what the caller *asked for*, matched via the
+        // normalized path, so lenient path matching works for bundles too.
+        let by_normalized: HashMap<(String, String), (i64, String, bool)> = rows
+            .into_iter()
+            .map(|(id, _path, normalized, method, yaml, deprecated)| {
+                ((normalized, method), (id, yaml, deprecated))
+            })
+            .collect();
+        for (path, method) in endpoints {
+            let normalized = crate::openapi::lookup_path(api_type, path);
+            if let Some(details) = by_normalized.get(&(normalized, method.clone())) {
+                result.insert((path.clone(), method.clone()), details.clone());
+            }
         }
 
         Ok(result)
@@ -575,56 +615,7 @@ impl SpecRepository for PostgresSpecRepository {
         &self,
         params: RecordDependencyParams<'_>,
     ) -> Result<(), RepositoryError> {
-        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-        let normalized_path = crate::openapi::normalize_path(params.path);
-
-        if params.endpoint_id.is_some() {
-            sqlx::query(
-                r#"
-                INSERT INTO dependencies 
-                (client_id, endpoint_id, api_type, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                ON CONFLICT(client_id, endpoint_id, requested_service_id, requested_branch_name, api_type, requested_path, requested_method)
-                DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
-                "#,
-            )
-            .bind(params.client_id)
-            .bind(params.endpoint_id)
-            .bind(params.api_type.as_str())
-            .bind(params.service_id)
-            .bind(params.branch_name)
-            .bind(params.path)
-            .bind(&normalized_path)
-            .bind(params.method)
-            .bind(&now)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        } else {
-            sqlx::query(
-                r#"
-                INSERT INTO dependencies 
-                (client_id, endpoint_id, api_type, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at)
-                VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8)
-                ON CONFLICT(client_id, requested_service_id, requested_branch_name, api_type, requested_path, requested_method)
-                WHERE endpoint_id IS NULL
-                DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
-                "#,
-            )
-            .bind(params.client_id)
-            .bind(params.api_type.as_str())
-            .bind(params.service_id)
-            .bind(params.branch_name)
-            .bind(params.path)
-            .bind(&normalized_path)
-            .bind(params.method)
-            .bind(&now)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        }
-
-        Ok(())
+        self.record_dependencies_bulk(vec![params]).await
     }
 
     #[instrument(skip_all)]
@@ -638,241 +629,131 @@ impl SpecRepository for PostgresSpecRepository {
 
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-        let (resolved, missing): (Vec<_>, Vec<_>) =
-            params.into_iter().partition(|p| p.endpoint_id.is_some());
-
-        if !resolved.is_empty() {
-            let mut query_builder = sqlx::QueryBuilder::new(
-                "INSERT INTO dependencies (client_id, endpoint_id, api_type, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at) ",
-            );
-
-            query_builder.push_values(resolved, |mut b, p| {
-                let normalized_path = crate::openapi::normalize_path(p.path);
-                b.push_bind(p.client_id)
-                    .push_bind(p.endpoint_id)
-                    .push_bind(p.api_type.as_str())
-                    .push_bind(p.service_id)
-                    .push_bind(p.branch_name)
-                    .push_bind(p.path)
-                    .push_bind(normalized_path)
-                    .push_bind(p.method)
-                    .push_bind(&now);
-            });
-
-            query_builder.push(" ON CONFLICT(client_id, endpoint_id, requested_service_id, requested_branch_name, api_type, requested_path, requested_method) DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at");
-
-            query_builder
-                .build()
-                .execute(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        }
-
-        for p in missing {
-            let normalized_path = crate::openapi::normalize_path(p.path);
-            sqlx::query(
-                r#"
-                INSERT INTO dependencies 
-                (client_id, endpoint_id, api_type, requested_service_id, requested_branch_name, requested_path, requested_normalized_path, requested_method, last_seen_at)
-                VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8)
-                ON CONFLICT(client_id, requested_service_id, requested_branch_name, api_type, requested_path, requested_method)
-                WHERE endpoint_id IS NULL
-                DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
-                "#,
-            )
-            .bind(p.client_id)
-            .bind(p.api_type.as_str())
-            .bind(p.service_id)
-            .bind(p.branch_name)
-            .bind(p.path)
-            .bind(normalized_path)
-            .bind(p.method)
-            .bind(&now)
+        let mut query_builder = sqlx::QueryBuilder::new(
+            "INSERT INTO dependencies (client_id, spec_version_id, api_type, path, normalized_path, method, last_seen_at) ",
+        );
+        query_builder.push_values(params, |mut b, p| {
+            b.push_bind(p.client_id)
+                .push_bind(p.spec_version_id)
+                .push_bind(p.api_type.as_str())
+                .push_bind(p.path)
+                .push_bind(p.normalized_path)
+                .push_bind(p.method)
+                .push_bind(&now);
+        });
+        query_builder.push(
+            " ON CONFLICT(client_id, spec_version_id, api_type, path, method) DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at",
+        );
+        query_builder
+            .build()
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        }
 
         Ok(())
-    }
-
-    async fn is_branch_protected(&self, branch_name: &str) -> Result<bool, RepositoryError> {
-        // Matching runs in Rust (`branch_pattern`) rather than in SQL so both
-        // backends agree on what a pattern means. Using `LIKE` here would make
-        // `_` a single-character wildcard on this backend only, so a pattern
-        // like `feature_x` would silently protect `featureAx` on PostgreSQL
-        // and not on SQLite.
-        let patterns = self.list_protected_branches().await?;
-        Ok(crate::domain::branch_pattern::branch_matches_any(
-            branch_name,
-            &patterns,
-        ))
-    }
-
-    async fn add_protected_branch(&self, pattern: &str) -> Result<(), RepositoryError> {
-        sqlx::query("INSERT INTO protected_branches (pattern) VALUES ($1) ON CONFLICT DO NOTHING")
-            .bind(pattern)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
-    }
-
-    async fn remove_protected_branch(&self, pattern: &str) -> Result<bool, RepositoryError> {
-        let result = sqlx::query("DELETE FROM protected_branches WHERE pattern = $1")
-            .bind(pattern)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(result.rows_affected() > 0)
-    }
-
-    async fn list_protected_branches(&self) -> Result<Vec<String>, RepositoryError> {
-        let rows: Vec<(String,)> =
-            sqlx::query_as("SELECT pattern FROM protected_branches ORDER BY pattern")
-                .fetch_all(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        Ok(rows.into_iter().map(|r| r.0).collect())
-    }
-
-    async fn update_endpoint(
-        &self,
-        params: UpdateEndpointParams<'_>,
-    ) -> Result<(), RepositoryError> {
-        sqlx::query("UPDATE endpoints SET yaml_content = $1, deprecated = $2, external = $3, deleted = FALSE WHERE branch_id = $4 AND api_type = $5 AND path = $6 AND method = $7")
-            .bind(params.yaml_content)
-            .bind(params.deprecated)
-            .bind(params.external)
-            .bind(params.branch_id)
-            .bind(params.api_type.as_str())
-            .bind(params.path)
-            .bind(params.method)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        // An admin manual edit is branch activity — advance the branch's
-        // last-published time so it does not look stale (and is not culled).
-        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-        sqlx::query("UPDATE branches SET updated_at = $1 WHERE id = $2")
-            .bind(&now)
-            .bind(params.branch_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
-    }
-
-    async fn soft_delete_endpoint(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<(), RepositoryError> {
-        sqlx::query("UPDATE endpoints SET deleted = TRUE WHERE branch_id = $1 AND api_type = $2 AND path = $3 AND method = $4")
-            .bind(branch_id)
-            .bind(api_type.as_str())
-            .bind(path)
-            .bind(method)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
-    }
-
-    async fn hard_delete_endpoint(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<(), RepositoryError> {
-        sqlx::query("DELETE FROM endpoints WHERE branch_id = $1 AND api_type = $2 AND path = $3 AND method = $4")
-            .bind(branch_id)
-            .bind(api_type.as_str())
-            .bind(path)
-            .bind(method)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
-    }
-
-    async fn is_endpoint_deleted(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<bool, RepositoryError> {
-        let row: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM endpoints WHERE branch_id = $1 AND api_type = $2 AND path = $3 AND method = $4 AND deleted = TRUE"
-        )
-        .bind(branch_id)
-        .bind(api_type.as_str())
-        .bind(path)
-        .bind(method)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(row.0 > 0)
     }
 
     #[instrument(skip_all)]
-    async fn get_report(&self, branch: &str) -> Result<DependencyReport, RepositoryError> {
+    async fn get_report(&self) -> Result<DependencyReport, RepositoryError> {
         let mut conn = self
             .pool
             .acquire()
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        let dependency_rows: Vec<(String, String, String, String, String, bool)> = sqlx::query_as(
+        // Every recorded Pin, with the pinned version's current stability and
+        // whether the endpoint still exists in that version (a snapshot
+        // overwrite can drop an endpoint under a recorded dependency).
+        type DepRow = (
+            String,
+            String,
+            String,
+            i32,
+            i32,
+            i32,
+            String,
+            String,
+            String,
+            bool,
+            bool,
+        );
+        let dependency_rows: Vec<DepRow> = sqlx::query_as(
             r#"
-            SELECT c.name, d.api_type, s.name, d.requested_path, d.requested_method, COALESCE(e.deprecated, FALSE)
+            SELECT c.name, d.api_type, s.name, v.major, v.minor, v.patch, v.stability,
+                   d.path, d.method,
+                   COALESCE(e.deprecated, FALSE),
+                   (e.id IS NOT NULL)
             FROM dependencies d
             JOIN clients c ON d.client_id = c.id
-            JOIN services s ON d.requested_service_id = s.id
-            LEFT JOIN branches b ON b.service_id = s.id AND b.name = d.requested_branch_name
-            LEFT JOIN endpoints e ON (e.id = d.endpoint_id OR (e.branch_id = b.id AND e.api_type = d.api_type AND e.normalized_path = d.requested_normalized_path AND e.method = d.requested_method))
-            WHERE d.requested_branch_name = $1
-            AND (e.id IS NULL OR e.deleted = FALSE)
+            JOIN spec_versions v ON d.spec_version_id = v.id
+            JOIN services s ON v.service_id = s.id
+            LEFT JOIN endpoints e ON e.spec_version_id = v.id AND e.api_type = d.api_type
+                 AND e.normalized_path = d.normalized_path AND e.method = d.method
             "#,
         )
-        .bind(branch)
         .fetch_all(&mut *conn)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        let dependency_graph = dependency_rows
-            .into_iter()
-            .map(
-                |(client, api_type, service, path, method, deprecated)| DependencyInfo {
-                    api_type: ApiType::from_str(&api_type).unwrap_or_default(),
+        let mut dependency_graph = Vec::new();
+        let mut missing_endpoints = Vec::new();
+        for (
+            client,
+            api_type,
+            service,
+            major,
+            minor,
+            patch,
+            stability,
+            path,
+            method,
+            deprecated,
+            exists,
+        ) in dependency_rows
+        {
+            let api_type = ApiType::from_str(&api_type).unwrap_or_default();
+            let version = SemVer::new(major as u32, minor as u32, patch as u32);
+            let stability: Stability = stability
+                .parse()
+                .map_err(|e: String| RepositoryError::Internal(e))?;
+            if exists {
+                dependency_graph.push(DependencyInfo {
+                    api_type,
                     client,
                     service,
+                    version,
+                    stability,
                     path,
                     method,
                     deprecated,
-                },
-            )
-            .collect();
+                });
+            } else {
+                missing_endpoints.push(MissingEndpointInfo {
+                    api_type,
+                    client,
+                    service,
+                    version,
+                    path,
+                    method,
+                });
+            }
+        }
 
-        let unused_rows: Vec<(String, String, String, String, bool)> = sqlx::query_as(
+        // Endpoints nobody requires, per version-line entry.
+        type UnusedRow = (String, String, i32, i32, i32, String, String, String, bool);
+        let unused_rows: Vec<UnusedRow> = sqlx::query_as(
             r#"
-            SELECT s.name, e.api_type, e.path, e.method, e.deprecated
+            SELECT s.name, e.api_type, v.major, v.minor, v.patch, v.stability, e.path, e.method, e.deprecated
             FROM endpoints e
-            JOIN branches b ON e.branch_id = b.id
-            JOIN services s ON b.service_id = s.id
-            WHERE b.name = $1 AND e.deleted = FALSE AND e.id NOT IN (
-                SELECT endpoint_id FROM dependencies 
-                WHERE requested_branch_name = $2 AND endpoint_id IS NOT NULL
+            JOIN spec_versions v ON e.spec_version_id = v.id
+            JOIN services s ON v.service_id = s.id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM dependencies d
+                WHERE d.spec_version_id = v.id AND d.api_type = e.api_type
+                  AND d.normalized_path = e.normalized_path AND d.method = e.method
             )
             "#,
         )
-        .bind(branch)
-        .bind(branch)
         .fetch_all(&mut *conn)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -880,48 +761,23 @@ impl SpecRepository for PostgresSpecRepository {
         let unused_endpoints = unused_rows
             .into_iter()
             .map(
-                |(service, api_type, path, method, deprecated)| EndpointInfo {
-                    api_type: ApiType::from_str(&api_type).unwrap_or_default(),
-                    service,
-                    path,
-                    method,
-                    deprecated,
+                |(service, api_type, major, minor, patch, stability, path, method, deprecated)| {
+                    Ok(EndpointInfo {
+                        api_type: ApiType::from_str(&api_type).unwrap_or_default(),
+                        service,
+                        version: SemVer::new(major as u32, minor as u32, patch as u32),
+                        stability: stability
+                            .parse()
+                            .map_err(|e: String| RepositoryError::Internal(e))?,
+                        path,
+                        method,
+                        deprecated,
+                    })
                 },
             )
-            .collect();
-
-        let missing_rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
-            r#"
-            SELECT c.name, d.api_type, s.name, d.requested_path, d.requested_method
-            FROM dependencies d
-            JOIN clients c ON d.client_id = c.id
-            JOIN services s ON d.requested_service_id = s.id
-            LEFT JOIN branches b ON b.service_id = s.id AND b.name = d.requested_branch_name
-            LEFT JOIN endpoints e ON (e.id = d.endpoint_id OR (e.branch_id = b.id AND e.api_type = d.api_type AND e.normalized_path = d.requested_normalized_path AND e.method = d.requested_method))
-            WHERE d.requested_branch_name = $1 
-            AND e.id IS NULL
-            "#,
-        )
-        .bind(branch)
-        .fetch_all(&mut *conn)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        let missing_endpoints = missing_rows
-            .into_iter()
-            .map(
-                |(client, api_type, service, path, method)| MissingEndpointInfo {
-                    api_type: ApiType::from_str(&api_type).unwrap_or_default(),
-                    client,
-                    service,
-                    path,
-                    method,
-                },
-            )
-            .collect();
+            .collect::<Result<Vec<_>, RepositoryError>>()?;
 
         Ok(DependencyReport {
-            branch: branch.to_string(),
             unused_endpoints,
             missing_endpoints,
             dependency_graph,
@@ -930,16 +786,6 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn delete_all_services(&self) -> Result<u64, RepositoryError> {
-        sqlx::query(
-            "DELETE FROM endpoint_versions WHERE endpoint_id IN (SELECT id FROM endpoints)",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        sqlx::query("DELETE FROM service_spec_versions")
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM dependencies")
             .execute(&self.pool)
             .await
@@ -948,7 +794,7 @@ impl SpecRepository for PostgresSpecRepository {
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        sqlx::query("DELETE FROM branches")
+        sqlx::query("DELETE FROM spec_versions")
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -971,20 +817,32 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(result.rows_affected())
     }
 
-    async fn delete_all_non_admin_users(&self) -> Result<u64, RepositoryError> {
-        sqlx::query(
-            "DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = users.id AND r.role = 'admin'))",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        sqlx::query(
-            "DELETE FROM api_tokens WHERE user_id IN (SELECT id FROM users WHERE NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = users.id AND r.role = 'admin'))",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        let result = sqlx::query("DELETE FROM users WHERE NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = users.id AND r.role = 'admin')")
+    /// Delete every user who does not hold the `admin` role.
+    ///
+    /// Keys on the role grant rather than the flag it replaced, so the set it
+    /// spares is the same set the permission checks treat as administrators.
+    async fn delete_all_non_admin_users(
+        &self,
+        spare_usernames: &[String],
+    ) -> Result<u64, RepositoryError> {
+        // A user survives the purge when they are an effective administrator:
+        // direct `admin` role, `admin` via group membership, or a
+        // configuration-held root username (`spare_usernames`).
+        const DOOMED: &str = "SELECT id FROM users \
+             WHERE NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = users.id AND r.role = 'admin') \
+             AND NOT EXISTS (SELECT 1 FROM user_group_members m \
+                 JOIN user_group_roles gr ON gr.group_id = m.group_id AND gr.role = 'admin' \
+                 WHERE m.user_id = users.id) \
+             AND users.username <> ALL($1)";
+        for table in ["sessions", "api_tokens"] {
+            sqlx::query(&format!("DELETE FROM {table} WHERE user_id IN ({DOOMED})"))
+                .bind(spare_usernames)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        let result = sqlx::query(&format!("DELETE FROM users WHERE id IN ({DOOMED})"))
+            .bind(spare_usernames)
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -992,75 +850,91 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn nuke_database(&self, keep_user_id: Option<i64>) -> Result<(), RepositoryError> {
-        sqlx::query("DELETE FROM endpoint_versions")
-            .execute(&self.pool)
+        let mut tx = self
+            .pool
+            .begin()
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        sqlx::query("DELETE FROM service_spec_versions")
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
         sqlx::query("DELETE FROM dependencies")
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM endpoints")
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        sqlx::query("DELETE FROM branches")
-            .execute(&self.pool)
+        sqlx::query("DELETE FROM spec_versions")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM channel_message_contracts")
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM services")
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM clients")
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        sqlx::query("DELETE FROM protected_branches")
-            .execute(&self.pool)
+        sqlx::query("DELETE FROM service_tags")
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // Delete all sessions except the current admin's
         if let Some(uid) = keep_user_id {
             sqlx::query("DELETE FROM sessions WHERE user_id != $1")
                 .bind(uid)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             sqlx::query("DELETE FROM api_tokens WHERE user_id != $1")
                 .bind(uid)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             sqlx::query("DELETE FROM users WHERE id != $1")
                 .bind(uid)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         } else {
             sqlx::query("DELETE FROM sessions")
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             sqlx::query("DELETE FROM api_tokens")
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             sqlx::query("DELETE FROM users")
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         }
+
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
         Ok(())
     }
 
     async fn delete_producer(&self, name: &str) -> Result<bool, RepositoryError> {
+        // spec_versions cascade endpoints and dependencies via FK; deleting
+        // explicitly keeps both backends behaving identically.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
         let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM services WHERE name = $1")
             .bind(name)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
@@ -1069,117 +943,32 @@ impl SpecRepository for PostgresSpecRepository {
             None => return Ok(false),
         };
 
-        let branch_rows: Vec<(i64,)> =
-            sqlx::query_as("SELECT id FROM branches WHERE service_id = $1")
-                .bind(service_id)
-                .fetch_all(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        for (branch_id,) in &branch_rows {
-            sqlx::query("DELETE FROM service_spec_versions WHERE branch_id = $1")
-                .bind(branch_id)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-            sqlx::query(
-                "DELETE FROM dependencies WHERE endpoint_id IN (SELECT id FROM endpoints WHERE branch_id = $1)"
-            )
-            .bind(branch_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-            sqlx::query("DELETE FROM endpoints WHERE branch_id = $1")
-                .bind(branch_id)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        }
-
-        sqlx::query("DELETE FROM dependencies WHERE requested_service_id = $1")
+        sqlx::query(
+            "DELETE FROM dependencies WHERE spec_version_id IN (SELECT id FROM spec_versions WHERE service_id = $1)",
+        )
+        .bind(service_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "DELETE FROM endpoints WHERE spec_version_id IN (SELECT id FROM spec_versions WHERE service_id = $1)",
+        )
+        .bind(service_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM spec_versions WHERE service_id = $1")
             .bind(service_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        sqlx::query("DELETE FROM service_spec_versions WHERE service_id = $1")
-            .bind(service_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        sqlx::query("DELETE FROM branches WHERE service_id = $1")
-            .bind(service_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
         sqlx::query("DELETE FROM services WHERE id = $1")
             .bind(service_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        Ok(true)
-    }
-
-    async fn delete_branch(
-        &self,
-        service_name: &str,
-        branch_name: &str,
-    ) -> Result<bool, RepositoryError> {
-        let row: Option<(i64,)> = sqlx::query_as(
-            "SELECT b.id FROM branches b JOIN services s ON b.service_id = s.id WHERE s.name = $1 AND b.name = $2"
-        )
-        .bind(service_name)
-        .bind(branch_name)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        let branch_id = match row {
-            Some((id,)) => id,
-            None => return Ok(false),
-        };
-
-        sqlx::query(
-            "DELETE FROM dependencies WHERE endpoint_id IN (SELECT id FROM endpoints WHERE branch_id = $1)"
-        )
-        .bind(branch_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        let service_row: Option<(i64,)> = sqlx::query_as(
-            "SELECT s.id FROM services s JOIN branches b ON b.service_id = s.id WHERE b.id = $1",
-        )
-        .bind(branch_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        if let Some((service_id,)) = service_row {
-            sqlx::query(
-                "DELETE FROM dependencies WHERE requested_service_id = $1 AND requested_branch_name = $2"
-            )
-            .bind(service_id)
-            .bind(branch_name)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        }
-
-        sqlx::query("DELETE FROM endpoints WHERE branch_id = $1")
-            .bind(branch_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        sqlx::query("DELETE FROM branches WHERE id = $1")
-            .bind(branch_id)
-            .execute(&self.pool)
+        tx.commit()
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
@@ -1214,9 +1003,7 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn list_producers(&self) -> Result<Vec<String>, RepositoryError> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT DISTINCT s.name FROM services s INNER JOIN branches b ON b.service_id = s.id ORDER BY s.name"
-        )
+        let rows: Vec<(String,)> = sqlx::query_as("SELECT name FROM services ORDER BY name")
             .fetch_all(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -1224,49 +1011,22 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn list_producers_detailed(&self) -> Result<Vec<ProducerSummary>, RepositoryError> {
-        let rows: Vec<ServiceSummaryRow> = sqlx::query_as(
-            r#"
-            SELECT s.name, s.fallback_branch, array_agg(b.name) as branches, s.icon, s.domain
-            FROM services s
-            JOIN branches b ON b.service_id = s.id
-            GROUP BY s.id, s.name, s.fallback_branch
-            ORDER BY s.name
-            "#,
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let rows: Vec<(String, Option<String>, Option<String>)> =
+            sqlx::query_as("SELECT name, icon, domain FROM services ORDER BY name")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         Ok(rows
             .into_iter()
-            .map(
-                |(name, fallback_branch, branches, icon, domain)| ProducerSummary {
-                    name,
-                    fallback_branch,
-                    branches: branches.unwrap_or_default(),
-                    branches_last_published: std::collections::HashMap::new(),
-                    branches_expire_at: std::collections::HashMap::new(),
-                    branches_endpoint_count: std::collections::HashMap::new(),
-                    is_favorite: false,
-                    icon,
-                    domain,
-                },
-            )
+            .map(|(name, icon, domain)| ProducerSummary {
+                name,
+                versions: Vec::new(),
+                is_favorite: false,
+                icon,
+                domain,
+            })
             .collect())
-    }
-
-    async fn set_fallback_branch(
-        &self,
-        service_name: &str,
-        branch: Option<&str>,
-    ) -> Result<(), RepositoryError> {
-        sqlx::query("UPDATE services SET fallback_branch = $1 WHERE name = $2")
-            .bind(branch)
-            .bind(service_name)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
     }
 
     async fn update_producer_metadata(
@@ -1285,82 +1045,6 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(())
     }
 
-    async fn get_fallback_branch(
-        &self,
-        service_name: &str,
-    ) -> Result<Option<String>, RepositoryError> {
-        let row: Option<(Option<String>,)> =
-            sqlx::query_as("SELECT fallback_branch FROM services WHERE name = $1")
-                .bind(service_name)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(row.and_then(|r| r.0))
-    }
-
-    async fn set_source_protected_branch_if_unset(
-        &self,
-        branch_id: i64,
-        value: &str,
-    ) -> Result<bool, RepositoryError> {
-        let result = sqlx::query(
-            "UPDATE branches SET source_protected_branch = $1 WHERE id = $2 AND source_protected_branch IS NULL",
-        )
-        .bind(value)
-        .bind(branch_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(result.rows_affected() > 0)
-    }
-
-    async fn get_source_protected_branch(
-        &self,
-        branch_id: i64,
-    ) -> Result<Option<String>, RepositoryError> {
-        let row: Option<(Option<String>,)> =
-            sqlx::query_as("SELECT source_protected_branch FROM branches WHERE id = $1")
-                .bind(branch_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(row.and_then(|r| r.0))
-    }
-
-    async fn admin_set_source_protected_branch(
-        &self,
-        branch_id: i64,
-        value: Option<&str>,
-    ) -> Result<(), RepositoryError> {
-        sqlx::query("UPDATE branches SET source_protected_branch = $1 WHERE id = $2")
-            .bind(value)
-            .bind(branch_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
-    }
-
-    async fn list_branches(&self, service_name: &str) -> Result<Vec<String>, RepositoryError> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT b.name FROM branches b JOIN services s ON b.service_id = s.id WHERE s.name = $1 ORDER BY b.name"
-        )
-        .bind(service_name)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(rows.into_iter().map(|r| r.0).collect())
-    }
-
-    async fn list_all_branches(&self) -> Result<Vec<String>, RepositoryError> {
-        let rows: Vec<(String,)> =
-            sqlx::query_as("SELECT DISTINCT b.name FROM branches b ORDER BY b.name")
-                .fetch_all(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(rows.into_iter().map(|r| r.0).collect())
-    }
-
     async fn list_consumers(&self) -> Result<Vec<String>, RepositoryError> {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT DISTINCT c.name FROM clients c INNER JOIN dependencies d ON d.client_id = c.id ORDER BY c.name"
@@ -1371,71 +1055,67 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    async fn list_consumer_branches(
-        &self,
-        client_name: &str,
-    ) -> Result<Vec<String>, RepositoryError> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT DISTINCT d.requested_branch_name \
-             FROM dependencies d \
-             JOIN clients c ON d.client_id = c.id \
-             WHERE c.name = $1 \
-             ORDER BY d.requested_branch_name",
-        )
-        .bind(client_name)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(rows.into_iter().map(|r| r.0).collect())
-    }
-
     async fn list_consumer_endpoints(
         &self,
         client_name: &str,
-        branch: &str,
     ) -> Result<Vec<ConsumerEndpointInfo>, RepositoryError> {
         type ClientEndpointRow = (
             String,
             String,
+            i32,
+            i32,
+            i32,
             String,
             String,
             String,
             Option<String>,
             bool,
-            bool,
         );
         let rows: Vec<ClientEndpointRow> = sqlx::query_as(
-            "SELECT d.api_type, s.name, d.requested_branch_name, d.requested_path, d.requested_method, e.yaml_content, \
-             COALESCE(e.deprecated, FALSE), COALESCE(e.external, FALSE) \
+            "SELECT d.api_type, s.name, v.major, v.minor, v.patch, v.stability, d.path, d.method, e.yaml_content, \
+             COALESCE(e.deprecated, FALSE) \
              FROM dependencies d \
              JOIN clients c ON d.client_id = c.id \
-             JOIN services s ON d.requested_service_id = s.id \
-             LEFT JOIN endpoints e ON d.endpoint_id = e.id \
-             WHERE c.name = $1 AND d.requested_branch_name = $2 \
-             ORDER BY s.name, d.requested_path, d.requested_method"
+             JOIN spec_versions v ON d.spec_version_id = v.id \
+             JOIN services s ON v.service_id = s.id \
+             LEFT JOIN endpoints e ON e.spec_version_id = v.id AND e.api_type = d.api_type \
+                  AND e.normalized_path = d.normalized_path AND e.method = d.method \
+             WHERE c.name = $1 \
+             ORDER BY s.name, d.path, d.method",
         )
         .bind(client_name)
-        .bind(branch)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(rows
-            .into_iter()
+        rows.into_iter()
             .map(
-                |(api_type, service, branch, path, method, yaml_content, deprecated, external)| {
-                    ConsumerEndpointInfo {
+                |(
+                    api_type,
+                    service,
+                    major,
+                    minor,
+                    patch,
+                    stability,
+                    path,
+                    method,
+                    yaml_content,
+                    deprecated,
+                )| {
+                    Ok(ConsumerEndpointInfo {
                         api_type: ApiType::from_str(&api_type).unwrap_or_default(),
                         service,
-                        branch,
+                        version: SemVer::new(major as u32, minor as u32, patch as u32),
+                        stability: stability
+                            .parse()
+                            .map_err(|e: String| RepositoryError::Internal(e))?,
                         path,
                         method,
                         yaml_content,
                         deprecated,
-                        external,
-                    }
+                    })
                 },
             )
-            .collect())
+            .collect()
     }
 
     async fn user_count(&self) -> Result<i64, RepositoryError> {
@@ -1698,67 +1378,6 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn delete_stale_branches(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
-        // Protection is decided in Rust (`branch_pattern`), the same way
-        // `is_branch_protected` does it, so a branch can never be culled here
-        // while counting as protected elsewhere.
-        let patterns = self.list_protected_branches().await?;
-        let candidates: Vec<(i64, String)> = sqlx::query_as(
-            r#"
-            SELECT b.id, b.name FROM branches b
-            JOIN services s ON b.service_id = s.id
-            WHERE b.updated_at < $1
-            "#,
-        )
-        .bind(cutoff_iso)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        let stale_branch_ids: Vec<(i64,)> = candidates
-            .into_iter()
-            .filter(|(_, name)| !crate::domain::branch_pattern::branch_matches_any(name, &patterns))
-            .map(|(id, _)| (id,))
-            .collect();
-
-        if stale_branch_ids.is_empty() {
-            return Ok(0);
-        }
-
-        let count = stale_branch_ids.len() as u64;
-        for (branch_id,) in &stale_branch_ids {
-            sqlx::query("DELETE FROM dependencies WHERE endpoint_id IN (SELECT id FROM endpoints WHERE branch_id = $1)")
-                .bind(branch_id)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-            sqlx::query(
-                r#"DELETE FROM dependencies WHERE requested_branch_name = (
-                    SELECT name FROM branches WHERE id = $1
-                ) AND requested_service_id = (
-                    SELECT service_id FROM branches WHERE id = $2
-                )"#,
-            )
-            .bind(branch_id)
-            .bind(branch_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-            sqlx::query("DELETE FROM endpoints WHERE branch_id = $1")
-                .bind(branch_id)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-            sqlx::query("DELETE FROM branches WHERE id = $1")
-                .bind(branch_id)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        }
-
-        Ok(count)
-    }
-
     async fn validate_api_token(&self, token_hash: &str) -> Result<Option<User>, RepositoryError> {
         let row: Option<(i64, String, String, bool)> = sqlx::query_as(
             r#"
@@ -1774,6 +1393,7 @@ impl SpecRepository for PostgresSpecRepository {
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         if row.is_some() {
+            // Update last_used_at
             let _ = sqlx::query("UPDATE api_tokens SET last_used_at = TO_CHAR(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE token_hash = $1")
                 .bind(token_hash)
                 .execute(&self.pool)
@@ -1796,358 +1416,6 @@ impl SpecRepository for PostgresSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(result.rows_affected())
     }
-
-    async fn get_endpoint_id(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<Option<i64>, RepositoryError> {
-        let normalized_path = crate::openapi::normalize_path(path);
-        let row: Option<(i64,)> = sqlx::query_as(
-            "SELECT id FROM endpoints WHERE branch_id = $1 AND api_type = $2 AND normalized_path = $3 AND method = $4 AND deleted = false"
-        )
-        .bind(branch_id)
-        .bind(api_type.as_str())
-        .bind(normalized_path)
-        .bind(method)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(row.map(|(id,)| id))
-    }
-
-    async fn insert_endpoint_version(
-        &self,
-        endpoint_id: i64,
-        version: i32,
-        yaml_content: &str,
-        diff: Option<&str>,
-        created_at: &str,
-    ) -> Result<(), RepositoryError> {
-        sqlx::query(
-            "INSERT INTO endpoint_versions (endpoint_id, version, yaml_content, diff_from_previous, created_at) VALUES ($1, $2, $3, $4, $5)"
-        )
-        .bind(endpoint_id)
-        .bind(version)
-        .bind(yaml_content)
-        .bind(diff)
-        .bind(created_at)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
-    }
-
-    async fn get_latest_endpoint_version(&self, endpoint_id: i64) -> Result<i32, RepositoryError> {
-        let row: Option<(i32,)> =
-            sqlx::query_as("SELECT MAX(version) FROM endpoint_versions WHERE endpoint_id = $1")
-                .bind(endpoint_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(row.map(|(v,)| v).unwrap_or(0))
-    }
-
-    async fn get_endpoint_versions(
-        &self,
-        endpoint_id: i64,
-    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
-        let rows: Vec<EndpointVersionRow> = sqlx::query_as(
-            "SELECT ev.id, ev.endpoint_id, ev.version, ev.yaml_content, ev.diff_from_previous, ev.created_at, 
-                   m.username, m.source_branch,
-                   s.name as service_name, b.name as branch_name, e.api_type, e.path, e.method
-             FROM endpoint_versions ev 
-             LEFT JOIN endpoint_version_metadata m ON ev.id = m.endpoint_version_id 
-             JOIN endpoints e ON ev.endpoint_id = e.id
-             JOIN branches b ON e.branch_id = b.id
-             JOIN services s ON b.service_id = s.id
-             WHERE ev.endpoint_id = $1 
-             ORDER BY ev.version ASC"
-        )
-        .bind(endpoint_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        Ok(rows
-            .into_iter()
-            .map(
-                |(
-                    id,
-                    endpoint_id,
-                    version,
-                    yaml_content,
-                    diff_from_previous,
-                    created_at,
-                    username,
-                    source_branch,
-                    service_name,
-                    branch_name,
-                    api_type_str,
-                    path,
-                    method,
-                )| {
-                    EndpointVersion {
-                        id,
-                        endpoint_id,
-                        version,
-                        yaml_content,
-                        diff_from_previous,
-                        created_at,
-                        username,
-                        source_branch,
-                        service_name: Some(service_name),
-                        branch_name: Some(branch_name),
-                        api_type: ApiType::from_str(&api_type_str).ok(),
-                        path: Some(path),
-                        method: Some(method),
-                    }
-                },
-            )
-            .collect())
-    }
-
-    async fn get_global_endpoint_versions(
-        &self,
-        limit: u32,
-    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
-        let rows = sqlx::query(
-            "SELECT 
-                ev.id, ev.endpoint_id, ev.version, ev.yaml_content, ev.diff_from_previous, ev.created_at, 
-                m.username, m.source_branch,
-                s.name as service_name, b.name as branch_name, e.api_type, e.path, e.method
-             FROM endpoint_versions ev 
-             LEFT JOIN endpoint_version_metadata m ON ev.id = m.endpoint_version_id 
-             JOIN endpoints e ON ev.endpoint_id = e.id
-             JOIN branches b ON e.branch_id = b.id
-             JOIN services s ON b.service_id = s.id
-             ORDER BY ev.created_at DESC, ev.id DESC
-             LIMIT $1"
-        )
-        .bind(limit as i64)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        use sqlx::Row;
-        Ok(rows
-            .into_iter()
-            .map(|r| EndpointVersion {
-                id: r.get(0),
-                endpoint_id: r.get(1),
-                version: r.get(2),
-                yaml_content: r.get(3),
-                diff_from_previous: r.get(4),
-                created_at: r.get(5),
-                username: r.get(6),
-                source_branch: r.get(7),
-                service_name: Some(r.get(8)),
-                branch_name: Some(r.get(9)),
-                api_type: ApiType::from_str(r.get::<String, _>(10).as_str()).ok(),
-                path: Some(r.get(11)),
-                method: Some(r.get(12)),
-            })
-            .collect())
-    }
-
-    #[instrument(skip_all)]
-    async fn apply_spec_changes(
-        &self,
-        branch_id: i64,
-        changes: Vec<SpecChange>,
-        is_protected: bool,
-        username: Option<&str>,
-        source_branch: Option<&str>,
-    ) -> Result<(), RepositoryError> {
-        tracing::debug!(
-            "Applying {} spec changes to branch {}",
-            changes.len(),
-            branch_id
-        );
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-
-        // Advance the branch's `updated_at` on every publish (provide), so it
-        // reflects the last-published time. Read paths no longer bump it.
-        sqlx::query("UPDATE branches SET updated_at = $1 WHERE id = $2")
-            .bind(&now)
-            .bind(branch_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        for change in changes {
-            match change {
-                SpecChange::Insert {
-                    api_type,
-                    path,
-                    normalized_path,
-                    method,
-                    yaml_content,
-                    deprecated,
-                    external,
-                } => {
-                    tracing::debug!("Inserting {:?} endpoint: {} {}", api_type, method, path);
-                    // Revive on conflict: a soft-deleted row (deleted = TRUE) still
-                    // occupies the UNIQUE(branch_id, api_type, path, method) slot, so a plain
-                    // INSERT would violate the constraint when a previously removed endpoint
-                    // is re-introduced (e.g. on a branch that is no longer protected).
-                    sqlx::query("INSERT INTO endpoints (branch_id, api_type, path, normalized_path, method, yaml_content, deleted, deprecated, external) VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, $8) ON CONFLICT (branch_id, api_type, path, method) DO UPDATE SET deleted = FALSE, normalized_path = EXCLUDED.normalized_path, yaml_content = EXCLUDED.yaml_content, deprecated = EXCLUDED.deprecated, external = EXCLUDED.external")
-                        .bind(branch_id)
-                        .bind(api_type.as_str())
-                        .bind(&path)
-                        .bind(&normalized_path)
-                        .bind(&method)
-                        .bind(&yaml_content)
-                        .bind(deprecated)
-                        .bind(external)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-                    if is_protected {
-                        let row: (i64,) = sqlx::query_as("SELECT id FROM endpoints WHERE branch_id = $1 AND api_type = $2 AND path = $3 AND method = $4 AND deleted = false")
-                            .bind(branch_id)
-                            .bind(api_type.as_str())
-                            .bind(&path)
-                            .bind(&method)
-                            .fetch_one(&mut *tx)
-                            .await
-                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-                        let version_row: (i64,) = sqlx::query_as("INSERT INTO endpoint_versions (endpoint_id, version, yaml_content, diff_from_previous, created_at) VALUES ($1, 1, $2, NULL, $3) RETURNING id")
-                            .bind(row.0)
-                            .bind(&yaml_content)
-                            .bind(&now)
-                            .fetch_one(&mut *tx)
-                            .await
-                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-                        let version_id = version_row.0;
-
-                        sqlx::query("INSERT INTO endpoint_version_metadata (endpoint_version_id, username, source_branch) VALUES ($1, $2, $3)")
-                            .bind(version_id)
-                            .bind(username)
-                            .bind(source_branch)
-                            .execute(&mut *tx)
-                            .await
-                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-                    }
-                }
-                SpecChange::Update {
-                    api_type,
-                    path,
-                    normalized_path,
-                    method,
-                    yaml_content,
-                    deprecated,
-                    external,
-                } => {
-                    tracing::debug!("Updating {:?} endpoint: {} {}", api_type, method, path);
-                    if is_protected {
-                        let row: (i64, String) = sqlx::query_as("SELECT id, yaml_content FROM endpoints WHERE branch_id = $1 AND api_type = $2 AND path = $3 AND method = $4 AND deleted = false")
-                            .bind(branch_id)
-                            .bind(api_type.as_str())
-                            .bind(&path)
-                            .bind(&method)
-                            .fetch_one(&mut *tx)
-                            .await
-                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-                        let endpoint_id = row.0;
-                        let old_yaml = row.1;
-
-                        let version_row: (i32,) = sqlx::query_as("SELECT COALESCE(MAX(version), 0) FROM endpoint_versions WHERE endpoint_id = $1")
-                            .bind(endpoint_id)
-                            .fetch_one(&mut *tx)
-                            .await
-                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-                        let diff = crate::openapi::generate_diff(&old_yaml, &yaml_content);
-
-                        let version_ins_row: (i64,) = sqlx::query_as("INSERT INTO endpoint_versions (endpoint_id, version, yaml_content, diff_from_previous, created_at) VALUES ($1, $2, $3, $4, $5) RETURNING id")
-                            .bind(endpoint_id)
-                            .bind(version_row.0 + 1)
-                            .bind(&yaml_content)
-                            .bind(diff)
-                            .bind(&now)
-                            .fetch_one(&mut *tx)
-                            .await
-                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-                        let version_id = version_ins_row.0;
-
-                        sqlx::query("INSERT INTO endpoint_version_metadata (endpoint_version_id, username, source_branch) VALUES ($1, $2, $3)")
-                            .bind(version_id)
-                            .bind(username)
-                            .bind(source_branch)
-                            .execute(&mut *tx)
-                            .await
-                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-                    }
-
-                    sqlx::query("UPDATE endpoints SET yaml_content = $1, normalized_path = $2, deprecated = $3, external = $4 WHERE branch_id = $5 AND api_type = $6 AND path = $7 AND method = $8")
-                        .bind(&yaml_content)
-                        .bind(&normalized_path)
-                        .bind(deprecated)
-                        .bind(external)
-                        .bind(branch_id)
-                        .bind(api_type.as_str())
-                        .bind(&path)
-                        .bind(&method)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-                }
-                SpecChange::Delete {
-                    api_type,
-                    path,
-                    method,
-                    soft_delete,
-                } => {
-                    tracing::debug!(
-                        "Deleting {:?} endpoint: {} {} (soft: {})",
-                        api_type,
-                        method,
-                        path,
-                        soft_delete
-                    );
-                    if soft_delete {
-                        sqlx::query("UPDATE endpoints SET deleted = true WHERE branch_id = $1 AND api_type = $2 AND path = $3 AND method = $4")
-                            .bind(branch_id)
-                            .bind(api_type.as_str())
-                            .bind(&path)
-                            .bind(&method)
-                            .execute(&mut *tx)
-                            .await
-                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-                    } else {
-                        sqlx::query("DELETE FROM endpoints WHERE branch_id = $1 AND api_type = $2 AND path = $3 AND method = $4")
-                            .bind(branch_id)
-                            .bind(api_type.as_str())
-                            .bind(&path)
-                            .bind(&method)
-                            .execute(&mut *tx)
-                            .await
-                            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-                    }
-                }
-            }
-        }
-
-        tx.commit()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
-    }
-
-    // --- Roles and Groups ---
 
     async fn grant_user_role(&self, user_id: i64, role: &str) -> Result<(), RepositoryError> {
         sqlx::query("INSERT INTO user_roles (user_id, role) VALUES ($1, $2) ON CONFLICT (user_id, role) DO NOTHING")
@@ -2341,137 +1609,6 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    // --- Pending Specs ---
-
-    async fn upsert_pending_spec(
-        &self,
-        service_id: i64,
-        branch: &str,
-        api_type: ApiType,
-        content: &str,
-        reason: &str,
-        submitted_by: &str,
-    ) -> Result<i64, RepositoryError> {
-        // Replace rather than accumulate: one entry per key, latest wins.
-        sqlx::query(
-            "INSERT INTO pending_specs (service_id, branch, api_type, content, reason, submitted_by)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (service_id, branch, api_type) DO UPDATE SET
-               content = excluded.content,
-               reason = excluded.reason,
-               submitted_by = excluded.submitted_by,
-               created_at = CURRENT_TIMESTAMP",
-        )
-        .bind(service_id)
-        .bind(branch)
-        .bind(api_type.as_str())
-        .bind(content)
-        .bind(reason)
-        .bind(submitted_by)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        let row: (i64,) = sqlx::query_as(
-            "SELECT id FROM pending_specs WHERE service_id = $1 AND branch = $2 AND api_type = $3",
-        )
-        .bind(service_id)
-        .bind(branch)
-        .bind(api_type.as_str())
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(row.0)
-    }
-
-    async fn get_pending_spec(&self, id: i64) -> Result<Option<PendingSpec>, RepositoryError> {
-        let row: Option<PendingSpecRow> = sqlx::query_as(
-            "SELECT p.id, s.name, p.branch, p.api_type, p.content, p.reason, p.submitted_by,
-                        CAST(p.created_at AS TEXT)
-                   FROM pending_specs p JOIN services s ON s.id = p.service_id
-                  WHERE p.id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(row.and_then(pending_from_row))
-    }
-
-    async fn list_pending_specs(&self) -> Result<Vec<PendingSpec>, RepositoryError> {
-        let rows: Vec<PendingSpecRow> = sqlx::query_as(
-            "SELECT p.id, s.name, p.branch, p.api_type, p.content, p.reason, p.submitted_by,
-                        CAST(p.created_at AS TEXT)
-                   FROM pending_specs p JOIN services s ON s.id = p.service_id
-                  ORDER BY p.created_at DESC, p.id DESC",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(rows.into_iter().filter_map(pending_from_row).collect())
-    }
-
-    async fn delete_pending_spec(&self, id: i64) -> Result<bool, RepositoryError> {
-        let result = sqlx::query("DELETE FROM pending_specs WHERE id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(result.rows_affected() > 0)
-    }
-
-    async fn clear_pending_spec(
-        &self,
-        service_id: i64,
-        branch: &str,
-        api_type: ApiType,
-    ) -> Result<bool, RepositoryError> {
-        let result = sqlx::query(
-            "DELETE FROM pending_specs WHERE service_id = $1 AND branch = $2 AND api_type = $3",
-        )
-        .bind(service_id)
-        .bind(branch)
-        .bind(api_type.as_str())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(result.rows_affected() > 0)
-    }
-
-    // --- Producer Onboarding ---
-
-    async fn set_producer_onboarding(
-        &self,
-        service_id: i64,
-        onboarding: bool,
-    ) -> Result<(), RepositoryError> {
-        sqlx::query("UPDATE services SET onboarding = $1 WHERE id = $2")
-            .bind(onboarding)
-            .bind(service_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
-    }
-
-    async fn is_producer_onboarding(&self, service_id: i64) -> Result<bool, RepositoryError> {
-        let row: Option<(bool,)> = sqlx::query_as("SELECT onboarding FROM services WHERE id = $1")
-            .bind(service_id)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(row.map(|r| r.0).unwrap_or(false))
-    }
-
-    async fn list_onboarding_producers(&self) -> Result<Vec<String>, RepositoryError> {
-        let rows: Vec<(String,)> =
-            sqlx::query_as("SELECT name FROM services WHERE onboarding = TRUE ORDER BY name")
-                .fetch_all(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(rows.into_iter().map(|r| r.0).collect())
-    }
-
     // --- Maintainer Scope ---
 
     async fn add_user_maintainer(
@@ -2563,6 +1700,42 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
+    async fn list_all_user_maintainers(&self) -> Result<Vec<(String, i64)>, RepositoryError> {
+        sqlx::query_as(
+            "SELECT s.name, m.user_id FROM producer_user_maintainers m \
+             JOIN services s ON s.id = m.service_id ORDER BY s.name, m.user_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))
+    }
+
+    async fn list_all_group_maintainers(&self) -> Result<Vec<(String, i64)>, RepositoryError> {
+        sqlx::query_as(
+            "SELECT s.name, m.group_id FROM producer_group_maintainers m \
+             JOIN services s ON s.id = m.service_id ORDER BY s.name, m.group_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))
+    }
+
+    async fn list_group_maintained_producers(
+        &self,
+        group_ids: &[i64],
+    ) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT s.name FROM producer_group_maintainers pgm \
+             JOIN services s ON s.id = pgm.service_id \
+             WHERE pgm.group_id = ANY($1) ORDER BY s.name",
+        )
+        .bind(group_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
     async fn maintains_producer(
         &self,
         user_id: i64,
@@ -2644,14 +1817,12 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn get_channel_message_contract(
         &self,
-        branch_name: &str,
         channel: &str,
         message_name: &str,
     ) -> Result<Option<ChannelMessageContract>, RepositoryError> {
         let row: Option<(i64, String)> = sqlx::query_as(
-            "SELECT owner_service_id, payload_yaml FROM channel_message_contracts WHERE branch_name = $1 AND channel = $2 AND message_name = $3",
+            "SELECT owner_service_id, payload_yaml FROM channel_message_contracts WHERE channel = $1 AND message_name = $2",
         )
-        .bind(branch_name)
         .bind(channel)
         .bind(message_name)
         .fetch_optional(&self.pool)
@@ -2660,7 +1831,6 @@ impl SpecRepository for PostgresSpecRepository {
 
         Ok(
             row.map(|(owner_service_id, payload_yaml)| ChannelMessageContract {
-                branch_name: branch_name.to_string(),
                 channel: channel.to_string(),
                 message_name: message_name.to_string(),
                 owner_service_id,
@@ -2674,12 +1844,11 @@ impl SpecRepository for PostgresSpecRepository {
         contract: &ChannelMessageContract,
     ) -> Result<(), RepositoryError> {
         sqlx::query(
-            "INSERT INTO channel_message_contracts (branch_name, channel, message_name, owner_service_id, payload_yaml) \
-             VALUES ($1, $2, $3, $4, $5) \
-             ON CONFLICT (branch_name, channel, message_name) \
+            "INSERT INTO channel_message_contracts (channel, message_name, owner_service_id, payload_yaml) \
+             VALUES ($1, $2, $3, $4) \
+             ON CONFLICT (channel, message_name) \
              DO UPDATE SET owner_service_id = EXCLUDED.owner_service_id, payload_yaml = EXCLUDED.payload_yaml",
         )
-        .bind(&contract.branch_name)
         .bind(&contract.channel)
         .bind(&contract.message_name)
         .bind(contract.owner_service_id)
@@ -2692,14 +1861,12 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn delete_channel_message_contract(
         &self,
-        branch_name: &str,
         channel: &str,
         message_name: &str,
     ) -> Result<(), RepositoryError> {
         sqlx::query(
-            "DELETE FROM channel_message_contracts WHERE branch_name = $1 AND channel = $2 AND message_name = $3",
+            "DELETE FROM channel_message_contracts WHERE channel = $1 AND message_name = $2",
         )
-        .bind(branch_name)
         .bind(channel)
         .bind(message_name)
         .execute(&self.pool)
@@ -2710,12 +1877,10 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn list_channel_message_contracts(
         &self,
-        branch_name: &str,
     ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
         let rows: Vec<(String, String, i64, String)> = sqlx::query_as(
-            "SELECT channel, message_name, owner_service_id, payload_yaml FROM channel_message_contracts WHERE branch_name = $1 ORDER BY channel, message_name",
+            "SELECT channel, message_name, owner_service_id, payload_yaml FROM channel_message_contracts ORDER BY channel, message_name",
         )
-        .bind(branch_name)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -2724,7 +1889,6 @@ impl SpecRepository for PostgresSpecRepository {
             .into_iter()
             .map(
                 |(channel, message_name, owner_service_id, payload_yaml)| ChannelMessageContract {
-                    branch_name: branch_name.to_string(),
                     channel,
                     message_name,
                     owner_service_id,
@@ -2734,21 +1898,6 @@ impl SpecRepository for PostgresSpecRepository {
             .collect())
     }
 
-    async fn delete_orphaned_channel_message_contracts(
-        &self,
-        live_branches: &[String],
-    ) -> Result<u64, RepositoryError> {
-        // Delete rows whose branch is absent from the live set. An empty live
-        // set means every branch is gone, so all rows are removed.
-        let result =
-            sqlx::query("DELETE FROM channel_message_contracts WHERE NOT (branch_name = ANY($1))")
-                .bind(live_branches)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(result.rows_affected())
-    }
-
     async fn insert_audit_log(
         &self,
         username: &str,
@@ -2756,14 +1905,14 @@ impl SpecRepository for PostgresSpecRepository {
     ) -> Result<(), RepositoryError> {
         let timestamp = chrono::Utc::now().to_rfc3339();
         sqlx::query(
-            "INSERT INTO audit_logs (timestamp, username, action, details, service, branch, action_type, diff) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            "INSERT INTO audit_logs (timestamp, username, action, details, service, version, action_type, diff) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         )
         .bind(timestamp)
         .bind(username)
         .bind(log.action)
         .bind(log.details)
         .bind(log.service)
-        .bind(log.branch)
+        .bind(log.version)
         .bind(log.action_type)
         .bind(log.diff)
         .execute(&self.pool)
@@ -2778,7 +1927,7 @@ impl SpecRepository for PostgresSpecRepository {
         filter: AuditLogFilter,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
         let mut sql = String::from(
-            "SELECT id, timestamp, username, action, details, service, branch, action_type, diff FROM audit_logs WHERE 1=1",
+            "SELECT id, timestamp, username, action, details, service, version, action_type, diff FROM audit_logs WHERE 1=1",
         );
         let mut param_idx = 1;
 
@@ -2798,8 +1947,8 @@ impl SpecRepository for PostgresSpecRepository {
             sql.push_str(&format!(" AND service LIKE ${}", param_idx));
             param_idx += 1;
         }
-        if filter.branch_wildcard.is_some() {
-            sql.push_str(&format!(" AND branch LIKE ${}", param_idx));
+        if filter.version_wildcard.is_some() {
+            sql.push_str(&format!(" AND version LIKE ${}", param_idx));
             param_idx += 1;
         }
 
@@ -2832,7 +1981,7 @@ impl SpecRepository for PostgresSpecRepository {
         if let Some(ref val) = filter.service_wildcard {
             query = query.bind(val);
         }
-        if let Some(ref val) = filter.branch_wildcard {
+        if let Some(ref val) = filter.version_wildcard {
             query = query.bind(val);
         }
         query = query.bind(filter.limit as i64);
@@ -2845,7 +1994,17 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(id, timestamp, username, action, details, service, branch, action_type, diff)| {
+                |(
+                    id,
+                    timestamp,
+                    username,
+                    action,
+                    details,
+                    service,
+                    version,
+                    action_type,
+                    diff,
+                )| {
                     AuditLogEntry {
                         id,
                         timestamp,
@@ -2853,7 +2012,7 @@ impl SpecRepository for PostgresSpecRepository {
                         action,
                         details,
                         service,
-                        branch,
+                        version,
                         action_type,
                         diff,
                     }
@@ -2867,7 +2026,7 @@ impl SpecRepository for PostgresSpecRepository {
         limit: u32,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
         let rows: Vec<AuditLogRow> = sqlx::query_as(
-            "SELECT id, timestamp, username, action, details, service, branch, action_type, diff FROM audit_logs ORDER BY id DESC LIMIT $1"
+            "SELECT id, timestamp, username, action, details, service, version, action_type, diff FROM audit_logs ORDER BY id DESC LIMIT $1"
         )
         .bind(limit as i64)
         .fetch_all(&self.pool)
@@ -2877,7 +2036,17 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(id, timestamp, username, action, details, service, branch, action_type, diff)| {
+                |(
+                    id,
+                    timestamp,
+                    username,
+                    action,
+                    details,
+                    service,
+                    version,
+                    action_type,
+                    diff,
+                )| {
                     AuditLogEntry {
                         id,
                         timestamp,
@@ -2885,7 +2054,7 @@ impl SpecRepository for PostgresSpecRepository {
                         action,
                         details,
                         service,
-                        branch,
+                        version,
                         action_type,
                         diff,
                     }
@@ -2947,49 +2116,5 @@ impl SpecRepository for PostgresSpecRepository {
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         Ok(())
-    }
-
-    async fn list_branches_with_metadata(&self) -> Result<Vec<BranchMetadata>, RepositoryError> {
-        let rows: Vec<(String, String)> = sqlx::query_as(
-            "SELECT name, MAX(updated_at) as last_modified FROM branches GROUP BY name",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-
-        Ok(rows
-            .into_iter()
-            .map(|(name, last_modified)| BranchMetadata {
-                name,
-                last_modified,
-            })
-            .collect())
-    }
-
-    async fn list_branch_last_published(
-        &self,
-    ) -> Result<Vec<(String, String, String)>, RepositoryError> {
-        sqlx::query_as(
-            "SELECT s.name, b.name, b.updated_at
-             FROM branches b JOIN services s ON s.id = b.service_id",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))
-    }
-
-    async fn list_branch_endpoint_counts(
-        &self,
-    ) -> Result<Vec<(String, String, i64)>, RepositoryError> {
-        sqlx::query_as(
-            "SELECT s.name, b.name, COUNT(e.id)
-             FROM branches b
-             JOIN services s ON s.id = b.service_id
-             LEFT JOIN endpoints e ON e.branch_id = b.id AND e.deleted = FALSE
-             GROUP BY s.id, b.id, s.name, b.name",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))
     }
 }

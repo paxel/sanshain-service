@@ -21,16 +21,11 @@ pub enum Permission {
     ManageUsers,
     /// Grant and revoke roles, and manage groups and their role assignments.
     ManageRoles,
-    /// Administer Producers, their branches and their endpoints.
+    /// Administer Producers and their version lines, including deleting a
+    /// version — the sole escape hatch from GA immutability.
     ManageProducers,
     /// Administer Consumers and their recorded dependencies.
     ManageConsumers,
-    /// Add and remove protected-branch patterns.
-    ManageProtectedBranches,
-    /// Put a Producer into onboarding, or take it out again.
-    SetOnboarding,
-    /// Review a Pending spec and accept or reject it.
-    ReviewPendingSpecs,
     /// Read the audit log and timeline.
     ViewAudit,
     /// Change instance settings — cleanup ages, cache, dev mode.
@@ -54,9 +49,6 @@ impl Permission {
         Permission::ManageRoles,
         Permission::ManageProducers,
         Permission::ManageConsumers,
-        Permission::ManageProtectedBranches,
-        Permission::SetOnboarding,
-        Permission::ReviewPendingSpecs,
         Permission::ViewAudit,
         Permission::ManageSettings,
         Permission::ManageAuthConfig,
@@ -70,9 +62,6 @@ impl Permission {
             Permission::ManageRoles => "manage_roles",
             Permission::ManageProducers => "manage_producers",
             Permission::ManageConsumers => "manage_consumers",
-            Permission::ManageProtectedBranches => "manage_protected_branches",
-            Permission::SetOnboarding => "set_onboarding",
-            Permission::ReviewPendingSpecs => "review_pending_specs",
             Permission::ViewAudit => "view_audit",
             Permission::ManageSettings => "manage_settings",
             Permission::ManageAuthConfig => "manage_auth_config",
@@ -140,11 +129,7 @@ impl Role {
             Role::Admin => Permission::ALL,
             Role::UserManager => &[Permission::ManageUsers, Permission::ManageRoles],
             Role::Viewer => &[Permission::ViewAudit, Permission::ViewObservability],
-            Role::Maintainer => &[
-                Permission::ManageProducers,
-                Permission::SetOnboarding,
-                Permission::ReviewPendingSpecs,
-            ],
+            Role::Maintainer => &[Permission::ManageProducers],
         }
     }
 
@@ -218,6 +203,11 @@ pub struct Actor {
     /// after this build.
     pub is_root: bool,
     pub roles: Vec<Role>,
+    /// The directory groups the caller is currently in (empty for native
+    /// users). Carried on the Actor so Producer-scoped checks can honour a
+    /// maintainer grant made to a directory group, whose membership Sanshain
+    /// never stores.
+    pub directory_groups: Vec<String>,
 }
 
 impl Actor {
@@ -250,7 +240,7 @@ mod tests {
         for name in &names {
             assert_eq!(Permission::parse(name).map(|p| p.as_str()), Some(*name));
         }
-        assert_eq!(Permission::ALL.len(), 12);
+        assert_eq!(Permission::ALL.len(), 9);
     }
 
     #[test]
@@ -321,6 +311,7 @@ mod tests {
             username: "root".into(),
             is_root: true,
             roles: vec![],
+            directory_groups: vec![],
         };
         for permission in Permission::ALL {
             assert!(actor.has_permission(*permission));
@@ -335,6 +326,7 @@ mod tests {
             username: "nobody".into(),
             is_root: false,
             roles: vec![],
+            directory_groups: vec![],
         };
         for permission in Permission::ALL {
             assert!(!actor.has_permission(*permission));
@@ -349,6 +341,7 @@ mod tests {
             username: "helper".into(),
             is_root: false,
             roles: vec![Role::UserManager, Role::Viewer],
+            directory_groups: vec![],
         };
         assert!(actor.has_permission(Permission::ManageUsers));
         assert!(actor.has_permission(Permission::ViewAudit));

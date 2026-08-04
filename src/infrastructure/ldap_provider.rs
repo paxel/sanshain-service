@@ -1,6 +1,15 @@
 use crate::domain::models::{AuthenticatedUser, LdapConfig};
 use crate::domain::ports::{AuthProvider, AuthProviderError, DirectoryGroups};
 use ldap3::{LdapConnAsync, LdapConnSettings, Scope, SearchEntry};
+use std::time::Duration;
+
+/// How long a connection attempt may take before it counts as down.
+///
+/// Without a bound, an unreachable directory (firewalled port, half-dead VM)
+/// blocks the caller for the OS's TCP timeout — minutes — and because group
+/// resolution runs inside authorisation, that stalls every request from
+/// directory-backed users for that long.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Open an LDAP connection using the trust store built at startup.
 ///
@@ -10,13 +19,12 @@ use ldap3::{LdapConnAsync, LdapConnSettings, Scope, SearchEntry};
 /// crypto providers are linked in, and its root store collapses to *empty* if
 /// reading the platform certificates hiccups — trusting nothing, silently.
 async fn open_connection(url: &str) -> ldap3::result::Result<(LdapConnAsync, ldap3::Ldap)> {
+    let settings = LdapConnSettings::new().set_conn_timeout(CONNECT_TIMEOUT);
     match crate::infrastructure::tls::ldap_client_config() {
-        Some(config) => {
-            LdapConnAsync::with_settings(LdapConnSettings::new().set_config(config), url).await
-        }
+        Some(config) => LdapConnAsync::with_settings(settings.set_config(config), url).await,
         // Only when the configuration could not be built at all, which is
         // already logged as an error. Plain LDAP still works on this path.
-        None => LdapConnAsync::new(url).await,
+        None => LdapConnAsync::with_settings(settings, url).await,
     }
 }
 

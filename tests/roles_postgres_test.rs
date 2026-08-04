@@ -265,53 +265,6 @@ async fn maintainer_scope_behaves_the_same_on_postgres() {
     );
 }
 
-#[tokio::test]
-async fn producer_onboarding_behaves_the_same_on_postgres() {
-    let (repo, _container) = repo_and_container().await;
-
-    let orders = repo.ensure_service("orders").await.expect("producer");
-    let billing = repo.ensure_service("billing").await.expect("producer");
-
-    // Reading the boolean back is where the two backends could disagree: SQLite
-    // stores it as an integer, Postgres as a real BOOLEAN.
-    assert!(
-        !repo
-            .is_producer_onboarding(orders)
-            .await
-            .expect("default is off")
-    );
-
-    repo.set_producer_onboarding(orders, true)
-        .await
-        .expect("turn on");
-    assert!(repo.is_producer_onboarding(orders).await.expect("on"));
-    assert!(
-        !repo
-            .is_producer_onboarding(billing)
-            .await
-            .expect("per Producer")
-    );
-
-    assert_eq!(
-        repo.list_onboarding_producers().await.expect("listing"),
-        vec!["orders".to_string()]
-    );
-
-    repo.set_producer_onboarding(orders, false)
-        .await
-        .expect("turn off");
-    assert!(
-        repo.list_onboarding_producers()
-            .await
-            .expect("listing")
-            .is_empty()
-    );
-
-    // An unknown Producer is not onboarding, rather than an error.
-    assert!(
-        !repo
-            .is_producer_onboarding(999_999)
-            .await
-            .expect("unknown producer")
-    );
-}
+// Note: the producer-onboarding test that lived here was removed with ADR-0003
+// (Sanshain 2.0): onboarding and the pending-spec review flow no longer exist,
+// so the repository has no onboarding methods to prove on Postgres.

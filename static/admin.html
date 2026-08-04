@@ -136,35 +136,19 @@
                 </div>
             </section>
 
-            <!-- Protected Branches -->
-            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                <div class="flex justify-between items-center mb-4">
-                    <div>
-                        <h2 class="text-lg font-semibold text-slate-800">Protected Branches</h2>
-                        <p class="text-sm text-slate-500 mt-1">Endpoints on protected branches are immutable once provided.</p>
-                    </div>
-                    <div class="flex space-x-2">
-                        <input type="text" id="new-branch-pattern" placeholder="e.g. main, release/*"
-                            class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                        <button onclick="addProtectedBranch()" class="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-indigo-700 transition-colors">Add</button>
-                    </div>
-                </div>
-                <div id="protected-branches-list" class="space-y-2"></div>
-            </section>
-
-            <!-- Branch Cleanup -->
+            <!-- Snapshot Cleanup -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="mb-4">
-                    <h2 class="text-lg font-semibold text-slate-800">Branch Cleanup</h2>
-                    <p class="text-sm text-slate-500 mt-1">Automatically delete non-protected branches older than the configured age.</p>
+                    <h2 class="text-lg font-semibold text-slate-800">Snapshot Cleanup</h2>
+                    <p class="text-sm text-slate-500 mt-1">A snapshot expires when neither provided nor required for the configured age. Set 0 days to disable. GA versions are never age-culled.</p>
                 </div>
                 <div class="flex items-center space-x-3">
-                    <input type="number" id="branch-max-age-days" min="1" value="30"
+                    <input type="number" id="snapshot-max-age-days" min="0" value="30"
                         class="w-24 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
                     <span class="text-sm text-slate-500">days</span>
-                    <button onclick="saveBranchMaxAge()" class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors">Save</button>
-                    <button onclick="triggerBranchCleanup()" class="px-3 py-1.5 bg-slate-600 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors">Run Cleanup</button>
-                    <span id="branch-cleanup-result" class="text-sm text-slate-500"></span>
+                    <button onclick="saveSnapshotMaxAge()" class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors">Save</button>
+                    <button onclick="triggerSnapshotCleanup()" class="px-3 py-1.5 bg-slate-600 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors">Run Cleanup</button>
+                    <span id="snapshot-cleanup-result" class="text-sm text-slate-500"></span>
                 </div>
             </section>
 
@@ -252,8 +236,8 @@
                                     class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-slate-600 mb-1">Admin Group DN</label>
-                                <input type="text" id="ldap-admin-group" placeholder="cn=admins,ou=groups,dc=example,dc=com"
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Bootstrap Admin Group <span class="font-normal text-slate-400">(directory group granted the admin role)</span></label>
+                                <input type="text" id="ldap-admin-group" placeholder="cn=admins,ou=groups,dc=example,dc=com" title="Convenience for first-time setup: this directory group is created as a Sanshain group holding the admin role. Manage roles per group in the Groups section afterwards."
                                     class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                             </div>
                         </div>
@@ -276,23 +260,6 @@
                         <button onclick="saveAuthConfig()" class="bg-indigo-600 text-white px-4 py-1.5 rounded-lg text-sm hover:bg-indigo-700 transition-colors">Save Authentication Settings</button>
                     </div>
                 </div>
-            </section>
-
-            <!-- Held Provides -->
-            <section class="bg-white rounded-xl border border-amber-300 shadow-sm p-6">
-                <div class="flex justify-between items-center mb-4">
-                    <div>
-                        <h2 class="text-lg font-semibold text-amber-700">
-                            Held Provides <span id="pending-count" class="ml-1 text-sm font-normal text-slate-500"></span>
-                        </h2>
-                        <p class="text-sm text-slate-500 mt-1">
-                            Breaking changes refused on a protected branch, kept for review. The
-                            Producer's build is failing until one of these is decided.
-                        </p>
-                    </div>
-                    <button onclick="loadPendingSpecs()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
-                </div>
-                <div id="pending-list" class="space-y-2"></div>
             </section>
 
             <!-- Users -->
@@ -343,7 +310,7 @@
                         <h2 class="text-lg font-semibold text-slate-800">Maintainers</h2>
                         <p class="text-sm text-slate-500 mt-1">
                             Who is responsible for a Producer. A maintainer may administer that
-                            Producer, set its onboarding and review its held specs — and no other's.
+                            Producer — including deleting its versions — and no other's.
                         </p>
                     </div>
                     <button onclick="loadMaintainers()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
@@ -357,20 +324,38 @@
                 <div id="maintainers-list" class="space-y-2"></div>
             </section>
 
-            <!-- Manual Service Addition -->
-            <section class="bg-white rounded-xl border border-indigo-300 shadow-sm p-6">
+            <!-- Paste-a-spec Producer Creation -->
+            <section id="paste-spec-section" class="bg-white rounded-xl border border-indigo-300 shadow-sm p-6 hidden">
                 <div class="mb-4">
-                    <h2 class="text-lg font-semibold text-indigo-700">Add Manual / External Producer</h2>
-                    <p class="text-sm text-slate-500 mt-1">Register a new service manually. You can then add endpoints and specs to it.</p>
+                    <h2 class="text-lg font-semibold text-indigo-700">Provide a Spec for a Producer</h2>
+                    <p class="text-sm text-slate-500 mt-1">Paste a complete specification to publish it under the version it declares — the same rules as any client. A Producer that does not exist yet is created by its first provide.</p>
                 </div>
-                <div class="flex items-center space-x-3">
-                    <input type="text" id="manual-service-name" placeholder="e.g. external-api"
-                        class="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                    <input type="text" id="paste-spec-name" placeholder="Producer name, e.g. external-api"
+                        class="px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         autocomplete="off">
-                    <button onclick="addManualService()"
-                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm transition-colors font-medium whitespace-nowrap">Add Producer</button>
+                    <select id="paste-spec-type"
+                        class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="openapi">OpenAPI</option>
+                        <option value="asyncapi">AsyncAPI</option>
+                        <option value="proto">Proto / gRPC</option>
+                    </select>
+                    <label class="flex items-center gap-2 text-sm text-slate-700 px-1">
+                        <input type="checkbox" id="paste-spec-ga" class="rounded border-slate-300">
+                        <span>Publish as <span class="font-semibold">GA</span></span>
+                    </label>
                 </div>
-                <div id="manual-service-result" class="mt-3 hidden text-sm"></div>
+                <p id="paste-spec-ga-warning" class="hidden text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">GA is immutable — the version number is claimed forever. Unchecked, this publishes an overwritable snapshot.</p>
+                <textarea id="paste-spec-content" rows="10" spellcheck="false"
+                    placeholder="Paste the full spec here. The version comes from the document itself (info.version, or a // sanshain-version: comment for proto)."
+                    class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                <div class="flex items-center gap-3 mt-3">
+                    <button onclick="pasteSpecSubmit(true)"
+                        class="border border-indigo-600 text-indigo-700 hover:bg-indigo-50 px-4 py-2 rounded-lg text-sm transition-colors font-medium">Validate (dry run)</button>
+                    <button onclick="pasteSpecSubmit(false)"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm transition-colors font-medium">Publish</button>
+                </div>
+                <div id="paste-spec-result" class="mt-3 hidden text-sm"></div>
             </section>
 
             <!-- Services -->
@@ -378,7 +363,7 @@
                 <div class="flex justify-between items-center mb-4">
                     <div>
                         <h2 class="text-lg font-semibold text-slate-800">Producers</h2>
-                        <p class="text-sm text-slate-500 mt-1">Registered API services. Expand to see branches.</p>
+                        <p class="text-sm text-slate-500 mt-1">Registered API services. Expand to see versions.</p>
                     </div>
                     <div class="flex items-center space-x-3">
                         <button onclick="loadServices()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
@@ -415,22 +400,6 @@
                 <div id="clients-list" class="space-y-2 max-h-[500px] overflow-y-auto"></div>
             </section>
 
-            <!-- Nuke Branch Across All Producers -->
-            <section class="bg-white rounded-xl border border-orange-300 shadow-sm p-6">
-                <div class="mb-4">
-                    <h2 class="text-lg font-semibold text-orange-700">🔥 Nuke Branch Across All Producers</h2>
-                    <p class="text-sm text-slate-500 mt-1">Delete a specific branch from <strong>every</strong> service at once. Useful for cleaning up old feature branches.</p>
-                </div>
-                <div class="flex items-center space-x-3">
-                    <input type="text" id="nuke-branch-name" placeholder="e.g. feature/old-experiment"
-                        class="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                        autocomplete="off">
-                    <button onclick="nukeBranchGlobal()"
-                        class="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg text-sm transition-colors font-medium whitespace-nowrap">🔥 Nuke Branch</button>
-                </div>
-                <div id="nuke-branch-result" class="mt-3 hidden text-sm"></div>
-            </section>
-
             <!-- Database Nuke -->
             <section class="bg-white rounded-xl border border-red-300 shadow-sm p-6">
                 <div class="flex justify-between items-center">
@@ -438,7 +407,7 @@
                         <h2 class="text-lg font-semibold text-red-700">☠️ Danger Zone</h2>
                         <p class="text-sm text-red-500 mt-1">Irreversible actions. This will wipe the entire database except your admin account and settings.</p>
                     </div>
-                    <button onclick="nukeConfirm('💀☠️💀 NUKE THE ENTIRE DATABASE? This deletes ALL services, clients, users, branches, endpoints, and protected branches. Only your admin account will survive.', 'NUKE DATABASE', () => nukeDatabase())"
+                    <button onclick="nukeConfirm('💀☠️💀 NUKE THE ENTIRE DATABASE? This deletes ALL services, clients, users, versions, endpoints, and dependencies. Only your admin account will survive.', 'NUKE DATABASE', () => nukeDatabase())"
                         class="bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-lg text-sm transition-colors font-bold border-2 border-red-900">💀☠️ NUKE DATABASE ☠️💀</button>
                 </div>
             </section>
@@ -563,6 +532,11 @@
                     }
                     await renderBanner(data);
                     showDashboard();
+                    // Providing from the browser is a Producer-administration
+                    // act; the form is shown to those who may do it.
+                    if (hasPermission(data, 'manage_producers')) {
+                        document.getElementById('paste-spec-section').classList.remove('hidden');
+                    }
                 } else {
                     window.location.href = '/account.html';
                 }
@@ -575,14 +549,12 @@
         async function loadAll() {
             loadDatabaseInfo();
             loadCacheConfig();
-            loadBranchMaxAge();
+            loadSnapshotMaxAge();
             loadDependencyMaxAge();
-            loadProtectedBranches();
             loadServices();
             loadClients();
             loadAutoApproveUsers();
             loadAuthConfig();
-            loadPendingSpecs();
             // Ordered: the catalogue tells the user and group rows which roles
             // exist, the user list feeds the maintainer picker, and groups feed
             // it too — so each waits for what it needs.
@@ -604,52 +576,6 @@
             } catch (_) {}
         }
 
-
-        // --- Protected Branches ---
-        async function loadProtectedBranches() {
-            const list = document.getElementById('protected-branches-list');
-            try {
-                const res = await apiCall('/admin/protected-branches');
-                if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
-                const branches = await res.json();
-                if (branches.length === 0) {
-                    list.innerHTML = '<p class="text-sm text-slate-500 italic">No protected branches configured.</p>';
-                    return;
-                }
-                list.innerHTML = branches.map(b => `
-                    <div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
-                        <span class="font-mono text-sm text-slate-700">${escapeHtml(b)}</span>
-                        <button onclick="confirmDelete('Remove protected branch <strong>${escapeHtml(b)}</strong>?', () => deleteProtectedBranch('${escapeAttr(b)}'))"
-                            class="text-red-500 hover:text-red-700 text-sm">Remove</button>
-                    </div>
-                `).join('');
-            } catch (_) {
-                list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
-            }
-        }
-
-        async function addProtectedBranch() {
-            const input = document.getElementById('new-branch-pattern');
-            const pattern = input.value.trim();
-            if (!pattern) return;
-            try {
-                const res = await apiCall('/admin/protected-branches', {
-                    method: 'POST',
-                    body: { pattern },
-                });
-                if (res.ok) {
-                    input.value = '';
-                    loadProtectedBranches();
-                }
-            } catch (_) {}
-        }
-
-        async function deleteProtectedBranch(pattern) {
-            try {
-                await apiCall(`/admin/protected-branches/${encodeURIComponent(pattern)}`, { method: 'DELETE' });
-                loadProtectedBranches();
-            } catch (_) {}
-        }
 
         // --- Cache Config ---
         async function loadCacheConfig() {
@@ -697,36 +623,36 @@
             } catch (_) {}
         }
 
-        // --- Branch Cleanup ---
-        async function loadBranchMaxAge() {
+        // --- Snapshot Cleanup ---
+        async function loadSnapshotMaxAge() {
             try {
-                const res = await apiCall('/admin/settings/branch-max-age');
+                const res = await apiCall('/admin/settings/snapshot-max-age');
                 if (res.ok) {
                     const data = await res.json();
-                    document.getElementById('branch-max-age-days').value = data.days;
+                    document.getElementById('snapshot-max-age-days').value = data.days;
                 }
             } catch (_) {}
         }
 
-        async function saveBranchMaxAge() {
-            const days = parseInt(document.getElementById('branch-max-age-days').value, 10);
-            if (isNaN(days) || days < 1) return;
+        async function saveSnapshotMaxAge() {
+            const days = parseInt(document.getElementById('snapshot-max-age-days').value, 10);
+            if (isNaN(days) || days < 0) return;
             try {
-                const res = await apiCall('/admin/settings/branch-max-age', { method: 'POST', body: { days } });
+                const res = await apiCall('/admin/settings/snapshot-max-age', { method: 'POST', body: { days } });
                 if (res.ok) {
-                    document.getElementById('branch-cleanup-result').textContent = '✓ Saved';
-                    setTimeout(() => document.getElementById('branch-cleanup-result').textContent = '', 3000);
+                    document.getElementById('snapshot-cleanup-result').textContent = '✓ Saved';
+                    setTimeout(() => document.getElementById('snapshot-cleanup-result').textContent = '', 3000);
                 }
             } catch (_) {}
         }
 
-        async function triggerBranchCleanup() {
+        async function triggerSnapshotCleanup() {
             try {
-                const res = await apiCall('/admin/settings/branch-cleanup', { method: 'POST', body: {} });
+                const res = await apiCall('/admin/cleanup/snapshots', { method: 'POST', body: {} });
                 if (res.ok) {
                     const data = await res.json();
-                    document.getElementById('branch-cleanup-result').textContent = `✓ Deleted ${data.deleted} branches`;
-                    setTimeout(() => document.getElementById('branch-cleanup-result').textContent = '', 5000);
+                    document.getElementById('snapshot-cleanup-result').textContent = `✓ Deleted ${data.deleted} snapshot${data.deleted !== 1 ? 's' : ''}`;
+                    setTimeout(() => document.getElementById('snapshot-cleanup-result').textContent = '', 5000);
                     loadServices();
                 }
             } catch (_) {}
@@ -757,7 +683,7 @@
 
         async function triggerDependencyCleanup() {
             try {
-                const res = await apiCall('/admin/settings/dependency-cleanup', { method: 'POST', body: {} });
+                const res = await apiCall('/admin/cleanup/dependencies', { method: 'POST', body: {} });
                 if (res.ok) {
                     const data = await res.json();
                     document.getElementById('dependency-cleanup-result').textContent = `✓ Deleted ${data.deleted} dependencies`;
@@ -765,37 +691,6 @@
                     loadClients();
                 }
             } catch (_) {}
-        }
-
-        // --- Nuke Branch ---
-        async function nukeBranchGlobal() {
-            const branch = document.getElementById('nuke-branch-name').value.trim();
-            if (!branch) return;
-            const resultEl = document.getElementById('nuke-branch-result');
-            nukeConfirm(`🔥 Delete branch <strong>${escapeHtml(branch)}</strong> from ALL services?`, `DELETE BRANCH ${branch}`, async () => {
-                try {
-                    const res = await apiCall(`/admin/nuke/branch/${encodeURIComponent(branch)}`, {
-                        method: 'POST',
-                        body: { confirmation: `DELETE BRANCH ${branch}` },
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        resultEl.classList.remove('hidden');
-                        resultEl.className = 'mt-3 text-sm text-green-600';
-                        resultEl.textContent = `✓ Deleted branch "${branch}" from ${data.deleted || 0} services`;
-                        document.getElementById('nuke-branch-name').value = '';
-                        loadServices();
-                    } else {
-                        resultEl.classList.remove('hidden');
-                        resultEl.className = 'mt-3 text-sm text-red-600';
-                        resultEl.textContent = 'Failed to delete branch';
-                    }
-                } catch (_) {
-                    resultEl.classList.remove('hidden');
-                    resultEl.className = 'mt-3 text-sm text-red-600';
-                    resultEl.textContent = 'Error deleting branch';
-                }
-            });
         }
 
         // --- Local Users Toggle ---
@@ -843,76 +738,6 @@
         }
 
 
-
-        // --- Held Provides ---
-        //
-        // The list is already filtered by the server to what this caller may act
-        // on, so everything shown here is actionable.
-        async function loadPendingSpecs() {
-            const list = document.getElementById('pending-list');
-            const count = document.getElementById('pending-count');
-            if (!list) return;
-            try {
-                const res = await apiCall('/admin/pending-specs');
-                if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
-                const data = await res.json();
-                const pending = data.pending || [];
-                if (count) {
-                    count.textContent = pending.length ? `(${pending.length} awaiting review)` : '(none)';
-                }
-                if (pending.length === 0) {
-                    list.innerHTML = '<p class="text-sm text-slate-500 italic">Nothing held for review.</p>';
-                    return;
-                }
-                list.innerHTML = pending.map(p => `
-                    <div class="bg-amber-50 border border-amber-200 px-4 py-3 rounded-lg fade-in">
-                        <div class="flex justify-between items-start gap-4">
-                            <div class="min-w-0">
-                                <div class="flex items-center gap-2 flex-wrap">
-                                    <span class="font-medium text-slate-800">${escapeHtml(p.producer)}</span>
-                                    <span class="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">${escapeHtml(p.branch)}</span>
-                                    <span class="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">${escapeHtml(p.api_type)}</span>
-                                    <span class="text-xs text-slate-500">by ${escapeHtml(p.submitted_by)}</span>
-                                </div>
-                                <p class="text-sm text-amber-800 mt-1">${escapeHtml(p.reason)}</p>
-                            </div>
-                            <div class="flex items-center gap-2 shrink-0">
-                                <button onclick="togglePendingSpec(${p.id})" class="text-slate-600 hover:text-slate-800 text-sm">View spec</button>
-                                <button onclick="acceptPendingSpec(${p.id})" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded-lg text-sm font-medium">Accept</button>
-                                <button onclick="confirmDelete('Discard the held spec for <strong>${escapeHtml(p.producer)}</strong>?', () => rejectPendingSpec(${p.id}))" class="text-red-500 hover:text-red-700 text-sm">Reject</button>
-                            </div>
-                        </div>
-                        <pre id="pending-body-${p.id}" class="hidden mt-3 p-3 bg-slate-900 text-slate-200 text-xs rounded-lg overflow-x-auto">${escapeHtml(p.content)}</pre>
-                    </div>
-                `).join('');
-            } catch (_) {
-                list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
-            }
-        }
-
-        function togglePendingSpec(id) {
-            const el = document.getElementById(`pending-body-${id}`);
-            if (el) el.classList.toggle('hidden');
-        }
-
-        async function acceptPendingSpec(id) {
-            const res = await apiCall(`/admin/pending-specs/${id}/accept`, { method: 'POST' });
-            if (!res.ok) {
-                alert('Failed to accept: ' + (await errorMessage(res)));
-                return;
-            }
-            loadPendingSpecs();
-            loadServices();
-        }
-
-        async function rejectPendingSpec(id) {
-            const res = await apiCall(`/admin/pending-specs/${id}`, { method: 'DELETE' });
-            if (!res.ok) {
-                alert('Failed to reject: ' + (await errorMessage(res)));
-                return;
-            }
-            loadPendingSpecs();
-        }
 
         // --- Roles, groups and maintainers ---
         //
@@ -1038,9 +863,21 @@
                         .filter(r => !(g.roles || []).includes(r.role))
                         .map(r => `<option value="${escapeAttr(r.role)}" title="${escapeAttr(roleTitle(r.role))}">${escapeHtml(r.role)}</option>`)
                         .join('');
+                    const memberIds = g.member_ids || [];
                     const members = directory
                         ? '<span class="text-xs text-slate-400 italic">membership from the directory</span>'
-                        : `<span class="text-xs text-slate-500">${(g.member_ids || []).length} member(s)</span>`;
+                        : `<span class="text-xs text-slate-500">${memberIds.length} member(s)</span>`;
+                    const memberChips = directory ? '' : memberIds.map(id => {
+                        const u = knownUsers.find(x => x.id === id);
+                        const label = u ? u.username : `user #${id}`;
+                        return `<button onclick="removeGroupMember(${g.id}, ${id})"
+                                title="Remove ${escapeAttr(label)} from ${escapeAttr(g.name)}"
+                                class="text-xs text-slate-500 hover:text-red-600 bg-white border border-slate-200 rounded-full px-2 py-0.5">✕ ${escapeHtml(label)}</button>`;
+                    }).join(' ');
+                    const addableMembers = directory ? '' : knownUsers
+                        .filter(u => !memberIds.includes(u.id))
+                        .map(u => `<option value="${u.id}">${escapeHtml(u.username)}</option>`)
+                        .join('');
                     return `
                     <div class="bg-slate-50 px-4 py-2 rounded-lg fade-in">
                         <div class="flex justify-between items-center">
@@ -1058,6 +895,13 @@
                             </div>
                         </div>
                         <div class="mt-1 space-x-2">${roles || '<span class="text-xs text-slate-400 italic">no roles attached</span>'}</div>
+                        ${directory ? '' : `<div class="mt-2 flex flex-wrap items-center gap-2">
+                            ${memberChips || '<span class="text-xs text-slate-400 italic">no members</span>'}
+                            ${addableMembers ? `<select id="group-member-${g.id}" class="text-xs rounded border-slate-200">
+                                <option value="">add member…</option>${addableMembers}
+                            </select>
+                            <button onclick="addGroupMember(${g.id})" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>` : ''}
+                        </div>`}
                     </div>`;
                 }).join('');
                 refreshMaintainerPickers();
@@ -1076,6 +920,30 @@
                 return;
             }
             input.value = '';
+            loadGroups();
+        }
+
+        async function addGroupMember(groupId) {
+            const select = document.getElementById(`group-member-${groupId}`);
+            const userId = select ? parseInt(select.value, 10) : NaN;
+            if (!userId) return;
+            const res = await apiCall(`/admin/groups/${groupId}/members`, {
+                method: 'POST',
+                body: { user_id: userId },
+            });
+            if (!res.ok) {
+                alert('Failed to add member: ' + (await errorMessage(res)));
+                return;
+            }
+            loadGroups();
+        }
+
+        async function removeGroupMember(groupId, userId) {
+            const res = await apiCall(`/admin/groups/${groupId}/members/${userId}`, { method: 'DELETE' });
+            if (!res.ok) {
+                alert('Failed to remove member: ' + (await errorMessage(res)));
+                return;
+            }
             loadGroups();
         }
 
@@ -1237,37 +1105,58 @@
             } catch (_) {}
         }
 
-        // --- Manual Service Addition ---
-        async function addManualService() {
-            const name = document.getElementById('manual-service-name').value.trim();
-            if (!name) return;
-            const resultEl = document.getElementById('manual-service-result');
+        // --- Paste-a-spec Producer Creation ---
+        // The same /provide* endpoints every client uses: no placeholder
+        // content, no side door. The signed-in admin is the authenticated
+        // Actor, so attribution lands on their name.
+        document.getElementById('paste-spec-ga').addEventListener('change', (e) => {
+            document.getElementById('paste-spec-ga-warning').classList.toggle('hidden', !e.target.checked);
+        });
+
+        async function pasteSpecSubmit(dryRun) {
+            const name = document.getElementById('paste-spec-name').value.trim();
+            const apiType = document.getElementById('paste-spec-type').value;
+            const content = document.getElementById('paste-spec-content').value;
+            const ga = document.getElementById('paste-spec-ga').checked;
+            const resultEl = document.getElementById('paste-spec-result');
+            const show = (cls, text) => {
+                resultEl.classList.remove('hidden');
+                resultEl.className = 'mt-3 text-sm ' + cls;
+                resultEl.textContent = text;
+            };
+            if (!name) { show('text-red-600', 'Producer name is required.'); return; }
+            if (!content.trim()) { show('text-red-600', 'Paste a specification first.'); return; }
+
+            const route = apiType === 'asyncapi' ? '/provide/asyncapi'
+                : apiType === 'proto' ? '/provide/grpc' : '/provide';
+            const field = apiType === 'asyncapi' ? 'asyncapi_yaml'
+                : apiType === 'proto' ? 'proto_content' : 'openapi_yaml';
+            const body = {
+                producername: name,
+                stability: ga ? 'ga' : 'snapshot',
+                dry_run: dryRun,
+            };
+            body[field] = content;
+
             try {
-                // Using provide endpoint with a minimal spec to create the service
-                const res = await apiCall('/provide', {
-                    method: 'POST',
-                    body: {
-                        producername: name,
-                        branch: 'main',
-                        openapi_yaml: 'openapi: 3.0.0\ninfo:\n  title: Manual Service\n  version: 1.0.0\npaths:\n  /_manual_init:\n    get:\n      responses:\n        "200":\n          description: OK'
-                    },
-                });
+                const res = await apiCall(route, { method: 'POST', body });
                 if (res.ok) {
-                    resultEl.classList.remove('hidden');
-                    resultEl.className = 'mt-3 text-sm text-green-600';
-                    resultEl.textContent = `✓ Service "${name}" created successfully`;
-                    document.getElementById('manual-service-name').value = '';
-                    loadServices();
+                    const data = await res.json();
+                    const c = data.changes || {};
+                    show('text-green-600',
+                        `${dryRun ? '✓ Valid — would publish' : '✓ Published'} ${name} ` +
+                        `${data.version} as ${data.stability} ` +
+                        `(+${c.inserts ?? 0} ~${c.updates ?? 0} -${c.deletes ?? 0})`);
+                    if (!dryRun) {
+                        document.getElementById('paste-spec-content').value = '';
+                        loadServices();
+                    }
                 } else {
-                    const err = await errorMessage(res);
-                    resultEl.classList.remove('hidden');
-                    resultEl.className = 'mt-3 text-sm text-red-600';
-                    resultEl.textContent = 'Failed to create service: ' + err;
+                    const msg = await errorMessage(res);
+                    show('text-red-600', (dryRun ? 'Rejected (dry run): ' : 'Rejected: ') + msg);
                 }
             } catch (e) {
-                resultEl.classList.remove('hidden');
-                resultEl.className = 'mt-3 text-sm text-red-600';
-                resultEl.textContent = 'Error: ' + e.message;
+                show('text-red-600', 'Error: ' + e.message);
             }
         }
 
@@ -1308,7 +1197,7 @@
                 div.innerHTML = `
                     <div class="flex justify-between items-center">
                         <div class="flex items-center space-x-3">
-                            <button onclick="toggleBranches(this, '${escapeAttr(svc)}')" class="text-slate-500 hover:text-slate-600 text-sm">▶</button>
+                            <button onclick="toggleVersions(this, '${escapeAttr(svc)}')" class="text-slate-500 hover:text-slate-600 text-sm">▶</button>
                             <span class="font-medium text-slate-800">${escapeHtml(svc)}</span>
                             ${svcObj.domain ? `<span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100 font-bold uppercase">${escapeHtml(svcObj.domain)}</span>` : ''}
                         </div>
@@ -1319,14 +1208,14 @@
                                 class="text-red-500 hover:text-red-700 text-sm">Delete</button>
                         </div>
                     </div>
-                    <div class="branches-container hidden mt-3 ml-8 space-y-1"></div>
+                    <div class="versions-container hidden mt-3 ml-8 space-y-1"></div>
                 `;
                 list.appendChild(div);
             }
         }
 
-        async function toggleBranches(btn, serviceName) {
-            const container = btn.closest('.bg-slate-50').querySelector('.branches-container');
+        async function toggleVersions(btn, serviceName) {
+            const container = btn.closest('.bg-slate-50').querySelector('.versions-container');
             if (!container.classList.contains('hidden')) {
                 container.classList.add('hidden');
                 btn.textContent = '▶';
@@ -1336,22 +1225,25 @@
             container.classList.remove('hidden');
             container.innerHTML = '<p class="text-xs text-slate-500">Loading...</p>';
             try {
-                const res = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/branches`);
+                const res = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/versions`);
                 if (!res.ok) { container.innerHTML = '<p class="text-xs text-red-500">Failed</p>'; return; }
-                const branches = await res.json();
-                if (branches.length === 0) {
-                    container.innerHTML = '<p class="text-xs text-slate-500 italic">No branches</p>';
+                const versions = await res.json();
+                if (versions.length === 0) {
+                    container.innerHTML = '<p class="text-xs text-slate-500 italic">No versions</p>';
                     return;
                 }
-                container.innerHTML = branches.map(b => `
+                container.innerHTML = versions.map(v => `
                     <div class="flex justify-between items-center bg-white px-3 py-1.5 rounded border border-slate-100 fade-in">
-                        <span class="text-sm font-mono text-slate-600">${escapeHtml(b)}</span>
-                        <div class="flex space-x-2">
-                            <button onclick="resetBranchHistory('${escapeAttr(serviceName)}', '${escapeAttr(b)}')"
-                                class="text-amber-600 hover:text-amber-800 text-xs font-medium">Reset History</button>
-                            <button onclick="confirmDelete('Delete branch <strong>${escapeHtml(b)}</strong> from <strong>${escapeHtml(serviceName)}</strong>?', () => deleteBranch('${escapeAttr(serviceName)}', '${escapeAttr(b)}'))"
-                                class="text-red-400 hover:text-red-600 text-xs">Delete</button>
-                        </div>
+                        <span class="flex items-center gap-2">
+                            <span class="text-[9px] font-bold uppercase tracking-wider text-slate-400">${escapeHtml(v.api_type)}</span>
+                            <span class="text-sm font-mono text-slate-600">${escapeHtml(v.version)}</span>
+                            ${v.stability === 'ga'
+                                ? '<span class="text-[10px] text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full font-bold uppercase">GA</span>'
+                                : '<span class="text-[10px] text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full font-bold uppercase">snapshot</span>'}
+                            <span class="text-xs text-slate-400">${v.endpoint_count} endpoint${v.endpoint_count !== 1 ? 's' : ''}</span>
+                        </span>
+                        <button onclick="deleteVersion('${escapeAttr(serviceName)}', '${escapeAttr(v.api_type)}', '${escapeAttr(v.version)}')"
+                            class="text-red-400 hover:text-red-600 text-xs">Delete</button>
                     </div>
                 `).join('');
             } catch (_) {
@@ -1366,32 +1258,27 @@
             } catch (_) {}
         }
 
-        async function deleteBranch(service, branch) {
+        // The sole escape hatch from GA immutability: fetch the dependents
+        // first so the confirmation names the Consumers whose builds break.
+        async function deleteVersion(service, apiType, version) {
+            let dependents = [];
             try {
-                await apiCall(`/admin/producers/${encodeURIComponent(service)}/branches/${encodeURIComponent(branch)}`, { method: 'DELETE' });
-                loadServices();
+                const res = await apiCall(`/admin/producers/${encodeURIComponent(service)}/versions/${encodeURIComponent(apiType)}/${encodeURIComponent(version)}/dependents`);
+                if (res.ok) dependents = await res.json();
             } catch (_) {}
-        }
-
-        async function resetBranchHistory(service, branch) {
-            confirmAction(
-                `Are you sure you want to reset version history for branch <strong>${escapeHtml(branch)}</strong> of service <strong>${escapeHtml(service)}</strong>?<br><br>` +
-                `This will prune all old endpoint versions, renumber the latest version to 1, and reset the version counter, while preserving existing endpoints and client dependencies.`,
+            const warning = dependents.length > 0
+                ? `<br><br><span class="text-red-600 font-semibold">Consumers pinned to this version will hard-fail:</span><br>${dependents.map(d => escapeHtml(d)).join(', ')}`
+                : '<br><br>No Consumers are pinned to this version.';
+            confirmDelete(
+                `Delete ${escapeHtml(apiType)} version <strong>${escapeHtml(version)}</strong> of <strong>${escapeHtml(service)}</strong>?${warning}`,
                 async () => {
-                    try {
-                        const res = await apiCall(`/admin/producers/${encodeURIComponent(service)}/branches/${encodeURIComponent(branch)}/reset-history`, { method: 'POST' });
-                        if (res.ok) {
-                            alert(`✓ History reset successfully for branch "${branch}" of service "${service}"`);
-                        } else {
-                            alert(`Failed to reset history: HTTP ${res.status}`);
-                        }
-                    } catch (e) {
-                        alert(`Error: ${e.message}`);
+                    const res = await apiCall(`/admin/producers/${encodeURIComponent(service)}/versions/${encodeURIComponent(apiType)}/${encodeURIComponent(version)}`, { method: 'DELETE' });
+                    if (!res.ok) {
+                        alert('Failed to delete: ' + (await errorMessage(res)));
+                        return;
                     }
-                },
-                "Confirm Reset History",
-                "Reset History"
-            );
+                    loadServices();
+                });
         }
 
         // --- Clients ---

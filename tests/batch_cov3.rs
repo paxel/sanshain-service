@@ -1,7 +1,31 @@
 use sanshain_service::application::mock_repo::MockRepo;
 use sanshain_service::application::spec_service;
-use sanshain_service::domain::models::ApiType;
+use sanshain_service::domain::models::{ApiType, ProvideResponse, Stability};
 use sanshain_service::{asyncapi, openapi, proto};
+
+// 2.0 dry-run helper: the version lives in the spec document itself, and the
+// caller declares stability instead of naming a branch.
+#[cfg(test)]
+async fn dry_run(
+    repo: &MockRepo,
+    producer: &str,
+    api_type: ApiType,
+    content: &str,
+) -> ProvideResponse {
+    spec_service::provide_spec(
+        repo,
+        spec_service::ProvideSpecParams {
+            producername: producer,
+            api_type,
+            content,
+            stability: Stability::Snapshot,
+            dry_run: true,
+            username: Some("ci"),
+        },
+    )
+    .await
+    .unwrap()
+}
 
 // ---------- openapi::normalize_path variants (10) ----------
 #[test]
@@ -309,22 +333,21 @@ async fn dry_run_asyncapi_insert_count() {
     let repo = MockRepo::new();
     let y = r#"
 asyncapi: '2.6.0'
+info: { title: x, version: 1.0.0 }
 channels:
   X:
     publish: {}
 "#;
-    let r = spec_service::provide_spec_dry_run(&repo, "svc", "devx", ApiType::AsyncApi, y, false)
-        .await
-        .unwrap();
-    assert!(r.changes.inserts > 0);
+    let r = dry_run(&repo, "svc", ApiType::AsyncApi, y).await;
+    assert_eq!(r.changes.inserts, 1);
+    assert_eq!(r.version.to_string(), "1.0.0");
 }
 
 #[tokio::test]
 async fn dry_run_proto_insert_count() {
     let repo = MockRepo::new();
-    let p = r#"syntax="proto3"; message X{} message Y{} service A{ rpc M (X) returns (Y);} "#;
-    let r = spec_service::provide_spec_dry_run(&repo, "svc", "devy", ApiType::Proto, p, false)
-        .await
-        .unwrap();
-    assert!(r.changes.inserts > 0);
+    let p = "// sanshain-version: 1.0.0\nsyntax=\"proto3\"; message X{} message Y{} service A{ rpc M (X) returns (Y);} ";
+    let r = dry_run(&repo, "svc", ApiType::Proto, p).await;
+    assert_eq!(r.changes.inserts, 1);
+    assert_eq!(r.version.to_string(), "1.0.0");
 }

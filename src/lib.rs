@@ -79,9 +79,10 @@ pub fn create_app(state: AppState) -> Router {
         .route("/report", get(api::report).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/report/markdown", get(api::report_markdown).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/report/isolation", get(api::report_isolation).layer(from_fn_with_state(state.clone(), api_auth)))
-        .route("/report/merged", get(api::report_merged).layer(from_fn_with_state(state.clone(), api_auth)))
-        .route("/branches/protected", get(api::list_protected_branches_public).layer(from_fn_with_state(state.clone(), api_auth)))
-        .route("/branches/metadata", get(api::list_branches_metadata).layer(from_fn_with_state(state.clone(), api_auth)))
+        .route("/producers/{producername}/versions", get(api::producer_versions).layer(from_fn_with_state(state.clone(), api_auth)))
+        // Deliberately unauthenticated: the free validator is stateless,
+        // touches no data, and is bounded by the body-size limit.
+        .route("/validate", post(api::validate))
         .route("/endpoint-versions", get(api::endpoint_versions).layer(from_fn_with_state(state.clone(), api_auth)))
         // The audit trail records the Actor behind every change, across every
         // Producer, so it needs `ViewAudit`. `permission_auth` validates sessions
@@ -99,14 +100,6 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/groups/{id}", put(roles::update_group).delete(roles::delete_group).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/groups/{id}/members", post(roles::add_group_member).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/groups/{id}/members/{user_id}", delete(roles::remove_group_member).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
-        // The inbox is opened by anyone signed in; which entries they may see or
-        // act on is a per-Producer question the handler answers once the entry
-        // has been loaded, since the Producer is not in the path.
-        .route("/admin/pending-specs", get(admin::admin_list_pending_specs).layer(require(state.clone(), RouteGuard::Authenticated)))
-        .route("/admin/pending-specs/{id}", get(admin::admin_get_pending_spec).delete(admin::admin_reject_pending_spec).layer(require(state.clone(), RouteGuard::Authenticated)))
-        .route("/admin/pending-specs/{id}/accept", post(admin::admin_accept_pending_spec).layer(require(state.clone(), RouteGuard::Authenticated)))
-        .route("/admin/producers/onboarding", get(admin::admin_list_onboarding_producers).layer(require(state.clone(), RouteGuard::Authenticated)))
-        .route("/admin/producers/{name}/onboarding", get(admin::admin_get_producer_onboarding).put(admin::admin_set_producer_onboarding).layer(require(state.clone(), RouteGuard::Producer(Permission::SetOnboarding))))
         .route("/admin/maintainers", get(roles::list_all_maintainers).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         // Split so a maintainer can see who shares responsibility for their own
         // Producer, while changing the assignment stays who-may-do-what work.
@@ -115,28 +108,22 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/producers/{name}/maintainers/users/{user_id}", delete(roles::unassign_user_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/producers/{name}/maintainers/groups/{group_id}", delete(roles::unassign_group_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/users/{id}/maintains", get(roles::list_maintained_producers).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
-        .route("/admin/protected-branches", get(admin::list_protected_branches).post(admin::add_protected_branch).layer(require(state.clone(), RouteGuard::Global(Permission::ManageProtectedBranches))))
-        .route("/admin/protected-branches/{pattern}", delete(admin::delete_protected_branch).layer(require(state.clone(), RouteGuard::Global(Permission::ManageProtectedBranches))))
         .route("/admin/producers", get(admin::admin_list_producers).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}", delete(admin::admin_delete_producer).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
         .route("/admin/producers/metadata", post(admin::admin_update_producer_metadata).layer(require(state.clone(), RouteGuard::Global(Permission::ManageProducers))))
-        // The Producer this edits is named in the request body, so the scoped
-        // check lives in the handler (like the pending-specs inbox): global
-        // `manage_producers`, or maintainership of that Producer.
-        .route("/admin/endpoints/update", post(admin::admin_update_endpoint).layer(require(state.clone(), RouteGuard::Authenticated)))
-        .route("/admin/producers/{name}/branches", get(admin::admin_list_branches).layer(require(state.clone(), RouteGuard::Authenticated)))
-        .route("/admin/producers/{name}/branches/{branch}", delete(admin::admin_delete_branch).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
-        .route("/admin/producers/{name}/branches/{branch}/reset-history", post(admin::admin_reset_branch_history).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
-        .route("/admin/producers/{name}/branches/{branch}/source-protected-branch", get(admin::admin_get_source_protected_branch).put(admin::admin_set_source_protected_branch).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
-        .route("/admin/producers/{name}/branches/{branch}/endpoints", get(admin::admin_list_producer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
-        .route("/admin/producers/{name}/branches/{branch}/full-spec", get(admin::admin_get_full_spec).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/producers/{name}/versions", get(admin::admin_list_producer_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
+        // Delete-version is the sole escape hatch from GA immutability
+        // (ADR-0003): admins anywhere, Maintainers for their own Producers.
+        .route("/admin/producers/{name}/versions/{api_type}/{version}", delete(admin::admin_delete_version).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
+        .route("/admin/producers/{name}/versions/{api_type}/{version}/dependents", get(admin::admin_get_version_dependents).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/producers/{name}/endpoints", get(admin::admin_list_producer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/producers/{name}/full-spec", get(admin::admin_get_full_spec).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/producers/{name}/diff", get(admin::admin_diff_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers", get(admin::admin_list_consumers).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers/{name}", delete(admin::admin_delete_consumer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageConsumers))))
-        .route("/admin/consumers/{name}/branches", get(admin::admin_list_consumer_branches).layer(require(state.clone(), RouteGuard::Authenticated)))
-        .route("/admin/consumers/{name}/branches/{branch}/endpoints", get(admin::admin_list_consumer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/consumers/{name}/endpoints", get(admin::admin_list_consumer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/endpoint-yaml", get(admin::admin_get_endpoint_yaml).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/endpoint-versions", get(admin::admin_get_endpoint_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
-        .route("/admin/settings/dev-mode", get(admin::get_dev_mode).post(admin::set_dev_mode).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/settings/auto-approve", get(admin::get_auto_approve_users).post(admin::set_auto_approve_users).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/auth-config", get(admin::get_auth_config).put(admin::set_auth_config).layer(require(state.clone(), RouteGuard::Global(Permission::ManageAuthConfig))))
         .route("/admin/auth-config/test", post(admin::test_auth_config).layer(require(state.clone(), RouteGuard::Global(Permission::ManageAuthConfig))))
@@ -144,13 +131,10 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/nuke/producers", post(admin::admin_nuke_producers).layer(require(state.clone(), RouteGuard::Global(Permission::RunDestructiveOperations))))
         .route("/admin/nuke/consumers", post(admin::admin_nuke_consumers).layer(require(state.clone(), RouteGuard::Global(Permission::RunDestructiveOperations))))
         .route("/admin/nuke/users", post(admin::admin_nuke_users).layer(require(state.clone(), RouteGuard::Global(Permission::RunDestructiveOperations))))
-        .route("/admin/nuke/branch/{branch}", post(admin::admin_nuke_branch).layer(require(state.clone(), RouteGuard::Global(Permission::RunDestructiveOperations))))
-        .route("/admin/settings/branch-max-age", get(admin::get_branch_max_age).post(admin::set_branch_max_age).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
-        .route("/admin/cleanup/branches", post(admin::trigger_branch_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
-        .route("/admin/settings/branch-cleanup", post(admin::trigger_branch_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        .route("/admin/settings/snapshot-max-age", get(admin::get_snapshot_max_age).post(admin::set_snapshot_max_age).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        .route("/admin/cleanup/snapshots", post(admin::trigger_snapshot_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/settings/dependency-max-age", get(admin::get_dependency_max_age).post(admin::set_dependency_max_age).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/cleanup/dependencies", post(admin::trigger_dependency_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
-        .route("/admin/settings/dependency-cleanup", post(admin::trigger_dependency_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/users", get(admin::admin_list_users).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
         .route("/admin/users/{id}/approve", post(admin::admin_approve_user).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
         .route("/admin/users/{id}", delete(admin::admin_delete_user_handler).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
@@ -424,7 +408,6 @@ mod tests {
             "/report",
             "/report/isolation",
             "/report/markdown",
-            "/report/merged",
         ];
 
         let source = include_str!("lib.rs");

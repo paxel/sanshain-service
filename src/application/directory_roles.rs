@@ -91,7 +91,15 @@ impl DirectoryRoleCache {
                     username,
                     e
                 );
-                Arc::new(Vec::new())
+                // Cache the empty answer too. Without this, an outage means
+                // every single request retries the directory — each one paying
+                // the full connection timeout — and the instance crawls for
+                // exactly as long as the directory is down.
+                let groups = Arc::new(Vec::new());
+                self.entries
+                    .insert(username.to_string(), groups.clone())
+                    .await;
+                groups
             }
         }
     }
@@ -144,13 +152,22 @@ pub async fn migrate_admin_group(
         return Ok(());
     }
 
-    let group = repo.create_group(admin_group, GroupSource::Ldap).await?;
-    let mut roles = repo.list_group_roles(group.id).await?;
-    if roles.iter().any(|r| r == "admin") {
+    // Carry over exactly once: if the group is already in the mapping an
+    // operator has since had the chance to shape its roles — including
+    // deliberately removing `admin` — and re-granting here would silently undo
+    // that decision on the next boot.
+    let already_mapped = repo
+        .list_groups()
+        .await?
+        .iter()
+        .any(|g| g.source == GroupSource::Ldap && g.name == admin_group);
+    if already_mapped {
         return Ok(());
     }
-    roles.push("admin".to_string());
-    repo.set_group_roles(group.id, &roles).await?;
+
+    let group = repo.create_group(admin_group, GroupSource::Ldap).await?;
+    repo.set_group_roles(group.id, &["admin".to_string()])
+        .await?;
     tracing::info!(
         "Directory group '{}' now grants the admin role, carried over from the \
          previous admin-group setting",
@@ -357,5 +374,52 @@ mod tests {
         let repo = MockRepo::new();
         migrate_admin_group(&repo, "   ").await.expect("migration");
         assert!(repo.list_groups().await.expect("groups").is_empty());
+    }
+
+    /// An operator who deliberately removed `admin` from the carried-over
+    /// group must not have it silently re-granted on the next boot.
+    #[tokio::test]
+    async fn a_removed_admin_grant_is_not_restored_by_the_migration() {
+        let repo = MockRepo::new();
+        migrate_admin_group(&repo, "cn=admins")
+            .await
+            .expect("first");
+        let group = repo
+            .list_groups()
+            .await
+            .expect("groups")
+            .into_iter()
+            .find(|g| g.name == "cn=admins")
+            .expect("carried-over group");
+        repo.set_group_roles(group.id, &["viewer".to_string()])
+            .await
+            .expect("operator demotes the group");
+
+        migrate_admin_group(&repo, "cn=admins")
+            .await
+            .expect("next boot");
+
+        assert_eq!(
+            repo.list_group_roles(group.id).await.expect("roles"),
+            vec!["viewer".to_string()],
+            "the operator's decision must survive a restart"
+        );
+    }
+
+    /// During an outage the empty answer is cached: requests must not each pay
+    /// the directory's connection timeout for the whole outage.
+    #[tokio::test]
+    async fn a_directory_failure_is_cached_and_not_retried_per_request() {
+        let directory = StubDirectory::new(&["cn=admins"]);
+        directory.set_failing(true);
+        let cache = DirectoryRoleCache::new(Duration::from_secs(300));
+
+        assert!(cache.groups_for(&directory, "alice").await.is_empty());
+        assert!(cache.groups_for(&directory, "alice").await.is_empty());
+        assert_eq!(
+            directory.calls(),
+            1,
+            "the failure answer must come from the cache the second time"
+        );
     }
 }

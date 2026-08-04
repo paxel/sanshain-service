@@ -1,56 +1,55 @@
 # API Lifecycle & Versioning
 
-This guide explains how to manage the evolution of your APIs in Sanshain, from initial publication to deprecation and removal.
+This guide explains how to manage the evolution of your APIs in Sanshain, from the first snapshot to deprecation and removal. The unit of evolution is the **version line**: the ordered set of `MAJOR.MINOR.PATCH` versions one Producer has published for one API type.
 
 ### TL;DR
-1. **Develop**: Make changes on a feature branch. Breaking changes are allowed here.
-2. **Review**: Sanshain validates compatibility when you merge to a **Protected Branch** (e.g., `main`).
-3. **Version**: If a change is breaking, increment the API path (e.g., `/v1` -> `/v2`).
-4. **Deprecate**: Mark old endpoints as deprecated in your OpenAPI/AsyncAPI/proto spec.
-5. **Retire**: Delete old endpoints only after the Dependency Graph shows zero active clients.
+1. **Iterate**: Develop against **snapshot** versions — overwritable, last writer wins, expire when unused.
+2. **Release**: Provide the same number as **GA** — it is promoted in place and becomes immutable.
+3. **Bump**: When a GA Provide is rejected `409`, the body proposes the correct next version — set it in your spec and republish.
+4. **Deprecate**: Mark old elements as deprecated in your spec; removing deprecated elements later is non-breaking.
+5. **Retire**: Old GA versions keep serving pinned Consumers until they move their Pin; the Dependency Graph shows who still depends on what.
 
 ---
 
-## 1. Normal Updates (Non-Breaking)
-Sanshain encourages **additive changes**. Adding optional fields, new endpoints, or new enum values (depending on client tolerance) are generally safe.
+## 1. Iterating on Snapshots
+While an API is in flux, provide it as a snapshot — which is simply the default: every build publishes `snapshot` unless the ga switch is set (see [sanshain.yaml](sanshain-yaml.md#how-stability-is-decided)).
 
-- **Process**: Push your updated spec to `main`.
-- **Result**: Sanshain accepts the update, versions the snippet, and notifies consumers (if using SSE/Webhooks).
-- **Validation**: Sanshain's compatibility checker ensures that existing clients won't break.
+- **Overwritable**: Re-providing the same snapshot number replaces it wholesale. Last writer wins; every overwrite is audited and the previous provider is named.
+- **Never compatibility-checked**: Break whatever you like between snapshot overwrites.
+- **Consumers can opt in**: A Consumer that pins your snapshot version builds against work-in-progress — the graph flags it as **Snapshot-pinned**.
+- **Expiry**: A snapshot that is neither provided nor required for `snapshot_max_age_days` (default 30) is cleaned up. Use keeps it alive.
 
-## 2. Handling Breaking Changes
-A breaking change is any modification that violates backward compatibility (e.g., removing a field, changing a type, renaming an endpoint).
+## 2. Going GA (Promotion)
+When the version is ready, provide the same number with `stability: ga`:
 
-The compatibility checker covers all three API types:
+- **Promotion in place**: The snapshot entry becomes GA; the snapshot content is gone.
+- **Immutable forever**: Re-providing identical content is a no-op; different content is rejected with a proposed next version.
+- **The number is permanently claimed**: No snapshot may ever exist for a GA'd number again. Lower never-GA'd numbers stay legal (e.g., preparing a hotfix `1.2.1` while `1.3.0` is GA).
+- **Never age-culled**: GA versions survive until deliberately deleted.
+
+## 3. Choosing the Next Version (the Server Proposes)
+You never have to guess the right bump. A GA Provide is rejected `409 Conflict` with a `proposed_version` when:
+
+- **Forgot to bump**: The number already exists as GA with different content. The proposal is the next free number, bumped by what actually changed — breaking → major, additive → minor, shape-identical → patch.
+- **Semver lie**: The changes relative to the highest GA below it are breaking without a major bump. The proposal is the correct major.
+- **Reusing a released number as snapshot**: A snapshot Provide for a GA'd number is rejected — pick the proposed next number.
+
+Every rejection is self-service: set your spec's version (`info.version`, or the `// sanshain-version:` comment for proto) to the proposal and republish.
+
+The breaking-change classifier covers all three API types:
 
 - **OpenAPI**: removed paths/methods/response codes, removed schema properties, property type changes, new required request fields.
 - **AsyncAPI**: removed messages, removed payload properties, payload property type (or `$ref`) changes. Enum value and `required` changes are not analyzed.
 - **gRPC/proto**: removed rpcs or messages, removed message fields, field number/type/`repeated` label changes, rpc signature changes. Enum changes are not analyzed.
 
-Elements marked **deprecated** in the previously published spec are exempt: removing them is treated as non-breaking (see section 4 for how to mark deprecation per API type).
+Elements marked **deprecated** in the previous GA are exempt: removing them is treated as non-breaking (see section 4 for how to mark deprecation per API type).
 
-### Phase A: Development (Feature Branches)
-You can push breaking changes to any non-protected branch.
-- Clients can "opt-in" to your feature branch to test the new API.
-- Sanshain tracks these as experimental versions.
-
-### Phase B: Merge Rejection
-When you try to merge a breaking change into a **Protected Branch**, Sanshain will return a `409 Conflict`.
-- **Goal**: Prevent accidental breakage of production consumers.
-- **Action**: Do not force the change. Instead, follow the versioning strategy below.
-
-## 3. Versioning Strategy
-When a breaking change is required, Sanshain expects you to support **side-by-side versions**.
-
-1. **Keep the Old**: Leave the `/api/v1/resource` endpoint exactly as it is.
-2. **Add the New**: Create `/api/v2/resource` with the breaking changes.
-3. **Publish**: Push the spec containing *both* endpoints to `main`.
-4. **Result**: Sanshain accepts the spec because it's additive. `v1` remains stable for existing clients, and `v2` becomes available for new ones.
+> **Note**: Pinned Consumers are never broken by a new version — they keep getting exactly what they pinned. The checks above exist to keep version numbers honest, so a Consumer reading `2.4.0 → 2.5.0` can trust that the upgrade is compatible.
 
 ## 4. Deprecation & Migration
-Once the new version is live, you should encourage clients to migrate.
+Once a new major version is GA, encourage Consumers to move their Pins.
 
-- **Annotate**: Mark the old endpoints as deprecated in your specification:
+- **Annotate**: Mark the old elements as deprecated in your specification:
   - **OpenAPI**: `deprecated: true` on the operation (and/or on individual schema properties).
   - **AsyncAPI**: `deprecated: true` (or `x-deprecated: true`) on the `publish`/`subscribe` operation, message, or payload property.
   - **gRPC/proto**: `option deprecated = true;` inside the rpc or message body, or `[deprecated = true]` on a field.
@@ -66,21 +65,19 @@ remove**:
     proto field requires the marker on that property/field. Deprecating an operation does
     *not* exempt removing individual fields from its payload.
   - Proto nested messages are independent: deprecating `Outer` does not cover `Outer.Inner`.
-- **Monitor**: Check the **Dependency Graph** in the Sanshain UI. It will show exactly which clients are still "requiring" the old `v1` endpoints.
+- **Monitor**: Check the **Dependency Graph** in the Sanshain UI. It highlights **Outdated** Pins (below your latest GA) and shows exactly which Consumers still pin the old versions.
 - **Communicate**: Use the dependency list to contact the owners of the consumer services.
 
-## 5. Safe Retirement (Deletion)
-The final step is removing the old code and specification.
+## 5. Safe Retirement (Removal)
+Removing an element from your API is always **two GA releases** within the line:
 
-- **Check**: Verify in the Sanshain dashboard that the "Clients" count for the old endpoint is **zero**.
-- **Remove**: Delete the endpoint from your specification and push to `main`.
-- **Requirement**: On protected branches, only endpoints that were **marked deprecated** in the previously published spec can be deleted. Removing a non-deprecated endpoint is rejected as a breaking change — deprecate it first (section 4), then remove it in a later update.
+1. Publish a version *with* the deprecation marker (an ordinary compatible update — a minor bump).
+2. Publish a later version *without* the element. Because the element was deprecated in the previous GA, the removal is classified non-breaking, so a minor bump suffices.
 
-Retirement on a protected branch is therefore always **two publishes**: first publish the
-spec *with* the deprecation marker (an ordinary compatible update), then publish the spec
-*without* the element. This also applies to endpoints published before Sanshain 1.5.0: they
-were stored without a deprecation flag, so re-publish them once with the marker before the
-publish that removes them.
+Consumers pinned to older GA versions are unaffected — those versions are immutable and keep serving. Retirement of the *versions themselves* is a separate concern:
+
+- **Old GA versions** stay available forever by default. That is a feature: a Pin never rots out from under a Consumer.
+- **The escape hatch** is the audited **delete-version** admin action (admins, and Maintainers for their own Producers). It frees the number, and Consumers still pinned to it hard-fail (`404`) on their next require — the UI shows the pinned Consumers before confirming. See [Administration](administration.md#version-administration).
 
 ## 6. Multi-Producer Topics (AsyncAPI Message Contracts)
 
@@ -90,26 +87,25 @@ producers. To keep those topics safe without penalising a producer for a change 
 Sanshain tracks AsyncAPI compatibility at the granularity of the **message**, not the whole
 channel.
 
-When you provide an AsyncAPI spec, every **named** `publish` message registers a *channel
-message contract* keyed by `(branch, channel, message name)`:
+When you provide an AsyncAPI spec as **GA**, every **named** `publish` message registers a
+*channel message contract* keyed by `(channel, message name)`:
 
 - **Message identity** is the message `name`, falling back to its `title`. A message with
   neither has no cross-service identity: it is skipped for contract purposes and is **unsuitable
   for multi-producer topics**. Name your messages to make a shared topic safe.
-- **Ownership**: the first service to publish a `(channel, message name)` on a branch owns it.
+- **Ownership**: the first Producer to publish a `(channel, message name)` owns it.
 - **The owner may widen its own message** (add properties, add messages) but a breaking payload
   change — a removed non-deprecated property, or a property/`$ref` type change — is rejected with
   `409 Conflict`.
-- **A different service publishing the same `(channel, message name)`** is accepted only if its
+- **A different Producer publishing the same `(channel, message name)`** is accepted only if its
   payload schema is **semantically identical** to the owner's. Otherwise it is rejected with
-  `409 Conflict` naming the owning service: *align the schema or rename your message.* The
+  `409 Conflict` naming the owning Producer: *align the schema or rename your message.* The
   recommended pattern is therefore **one owner per message name** — give each producer's event a
   distinct name.
 
-Message contracts are enforced on **all** branches, including feature branches where ordinary
-endpoint breaking changes are otherwise allowed, and `force` does not bypass them. Consuming the
-producer's snippet (via `/require/asyncapi`) and `$ref`-ing it from your own spec keeps a
-consumer's copy aligned with the contract.
+Message contracts are enforced on **GA provides only** — snapshots are never contract-checked, so
+feature work stays friction-free. Consuming the producer's snippet (via `/require/asyncapi`) and
+`$ref`-ing it from your own spec keeps a consumer's copy aligned with the contract.
 
 > **Direction convention.** Sanshain reads the AsyncAPI 2.x `publish`/`subscribe` keywords from
 > the **application's** perspective (`publish` = *this service publishes*), matching its 3.x
@@ -121,15 +117,16 @@ consumer's copy aligned with the contract.
 
 ## Summary Table
 
-| Change Type             | Branch    | Result             | Action                                |
-|-------------------------|-----------|--------------------|---------------------------------------|
-| **Additive**            | Any       | Accepted           | None                                  |
-| **Breaking**            | Feature   | Accepted           | Test with opt-in clients              |
-| **Breaking**            | Protected | **Rejected (409)** | Use Path Versioning                   |
-| **Deprecation**         | Protected | Accepted           | Monitor Dependency Graph              |
-| **Deletion**            | Protected | Accepted*          | *Only for deprecated endpoints        |
-| **Owned msg breaking**  | Any       | **Rejected (409)** | Widen own message only (all branches) |
-| **Co-publish, differs** | Any       | **Rejected (409)** | Match owner's schema or rename        |
+| Situation                                   | Stability | Result             | Action                                   |
+|---------------------------------------------|-----------|--------------------|------------------------------------------|
+| **Any change, new or same snapshot number** | Snapshot  | Accepted           | Iterate freely; overwrites are audited   |
+| **Same GA number, identical content**       | GA        | Accepted (no-op)   | None                                     |
+| **Same GA number, different content**       | GA        | **Rejected (409)** | Republish as `proposed_version`          |
+| **Breaking change without major bump**      | GA        | **Rejected (409)** | Republish as the proposed major          |
+| **Snapshot for a GA'd number**              | Snapshot  | **Rejected (409)** | Use the proposed next number             |
+| **Removing a deprecated element**           | GA        | Accepted (minor)   | Deprecate first, remove one GA later     |
+| **Owned msg breaking (AsyncAPI)**           | GA        | **Rejected (409)** | Widen own message only                   |
+| **Co-publish, schema differs (AsyncAPI)**   | GA        | **Rejected (409)** | Match owner's schema or rename           |
 
 ---
 

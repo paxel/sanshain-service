@@ -23,14 +23,6 @@ pub async fn admin_list_producers(
     Ok(Json(res))
 }
 
-pub async fn admin_list_branches(
-    State(state): State<AppState>,
-    Path(name): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_branches(&state.repo, &name).await?;
-    Ok(Json(res))
-}
-
 pub async fn admin_list_consumers(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
@@ -40,28 +32,73 @@ pub async fn admin_list_consumers(
     Ok(Json(res))
 }
 
-pub async fn admin_list_consumer_branches(
+pub async fn admin_list_consumer_endpoints(
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_consumer_branches(&state.repo, &name).await?;
+    let res = services::list_consumer_endpoints(&state.repo, &name).await?;
     Ok(Json(res))
 }
 
-pub async fn admin_list_consumer_endpoints(
-    State(state): State<AppState>,
-    Path((name, branch)): Path<(String, String)>,
-) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_consumer_endpoints(&state.repo, &name, &branch).await?;
-    Ok(Json(res))
+#[derive(Deserialize)]
+pub struct VersionedSpecQuery {
+    pub api_type: Option<ApiType>,
+    pub version: crate::domain::models::SemVer,
 }
 
 pub async fn admin_list_producer_endpoints(
     State(state): State<AppState>,
-    Path((name, branch)): Path<(String, String)>,
+    Path(name): Path<String>,
+    Query(query): Query<VersionedSpecQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_producer_endpoints(&state.repo, &name, &branch).await?;
+    let res = services::list_producer_endpoints(
+        &state.repo,
+        &name,
+        query.api_type.unwrap_or(ApiType::OpenApi),
+        query.version,
+    )
+    .await?;
     Ok(Json(res))
+}
+
+pub async fn admin_list_producer_versions(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Query(query): Query<FullSpecQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let res = services::list_producer_versions(&state.repo, &name, query.api_type).await?;
+    Ok(Json(res))
+}
+
+#[derive(Deserialize)]
+pub struct DiffQuery {
+    pub api_type: Option<ApiType>,
+    pub from: crate::domain::models::SemVer,
+    pub to: crate::domain::models::SemVer,
+}
+
+/// Unified diff between two versions of a line (default adjacent-semantic is
+/// the UI's business — the API takes the two explicit endpoints of the diff).
+pub async fn admin_diff_versions(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Query(query): Query<DiffQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let diff = services::diff_versions(
+        &state.repo,
+        &name,
+        query.api_type.unwrap_or(ApiType::OpenApi),
+        query.from,
+        query.to,
+    )
+    .await?;
+    Ok((
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; charset=utf-8",
+        )],
+        diff,
+    ))
 }
 
 #[derive(Deserialize)]
@@ -71,13 +108,13 @@ pub struct FullSpecQuery {
 
 pub async fn admin_get_full_spec(
     State(state): State<AppState>,
-    Path((name, branch)): Path<(String, String)>,
-    Query(query): Query<FullSpecQuery>,
+    Path(name): Path<String>,
+    Query(query): Query<VersionedSpecQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let api_type = query.api_type.unwrap_or(ApiType::OpenApi);
-    let spec = services::get_full_spec(&state.repo, &name, &branch, api_type).await?;
-    // Served as a download: name the file after the service/branch it came from,
-    // and use the media type matching the reassembled document.
+    let spec = services::get_full_spec(&state.repo, &name, api_type, query.version).await?;
+    // Served as a download: name the file after the service/version it came
+    // from, and use the media type matching the stored document.
     let extension = match api_type {
         ApiType::Proto => "proto",
         _ => "yaml",
@@ -89,7 +126,7 @@ pub async fn admin_get_full_spec(
     let filename = format!(
         "{}-{}.{}",
         sanitize_filename_part(&name),
-        sanitize_filename_part(&branch),
+        sanitize_filename_part(&query.version.to_string()),
         extension
     );
     Ok((
@@ -104,8 +141,8 @@ pub async fn admin_get_full_spec(
     ))
 }
 
-/// Reduce a service or branch name to characters that are safe in a
-/// `Content-Disposition` filename. Service and branch names are client-supplied
+/// Reduce a service or version name to characters that are safe in a
+/// `Content-Disposition` filename. Service names are client-supplied
 /// and unvalidated, so anything outside this set — quotes, path separators, and
 /// notably control characters like CR/LF, which would make the header value
 /// invalid and fail the response — becomes `-`. Whitelisted rather than
@@ -128,17 +165,10 @@ fn sanitize_filename_part(value: &str) -> String {
     }
 }
 
-pub async fn admin_list_all_branches(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_all_branches(&state.repo).await?;
-    Ok(Json(res))
-}
-
 #[derive(Deserialize)]
 pub struct AdminEndpointYamlQuery {
     pub producername: String,
-    pub branch: String,
+    pub version: crate::domain::models::SemVer,
     pub api_type: ApiType,
     pub path: String,
     pub method: String,
@@ -151,94 +181,39 @@ pub async fn admin_get_endpoint_yaml(
     let res = services::get_endpoint_yaml(
         &state.repo,
         &query.producername,
-        &query.branch,
+        query.version,
         query.api_type,
         &query.path,
         &query.method,
     )
     .await?;
     // Always 200 with a discriminated body: the view is told what happened
-    // (published / absent / inherited / unknown) and which branch served it,
-    // instead of having to infer a state from an error.
+    // (served / absent / unknown) and which stability served it, instead of
+    // having to infer a state from an error.
     Ok(Json(res))
+}
+
+#[derive(Deserialize)]
+pub struct AdminEndpointHistoryQuery {
+    pub producername: String,
+    pub api_type: ApiType,
+    pub path: String,
+    pub method: String,
 }
 
 pub async fn admin_get_endpoint_versions(
     State(state): State<AppState>,
-    Query(query): Query<AdminEndpointYamlQuery>,
+    Query(query): Query<AdminEndpointHistoryQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::get_endpoint_version_history(
+    let res = services::get_endpoint_history(
         &state.repo,
         &query.producername,
-        &query.branch,
         query.api_type,
         &query.path,
         &query.method,
     )
     .await?;
     Ok(Json(res))
-}
-
-pub async fn list_protected_branches(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_protected_branches(&state.repo).await?;
-    Ok(Json(res))
-}
-
-#[derive(Deserialize)]
-pub struct AddProtectedBranchRequest {
-    pub pattern: String,
-}
-
-pub async fn add_protected_branch(
-    State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    Json(payload): Json<AddProtectedBranchRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    services::add_protected_branch(&state.repo, &payload.pattern).await?;
-    record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "ADD_PROTECTED_BRANCH",
-            details: &format!("Protected branch pattern '{}' added", payload.pattern),
-            service: None,
-            branch: None,
-            action_type: Some("ADMIN"),
-            diff: None,
-        },
-    )
-    .await?;
-    Ok(StatusCode::CREATED)
-}
-
-pub async fn delete_protected_branch(
-    State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    Path(pattern): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
-    if services::remove_protected_branch(&state.repo, &pattern).await? {
-        record_audit_log(
-            &state.repo,
-            user,
-            NewAuditLog {
-                action: "DELETE_PROTECTED_BRANCH",
-                details: &format!("Protected branch pattern '{}' deleted", pattern),
-                service: None,
-                branch: None,
-                action_type: Some("ADMIN"),
-                diff: None,
-            },
-        )
-        .await?;
-        Ok(StatusCode::OK)
-    } else {
-        Err(AppError::NotFound(format!(
-            "Protected branch pattern {} not found",
-            pattern
-        )))
-    }
 }
 
 pub async fn admin_delete_producer(
@@ -255,7 +230,7 @@ pub async fn admin_delete_producer(
                 action: "DELETE_SERVICE",
                 details: &format!("Deleted service '{}'", name),
                 service: Some(&name),
-                branch: None,
+                version: None,
                 action_type: Some("WRITE"),
                 diff: None,
             },
@@ -267,128 +242,64 @@ pub async fn admin_delete_producer(
     }
 }
 
-pub async fn admin_delete_branch(
+/// The sole escape hatch from GA immutability (ADR-0003). The UI calls the
+/// dependents listing first and shows who is pinned before confirming; the
+/// delete response names them again so the audit trail is complete.
+pub async fn admin_get_version_dependents(
+    State(state): State<AppState>,
+    Path((name, api_type, version)): Path<(String, String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let api_type = ApiType::from_str(&api_type).map_err(AppError::BadRequest)?;
+    let version = crate::domain::models::SemVer::parse_spec_version(&version)
+        .map_err(AppError::BadRequest)?;
+    let dependents =
+        services::list_version_dependents(&state.repo, &name, api_type, version).await?;
+    Ok(Json(dependents))
+}
+
+pub async fn admin_delete_version(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
-    Path((name, branch)): Path<(String, String)>,
+    Path((name, api_type, version)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    if services::delete_branch(&state.repo, &name, &branch).await? {
-        let _ = state.spec_updated_tx.send(());
-        record_audit_log(
-            &state.repo,
-            user,
-            NewAuditLog {
-                action: "DELETE_BRANCH",
-                details: &format!("Deleted branch '{}' of service '{}'", branch, name),
-                service: Some(&name),
-                branch: Some(&branch),
-                action_type: Some("WRITE"),
-                diff: None,
-            },
+    let api_type = ApiType::from_str(&api_type).map_err(AppError::BadRequest)?;
+    let version = crate::domain::models::SemVer::parse_spec_version(&version)
+        .map_err(AppError::BadRequest)?;
+    let dependents = services::delete_version(&state.repo, &name, api_type, version).await?;
+    let _ = state.spec_updated_tx.send(());
+    let version_str = version.to_string();
+    let details = if dependents.is_empty() {
+        format!(
+            "Deleted {} version {} of '{}' (no consumers were pinned to it)",
+            api_type.as_str(),
+            version,
+            name
         )
-        .await?;
-        Ok(StatusCode::OK)
     } else {
-        Err(AppError::NotFound(format!(
-            "Branch {} for service {} not found",
-            branch, name
-        )))
-    }
-}
-
-pub async fn admin_reset_branch_history(
-    State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    Path((name, branch)): Path<(String, String)>,
-) -> Result<impl IntoResponse, AppError> {
-    if services::reset_branch_history(&state.repo, &name, &branch).await? {
-        record_audit_log(
-            &state.repo,
-            user,
-            NewAuditLog {
-                action: "RESET_BRANCH_HISTORY",
-                details: &format!(
-                    "Reset branch history of branch '{}' of service '{}'",
-                    branch, name
-                ),
-                service: Some(&name),
-                branch: Some(&branch),
-                action_type: Some("WRITE"),
-                diff: None,
-            },
+        format!(
+            "Deleted {} version {} of '{}' — consumers pinned to it: {}",
+            api_type.as_str(),
+            version,
+            name,
+            dependents.join(", ")
         )
-        .await?;
-        Ok(StatusCode::OK)
-    } else {
-        Err(AppError::NotFound(format!(
-            "Branch {} for service {} not found",
-            branch, name
-        )))
-    }
-}
-
-#[derive(serde::Serialize)]
-pub struct SourceProtectedBranchResponse {
-    pub source_protected_branch: Option<String>,
-}
-
-/// Item #17: view a branch's `source_protected_branch` — the protected branch
-/// it defers to when it has no data of its own (either caller-supplied on a
-/// first `/provide`/`/require`, or admin-corrected).
-pub async fn admin_get_source_protected_branch(
-    State(state): State<AppState>,
-    Path((name, branch)): Path<(String, String)>,
-) -> Result<impl IntoResponse, AppError> {
-    let value = services::get_source_protected_branch(&state.repo, &name, &branch).await?;
-    Ok(Json(SourceProtectedBranchResponse {
-        source_protected_branch: value,
-    }))
-}
-
-#[derive(Deserialize)]
-pub struct SetSourceProtectedBranchRequest {
-    pub source_protected_branch: Option<String>,
-}
-
-/// Item #17, admin-only: unconditionally set (or clear, with `null`) a
-/// branch's `source_protected_branch`, overwriting whatever is currently
-/// stored — the only way to correct a wrong or missing caller-supplied value.
-pub async fn admin_set_source_protected_branch(
-    State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    Path((name, branch)): Path<(String, String)>,
-    Json(payload): Json<SetSourceProtectedBranchRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    services::admin_set_source_protected_branch(
-        &state.repo,
-        &name,
-        &branch,
-        payload.source_protected_branch.as_deref(),
-    )
-    .await?;
+    };
     record_audit_log(
         &state.repo,
         user,
         NewAuditLog {
-            action: "SET_SOURCE_PROTECTED_BRANCH",
-            details: &match &payload.source_protected_branch {
-                Some(v) => format!(
-                    "Set source_protected_branch of branch '{}' of service '{}' to '{}'",
-                    branch, name, v
-                ),
-                None => format!(
-                    "Cleared source_protected_branch of branch '{}' of service '{}'",
-                    branch, name
-                ),
-            },
+            action: "DELETE_VERSION",
+            details: &details,
             service: Some(&name),
-            branch: Some(&branch),
-            action_type: Some("ADMIN"),
+            version: Some(&version_str),
+            action_type: Some("WRITE"),
             diff: None,
         },
     )
     .await?;
-    Ok(StatusCode::OK)
+    Ok(Json(
+        serde_json::json!({ "deleted": version_str, "dependents": dependents }),
+    ))
 }
 
 pub async fn admin_delete_consumer(
@@ -404,7 +315,7 @@ pub async fn admin_delete_consumer(
                 action: "DELETE_CLIENT",
                 details: &format!("Deleted client '{}'", name),
                 service: None,
-                branch: None,
+                version: None,
                 action_type: Some("WRITE"),
                 diff: None,
             },
@@ -416,39 +327,9 @@ pub async fn admin_delete_consumer(
     }
 }
 
-pub async fn get_dev_mode(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    // Report the persisted *setting* (what the admin toggled), not the effective
-    // gated value. Whether dev mode actually bypasses auth additionally depends on
-    // the `ALLOW_INSECURE_DEV_MODE` safety gate, which is enforced in middleware.
-    let res = services::is_dev_mode_requested(&state.repo).await?;
-    Ok(Json(json!({ "dev_mode": res })))
-}
-
 #[derive(Deserialize)]
 pub struct EnabledRequest {
     pub enabled: bool,
-}
-
-pub async fn set_dev_mode(
-    State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    Json(payload): Json<EnabledRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    services::set_dev_mode(&state.repo, payload.enabled).await?;
-    record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "SET_DEV_MODE",
-            details: &format!("Set dev-mode to {}", payload.enabled),
-            service: None,
-            branch: None,
-            action_type: Some("ADMIN"),
-            diff: None,
-        },
-    )
-    .await?;
-    Ok(StatusCode::OK)
 }
 
 pub async fn get_auto_approve_users(
@@ -471,7 +352,7 @@ pub async fn set_auto_approve_users(
             action: "SET_AUTO_APPROVE",
             details: &format!("Set auto-approve-users to {}", payload.enabled),
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
@@ -537,7 +418,7 @@ pub async fn set_auth_config(
                 payload.auth_mode
             ),
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
@@ -555,11 +436,11 @@ pub async fn test_auth_config(
     Ok(StatusCode::OK)
 }
 
-pub async fn get_branch_max_age(
+pub async fn get_snapshot_max_age(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::get_branch_max_age_days(&state.repo).await?;
-    Ok(Json(json!({ "days": res })))
+    let days = services::get_snapshot_max_age_days(&state.repo).await?;
+    Ok(Json(json!({ "days": days })))
 }
 
 #[derive(Deserialize)]
@@ -567,25 +448,20 @@ pub struct MaxAgeDaysPayload {
     pub days: u64,
 }
 
-pub async fn set_branch_max_age(
+pub async fn set_snapshot_max_age(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
     Json(payload): Json<MaxAgeDaysPayload>,
 ) -> Result<impl IntoResponse, AppError> {
-    if payload.days == 0 {
-        return Err(AppError::BadRequest(
-            "days must be greater than 0".to_string(),
-        ));
-    }
-    services::set_branch_max_age_days(&state.repo, payload.days).await?;
+    services::set_snapshot_max_age_days(&state.repo, payload.days).await?;
     record_audit_log(
         &state.repo,
         user,
         NewAuditLog {
-            action: "UPDATE_SETTINGS",
-            details: &format!("Set branch max age to {} days", payload.days),
+            action: "SET_SNAPSHOT_MAX_AGE",
+            details: &format!("Set snapshot max age to {} days", payload.days),
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
@@ -594,25 +470,28 @@ pub async fn set_branch_max_age(
     Ok(StatusCode::OK)
 }
 
-pub async fn trigger_branch_cleanup(
+pub async fn trigger_snapshot_cleanup(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::cleanup_stale_branches(&state.repo).await?;
+    let deleted = services::cleanup_expired_snapshots(&state.repo).await?;
     record_audit_log(
         &state.repo,
         user,
         NewAuditLog {
-            action: "BRANCH_CLEANUP",
-            details: &format!("Triggered branch cleanup, deleted {} stale branches", res),
+            action: "SNAPSHOT_CLEANUP",
+            details: &format!(
+                "Manually triggered snapshot cleanup, removed {} snapshots",
+                deleted
+            ),
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
     )
     .await?;
-    Ok(Json(json!({ "deleted": res })))
+    Ok(Json(json!({ "deleted": deleted })))
 }
 
 pub async fn get_dependency_max_age(
@@ -640,7 +519,7 @@ pub async fn set_dependency_max_age(
             action: "UPDATE_SETTINGS",
             details: &format!("Set dependency max age to {} days", payload.days),
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
@@ -664,7 +543,7 @@ pub async fn trigger_dependency_cleanup(
                 res
             ),
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
@@ -718,7 +597,7 @@ pub async fn admin_approve_user(
                 action: "APPROVE_USER",
                 details: &format!("Approved user '{}'", target_username),
                 service: None,
-                branch: None,
+                version: None,
                 action_type: Some("ADMIN"),
                 diff: None,
             },
@@ -753,7 +632,7 @@ pub async fn admin_delete_user_handler(
                 action: "DELETE_USER",
                 details: &format!("Deleted user '{}'", target_username),
                 service: None,
-                branch: None,
+                version: None,
                 action_type: Some("ADMIN"),
                 diff: None,
             },
@@ -787,7 +666,7 @@ pub async fn admin_nuke_producers(
             action: "NUKE_DATABASE",
             details: &format!("Nuked all services, deleted {} services", res),
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
@@ -813,7 +692,7 @@ pub async fn admin_nuke_consumers(
             action: "NUKE_DATABASE",
             details: &format!("Nuked all clients, deleted {} clients", res),
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
@@ -830,7 +709,7 @@ pub async fn admin_nuke_users(
     if payload.confirmation != "DELETE ALL USERS" {
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
-    let res = services::delete_all_non_admin_users(&state.repo).await?;
+    let res = services::delete_all_non_admin_users(&state.repo, &state.root_users).await?;
     let _ = state.spec_updated_tx.send(());
     record_audit_log(
         &state.repo,
@@ -839,7 +718,7 @@ pub async fn admin_nuke_users(
             action: "NUKE_DATABASE",
             details: &format!("Nuked all non-admin users, deleted {} users", res),
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
@@ -866,7 +745,7 @@ pub async fn admin_nuke_database(
             action: "NUKE_DATABASE",
             details: "Nuked complete database (Full reset)",
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
@@ -879,7 +758,8 @@ pub async fn export_audit_logs_csv(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
     let logs: Vec<AuditLogEntry> = state.repo.get_recent_audit_logs(1000).await?;
-    let mut csv = String::from("id,timestamp,username,action,details,service,branch,action_type\n");
+    let mut csv =
+        String::from("id,timestamp,username,action,details,service,version,action_type\n");
     for log in logs {
         let esc_user = log.username.replace('"', "\"\"");
         let esc_action = log.action.replace('"', "\"\"");
@@ -892,7 +772,7 @@ pub async fn export_audit_logs_csv(
             esc_action,
             esc_details,
             log.service.as_deref().unwrap_or(""),
-            log.branch.as_deref().unwrap_or(""),
+            log.version.as_deref().unwrap_or(""),
             log.action_type.as_deref().unwrap_or("")
         ));
     }
@@ -904,36 +784,6 @@ pub async fn export_audit_logs_csv(
         ),
     ];
     Ok((headers, csv))
-}
-
-pub async fn admin_nuke_branch(
-    State(state): State<AppState>,
-    Path(branch): Path<String>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    Json(payload): Json<NukeConfirmPayload>,
-) -> Result<impl IntoResponse, AppError> {
-    if payload.confirmation != format!("DELETE BRANCH {}", branch) {
-        return Err(AppError::BadRequest("Invalid confirmation".to_string()));
-    }
-    let res = services::delete_branch_all_services(&state.repo, &branch).await?;
-    let _ = state.spec_updated_tx.send(());
-    record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "NUKE_DATABASE",
-            details: &format!(
-                "Nuked branch '{}', deleted {} services on branch",
-                branch, res
-            ),
-            service: None,
-            branch: Some(&branch),
-            action_type: Some("ADMIN"),
-            diff: None,
-        },
-    )
-    .await?;
-    Ok(Json(json!({ "deleted": res })))
 }
 
 #[derive(Deserialize)]
@@ -965,7 +815,7 @@ pub async fn admin_update_producer_metadata(
             action: "UPDATE_SERVICE_METADATA",
             details: &format!("Updated metadata for service '{}'", payload.name),
             service: Some(&payload.name),
-            branch: None,
+            version: None,
             action_type: Some("WRITE"),
             diff: None,
         },
@@ -1083,7 +933,7 @@ pub async fn set_debug_config(
                 config.business_logic_debug, config.admin_user_debug
             ),
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
@@ -1202,7 +1052,7 @@ pub async fn set_cache_config(
             action: "UPDATE_SETTINGS",
             details: &format!("Updated cache memory limit to {} MB", payload.memory_mb),
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
@@ -1222,9 +1072,9 @@ pub async fn clear_cache(
         user,
         NewAuditLog {
             action: "CLEAR_CACHE",
-            details: "Cleared service and branch caches",
+            details: "Cleared spec caches",
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
@@ -1238,319 +1088,4 @@ pub async fn get_observability_audit_logs(
 ) -> Result<impl IntoResponse, AppError> {
     let logs: Vec<AuditLogEntry> = state.repo.get_recent_audit_logs(30).await?;
     Ok(Json(logs))
-}
-
-#[derive(Deserialize)]
-pub struct UpdateEndpointRequest {
-    pub producername: String,
-    pub branch: String,
-    pub api_type: ApiType,
-    pub path: String,
-    pub method: String,
-    pub yaml: String,
-    pub deprecated: bool,
-    pub external: bool,
-}
-
-pub async fn admin_update_endpoint(
-    State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
-    Json(payload): Json<UpdateEndpointRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    // Editing a Producer's spec is the maintainer's own work, so their scoped
-    // `manage_producers` counts here — checked against the Producer the payload
-    // names, before anything is touched.
-    let acting = actor_of(actor)?;
-    crate::application::authz::require_producer_permission(
-        &state.repo,
-        &acting,
-        crate::domain::permissions::Permission::ManageProducers,
-        &payload.producername,
-    )
-    .await?;
-
-    services::update_endpoint_manual(
-        &state.repo,
-        services::RequireEndpointParams {
-            consumername: "_admin",
-            producername: &payload.producername,
-            branch: &payload.branch,
-            api_type: payload.api_type,
-            path: &payload.path,
-            method: &payload.method,
-            timeout_secs: None,
-            source_protected_branch: None,
-            pull_from_branch: None,
-        },
-        payload.api_type,
-        payload.yaml,
-        payload.deprecated,
-        payload.external,
-    )
-    .await?;
-
-    let _ = state.spec_updated_tx.send(());
-
-    record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "MANUAL_UPDATE_ENDPOINT",
-            details: &format!(
-                "Manually updated endpoint {} {} in {} ({})",
-                payload.method, payload.path, payload.producername, payload.branch
-            ),
-            service: Some(&payload.producername),
-            branch: Some(&payload.branch),
-            action_type: Some("WRITE"),
-            diff: None,
-        },
-    )
-    .await?;
-
-    Ok(StatusCode::OK)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::redact_database_url;
-
-    #[test]
-    fn strips_the_password_from_a_postgres_url() {
-        assert_eq!(
-            redact_database_url("postgres://user:secret@db.example.com:5432/sanshain"),
-            "postgres://user@db.example.com:5432/sanshain"
-        );
-        assert_eq!(
-            redact_database_url("postgresql://admin:hunter2@localhost/app"),
-            "postgresql://admin@localhost/app"
-        );
-    }
-
-    #[test]
-    fn keeps_urls_that_carry_no_credentials_intact() {
-        assert_eq!(
-            redact_database_url("postgres://db.example.com:5432/sanshain"),
-            "postgres://db.example.com:5432/sanshain"
-        );
-        assert_eq!(
-            redact_database_url("postgres://user@localhost/app"),
-            "postgres://user@localhost/app"
-        );
-        assert_eq!(
-            redact_database_url("sqlite:sanshain.db?mode=rwc"),
-            "sqlite:sanshain.db?mode=rwc"
-        );
-        assert_eq!(redact_database_url("sqlite::memory:"), "sqlite::memory:");
-    }
-
-    #[test]
-    fn a_password_containing_an_at_sign_cannot_leak_into_the_host() {
-        // Userinfo must split at the LAST '@' of the authority; splitting at the
-        // first would leave "ss@host" as the host and emit the rest of the
-        // password verbatim.
-        let redacted = redact_database_url("postgres://user:p@ss@db.example.com/app");
-        assert_eq!(redacted, "postgres://user@db.example.com/app");
-        assert!(
-            !redacted.contains("ss"),
-            "password fragment leaked: {redacted}"
-        );
-    }
-
-    #[test]
-    fn redacts_password_query_parameters() {
-        assert_eq!(
-            redact_database_url("postgres://user:secret@host/app?sslmode=require&password=p1"),
-            "postgres://user@host/app?sslmode=require&password=***"
-        );
-        // Also on schemes with no authority section.
-        assert_eq!(
-            redact_database_url("sqlite:app.db?password=p1&mode=rwc"),
-            "sqlite:app.db?password=***&mode=rwc"
-        );
-        // Case-insensitive, and matches embedded names like `sslpassword`.
-        assert_eq!(
-            redact_database_url("postgres://host/app?SSLPassword=p1"),
-            "postgres://host/app?SSLPassword=***"
-        );
-    }
-
-    #[test]
-    fn never_emits_a_known_secret_for_any_shape() {
-        for url in [
-            "postgres://user:sup3rsecret@host:5432/db",
-            "postgres://user:sup3rsecret@host/db?password=sup3rsecret",
-            "postgres://:sup3rsecret@host/db",
-            "postgresql://u:sup3rsecret@h/d?sslpassword=sup3rsecret&x=1",
-        ] {
-            let redacted = redact_database_url(url);
-            assert!(
-                !redacted.contains("sup3rsecret"),
-                "secret survived redaction of {url}: {redacted}"
-            );
-        }
-    }
-}
-
-// --- Producer Onboarding ---
-
-#[derive(Deserialize)]
-pub struct SetOnboardingRequest {
-    pub onboarding: bool,
-}
-
-pub async fn admin_get_producer_onboarding(
-    State(state): State<AppState>,
-    Path(name): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
-    let onboarding = services::is_producer_onboarding(&state.repo, &name).await?;
-    Ok(Json(json!({ "producer": name, "onboarding": onboarding })))
-}
-
-pub async fn admin_set_producer_onboarding(
-    State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    Path(name): Path<String>,
-    Json(payload): Json<SetOnboardingRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    services::set_producer_onboarding(&state.repo, &name, payload.onboarding).await?;
-    record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: if payload.onboarding {
-                "START_ONBOARDING"
-            } else {
-                "END_ONBOARDING"
-            },
-            details: &format!(
-                "Producer '{}' {} onboarding",
-                name,
-                if payload.onboarding {
-                    "entered"
-                } else {
-                    "left"
-                }
-            ),
-            service: Some(&name),
-            branch: None,
-            action_type: Some("ADMIN"),
-            diff: None,
-        },
-    )
-    .await?;
-    Ok(StatusCode::OK)
-}
-
-/// Which Producers are currently in onboarding.
-///
-/// Onboarding never expires, so without this an operator has no way of noticing
-/// that a Producer stopped being gatekept months ago.
-pub async fn admin_list_onboarding_producers(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
-    let producers = services::list_onboarding_producers(&state.repo).await?;
-    Ok(Json(json!({ "producers": producers })))
-}
-
-// --- Reviewing held Provides ---
-
-/// The Actor behind the request, for the Producer-scoped checks below.
-///
-/// These routes are not gated on a Producer by the router: which Producer a held
-/// spec belongs to is only known once the entry is loaded, so the check lives
-/// here instead.
-fn actor_of(
-    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
-) -> Result<crate::domain::permissions::Actor, AppError> {
-    actor
-        .map(|axum::Extension(a)| a)
-        .ok_or(AppError::Unauthorized)
-}
-
-/// Held Provides the caller may act on.
-///
-/// Filtered rather than refused: an administrator sees everything, a maintainer
-/// sees the Producers they are responsible for, and anyone else sees an empty
-/// inbox rather than a 403 on a page they are allowed to open.
-pub async fn admin_list_pending_specs(
-    State(state): State<AppState>,
-    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
-) -> Result<impl IntoResponse, AppError> {
-    let actor = actor_of(actor)?;
-    let all = services::list_pending_specs(&state.repo).await?;
-
-    let mut visible = Vec::new();
-    for pending in all {
-        if crate::application::authz::require_producer_permission(
-            &state.repo,
-            &actor,
-            crate::domain::permissions::Permission::ReviewPendingSpecs,
-            &pending.producer,
-        )
-        .await
-        .is_ok()
-        {
-            visible.push(pending);
-        }
-    }
-
-    Ok(Json(json!({ "count": visible.len(), "pending": visible })))
-}
-
-pub async fn admin_get_pending_spec(
-    State(state): State<AppState>,
-    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
-    Path(id): Path<i64>,
-) -> Result<impl IntoResponse, AppError> {
-    let actor = actor_of(actor)?;
-    let pending = services::get_pending_spec(&state.repo, id).await?;
-    crate::application::authz::require_producer_permission(
-        &state.repo,
-        &actor,
-        crate::domain::permissions::Permission::ReviewPendingSpecs,
-        &pending.producer,
-    )
-    .await?;
-    Ok(Json(pending))
-}
-
-pub async fn admin_accept_pending_spec(
-    State(state): State<AppState>,
-    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
-    Path(id): Path<i64>,
-) -> Result<impl IntoResponse, AppError> {
-    let actor = actor_of(actor)?;
-    let pending = services::get_pending_spec(&state.repo, id).await?;
-    crate::application::authz::require_producer_permission(
-        &state.repo,
-        &actor,
-        crate::domain::permissions::Permission::ReviewPendingSpecs,
-        &pending.producer,
-    )
-    .await?;
-
-    let response = services::apply_pending_spec(&state.repo, id, Some(&actor.username)).await?;
-    let _ = state.spec_updated_tx.send(());
-    Ok(Json(response))
-}
-
-pub async fn admin_reject_pending_spec(
-    State(state): State<AppState>,
-    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
-    Path(id): Path<i64>,
-) -> Result<impl IntoResponse, AppError> {
-    let actor = actor_of(actor)?;
-    let pending = services::get_pending_spec(&state.repo, id).await?;
-    crate::application::authz::require_producer_permission(
-        &state.repo,
-        &actor,
-        crate::domain::permissions::Permission::ReviewPendingSpecs,
-        &pending.producer,
-    )
-    .await?;
-
-    services::reject_pending_spec(&state.repo, id, Some(&actor.username)).await?;
-    Ok(StatusCode::OK)
 }

@@ -29,9 +29,10 @@ Automate the integration of Sanshain Service into this project for API contract 
   ```yaml
   serviceName: <project-name>
   provides:
-    - file: <path-to-spec>
+    - file: <path-to-spec>   # version is read from the spec (info.version / // sanshain-version:)
       apiType: <openapi|asyncapi|proto>
   ```
+- Verify the spec carries a strict `MAJOR.MINOR.PATCH` version: `info.version` for OpenAPI/AsyncAPI, a `// sanshain-version:` comment for proto.
 
 ### 2. Provider Integration (CI/CD)
 - Identify the CI provider (GitHub Actions, GitLab CI, Jenkins).
@@ -41,7 +42,7 @@ Automate the integration of Sanshain Service into this project for API contract 
 
 ### 3. Consumer Integration
 - Identify external API dependencies (where does this project get its client stubs?).
-- Add a `requires` section to `sanshain.yaml` for each dependency.
+- Add a `requires` section to `sanshain.yaml` for each dependency, pinning an exact `version` (check `GET /producers/{name}/versions` for what exists).
 - Configure the Sanshain [official client](clients.md) to fetch these snippets during the build process.
 ```
 
@@ -55,7 +56,7 @@ You can use these prompts in ChatGPT, Claude, or Copilot to help with the manual
 > "I want to migrate this [Java/Rust/Python] service to use Sanshain for API contract management. Can you help me create a `sanshain.yaml` file that points to my `src/main/resources/api.yaml`? Please follow corporate best practices: don't hardcode the URL in the YAML file, assume it comes from an environment variable. Also, write a GitHub Action step that uploads this spec using the `SANSHAIN_URL` and `SANSHAIN_TOKEN` secrets."
 
 ### For a Consumer Service
-> "This project consumes the `UserService` and `OrderService`. I want to use Sanshain to fetch only the specific endpoints I need. Please create a `sanshain.yaml` (without hardcoded URL) with a `requires` section for `UserService` (GET /users/{id}) and `OrderService` (POST /orders). Then, show me how to configure the Sanshain [official client](clients.md) to download these."
+> "This project consumes the `UserService` and `OrderService`. I want to use Sanshain to fetch only the specific endpoints I need. Please create a `sanshain.yaml` (without hardcoded URL) with a `requires` section for `UserService` (GET /users/{id}) and `OrderService` (POST /orders), each pinned to an exact version. Then, show me how to configure the Sanshain [official client](clients.md) to download these."
 
 ---
 

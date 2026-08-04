@@ -1,7 +1,31 @@
 use sanshain_service::application::mock_repo::MockRepo;
 use sanshain_service::application::spec_service;
-use sanshain_service::domain::models::ApiType;
+use sanshain_service::domain::models::{ApiType, ProvideResponse, Stability};
 use sanshain_service::{asyncapi, openapi, proto};
+
+// 2.0 dry-run helper: the version lives in the spec document itself, and the
+// caller declares stability instead of naming a branch.
+#[cfg(test)]
+async fn dry_run(
+    repo: &MockRepo,
+    producer: &str,
+    api_type: ApiType,
+    content: &str,
+) -> ProvideResponse {
+    spec_service::provide_spec(
+        repo,
+        spec_service::ProvideSpecParams {
+            producername: producer,
+            api_type,
+            content,
+            stability: Stability::Snapshot,
+            dry_run: true,
+            username: Some("ci"),
+        },
+    )
+    .await
+    .unwrap()
+}
 
 // ---------------------- OpenAPI normalize_path (8) ----------------------
 #[test]
@@ -325,25 +349,21 @@ fn proto_unclosed_service_block_yields_empty() {
 
 // ---------------------- spec_service dry-run counts (4) ----------------------
 #[tokio::test]
-async fn dry_run_openapi_inserts_then_updates() {
+async fn dry_run_openapi_inserts_then_inserts_again() {
     let repo = MockRepo::new();
     let y1 = r#"openapi: 3.0.0
-info: {title: x, version: v}
+info: {title: x, version: 1.0.0}
 paths:
   /p:
     get: { responses: { '200': { description: ok } } }
 "#;
-    let first =
-        spec_service::provide_spec_dry_run(&repo, "svcO", "dev", ApiType::OpenApi, y1, false)
-            .await
-            .unwrap();
-    assert!(first.changes.inserts >= 1);
+    let first = dry_run(&repo, "svcO", ApiType::OpenApi, y1).await;
+    assert_eq!(first.changes.inserts, 1);
 
-    // Second run with same content should not insert more; may be zero inserts and/or some upserts per repo impl.
-    let _second =
-        spec_service::provide_spec_dry_run(&repo, "svcO", "dev", ApiType::OpenApi, y1, false)
-            .await
-            .unwrap();
+    // A dry run persists nothing, so re-running it reports the same inserts —
+    // the version-line entry was never created.
+    let second = dry_run(&repo, "svcO", ApiType::OpenApi, y1).await;
+    assert_eq!(second.changes.inserts, 1);
 }
 
 #[tokio::test]
@@ -351,39 +371,43 @@ async fn dry_run_asyncapi_pub_sub_counts() {
     let repo = MockRepo::new();
     let y = r#"
 asyncapi: '2.6.0'
+info: { title: x, version: 1.0.0 }
 channels:
   C: { publish: {}, subscribe: {} }
 "#;
-    let r = spec_service::provide_spec_dry_run(&repo, "svcA", "dev", ApiType::AsyncApi, y, false)
-        .await
-        .unwrap();
-    assert!(r.changes.inserts >= 1);
+    // Only PUB channels are stored via provide; the SUB side is skipped.
+    let r = dry_run(&repo, "svcA", ApiType::AsyncApi, y).await;
+    assert_eq!(r.changes.inserts, 1);
 }
 
 #[tokio::test]
 async fn dry_run_proto_multiple_methods_counts() {
     let repo = MockRepo::new();
-    let p = r#"
+    // One rpc per line: the splitter's rpc regex is line-anchored.
+    let p = r#"// sanshain-version: 2.0.0
 syntax="proto3";
 message X{} message Y{}
-service A{ rpc M1 (X) returns (Y); rpc M2 (X) returns (Y); }
+service A{
+  rpc M1 (X) returns (Y);
+  rpc M2 (X) returns (Y);
+}
 "#;
-    let r = spec_service::provide_spec_dry_run(&repo, "svcP", "dev", ApiType::Proto, p, false)
-        .await
-        .unwrap();
-    assert!(r.changes.inserts >= 1);
+    let r = dry_run(&repo, "svcP", ApiType::Proto, p).await;
+    assert_eq!(r.changes.inserts, 2);
+    assert_eq!(r.version.to_string(), "2.0.0");
 }
 
 #[tokio::test]
-async fn dry_run_across_branches_isolated() {
+async fn dry_run_reads_version_from_the_document() {
     let repo = MockRepo::new();
-    let y = r#"openapi: 3.0.0
-info: {title: x, version: v}
+    let v1 = r#"openapi: 3.0.0
+info: {title: x, version: 1.2.3}
 paths: { }"#;
-    let _a = spec_service::provide_spec_dry_run(&repo, "svcB", "dev1", ApiType::OpenApi, y, false)
-        .await
-        .unwrap();
-    let _b = spec_service::provide_spec_dry_run(&repo, "svcB", "dev2", ApiType::OpenApi, y, false)
-        .await
-        .unwrap();
+    let v2 = r#"openapi: 3.0.0
+info: {title: x, version: 4.5.6}
+paths: { }"#;
+    let a = dry_run(&repo, "svcB", ApiType::OpenApi, v1).await;
+    let b = dry_run(&repo, "svcB", ApiType::OpenApi, v2).await;
+    assert_eq!(a.version.to_string(), "1.2.3");
+    assert_eq!(b.version.to_string(), "4.5.6");
 }

@@ -53,25 +53,34 @@ pub enum RepositoryError {
 /// Port for all persistence operations required by the application layer.
 pub struct RecordDependencyParams<'a> {
     pub client_id: i64,
-    pub endpoint_id: Option<i64>,
+    pub spec_version_id: i64,
     pub api_type: ApiType,
-    pub service_id: i64,
-    pub branch_name: &'a str,
     pub path: &'a str,
+    pub normalized_path: &'a str,
     pub method: &'a str,
 }
 
-pub type EndpointDetails = (i64, String, bool, bool);
+pub type EndpointDetails = (i64, String, bool);
 pub type EndpointMap = HashMap<(String, String), EndpointDetails>;
 
-pub struct UpdateEndpointParams<'a> {
-    pub branch_id: i64,
+/// Everything one successful Provide persists, atomically: the version-line
+/// entry (inserted, overwritten, or promoted in place) and its full endpoint
+/// set (replaced wholesale). The *decision* whether this write is allowed —
+/// GA immutability, promotion, mislabel checks — is the application layer's;
+/// the repository persists what it is handed.
+pub struct UpsertSpecVersion<'a> {
+    pub service_id: i64,
     pub api_type: ApiType,
-    pub path: &'a str,
-    pub method: &'a str,
-    pub yaml_content: &'a str,
-    pub deprecated: bool,
-    pub external: bool,
+    pub version: SemVer,
+    pub stability: Stability,
+    pub content: &'a str,
+    pub content_hash: &'a str,
+    /// The Actor to credit for this version's content. The application layer
+    /// decides: the caller, or — on a same-content promotion — the snapshot's
+    /// original provider.
+    pub provided_by: &'a str,
+    pub now_iso: &'a str,
+    pub endpoints: Vec<EndpointRecord>,
 }
 
 /// Content of a new audit-log entry — everything except the acting username,
@@ -80,7 +89,7 @@ pub struct NewAuditLog<'a> {
     pub action: &'a str,
     pub details: &'a str,
     pub service: Option<&'a str>,
-    pub branch: Option<&'a str>,
+    pub version: Option<&'a str>,
     pub action_type: Option<&'a str>,
     pub diff: Option<&'a str>,
 }
@@ -90,22 +99,78 @@ pub trait SpecRepository: Send + Sync {
     /// (`SELECT 1`) to confirm the connection pool can reach the database.
     fn ping(&self) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
-    /// Get the current spec version and content hash for a service/branch.
-    fn get_spec_version(
+    /// Persist one Provide atomically: insert the version-line entry, or
+    /// overwrite/promote the existing row for the same
+    /// `(service, api_type, version)` — keeping its `created_at` and identity —
+    /// and replace its endpoint set wholesale. Returns the entry's id.
+    fn upsert_spec_version(
         &self,
-        service_id: i64,
-        branch_id: i64,
-    ) -> impl Future<Output = Result<Option<(SemVer, String)>, RepositoryError>> + Send;
+        params: UpsertSpecVersion<'_>,
+    ) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
 
-    /// Update or increment the spec version and content hash for a service/branch.
-    /// Returns the new version.
-    fn increment_spec_version(
+    /// The version-line entry for `(service, api_type, version)`, if any.
+    fn find_spec_version(
         &self,
         service_id: i64,
-        branch_id: i64,
-        content_hash: &str,
-        impact: Impact,
-    ) -> impl Future<Output = Result<SemVer, RepositoryError>> + Send;
+        api_type: ApiType,
+        version: SemVer,
+    ) -> impl Future<Output = Result<Option<SpecVersionMeta>, RepositoryError>> + Send;
+
+    /// Every version-line entry of one Producer, all API types.
+    fn list_spec_versions(
+        &self,
+        service_id: i64,
+    ) -> impl Future<Output = Result<Vec<SpecVersionMeta>, RepositoryError>> + Send;
+
+    /// Every version-line entry instance-wide, with its Producer's name and
+    /// its endpoint count. Feeds the producers listing and the graph.
+    fn list_all_spec_versions(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(String, SpecVersionMeta, i64)>, RepositoryError>> + Send;
+
+    /// The full provided document stored for a version-line entry.
+    fn get_spec_content(
+        &self,
+        spec_version_id: i64,
+    ) -> impl Future<Output = Result<Option<String>, RepositoryError>> + Send;
+
+    /// Delete one version-line entry (endpoints and dependencies cascade).
+    /// Returns whether it existed.
+    fn delete_spec_version(
+        &self,
+        spec_version_id: i64,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Record that a version was successfully required (use-based snapshot
+    /// expiry counts requires as use).
+    fn touch_spec_version_required(
+        &self,
+        spec_version_id: i64,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Record that a version was re-provided with identical content — the
+    /// idempotent no-op still counts as "provided" for use-based snapshot
+    /// expiry, so only `updated_at` moves.
+    fn touch_spec_version_provided(
+        &self,
+        spec_version_id: i64,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Delete snapshot entries that were neither provided nor required since
+    /// the cutoff — GA entries are never age-culled. Returns how many died.
+    fn delete_expired_snapshots(
+        &self,
+        cutoff_iso: &str,
+    ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
+
+    /// Names of the Consumers currently recorded as depending on a version —
+    /// shown before a delete-version is confirmed.
+    fn list_version_dependents(
+        &self,
+        spec_version_id: i64,
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
     /// Ensure a service exists and return its ID.
     fn ensure_service(
@@ -125,39 +190,11 @@ pub trait SpecRepository: Send + Sync {
         service_id: i64,
     ) -> impl Future<Output = Result<Option<String>, RepositoryError>> + Send;
 
-    /// Ensure a branch exists for a service and return its ID.
-    fn ensure_branch(
+    /// Fetch all endpoints of one version-line entry.
+    fn get_endpoints_for_version(
         &self,
-        service_id: i64,
-        branch_name: &str,
-    ) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
-
-    /// Find a branch by service ID and name (read-only, does not create). Returns None if not found.
-    fn find_branch(
-        &self,
-        service_id: i64,
-        branch_name: &str,
-    ) -> impl Future<Output = Result<Option<i64>, RepositoryError>> + Send;
-
-    /// Fetch all existing endpoints for a branch.
-    fn get_endpoints_for_branch(
-        &self,
-        branch_id: i64,
+        spec_version_id: i64,
     ) -> impl Future<Output = Result<Vec<EndpointRecord>, RepositoryError>> + Send;
-
-    /// Insert a new endpoint for a branch.
-    fn insert_endpoint(
-        &self,
-        branch_id: i64,
-        endpoint: &EndpointRecord,
-    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
-
-    /// Prune all old versions of endpoints and reset the branch version to 1.
-    fn reset_branch_history(
-        &self,
-        service_name: &str,
-        branch_name: &str,
-    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
 
     /// Ensure a client exists and return its ID.
     fn ensure_client(
@@ -165,22 +202,22 @@ pub trait SpecRepository: Send + Sync {
         name: &str,
     ) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
 
-    /// Find an endpoint by service, branch, path, and method. Returns (endpoint_id, yaml_content, deprecated, external).
+    /// Find an endpoint of a version-line entry by path and method (lenient
+    /// path matching via the normalized path). Returns
+    /// (endpoint_id, yaml_content, deprecated).
     fn find_endpoint(
         &self,
-        service_id: i64,
-        branch_name: &str,
+        spec_version_id: i64,
         api_type: ApiType,
         path: &str,
         method: &str,
-    ) -> impl Future<Output = Result<Option<(i64, String, bool, bool)>, RepositoryError>> + Send;
+    ) -> impl Future<Output = Result<Option<(i64, String, bool)>, RepositoryError>> + Send;
 
-    /// Find multiple endpoints by service, branch, path, and method.
+    /// Find multiple endpoints of a version-line entry by path and method.
     /// Returns a map of (path, method) to (endpoint_id, yaml_content).
     fn find_endpoints_bulk(
         &self,
-        service_id: i64,
-        branch_name: &str,
+        spec_version_id: i64,
         api_type: ApiType,
         endpoints: &[(String, String)],
     ) -> impl Future<Output = Result<EndpointMap, RepositoryError>> + Send;
@@ -197,77 +234,22 @@ pub trait SpecRepository: Send + Sync {
         params: Vec<RecordDependencyParams>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
-    /// Get the full dependency report for a branch.
-    fn get_report(
-        &self,
-        branch: &str,
-    ) -> impl Future<Output = Result<DependencyReport, RepositoryError>> + Send;
+    /// Get the full, instance-wide dependency report.
+    fn get_report(&self) -> impl Future<Output = Result<DependencyReport, RepositoryError>> + Send;
 
-    /// Check if a branch name matches any protected branch pattern.
-    fn is_branch_protected(
-        &self,
-        branch_name: &str,
-    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
-
-    /// Add a protected branch pattern.
-    fn add_protected_branch(
-        &self,
-        pattern: &str,
-    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
-
-    /// Remove a protected branch pattern.
-    fn remove_protected_branch(
-        &self,
-        pattern: &str,
-    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
-
-    /// List all protected branch patterns.
-    fn list_protected_branches(
-        &self,
-    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
-
-    /// Update an existing endpoint's YAML content and deprecated/external status.
-    fn update_endpoint(
-        &self,
-        params: UpdateEndpointParams<'_>,
-    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
-
-    /// Soft-delete an endpoint (mark as deleted). Used on protected branches to preserve history.
-    fn soft_delete_endpoint(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
-
-    /// Hard-delete endpoints by branch, path, and method. Used on non-protected branches.
-    fn hard_delete_endpoint(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
-
-    /// Check if a soft-deleted endpoint exists for the given branch, path, and method.
-    fn is_endpoint_deleted(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
-
-    /// Delete all services and their branches, endpoints, and related dependencies.
+    /// Delete all services and their versions, endpoints, and related dependencies.
     fn delete_all_services(&self) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
 
     /// Delete all clients and their dependencies.
     fn delete_all_clients(&self) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
 
-    /// Delete all non-admin users and their sessions.
+    /// Delete all users who are not *effective* administrators — spared are
+    /// users with a direct `admin` grant, users holding `admin` through a
+    /// stored group membership, and the configuration-held root usernames in
+    /// `spare_usernames` (who need no stored grant at all).
     fn delete_all_non_admin_users(
         &self,
+        spare_usernames: &[String],
     ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
 
     /// Nuke the entire database: delete all data from all tables (except settings and the calling admin user).
@@ -276,17 +258,10 @@ pub trait SpecRepository: Send + Sync {
         keep_user_id: Option<i64>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
-    /// Delete a service and all its branches, endpoints, and related dependencies.
+    /// Delete a service and all its versions, endpoints, and related dependencies.
     fn delete_producer(
         &self,
         name: &str,
-    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
-
-    /// Delete a branch (by service name and branch name) and its endpoints and related dependencies.
-    fn delete_branch(
-        &self,
-        service_name: &str,
-        branch_name: &str,
     ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
 
     /// Delete a client and all its dependencies.
@@ -298,17 +273,11 @@ pub trait SpecRepository: Send + Sync {
     /// List all services.
     fn list_producers(&self) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
-    /// List all services with detailed information (like fallback branch).
+    /// List all services with metadata (icon, domain). Version lines are
+    /// populated by the application layer from `list_all_spec_versions`.
     fn list_producers_detailed(
         &self,
     ) -> impl Future<Output = Result<Vec<ProducerSummary>, RepositoryError>> + Send;
-
-    /// Set the fallback branch for a service.
-    fn set_fallback_branch(
-        &self,
-        service_name: &str,
-        branch: Option<&str>,
-    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Update service metadata (icon, domain).
     fn update_producer_metadata(
@@ -318,62 +287,14 @@ pub trait SpecRepository: Send + Sync {
         domain: Option<&str>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
-    /// Get the fallback branch for a service.
-    fn get_fallback_branch(
-        &self,
-        service_name: &str,
-    ) -> impl Future<Output = Result<Option<String>, RepositoryError>> + Send;
-
-    /// Atomically set a branch's `source_protected_branch` (item #17), but only
-    /// if it is currently unset. Returns `true` if this call set it, `false` if
-    /// the branch already had a value (left untouched) — callers use this to
-    /// distinguish "I set it" from "someone already had a different answer",
-    /// for mismatch logging.
-    fn set_source_protected_branch_if_unset(
-        &self,
-        branch_id: i64,
-        value: &str,
-    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
-
-    /// Get a branch's current `source_protected_branch`, if any.
-    fn get_source_protected_branch(
-        &self,
-        branch_id: i64,
-    ) -> impl Future<Output = Result<Option<String>, RepositoryError>> + Send;
-
-    /// Admin-only: unconditionally set (or clear, with `None`) a branch's
-    /// `source_protected_branch`, overwriting any existing value.
-    fn admin_set_source_protected_branch(
-        &self,
-        branch_id: i64,
-        value: Option<&str>,
-    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
-
-    /// List all branches for a service.
-    fn list_branches(
-        &self,
-        service_name: &str,
-    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
-
-    /// List all distinct branch names across all services.
-    fn list_all_branches(
-        &self,
-    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
-
     /// List all clients.
     fn list_consumers(&self) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
-    /// List all branches that a client has dependencies on.
-    fn list_consumer_branches(
-        &self,
-        client_name: &str,
-    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
-
-    /// List all endpoints a client depends on for a given branch.
+    /// Every endpoint a client is recorded as depending on, with the pinned
+    /// version and its current stability.
     fn list_consumer_endpoints(
         &self,
         client_name: &str,
-        branch: &str,
     ) -> impl Future<Output = Result<Vec<ConsumerEndpointInfo>, RepositoryError>> + Send;
 
     // --- Auth ---
@@ -496,66 +417,12 @@ pub trait SpecRepository: Send + Sync {
         token_hash: &str,
     ) -> impl Future<Output = Result<Option<User>, RepositoryError>> + Send;
 
-    /// Delete non-protected branches that haven't been updated since the given cutoff ISO timestamp.
-    /// Returns the number of deleted branches.
-    fn delete_stale_branches(
-        &self,
-        cutoff_iso: &str,
-    ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
-
     /// Delete dependency rows whose `last_seen_at` is older than the given cutoff ISO timestamp.
     /// Returns the number of deleted rows.
     fn delete_stale_dependencies(
         &self,
         cutoff_iso: &str,
     ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
-
-    /// Get the endpoint ID for a given branch, path, and method.
-    fn get_endpoint_id(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> impl Future<Output = Result<Option<i64>, RepositoryError>> + Send;
-
-    /// Insert a new endpoint version record.
-    fn insert_endpoint_version(
-        &self,
-        endpoint_id: i64,
-        version: i32,
-        yaml_content: &str,
-        diff: Option<&str>,
-        created_at: &str,
-    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
-
-    /// Get the latest version number for an endpoint (0 if none).
-    fn get_latest_endpoint_version(
-        &self,
-        endpoint_id: i64,
-    ) -> impl Future<Output = Result<i32, RepositoryError>> + Send;
-
-    /// Get the version history for an endpoint.
-    fn get_endpoint_versions(
-        &self,
-        endpoint_id: i64,
-    ) -> impl Future<Output = Result<Vec<EndpointVersion>, RepositoryError>> + Send;
-
-    /// Get a global timeline of endpoint versions across all services and branches.
-    fn get_global_endpoint_versions(
-        &self,
-        limit: u32,
-    ) -> impl Future<Output = Result<Vec<EndpointVersion>, RepositoryError>> + Send;
-
-    /// Apply a set of specification changes (insert, update, delete) atomically.
-    fn apply_spec_changes(
-        &self,
-        branch_id: i64,
-        changes: Vec<SpecChange>,
-        is_protected: bool,
-        username: Option<&str>,
-        source_branch: Option<&str>,
-    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     // --- Roles and Groups ---
 
@@ -648,72 +515,6 @@ pub trait SpecRepository: Send + Sync {
         group_id: i64,
     ) -> impl Future<Output = Result<Vec<i64>, RepositoryError>> + Send;
 
-    // --- Pending Specs ---
-
-    /// Hold a refused Provide, replacing any entry already held for the same
-    /// Producer, branch and API type. Returns the entry's id.
-    fn upsert_pending_spec(
-        &self,
-        service_id: i64,
-        branch: &str,
-        api_type: ApiType,
-        content: &str,
-        reason: &str,
-        submitted_by: &str,
-    ) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
-
-    /// A held Provide by id.
-    fn get_pending_spec(
-        &self,
-        id: i64,
-    ) -> impl Future<Output = Result<Option<PendingSpec>, RepositoryError>> + Send;
-
-    /// Every held Provide, newest first.
-    fn list_pending_specs(
-        &self,
-    ) -> impl Future<Output = Result<Vec<PendingSpec>, RepositoryError>> + Send;
-
-    /// Discard a held Provide by id. Returns whether one was held.
-    fn delete_pending_spec(
-        &self,
-        id: i64,
-    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
-
-    /// Discard whatever is held for a Producer, branch and API type.
-    ///
-    /// Called when a Provide succeeds for that key: the Producer has moved on,
-    /// so the held submission is dead and must not survive to be applied later
-    /// over the top of the change that fixed it.
-    fn clear_pending_spec(
-        &self,
-        service_id: i64,
-        branch: &str,
-        api_type: ApiType,
-    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
-
-    // --- Producer Onboarding ---
-
-    /// Put a Producer into onboarding, or take it out.
-    fn set_producer_onboarding(
-        &self,
-        service_id: i64,
-        onboarding: bool,
-    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
-
-    /// Whether a Producer is in onboarding. Unknown Producers are not.
-    fn is_producer_onboarding(
-        &self,
-        service_id: i64,
-    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
-
-    /// Names of the Producers currently in onboarding.
-    ///
-    /// The flag never expires, so this listing is the only thing that will
-    /// remind an operator it is still on.
-    fn list_onboarding_producers(
-        &self,
-    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
-
     // --- Maintainer Scope ---
 
     /// Assign a user as maintainer of a Producer. Reassigning is a no-op.
@@ -755,6 +556,25 @@ pub trait SpecRepository: Send + Sync {
         &self,
         service_id: i64,
     ) -> impl Future<Output = Result<Vec<i64>, RepositoryError>> + Send;
+
+    /// Names of every Producer any of `group_ids` maintains. Used to expand a
+    /// caller's directory groups into the Producers they confer.
+    fn list_group_maintained_producers(
+        &self,
+        group_ids: &[i64],
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    /// Every (producer name, maintainer user id) pair, instance-wide. Feeds
+    /// the aggregate maintainers listing in one query instead of one per
+    /// Producer.
+    fn list_all_user_maintainers(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(String, i64)>, RepositoryError>> + Send;
+
+    /// Every (producer name, maintainer group id) pair, instance-wide.
+    fn list_all_group_maintainers(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(String, i64)>, RepositoryError>> + Send;
 
     /// Whether a user maintains a Producer, directly or through a group whose
     /// membership Sanshain stores.
@@ -834,33 +654,11 @@ pub trait SpecRepository: Send + Sync {
         item_name: &str,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
-    /// List all branches with their last modified timestamp metadata
-    fn list_branches_with_metadata(
-        &self,
-    ) -> impl Future<Output = Result<Vec<BranchMetadata>, RepositoryError>> + Send;
-
-    /// Last-published time per `(service_name, branch_name)`.
-    ///
-    /// Returns `(service_name, branch_name, updated_at)` rows. `updated_at` tracks
-    /// the last publishing change to the branch (see `apply_spec_changes`), not reads.
-    fn list_branch_last_published(
-        &self,
-    ) -> impl Future<Output = Result<Vec<(String, String, String)>, RepositoryError>> + Send;
-
-    /// Non-deleted endpoint count per `(service_name, branch_name)`, for every
-    /// branch (including ones with zero endpoints — callers filter as needed).
-    ///
-    /// Returns `(service_name, branch_name, count)` rows.
-    fn list_branch_endpoint_counts(
-        &self,
-    ) -> impl Future<Output = Result<Vec<(String, String, i64)>, RepositoryError>> + Send;
-
     // --- AsyncAPI Channel Message Contracts (item #20) ---
 
-    /// Get the message-level channel contract for `(branch, channel, message)`, if any.
+    /// Get the message-level channel contract for `(channel, message)`, if any.
     fn get_channel_message_contract(
         &self,
-        branch_name: &str,
         channel: &str,
         message_name: &str,
     ) -> impl Future<Output = Result<Option<ChannelMessageContract>, RepositoryError>> + Send;
@@ -871,25 +669,15 @@ pub trait SpecRepository: Send + Sync {
         contract: &ChannelMessageContract,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
-    /// Delete the channel message contract for `(branch, channel, message)`.
+    /// Delete the channel message contract for `(channel, message)`.
     fn delete_channel_message_contract(
         &self,
-        branch_name: &str,
         channel: &str,
         message_name: &str,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
-    /// List all channel message contracts registered on a branch (sorted by channel, message).
+    /// List all channel message contracts (sorted by channel, message).
     fn list_channel_message_contracts(
         &self,
-        branch_name: &str,
     ) -> impl Future<Output = Result<Vec<ChannelMessageContract>, RepositoryError>> + Send;
-
-    /// Delete channel message contracts whose `branch_name` is not in `live_branches`.
-    /// Used by the periodic cleanup task to drop rows for removed/stale branches.
-    /// Returns the number of deleted rows.
-    fn delete_orphaned_channel_message_contracts(
-        &self,
-        live_branches: &[String],
-    ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
 }

@@ -6,30 +6,30 @@ use moka::future::Cache;
 use crate::domain::models::*;
 use crate::domain::ports::{
     EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
-    UpdateEndpointParams,
+    UpsertSpecVersion,
 };
 use crate::infrastructure::database::DatabaseRepo;
 
-type EndpointKey = (i64, String, String, String, String); // (service_id, branch, api_type, norm_path, method)
+/// (spec_version_id, api_type, normalized_path, method)
+type EndpointKey = (i64, ApiType, String, String);
+/// (service_id, api_type, version-string)
+type SpecVersionKey = (i64, ApiType, String);
 
 #[derive(Clone)]
 pub struct CachedSpecRepository {
     inner: Box<DatabaseRepo>,
-    // Endpoint data (60% of budget)
-    endpoint_cache: Cache<EndpointKey, Arc<(i64, String, bool, bool)>>,
-    branch_endpoints_cache: Cache<i64, Arc<Vec<EndpointRecord>>>,
+    // Spec data (60% of budget)
+    endpoint_cache: Cache<EndpointKey, Arc<(i64, String, bool)>>,
+    version_endpoints_cache: Cache<i64, Arc<Vec<EndpointRecord>>>,
+    spec_content_cache: Cache<i64, Arc<String>>,
     // Reports (20%)
     report_cache: Cache<String, Arc<DependencyReport>>,
     services_cache: Cache<String, Arc<Vec<ProducerSummary>>>,
-    // ID lookups (10%)
+    // ID / metadata lookups (10%)
     service_id_cache: Cache<String, i64>,
-    branch_id_cache: Cache<(i64, String), i64>,
-    // Metadata (10%)
-    protected_branches_cache: Cache<String, Arc<Vec<String>>>,
-    fallback_branch_cache: Cache<String, Option<String>>,
-    branch_protected_cache: Cache<String, bool>,
+    spec_version_cache: Cache<SpecVersionKey, Arc<SpecVersionMeta>>,
+    // Listings (10%)
     services_list_cache: Cache<String, Arc<Vec<String>>>,
-    branches_list_cache: Cache<String, Arc<Vec<String>>>,
     clients_list_cache: Cache<String, Arc<Vec<String>>>,
     // Authorisation (entry-count bounded, short TTL)
     effective_roles_cache: Cache<i64, Arc<Vec<String>>>,
@@ -49,17 +49,14 @@ fn mb_to_bytes(mb: u64) -> u64 {
 const EFFECTIVE_ROLES_TTL_SECS: u64 = 10;
 
 struct RepoCaches {
-    endpoint_cache: Cache<EndpointKey, Arc<(i64, String, bool, bool)>>,
-    branch_endpoints_cache: Cache<i64, Arc<Vec<EndpointRecord>>>,
+    endpoint_cache: Cache<EndpointKey, Arc<(i64, String, bool)>>,
+    version_endpoints_cache: Cache<i64, Arc<Vec<EndpointRecord>>>,
+    spec_content_cache: Cache<i64, Arc<String>>,
     report_cache: Cache<String, Arc<DependencyReport>>,
     services_cache: Cache<String, Arc<Vec<ProducerSummary>>>,
     service_id_cache: Cache<String, i64>,
-    branch_id_cache: Cache<(i64, String), i64>,
-    protected_branches_cache: Cache<String, Arc<Vec<String>>>,
-    fallback_branch_cache: Cache<String, Option<String>>,
-    branch_protected_cache: Cache<String, bool>,
+    spec_version_cache: Cache<SpecVersionKey, Arc<SpecVersionMeta>>,
     services_list_cache: Cache<String, Arc<Vec<String>>>,
-    branches_list_cache: Cache<String, Arc<Vec<String>>>,
     clients_list_cache: Cache<String, Arc<Vec<String>>>,
     effective_roles_cache: Cache<i64, Arc<Vec<String>>>,
 }
@@ -70,16 +67,13 @@ impl CachedSpecRepository {
         Self {
             inner: Box::new(inner),
             endpoint_cache: caches.endpoint_cache,
-            branch_endpoints_cache: caches.branch_endpoints_cache,
+            version_endpoints_cache: caches.version_endpoints_cache,
+            spec_content_cache: caches.spec_content_cache,
             report_cache: caches.report_cache,
             services_cache: caches.services_cache,
             service_id_cache: caches.service_id_cache,
-            branch_id_cache: caches.branch_id_cache,
-            protected_branches_cache: caches.protected_branches_cache,
-            fallback_branch_cache: caches.fallback_branch_cache,
-            branch_protected_cache: caches.branch_protected_cache,
+            spec_version_cache: caches.spec_version_cache,
             services_list_cache: caches.services_list_cache,
-            branches_list_cache: caches.branches_list_cache,
             clients_list_cache: caches.clients_list_cache,
             effective_roles_cache: caches.effective_roles_cache,
             hits: Arc::new(AtomicU64::new(0)),
@@ -90,19 +84,19 @@ impl CachedSpecRepository {
 
     fn build_caches(memory_limit_mb: u64) -> RepoCaches {
         let total = mb_to_bytes(memory_limit_mb);
-        let endpoint_budget = total * 60 / 100;
+        let spec_budget = total * 60 / 100;
         let report_budget = total * 20 / 100;
         let id_budget = total * 10 / 100;
-        let meta_budget = total * 10 / 100;
+        let list_budget = total * 10 / 100;
 
-        // Endpoint data caches (60%)
+        // Spec data caches (60%)
         let endpoint_cache = Cache::builder()
-            .max_capacity(endpoint_budget / 2)
-            .weigher(|_k: &EndpointKey, v: &Arc<(i64, String, bool, bool)>| (v.1.len() + 80) as u32)
+            .max_capacity(spec_budget / 3)
+            .weigher(|_k: &EndpointKey, v: &Arc<(i64, String, bool)>| (v.1.len() + 80) as u32)
             .build();
 
-        let branch_endpoints_cache = Cache::builder()
-            .max_capacity(endpoint_budget / 2)
+        let version_endpoints_cache = Cache::builder()
+            .max_capacity(spec_budget / 3)
             .weigher(|_k: &i64, v: &Arc<Vec<EndpointRecord>>| {
                 let size: usize = v
                     .iter()
@@ -118,14 +112,19 @@ impl CachedSpecRepository {
             })
             .build();
 
+        let spec_content_cache = Cache::builder()
+            .max_capacity(spec_budget / 3)
+            .weigher(|_k: &i64, v: &Arc<String>| (v.len() + 40) as u32)
+            .build();
+
         // Report caches (20%)
         let report_cache = Cache::builder()
             .max_capacity(report_budget / 2)
             .weigher(|_k: &String, v: &Arc<DependencyReport>| {
-                let size = v.branch.len()
-                    + v.unused_endpoints.len() * 120
+                let size = v.unused_endpoints.len() * 120
                     + v.missing_endpoints.len() * 150
                     + v.dependency_graph.len() * 150
+                    + v.service_tags.len() * 60
                     + 80;
                 size as u32
             })
@@ -138,8 +137,7 @@ impl CachedSpecRepository {
                     .iter()
                     .map(|s| {
                         s.name.len()
-                            + s.fallback_branch.as_ref().map_or(0, |b| b.len())
-                            + s.branches.iter().map(|b| b.len() + 24).sum::<usize>()
+                            + s.versions.len() * 160
                             + s.icon.as_ref().map_or(0, |i| i.len())
                             + s.domain.as_ref().map_or(0, |d| d.len())
                             + 100
@@ -149,50 +147,22 @@ impl CachedSpecRepository {
             })
             .build();
 
-        // ID lookup caches (10%)
+        // ID / metadata lookup caches (10%)
         let service_id_cache = Cache::builder()
             .max_capacity(id_budget / 2)
             .weigher(|k: &String, _v: &i64| (k.len() + 32) as u32)
             .build();
 
-        let branch_id_cache = Cache::builder()
+        let spec_version_cache = Cache::builder()
             .max_capacity(id_budget / 2)
-            .weigher(|k: &(i64, String), _v: &i64| (k.1.len() + 40) as u32)
-            .build();
-
-        // Metadata caches (10%)
-        let meta_each = meta_budget / 6;
-
-        let protected_branches_cache = Cache::builder()
-            .max_capacity(meta_each)
-            .weigher(|_k: &String, v: &Arc<Vec<String>>| {
-                let size: usize = v.iter().map(|s| s.len() + 24).sum();
-                (size + 24) as u32
+            .weigher(|k: &SpecVersionKey, v: &Arc<SpecVersionMeta>| {
+                (k.2.len() + v.content_hash.len() + v.provided_by.len() + 160) as u32
             })
             .build();
 
-        let fallback_branch_cache = Cache::builder()
-            .max_capacity(meta_each)
-            .weigher(|k: &String, v: &Option<String>| {
-                (k.len() + v.as_ref().map_or(0, |s| s.len()) + 32) as u32
-            })
-            .build();
-
-        let branch_protected_cache = Cache::builder()
-            .max_capacity(meta_each)
-            .weigher(|k: &String, _v: &bool| (k.len() + 25) as u32)
-            .build();
-
+        // Listing caches (10%)
         let services_list_cache = Cache::builder()
-            .max_capacity(meta_each)
-            .weigher(|_k: &String, v: &Arc<Vec<String>>| {
-                let size: usize = v.iter().map(|s| s.len() + 24).sum();
-                (size + 24) as u32
-            })
-            .build();
-
-        let branches_list_cache = Cache::builder()
-            .max_capacity(meta_each)
+            .max_capacity(list_budget / 2)
             .weigher(|_k: &String, v: &Arc<Vec<String>>| {
                 let size: usize = v.iter().map(|s| s.len() + 24).sum();
                 (size + 24) as u32
@@ -200,7 +170,7 @@ impl CachedSpecRepository {
             .build();
 
         let clients_list_cache = Cache::builder()
-            .max_capacity(meta_each)
+            .max_capacity(list_budget / 2)
             .weigher(|_k: &String, v: &Arc<Vec<String>>| {
                 let size: usize = v.iter().map(|s| s.len() + 24).sum();
                 (size + 24) as u32
@@ -219,16 +189,13 @@ impl CachedSpecRepository {
 
         RepoCaches {
             endpoint_cache,
-            branch_endpoints_cache,
+            version_endpoints_cache,
+            spec_content_cache,
             report_cache,
             services_cache,
             service_id_cache,
-            branch_id_cache,
-            protected_branches_cache,
-            fallback_branch_cache,
-            branch_protected_cache,
+            spec_version_cache,
             services_list_cache,
-            branches_list_cache,
             clients_list_cache,
             effective_roles_cache,
         }
@@ -237,16 +204,13 @@ impl CachedSpecRepository {
     pub async fn cache_stats(&self) -> CacheStats {
         // Run maintenance tasks to get accurate stats
         self.endpoint_cache.run_pending_tasks().await;
-        self.branch_endpoints_cache.run_pending_tasks().await;
+        self.version_endpoints_cache.run_pending_tasks().await;
+        self.spec_content_cache.run_pending_tasks().await;
         self.report_cache.run_pending_tasks().await;
         self.services_cache.run_pending_tasks().await;
         self.service_id_cache.run_pending_tasks().await;
-        self.branch_id_cache.run_pending_tasks().await;
-        self.protected_branches_cache.run_pending_tasks().await;
-        self.fallback_branch_cache.run_pending_tasks().await;
-        self.branch_protected_cache.run_pending_tasks().await;
+        self.spec_version_cache.run_pending_tasks().await;
         self.services_list_cache.run_pending_tasks().await;
-        self.branches_list_cache.run_pending_tasks().await;
         self.clients_list_cache.run_pending_tasks().await;
         self.effective_roles_cache.run_pending_tasks().await;
 
@@ -261,29 +225,23 @@ impl CachedSpecRepository {
         let limit_mb = self.memory_limit_mb.load(Ordering::Relaxed);
 
         let estimated_bytes = self.endpoint_cache.weighted_size()
-            + self.branch_endpoints_cache.weighted_size()
+            + self.version_endpoints_cache.weighted_size()
+            + self.spec_content_cache.weighted_size()
             + self.report_cache.weighted_size()
             + self.services_cache.weighted_size()
             + self.service_id_cache.weighted_size()
-            + self.branch_id_cache.weighted_size()
-            + self.protected_branches_cache.weighted_size()
-            + self.fallback_branch_cache.weighted_size()
-            + self.branch_protected_cache.weighted_size()
+            + self.spec_version_cache.weighted_size()
             + self.services_list_cache.weighted_size()
-            + self.branches_list_cache.weighted_size()
             + self.clients_list_cache.weighted_size();
 
         let entry_count = self.endpoint_cache.entry_count()
-            + self.branch_endpoints_cache.entry_count()
+            + self.version_endpoints_cache.entry_count()
+            + self.spec_content_cache.entry_count()
             + self.report_cache.entry_count()
             + self.services_cache.entry_count()
             + self.service_id_cache.entry_count()
-            + self.branch_id_cache.entry_count()
-            + self.protected_branches_cache.entry_count()
-            + self.fallback_branch_cache.entry_count()
-            + self.branch_protected_cache.entry_count()
+            + self.spec_version_cache.entry_count()
             + self.services_list_cache.entry_count()
-            + self.branches_list_cache.entry_count()
             + self.clients_list_cache.entry_count();
 
         CacheStats {
@@ -301,16 +259,13 @@ impl CachedSpecRepository {
         self.memory_limit_mb.store(new_limit_mb, Ordering::Relaxed);
         // Invalidate all existing caches
         self.endpoint_cache.invalidate_all();
-        self.branch_endpoints_cache.invalidate_all();
+        self.version_endpoints_cache.invalidate_all();
+        self.spec_content_cache.invalidate_all();
         self.report_cache.invalidate_all();
         self.services_cache.invalidate_all();
         self.service_id_cache.invalidate_all();
-        self.branch_id_cache.invalidate_all();
-        self.protected_branches_cache.invalidate_all();
-        self.fallback_branch_cache.invalidate_all();
-        self.branch_protected_cache.invalidate_all();
+        self.spec_version_cache.invalidate_all();
         self.services_list_cache.invalidate_all();
-        self.branches_list_cache.invalidate_all();
         self.clients_list_cache.invalidate_all();
         self.hits.store(0, Ordering::Relaxed);
         self.misses.store(0, Ordering::Relaxed);
@@ -336,49 +291,165 @@ impl CachedSpecRepository {
         self.misses.fetch_add(1, Ordering::Relaxed);
     }
 
-    async fn invalidate_all_caches(&self) {
-        self.service_id_cache.invalidate_all();
-        self.branch_id_cache.invalidate_all();
-        self.branch_endpoints_cache.invalidate_all();
+    /// Clear everything derived from stored spec versions. Moka offers no
+    /// partial-key invalidation, so a write to any version-line entry clears
+    /// these caches wholesale — correctness over cleverness.
+    fn invalidate_spec_caches(&self) {
+        self.spec_version_cache.invalidate_all();
+        self.version_endpoints_cache.invalidate_all();
         self.endpoint_cache.invalidate_all();
+        self.spec_content_cache.invalidate_all();
         self.report_cache.invalidate_all();
+    }
+
+    fn invalidate_all_caches(&self) {
+        self.invalidate_spec_caches();
+        self.service_id_cache.invalidate_all();
         self.services_list_cache.invalidate_all();
         self.services_cache.invalidate_all();
-        self.branches_list_cache.invalidate_all();
         self.clients_list_cache.invalidate_all();
-        self.protected_branches_cache.invalidate_all();
-        self.fallback_branch_cache.invalidate_all();
-        self.branch_protected_cache.invalidate_all();
         self.effective_roles_cache.invalidate_all();
     }
 }
 
 impl SpecRepository for CachedSpecRepository {
-    // --- Cached reads with write-through invalidation ---
+    // --- Spec versions: cached reads with write-through invalidation ---
 
     async fn ping(&self) -> Result<(), RepositoryError> {
         self.inner.ping().await
     }
 
-    async fn get_spec_version(
+    async fn upsert_spec_version(
         &self,
-        service_id: i64,
-        branch_id: i64,
-    ) -> Result<Option<(SemVer, String)>, RepositoryError> {
-        self.inner.get_spec_version(service_id, branch_id).await
+        params: UpsertSpecVersion<'_>,
+    ) -> Result<i64, RepositoryError> {
+        let id = self.inner.upsert_spec_version(params).await?;
+        if !self.is_disabled() {
+            self.invalidate_spec_caches();
+        }
+        Ok(id)
     }
 
-    async fn increment_spec_version(
+    async fn find_spec_version(
         &self,
         service_id: i64,
-        branch_id: i64,
-        content_hash: &str,
-        impact: Impact,
-    ) -> Result<SemVer, RepositoryError> {
-        self.inner
-            .increment_spec_version(service_id, branch_id, content_hash, impact)
-            .await
+        api_type: ApiType,
+        version: SemVer,
+    ) -> Result<Option<SpecVersionMeta>, RepositoryError> {
+        let key = (service_id, api_type, version.to_string());
+        if !self.is_disabled()
+            && let Some(cached) = self.spec_version_cache.get(&key).await
+        {
+            self.record_hit();
+            return Ok(Some((*cached).clone()));
+        }
+        self.record_miss();
+        let result = self
+            .inner
+            .find_spec_version(service_id, api_type, version)
+            .await?;
+        if !self.is_disabled()
+            && let Some(ref meta) = result
+        {
+            self.spec_version_cache
+                .insert(key, Arc::new(meta.clone()))
+                .await;
+        }
+        Ok(result)
     }
+
+    async fn list_spec_versions(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<SpecVersionMeta>, RepositoryError> {
+        self.inner.list_spec_versions(service_id).await
+    }
+
+    async fn list_all_spec_versions(
+        &self,
+    ) -> Result<Vec<(String, SpecVersionMeta, i64)>, RepositoryError> {
+        self.inner.list_all_spec_versions().await
+    }
+
+    async fn get_spec_content(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Option<String>, RepositoryError> {
+        if !self.is_disabled()
+            && let Some(cached) = self.spec_content_cache.get(&spec_version_id).await
+        {
+            self.record_hit();
+            return Ok(Some((*cached).clone()));
+        }
+        self.record_miss();
+        let result = self.inner.get_spec_content(spec_version_id).await?;
+        if !self.is_disabled()
+            && let Some(ref content) = result
+        {
+            self.spec_content_cache
+                .insert(spec_version_id, Arc::new(content.clone()))
+                .await;
+        }
+        Ok(result)
+    }
+
+    async fn delete_spec_version(&self, spec_version_id: i64) -> Result<bool, RepositoryError> {
+        let existed = self.inner.delete_spec_version(spec_version_id).await?;
+        if existed && !self.is_disabled() {
+            self.invalidate_spec_caches();
+        }
+        Ok(existed)
+    }
+
+    async fn touch_spec_version_required(
+        &self,
+        spec_version_id: i64,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .touch_spec_version_required(spec_version_id, now_iso)
+            .await?;
+        // `find_spec_version` results carry `last_required_at`, and only the
+        // row id is known here — not the (service, api_type, version) key — so
+        // the whole meta cache goes rather than guessing the entry.
+        if !self.is_disabled() {
+            self.spec_version_cache.invalidate_all();
+        }
+        Ok(())
+    }
+
+    async fn touch_spec_version_provided(
+        &self,
+        spec_version_id: i64,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .touch_spec_version_provided(spec_version_id, now_iso)
+            .await?;
+        // Same shape as `touch_spec_version_required`: cached metas carry
+        // `updated_at`, and only the row id is known here.
+        if !self.is_disabled() {
+            self.spec_version_cache.invalidate_all();
+        }
+        Ok(())
+    }
+
+    async fn delete_expired_snapshots(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
+        let result = self.inner.delete_expired_snapshots(cutoff_iso).await?;
+        if result > 0 && !self.is_disabled() {
+            self.invalidate_spec_caches();
+        }
+        Ok(result)
+    }
+
+    async fn list_version_dependents(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Vec<String>, RepositoryError> {
+        self.inner.list_version_dependents(spec_version_id).await
+    }
+
+    // --- Services and clients ---
 
     async fn ensure_service(&self, name: &str) -> Result<i64, RepositoryError> {
         let id = self.inner.ensure_service(name).await?;
@@ -414,97 +485,27 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.get_service_name_by_id(service_id).await
     }
 
-    async fn ensure_branch(
+    async fn get_endpoints_for_version(
         &self,
-        service_id: i64,
-        branch_name: &str,
-    ) -> Result<i64, RepositoryError> {
-        let id = self.inner.ensure_branch(service_id, branch_name).await?;
-        if !self.is_disabled() {
-            self.branch_id_cache
-                .insert((service_id, branch_name.to_string()), id)
-                .await;
-            self.branches_list_cache.invalidate_all();
-        }
-        Ok(id)
-    }
-
-    async fn find_branch(
-        &self,
-        service_id: i64,
-        branch_name: &str,
-    ) -> Result<Option<i64>, RepositoryError> {
-        if !self.is_disabled() {
-            let key = (service_id, branch_name.to_string());
-            if let Some(id) = self.branch_id_cache.get(&key).await {
-                self.record_hit();
-                return Ok(Some(id));
-            }
-        }
-        self.record_miss();
-        let result = self.inner.find_branch(service_id, branch_name).await?;
-        if !self.is_disabled()
-            && let Some(id) = result
-        {
-            self.branch_id_cache
-                .insert((service_id, branch_name.to_string()), id)
-                .await;
-        }
-        Ok(result)
-    }
-
-    async fn get_endpoints_for_branch(
-        &self,
-        branch_id: i64,
+        spec_version_id: i64,
     ) -> Result<Vec<EndpointRecord>, RepositoryError> {
         if !self.is_disabled()
-            && let Some(cached) = self.branch_endpoints_cache.get(&branch_id).await
+            && let Some(cached) = self.version_endpoints_cache.get(&spec_version_id).await
         {
             self.record_hit();
             return Ok((*cached).clone());
         }
         self.record_miss();
-        let result = self.inner.get_endpoints_for_branch(branch_id).await?;
+        let result = self
+            .inner
+            .get_endpoints_for_version(spec_version_id)
+            .await?;
         if !self.is_disabled() {
-            self.branch_endpoints_cache
-                .insert(branch_id, Arc::new(result.clone()))
+            self.version_endpoints_cache
+                .insert(spec_version_id, Arc::new(result.clone()))
                 .await;
         }
         Ok(result)
-    }
-
-    async fn insert_endpoint(
-        &self,
-        branch_id: i64,
-        endpoint: &EndpointRecord,
-    ) -> Result<(), RepositoryError> {
-        self.inner.insert_endpoint(branch_id, endpoint).await?;
-        if !self.is_disabled() {
-            self.branch_endpoints_cache.invalidate(&branch_id).await;
-            self.report_cache.invalidate_all();
-        }
-        Ok(())
-    }
-
-    async fn reset_branch_history(
-        &self,
-        service_name: &str,
-        branch_name: &str,
-    ) -> Result<bool, RepositoryError> {
-        let res = self
-            .inner
-            .reset_branch_history(service_name, branch_name)
-            .await?;
-        if res && !self.is_disabled() {
-            // Invalidate caches
-            if let Ok(Some(service_id)) = self.find_service(service_name).await
-                && let Ok(Some(branch_id)) = self.find_branch(service_id, branch_name).await
-            {
-                self.branch_endpoints_cache.invalidate(&branch_id).await;
-            }
-            self.report_cache.invalidate(&branch_name.to_string()).await;
-        }
-        Ok(res)
     }
 
     async fn ensure_client(&self, name: &str) -> Result<i64, RepositoryError> {
@@ -517,40 +518,33 @@ impl SpecRepository for CachedSpecRepository {
 
     async fn find_endpoint(
         &self,
-        service_id: i64,
-        branch_name: &str,
+        spec_version_id: i64,
         api_type: ApiType,
         path: &str,
         method: &str,
-    ) -> Result<Option<(i64, String, bool, bool)>, RepositoryError> {
-        if !self.is_disabled() {
-            let key = (
-                service_id,
-                branch_name.to_string(),
-                format!("{:?}", api_type),
-                path.to_string(),
-                method.to_string(),
-            );
-            if let Some(cached) = self.endpoint_cache.get(&key).await {
-                self.record_hit();
-                return Ok(Some((cached.0, cached.1.clone(), cached.2, cached.3)));
-            }
+    ) -> Result<Option<(i64, String, bool)>, RepositoryError> {
+        // Keyed by the normalized path, so lenient path variants of the same
+        // endpoint share one entry — mirroring how the repository matches.
+        let key = (
+            spec_version_id,
+            api_type,
+            crate::openapi::normalize_path(path),
+            method.to_string(),
+        );
+        if !self.is_disabled()
+            && let Some(cached) = self.endpoint_cache.get(&key).await
+        {
+            self.record_hit();
+            return Ok(Some((cached.0, cached.1.clone(), cached.2)));
         }
         self.record_miss();
         let result = self
             .inner
-            .find_endpoint(service_id, branch_name, api_type, path, method)
+            .find_endpoint(spec_version_id, api_type, path, method)
             .await?;
         if !self.is_disabled()
             && let Some(ref val) = result
         {
-            let key = (
-                service_id,
-                branch_name.to_string(),
-                format!("{:?}", api_type),
-                path.to_string(),
-                method.to_string(),
-            );
             self.endpoint_cache.insert(key, Arc::new(val.clone())).await;
         }
         Ok(result)
@@ -558,34 +552,31 @@ impl SpecRepository for CachedSpecRepository {
 
     async fn find_endpoints_bulk(
         &self,
-        service_id: i64,
-        branch_name: &str,
+        spec_version_id: i64,
         api_type: ApiType,
         endpoints: &[(String, String)],
     ) -> Result<EndpointMap, RepositoryError> {
         if self.is_disabled() {
             return self
                 .inner
-                .find_endpoints_bulk(service_id, branch_name, api_type, endpoints)
+                .find_endpoints_bulk(spec_version_id, api_type, endpoints)
                 .await;
         }
         // Try cache first for each endpoint
-        let api_str = format!("{:?}", api_type);
         let mut result = EndpointMap::new();
         let mut misses = Vec::new();
         for (path, method) in endpoints {
             let key = (
-                service_id,
-                branch_name.to_string(),
-                api_str.clone(),
-                path.clone(),
+                spec_version_id,
+                api_type,
+                crate::openapi::normalize_path(path),
                 method.clone(),
             );
             if let Some(cached) = self.endpoint_cache.get(&key).await {
                 self.record_hit();
                 result.insert(
                     (path.clone(), method.clone()),
-                    (cached.0, cached.1.clone(), cached.2, cached.3),
+                    (cached.0, cached.1.clone(), cached.2),
                 );
             } else {
                 misses.push((path.clone(), method.clone()));
@@ -595,14 +586,13 @@ impl SpecRepository for CachedSpecRepository {
             self.record_miss();
             let db_results = self
                 .inner
-                .find_endpoints_bulk(service_id, branch_name, api_type, &misses)
+                .find_endpoints_bulk(spec_version_id, api_type, &misses)
                 .await?;
             for ((path, method), val) in &db_results {
                 let key = (
-                    service_id,
-                    branch_name.to_string(),
-                    api_str.clone(),
-                    path.clone(),
+                    spec_version_id,
+                    api_type,
+                    crate::openapi::normalize_path(path),
                     method.clone(),
                 );
                 self.endpoint_cache.insert(key, Arc::new(val.clone())).await;
@@ -634,145 +624,28 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
-    async fn get_report(&self, branch: &str) -> Result<DependencyReport, RepositoryError> {
-        if !self.is_disabled()
-            && let Some(cached) = self.report_cache.get(&branch.to_string()).await
-        {
-            self.record_hit();
-            return Ok((*cached).clone());
-        }
-        self.record_miss();
-        let result = self.inner.get_report(branch).await?;
-        if !self.is_disabled() {
-            self.report_cache
-                .insert(branch.to_string(), Arc::new(result.clone()))
-                .await;
-        }
-        Ok(result)
-    }
-
-    async fn is_branch_protected(&self, branch_name: &str) -> Result<bool, RepositoryError> {
-        if !self.is_disabled()
-            && let Some(cached) = self
-                .branch_protected_cache
-                .get(&branch_name.to_string())
-                .await
-        {
-            self.record_hit();
-            return Ok(cached);
-        }
-        self.record_miss();
-        let result = self.inner.is_branch_protected(branch_name).await?;
-        if !self.is_disabled() {
-            self.branch_protected_cache
-                .insert(branch_name.to_string(), result)
-                .await;
-        }
-        Ok(result)
-    }
-
-    async fn add_protected_branch(&self, pattern: &str) -> Result<(), RepositoryError> {
-        self.inner.add_protected_branch(pattern).await?;
-        if !self.is_disabled() {
-            self.branch_protected_cache.invalidate_all();
-            self.protected_branches_cache.invalidate_all();
-        }
-        Ok(())
-    }
-
-    async fn remove_protected_branch(&self, pattern: &str) -> Result<bool, RepositoryError> {
-        let result = self.inner.remove_protected_branch(pattern).await?;
-        if !self.is_disabled() {
-            self.branch_protected_cache.invalidate_all();
-            self.protected_branches_cache.invalidate_all();
-        }
-        Ok(result)
-    }
-
-    async fn list_protected_branches(&self) -> Result<Vec<String>, RepositoryError> {
+    async fn get_report(&self) -> Result<DependencyReport, RepositoryError> {
         let sentinel = "_all_".to_string();
         if !self.is_disabled()
-            && let Some(cached) = self.protected_branches_cache.get(&sentinel).await
+            && let Some(cached) = self.report_cache.get(&sentinel).await
         {
             self.record_hit();
             return Ok((*cached).clone());
         }
         self.record_miss();
-        let result = self.inner.list_protected_branches().await?;
+        let result = self.inner.get_report().await?;
         if !self.is_disabled() {
-            self.protected_branches_cache
+            self.report_cache
                 .insert(sentinel, Arc::new(result.clone()))
                 .await;
         }
         Ok(result)
     }
 
-    async fn update_endpoint(
-        &self,
-        params: UpdateEndpointParams<'_>,
-    ) -> Result<(), RepositoryError> {
-        let branch_id = params.branch_id;
-        self.inner.update_endpoint(params).await?;
-        if !self.is_disabled() {
-            self.branch_endpoints_cache.invalidate(&branch_id).await;
-            self.endpoint_cache.invalidate_all();
-            self.report_cache.invalidate_all();
-        }
-        Ok(())
-    }
-
-    async fn soft_delete_endpoint(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<(), RepositoryError> {
-        self.inner
-            .soft_delete_endpoint(branch_id, api_type, path, method)
-            .await?;
-        if !self.is_disabled() {
-            self.branch_endpoints_cache.invalidate(&branch_id).await;
-            self.endpoint_cache.invalidate_all();
-            self.report_cache.invalidate_all();
-        }
-        Ok(())
-    }
-
-    async fn hard_delete_endpoint(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<(), RepositoryError> {
-        self.inner
-            .hard_delete_endpoint(branch_id, api_type, path, method)
-            .await?;
-        if !self.is_disabled() {
-            self.branch_endpoints_cache.invalidate(&branch_id).await;
-            self.endpoint_cache.invalidate_all();
-            self.report_cache.invalidate_all();
-        }
-        Ok(())
-    }
-
-    async fn is_endpoint_deleted(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<bool, RepositoryError> {
-        self.inner
-            .is_endpoint_deleted(branch_id, api_type, path, method)
-            .await
-    }
-
     async fn delete_all_services(&self) -> Result<u64, RepositoryError> {
         let result = self.inner.delete_all_services().await?;
         if !self.is_disabled() {
-            self.invalidate_all_caches().await;
+            self.invalidate_all_caches();
         }
         Ok(result)
     }
@@ -786,15 +659,17 @@ impl SpecRepository for CachedSpecRepository {
         Ok(result)
     }
 
-    async fn delete_all_non_admin_users(&self) -> Result<u64, RepositoryError> {
-        let result = self.inner.delete_all_non_admin_users().await?;
-        Ok(result)
+    async fn delete_all_non_admin_users(
+        &self,
+        spare_usernames: &[String],
+    ) -> Result<u64, RepositoryError> {
+        self.inner.delete_all_non_admin_users(spare_usernames).await
     }
 
     async fn nuke_database(&self, keep_user_id: Option<i64>) -> Result<(), RepositoryError> {
         self.inner.nuke_database(keep_user_id).await?;
         if !self.is_disabled() {
-            self.invalidate_all_caches().await;
+            self.invalidate_all_caches();
         }
         Ok(())
     }
@@ -803,30 +678,9 @@ impl SpecRepository for CachedSpecRepository {
         let result = self.inner.delete_producer(name).await?;
         if !self.is_disabled() {
             self.service_id_cache.invalidate(&name.to_string()).await;
-            self.branch_id_cache.invalidate_all();
-            self.branch_endpoints_cache.invalidate_all();
-            self.endpoint_cache.invalidate_all();
-            self.report_cache.invalidate_all();
+            self.invalidate_spec_caches();
             self.services_list_cache.invalidate_all();
             self.services_cache.invalidate_all();
-            self.branches_list_cache.invalidate_all();
-            self.clients_list_cache.invalidate_all();
-        }
-        Ok(result)
-    }
-
-    async fn delete_branch(
-        &self,
-        service_name: &str,
-        branch_name: &str,
-    ) -> Result<bool, RepositoryError> {
-        let result = self.inner.delete_branch(service_name, branch_name).await?;
-        if !self.is_disabled() {
-            self.branch_id_cache.invalidate_all();
-            self.branch_endpoints_cache.invalidate_all();
-            self.endpoint_cache.invalidate_all();
-            self.report_cache.invalidate_all();
-            self.branches_list_cache.invalidate_all();
         }
         Ok(result)
     }
@@ -876,21 +730,6 @@ impl SpecRepository for CachedSpecRepository {
         Ok(result)
     }
 
-    async fn set_fallback_branch(
-        &self,
-        service_name: &str,
-        branch: Option<&str>,
-    ) -> Result<(), RepositoryError> {
-        self.inner.set_fallback_branch(service_name, branch).await?;
-        if !self.is_disabled() {
-            self.fallback_branch_cache
-                .invalidate(&service_name.to_string())
-                .await;
-            self.services_cache.invalidate_all();
-        }
-        Ok(())
-    }
-
     async fn update_producer_metadata(
         &self,
         service_name: &str,
@@ -904,83 +743,6 @@ impl SpecRepository for CachedSpecRepository {
             self.services_cache.invalidate_all();
         }
         Ok(())
-    }
-
-    async fn get_fallback_branch(
-        &self,
-        service_name: &str,
-    ) -> Result<Option<String>, RepositoryError> {
-        if !self.is_disabled()
-            && let Some(cached) = self
-                .fallback_branch_cache
-                .get(&service_name.to_string())
-                .await
-        {
-            self.record_hit();
-            return Ok(cached);
-        }
-        self.record_miss();
-        let result = self.inner.get_fallback_branch(service_name).await?;
-        if !self.is_disabled() {
-            self.fallback_branch_cache
-                .insert(service_name.to_string(), result.clone())
-                .await;
-        }
-        Ok(result)
-    }
-
-    // Not cached: this field directly drives fallback-resolution correctness
-    // (item #17), so a stale read would risk reintroducing the exact
-    // wrong-branch-served bug the feature exists to fix.
-    async fn set_source_protected_branch_if_unset(
-        &self,
-        branch_id: i64,
-        value: &str,
-    ) -> Result<bool, RepositoryError> {
-        self.inner
-            .set_source_protected_branch_if_unset(branch_id, value)
-            .await
-    }
-
-    async fn get_source_protected_branch(
-        &self,
-        branch_id: i64,
-    ) -> Result<Option<String>, RepositoryError> {
-        self.inner.get_source_protected_branch(branch_id).await
-    }
-
-    async fn admin_set_source_protected_branch(
-        &self,
-        branch_id: i64,
-        value: Option<&str>,
-    ) -> Result<(), RepositoryError> {
-        self.inner
-            .admin_set_source_protected_branch(branch_id, value)
-            .await
-    }
-
-    async fn list_branches(&self, service_name: &str) -> Result<Vec<String>, RepositoryError> {
-        if !self.is_disabled()
-            && let Some(cached) = self
-                .branches_list_cache
-                .get(&service_name.to_string())
-                .await
-        {
-            self.record_hit();
-            return Ok((*cached).clone());
-        }
-        self.record_miss();
-        let result = self.inner.list_branches(service_name).await?;
-        if !self.is_disabled() {
-            self.branches_list_cache
-                .insert(service_name.to_string(), Arc::new(result.clone()))
-                .await;
-        }
-        Ok(result)
-    }
-
-    async fn list_all_branches(&self) -> Result<Vec<String>, RepositoryError> {
-        self.inner.list_all_branches().await
     }
 
     async fn list_consumers(&self) -> Result<Vec<String>, RepositoryError> {
@@ -1001,21 +763,11 @@ impl SpecRepository for CachedSpecRepository {
         Ok(result)
     }
 
-    async fn list_consumer_branches(
-        &self,
-        client_name: &str,
-    ) -> Result<Vec<String>, RepositoryError> {
-        self.inner.list_consumer_branches(client_name).await
-    }
-
     async fn list_consumer_endpoints(
         &self,
         client_name: &str,
-        branch: &str,
     ) -> Result<Vec<ConsumerEndpointInfo>, RepositoryError> {
-        self.inner
-            .list_consumer_endpoints(client_name, branch)
-            .await
+        self.inner.list_consumer_endpoints(client_name).await
     }
 
     // --- Non-cached pass-through (auth/session/settings/user) ---
@@ -1123,86 +875,12 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.validate_api_token(token_hash).await
     }
 
-    async fn delete_stale_branches(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
-        let result = self.inner.delete_stale_branches(cutoff_iso).await?;
-        if !self.is_disabled() && result > 0 {
-            self.branch_id_cache.invalidate_all();
-            self.branch_endpoints_cache.invalidate_all();
-            self.endpoint_cache.invalidate_all();
-            self.branches_list_cache.invalidate_all();
-            self.report_cache.invalidate_all();
-        }
-        Ok(result)
-    }
-
     async fn delete_stale_dependencies(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
         let result = self.inner.delete_stale_dependencies(cutoff_iso).await?;
-        if !self.is_disabled() && result > 0 {
+        if result > 0 && !self.is_disabled() {
             self.report_cache.invalidate_all();
         }
         Ok(result)
-    }
-
-    async fn get_endpoint_id(
-        &self,
-        branch_id: i64,
-        api_type: ApiType,
-        path: &str,
-        method: &str,
-    ) -> Result<Option<i64>, RepositoryError> {
-        self.inner
-            .get_endpoint_id(branch_id, api_type, path, method)
-            .await
-    }
-
-    async fn insert_endpoint_version(
-        &self,
-        endpoint_id: i64,
-        version: i32,
-        yaml_content: &str,
-        diff: Option<&str>,
-        created_at: &str,
-    ) -> Result<(), RepositoryError> {
-        self.inner
-            .insert_endpoint_version(endpoint_id, version, yaml_content, diff, created_at)
-            .await
-    }
-
-    async fn get_latest_endpoint_version(&self, endpoint_id: i64) -> Result<i32, RepositoryError> {
-        self.inner.get_latest_endpoint_version(endpoint_id).await
-    }
-
-    async fn get_endpoint_versions(
-        &self,
-        endpoint_id: i64,
-    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
-        self.inner.get_endpoint_versions(endpoint_id).await
-    }
-
-    async fn get_global_endpoint_versions(
-        &self,
-        limit: u32,
-    ) -> Result<Vec<EndpointVersion>, RepositoryError> {
-        self.inner.get_global_endpoint_versions(limit).await
-    }
-
-    async fn apply_spec_changes(
-        &self,
-        branch_id: i64,
-        changes: Vec<SpecChange>,
-        is_protected: bool,
-        username: Option<&str>,
-        source_branch: Option<&str>,
-    ) -> Result<(), RepositoryError> {
-        self.inner
-            .apply_spec_changes(branch_id, changes, is_protected, username, source_branch)
-            .await?;
-        if !self.is_disabled() {
-            self.branch_endpoints_cache.invalidate(&branch_id).await;
-            self.endpoint_cache.invalidate_all();
-            self.report_cache.invalidate_all();
-        }
-        Ok(())
     }
 
     // --- Roles and Groups ---
@@ -1304,76 +982,6 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.list_group_member_ids(group_id).await
     }
 
-    // --- Pending Specs ---
-    //
-    // Uncached: a held spec is read when a human is about to act on it, and
-    // written on a path that has already failed. Neither is hot.
-
-    async fn upsert_pending_spec(
-        &self,
-        service_id: i64,
-        branch: &str,
-        api_type: ApiType,
-        content: &str,
-        reason: &str,
-        submitted_by: &str,
-    ) -> Result<i64, RepositoryError> {
-        self.inner
-            .upsert_pending_spec(service_id, branch, api_type, content, reason, submitted_by)
-            .await
-    }
-
-    async fn get_pending_spec(&self, id: i64) -> Result<Option<PendingSpec>, RepositoryError> {
-        self.inner.get_pending_spec(id).await
-    }
-
-    async fn list_pending_specs(&self) -> Result<Vec<PendingSpec>, RepositoryError> {
-        self.inner.list_pending_specs().await
-    }
-
-    async fn delete_pending_spec(&self, id: i64) -> Result<bool, RepositoryError> {
-        self.inner.delete_pending_spec(id).await
-    }
-
-    async fn clear_pending_spec(
-        &self,
-        service_id: i64,
-        branch: &str,
-        api_type: ApiType,
-    ) -> Result<bool, RepositoryError> {
-        self.inner
-            .clear_pending_spec(service_id, branch, api_type)
-            .await
-    }
-
-    // --- Producer Onboarding ---
-    //
-    // Uncached: this decides whether a Provide is gatekept, so a stale answer
-    // would either refuse a change that should land or accept one that should
-    // not.
-
-    async fn set_producer_onboarding(
-        &self,
-        service_id: i64,
-        onboarding: bool,
-    ) -> Result<(), RepositoryError> {
-        self.inner
-            .set_producer_onboarding(service_id, onboarding)
-            .await?;
-        if !self.is_disabled() {
-            self.services_cache.invalidate_all();
-        }
-        Ok(())
-    }
-
-    async fn is_producer_onboarding(&self, service_id: i64) -> Result<bool, RepositoryError> {
-        self.inner.is_producer_onboarding(service_id).await
-    }
-
-    async fn list_onboarding_producers(&self) -> Result<Vec<String>, RepositoryError> {
-        self.inner.list_onboarding_producers().await
-    }
-
     // --- Maintainer Scope ---
     //
     // Deliberately uncached, for the same reason as roles: an unassignment must
@@ -1424,6 +1032,21 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.list_group_maintainer_ids(service_id).await
     }
 
+    async fn list_all_user_maintainers(&self) -> Result<Vec<(String, i64)>, RepositoryError> {
+        self.inner.list_all_user_maintainers().await
+    }
+
+    async fn list_all_group_maintainers(&self) -> Result<Vec<(String, i64)>, RepositoryError> {
+        self.inner.list_all_group_maintainers().await
+    }
+
+    async fn list_group_maintained_producers(
+        &self,
+        group_ids: &[i64],
+    ) -> Result<Vec<String>, RepositoryError> {
+        self.inner.list_group_maintained_producers(group_ids).await
+    }
+
     async fn maintains_producer(
         &self,
         user_id: i64,
@@ -1439,12 +1062,19 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.list_maintained_producers(user_id).await
     }
 
+    // --- Service Tags ---
+
     async fn add_service_tags(
         &self,
         service_id: i64,
         tags: &[String],
     ) -> Result<(), RepositoryError> {
-        self.inner.add_service_tags(service_id, tags).await
+        self.inner.add_service_tags(service_id, tags).await?;
+        // Tags ride along inside the dependency report.
+        if !self.is_disabled() {
+            self.report_cache.invalidate_all();
+        }
+        Ok(())
     }
 
     async fn get_all_service_tags(
@@ -1453,50 +1083,7 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.get_all_service_tags().await
     }
 
-    async fn get_channel_message_contract(
-        &self,
-        branch_name: &str,
-        channel: &str,
-        message_name: &str,
-    ) -> Result<Option<ChannelMessageContract>, RepositoryError> {
-        self.inner
-            .get_channel_message_contract(branch_name, channel, message_name)
-            .await
-    }
-
-    async fn upsert_channel_message_contract(
-        &self,
-        contract: &ChannelMessageContract,
-    ) -> Result<(), RepositoryError> {
-        self.inner.upsert_channel_message_contract(contract).await
-    }
-
-    async fn delete_channel_message_contract(
-        &self,
-        branch_name: &str,
-        channel: &str,
-        message_name: &str,
-    ) -> Result<(), RepositoryError> {
-        self.inner
-            .delete_channel_message_contract(branch_name, channel, message_name)
-            .await
-    }
-
-    async fn list_channel_message_contracts(
-        &self,
-        branch_name: &str,
-    ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
-        self.inner.list_channel_message_contracts(branch_name).await
-    }
-
-    async fn delete_orphaned_channel_message_contracts(
-        &self,
-        live_branches: &[String],
-    ) -> Result<u64, RepositoryError> {
-        self.inner
-            .delete_orphaned_channel_message_contracts(live_branches)
-            .await
-    }
+    // --- Audit Logs ---
 
     async fn insert_audit_log(
         &self,
@@ -1519,6 +1106,8 @@ impl SpecRepository for CachedSpecRepository {
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
         self.inner.get_recent_audit_logs(limit).await
     }
+
+    // --- User Favorites ---
 
     async fn get_user_favorites(
         &self,
@@ -1550,20 +1139,39 @@ impl SpecRepository for CachedSpecRepository {
             .await
     }
 
-    async fn list_branches_with_metadata(&self) -> Result<Vec<BranchMetadata>, RepositoryError> {
-        self.inner.list_branches_with_metadata().await
+    // --- AsyncAPI Channel Message Contracts ---
+
+    async fn get_channel_message_contract(
+        &self,
+        channel: &str,
+        message_name: &str,
+    ) -> Result<Option<ChannelMessageContract>, RepositoryError> {
+        self.inner
+            .get_channel_message_contract(channel, message_name)
+            .await
     }
 
-    async fn list_branch_last_published(
+    async fn upsert_channel_message_contract(
         &self,
-    ) -> Result<Vec<(String, String, String)>, RepositoryError> {
-        self.inner.list_branch_last_published().await
+        contract: &ChannelMessageContract,
+    ) -> Result<(), RepositoryError> {
+        self.inner.upsert_channel_message_contract(contract).await
     }
 
-    async fn list_branch_endpoint_counts(
+    async fn delete_channel_message_contract(
         &self,
-    ) -> Result<Vec<(String, String, i64)>, RepositoryError> {
-        self.inner.list_branch_endpoint_counts().await
+        channel: &str,
+        message_name: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .delete_channel_message_contract(channel, message_name)
+            .await
+    }
+
+    async fn list_channel_message_contracts(
+        &self,
+    ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
+        self.inner.list_channel_message_contracts().await
     }
 }
 
@@ -1584,6 +1192,40 @@ mod tests {
         CachedSpecRepository::new(DatabaseRepo::Sqlite(repo), memory_mb)
     }
 
+    fn endpoint(path: &str, method: &str, yaml: &str) -> EndpointRecord {
+        EndpointRecord {
+            id: None,
+            api_type: ApiType::OpenApi,
+            path: path.to_string(),
+            normalized_path: crate::openapi::normalize_path(path),
+            method: method.to_string(),
+            yaml_content: yaml.to_string(),
+            deprecated: false,
+        }
+    }
+
+    async fn provide(
+        repo: &CachedSpecRepository,
+        service_id: i64,
+        version: &str,
+        content_hash: &str,
+        endpoints: Vec<EndpointRecord>,
+    ) -> i64 {
+        repo.upsert_spec_version(UpsertSpecVersion {
+            service_id,
+            api_type: ApiType::OpenApi,
+            version: version.parse().unwrap(),
+            stability: Stability::Snapshot,
+            content: "spec-content",
+            content_hash,
+            provided_by: "tester",
+            now_iso: "2026-01-01T00:00:00Z",
+            endpoints,
+        })
+        .await
+        .unwrap()
+    }
+
     #[tokio::test]
     async fn test_cache_miss_then_hit_find_service() {
         let repo = setup_cached_repo(256).await;
@@ -1595,17 +1237,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cache_miss_then_hit_find_branch() {
-        let repo = setup_cached_repo(256).await;
-        let sid = repo.ensure_service("svc").await.unwrap();
-        let bid = repo.ensure_branch(sid, "main").await.unwrap();
-        let found = repo.find_branch(sid, "main").await.unwrap();
-        assert_eq!(found, Some(bid));
-        assert!(repo.cache_stats().await.hit_count > 0);
-    }
-
-    #[tokio::test]
-    async fn test_cache_invalidation_on_delete_service() {
+    async fn test_cache_invalidation_on_delete_producer() {
         let repo = setup_cached_repo(256).await;
         let _id = repo.ensure_service("svc").await.unwrap();
         let found = repo.find_service("svc").await.unwrap();
@@ -1656,43 +1288,176 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_endpoints_for_branch_cached() {
+    async fn find_spec_version_cached_and_invalidated_on_upsert() {
         let repo = setup_cached_repo(256).await;
         let sid = repo.ensure_service("svc").await.unwrap();
-        let bid = repo.ensure_branch(sid, "main").await.unwrap();
+        let version: SemVer = "1.0.0".parse().unwrap();
+        provide(&repo, sid, "1.0.0", "hash-1", vec![]).await;
 
-        let eps = repo.get_endpoints_for_branch(bid).await.unwrap();
-        assert!(eps.is_empty());
-        let miss_before = repo.cache_stats().await.miss_count;
+        // First read populates the cache, the second is served from it.
+        let meta = repo
+            .find_spec_version(sid, ApiType::OpenApi, version)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(meta.content_hash, "hash-1");
+        let misses_before = repo.cache_stats().await.miss_count;
+        let meta = repo
+            .find_spec_version(sid, ApiType::OpenApi, version)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(meta.content_hash, "hash-1");
+        assert_eq!(
+            repo.cache_stats().await.miss_count,
+            misses_before,
+            "the second read must come from the cache"
+        );
 
-        let eps = repo.get_endpoints_for_branch(bid).await.unwrap();
-        assert!(eps.is_empty());
-        assert!(repo.cache_stats().await.hit_count > 0);
-        assert_eq!(repo.cache_stats().await.miss_count, miss_before);
+        // A snapshot overwrite must be visible immediately.
+        provide(&repo, sid, "1.0.0", "hash-2", vec![]).await;
+        let meta = repo
+            .find_spec_version(sid, ApiType::OpenApi, version)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(meta.content_hash, "hash-2");
     }
 
     #[tokio::test]
-    async fn test_protected_branch_cache_invalidation() {
+    async fn get_endpoints_for_version_cached_and_replaced_on_upsert() {
         let repo = setup_cached_repo(256).await;
+        let sid = repo.ensure_service("svc").await.unwrap();
+        let vid = provide(
+            &repo,
+            sid,
+            "1.0.0",
+            "hash-1",
+            vec![endpoint("/users/{id}", "GET", "yaml-1")],
+        )
+        .await;
 
-        // is_branch_protected uses glob matching in sqlite, not exact match
-        // Add protection first, then check
-        repo.add_protected_branch("main").await.unwrap();
-        let protected = repo.is_branch_protected("main").await.unwrap();
-        assert!(protected);
+        let eps = repo.get_endpoints_for_version(vid).await.unwrap();
+        assert_eq!(eps.len(), 1);
+        assert_eq!(eps[0].yaml_content, "yaml-1");
+        let misses_before = repo.cache_stats().await.miss_count;
+        let eps = repo.get_endpoints_for_version(vid).await.unwrap();
+        assert_eq!(eps.len(), 1);
+        assert_eq!(repo.cache_stats().await.miss_count, misses_before);
 
-        repo.remove_protected_branch("main").await.unwrap();
-        let protected = repo.is_branch_protected("main").await.unwrap();
-        assert!(!protected);
+        // Overwriting the version replaces the endpoint set wholesale.
+        let vid_again = provide(
+            &repo,
+            sid,
+            "1.0.0",
+            "hash-2",
+            vec![
+                endpoint("/users/{id}", "GET", "yaml-2"),
+                endpoint("/orders", "POST", "yaml-3"),
+            ],
+        )
+        .await;
+        assert_eq!(vid_again, vid, "overwrite keeps the row's identity");
+        let eps = repo.get_endpoints_for_version(vid).await.unwrap();
+        assert_eq!(eps.len(), 2);
     }
 
     #[tokio::test]
-    async fn test_list_services_cached() {
+    async fn find_endpoint_cached_across_lenient_path_variants() {
         let repo = setup_cached_repo(256).await;
-        let sid_a = repo.ensure_service("svc-a").await.unwrap();
-        repo.ensure_branch(sid_a, "main").await.unwrap();
-        let sid_b = repo.ensure_service("svc-b").await.unwrap();
-        repo.ensure_branch(sid_b, "main").await.unwrap();
+        let sid = repo.ensure_service("svc").await.unwrap();
+        let vid = provide(
+            &repo,
+            sid,
+            "1.0.0",
+            "hash-1",
+            vec![endpoint("/users/{id}", "GET", "yaml-1")],
+        )
+        .await;
+
+        let found = repo
+            .find_endpoint(vid, ApiType::OpenApi, "/users/{userId}", "GET")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.1, "yaml-1");
+
+        // A differently named path parameter shares the normalized cache key.
+        let misses_before = repo.cache_stats().await.miss_count;
+        let found = repo
+            .find_endpoint(vid, ApiType::OpenApi, "/users/{anything}", "GET")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.1, "yaml-1");
+        assert_eq!(
+            repo.cache_stats().await.miss_count,
+            misses_before,
+            "lenient path variants must share one cache entry"
+        );
+
+        // Removing the endpoint via an overwrite must be visible immediately.
+        provide(&repo, sid, "1.0.0", "hash-2", vec![]).await;
+        let found = repo
+            .find_endpoint(vid, ApiType::OpenApi, "/users/{id}", "GET")
+            .await
+            .unwrap();
+        assert_eq!(found, None);
+    }
+
+    #[tokio::test]
+    async fn get_spec_content_cached_and_gone_after_delete() {
+        let repo = setup_cached_repo(256).await;
+        let sid = repo.ensure_service("svc").await.unwrap();
+        let vid = provide(&repo, sid, "1.0.0", "hash-1", vec![]).await;
+
+        let content = repo.get_spec_content(vid).await.unwrap();
+        assert_eq!(content.as_deref(), Some("spec-content"));
+        let misses_before = repo.cache_stats().await.miss_count;
+        let content = repo.get_spec_content(vid).await.unwrap();
+        assert_eq!(content.as_deref(), Some("spec-content"));
+        assert_eq!(repo.cache_stats().await.miss_count, misses_before);
+
+        assert!(repo.delete_spec_version(vid).await.unwrap());
+        let content = repo.get_spec_content(vid).await.unwrap();
+        assert_eq!(content, None);
+    }
+
+    #[tokio::test]
+    async fn touch_spec_version_required_invalidates_cached_meta() {
+        let repo = setup_cached_repo(256).await;
+        let sid = repo.ensure_service("svc").await.unwrap();
+        let version: SemVer = "1.0.0".parse().unwrap();
+        let vid = provide(&repo, sid, "1.0.0", "hash-1", vec![]).await;
+
+        // Warm the cache with a never-required entry.
+        let meta = repo
+            .find_spec_version(sid, ApiType::OpenApi, version)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(meta.last_required_at, None);
+
+        repo.touch_spec_version_required(vid, "2026-02-02T00:00:00Z")
+            .await
+            .unwrap();
+        let meta = repo
+            .find_spec_version(sid, ApiType::OpenApi, version)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            meta.last_required_at.as_deref(),
+            Some("2026-02-02T00:00:00Z"),
+            "a require must be visible despite the warm cache"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_list_producers_cached() {
+        let repo = setup_cached_repo(256).await;
+        repo.ensure_service("svc-a").await.unwrap();
+        repo.ensure_service("svc-b").await.unwrap();
 
         // First call populates cache
         let services = repo.list_producers().await.unwrap();
@@ -1703,19 +1468,6 @@ mod tests {
         let services = repo.list_producers().await.unwrap();
         assert_eq!(services.len(), 2);
         assert_eq!(repo.cache_stats().await.miss_count, miss_count);
-    }
-
-    #[tokio::test]
-    async fn test_fallback_branch_cache() {
-        let repo = setup_cached_repo(256).await;
-        repo.ensure_service("svc").await.unwrap();
-
-        let fb = repo.get_fallback_branch("svc").await.unwrap();
-        assert_eq!(fb, None);
-
-        repo.set_fallback_branch("svc", Some("main")).await.unwrap();
-        let fb = repo.get_fallback_branch("svc").await.unwrap();
-        assert_eq!(fb, Some("main".to_string()));
     }
 
     /// The cache must never delay a revocation: every write path invalidates,

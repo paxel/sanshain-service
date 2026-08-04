@@ -3,8 +3,8 @@ info:
   title: Sanshain Maintenance API
   description: |
     The administrative surface of Sanshain: users, roles, groups, maintainers,
-    Producer and Consumer administration, settings, observability and the review
-    of held Provides.
+    Producer and Consumer administration, version deletion, settings and
+    observability.
 
     Kept separate from `api.yaml` deliberately. That file is the contract build
     plugins and CLIs are written against and must stay stable; this one changes
@@ -18,7 +18,7 @@ info:
     listed in `SANSHAIN_ROOT_USERS` holds every permission.
 
     See [Administration](docs/administration.md) for the concepts.
-  version: "1.7.0"
+  version: "2.0.0"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt
@@ -110,9 +110,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
-  /admin/cleanup/branches:
+  /admin/cleanup/dependencies:
     post:
-      summary: "Create or run: cleanup/branches"
+      summary: "Create or run: cleanup/dependencies"
       description: |
         Requires the `manage_settings` permission.
       responses:
@@ -130,11 +130,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
-  /admin/cleanup/dependencies:
+  /admin/cleanup/snapshots:
     post:
-      summary: "Create or run: cleanup/dependencies"
+      summary: "Create or run: cleanup/snapshots"
       description: |
         Requires the `manage_settings` permission.
+
+        Runs the use-based snapshot expiry immediately: snapshots neither provided nor required within `snapshot_max_age_days` are deleted. GA versions are never age-culled.
       responses:
         "200":
           description: Success.
@@ -196,44 +198,15 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
-  /admin/consumers/{name}/branches:
+  /admin/consumers/{name}/endpoints:
     get:
-      summary: "Read: consumers/name/branches"
+      summary: "Read: consumers/name/endpoints"
       description: |
         Any signed-in caller.
+
+        Every endpoint the Consumer is recorded as depending on, with the pinned version and its current stability.
       parameters:
         - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-  /admin/consumers/{name}/branches/{branch}/endpoints:
-    get:
-      summary: "Read: consumers/name/branches/branch/endpoints"
-      description: |
-        Any signed-in caller.
-      parameters:
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: branch
           in: path
           required: true
           schema:
@@ -258,6 +231,8 @@ paths:
       summary: "Read: endpoint-versions"
       description: |
         Any signed-in caller.
+
+        The blame trail of one endpoint: which versions of the line changed it, with the Author attribution recorded on each Provide.
       responses:
         "200":
           description: Success.
@@ -278,28 +253,6 @@ paths:
       summary: "Read: endpoint-yaml"
       description: |
         Any signed-in caller.
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-  /admin/endpoints/update:
-    post:
-      summary: "Create or run: endpoints/update"
-      description: |
-        Requires the `manage_producers` permission, **or** maintainership of the Producer
-        named in the request body. The Producer is not in the path, so the scoped check
-        runs in the handler.
       responses:
         "200":
           description: Success.
@@ -464,39 +417,11 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
   /admin/maintainers:
     get:
-      summary: "Read: maintainers (all Producers)"
+      summary: "Read: maintainers"
       description: |
         Requires the `manage_roles` permission.
 
-        Every Producer with its maintainer user and group ids, in one response —
-        the aggregate behind the dashboard's Maintainers section, so it does not
-        ask per Producer.
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-  /admin/nuke/branch/{branch}:
-    post:
-      summary: "Create or run: nuke/branch/branch"
-      description: |
-        Requires the `run_destructive_operations` permission.
-      parameters:
-        - name: branch
-          in: path
-          required: true
-          schema:
-            type: string
+        Every Producer with its maintainer user and group ids, in one response — the aggregate behind the dashboard's Maintainers section, so it does not ask per Producer.
       responses:
         "200":
           description: Success.
@@ -576,7 +501,9 @@ paths:
     post:
       summary: "Create or run: nuke/users"
       description: |
-        Requires the `run_destructive_operations` permission.
+        Deletes every user who is not an effective administrator — users with a
+        direct `admin` role, `admin` via group membership, or a configured root
+        username survive. Requires the `run_destructive_operations` permission.
       responses:
         "200":
           description: Success.
@@ -712,108 +639,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
-  /admin/pending-specs:
-    get:
-      summary: "Read: pending-specs"
-      description: |
-        Any signed-in caller.
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-  /admin/pending-specs/{id}:
-    get:
-      summary: "Read: pending-specs/id"
-      description: |
-        Any signed-in caller.
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-    delete:
-      summary: "Delete: pending-specs/id"
-      description: |
-        Any signed-in caller.
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-  /admin/pending-specs/{id}/accept:
-    post:
-      summary: "Create or run: pending-specs/id/accept"
-      description: |
-        Any signed-in caller.
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
   /admin/producers:
     get:
       summary: "Read: producers"
       description: |
         Any signed-in caller.
+
+        Every Producer with metadata and its full version lines (version, stability, endpoint count, snapshot expiry).
       responses:
         "200":
           description: Success.
@@ -834,26 +666,6 @@ paths:
       summary: "Create or run: producers/metadata"
       description: |
         Requires the `manage_producers` permission.
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-  /admin/producers/onboarding:
-    get:
-      summary: "Read: producers/onboarding"
-      description: |
-        Any signed-in caller.
       responses:
         "200":
           description: Success.
@@ -895,11 +707,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
-  /admin/producers/{name}/branches:
+  /admin/producers/{name}/diff:
     get:
-      summary: "Read: producers/name/branches"
+      summary: "Read: producers/name/diff"
       description: |
         Any signed-in caller.
+
+        Unified diff between two versions of a line (`api_type`, `from`, `to` query parameters).
       parameters:
         - name: name
           in: path
@@ -921,49 +735,15 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
-  /admin/producers/{name}/branches/{branch}:
-    delete:
-      summary: "Delete: producers/name/branches/branch"
-      description: |
-        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
-      parameters:
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: branch
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-  /admin/producers/{name}/branches/{branch}/endpoints:
+  /admin/producers/{name}/endpoints:
     get:
-      summary: "Read: producers/name/branches/branch/endpoints"
+      summary: "Read: producers/name/endpoints"
       description: |
         Any signed-in caller.
+
+        The endpoints of one version-line entry (`api_type`, `version` query parameters).
       parameters:
         - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: branch
           in: path
           required: true
           schema:
@@ -983,110 +763,15 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
-  /admin/producers/{name}/branches/{branch}/full-spec:
+  /admin/producers/{name}/full-spec:
     get:
-      summary: "Read: producers/name/branches/branch/full-spec"
+      summary: "Read: producers/name/full-spec"
       description: |
         Any signed-in caller.
+
+        The full provided document of one version-line entry, exactly as the Producer submitted it (`api_type`, `version` query parameters).
       parameters:
         - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: branch
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-  /admin/producers/{name}/branches/{branch}/reset-history:
-    post:
-      summary: "Create or run: producers/name/branches/branch/reset-history"
-      description: |
-        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
-      parameters:
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: branch
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-  /admin/producers/{name}/branches/{branch}/source-protected-branch:
-    get:
-      summary: "Read: producers/name/branches/branch/source-protected-branch"
-      description: |
-        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
-      parameters:
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: branch
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-    put:
-      summary: "Replace: producers/name/branches/branch/source-protected-branch"
-      description: |
-        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
-      parameters:
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: branch
           in: path
           required: true
           schema:
@@ -1110,8 +795,7 @@ paths:
     get:
       summary: "Read: producers/name/maintainers"
       description: |
-        Requires the `manage_producers` permission, **or** maintainership of the Producer
-        named in the path.
+        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
       parameters:
         - name: name
           in: path
@@ -1220,11 +904,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
-  /admin/producers/{name}/onboarding:
+  /admin/producers/{name}/versions:
     get:
-      summary: "Read: producers/name/onboarding"
+      summary: "Read: producers/name/versions"
       description: |
-        Requires the `set_onboarding` permission, **or** maintainership of the Producer named in the path.
+        Any signed-in caller.
+
+        One Producer's version lines, optionally narrowed with an `api_type` query parameter.
       parameters:
         - name: name
           in: path
@@ -1246,77 +932,63 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
-    put:
-      summary: "Replace: producers/name/onboarding"
-      description: |
-        Requires the `set_onboarding` permission, **or** maintainership of the Producer named in the path.
-      parameters:
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-  /admin/protected-branches:
-    get:
-      summary: "Read: protected-branches"
-      description: |
-        Requires the `manage_protected_branches` permission.
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-    post:
-      summary: "Create or run: protected-branches"
-      description: |
-        Requires the `manage_protected_branches` permission.
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-  /admin/protected-branches/{pattern}:
+  /admin/producers/{name}/versions/{api_type}/{version}:
     delete:
-      summary: "Delete: protected-branches/pattern"
+      summary: "Delete: producers/name/versions/api_type/version"
       description: |
-        Requires the `manage_protected_branches` permission.
+        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
+
+        The sole escape hatch from GA immutability (ADR-0003): delete the version outright, freeing its number. Consumers pinned to it hard-fail on their next require — check the dependents listing first. Audited, naming the pinned Consumers.
       parameters:
-        - name: pattern
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api_type
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/versions/{api_type}/{version}/dependents:
+    get:
+      summary: "Read: producers/name/versions/api_type/version/dependents"
+      description: |
+        Any signed-in caller.
+
+        The Consumers currently pinned to this version — what a delete would break. Shown by the UI before a delete-version is confirmed.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api_type
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
           in: path
           required: true
           schema:
@@ -1395,65 +1067,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
-  /admin/settings/branch-cleanup:
-    post:
-      summary: "Create or run: settings/branch-cleanup"
-      description: |
-        Requires the `manage_settings` permission.
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-  /admin/settings/branch-max-age:
-    get:
-      summary: "Read: settings/branch-max-age"
-      description: |
-        Requires the `manage_settings` permission.
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-    post:
-      summary: "Create or run: settings/branch-max-age"
-      description: |
-        Requires the `manage_settings` permission.
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
   /admin/settings/cache:
     get:
       summary: "Read: settings/cache"
@@ -1513,26 +1126,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
-  /admin/settings/dependency-cleanup:
-    post:
-      summary: "Create or run: settings/dependency-cleanup"
-      description: |
-        Requires the `manage_settings` permission.
-      responses:
-        "200":
-          description: Success.
-        "401":
-          description: Not signed in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "403":
-          description: Signed in, but without what this endpoint requires.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
   /admin/settings/dependency-max-age:
     get:
       summary: "Read: settings/dependency-max-age"
@@ -1572,9 +1165,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
-  /admin/settings/dev-mode:
+  /admin/settings/snapshot-max-age:
     get:
-      summary: "Read: settings/dev-mode"
+      summary: "Read: settings/snapshot-max-age"
       description: |
         Requires the `manage_settings` permission.
       responses:
@@ -1593,9 +1186,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
     post:
-      summary: "Create or run: settings/dev-mode"
+      summary: "Create or run: settings/snapshot-max-age"
       description: |
         Requires the `manage_settings` permission.
+
+        Days a snapshot survives without being provided or required. `0` disables the cleanup.
       responses:
         "200":
           description: Success.
@@ -1809,8 +1404,5 @@ components:
       properties:
         error:
           type: string
-        pending_id:
-          type: integer
-          format: int64
-        status:
+        proposed_version:
           type: string

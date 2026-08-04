@@ -46,6 +46,7 @@ pub async fn resolve_actor(
         username: user.username.clone(),
         is_root: root_users.contains(&user.username),
         roles,
+        directory_groups: directory_groups.to_vec(),
     })
 }
 
@@ -54,22 +55,42 @@ pub async fn resolve_actor(
 /// Only globally grantable roles are accepted: `maintainer` is a scope over a
 /// set of Producers, not something held instance-wide, so granting it here would
 /// confer its permissions everywhere.
+/// Only an admin (or root) may hand out or take away the admin role itself.
+/// Without this, any holder of `manage_roles` — e.g. a `user_manager` — could
+/// grant admin to themselves or a group they belong to and escalate to every
+/// permission.
+fn require_admin_for_admin_role(actor: Option<&Actor>, roles: &[&str]) -> Result<(), AppError> {
+    if !roles.contains(&Role::Admin.as_str()) {
+        return Ok(());
+    }
+    let allowed = actor.is_some_and(|a| a.is_root || a.roles.contains(&Role::Admin));
+    if allowed {
+        Ok(())
+    } else {
+        Err(AppError::Forbidden)
+    }
+}
+
 pub async fn grant_user_role(
     repo: &impl SpecRepository,
+    actor: Option<&Actor>,
     user_id: i64,
     role: &str,
 ) -> Result<(), AppError> {
     let parsed = parse_grantable_role(role)?;
+    require_admin_for_admin_role(actor, &[parsed.as_str()])?;
     repo.grant_user_role(user_id, parsed.as_str()).await?;
     Ok(())
 }
 
 pub async fn revoke_user_role(
     repo: &impl SpecRepository,
+    actor: Option<&Actor>,
     user_id: i64,
     role: &str,
 ) -> Result<bool, AppError> {
     let parsed = Role::parse(role).ok_or_else(|| AppError::BadRequest(unknown_role(role)))?;
+    require_admin_for_admin_role(actor, &[parsed.as_str()])?;
     Ok(repo.revoke_user_role(user_id, parsed.as_str()).await?)
 }
 
@@ -153,6 +174,7 @@ pub async fn delete_group(repo: &impl SpecRepository, group_id: i64) -> Result<b
 /// exactly how directory membership comes to mean something in Sanshain.
 pub async fn set_group_roles(
     repo: &impl SpecRepository,
+    actor: Option<&Actor>,
     group_id: i64,
     roles: &[String],
 ) -> Result<(), AppError> {
@@ -163,6 +185,14 @@ pub async fn set_group_roles(
     }
     parsed.sort();
     parsed.dedup();
+    // Adding admin to the set — or stripping it from a group that holds it —
+    // is an admin-role change and needs an admin behind it.
+    let current = repo.list_group_roles(group_id).await?;
+    let touches_admin = parsed.iter().any(|r| r == Role::Admin.as_str())
+        != current.iter().any(|r| r == Role::Admin.as_str());
+    if touches_admin {
+        require_admin_for_admin_role(actor, &[Role::Admin.as_str()])?;
+    }
     repo.set_group_roles(group_id, &parsed).await?;
     Ok(())
 }
@@ -211,7 +241,39 @@ pub async fn maintains_producer(
     let Some(service_id) = repo.find_service(producer).await? else {
         return Ok(false);
     };
-    Ok(repo.maintains_producer(actor.user_id, service_id).await?)
+    if repo.maintains_producer(actor.user_id, service_id).await? {
+        return Ok(true);
+    }
+    // A maintainer grant to a *directory* group has no stored membership to
+    // match against — check it against the groups the directory says the
+    // caller is in right now.
+    let directory_group_ids = directory_maintainer_group_ids(repo, actor).await?;
+    if directory_group_ids.is_empty() {
+        return Ok(false);
+    }
+    let maintainer_groups = repo.list_group_maintainer_ids(service_id).await?;
+    Ok(maintainer_groups
+        .iter()
+        .any(|id| directory_group_ids.contains(id)))
+}
+
+/// The stored ids of the LDAP-source groups the Actor is currently in,
+/// according to the directory. Empty for native users, and for directory
+/// groups Sanshain has never been told about.
+async fn directory_maintainer_group_ids(
+    repo: &impl SpecRepository,
+    actor: &Actor,
+) -> Result<Vec<i64>, AppError> {
+    if actor.directory_groups.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(repo
+        .list_groups()
+        .await?
+        .into_iter()
+        .filter(|g| g.source == GroupSource::Ldap && actor.directory_groups.contains(&g.name))
+        .map(|g| g.id)
+        .collect())
 }
 
 /// Authorise a Producer-scoped action.
@@ -252,17 +314,35 @@ pub struct ProducerMaintainers {
 pub async fn all_maintainers(
     repo: &impl SpecRepository,
 ) -> Result<Vec<ProducerMaintainers>, AppError> {
-    let mut out = Vec::new();
-    for producer in repo.list_producers().await? {
-        let Some(service_id) = repo.find_service(&producer).await? else {
-            continue;
-        };
-        out.push(ProducerMaintainers {
-            user_ids: repo.list_user_maintainer_ids(service_id).await?,
-            group_ids: repo.list_group_maintainer_ids(service_id).await?,
-            producer,
-        });
+    // Three queries total, however many Producers there are — asking per
+    // Producer made this 3N+1 and the dashboard paid it on every load.
+    let mut by_producer: std::collections::HashMap<String, ProducerMaintainers> = repo
+        .list_producers()
+        .await?
+        .into_iter()
+        .map(|producer| {
+            (
+                producer.clone(),
+                ProducerMaintainers {
+                    producer,
+                    user_ids: Vec::new(),
+                    group_ids: Vec::new(),
+                },
+            )
+        })
+        .collect();
+    for (producer, user_id) in repo.list_all_user_maintainers().await? {
+        if let Some(entry) = by_producer.get_mut(&producer) {
+            entry.user_ids.push(user_id);
+        }
     }
+    for (producer, group_id) in repo.list_all_group_maintainers().await? {
+        if let Some(entry) = by_producer.get_mut(&producer) {
+            entry.group_ids.push(group_id);
+        }
+    }
+    let mut out: Vec<ProducerMaintainers> = by_producer.into_values().collect();
+    out.sort_by(|a, b| a.producer.cmp(&b.producer));
     Ok(out)
 }
 
@@ -320,6 +400,30 @@ pub async fn unassign_group_maintainer(
 ///
 /// Root is not expanded to every Producer here: the list answers "what has been
 /// assigned", and inventing assignments for root would misreport the record.
+/// The Producers the *caller* maintains — stored grants plus grants made to
+/// the directory groups they are currently in. This is what `/auth/me`
+/// reports, so the UI's gating matches what `require_producer_permission`
+/// would actually allow.
+pub async fn maintained_producers_for_actor(
+    repo: &impl SpecRepository,
+    actor: &Actor,
+) -> Result<Vec<String>, AppError> {
+    let mut producers = repo.list_maintained_producers(actor.user_id).await?;
+    let directory_group_ids = directory_maintainer_group_ids(repo, actor).await?;
+    if !directory_group_ids.is_empty() {
+        for producer in repo
+            .list_group_maintained_producers(&directory_group_ids)
+            .await?
+        {
+            if !producers.contains(&producer) {
+                producers.push(producer);
+            }
+        }
+        producers.sort();
+    }
+    Ok(producers)
+}
+
 pub async fn maintained_producers(
     repo: &impl SpecRepository,
     user_id: i64,
@@ -411,6 +515,18 @@ mod tests {
     use super::*;
     use crate::application::mock_repo::MockRepo;
 
+    /// An acting administrator for calls whose admin-role guard is not what
+    /// the test is about.
+    fn admin_actor() -> Actor {
+        Actor {
+            user_id: 999,
+            username: "acting-admin".into(),
+            is_root: false,
+            roles: vec![Role::Admin],
+            directory_groups: vec![],
+        }
+    }
+
     async fn user(repo: &MockRepo, username: &str, admin: bool) -> User {
         let user = repo
             .create_user(username, "hash", true)
@@ -443,7 +559,7 @@ mod tests {
     async fn a_granted_role_takes_effect() {
         let repo = MockRepo::new();
         let bob = user(&repo, "bob", false).await;
-        grant_user_role(&repo, bob.id, "user_manager")
+        grant_user_role(&repo, Some(&admin_actor()), bob.id, "user_manager")
             .await
             .expect("grant should succeed");
 
@@ -459,11 +575,11 @@ mod tests {
     async fn revoking_a_role_removes_the_permission() {
         let repo = MockRepo::new();
         let bob = user(&repo, "bob", false).await;
-        grant_user_role(&repo, bob.id, "user_manager")
+        grant_user_role(&repo, Some(&admin_actor()), bob.id, "user_manager")
             .await
             .expect("grant should succeed");
         assert!(
-            revoke_user_role(&repo, bob.id, "user_manager")
+            revoke_user_role(&repo, Some(&admin_actor()), bob.id, "user_manager")
                 .await
                 .expect("revoke should succeed")
         );
@@ -482,9 +598,14 @@ mod tests {
         let group = create_native_group(&repo, "platform")
             .await
             .expect("group should be created");
-        set_group_roles(&repo, group.id, &["viewer".to_string()])
-            .await
-            .expect("roles should be set");
+        set_group_roles(
+            &repo,
+            Some(&admin_actor()),
+            group.id,
+            &["viewer".to_string()],
+        )
+        .await
+        .expect("roles should be set");
         add_group_member(&repo, group.id, carol.id)
             .await
             .expect("member should be added");
@@ -503,9 +624,14 @@ mod tests {
         let group = create_native_group(&repo, "platform")
             .await
             .expect("group should be created");
-        set_group_roles(&repo, group.id, &["viewer".to_string()])
-            .await
-            .expect("roles should be set");
+        set_group_roles(
+            &repo,
+            Some(&admin_actor()),
+            group.id,
+            &["viewer".to_string()],
+        )
+        .await
+        .expect("roles should be set");
         add_group_member(&repo, group.id, carol.id)
             .await
             .expect("member should be added");
@@ -525,15 +651,20 @@ mod tests {
     async fn roles_from_grants_and_groups_are_unioned() {
         let repo = MockRepo::new();
         let dave = user(&repo, "dave", false).await;
-        grant_user_role(&repo, dave.id, "user_manager")
+        grant_user_role(&repo, Some(&admin_actor()), dave.id, "user_manager")
             .await
             .expect("grant should succeed");
         let group = create_native_group(&repo, "readers")
             .await
             .expect("group should be created");
-        set_group_roles(&repo, group.id, &["viewer".to_string()])
-            .await
-            .expect("roles should be set");
+        set_group_roles(
+            &repo,
+            Some(&admin_actor()),
+            group.id,
+            &["viewer".to_string()],
+        )
+        .await
+        .expect("roles should be set");
         add_group_member(&repo, group.id, dave.id)
             .await
             .expect("member should be added");
@@ -564,7 +695,7 @@ mod tests {
     async fn maintainer_cannot_be_granted_instance_wide() {
         let repo = MockRepo::new();
         let eve = user(&repo, "eve", false).await;
-        let err = grant_user_role(&repo, eve.id, "maintainer")
+        let err = grant_user_role(&repo, Some(&admin_actor()), eve.id, "maintainer")
             .await
             .expect_err("maintainer should be refused");
         assert!(matches!(err, AppError::BadRequest(_)));
@@ -574,7 +705,7 @@ mod tests {
     async fn an_unknown_role_is_refused() {
         let repo = MockRepo::new();
         let eve = user(&repo, "eve", false).await;
-        let err = grant_user_role(&repo, eve.id, "wizard")
+        let err = grant_user_role(&repo, Some(&admin_actor()), eve.id, "wizard")
             .await
             .expect_err("unknown role should be refused");
         assert!(matches!(err, AppError::BadRequest(_)));
@@ -595,9 +726,14 @@ mod tests {
         assert!(matches!(err, AppError::BadRequest(_)));
 
         // Attaching roles to it is still allowed — that is the whole point.
-        set_group_roles(&repo, group.id, &["admin".to_string()])
-            .await
-            .expect("roles should attach to a directory group");
+        set_group_roles(
+            &repo,
+            Some(&admin_actor()),
+            group.id,
+            &["admin".to_string()],
+        )
+        .await
+        .expect("roles should attach to a directory group");
         assert_eq!(
             repo.list_group_roles(group.id)
                 .await
@@ -645,9 +781,14 @@ mod tests {
         let group = create_native_group(&repo, "temp")
             .await
             .expect("group should be created");
-        set_group_roles(&repo, group.id, &["viewer".to_string()])
-            .await
-            .expect("roles should be set");
+        set_group_roles(
+            &repo,
+            Some(&admin_actor()),
+            group.id,
+            &["viewer".to_string()],
+        )
+        .await
+        .expect("roles should be set");
         add_group_member(&repo, group.id, gail.id)
             .await
             .expect("member should be added");
@@ -670,6 +811,7 @@ mod tests {
             username: "nobody".into(),
             is_root: false,
             roles: vec![],
+            directory_groups: vec![],
         };
         assert!(matches!(
             require_permission(&actor, Permission::ManageUsers),
@@ -681,6 +823,7 @@ mod tests {
             username: "admin".into(),
             is_root: false,
             roles: vec![Role::Admin],
+            directory_groups: vec![],
         };
         assert!(require_permission(&admin, Permission::ManageUsers).is_ok());
     }
@@ -694,6 +837,7 @@ mod tests {
             .expect("group should be created");
         set_group_roles(
             &repo,
+            Some(&admin_actor()),
             group.id,
             &["viewer".to_string(), "admin".to_string()],
         )
@@ -731,12 +875,13 @@ mod tests {
             .await
             .expect("roles resolve");
         assert!(
-            require_producer_permission(&repo, &actor, Permission::SetOnboarding, "orders")
+            require_producer_permission(&repo, &actor, Permission::ManageProducers, "orders")
                 .await
                 .is_ok()
         );
         assert!(matches!(
-            require_producer_permission(&repo, &actor, Permission::SetOnboarding, "billing").await,
+            require_producer_permission(&repo, &actor, Permission::ManageProducers, "billing")
+                .await,
             Err(AppError::Forbidden)
         ));
     }
@@ -758,7 +903,7 @@ mod tests {
             require_producer_permission(&repo, &actor, Permission::ManageUsers, "orders").await,
             Err(AppError::Forbidden)
         ));
-        assert!(!actor.has_permission(Permission::SetOnboarding));
+        assert!(!actor.has_permission(Permission::ManageProducers));
     }
 
     #[tokio::test]
@@ -783,7 +928,7 @@ mod tests {
                 .expect("check")
         );
         assert!(
-            require_producer_permission(&repo, &actor, Permission::ReviewPendingSpecs, "orders")
+            require_producer_permission(&repo, &actor, Permission::ManageProducers, "orders")
                 .await
                 .is_ok()
         );
@@ -804,7 +949,7 @@ mod tests {
                 .expect("check")
         );
         assert!(
-            require_producer_permission(&repo, &actor, Permission::SetOnboarding, "orders")
+            require_producer_permission(&repo, &actor, Permission::ManageProducers, "orders")
                 .await
                 .is_ok()
         );
@@ -825,7 +970,7 @@ mod tests {
                 .expect("check")
         );
         assert!(
-            require_producer_permission(&repo, &actor, Permission::SetOnboarding, "orders")
+            require_producer_permission(&repo, &actor, Permission::ManageProducers, "orders")
                 .await
                 .is_ok()
         );
@@ -912,5 +1057,151 @@ mod tests {
             assign_user_maintainer(&repo, "nope", ida.id).await,
             Err(AppError::NotFound(_))
         ));
+    }
+
+    /// The escalation the admin-role guard closes: `manage_roles` alone must
+    /// not be enough to hand out — or take away — the admin role itself.
+    #[tokio::test]
+    async fn a_user_manager_cannot_grant_or_revoke_admin() {
+        let repo = MockRepo::new();
+        let bob = user(&repo, "bob", false).await;
+        let user_manager = Actor {
+            user_id: 500,
+            username: "manager".into(),
+            is_root: false,
+            roles: vec![Role::UserManager],
+            directory_groups: vec![],
+        };
+
+        assert!(matches!(
+            grant_user_role(&repo, Some(&user_manager), bob.id, "admin").await,
+            Err(AppError::Forbidden)
+        ));
+        let victim = user(&repo, "carol", true).await;
+        assert!(matches!(
+            revoke_user_role(&repo, Some(&user_manager), victim.id, "admin").await,
+            Err(AppError::Forbidden)
+        ));
+        // Non-admin roles stay within `manage_roles`.
+        grant_user_role(&repo, Some(&user_manager), bob.id, "viewer")
+            .await
+            .expect("a non-admin role is theirs to grant");
+    }
+
+    #[tokio::test]
+    async fn only_an_admin_may_put_admin_on_a_group_or_strip_it() {
+        let repo = MockRepo::new();
+        let group = create_native_group(&repo, "ops").await.expect("group");
+        let user_manager = Actor {
+            user_id: 500,
+            username: "manager".into(),
+            is_root: false,
+            roles: vec![Role::UserManager],
+            directory_groups: vec![],
+        };
+
+        assert!(matches!(
+            set_group_roles(&repo, Some(&user_manager), group.id, &["admin".to_string()]).await,
+            Err(AppError::Forbidden)
+        ));
+        set_group_roles(
+            &repo,
+            Some(&admin_actor()),
+            group.id,
+            &["admin".to_string()],
+        )
+        .await
+        .expect("an admin may");
+        assert!(matches!(
+            set_group_roles(&repo, Some(&user_manager), group.id, &[]).await,
+            Err(AppError::Forbidden)
+        ));
+        // A role set that does not touch admin needs no admin behind it.
+        set_group_roles(
+            &repo,
+            Some(&user_manager),
+            group.id,
+            &["admin".to_string(), "viewer".to_string()],
+        )
+        .await
+        .expect("admin kept, viewer added — not an admin-role change");
+    }
+
+    /// A maintainer grant to a *directory* group has no stored membership;
+    /// it must match against the groups the directory says the caller is in.
+    #[tokio::test]
+    async fn a_directory_group_maintainer_grant_applies_to_its_members() {
+        let repo = MockRepo::new();
+        repo.ensure_service("orders").await.expect("producer");
+        let group = repo
+            .create_group("cn=team-orders", GroupSource::Ldap)
+            .await
+            .expect("group");
+        assign_group_maintainer(&repo, "orders", group.id)
+            .await
+            .expect("assignment");
+
+        let member = Actor {
+            user_id: 7,
+            username: "ldap-user".into(),
+            is_root: false,
+            roles: vec![],
+            directory_groups: vec!["cn=team-orders".to_string()],
+        };
+        assert!(
+            maintains_producer(&repo, &member, "orders")
+                .await
+                .expect("check"),
+            "directory membership must satisfy the group grant"
+        );
+        assert_eq!(
+            maintained_producers_for_actor(&repo, &member)
+                .await
+                .expect("list"),
+            vec!["orders".to_string()]
+        );
+
+        let outsider = Actor {
+            user_id: 8,
+            username: "other".into(),
+            is_root: false,
+            roles: vec![],
+            directory_groups: vec!["cn=unrelated".to_string()],
+        };
+        assert!(
+            !maintains_producer(&repo, &outsider, "orders")
+                .await
+                .expect("check")
+        );
+    }
+
+    /// The aggregate listing after batching: same answer, three queries.
+    #[tokio::test]
+    async fn all_maintainers_reports_every_producer_with_its_assignments() {
+        let repo = MockRepo::new();
+        let ida = user(&repo, "ida", false).await;
+        repo.ensure_service("orders").await.expect("producer");
+        repo.ensure_service("empty").await.expect("producer");
+        assign_user_maintainer(&repo, "orders", ida.id)
+            .await
+            .expect("assignment");
+        let group = create_native_group(&repo, "platform").await.expect("group");
+        assign_group_maintainer(&repo, "orders", group.id)
+            .await
+            .expect("assignment");
+
+        let all = all_maintainers(&repo).await.expect("aggregate");
+        assert_eq!(all.len(), 2);
+        let orders = all
+            .iter()
+            .find(|m| m.producer == "orders")
+            .expect("orders entry");
+        assert_eq!(orders.user_ids, vec![ida.id]);
+        assert_eq!(orders.group_ids, vec![group.id]);
+        let empty = all
+            .iter()
+            .find(|m| m.producer == "empty")
+            .expect("producers with no maintainers are included");
+        assert!(empty.user_ids.is_empty() && empty.group_ids.is_empty());
     }
 }

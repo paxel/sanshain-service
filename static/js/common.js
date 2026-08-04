@@ -47,7 +47,6 @@ const ADMIN_DASHBOARD_PERMISSIONS = [
   "manage_roles",
   "manage_producers",
   "manage_consumers",
-  "manage_protected_branches",
   "manage_settings",
   "manage_auth_config",
   "view_audit",
@@ -56,7 +55,11 @@ const ADMIN_DASHBOARD_PERMISSIONS = [
 ];
 
 function canSeeAdminDashboard(user) {
-  return hasAnyPermission(user, ADMIN_DASHBOARD_PERMISSIONS);
+  // A maintainer's permissions are scoped to their Producers rather than
+  // granted globally, so `permissions` alone would hide the dashboard from
+  // exactly the people expected to manage something there.
+  const maintainsSomething = user && Array.isArray(user.maintains) && user.maintains.length > 0;
+  return maintainsSomething || hasAnyPermission(user, ADMIN_DASHBOARD_PERMISSIONS);
 }
 
 function updateBannerAuth(user) {

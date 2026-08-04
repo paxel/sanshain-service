@@ -1,8 +1,8 @@
 # Sanshain
 
-Sanshain is a registry for API specifications. **Producers** publish their full spec for a branch;
-**Consumers** require only the endpoints they need. This document is the shared vocabulary — in
-particular, how a request against a branch is answered.
+Sanshain is a registry for API specifications. **Producers** publish versioned specs; **Consumers**
+pin the exact version they build against. This document is the shared vocabulary — in particular,
+how a request for a pinned version is answered.
 
 ## Language
 
@@ -60,91 +60,107 @@ therefore cannot be revoked from inside Sanshain. Holds every permission, includ
 that do not exist yet.
 _Avoid_: superuser, owner, initial admin
 
+### Versions
+
+**Version**:
+The Producer-declared identity of a spec: strict `MAJOR.MINOR.PATCH`, read from the spec file
+itself (`info.version`; for proto, a mandatory `// sanshain-version:` comment). Never assigned by
+Sanshain, never a suffix-carrying string.
+_Avoid_: branch, revision, baseVersion, Instance version (that is Sanshain's own build)
+
+**Version line**:
+The ordered set of Versions one Producer has published for one API type. All history, diffing,
+compatibility checking and cleanup happen within a single line — a Producer's OpenAPI and proto
+lines evolve independently.
+_Avoid_: branch, timeline
+
+**Stability**:
+Which of exactly two states a stored Version is in — Snapshot or GA. Declared by the caller on
+every Provide; how the caller decides (typically from its VCS branch) is Tooling's business and
+never Sanshain's.
+_Avoid_: channel (an AsyncAPI term here), maturity, branch type
+
+**Snapshot**:
+A Version in its mutable state: re-providing it overwrites it, last writer wins, and it expires
+once neither provided nor required for the configured window. The same entry in the line until it
+is promoted or gone.
+_Avoid_: draft, pre-release, feature version, WIP version
+
+**GA**:
+A Version in its immutable state. Re-providing identical content is a no-op; different content is
+rejected with a proposed next Version. A GA permanently claims its number: no Snapshot may ever
+exist for it again, and it is never removed by cleanup.
+_Avoid_: release, stable, final
+
+**Promotion**:
+The GA Provide of a number that existed as a Snapshot: the entry becomes GA in place and the
+Snapshot content is gone. Only the same-numbered Snapshot is affected.
+_Avoid_: release (as a verb), publish
+
+**Instance version**:
+Sanshain's own build version, reported by `/version`. Always qualified as *instance* version to
+keep it apart from spec Versions.
+_Avoid_: version (unqualified)
+
 ### Publishing and requiring
 
 **Provide**:
-A Producer's submission of a complete spec for one branch. Because it is complete, an endpoint
-absent from it is absent from that branch's API.
+A Producer's submission of a complete spec for one Version of one API type, with declared
+Stability. Because it is complete, an endpoint absent from it is absent from that Version's API.
 _Avoid_: push, upload, publish
 
 **Require**:
-A Consumer's request for specific endpoints, which also records the dependency.
+A Consumer's request for specific endpoints at its Pin, which also records the dependency —
+but only when it succeeds. Resolution never creates Producers, Versions or dependencies.
 _Avoid_: fetch, pull, consume
 
-**Onboarding**:
-A Producer lifecycle state in which breaking changes are accepted rather than gatekept. A Producer
-whose API is not yet stable passes through it; nothing about its branches changes, only whether
-Sanshain refuses what they publish.
-_Avoid_: dev mode, grace period, unprotected
-
-**Pending spec**:
-A Provide that was held for review instead of applied, retained in full so it can be judged on its
-content. Not part of any branch's API until accepted — until then the branch answers as if it had
-never been submitted.
-_Avoid_: draft, queued spec, rejected spec
-
-**Author**:
-Consumer-supplied, unverified attribution for who wrote a change, used for blame display only.
-_Avoid_: user, committer
+**Pin**:
+A Consumer's exact Version choice for one dependency, written in its own configuration. There are
+no ranges, no "latest", and no default: what a Consumer builds against changes only when someone
+edits the Pin.
+_Avoid_: requirement, target version, constraint
 
 **Actor**:
 The authenticated caller behind a request. Always what the audit log records; never overridable.
-_Avoid_: user, author
-
-### Branches
-
-**Branch**:
-A named line of a Producer's API, mirroring the VCS branch its spec was built from.
-_Avoid_: version, environment
-
-**Protected branch**:
-A branch matched by a protected-branch pattern (`*` and `?` are wildcards; everything else,
-including `_`, is literal). Protected branches keep version history, reject breaking changes, and
-are never culled by stale-branch cleanup.
-_Avoid_: main branch, stable branch, release branch
-
-**Authoritative branch**:
-A branch that has published at least one spec. Its spec is the complete statement of that branch's
-API, so an endpoint missing from it is missing *by choice*. A branch that has never published is
-not authoritative and inherits instead.
-_Avoid_: owning branch, primary branch
-
-**Source protected branch**:
-The protected branch a branch descends from and defers to when it has nothing of its own — e.g.
-the release line a hotfix was cut from. Sticky: the first caller to supply it wins, and only an
-admin may change it afterwards.
-_Avoid_: parent branch, base branch, target branch
-
-**Pull-from branch**:
-A one-shot, non-persisted override naming the exact branch a single request must resolve against,
-bypassing all inheritance.
-_Avoid_: override branch, forced branch
+The Actor is also the attribution shown on a Version — the last provider — with one exception:
+a Promotion carrying byte-identical content keeps the Snapshot's provider, so the person who
+built it stays on the released Version.
+_Avoid_: user, author (a client-supplied author hint no longer exists — the token defines the user)
 
 ### Answering a request
 
 **Resolution**:
-Answering "what is this endpoint on this branch?" for a given Producer, branch, API type, path and
-method. Every resolution yields exactly one resolution state, and names the branch it came from.
-_Avoid_: lookup, fallback (fallback is only one possible outcome)
+Answering "what is this endpoint at this Pin?" for a given Producer, API type, Version, path and
+method. GA is preferred, the Snapshot is the only alternative, and there is no fallback beyond
+that. Every resolution yields exactly one resolution state and names the Stability it was served
+from.
+_Avoid_: lookup, fallback
 
-**Published**:
-Resolution state: the requested branch is authoritative and published this endpoint.
+**Served**:
+Resolution state: the pinned Version exists and contains the endpoint. The response says whether
+GA or Snapshot answered.
+_Avoid_: published, resolved, hit
 
 **Absent**:
-Resolution state: the requested branch is authoritative and did not publish this endpoint, so it is
-deliberately not part of that branch's API. A definitive "no" — resolution stops and must not
-inherit an ancestor's version.
+Resolution state: the pinned Version exists and did not include this endpoint, so it is
+deliberately not part of that Version's API. A definitive "no" — nothing else is consulted.
 _Avoid_: not found, missing, deleted
 
-**Inherited**:
-Resolution state: the requested branch has never published, so the answer comes from another
-branch, which is always named in the response.
-_Avoid_: fallback, defaulted
-
 **Unknown**:
-Resolution state: no branch of the Producer has this endpoint. Unlike Absent it may appear later,
-so it is the only state a long-poll waits on.
-_Avoid_: not found, 404
+Resolution state: the Producer's line has no such Version in either Stability. A configuration
+error on the Consumer's side, answered immediately — nothing waits for a Version to appear.
+_Avoid_: not found, pending
+
+**Outdated**:
+A dependency whose Pin is semantically below the latest GA of its line. A display state, never a
+resolution input: being Outdated changes nothing about what is served.
+_Avoid_: stale, behind, deprecated
+
+**Snapshot-pinned**:
+A dependency currently served from a Snapshot because its Pin has no GA. Distinct from Outdated —
+such a Pin may even be ahead of the latest GA; what it flags is building against overwritable
+content.
+_Avoid_: unstable, floating
 
 ## Note on storage
 

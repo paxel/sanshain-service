@@ -1,14 +1,26 @@
+//! The admin surface through the real router (in-memory SQLite seam).
+//!
+//! Sanshain 2.0 (ADR-0003): versions replace branches. The admin surface
+//! manages Producer version lines — listing them, downloading and diffing the
+//! stored documents, and the audited delete-version escape hatch from GA
+//! immutability.
+
 use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
 use chrono::Utc;
 use sanshain_service::application::services;
-use sanshain_service::domain::models::ApiType;
+use sanshain_service::domain::models::{ApiType, Stability};
 use sanshain_service::domain::ports::SpecRepository;
 use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
 use sanshain_service::infrastructure::database::DatabaseRepo;
 use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
+
+/// A root set that reserves no username used by these tests.
+fn no_root_users() -> sanshain_service::domain::permissions::RootUsers {
+    sanshain_service::domain::permissions::RootUsers::resolve(Some("__unused-root__"), None)
+}
 use sanshain_service::{AppState, create_app};
 use sqlx::sqlite::SqlitePoolOptions;
 use std::collections::{HashMap, VecDeque};
@@ -61,6 +73,67 @@ fn test_state(repo: SqliteSpecRepository) -> AppState {
     }
 }
 
+/// The document seeded for `demo-svc` version 1.0.0 (GA). Kept as a constant so
+/// the full-spec test can assert the download is byte-for-byte what was stored.
+const DEMO_SPEC_1_0_0: &str = r#"openapi: 3.0.0
+info:
+  title: demo
+  version: 1.0.0
+paths:
+  /hello:
+    get:
+      responses:
+        '200': { description: ok }
+"#;
+
+/// A spec document for `producer` with the given version and endpoint paths.
+#[cfg(test)]
+fn spec_with_paths(version: &str, paths: &[&str]) -> String {
+    let mut doc = format!("openapi: 3.0.0\ninfo:\n  title: t\n  version: {version}\npaths:\n");
+    for path in paths {
+        doc.push_str(&format!(
+            "  {path}:\n    get:\n      responses:\n        '200': {{ description: ok }}\n"
+        ));
+    }
+    doc
+}
+
+#[cfg(test)]
+async fn provide(repo: &SqliteSpecRepository, producer: &str, content: &str, stability: Stability) {
+    services::provide_spec(
+        repo,
+        services::ProvideSpecParams {
+            producername: producer,
+            api_type: ApiType::OpenApi,
+            content,
+            stability,
+            dry_run: false,
+            username: Some("ci"),
+        },
+    )
+    .await
+    .expect("provide");
+}
+
+/// Record a Consumer pin on demo-svc 1.0.0's /hello, the way a real require
+/// does — resolution succeeded, so the dependency is recorded.
+#[cfg(test)]
+async fn pin_consumer(repo: &SqliteSpecRepository, consumer: &str, producer: &str, version: &str) {
+    services::require_endpoint(
+        repo,
+        services::RequireEndpointParams {
+            consumername: consumer,
+            producername: producer,
+            version: version.parse().expect("semver"),
+            api_type: ApiType::OpenApi,
+            path: "/hello",
+            method: "GET",
+        },
+    )
+    .await
+    .expect("require");
+}
+
 // `cfg(test)` is always true in this crate; the attribute marks the helper as
 // test code for clippy's `allow-unwrap-in-tests`.
 #[cfg(test)]
@@ -82,29 +155,43 @@ async fn app_with_seed() -> (axum::Router, SqliteSpecRepository, String) {
         .await
         .unwrap();
 
-    // Seed a demo service and endpoint via provide
-    let openapi = r#"openapi: 3.0.0
-info: {title: demo, version: v1}
-paths:
-  /hello:
-    get:
-      responses:
-        '200': { description: ok }
-"#;
-    let _ = services::provide_spec(
-        &repo,
-        "demo-svc",
-        "main",
-        ApiType::OpenApi,
-        openapi,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
+    // Seed a demo Producer with one GA version line entry.
+    provide(&repo, "demo-svc", DEMO_SPEC_1_0_0, Stability::Ga).await;
 
     let app = create_app(test_state(repo.clone()));
     (app, repo, session.token)
+}
+
+#[cfg(test)]
+async fn get_json(app: &axum::Router, uri: &str, auth: &str) -> (StatusCode, serde_json::Value) {
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(uri)
+                .header(axum::http::header::AUTHORIZATION, auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = res.status();
+    let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+    (status, json)
+}
+
+fn all_audit_logs_filter() -> sanshain_service::domain::models::AuditLogFilter {
+    sanshain_service::domain::models::AuditLogFilter {
+        from_date: None,
+        to_date: None,
+        action_type: None,
+        service_wildcard: None,
+        version_wildcard: None,
+        limit: 100,
+    }
 }
 
 #[tokio::test]
@@ -112,47 +199,36 @@ async fn admin_lists_and_cache_endpoints_work() {
     let (app, _repo, token) = app_with_seed().await;
     let auth = format!("Bearer {}", token);
 
-    // List services (admin authenticated route)
-    let res = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/admin/producers")
-                .header(axum::http::header::AUTHORIZATION, &auth)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
+    // The producers listing carries each Producer's versions array.
+    let (status, producers) = get_json(&app, "/admin/producers", &auth).await;
+    assert_eq!(status, StatusCode::OK);
+    let demo = producers
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "demo-svc")
+        .expect("demo-svc listed");
+    let versions = demo["versions"].as_array().expect("versions array");
+    assert_eq!(versions.len(), 1);
+    assert_eq!(versions[0]["version"], "1.0.0");
+    assert_eq!(versions[0]["stability"], "ga");
 
-    // List service endpoints
-    let res = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/admin/producers/demo-svc/branches/main/endpoints")
-                .header(axum::http::header::AUTHORIZATION, &auth)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
+    // List one version's endpoints, addressed by (api_type, version).
+    let (status, endpoints) = get_json(
+        &app,
+        "/admin/producers/demo-svc/endpoints?api_type=openapi&version=1.0.0",
+        &auth,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let listed = endpoints.as_array().unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0]["path"], "/hello");
+    assert_eq!(listed[0]["method"], "GET");
 
     // Cache stats
-    let res = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/admin/settings/cache")
-                .header(axum::http::header::AUTHORIZATION, &auth)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
+    let (status, _) = get_json(&app, "/admin/settings/cache", &auth).await;
+    assert_eq!(status, StatusCode::OK);
 
     // Clear cache
     let res = app
@@ -169,17 +245,48 @@ async fn admin_lists_and_cache_endpoints_work() {
     assert_eq!(res.status(), StatusCode::OK);
 }
 
+// The per-Producer versions endpoint lists the line entries with stability and
+// endpoint count — what the versions view renders.
 #[tokio::test]
-async fn test_favorites_api_endpoints() {
+async fn versions_listing_carries_stability_and_endpoint_count() {
+    let (app, repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+    provide(
+        &repo,
+        "demo-svc",
+        &spec_with_paths("1.1.0", &["/hello", "/extra"]),
+        Stability::Snapshot,
+    )
+    .await;
+
+    let (status, versions) = get_json(&app, "/admin/producers/demo-svc/versions", &auth).await;
+    assert_eq!(status, StatusCode::OK);
+    let lines = versions.as_array().unwrap();
+    assert_eq!(lines.len(), 2, "two entries on the openapi line");
+    // Newest first within the API type.
+    assert_eq!(lines[0]["version"], "1.1.0");
+    assert_eq!(lines[0]["stability"], "snapshot");
+    assert_eq!(lines[0]["endpoint_count"], 2);
+    assert_eq!(lines[1]["version"], "1.0.0");
+    assert_eq!(lines[1]["stability"], "ga");
+    assert_eq!(lines[1]["endpoint_count"], 1);
+
+    // An unknown Producer is 404, not an empty list.
+    let (status, _) = get_json(&app, "/admin/producers/no-such-svc/versions", &auth).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+// The full-spec download returns the stored document verbatim, named
+// producer-version in the Content-Disposition.
+#[tokio::test]
+async fn full_spec_download_is_verbatim_and_named() {
     let (app, _repo, token) = app_with_seed().await;
     let auth = format!("Bearer {}", token);
 
-    // 1. Get initial favorites (should be empty lists)
     let res = app
-        .clone()
         .oneshot(
             Request::builder()
-                .uri("/auth/favorites")
+                .uri("/admin/producers/demo-svc/full-spec?api_type=openapi&version=1.0.0")
                 .header(axum::http::header::AUTHORIZATION, &auth)
                 .body(Body::empty())
                 .unwrap(),
@@ -187,11 +294,323 @@ async fn test_favorites_api_endpoints() {
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
-    let favs: sanshain_service::domain::models::UserFavoritesResponse =
-        serde_json::from_slice(&body).unwrap();
-    assert!(favs.services.is_empty());
-    assert!(favs.clients.is_empty());
+    let disposition = res
+        .headers()
+        .get(axum::http::header::CONTENT_DISPOSITION)
+        .expect("content-disposition")
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(disposition, "attachment; filename=\"demo-svc-1.0.0.yaml\"");
+    let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(
+        std::str::from_utf8(&body).unwrap(),
+        DEMO_SPEC_1_0_0,
+        "the download is exactly what the Producer submitted"
+    );
+}
+
+// The diff endpoint returns a unified diff between two entries of a line.
+#[tokio::test]
+async fn diff_endpoint_returns_a_unified_diff() {
+    let (app, repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+    provide(
+        &repo,
+        "demo-svc",
+        &spec_with_paths("1.1.0", &["/hello", "/extra"]),
+        Stability::Snapshot,
+    )
+    .await;
+
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/admin/producers/demo-svc/diff?api_type=openapi&from=1.0.0&to=1.1.0")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let diff = std::str::from_utf8(&body).unwrap();
+    assert!(
+        diff.contains("--- demo-svc 1.0.0"),
+        "old side named: {diff}"
+    );
+    assert!(
+        diff.contains("+++ demo-svc 1.1.0"),
+        "new side named: {diff}"
+    );
+    assert!(diff.contains("-  version: 1.0.0"), "removed line: {diff}");
+    assert!(diff.contains("+  version: 1.1.0"), "added line: {diff}");
+    assert!(
+        diff.contains("+  /extra:"),
+        "the added endpoint shows as +: {diff}"
+    );
+}
+
+// --- Delete-version: the sole escape hatch from GA immutability ---
+
+#[tokio::test]
+async fn admin_deletes_a_version_sees_dependents_and_frees_the_number() {
+    let (app, repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+    pin_consumer(&repo, "pinned-app", "demo-svc", "1.0.0").await;
+
+    // The dependents endpoint names the pinned Consumers before the delete.
+    let (status, dependents) = get_json(
+        &app,
+        "/admin/producers/demo-svc/versions/openapi/1.0.0/dependents",
+        &auth,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(dependents, serde_json::json!(["pinned-app"]));
+
+    // Delete the GA version.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/admin/producers/demo-svc/versions/openapi/1.0.0")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["deleted"], "1.0.0");
+    assert_eq!(json["dependents"], serde_json::json!(["pinned-app"]));
+
+    // The audit trail records DELETE_VERSION and names the pinned Consumers.
+    let logs = repo.get_audit_logs(all_audit_logs_filter()).await.unwrap();
+    let entry = logs
+        .iter()
+        .find(|l| l.action == "DELETE_VERSION")
+        .expect("delete-version is audited");
+    assert_eq!(entry.username, "root");
+    assert_eq!(entry.service.as_deref(), Some("demo-svc"));
+    assert_eq!(entry.version.as_deref(), Some("1.0.0"));
+    assert!(
+        entry.details.contains("pinned-app"),
+        "the audit entry names the dependents: {}",
+        entry.details
+    );
+
+    // Requiring the deleted version now hard-fails with 404 (no fallback).
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/require?consumername=pinned-app&producername=demo-svc&version=1.0.0&path=/hello&method=GET")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    // ...and the number is free again: re-providing 1.0.0 succeeds.
+    provide(&repo, "demo-svc", DEMO_SPEC_1_0_0, Stability::Ga).await;
+}
+
+#[tokio::test]
+async fn a_maintainer_deletes_their_own_versions_but_not_anothers() {
+    let (app, repo, _token) = app_with_seed().await;
+
+    // A second Producer the maintainer is NOT responsible for.
+    provide(
+        &repo,
+        "other-svc",
+        &spec_with_paths("2.0.0", &["/x"]),
+        Stability::Ga,
+    )
+    .await;
+
+    // A maintainer of demo-svc only.
+    let hash = services::hash_password("pw").unwrap();
+    let user = repo
+        .create_user("demo-maintainer", &hash, true)
+        .await
+        .unwrap();
+    let demo_id = repo.find_service("demo-svc").await.unwrap().unwrap();
+    repo.add_user_maintainer(demo_id, user.id).await.unwrap();
+    let session = repo
+        .create_session(user.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap();
+    let auth = format!("Bearer {}", session.token);
+
+    // Not another's: 403, and the version survives.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/admin/producers/other-svc/versions/openapi/2.0.0")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    let other_id = repo.find_service("other-svc").await.unwrap().unwrap();
+    assert!(
+        repo.find_spec_version(other_id, ApiType::OpenApi, "2.0.0".parse().unwrap())
+            .await
+            .unwrap()
+            .is_some(),
+        "the refused delete must not have removed anything"
+    );
+
+    // Their own: allowed.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/admin/producers/demo-svc/versions/openapi/1.0.0")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(
+        repo.find_spec_version(demo_id, ApiType::OpenApi, "1.0.0".parse().unwrap())
+            .await
+            .unwrap()
+            .is_none(),
+        "the maintainer's delete landed"
+    );
+}
+
+#[tokio::test]
+async fn deleting_an_unknown_version_is_not_found() {
+    let (app, _repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+
+    for uri in [
+        // Known Producer, unknown version.
+        "/admin/producers/demo-svc/versions/openapi/9.9.9",
+        // Unknown Producer.
+        "/admin/producers/no-such-svc/versions/openapi/1.0.0",
+    ] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(uri)
+                    .header(axum::http::header::AUTHORIZATION, &auth)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND, "{uri}");
+    }
+}
+
+// --- Consumer endpoints carry the Pin's version and stability ---
+
+#[tokio::test]
+async fn consumer_endpoints_listing_carries_version_and_stability() {
+    let (app, repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+    pin_consumer(&repo, "pinned-app", "demo-svc", "1.0.0").await;
+
+    let (status, endpoints) = get_json(&app, "/admin/consumers/pinned-app/endpoints", &auth).await;
+    assert_eq!(status, StatusCode::OK);
+    let listed = endpoints.as_array().unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0]["service"], "demo-svc");
+    assert_eq!(listed[0]["version"], "1.0.0");
+    assert_eq!(listed[0]["stability"], "ga");
+    assert_eq!(listed[0]["path"], "/hello");
+    assert_eq!(listed[0]["method"], "GET");
+}
+
+// --- Snapshot cleanup configuration ---
+
+#[tokio::test]
+async fn snapshot_max_age_roundtrip_and_cleanup_trigger() {
+    let (app, _repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+
+    let (status, json) = get_json(&app, "/admin/settings/snapshot-max-age", &auth).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["days"], 30, "the ADR-0003 default");
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/settings/snapshot-max-age")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"days":5}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let (status, json) = get_json(&app, "/admin/settings/snapshot-max-age", &auth).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["days"], 5);
+
+    // Trigger the cleanup: everything seeded is fresh (and the only line entry
+    // is GA, which is never age-culled), so nothing dies.
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/cleanup/snapshots")
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["deleted"], 0);
+}
+
+// --- Carried-over surfaces that survived the rework unchanged ---
+
+#[tokio::test]
+async fn test_favorites_api_endpoints() {
+    let (app, _repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+
+    // 1. Get initial favorites (should be empty lists)
+    let (status, _) = get_json(&app, "/auth/favorites", &auth).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, favs) = get_json(&app, "/auth/favorites", &auth).await;
+    assert!(favs["services"].as_array().unwrap().is_empty());
+    assert!(favs["clients"].as_array().unwrap().is_empty());
 
     // 2. Add a favorite service
     let res = app
@@ -224,22 +643,8 @@ async fn test_favorites_api_endpoints() {
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 
     // 4. Get favorites again (should contain demo-svc)
-    let res = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/auth/favorites")
-                .header(axum::http::header::AUTHORIZATION, &auth)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
-    let favs: sanshain_service::domain::models::UserFavoritesResponse =
-        serde_json::from_slice(&body).unwrap();
-    assert_eq!(favs.services, vec!["demo-svc".to_string()]);
+    let (_, favs) = get_json(&app, "/auth/favorites", &auth).await;
+    assert_eq!(favs["services"], serde_json::json!(["demo-svc"]));
 
     // 5. Remove the favorite service
     let res = app
@@ -257,600 +662,31 @@ async fn test_favorites_api_endpoints() {
     assert_eq!(res.status(), StatusCode::OK);
 
     // 6. Get favorites again (should be empty again)
-    let res = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/auth/favorites")
-                .header(axum::http::header::AUTHORIZATION, &auth)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
-    let favs: sanshain_service::domain::models::UserFavoritesResponse =
-        serde_json::from_slice(&body).unwrap();
-    assert!(favs.services.is_empty());
+    let (_, favs) = get_json(&app, "/auth/favorites", &auth).await;
+    assert!(favs["services"].as_array().unwrap().is_empty());
 }
 
-// The dev-mode *settings* endpoint reports the persisted toggle (intent), not the
-// gated effective value: enabling it reads back as `true` even though the
-// ALLOW_INSECURE_DEV_MODE gate is closed in this test process. Regression guard —
-// it briefly returned the gated value, which broke the admin toggle round-trip.
+// The dev-mode toggle (persisted via the auth-config surface) records intent,
+// not the gated effective value: `is_dev_mode_requested` reads back `true`
+// even though the ALLOW_INSECURE_DEV_MODE gate is closed in this test process,
+// while the effective `get_dev_mode` stays `false`.
 #[tokio::test]
-async fn dev_mode_setting_reports_persisted_intent() {
-    let (app, _repo, token) = app_with_seed().await;
-    let auth = format!("Bearer {}", token);
+async fn dev_mode_setting_records_intent_but_stays_gated() {
+    let (_app, repo, _token) = app_with_seed().await;
     assert!(
         !services::dev_mode_gate_open(),
         "gate must be closed for this test to be meaningful"
     );
 
-    // Enable dev mode via the admin settings endpoint (Bearer exempts CSRF).
-    let res = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/admin/settings/dev-mode")
-                .header(axum::http::header::AUTHORIZATION, &auth)
-                .header(axum::http::header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"enabled":true}"#))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-
-    // Read it back: must reflect the persisted setting, not the gated value.
-    let res = app
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri("/admin/settings/dev-mode")
-                .header(axum::http::header::AUTHORIZATION, &auth)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["dev_mode"], serde_json::Value::Bool(true));
-}
-
-#[cfg(test)]
-async fn branch_last_modified(repo: &SqliteSpecRepository, branch: &str) -> String {
-    use sanshain_service::domain::ports::SpecRepository;
-    repo.list_branches_with_metadata()
-        .await
-        .unwrap()
-        .into_iter()
-        .find(|b| b.name == branch)
-        .unwrap()
-        .last_modified
-}
-
-// A branch's `updated_at` must track the last *publish*, not the last *read*.
-// `ensure_branch` is on read paths, so it must no longer bump the timestamp;
-// only `apply_spec_changes` (provide) advances it.
-#[tokio::test]
-async fn reads_do_not_advance_last_published_but_publishes_do() {
-    use sanshain_service::domain::ports::SpecRepository;
-
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.unwrap();
-
-    let spec = r#"openapi: 3.0.0
-info: {title: t, version: v1}
-paths:
-  /p:
-    get:
-      responses:
-        '200': { description: ok }
-"#;
-
-    // First publish establishes the branch timestamp.
-    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec, None, false)
-        .await
-        .unwrap();
-    let t1 = branch_last_modified(&repo, "main").await;
-
-    // Cross a whole-second boundary (timestamps are second-granular).
-    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
-
-    // A read-path call to `ensure_branch` must NOT advance `updated_at`.
-    let sid = repo.ensure_service("svc").await.unwrap();
-    let _ = repo.ensure_branch(sid, "main").await.unwrap();
-    assert_eq!(
-        branch_last_modified(&repo, "main").await,
-        t1,
-        "reading/ensuring a branch must not advance its last-published time"
-    );
-
-    // A publish that changes the spec MUST advance it.
-    let spec2 = r#"openapi: 3.0.0
-info: {title: t, version: v1}
-paths:
-  /p:
-    get:
-      responses:
-        '200': { description: ok }
-  /q:
-    get:
-      responses:
-        '200': { description: ok }
-"#;
-    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec2, None, false)
-        .await
-        .unwrap();
+    services::set_dev_mode(&repo, true).await.unwrap();
     assert!(
-        branch_last_modified(&repo, "main").await > t1,
-        "a publish that changes the spec must advance the branch's last-published time"
-    );
-}
-
-// Overview branch ordering: protected first, then most-recently-published, then name.
-#[tokio::test]
-async fn overview_branches_ordered_protected_then_recent() {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.unwrap();
-
-    let spec = r#"openapi: 3.0.0
-info: {title: t, version: v1}
-paths:
-  /p:
-    get:
-      responses:
-        '200': { description: ok }
-"#;
-    // main (protected) and feature-old published first.
-    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec, None, false)
-        .await
-        .unwrap();
-    services::provide_spec(
-        &repo,
-        "svc",
-        "feature-old",
-        ApiType::OpenApi,
-        spec,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-
-    // Cross a whole-second boundary so feature-new is strictly newer.
-    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
-
-    services::provide_spec(
-        &repo,
-        "svc",
-        "feature-new",
-        ApiType::OpenApi,
-        spec,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-
-    let svcs = services::list_producers_detailed(&repo, None)
-        .await
-        .unwrap();
-    let svc = svcs.iter().find(|s| s.name == "svc").unwrap();
-    assert_eq!(
-        svc.branches,
-        vec!["main", "feature-new", "feature-old"],
-        "protected first, then most-recently-published, then alphabetical"
-    );
-    // The per-branch last-published map is populated for display (#10).
-    assert!(svc.branches_last_published.contains_key("feature-new"));
-    assert!(
-        svc.branches_last_published["feature-new"] > svc.branches_last_published["feature-old"],
-        "feature-new was published later than feature-old"
-    );
-}
-
-// Endpoint history for a branch the server never published falls back to the
-// protected branch's history, instead of 404-ing.
-#[tokio::test]
-async fn version_history_falls_back_to_protected_branch() {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.unwrap();
-
-    let spec = r#"openapi: 3.0.0
-info: {title: t, version: v1}
-paths:
-  /p:
-    get:
-      responses:
-        '200': { description: ok }
-"#;
-    // Publish only to the protected branch "main".
-    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec, None, false)
-        .await
-        .unwrap();
-
-    // Requesting history for a branch the server never published falls back to main.
-    let versions = services::get_endpoint_version_history(
-        &repo,
-        "svc",
-        "feature-x",
-        ApiType::OpenApi,
-        "/p",
-        "GET",
-    )
-    .await
-    .unwrap();
-    assert!(
-        !versions.is_empty(),
-        "should fall back to the protected branch's history"
-    );
-    assert_eq!(
-        versions[0].branch_name.as_deref(),
-        Some("main"),
-        "history served from the protected branch"
-    );
-
-    // A path that exists on no branch still errors (nothing to fall back to).
-    let missing = services::get_endpoint_version_history(
-        &repo,
-        "svc",
-        "feature-x",
-        ApiType::OpenApi,
-        "/nope",
-        "GET",
-    )
-    .await;
-    assert!(missing.is_err(), "no branch has this endpoint");
-}
-
-// A feature branch that published its own spec is authoritative: it genuinely
-// has the endpoint (its own row), and never accumulates `endpoint_versions` rows
-// because only protected branches record history. It reports *its own* empty
-// history rather than importing the protected branch's — the caller then renders
-// this branch's current spec.
-//
-// This reverses the earlier behaviour, which fell through to the ancestor's
-// history here. That only looked right while the current-spec fetch was broken
-// by a dead URL, so inheriting was the sole way to show anything; with the branch
-// resolving correctly, showing master's history under a feature branch's name
-// would display an API that branch does not serve.
-// See docs/adr/0001-endpoint-resolution-model.md.
-#[tokio::test]
-async fn branch_with_its_own_endpoint_does_not_import_ancestor_history() {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.unwrap();
-
-    let spec = r#"openapi: 3.0.0
-info: {title: t, version: v1}
-paths:
-  /p:
-    get:
-      responses:
-        '200': { description: ok }
-"#;
-    // Two real versions on the protected branch "main".
-    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec, None, false)
-        .await
-        .unwrap();
-    let spec_v2 = r#"openapi: 3.0.0
-info: {title: t, version: v2}
-paths:
-  /p:
-    get:
-      responses:
-        '200': { description: ok }
-  /q:
-    get:
-      responses:
-        '200': { description: ok }
-"#;
-    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec_v2, None, false)
-        .await
-        .unwrap();
-
-    // Branch "feature-x" actually holds the same endpoint content (a real row,
-    // not a missing one) — but since it's not protected, no endpoint_versions
-    // rows were ever written for it.
-    services::provide_spec(
-        &repo,
-        "svc",
-        "feature-x",
-        ApiType::OpenApi,
-        spec_v2,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-
-    let versions = services::get_endpoint_version_history(
-        &repo,
-        "svc",
-        "feature-x",
-        ApiType::OpenApi,
-        "/p",
-        "GET",
-    )
-    .await
-    .unwrap();
-    assert!(
-        versions.is_empty(),
-        "an authoritative branch reports its own (empty) history, not main's: {:?}",
-        versions
-            .iter()
-            .map(|v| v.branch_name.as_deref())
-            .collect::<Vec<_>>()
-    );
-
-    // ...and the view falls back to that branch's own current spec, reported as
-    // `published` — not inherited from main.
-    let view =
-        services::get_endpoint_yaml(&repo, "svc", "feature-x", ApiType::OpenApi, "/p", "GET")
-            .await
-            .unwrap();
-    assert_eq!(view.state.as_str(), "published");
-    assert_eq!(view.served_branch.as_deref(), Some("feature-x"));
-    assert!(view.yaml.is_some());
-}
-
-// Only non-protected branches get a stale-cleanup expiry (protected branches are
-// exempt from cleanup), and it is after the last publish.
-#[tokio::test]
-async fn overview_shows_expiry_for_non_protected_branches_only() {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.unwrap();
-
-    let spec = r#"openapi: 3.0.0
-info: {title: t, version: v1}
-paths:
-  /p:
-    get:
-      responses:
-        '200': { description: ok }
-"#;
-    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec, None, false)
-        .await
-        .unwrap();
-    services::provide_spec(&repo, "svc", "feature", ApiType::OpenApi, spec, None, false)
-        .await
-        .unwrap();
-
-    let svcs = services::list_producers_detailed(&repo, None)
-        .await
-        .unwrap();
-    let svc = svcs.iter().find(|s| s.name == "svc").unwrap();
-    assert!(
-        svc.branches_expire_at.contains_key("feature"),
-        "a non-protected branch has a stale-cleanup expiry"
+        services::is_dev_mode_requested(&repo).await.unwrap(),
+        "the persisted intent must read back"
     );
     assert!(
-        !svc.branches_expire_at.contains_key("main"),
-        "a protected branch is exempt from cleanup, so has no expiry"
+        !services::get_dev_mode(&repo).await.unwrap(),
+        "the closed gate must keep dev mode ineffective"
     );
-    assert!(
-        svc.branches_expire_at["feature"] > svc.branches_last_published["feature"],
-        "expiry is after the last publish"
-    );
-}
-
-// The full-spec view reassembles a branch's stored per-endpoint OpenAPI specs
-// into one document; an api_type with no endpoints errors.
-#[tokio::test]
-async fn full_spec_merges_branch_endpoints() {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.unwrap();
-
-    let spec = r#"openapi: 3.0.0
-info: {title: t, version: v1}
-paths:
-  /a:
-    get:
-      responses:
-        '200': { description: ok }
-  /b:
-    post:
-      responses:
-        '201': { description: created }
-"#;
-    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec, None, false)
-        .await
-        .unwrap();
-
-    let full = services::get_full_spec(&repo, "svc", "main", ApiType::OpenApi)
-        .await
-        .unwrap();
-    assert!(full.contains("/a"), "merged spec includes path /a");
-    assert!(full.contains("/b"), "merged spec includes path /b");
-    assert!(
-        full.contains("openapi"),
-        "reassembled as one OpenAPI document"
-    );
-
-    // No endpoints of the requested type -> NotFound.
-    let err = services::get_full_spec(&repo, "svc", "main", ApiType::Proto).await;
-    assert!(err.is_err(), "no proto endpoints on this branch");
-}
-
-// A wildcard protected pattern must protect the branches it covers, matching how
-// stale-cleanup exempts them (SQLite GLOB). Exact patterns keep working.
-#[tokio::test]
-async fn wildcard_protected_pattern_matches_branches() {
-    use sanshain_service::domain::ports::SpecRepository;
-
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.unwrap();
-
-    // Defaults (exact) still work.
-    assert!(repo.is_branch_protected("main").await.unwrap());
-    assert!(!repo.is_branch_protected("feature-x").await.unwrap());
-
-    repo.add_protected_branch("release/*").await.unwrap();
-    assert!(
-        repo.is_branch_protected("release/1.5").await.unwrap(),
-        "a wildcard pattern protects matching branches"
-    );
-    assert!(
-        !repo.is_branch_protected("feature-x").await.unwrap(),
-        "a non-matching branch stays unprotected"
-    );
-    assert!(
-        repo.is_branch_protected("main").await.unwrap(),
-        "exact patterns are unaffected"
-    );
-}
-
-// An admin manual endpoint edit is branch activity and must advance the branch's
-// last-published time (so it does not look stale / get culled).
-#[tokio::test]
-async fn admin_edit_advances_last_published() {
-    use sanshain_service::domain::ports::{SpecRepository, UpdateEndpointParams};
-
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.unwrap();
-
-    let spec = r#"openapi: 3.0.0
-info: {title: t, version: v1}
-paths:
-  /p:
-    get:
-      responses:
-        '200': { description: ok }
-"#;
-    services::provide_spec(&repo, "svc", "main", ApiType::OpenApi, spec, None, false)
-        .await
-        .unwrap();
-    let t1 = branch_last_modified(&repo, "main").await;
-
-    // Cross a whole-second boundary so any advance is observable.
-    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
-
-    let sid = repo.ensure_service("svc").await.unwrap();
-    let bid = repo.ensure_branch(sid, "main").await.unwrap();
-    repo.update_endpoint(UpdateEndpointParams {
-        branch_id: bid,
-        api_type: ApiType::OpenApi,
-        path: "/p",
-        method: "GET",
-        yaml_content: "openapi: 3.0.0\ninfo: {title: t, version: v2}\npaths: {}\n",
-        deprecated: false,
-        external: false,
-    })
-    .await
-    .unwrap();
-
-    assert!(
-        branch_last_modified(&repo, "main").await > t1,
-        "an admin manual edit must advance the branch's last-published time"
-    );
-}
-
-// An OpenAPI spec with no paths is accepted (creates an empty branch), but the
-// per-branch endpoint count must correctly report 0 for it, distinguishing it
-// from a branch that actually serves something — the signal the discovery UI
-// uses to hide branches/services that provide nothing.
-#[tokio::test]
-async fn empty_spec_branch_reports_zero_endpoint_count() {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.unwrap();
-
-    let empty_spec = r#"openapi: 3.0.0
-info: {title: empty, version: v1}
-paths: {}
-"#;
-    services::provide_spec(
-        &repo,
-        "empty-svc",
-        "main",
-        ApiType::OpenApi,
-        empty_spec,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-
-    let real_spec = r#"openapi: 3.0.0
-info: {title: real, version: v1}
-paths:
-  /p:
-    get:
-      responses:
-        '200': { description: ok }
-"#;
-    services::provide_spec(
-        &repo,
-        "real-svc",
-        "main",
-        ApiType::OpenApi,
-        real_spec,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-
-    let svcs = services::list_producers_detailed(&repo, None)
-        .await
-        .unwrap();
-    let empty = svcs.iter().find(|s| s.name == "empty-svc").unwrap();
-    assert_eq!(
-        empty.branches_endpoint_count.get("main").copied(),
-        Some(0),
-        "an empty-paths provide creates the branch, but with a reported 0 endpoint count"
-    );
-
-    let real = svcs.iter().find(|s| s.name == "real-svc").unwrap();
-    assert_eq!(
-        real.branches_endpoint_count.get("main").copied(),
-        Some(1),
-        "a branch with one endpoint reports count 1"
-    );
-
-    // `branches` itself stays unfiltered (raw truth for admin management) —
-    // the empty branch is still listed, just reported as having 0 endpoints.
-    assert!(empty.branches.contains(&"main".to_string()));
 }
 
 // Revoking a token that doesn't exist (or was already revoked) now correctly
@@ -858,8 +694,6 @@ paths:
 // real token succeeds, and neither audit entry names the token or its ID.
 #[tokio::test]
 async fn revoke_token_404s_when_not_found_and_audit_has_no_identifying_details() {
-    use sanshain_service::domain::ports::SpecRepository;
-
     let (app, repo, token) = app_with_seed().await;
     let auth = format!("Bearer {}", token);
 
@@ -880,7 +714,9 @@ async fn revoke_token_404s_when_not_found_and_audit_has_no_identifying_details()
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
+    let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let new_id = created["id"].as_str().unwrap().to_string();
 
@@ -947,7 +783,7 @@ async fn audit_logs_are_admin_only() {
     auth_service::set_auth_mode(&repo, &AuthMode::Local)
         .await
         .unwrap();
-    auth_service::register_user(&repo, "regular-user", "password123")
+    auth_service::register_user(&repo, &no_root_users(), "regular-user", "password123")
         .await
         .unwrap();
     let users = auth_service::list_users(&repo).await.unwrap();
@@ -1012,37 +848,17 @@ async fn audit_logs_are_admin_only() {
     }
 }
 
-fn all_audit_logs_filter() -> sanshain_service::domain::models::AuditLogFilter {
-    sanshain_service::domain::models::AuditLogFilter {
-        from_date: None,
-        to_date: None,
-        action_type: None,
-        service_wildcard: None,
-        branch_wildcard: None,
-        limit: 100,
-    }
-}
-
 // A no-op re-provide (identical spec, zero endpoint changes) must not create a
 // second PROVIDE_SPEC audit entry — audit noise reported during testing.
 #[tokio::test]
 async fn provide_without_changes_is_not_audited() {
-    use sanshain_service::domain::ports::SpecRepository;
-
     let (app, repo, token) = app_with_seed().await;
     let auth = format!("Bearer {}", token);
 
-    let spec = r#"openapi: 3.0.0
-info: {title: audit-demo, version: v1}
-paths:
-  /ping:
-    get:
-      responses:
-        '200': { description: ok }
-"#;
+    let spec = spec_with_paths("1.0.0", &["/ping"]);
     let body = serde_json::json!({
         "producername": "audit-svc",
-        "branch": "main",
+        "stability": "snapshot",
         "openapi_yaml": spec,
     })
     .to_string();
@@ -1090,12 +906,10 @@ paths:
     );
 }
 
-// Fetching the branch report (used to render the branch view) must not create a
-// REPORT audit entry — otherwise merely viewing a branch is audited.
+// Fetching the report (used to render the dependency view) must not create a
+// REPORT audit entry — otherwise merely viewing the graph is audited.
 #[tokio::test]
 async fn viewing_report_is_not_audited() {
-    use sanshain_service::domain::ports::SpecRepository;
-
     let (app, repo, token) = app_with_seed().await;
     let auth = format!("Bearer {}", token);
 
@@ -1103,7 +917,7 @@ async fn viewing_report_is_not_audited() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/report?branch=main")
+                .uri("/report")
                 .header(axum::http::header::AUTHORIZATION, &auth)
                 .body(Body::empty())
                 .unwrap(),
@@ -1115,593 +929,23 @@ async fn viewing_report_is_not_audited() {
     let logs = repo.get_audit_logs(all_audit_logs_filter()).await.unwrap();
     assert!(
         logs.iter().all(|l| l.action != "REPORT"),
-        "viewing a branch report must not create a REPORT audit entry"
+        "viewing the report must not create a REPORT audit entry"
     );
 }
 
-// --- Item #17: source_protected_branch / pull_from_branch (GitHub issue #1) ---
+// --- Attribution: the token defines the user (no author field) ---
 
-// `cfg(test)` is always true in this crate; the attribute marks the helper as
-// test code for clippy's `allow-unwrap-in-tests`.
-#[cfg(test)]
-async fn spb_test_repo() -> SqliteSpecRepository {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    let repo = SqliteSpecRepository::new(pool);
-    repo.run_migrations().await.unwrap();
-    repo
-}
-
-const SPB_SPEC: &str = r#"openapi: 3.0.0
-info: {title: t, version: v1}
-paths:
-  /p:
-    get:
-      responses:
-        '200': { description: ok }
-"#;
-
-// First caller write sets source_protected_branch on a previously-unset branch.
+// The `author` hint was removed from the contract: attribution is the
+// authenticated Actor. Sending it must fail by name like every other unknown
+// field, and blame credits the token identity.
 #[tokio::test]
-async fn source_protected_branch_first_write_sets_it() {
-    use sanshain_service::domain::ports::SpecRepository;
-
-    let repo = spb_test_repo().await;
-    services::provide_spec_with_actor(
-        &repo,
-        services::ProvideSpecParams {
-            producername: "svc",
-            branch: "hotfix/1.0.1",
-            api_type: ApiType::OpenApi,
-            content: SPB_SPEC,
-            base_version: None,
-            force: false,
-            source_protected_branch: Some("release/1.0"),
-            author: None,
-        },
-        Some("ci-bot"),
-    )
-    .await
-    .unwrap();
-
-    let sid = repo.ensure_service("svc").await.unwrap();
-    let bid = repo
-        .find_branch(sid, "hotfix/1.0.1")
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        repo.get_source_protected_branch(bid)
-            .await
-            .unwrap()
-            .as_deref(),
-        Some("release/1.0")
-    );
-}
-
-// A second, differing caller-supplied value is ignored (stored value
-// unchanged) and a mismatch log entry (tagged service/branch) is produced.
-// `current_thread` flavor so the thread-local tracing subscriber reliably
-// stays active across every .await in this test (see item #7's note on why a
-// multi-threaded runtime would make this flaky).
-#[tokio::test(flavor = "current_thread")]
-async fn source_protected_branch_mismatch_is_logged_and_ignored() {
-    use sanshain_service::domain::ports::SpecRepository;
-    use sanshain_service::presentation::middleware::LogCaptureLayer;
-    use tracing_subscriber::layer::SubscriberExt;
-
-    let repo = spb_test_repo().await;
-    services::provide_spec_with_actor(
-        &repo,
-        services::ProvideSpecParams {
-            producername: "svc",
-            branch: "hotfix/1.0.1",
-            api_type: ApiType::OpenApi,
-            content: SPB_SPEC,
-            base_version: None,
-            force: false,
-            source_protected_branch: Some("release/1.0"),
-            author: None,
-        },
-        Some("ci-bot"),
-    )
-    .await
-    .unwrap();
-
-    let warn_buffer = Arc::new(std::sync::Mutex::new(VecDeque::new()));
-    let layer = LogCaptureLayer {
-        error_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
-        warn_buffer: warn_buffer.clone(),
-        info_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
-        debug_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
-        business_logic_debug: Arc::new(AtomicBool::new(true)),
-        admin_user_debug: Arc::new(AtomicBool::new(true)),
-    };
-    let subscriber = tracing_subscriber::registry().with(layer);
-    // `set_default` (RAII guard), not `with_default` (sync-closure-only): we're
-    // on a `current_thread` runtime, so the thread-local subscriber stays
-    // active across the `.await` below as long as the guard hasn't dropped yet.
-    {
-        let _guard = tracing::subscriber::set_default(subscriber);
-        services::provide_spec_with_actor(
-            &repo,
-            services::ProvideSpecParams {
-                producername: "svc",
-                branch: "hotfix/1.0.1",
-                api_type: ApiType::OpenApi,
-                content: SPB_SPEC,
-                base_version: None,
-                force: false,
-                source_protected_branch: Some("master"),
-                author: None,
-            },
-            Some("ci-bot"),
-        )
-        .await
-        .unwrap();
-    }
-
-    let sid = repo.ensure_service("svc").await.unwrap();
-    let bid = repo
-        .find_branch(sid, "hotfix/1.0.1")
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        repo.get_source_protected_branch(bid)
-            .await
-            .unwrap()
-            .as_deref(),
-        Some("release/1.0"),
-        "stored value must be unchanged by the differing second write"
-    );
-
-    let warns = warn_buffer.lock().unwrap();
-    assert_eq!(warns.len(), 1, "exactly one mismatch warning expected");
-    assert_eq!(warns[0].service.as_deref(), Some("svc"));
-    assert_eq!(warns[0].branch.as_deref(), Some("hotfix/1.0.1"));
-    assert!(warns[0].message.contains("mismatch"));
-}
-
-// A second, matching caller-supplied value is a no-op (no spurious log entry).
-#[tokio::test(flavor = "current_thread")]
-async fn source_protected_branch_matching_resupply_is_noop_no_log() {
-    use sanshain_service::domain::ports::SpecRepository;
-    use sanshain_service::presentation::middleware::LogCaptureLayer;
-    use tracing_subscriber::layer::SubscriberExt;
-
-    let repo = spb_test_repo().await;
-    services::provide_spec_with_actor(
-        &repo,
-        services::ProvideSpecParams {
-            producername: "svc",
-            branch: "hotfix/1.0.1",
-            api_type: ApiType::OpenApi,
-            content: SPB_SPEC,
-            base_version: None,
-            force: false,
-            source_protected_branch: Some("release/1.0"),
-            author: None,
-        },
-        Some("ci-bot"),
-    )
-    .await
-    .unwrap();
-
-    let warn_buffer = Arc::new(std::sync::Mutex::new(VecDeque::new()));
-    let layer = LogCaptureLayer {
-        error_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
-        warn_buffer: warn_buffer.clone(),
-        info_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
-        debug_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
-        business_logic_debug: Arc::new(AtomicBool::new(true)),
-        admin_user_debug: Arc::new(AtomicBool::new(true)),
-    };
-    let subscriber = tracing_subscriber::registry().with(layer);
-    // Re-provide identical content + a matching source_protected_branch.
-    // apply_source_protected_branch_hint runs regardless of whether the spec
-    // content itself changed (it happens before the #9 no-op short-circuit),
-    // so this still exercises the "matching value" comparison path.
-    {
-        let _guard = tracing::subscriber::set_default(subscriber);
-        services::provide_spec_with_actor(
-            &repo,
-            services::ProvideSpecParams {
-                producername: "svc",
-                branch: "hotfix/1.0.1",
-                api_type: ApiType::OpenApi,
-                content: SPB_SPEC,
-                base_version: None,
-                force: false,
-                source_protected_branch: Some("release/1.0"),
-                author: None,
-            },
-            Some("ci-bot"),
-        )
-        .await
-        .unwrap();
-    }
-
-    let sid = repo.ensure_service("svc").await.unwrap();
-    let bid = repo
-        .find_branch(sid, "hotfix/1.0.1")
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        repo.get_source_protected_branch(bid)
-            .await
-            .unwrap()
-            .as_deref(),
-        Some("release/1.0")
-    );
-    assert!(
-        warn_buffer.lock().unwrap().is_empty(),
-        "a matching resupply must not log a mismatch"
-    );
-}
-
-// An admin correction always overwrites, regardless of what's currently
-// stored, and a later differing caller-supplied value cannot undo it (only
-// an admin can change it once set).
-#[tokio::test]
-async fn admin_correction_always_overwrites_source_protected_branch() {
-    use sanshain_service::domain::ports::SpecRepository;
-
-    let repo = spb_test_repo().await;
-    services::provide_spec_with_actor(
-        &repo,
-        services::ProvideSpecParams {
-            producername: "svc",
-            branch: "hotfix/1.0.1",
-            api_type: ApiType::OpenApi,
-            content: SPB_SPEC,
-            base_version: None,
-            force: false,
-            source_protected_branch: Some("release/1.0"),
-            author: None,
-        },
-        Some("ci-bot"),
-    )
-    .await
-    .unwrap();
-
-    services::admin_set_source_protected_branch(&repo, "svc", "hotfix/1.0.1", Some("release/2.0"))
-        .await
-        .unwrap();
-
-    let sid = repo.ensure_service("svc").await.unwrap();
-    let bid = repo
-        .find_branch(sid, "hotfix/1.0.1")
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        repo.get_source_protected_branch(bid)
-            .await
-            .unwrap()
-            .as_deref(),
-        Some("release/2.0"),
-        "admin correction must overwrite the caller-set value"
-    );
-
-    // A later differing caller-supplied value must not undo the admin's fix.
-    services::provide_spec_with_actor(
-        &repo,
-        services::ProvideSpecParams {
-            producername: "svc",
-            branch: "hotfix/1.0.1",
-            api_type: ApiType::OpenApi,
-            content: SPB_SPEC,
-            base_version: None,
-            force: false,
-            source_protected_branch: Some("master"),
-            author: None,
-        },
-        Some("ci-bot"),
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        repo.get_source_protected_branch(bid)
-            .await
-            .unwrap()
-            .as_deref(),
-        Some("release/2.0"),
-        "only an admin may change an already-set value"
-    );
-}
-
-// pull_from_branch bypasses source_protected_branch/fallback resolution
-// entirely and does not persist anything (no branch row is even created for
-// the requesting branch).
-#[tokio::test]
-async fn pull_from_branch_bypasses_resolution_without_persisting() {
-    use sanshain_service::domain::ports::SpecRepository;
-
-    let repo = spb_test_repo().await;
-    // Only "release/1.0" (protected) has the endpoint.
-    repo.add_protected_branch("release/1.0").await.unwrap();
-    services::provide_spec(
-        &repo,
-        "svc",
-        "release/1.0",
-        ApiType::OpenApi,
-        SPB_SPEC,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-
-    let res = services::require_endpoint(
-        &repo,
-        None,
-        services::RequireEndpointParams {
-            consumername: "client-a",
-            producername: "svc",
-            branch: "feature-x",
-            api_type: ApiType::OpenApi,
-            path: "/p",
-            method: "GET",
-            timeout_secs: None,
-            source_protected_branch: None,
-            pull_from_branch: Some("release/1.0"),
-        },
-    )
-    .await
-    .unwrap();
-    assert!(res.yaml.contains("/p"));
-
-    // No branch row was created for "feature-x" — pull_from_branch has zero
-    // persistence side effects.
-    let sid = repo.ensure_service("svc").await.unwrap();
-    assert!(
-        repo.find_branch(sid, "feature-x").await.unwrap().is_none(),
-        "pull_from_branch must not create or touch a branch row for the requesting branch"
-    );
-}
-
-// Regression guard: requiring against a branch that IS itself protected, with
-// no data, still resolves to "not found" — never silently substituting a
-// different protected branch. Confirms item #17's changes did not weaken
-// this pre-existing, already-correct invariant.
-#[tokio::test]
-async fn protected_branch_with_no_data_still_not_found() {
-    use sanshain_service::domain::ports::SpecRepository;
-
-    let repo = spb_test_repo().await;
-    repo.add_protected_branch("release/2.0").await.unwrap();
-    // Some other protected branch DOES have the endpoint — must not leak here.
-    services::provide_spec(
-        &repo,
-        "svc",
-        "main",
-        ApiType::OpenApi,
-        SPB_SPEC,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-
-    let result = services::require_endpoint(
-        &repo,
-        None,
-        services::RequireEndpointParams {
-            consumername: "client-a",
-            producername: "svc",
-            branch: "release/2.0",
-            api_type: ApiType::OpenApi,
-            path: "/p",
-            method: "GET",
-            timeout_secs: None,
-            source_protected_branch: None,
-            pull_from_branch: None,
-        },
-    )
-    .await;
-    assert!(
-        result.is_err(),
-        "a protected branch with no data must not substitute another protected branch"
-    );
-}
-
-// get_endpoint_version_history prefers a branch's own source_protected_branch
-// over the plain protected-branch fallback chain, even when a different
-// protected branch would otherwise win alphabetically.
-#[tokio::test]
-async fn version_history_prefers_source_protected_branch_over_alphabetical() {
-    use sanshain_service::domain::ports::SpecRepository;
-
-    let repo = spb_test_repo().await;
-    // "main" sorts before "release/1.0" alphabetically, and both are protected
-    // with real (different) history — without source_protected_branch, the
-    // plain chain would incorrectly prefer "main".
-    services::provide_spec(
-        &repo,
-        "svc",
-        "main",
-        ApiType::OpenApi,
-        SPB_SPEC,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-    repo.add_protected_branch("release/1.0").await.unwrap();
-    services::provide_spec(
-        &repo,
-        "svc",
-        "release/1.0",
-        ApiType::OpenApi,
-        SPB_SPEC,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-
-    // The admin-set endpoint requires the branch row to already exist.
-    let sid = repo.ensure_service("svc").await.unwrap();
-    repo.ensure_branch(sid, "hotfix/1.0.1").await.unwrap();
-    services::admin_set_source_protected_branch(&repo, "svc", "hotfix/1.0.1", Some("release/1.0"))
-        .await
-        .unwrap();
-
-    let versions = services::get_endpoint_version_history(
-        &repo,
-        "svc",
-        "hotfix/1.0.1",
-        ApiType::OpenApi,
-        "/p",
-        "GET",
-    )
-    .await
-    .unwrap();
-    assert!(!versions.is_empty());
-    assert_eq!(
-        versions[0].branch_name.as_deref(),
-        Some("release/1.0"),
-        "source_protected_branch must be preferred over the alphabetically-earlier 'main'"
-    );
-}
-
-// HTTP-contract level: GET/PUT the admin source_protected_branch endpoint
-// through the real router, and confirm a non-admin gets 403 (matching #18's
-// admin_auth-gating test pattern).
-#[tokio::test]
-async fn admin_source_protected_branch_endpoint_is_admin_only_and_works() {
-    use sanshain_service::application::auth_service;
-    use sanshain_service::domain::models::AuthMode;
-
-    let (app, repo, admin_token) = app_with_seed().await;
-    let admin_auth = format!("Bearer {}", admin_token);
-    let uri = "/admin/producers/demo-svc/branches/main/source-protected-branch";
-
-    // GET: initially unset.
-    let res = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri(uri)
-                .header(axum::http::header::AUTHORIZATION, &admin_auth)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["source_protected_branch"], serde_json::Value::Null);
-
-    // PUT: set it.
-    let res = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("PUT")
-                .uri(uri)
-                .header(axum::http::header::AUTHORIZATION, &admin_auth)
-                .header(axum::http::header::CONTENT_TYPE, "application/json")
-                .body(Body::from(
-                    serde_json::json!({"source_protected_branch": "release/1.0"}).to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-
-    // GET again: now set.
-    let res = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri(uri)
-                .header(axum::http::header::AUTHORIZATION, &admin_auth)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let body = axum::body::to_bytes(res.into_body(), 10000).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["source_protected_branch"], "release/1.0");
-
-    // A non-admin is forbidden from both GET and PUT.
-    auth_service::set_auth_mode(&repo, &AuthMode::Local)
-        .await
-        .unwrap();
-    auth_service::register_user(&repo, "regular-user", "password123")
-        .await
-        .unwrap();
-    let users = auth_service::list_users(&repo).await.unwrap();
-    let regular = users.iter().find(|u| u.username == "regular-user").unwrap();
-    auth_service::approve_user(&repo, regular.id).await.unwrap();
-    let (session, _user) = auth_service::login(&repo, "regular-user", "password123")
-        .await
-        .unwrap();
-    let regular_auth = format!("Bearer {}", session.token);
-
-    let res = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri(uri)
-                .header(axum::http::header::AUTHORIZATION, &regular_auth)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::FORBIDDEN);
-
-    let res = app
-        .oneshot(
-            Request::builder()
-                .method("PUT")
-                .uri(uri)
-                .header(axum::http::header::AUTHORIZATION, &regular_auth)
-                .header(axum::http::header::CONTENT_TYPE, "application/json")
-                .body(Body::from(
-                    serde_json::json!({"source_protected_branch": "release/2.0"}).to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::FORBIDDEN);
-}
-
-// --- Item #15: `author` provide override (blame only, not the audit log) ---
-
-// A client-supplied `author` overrides who gets credited in the endpoint's
-// version history (blame), but the audit log must still record the real
-// authenticated caller — the two must never be conflated.
-#[tokio::test]
-async fn author_override_affects_blame_but_not_audit_log() {
-    use sanshain_service::domain::ports::SpecRepository;
-
+async fn author_field_is_rejected_and_blame_credits_the_actor() {
     let (app, repo, token) = app_with_seed().await;
     let auth = format!("Bearer {}", token);
 
-    let spec = r#"openapi: 3.0.0
-info: {title: demo, version: v1}
-paths:
-  /hello:
-    get:
-      responses:
-        '200': { description: ok }
-  /blame-test:
-    get:
-      responses:
-        '200': { description: ok }
-"#;
+    let spec = spec_with_paths("1.0.0", &["/blame-test"]);
     let res = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -1710,8 +954,8 @@ paths:
                 .header(axum::http::header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     serde_json::json!({
-                        "producername": "demo-svc",
-                        "branch": "main",
+                        "producername": "blame-svc",
+                        "stability": "snapshot",
                         "openapi_yaml": spec,
                         "author": "external.author@example.com",
                     })
@@ -1721,58 +965,12 @@ paths:
         )
         .await
         .unwrap();
-    assert_eq!(res.status(), StatusCode::ACCEPTED);
-
-    // Blame: the version history for the new endpoint must credit the
-    // client-supplied author, not the real authenticated caller ("root").
-    let versions = services::get_endpoint_version_history(
-        &repo,
-        "demo-svc",
-        "main",
-        ApiType::OpenApi,
-        "/blame-test",
-        "GET",
-    )
-    .await
-    .unwrap();
     assert_eq!(
-        versions[0].username.as_deref(),
-        Some("external.author@example.com"),
-        "author override must be used for version-history blame"
+        res.status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "the removed author field must be rejected by name"
     );
 
-    // Audit log: must still record the real authenticated caller, never the
-    // client-supplied author.
-    let logs = repo.get_audit_logs(all_audit_logs_filter()).await.unwrap();
-    let provide_log = logs
-        .iter()
-        .find(|l| l.action == "PROVIDE_SPEC" && l.service.as_deref() == Some("demo-svc"))
-        .expect("provide must be audited");
-    assert_eq!(
-        provide_log.username, "root",
-        "the audit log must record the real authenticated caller, not the author override"
-    );
-}
-
-// Without an `author` override, blame falls back to the real authenticated
-// caller — unchanged prior behavior.
-#[tokio::test]
-async fn author_absent_falls_back_to_real_username_for_blame() {
-    let (app, repo, token) = app_with_seed().await;
-    let auth = format!("Bearer {}", token);
-
-    let spec = r#"openapi: 3.0.0
-info: {title: demo, version: v1}
-paths:
-  /hello:
-    get:
-      responses:
-        '200': { description: ok }
-  /no-author:
-    get:
-      responses:
-        '200': { description: ok }
-"#;
     let res = app
         .oneshot(
             Request::builder()
@@ -1782,8 +980,8 @@ paths:
                 .header(axum::http::header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     serde_json::json!({
-                        "producername": "demo-svc",
-                        "branch": "main",
+                        "producername": "blame-svc",
+                        "stability": "snapshot",
                         "openapi_yaml": spec,
                     })
                     .to_string(),
@@ -1794,730 +992,179 @@ paths:
         .unwrap();
     assert_eq!(res.status(), StatusCode::ACCEPTED);
 
-    let versions = services::get_endpoint_version_history(
-        &repo,
-        "demo-svc",
-        "main",
-        ApiType::OpenApi,
-        "/no-author",
-        "GET",
-    )
-    .await
-    .unwrap();
-    assert_eq!(versions[0].username.as_deref(), Some("root"));
+    let history =
+        services::get_endpoint_history(&repo, "blame-svc", ApiType::OpenApi, "/blame-test", "GET")
+            .await
+            .unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(
+        history[0].provided_by, "root",
+        "blame credits the authenticated Actor"
+    );
 }
 
-// --- /require-bundle must resolve lineage exactly like /require ---
-
-// Same endpoint, distinguishable content per branch, so a test can tell which
-// branch actually served the bundle.
-const SPB_SPEC_FROM_RELEASE: &str = r#"openapi: 3.0.0
-info: {title: t, version: v1}
-paths:
-  /p:
-    get:
-      responses:
-        '200': { description: served-by-release }
-"#;
-
-const SPB_SPEC_FROM_MAIN: &str = r#"openapi: 3.0.0
-info: {title: t, version: v1}
-paths:
-  /p:
-    get:
-      responses:
-        '200': { description: served-by-main }
-"#;
-
-// A bundle require from a feature branch must follow that branch's
-// source_protected_branch, not the alphabetically-first protected branch.
-// Before this was wired up, /require and /require-bundle disagreed: the single
-// endpoint resolved against release/1.0 while the bundle silently returned
-// main's diverged API.
+// Promoting a snapshot with byte-identical content keeps the snapshot's
+// provider on the version — the human who built it stays credited — while the
+// audit's VERSION_PROMOTED entry names the promoting Actor (e.g. CI).
 #[tokio::test]
-async fn require_bundle_prefers_source_protected_branch_over_alphabetical() {
-    use sanshain_service::domain::ports::SpecRepository;
+async fn same_content_promotion_preserves_the_snapshot_provider() {
+    let (app, repo, root_token) = app_with_seed().await;
 
-    let repo = spb_test_repo().await;
-    // "main" sorts before "release/1.0"; both protected, both hold /p with
-    // different content.
-    services::provide_spec(
-        &repo,
-        "svc",
-        "main",
-        ApiType::OpenApi,
-        SPB_SPEC_FROM_MAIN,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-    repo.add_protected_branch("release/1.0").await.unwrap();
-    services::provide_spec(
-        &repo,
-        "svc",
-        "release/1.0",
-        ApiType::OpenApi,
-        SPB_SPEC_FROM_RELEASE,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
+    // The developer pushes the snapshot with their own token.
+    let hash = services::hash_password("pw").unwrap();
+    let dev = repo.create_user("dev-user", &hash, true).await.unwrap();
+    repo.grant_user_role(dev.id, "admin").await.unwrap();
+    let dev_session = repo
+        .create_session(dev.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap();
 
-    let eps = vec![("/p".to_string(), "GET".to_string())];
-    let res = services::require_bundle(
-        &repo,
-        None,
-        services::RequireBundleParams {
-            consumername: "client-a",
-            producername: "svc",
-            branch: "hotfix/1.0.1",
-            api_type: ApiType::OpenApi,
-            endpoints: &eps,
-            timeout_secs: None,
-            source_protected_branch: Some("release/1.0"),
-            pull_from_branch: None,
-        },
-    )
-    .await
-    .unwrap();
-    assert!(
-        res.yaml.contains("served-by-release"),
-        "bundle must resolve against source_protected_branch, got: {}",
-        res.yaml
-    );
+    let spec = spec_with_paths("3.0.0", &["/promoted"]);
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {}", dev_session.token),
+                )
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "producername": "promo-svc",
+                        "stability": "snapshot",
+                        "openapi_yaml": spec,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
 
-    // The hint was persisted by the bundle path, exactly as /require does.
-    let sid = repo.ensure_service("svc").await.unwrap();
-    let bid = repo
-        .find_branch(sid, "hotfix/1.0.1")
+    // CI (root's token here) promotes the identical content to GA.
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {}", root_token),
+                )
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "producername": "promo-svc",
+                        "stability": "ga",
+                        "openapi_yaml": spec,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+
+    let sid = repo.find_service("promo-svc").await.unwrap().unwrap();
+    let meta = repo
+        .find_spec_version(sid, ApiType::OpenApi, "3.0.0".parse().unwrap())
         .await
         .unwrap()
         .unwrap();
+    assert_eq!(meta.stability, Stability::Ga, "promotion landed");
     assert_eq!(
-        repo.get_source_protected_branch(bid)
-            .await
-            .unwrap()
-            .as_deref(),
-        Some("release/1.0")
-    );
-}
-
-// pull_from_branch pins a bundle request to an exact branch and persists
-// nothing — matching the single-endpoint behavior.
-#[tokio::test]
-async fn require_bundle_pull_from_branch_bypasses_resolution_without_persisting() {
-    use sanshain_service::domain::ports::SpecRepository;
-
-    let repo = spb_test_repo().await;
-    services::provide_spec(
-        &repo,
-        "svc",
-        "main",
-        ApiType::OpenApi,
-        SPB_SPEC_FROM_MAIN,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-    repo.add_protected_branch("release/1.0").await.unwrap();
-    services::provide_spec(
-        &repo,
-        "svc",
-        "release/1.0",
-        ApiType::OpenApi,
-        SPB_SPEC_FROM_RELEASE,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-
-    let eps = vec![("/p".to_string(), "GET".to_string())];
-    let res = services::require_bundle(
-        &repo,
-        None,
-        services::RequireBundleParams {
-            consumername: "client-a",
-            producername: "svc",
-            branch: "feature-x",
-            api_type: ApiType::OpenApi,
-            endpoints: &eps,
-            timeout_secs: None,
-            source_protected_branch: None,
-            pull_from_branch: Some("release/1.0"),
-        },
-    )
-    .await
-    .unwrap();
-    assert!(res.yaml.contains("served-by-release"));
-
-    let sid = repo.ensure_service("svc").await.unwrap();
-    assert!(
-        repo.find_branch(sid, "feature-x").await.unwrap().is_none(),
-        "pull_from_branch must not create a branch row on the bundle path either"
-    );
-}
-
-// A protected branch that holds the endpoint but has no version rows of its
-// own must not inherit a *different* protected branch's history — that would
-// show another release line's changes under this branch's name. It reports an
-// empty history instead.
-#[tokio::test]
-async fn protected_branch_without_history_does_not_inherit_another_protected_branch() {
-    use sanshain_service::domain::ports::SpecRepository;
-
-    let repo = spb_test_repo().await;
-    // "main" is protected and accumulates real version rows.
-    services::provide_spec(
-        &repo,
-        "svc",
-        "main",
-        ApiType::OpenApi,
-        SPB_SPEC_FROM_MAIN,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-    let versions_on_main =
-        services::get_endpoint_version_history(&repo, "svc", "main", ApiType::OpenApi, "/p", "GET")
-            .await
-            .unwrap();
-    assert!(
-        !versions_on_main.is_empty(),
-        "precondition: main must have real history"
+        meta.provided_by, "dev-user",
+        "identical-content promotion keeps the snapshot's provider"
     );
 
-    // "release/1.0" is protected and holds the endpoint, but its endpoint row is
-    // created directly so it has no version rows of its own.
-    repo.add_protected_branch("release/1.0").await.unwrap();
-    let sid = repo.ensure_service("svc").await.unwrap();
-    let bid = repo.ensure_branch(sid, "release/1.0").await.unwrap();
-    repo.insert_endpoint(
-        bid,
-        &sanshain_service::domain::models::EndpointRecord {
-            id: None,
-            api_type: ApiType::OpenApi,
-            path: "/p".to_string(),
-            normalized_path: "/p".to_string(),
-            method: "GET".to_string(),
-            yaml_content: SPB_SPEC_FROM_RELEASE.to_string(),
-            deprecated: false,
-            external: false,
-        },
-    )
-    .await
-    .unwrap();
-
-    let versions = services::get_endpoint_version_history(
-        &repo,
-        "svc",
-        "release/1.0",
-        ApiType::OpenApi,
-        "/p",
-        "GET",
-    )
-    .await
-    .unwrap();
-    assert!(
-        versions.is_empty(),
-        "a protected branch must not inherit another protected branch's history, got: {:?}",
-        versions
-            .iter()
-            .map(|v| v.branch_name.as_deref())
-            .collect::<Vec<_>>()
-    );
-}
-
-// A wildcard protected pattern (release/*) must actually participate in
-// fallback resolution. `list_protected_branches` returns patterns, so before
-// the patterns were expanded over real branch names the resolver looked up a
-// branch literally named "release/*" and found nothing.
-#[tokio::test]
-async fn wildcard_protected_pattern_resolves_as_fallback() {
-    use sanshain_service::domain::ports::SpecRepository;
-
-    let repo = spb_test_repo().await;
-    repo.add_protected_branch("release/*").await.unwrap();
-    // Remove the seeded exact patterns so only the wildcard can match.
-    repo.remove_protected_branch("main").await.unwrap();
-    repo.remove_protected_branch("master").await.unwrap();
-
-    services::provide_spec(
-        &repo,
-        "svc",
-        "release/1.0",
-        ApiType::OpenApi,
-        SPB_SPEC_FROM_RELEASE,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-
-    // A feature branch with nothing of its own must fall back to the
-    // wildcard-protected release/1.0.
-    let res = services::require_endpoint(
-        &repo,
-        None,
-        services::RequireEndpointParams {
-            consumername: "client-a",
-            producername: "svc",
-            branch: "feature-x",
-            api_type: ApiType::OpenApi,
-            path: "/p",
-            method: "GET",
-            timeout_secs: None,
-            source_protected_branch: None,
-            pull_from_branch: None,
-        },
-    )
-    .await
-    .unwrap();
-    assert!(
-        res.yaml.contains("served-by-release"),
-        "a wildcard-protected branch must be reachable as a fallback target"
-    );
-}
-
-// --- Read paths must resolve, never create ---
-
-// Browsing a service/branch that does not exist must not bring it into
-// existence. `list_producer_endpoints` used to call ensure_service/ensure_branch,
-// so a mistyped or stale URL minted a permanent empty branch that then appeared
-// in the services overview and the stale-cleanup horizon.
-#[tokio::test]
-async fn browsing_an_unknown_branch_does_not_create_it() {
-    use sanshain_service::domain::ports::SpecRepository;
-
-    let repo = spb_test_repo().await;
-    services::provide_spec(
-        &repo,
-        "svc",
-        "main",
-        ApiType::OpenApi,
-        SPB_SPEC,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-
-    // A branch that was never published, on a real service.
-    let listed = services::list_producer_endpoints(&repo, "svc", "ghost-branch")
-        .await
-        .unwrap();
-    assert!(listed.is_empty(), "an unknown branch serves nothing");
-
-    let sid = repo.ensure_service("svc").await.unwrap();
-    assert!(
-        repo.find_branch(sid, "ghost-branch")
-            .await
-            .unwrap()
-            .is_none(),
-        "browsing a branch must not create it"
-    );
-
-    // A service that does not exist at all.
-    let listed = services::list_producer_endpoints(&repo, "no-such-svc", "main")
-        .await
-        .unwrap();
-    assert!(listed.is_empty());
-    assert!(
-        repo.find_service("no-such-svc").await.unwrap().is_none(),
-        "browsing a service must not create it"
-    );
-}
-
-// The endpoint spec and history views are reads too: an unknown service is
-// reported as `unknown` (or 404 for history) without being created as a side
-// effect.
-#[tokio::test]
-async fn viewing_an_unknown_service_does_not_create_it() {
-    use sanshain_service::domain::ports::SpecRepository;
-
-    let repo = spb_test_repo().await;
-
-    let view =
-        services::get_endpoint_yaml(&repo, "ghost-svc", "main", ApiType::OpenApi, "/p", "get")
-            .await
-            .unwrap();
-    assert_eq!(
-        view.state.as_str(),
-        "unknown",
-        "an unknown service resolves to unknown, not an error"
-    );
-    assert!(view.yaml.is_none());
-
-    let history = services::get_endpoint_version_history(
-        &repo,
-        "ghost-svc-2",
-        "main",
-        ApiType::OpenApi,
-        "/p",
-        "GET",
-    )
-    .await;
-    assert!(history.is_err(), "unknown service has no history");
-
-    for name in ["ghost-svc", "ghost-svc-2"] {
-        assert!(
-            repo.find_service(name).await.unwrap().is_none(),
-            "{name} must not have been created by a read"
-        );
-    }
-}
-
-// --- Resolution states (GitHub issue #2, ADR 0001) ---
-
-const SPEC_TWO_ENDPOINTS: &str = r#"openapi: 3.0.0
-info: {title: t, version: v1}
-paths:
-  /keep:
-    get:
-      responses:
-        '200': { description: ok }
-  /deprecated:
-    get:
-      responses:
-        '200': { description: ok }
-"#;
-
-const SPEC_ONE_ENDPOINT: &str = r#"openapi: 3.0.0
-info: {title: t, version: v1}
-paths:
-  /keep:
-    get:
-      responses:
-        '200': { description: ok }
-"#;
-
-// THE regression this model exists for. master carries a deprecated endpoint; a
-// feature branch publishes a spec without it. The deletion must stick: a
-// Consumer of that branch must NOT receive master's copy.
-#[tokio::test]
-async fn deleting_an_endpoint_on_a_branch_is_not_undone_by_inheritance() {
-    let repo = spb_test_repo().await;
-    services::provide_spec(
-        &repo,
-        "svc",
-        "main",
-        ApiType::OpenApi,
-        SPEC_TWO_ENDPOINTS,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-    // The feature branch publishes a complete spec that omits /deprecated.
-    services::provide_spec(
-        &repo,
-        "svc",
-        "feature-x",
-        ApiType::OpenApi,
-        SPEC_ONE_ENDPOINT,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-
-    let err = services::require_endpoint(
-        &repo,
-        None,
-        services::RequireEndpointParams {
-            consumername: "c1",
-            producername: "svc",
-            branch: "feature-x",
-            api_type: ApiType::OpenApi,
-            path: "/deprecated",
-            method: "GET",
-            timeout_secs: None,
-            source_protected_branch: None,
-            pull_from_branch: None,
-        },
-    )
-    .await
-    .unwrap_err();
-    match err {
-        sanshain_service::domain::models::AppError::Gone(msg) => {
-            assert!(
-                msg.contains("/deprecated"),
-                "message names the endpoint: {msg}"
-            );
-        }
-        other => panic!("expected Gone (deliberately absent), got {other:?}"),
-    }
-
-    // The endpoint the branch *does* publish still resolves, from itself.
-    let ok = services::require_endpoint(
-        &repo,
-        None,
-        services::RequireEndpointParams {
-            consumername: "c1",
-            producername: "svc",
-            branch: "feature-x",
-            api_type: ApiType::OpenApi,
-            path: "/keep",
-            method: "GET",
-            timeout_secs: None,
-            source_protected_branch: None,
-            pull_from_branch: None,
-        },
-    )
-    .await
-    .unwrap();
-    assert_eq!(ok.state.as_str(), "published");
-    assert_eq!(ok.served_branch.as_deref(), Some("feature-x"));
-}
-
-// A branch that has never published inherits, and the response names where from.
-#[tokio::test]
-async fn a_branch_that_never_published_inherits_and_names_the_source() {
-    let repo = spb_test_repo().await;
-    services::provide_spec(
-        &repo,
-        "svc",
-        "main",
-        ApiType::OpenApi,
-        SPEC_TWO_ENDPOINTS,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-
-    let res = services::require_endpoint(
-        &repo,
-        None,
-        services::RequireEndpointParams {
-            consumername: "c1",
-            producername: "svc",
-            branch: "brand-new-feature",
-            api_type: ApiType::OpenApi,
-            path: "/deprecated",
-            method: "GET",
-            timeout_secs: None,
-            source_protected_branch: None,
-            pull_from_branch: None,
-        },
-    )
-    .await
-    .unwrap();
-    assert_eq!(res.state.as_str(), "inherited");
-    assert_eq!(res.served_branch.as_deref(), Some("main"));
-}
-
-// Absent must not long-poll: the answer is definitive, so a supplied timeout is
-// not burned waiting for something that cannot arrive.
-#[tokio::test]
-async fn absent_fails_immediately_despite_a_timeout() {
-    let repo = spb_test_repo().await;
-    services::provide_spec(
-        &repo,
-        "svc",
-        "feature-x",
-        ApiType::OpenApi,
-        SPEC_ONE_ENDPOINT,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-
-    let started = std::time::Instant::now();
-    let err = services::require_endpoint(
-        &repo,
-        None,
-        services::RequireEndpointParams {
-            consumername: "c1",
-            producername: "svc",
-            branch: "feature-x",
-            api_type: ApiType::OpenApi,
-            path: "/never",
-            method: "GET",
-            timeout_secs: Some(30),
-            source_protected_branch: None,
-            pull_from_branch: None,
-        },
-    )
-    .await
-    .unwrap_err();
-    assert!(
-        matches!(err, sanshain_service::domain::models::AppError::Gone(_)),
-        "expected Gone, got {err:?}"
-    );
-    assert!(
-        started.elapsed() < std::time::Duration::from_secs(5),
-        "Absent must not wait out the timeout, took {:?}",
-        started.elapsed()
-    );
-}
-
-// Every read path must agree about the same endpoint on the same branch — the
-// disagreement between browse and require is what started all of this.
-#[tokio::test]
-async fn all_read_paths_agree_on_the_same_endpoint() {
-    let repo = spb_test_repo().await;
-    services::provide_spec(
-        &repo,
-        "svc",
-        "main",
-        ApiType::OpenApi,
-        SPEC_TWO_ENDPOINTS,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-    services::provide_spec(
-        &repo,
-        "svc",
-        "feature-x",
-        ApiType::OpenApi,
-        SPEC_ONE_ENDPOINT,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-
-    // /keep is published on feature-x: single require, bundle require and the
-    // endpoint view must all say so, and all name feature-x.
-    let single = services::require_endpoint(
-        &repo,
-        None,
-        services::RequireEndpointParams {
-            consumername: "c1",
-            producername: "svc",
-            branch: "feature-x",
-            api_type: ApiType::OpenApi,
-            path: "/keep",
-            method: "GET",
-            timeout_secs: None,
-            source_protected_branch: None,
-            pull_from_branch: None,
-        },
-    )
-    .await
-    .unwrap();
-
-    let eps = vec![("/keep".to_string(), "GET".to_string())];
-    let bundle = services::require_bundle(
-        &repo,
-        None,
-        services::RequireBundleParams {
-            consumername: "c1",
-            producername: "svc",
-            branch: "feature-x",
-            api_type: ApiType::OpenApi,
-            endpoints: &eps,
-            timeout_secs: None,
-            source_protected_branch: None,
-            pull_from_branch: None,
-        },
-    )
-    .await
-    .unwrap();
-
-    let view =
-        services::get_endpoint_yaml(&repo, "svc", "feature-x", ApiType::OpenApi, "/keep", "GET")
-            .await
-            .unwrap();
-
-    assert_eq!(single.state.as_str(), "published");
-    assert_eq!(bundle.state.as_str(), "published");
-    assert_eq!(view.state.as_str(), "published");
-    for served in [
-        single.served_branch.as_deref(),
-        bundle.served_branch.as_deref(),
-        view.served_branch.as_deref(),
-    ] {
-        assert_eq!(served, Some("feature-x"), "all paths serve the same branch");
-    }
-
-    // ...and all three agree that /deprecated is deliberately absent there.
-    let bundle_eps = vec![("/deprecated".to_string(), "GET".to_string())];
-    let bundle_absent = services::require_bundle(
-        &repo,
-        None,
-        services::RequireBundleParams {
-            consumername: "c1",
-            producername: "svc",
-            branch: "feature-x",
-            api_type: ApiType::OpenApi,
-            endpoints: &bundle_eps,
-            timeout_secs: None,
-            source_protected_branch: None,
-            pull_from_branch: None,
-        },
-    )
-    .await;
-    assert!(
-        matches!(
-            bundle_absent,
-            Err(sanshain_service::domain::models::AppError::Gone(_))
-        ),
-        "bundle must agree with single require that it is Gone"
-    );
-    let view_absent = services::get_endpoint_yaml(
-        &repo,
-        "svc",
-        "feature-x",
-        ApiType::OpenApi,
-        "/deprecated",
-        "GET",
-    )
-    .await
-    .unwrap();
-    assert_eq!(view_absent.state.as_str(), "absent");
-}
-
-// A Consumer asking for an endpoint its Producer deliberately dropped is real
-// breakage, so it must still appear in the dependency views rather than vanish.
-#[tokio::test]
-async fn an_absent_require_still_records_the_unmet_dependency() {
-    let repo = spb_test_repo().await;
-    services::provide_spec(
-        &repo,
-        "svc",
-        "feature-x",
-        ApiType::OpenApi,
-        SPEC_ONE_ENDPOINT,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
-
-    let _ = services::require_endpoint(
-        &repo,
-        None,
-        services::RequireEndpointParams {
-            consumername: "hungry-consumer",
-            producername: "svc",
-            branch: "feature-x",
-            api_type: ApiType::OpenApi,
-            path: "/gone",
-            method: "GET",
-            timeout_secs: None,
-            source_protected_branch: None,
-            pull_from_branch: None,
-        },
-    )
-    .await;
-
-    let report = services::generate_report(&repo, "feature-x").await.unwrap();
-    let names: Vec<&str> = report
-        .dependency_graph
+    let logs = repo.get_audit_logs(all_audit_logs_filter()).await.unwrap();
+    let promoted = logs
         .iter()
-        .map(|d| d.client.as_str())
-        .collect();
-    assert!(
-        names.contains(&"hungry-consumer"),
-        "the unmet dependency must be recorded, got {names:?}"
+        .find(|l| l.action == "VERSION_PROMOTED" && l.service.as_deref() == Some("promo-svc"))
+        .expect("promotion must be audited");
+    assert_eq!(
+        promoted.username, "root",
+        "the audit names the promoting Actor, not the credited provider"
+    );
+}
+
+// A promotion carrying *different* content transfers attribution to the
+// promoter — whoever pushed those bytes owns them.
+#[tokio::test]
+async fn different_content_promotion_transfers_the_provider() {
+    let (app, repo, root_token) = app_with_seed().await;
+
+    let hash = services::hash_password("pw").unwrap();
+    let dev = repo.create_user("dev-user", &hash, true).await.unwrap();
+    repo.grant_user_role(dev.id, "admin").await.unwrap();
+    let dev_session = repo
+        .create_session(dev.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap();
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {}", dev_session.token),
+                )
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "producername": "promo2-svc",
+                        "stability": "snapshot",
+                        "openapi_yaml": spec_with_paths("3.0.0", &["/a"]),
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {}", root_token),
+                )
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "producername": "promo2-svc",
+                        "stability": "ga",
+                        "openapi_yaml": spec_with_paths("3.0.0", &["/a", "/b"]),
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+
+    let sid = repo.find_service("promo2-svc").await.unwrap().unwrap();
+    let meta = repo
+        .find_spec_version(sid, ApiType::OpenApi, "3.0.0".parse().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(meta.stability, Stability::Ga);
+    assert_eq!(
+        meta.provided_by, "root",
+        "different content: the promoter owns what they pushed"
     );
 }

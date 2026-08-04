@@ -75,7 +75,7 @@
                               d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
                     </svg>
                 </span>
-                Producers & Branches
+                Producers &amp; Versions
             </h2>
             <div class="relative w-64">
                 <input type="text" id="service-search" placeholder="Search services..."
@@ -96,6 +96,17 @@
     </div>
 </main>
 
+<!-- Confirm Delete Modal -->
+<div id="confirm-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+        <h3 class="text-lg font-bold text-slate-800 mb-2">Confirm Deletion</h3>
+        <p id="confirm-message" class="text-sm text-slate-600 mb-6"></p>
+        <div class="flex space-x-3">
+            <button id="confirm-yes" class="flex-1 bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors font-medium">Delete</button>
+            <button onclick="closeConfirmModal()" class="flex-1 bg-slate-100 text-slate-700 py-2 rounded-lg hover:bg-slate-200 transition-colors font-medium">Cancel</button>
+        </div>
+    </div>
+</div>
 
 <script>
     async function loadServices() {
@@ -109,7 +120,7 @@
 
         try {
             await loadUserFavorites();
-            await loadAllServiceBranches();
+            await loadAllProducers();
             renderServiceList(allServices);
             hideLoader();
         } catch (err) {
@@ -123,9 +134,9 @@
         loadServices();
     }
 
-    function goBackToBranches(serviceName) {
+    function goBackToVersions(serviceName) {
         history.pushState({ service: serviceName }, '', `?service=${encodeURIComponent(serviceName)}`);
-        showServiceBranches(serviceName);
+        showProducerVersions(serviceName);
     }
 
     function renderServiceList(allServicesIn) {
@@ -134,11 +145,11 @@
         breadcrumb.classList.add('hidden');
         breadcrumb.innerHTML = '';
 
-        // Only show services that serve something: at least one of their
-        // branches must have at least one endpoint. A service whose only
-        // branches are empty (e.g. an OpenAPI spec provided with no paths)
+        // Only show Producers that serve something: at least one entry of their
+        // version lines must have at least one endpoint. A Producer whose only
+        // versions are empty (e.g. an OpenAPI spec provided with no paths)
         // provides no benefit to list here.
-        const services = (allServicesIn || []).filter(svc => serviceHasAnyEndpoints(svc.name));
+        const services = (allServicesIn || []).filter(svc => producerHasAnyEndpoints(svc.name));
 
         if (!services || services.length === 0) {
             list.innerHTML = `
@@ -157,7 +168,7 @@
         list.innerHTML = '';
         for (const svc of services) {
             const name = svc.name;
-            const branches = (svc.branches || []).filter(b => branchHasEndpoints(name, b));
+            const versions = (svc.versions || []).filter(v => (v.endpoint_count || 0) > 0);
             const isFav = !!svc.is_favorite;
             const icon = svc.icon || null;
             const domain = svc.domain || null;
@@ -165,7 +176,7 @@
             card.className = 'bg-white p-5 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
             card.onclick = () => {
                 history.pushState({ service: name }, '', `?service=${encodeURIComponent(name)}`);
-                showServiceBranches(name);
+                showProducerVersions(name);
             };
             card.innerHTML = `
                 <div class="flex items-center justify-between">
@@ -190,7 +201,7 @@
                             </div>
                             <div class="text-sm text-slate-500">
                                 <span class="w-2 h-2 inline-block rounded-full bg-green-500 mr-1"></span>
-                                ${branches.length} branch${branches.length !== 1 ? 'es' : ''}
+                                ${versions.length} version${versions.length !== 1 ? 's' : ''}
                             </div>
                         </div>
                     </div>
@@ -216,7 +227,14 @@
         renderServiceList(allServices.filter(svc => svc.name.toLowerCase().includes(q)));
     });
 
-    async function showServiceBranches(serviceName) {
+    const API_TYPE_ORDER = ['openapi', 'asyncapi', 'proto'];
+
+    function formatTimestamp(iso) {
+        return iso ? iso.slice(0, 16).replace('T', ' ') : '';
+    }
+
+    // The version timeline: one list per API type, newest first.
+    async function showProducerVersions(serviceName) {
         hideLoader();
         const list = document.getElementById('services-list');
         const breadcrumb = document.getElementById('service-breadcrumb');
@@ -226,68 +244,223 @@
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
             <span class="text-slate-800 font-semibold">${escapeHtml(serviceName)}</span>`;
 
-        // Only branches that actually serve something belong in the server view —
-        // an empty branch (e.g. an OpenAPI spec with no paths) gives no benefit here.
-        const branches = (allServiceBranches[serviceName] || []).filter(b => branchHasEndpoints(serviceName, b));
+        list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading versions...</div>';
+
+        let versions;
+        try {
+            versions = await fetchJSON(`/admin/producers/${encodeURIComponent(serviceName)}/versions`);
+        } catch (err) {
+            list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(err.message)}</div>`;
+            return;
+        }
         list.innerHTML = '';
 
-        if (branches.length === 0) {
-            list.innerHTML = '<div class="text-center py-10 text-slate-500 italic">No branches found for this service.</div>';
+        if (!versions || versions.length === 0) {
+            list.innerHTML = '<div class="text-center py-10 text-slate-500 italic">No versions found for this Producer.</div>';
             return;
         }
 
-        const lastPublishedMap = allServiceLastPublished[serviceName] || {};
-        const expireMap = allServiceExpireAt[serviceName] || {};
-        for (const branch of branches) {
-            const iso = lastPublishedMap[branch];
-            const lastPublished = iso
-                ? `Last published ${iso.slice(0, 16).replace('T', ' ')}`
-                : 'No publishes yet';
-            // Stale-cleanup TTL: warn when a non-protected branch is due to be culled soon.
-            let ttlBadge = '';
-            const expireIso = expireMap[branch];
-            if (expireIso) {
-                const daysLeft = Math.ceil((new Date(expireIso).getTime() - Date.now()) / 86400000);
-                if (daysLeft <= 3) {
-                    const label = daysLeft <= 0 ? 'Expiring' : `Expires in ${daysLeft}d`;
-                    ttlBadge = `<span class="text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter mr-2" title="This branch has had no publish recently and will be removed by stale-branch cleanup.">${label}</span>`;
-                }
-            }
-            const card = document.createElement('div');
-            card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
-            card.onclick = () => {
-                history.pushState({ service: serviceName, branch: branch }, '', `?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branch)}`);
-                showServiceBranchEndpoints(serviceName, branch);
-            };
-            card.innerHTML = `
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center">
-                        <span class="bg-purple-100 text-purple-700 p-2 rounded-lg mr-3">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                            </svg>
-                        </span>
-                        <div>
-                            <h3 class="font-semibold text-slate-800">${escapeHtml(branch)}</h3>
-                            <p class="text-xs text-slate-400 mt-0.5">${escapeHtml(lastPublished)}</p>
-                        </div>
-                    </div>
-                    <div class="flex items-center">
-                        ${ttlBadge}
-                        <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                        </svg>
-                    </div>
-                </div>`;
-            list.appendChild(card);
+        // Group into version lines by API type.
+        const lines = new Map();
+        for (const v of versions) {
+            const key = (v.api_type || 'openapi').toLowerCase();
+            if (!lines.has(key)) lines.set(key, []);
+            lines.get(key).push(v);
+        }
+        const orderedTypes = [...lines.keys()].sort((a, b) => {
+            const ia = API_TYPE_ORDER.indexOf(a), ib = API_TYPE_ORDER.indexOf(b);
+            return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        });
+
+        for (const apiType of orderedTypes) {
+            const line = lines.get(apiType);
+            line.sort((a, b) => compareSemver(b.version, a.version)); // newest first
+            list.appendChild(renderVersionLine(serviceName, apiType, line));
         }
     }
 
-    async function downloadFullApi(service, branch, apiType) {
+    function renderVersionLine(serviceName, apiType, line) {
+        const section = document.createElement('div');
+        section.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm';
+
+        const header = document.createElement('div');
+        header.className = 'flex flex-wrap items-center justify-between gap-3 mb-3';
+        header.innerHTML = `
+            <div class="flex items-center gap-2">
+                <span class="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200">${escapeHtml(apiType)}</span>
+                <span class="text-sm text-slate-500">${line.length} version${line.length !== 1 ? 's' : ''}</span>
+            </div>`;
+
+        // Diff control: any two versions of the line, defaulting to the two
+        // newest (adjacent) entries.
+        if (line.length >= 2) {
+            const diffCtl = document.createElement('div');
+            diffCtl.className = 'flex items-center gap-2 text-sm';
+            const mkSelect = () => {
+                const sel = document.createElement('select');
+                sel.className = 'text-sm border border-slate-300 rounded-lg px-2 py-1';
+                for (const v of line) {
+                    const opt = document.createElement('option');
+                    opt.value = v.version;
+                    opt.textContent = `${v.version} (${v.stability === 'ga' ? 'GA' : 'snapshot'})`;
+                    sel.appendChild(opt);
+                }
+                return sel;
+            };
+            const fromSel = mkSelect();
+            const toSel = mkSelect();
+            fromSel.value = line[1].version; // second-newest
+            toSel.value = line[0].version;   // newest
+            const arrow = document.createElement('span');
+            arrow.className = 'text-slate-500';
+            arrow.textContent = '→';
+            const diffBtn = document.createElement('button');
+            diffBtn.type = 'button';
+            diffBtn.className = 'px-3 py-1 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700';
+            diffBtn.textContent = 'Diff';
+            diffBtn.addEventListener('click', () =>
+                showLineDiff(serviceName, apiType, fromSel.value, toSel.value, diffOutput));
+            diffCtl.append(fromSel, arrow, toSel, diffBtn);
+            header.appendChild(diffCtl);
+        }
+        section.appendChild(header);
+
+        const diffOutput = document.createElement('div');
+        diffOutput.className = 'mb-3 empty:mb-0';
+        section.appendChild(diffOutput);
+
+        const entries = document.createElement('div');
+        entries.className = 'space-y-2';
+        for (const v of line) {
+            entries.appendChild(renderVersionEntry(serviceName, apiType, v));
+        }
+        section.appendChild(entries);
+        return section;
+    }
+
+    function renderVersionEntry(serviceName, apiType, v) {
+        const isSnapshot = v.stability !== 'ga';
+        let expiryBadge = '';
+        if (isSnapshot && v.expires_at) {
+            const daysLeft = Math.ceil((new Date(v.expires_at).getTime() - Date.now()) / 86400000);
+            const label = daysLeft <= 0 ? 'Expiring' : `Expires in ${daysLeft}d`;
+            const urgent = daysLeft <= 3;
+            expiryBadge = `<span class="text-[10px] ${urgent ? 'text-red-700 bg-red-100' : 'text-amber-700 bg-amber-100'} px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter" title="This snapshot expires once neither provided nor required for the configured window (${escapeHtml(v.expires_at)}).">${label}</span>`;
+        }
+        const provider = v.provided_by;
+
+        const card = document.createElement('div');
+        card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
+        card.onclick = () => {
+            history.pushState(
+                { service: serviceName, api_type: apiType, version: v.version },
+                '',
+                `?service=${encodeURIComponent(serviceName)}&api_type=${encodeURIComponent(apiType)}&version=${encodeURIComponent(v.version)}`);
+            showVersionEndpoints(serviceName, apiType, v.version);
+        };
+        card.innerHTML = `
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+                <div class="flex items-center gap-3 min-w-0">
+                    <span class="bg-purple-100 text-purple-700 p-2 rounded-lg">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5a2 2 0 011.414.586l7 7a2 2 0 010 2.828l-5 5a2 2 0 01-2.828 0l-7-7A2 2 0 015 10V5a2 2 0 012-2z"></path>
+                        </svg>
+                    </span>
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h3 class="font-semibold text-slate-800 font-mono">${escapeHtml(v.version)}</h3>
+                            ${stabilityBadge(v.stability)}
+                            ${expiryBadge}
+                        </div>
+                        <p class="text-xs text-slate-400 mt-0.5">
+                            ${v.endpoint_count} endpoint${v.endpoint_count !== 1 ? 's' : ''}
+                            &middot; <span data-provider></span>
+                            &middot; updated ${escapeHtml(formatTimestamp(v.updated_at))}
+                        </p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" data-download class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-indigo-600">Full spec</button>
+                    <button type="button" data-delete class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-red-50 text-red-600">Delete</button>
+                    <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                    </svg>
+                </div>
+            </div>`;
+        // Author is Consumer-supplied, unverified attribution — set as text,
+        // never spliced into markup.
+        card.querySelector('[data-provider]').textContent = `by ${provider}`;
+        card.querySelector('[data-download]').addEventListener('click', (e) => {
+            e.stopPropagation();
+            downloadFullApi(serviceName, apiType, v.version);
+        });
+        card.querySelector('[data-delete]').addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteVersion(serviceName, apiType, v.version);
+        });
+        return card;
+    }
+
+    async function showLineDiff(serviceName, apiType, from, to, output) {
+        if (from === to) {
+            output.innerHTML = '<div class="text-sm text-slate-500 italic">Same version selected.</div>';
+            return;
+        }
+        output.innerHTML = '<div class="text-sm text-slate-500 italic">Loading diff...</div>';
         try {
-            const res = await apiCall(`/admin/producers/${encodeURIComponent(service)}/branches/${encodeURIComponent(branch)}/full-spec?api_type=${encodeURIComponent(apiType)}`);
+            const res = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/diff?api_type=${encodeURIComponent(apiType)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
             if (!res.ok) {
-                alert('Failed to load the full API spec for this branch.');
+                output.innerHTML = `<div class="text-sm text-red-500">Failed to load diff (HTTP ${res.status}).</div>`;
+                return;
+            }
+            const diffText = await res.text();
+            if (!diffText.trim() || diffText.trim().split('\n').length <= 1) {
+                output.innerHTML = `<div class="text-sm text-slate-500 italic">No differences between ${escapeHtml(from)} and ${escapeHtml(to)}.</div>`;
+                return;
+            }
+            output.innerHTML = `
+                <div class="text-xs text-slate-500 mb-1">${escapeHtml(from)} → ${escapeHtml(to)}</div>
+                <pre class="diff-pre bg-slate-800 p-4 rounded-xl text-sm overflow-x-auto whitespace-pre-wrap leading-relaxed">${renderUnifiedDiffHtml(diffText)}</pre>`;
+        } catch (e) {
+            output.innerHTML = `<div class="text-sm text-red-500">Failed to load diff: ${escapeHtml(e.message)}</div>`;
+        }
+    }
+
+    // Delete-version is the sole escape hatch from GA immutability. Always
+    // offered; the server refuses callers without the permission (403). The
+    // dependents are fetched FIRST so the confirmation names who breaks.
+    async function deleteVersion(serviceName, apiType, version) {
+        let dependents = [];
+        try {
+            dependents = await fetchJSON(`/admin/producers/${encodeURIComponent(serviceName)}/versions/${encodeURIComponent(apiType)}/${encodeURIComponent(version)}/dependents`);
+        } catch (e) {
+            alert('Could not check dependents: ' + e.message);
+            return;
+        }
+        const base = `Delete ${escapeHtml(apiType)} version <strong>${escapeHtml(version)}</strong> of <strong>${escapeHtml(serviceName)}</strong>?`;
+        const warning = dependents.length > 0
+            ? `<br><br><span class="text-red-600 font-semibold">Consumers pinned to this version will hard-fail:</span><br>${dependents.map(d => escapeHtml(d)).join(', ')}`
+            : '<br><br>No Consumers are pinned to this version.';
+        confirmDelete(base + warning, async () => {
+            try {
+                const res = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/versions/${encodeURIComponent(apiType)}/${encodeURIComponent(version)}`, { method: 'DELETE' });
+                if (!res.ok) {
+                    alert('Failed to delete: ' + (await errorMessage(res)));
+                    return;
+                }
+                await loadAllProducers();
+                showProducerVersions(serviceName);
+            } catch (e) {
+                alert('Failed to delete: ' + e.message);
+            }
+        });
+    }
+
+    async function downloadFullApi(service, apiType, version) {
+        try {
+            const res = await apiCall(`/admin/producers/${encodeURIComponent(service)}/full-spec?api_type=${encodeURIComponent(apiType)}&version=${encodeURIComponent(version)}`);
+            if (!res.ok) {
+                alert('Failed to load the full API spec for this version.');
                 return;
             }
             const text = await res.text();
@@ -295,7 +468,7 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${service}-${branch}.yaml`;
+            a.download = `${service}-${version}.${apiType === 'proto' ? 'proto' : 'yaml'}`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -305,72 +478,64 @@
         }
     }
 
-    async function showServiceBranchEndpoints(serviceName, branchName) {
+    async function showVersionEndpoints(serviceName, apiType, version) {
         showLoader();
         const list = document.getElementById('services-list');
         const breadcrumb = document.getElementById('service-breadcrumb');
         breadcrumb.classList.remove('hidden');
-        // Service and branch names come straight from client `/provide` payloads
-        // and are not validated, so they must never be interpolated raw into
-        // markup — escape text, and attach handlers as listeners rather than
-        // building `onclick="..."` attributes out of them.
+        // Service names come straight from client `/provide` payloads and are
+        // not validated, so they must never be interpolated raw into markup —
+        // escape text, and attach handlers as listeners rather than building
+        // `onclick="..."` attributes out of them.
         breadcrumb.innerHTML = `
             <button onclick="goBackToServices()" class="hover:text-indigo-600 font-medium">Producers</button>
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-            <button type="button" data-back-to-branches class="hover:text-indigo-600 font-medium">${escapeHtml(serviceName)}</button>
+            <button type="button" data-back-to-versions class="hover:text-indigo-600 font-medium">${escapeHtml(serviceName)}</button>
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-            <span class="text-slate-800 font-semibold">${escapeHtml(branchName)}</span>`;
-        breadcrumb.querySelector('[data-back-to-branches]')
-            .addEventListener('click', () => goBackToBranches(serviceName));
+            <span class="text-slate-800 font-semibold font-mono">${escapeHtml(apiType)} ${escapeHtml(version)}</span>`;
+        breadcrumb.querySelector('[data-back-to-versions]')
+            .addEventListener('click', () => goBackToVersions(serviceName));
 
         list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading endpoints...</div>';
 
         try {
-            const providedEndpoints = await fetchJSON(`/admin/producers/${encodeURIComponent(serviceName)}/branches/${encodeURIComponent(branchName)}/endpoints`);
+            const providedEndpoints = await fetchJSON(`/admin/producers/${encodeURIComponent(serviceName)}/endpoints?api_type=${encodeURIComponent(apiType)}&version=${encodeURIComponent(version)}`);
             if (providedEndpoints && providedEndpoints.length > 0) {
-                const apiType = providedEndpoints[0].api_type || 'openapi';
                 const dlBtn = document.createElement('button');
                 dlBtn.type = 'button';
                 dlBtn.className = 'ml-4 px-2.5 py-1 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700';
                 dlBtn.textContent = 'Download full API';
-                dlBtn.addEventListener('click', () => downloadFullApi(serviceName, branchName, apiType));
+                dlBtn.addEventListener('click', () => downloadFullApi(serviceName, apiType, version));
                 breadcrumb.appendChild(dlBtn);
             }
             let report = { dependency_graph: [], unused_endpoints: [] };
             try {
-                report = await fetchJSON(`/report?branch=${encodeURIComponent(branchName)}`);
+                report = await fetchJSON('/report');
             } catch (_) {}
 
-            const uniqueEndpoints = (providedEndpoints || []).map(e => ({ api_type: e.api_type, path: e.path, method: e.method, service: serviceName, deprecated: e.deprecated, external: e.external }));
+            const uniqueEndpoints = (providedEndpoints || []).map(e => ({ api_type: e.api_type, path: e.path, method: e.method, service: serviceName, deprecated: e.deprecated }));
 
-            const providedKeys = new Set(uniqueEndpoints.map(e => `${e.method}:${e.path}`));
-            const reportEndpoints = [
-                ...report.dependency_graph.filter(e => e.service === serviceName),
-                ...report.unused_endpoints.filter(e => e.service === serviceName)
-            ];
-            for (const e of reportEndpoints) {
-                const key = `${e.method}:${e.path}`;
-                if (!providedKeys.has(key)) {
-                    providedKeys.add(key);
-                    uniqueEndpoints.push(e);
-                }
-            }
+            // Dependencies recorded against exactly this Pin of this line.
+            const versionDeps = report.dependency_graph.filter(e =>
+                e.service === serviceName
+                && String(e.version) === String(version)
+                && (e.api_type || 'openapi').toLowerCase() === apiType.toLowerCase());
 
             const clientsMap = {};
-            report.dependency_graph.filter(e => e.service === serviceName).forEach(e => {
+            versionDeps.forEach(e => {
                 const key = `${e.method}:${e.path}`;
                 if (!clientsMap[key]) clientsMap[key] = new Set();
                 clientsMap[key].add(e.client);
             });
 
-            const usedKeys = new Set(report.dependency_graph.filter(e => e.service === serviceName).map(e => `${e.method}:${e.path}`));
+            const usedKeys = new Set(versionDeps.map(e => `${e.method}:${e.path}`));
             const unusedSet = new Set(uniqueEndpoints.filter(e => !usedKeys.has(`${e.method}:${e.path}`)).map(e => `${e.method}:${e.path}`));
 
             list.innerHTML = '';
             hideLoader();
 
             if (uniqueEndpoints.length === 0) {
-                list.innerHTML = '<div class="text-center py-10 text-slate-500 italic">No endpoints found for this service on this branch.</div>';
+                list.innerHTML = '<div class="text-center py-10 text-slate-500 italic">This version includes no endpoints.</div>';
                 return;
             }
 
@@ -383,6 +548,7 @@
                     <span class="font-semibold text-slate-800">${uniqueEndpoints.length}</span> endpoints total &middot;
                     <span class="text-green-600 font-medium">${usedCount} used</span> &middot;
                     <span class="text-amber-600 font-medium">${unusedCount} unused</span>
+                    <span class="text-slate-400">(at this Pin)</span>
                 </div>`;
             list.appendChild(summary);
 
@@ -393,8 +559,7 @@
                 const card = document.createElement('div');
                 card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer';
                 card.onclick = () => {
-                    const api_type = ep.api_type || 'REST';
-                    window.location.href = `/yaml.html?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}&api_type=${encodeURIComponent(api_type)}`;
+                    window.location.href = `/yaml.html?service=${encodeURIComponent(serviceName)}&api_type=${encodeURIComponent(apiType)}&version=${encodeURIComponent(version)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}`;
                 };
                 card.innerHTML = `
                     <div class="flex items-center justify-between">
@@ -407,7 +572,6 @@
                             </span>
                             <span class="font-mono text-sm text-slate-700">${escapeHtml(ep.path)}</span>
                             ${ep.deprecated ? '<span class="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">deprecated</span>' : ''}
-                            ${ep.external ? '<span class="text-[10px] text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">external</span>' : ''}
                         </div>
                         <div class="flex items-center">
                             ${isUnused
@@ -463,17 +627,17 @@
     async function handleDeepLink() {
         const params = new URLSearchParams(window.location.search);
         const service = params.get('service');
-        const branch = params.get('branch');
+        const apiType = params.get('api_type') || 'openapi';
+        const version = params.get('version');
         const path = params.get('path');
         const method = params.get('method');
-        const api_type = params.get('api_type') || 'REST';
 
-        if (service && branch && path && method) {
-            window.location.href = `/yaml.html?service=${encodeURIComponent(service)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}&api_type=${encodeURIComponent(api_type)}`;
-        } else if (service && branch) {
-            await showServiceBranchEndpoints(service, branch);
+        if (service && version && path && method) {
+            window.location.href = `/yaml.html?service=${encodeURIComponent(service)}&api_type=${encodeURIComponent(apiType)}&version=${encodeURIComponent(version)}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}`;
+        } else if (service && version) {
+            await showVersionEndpoints(service, apiType, version);
         } else if (service) {
-            await showServiceBranches(service);
+            await showProducerVersions(service);
         } else {
             await loadServices();
         }
@@ -481,7 +645,7 @@
 
     // Initial load
     checkDiscoveryAuth(async () => {
-        await loadAllServiceBranches();
+        await loadAllProducers();
         await handleDeepLink();
     });
 

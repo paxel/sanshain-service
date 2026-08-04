@@ -150,24 +150,19 @@ test.describe('Sanshain UI Smoke Test', () => {
   });
 });
 
-// The endpoint editor is reachable only through an admin-gated button on
-// yaml.html, and edit.html re-checks the same flag on entry. Both gates read the
-// user handed to the checkDiscoveryAuth callback, so a callback invoked without
-// that argument leaves `user` undefined, reads as not-an-admin, and disables the
-// whole feature for everyone — root included — with no error anywhere.
-test.describe('Endpoint editor access', () => {
+// The viewer renders an endpoint of one version-line entry. Immutability is
+// absolute in 2.0: there is no editor, so the page must offer none.
+test.describe('Endpoint viewer', () => {
   const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 
-  const SERVICE = 'edit-access-fixture';
+  const SERVICE = 'viewer-fixture';
   const YAML_URL =
-    `/yaml.html?service=${SERVICE}&branch=main&path=%2Fhello&method=GET&api_type=OpenApi`;
-  const EDIT_URL =
-    `/edit.html?service=${SERVICE}&branch=main&path=%2Fhello&method=GET&api_type=OpenApi`;
+    `/yaml.html?service=${SERVICE}&api_type=openapi&version=1.0.0&path=%2Fhello&method=GET`;
 
   const SPEC = [
     'openapi: 3.0.0',
     'info:',
-    '  title: Edit Access Fixture',
+    '  title: Viewer Fixture',
     '  version: 1.0.0',
     'paths:',
     '  /hello:',
@@ -178,15 +173,6 @@ test.describe('Endpoint editor access', () => {
     '',
   ].join('\n');
 
-  async function loginAs(page, username, password) {
-    await page.goto('/account.html');
-    await page.waitForSelector('#login-username', { state: 'visible' });
-    await page.fill('input[id="login-username"]', username);
-    await page.fill('input[id="login-password"]', password);
-    await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator('#account-dashboard')).toBeVisible({ timeout: 10000 });
-  }
-
   test.beforeAll(async ({ request }) => {
     if (!adminPassword) {
       throw new Error('INITIAL_ADMIN_PASSWORD environment variable is required for tests');
@@ -196,54 +182,28 @@ test.describe('Endpoint editor access', () => {
     });
     const { token } = await login.json();
 
-    // Seed one endpoint for the editor to open.
+    // Seed one version for the viewer to open.
     await request.post('/provide', {
       headers: { Authorization: `Bearer ${token}` },
-      data: { producername: SERVICE, branch: 'main', openapi_yaml: SPEC },
+      data: { producername: SERVICE, stability: 'ga', openapi_yaml: SPEC },
     });
-
-    // A non-admin account, approved so it can sign in.
-    await request.post('/auth/register', {
-      data: { username: 'edit-access-plain', password: 'plain-pass-12345' },
-    });
-    const users = await (
-      await request.get('/admin/users', {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-    ).json();
-    const plain = users.find((u) => u.username === 'edit-access-plain');
-    if (plain && !plain.approved) {
-      await request.post(`/admin/users/${plain.id}/approve`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    }
   });
 
-  test('an admin can reach the editor', async ({ page }) => {
+  test('the viewer shows the version history of the endpoint', async ({ page }) => {
     page.on('dialog', async (d) => await d.dismiss());
-    await loginAs(page, 'root', adminPassword);
-
-    // The Edit button must actually be offered.
-    await page.goto(YAML_URL);
-    await expect(page.locator('#edit-btn')).toBeVisible();
-
-    // ...and following it must land on the editor rather than bouncing back.
-    await page.locator('#edit-btn').click();
-    await page.waitForURL('**/edit.html**');
-    await expect(page.locator('#yaml-editor')).toBeVisible();
-  });
-
-  test('a non-admin is offered no editor and cannot open it directly', async ({ page }) => {
-    page.on('dialog', async (d) => await d.dismiss());
-    await loginAs(page, 'edit-access-plain', 'plain-pass-12345');
+    await page.goto('/account.html');
+    await page.waitForSelector('#login-username', { state: 'visible' });
+    await page.fill('input[id="login-username"]', 'root');
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator('#account-dashboard')).toBeVisible({ timeout: 10000 });
 
     await page.goto(YAML_URL);
-    // The page itself still loads; only the admin affordance is withheld.
-    await expect(page.locator('#edit-btn')).toBeHidden();
-
-    // Typing the editor URL directly is refused and returns to the viewer.
-    await page.goto(EDIT_URL);
-    await page.waitForURL('**/yaml.html**');
+    const card = page.locator('#versions-list-container .version-card', { hasText: '1.0.0' });
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await expect(card).toContainText('GA');
+    // Immutability is absolute: no edit affordance exists anywhere.
+    await expect(page.locator('#edit-btn')).toHaveCount(0);
   });
 });
 
@@ -285,8 +245,10 @@ test.describe('Role, group and maintainer management', () => {
     await expect(row).toContainText('sanshain');
     await expect(row).toContainText('no roles attached');
 
-    await row.locator('select').selectOption('viewer');
-    await row.locator('button:has-text("Add")').click();
+    // The card carries two selects since 2.0 (role picker + member picker);
+    // target the role one explicitly.
+    await row.locator('select[id^="group-role-"]').selectOption('viewer');
+    await row.locator('select[id^="group-role-"] ~ button:has-text("Add")').click();
     await expect(page.locator('#groups-list > div', { hasText: name })).toContainText('viewer', {
       timeout: 10000,
     });
@@ -300,10 +262,10 @@ test.describe('Role, group and maintainer management', () => {
   });
 });
 
-test.describe('Held Provides inbox', () => {
+test.describe('Snapshot cleanup settings', () => {
   const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 
-  test('the inbox is visible on the dashboard with its count', async ({ page }) => {
+  test('the snapshot max age setting is on the dashboard', async ({ page }) => {
     if (!adminPassword) {
       throw new Error('INITIAL_ADMIN_PASSWORD environment variable is required for tests');
     }
@@ -318,9 +280,9 @@ test.describe('Held Provides inbox', () => {
     await page.goto('/admin.html');
     await expect(page.locator('#admin-dashboard')).toBeVisible({ timeout: 10000 });
 
-    // Discoverability is the point: a held Provide means somebody's build is red,
-    // so the count has to be where an administrator will encounter it.
-    await expect(page.locator('#pending-list')).toBeVisible();
-    await expect(page.locator('#pending-count')).toContainText('none');
+    // Use-based snapshot expiry is the 2.0 cleanup model; the setting and the
+    // manual trigger live where an administrator will encounter them.
+    await expect(page.locator('#snapshot-max-age-days')).toBeVisible();
+    await expect(page.locator('button:has-text("Run Cleanup")').first()).toBeVisible();
   });
 });

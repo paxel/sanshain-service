@@ -10,9 +10,9 @@ pub enum AppError {
     Conflict(String),
     #[error("Not Found: {0}")]
     NotFound(String),
-    /// The branch is authoritative and deliberately does not carry this
-    /// endpoint — distinct from `NotFound`, which means nobody has it. Maps to
-    /// `410 Gone`.
+    /// The pinned version exists and deliberately does not carry this endpoint —
+    /// distinct from `NotFound`, which means the version itself is unknown.
+    /// Maps to `410 Gone`.
     #[error("Gone: {0}")]
     Gone(String),
     #[error("Unauthorized")]
@@ -23,11 +23,11 @@ pub enum AppError {
     Internal(String),
     #[error("Breaking Change: {0}")]
     BreakingChange(String),
-    /// A breaking change that was retained for review rather than discarded.
-    /// Answers the same `409` as `BreakingChange`; the id lets tooling say which
-    /// held submission it belongs to.
-    #[error("Breaking Change: {message}")]
-    Quarantined { message: String, pending_id: i64 },
+    /// A Provide refused by the version rules (GA immutability, or a breaking
+    /// change without a major bump). Answers `409` and carries the next free
+    /// version the Producer should publish as instead.
+    #[error("Version Conflict: {message}")]
+    VersionConflict { message: String, proposed: SemVer },
 }
 
 impl From<crate::domain::ports::RepositoryError> for AppError {
@@ -110,7 +110,7 @@ impl std::str::FromStr for AuthMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct SemVer {
     pub major: u32,
     pub minor: u32,
@@ -157,6 +157,45 @@ impl SemVer {
             Impact::None => *self,
         }
     }
+
+    /// Parse a Producer-declared spec version: strict `MAJOR.MINOR.PATCH`,
+    /// nothing else. The two rejections people will actually hit get specific
+    /// messages: a `v` prefix, and a `-SNAPSHOT` (or any suffix) — stability
+    /// is declared on the Provide, never encoded in the version string.
+    pub fn parse_spec_version(raw: &str) -> Result<SemVer, String> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err("version is empty — expected MAJOR.MINOR.PATCH (e.g. 1.2.0)".to_string());
+        }
+        if trimmed.starts_with('v') || trimmed.starts_with('V') {
+            return Err(format!(
+                "invalid version '{}': drop the 'v' prefix — expected MAJOR.MINOR.PATCH (e.g. 1.2.0)",
+                trimmed
+            ));
+        }
+        if trimmed.to_uppercase().contains("-SNAPSHOT") {
+            return Err(format!(
+                "invalid version '{}': snapshot status is declared by the Provide's stability flag, never encoded in the version string — publish '{}' with stability=snapshot instead",
+                trimmed,
+                trimmed
+                    .to_uppercase()
+                    .replace("-SNAPSHOT", "")
+                    .to_lowercase()
+            ));
+        }
+        if trimmed.contains('-') || trimmed.contains('+') {
+            return Err(format!(
+                "invalid version '{}': pre-release suffixes and build metadata are not accepted — expected exactly MAJOR.MINOR.PATCH (e.g. 1.2.0)",
+                trimmed
+            ));
+        }
+        trimmed.parse::<SemVer>().map_err(|_| {
+            format!(
+                "invalid version '{}': expected exactly MAJOR.MINOR.PATCH with numeric parts (e.g. 1.2.0)",
+                trimmed
+            )
+        })
+    }
 }
 
 impl std::fmt::Display for SemVer {
@@ -199,11 +238,71 @@ pub enum Impact {
     Major,
 }
 
+/// Which of exactly two states a stored Version is in (see `CONTEXT.md`).
+///
+/// Declared by the caller on every Provide; a state of the stored version, not
+/// part of the version string. `Snapshot` rows are overwritable and may
+/// expire; `Ga` rows are immutable and permanently claim their number.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Stability {
+    Snapshot,
+    Ga,
+}
+
+impl Stability {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Stability::Snapshot => "snapshot",
+            Stability::Ga => "ga",
+        }
+    }
+}
+
+impl std::str::FromStr for Stability {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "snapshot" => Ok(Stability::Snapshot),
+            "ga" => Ok(Stability::Ga),
+            _ => Err(format!(
+                "Unknown stability: {} (expected 'snapshot' or 'ga')",
+                s
+            )),
+        }
+    }
+}
+
+/// One entry of a version line: a Producer's spec for one API type under one
+/// producer-declared version, without the stored document body.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SpecVersionMeta {
+    pub id: i64,
+    pub service_id: i64,
+    pub api_type: ApiType,
+    pub version: SemVer,
+    pub stability: Stability,
+    pub content_hash: String,
+    /// The authenticated Actor credited with this version's content: the last
+    /// provider — preserved across a same-content promotion, so the human who
+    /// built the snapshot stays on the released version.
+    pub provided_by: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub last_required_at: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProvideResponse {
     pub version: SemVer,
+    pub stability: Stability,
     pub content_hash: String,
     pub changes: ProvideChanges,
+    /// True when this Provide released an existing snapshot in place — a state
+    /// change listeners care about even when the content is byte-identical.
+    #[serde(default)]
+    pub promoted: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -297,24 +396,6 @@ pub struct User {
     pub approved: bool,
 }
 
-/// A Provide that was held for review instead of applied.
-///
-/// Retained in full so it can be judged on its content rather than on a
-/// one-line reason. Not part of any branch's API until accepted.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PendingSpec {
-    pub id: i64,
-    pub producer: String,
-    pub branch: String,
-    pub api_type: ApiType,
-    pub content: String,
-    /// The reason the Provide would have been refused.
-    pub reason: String,
-    /// The authenticated Actor who submitted it.
-    pub submitted_by: String,
-    pub created_at: String,
-}
-
 /// Where a Group's membership comes from.
 ///
 /// The distinction is not cosmetic: a `Native` group's membership is Sanshain's
@@ -372,45 +453,42 @@ pub struct EndpointRecord {
     pub yaml_content: String,
     #[serde(default)]
     pub deprecated: bool,
-    #[serde(default)]
-    pub external: bool,
 }
 
-/// How a request for an endpoint on a branch was answered.
+/// How a request for an endpoint at a Pin was answered.
 ///
-/// See `CONTEXT.md` and `docs/adr/0001-endpoint-resolution-model.md`. The states
-/// are exhaustive: every resolution is exactly one of them, and every response
-/// names the branch that actually served it.
+/// See `CONTEXT.md` and `docs/adr/0003-versions-replace-branches.md`. The
+/// states are exhaustive: every resolution is exactly one of them, and every
+/// answer names the stability it was served from. There is no fallback beyond
+/// GA-before-Snapshot for the pinned number, and nothing waits: all failures
+/// are immediate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ResolutionState {
-    /// The requested branch is authoritative and published this endpoint.
-    Published,
-    /// The requested branch is authoritative and did not publish this endpoint,
-    /// so it is deliberately not part of that branch's API. A definitive "no":
-    /// resolution stops here and must not inherit an ancestor's version.
+    /// The pinned version exists and contains the endpoint.
+    Served,
+    /// The pinned version exists and did not include this endpoint, so it is
+    /// deliberately not part of that version's API. A definitive "no" — maps
+    /// to `410 Gone`.
     Absent,
-    /// The requested branch has never published, so the answer comes from
-    /// another branch — always named in `served_branch`.
-    Inherited,
-    /// No branch of the producer has this endpoint. Unlike `Absent` it may
-    /// appear later, so it is the only state a long-poll waits on.
+    /// The Producer's line has no such version in either stability. A
+    /// configuration error on the Consumer's side — maps to `404`.
     Unknown,
 }
 
 impl ResolutionState {
     pub fn as_str(&self) -> &'static str {
         match self {
-            ResolutionState::Published => "published",
+            ResolutionState::Served => "served",
             ResolutionState::Absent => "absent",
-            ResolutionState::Inherited => "inherited",
             ResolutionState::Unknown => "unknown",
         }
     }
 
     /// True when no endpoint was produced. `Absent` and `Unknown` both mean
-    /// "nothing to serve", but they are *not* interchangeable: only `Unknown`
-    /// may become available later.
+    /// "nothing to serve", but they are *not* interchangeable: `Absent` is a
+    /// deliberate omission from an existing version, `Unknown` a version that
+    /// does not exist.
     pub fn is_empty(&self) -> bool {
         matches!(self, ResolutionState::Absent | ResolutionState::Unknown)
     }
@@ -422,32 +500,23 @@ pub struct ResolvedEndpoint {
     pub id: i64,
     pub yaml_content: String,
     pub deprecated: bool,
-    pub external: bool,
 }
 
-/// The outcome of resolving one endpoint against one branch.
+/// The outcome of resolving one endpoint against one Pin.
 #[derive(Clone, Debug)]
 pub struct EndpointResolution {
     pub state: ResolutionState,
-    /// The branch that actually served the endpoint. Set for `Published` and
-    /// `Inherited`; `None` when nothing was served.
-    pub served_branch: Option<String>,
+    /// The stability the endpoint was actually served from. Set for `Served`;
+    /// `None` when nothing was served.
+    pub served_stability: Option<Stability>,
     pub endpoint: Option<ResolvedEndpoint>,
 }
 
 impl EndpointResolution {
-    pub fn published(branch: &str, endpoint: ResolvedEndpoint) -> Self {
+    pub fn served(stability: Stability, endpoint: ResolvedEndpoint) -> Self {
         Self {
-            state: ResolutionState::Published,
-            served_branch: Some(branch.to_string()),
-            endpoint: Some(endpoint),
-        }
-    }
-
-    pub fn inherited(branch: &str, endpoint: ResolvedEndpoint) -> Self {
-        Self {
-            state: ResolutionState::Inherited,
-            served_branch: Some(branch.to_string()),
+            state: ResolutionState::Served,
+            served_stability: Some(stability),
             endpoint: Some(endpoint),
         }
     }
@@ -455,7 +524,7 @@ impl EndpointResolution {
     pub fn absent() -> Self {
         Self {
             state: ResolutionState::Absent,
-            served_branch: None,
+            served_stability: None,
             endpoint: None,
         }
     }
@@ -463,7 +532,7 @@ impl EndpointResolution {
     pub fn unknown() -> Self {
         Self {
             state: ResolutionState::Unknown,
-            served_branch: None,
+            served_stability: None,
             endpoint: None,
         }
     }
@@ -472,63 +541,23 @@ impl EndpointResolution {
 /// A message-level AsyncAPI channel contract (ai/improvements.md item #20).
 ///
 /// Kafka topic names share a global namespace, so contract identity is the
-/// message -- keyed by `(branch_name, channel, message_name)` -- not the whole
-/// channel payload. Only `publish` (PUB) messages register a contract; the
-/// first providing service becomes the `owner` and is the only one allowed to
-/// widen the message schema. A different service may co-publish the same
+/// message -- keyed by `(channel, message_name)` -- not the whole channel
+/// payload. Only `publish` (PUB) messages register a contract; the first
+/// providing service becomes the `owner` and is the only one allowed to widen
+/// the message schema. A different service may co-publish the same
 /// `(channel, message_name)` only if its payload schema is identical.
+/// Registered and enforced on GA provides only — snapshots are never
+/// compat-checked.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChannelMessageContract {
-    pub branch_name: String,
     pub channel: String,
     pub message_name: String,
     pub owner_service_id: i64,
     pub payload_yaml: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub enum NodeSource {
-    Branch,
-    Target,
-    Both,
-}
-
-#[derive(Serialize, Clone, Debug)]
-pub struct MergedDependencyInfo {
-    pub api_type: ApiType,
-    pub client: String,
-    pub service: String,
-    pub path: String,
-    pub method: String,
-    pub source: NodeSource,
-    #[serde(default)]
-    pub deprecated: bool,
-}
-
-#[derive(Serialize, Clone, Debug)]
-pub struct ConflictInfo {
-    pub service: String,
-    pub api_type: ApiType,
-    pub path: String,
-    pub method: String,
-    pub description: String,
-}
-
-#[derive(Serialize, Clone, Debug)]
-pub struct MergedDependencyReport {
-    pub branch: String,
-    pub target: String,
-    pub dependency_graph: Vec<MergedDependencyInfo>,
-    pub unused_endpoints: Vec<EndpointInfo>,
-    pub missing_endpoints: Vec<MissingEndpointInfo>,
-    pub conflicts: Vec<ConflictInfo>,
-    pub service_tags: HashMap<String, Vec<String>>,
-    pub node_sources: HashMap<String, NodeSource>,
-}
-
 #[derive(Serialize, Clone, Debug)]
 pub struct DependencyReport {
-    pub branch: String,
     pub unused_endpoints: Vec<EndpointInfo>,
     pub missing_endpoints: Vec<MissingEndpointInfo>,
     pub dependency_graph: Vec<DependencyInfo>,
@@ -540,6 +569,8 @@ pub struct DependencyReport {
 pub struct EndpointInfo {
     pub api_type: ApiType,
     pub service: String,
+    pub version: SemVer,
+    pub stability: Stability,
     pub path: String,
     pub method: String,
     #[serde(default)]
@@ -551,6 +582,7 @@ pub struct MissingEndpointInfo {
     pub api_type: ApiType,
     pub client: String,
     pub service: String,
+    pub version: SemVer,
     pub path: String,
     pub method: String,
 }
@@ -560,6 +592,10 @@ pub struct DependencyInfo {
     pub api_type: ApiType,
     pub client: String,
     pub service: String,
+    /// The Consumer's Pin.
+    pub version: SemVer,
+    /// The pinned version's current stability.
+    pub stability: Stability,
     pub path: String,
     pub method: String,
     #[serde(default)]
@@ -570,102 +606,50 @@ pub struct DependencyInfo {
 pub struct ConsumerEndpointInfo {
     pub api_type: ApiType,
     pub service: String,
-    pub branch: String,
+    pub version: SemVer,
+    pub stability: Stability,
     pub path: String,
     pub method: String,
     pub yaml_content: Option<String>,
     #[serde(default)]
     pub deprecated: bool,
-    #[serde(default)]
-    pub external: bool,
+}
+
+/// One version-line entry as listed on a Producer, UI- and wire-facing.
+#[derive(Serialize, Clone, Debug)]
+pub struct ProducerVersionInfo {
+    pub api_type: ApiType,
+    pub version: SemVer,
+    pub stability: Stability,
+    pub content_hash: String,
+    pub provided_by: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub last_required_at: Option<String>,
+    pub endpoint_count: i64,
+    /// Use-based expiry for snapshots when cleanup is enabled; `None` for GA
+    /// (never age-culled) or when cleanup is off. Populated by the application
+    /// layer; `None` in raw repository results.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
 pub struct ProducerSummary {
     pub name: String,
-    pub fallback_branch: Option<String>,
-    pub branches: Vec<String>,
-    /// Last-published time per branch name (ISO 8601). Populated by the
-    /// application layer; empty in raw repository results.
+    /// Every entry of the Producer's version lines, all API types. Populated
+    /// by the application layer; empty in raw repository results.
     #[serde(default)]
-    pub branches_last_published: std::collections::HashMap<String, String>,
-    /// Stale-cleanup expiry time per branch name (ISO 8601), only for
-    /// non-protected branches when cleanup is enabled. Populated by the
-    /// application layer; empty in raw repository results.
-    #[serde(default)]
-    pub branches_expire_at: std::collections::HashMap<String, String>,
-    /// Non-deleted endpoint count per branch name (0 for a branch with no
-    /// provided spec content, e.g. from an OpenAPI document with no paths).
-    /// `branches` above lists every branch regardless of this count — callers
-    /// that only want branches serving something should filter on it being > 0.
-    /// Populated by the application layer; empty in raw repository results.
-    #[serde(default)]
-    pub branches_endpoint_count: std::collections::HashMap<String, i64>,
+    pub versions: Vec<ProducerVersionInfo>,
     pub is_favorite: bool,
     pub icon: Option<String>,
     pub domain: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct BranchMetadata {
-    pub name: String,
-    pub last_modified: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UserFavoritesResponse {
     pub services: Vec<String>,
     pub clients: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct EndpointVersion {
-    pub id: i64,
-    pub endpoint_id: i64,
-    pub version: i32,
-    pub yaml_content: String,
-    pub diff_from_previous: Option<String>,
-    pub created_at: String,
-    pub username: Option<String>,
-    pub source_branch: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub branch_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub api_type: Option<ApiType>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub method: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub enum SpecChange {
-    Insert {
-        api_type: ApiType,
-        path: String,
-        normalized_path: String,
-        method: String,
-        yaml_content: String,
-        deprecated: bool,
-        external: bool,
-    },
-    Update {
-        api_type: ApiType,
-        path: String,
-        normalized_path: String,
-        method: String,
-        yaml_content: String,
-        deprecated: bool,
-        external: bool,
-    },
-    Delete {
-        api_type: ApiType,
-        path: String,
-        method: String,
-        soft_delete: bool,
-    },
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -677,8 +661,8 @@ pub struct LogEntry {
     /// Service name, when the emitting event attached a `service` field
     /// (e.g. a provide/require log line). `None` for events with no such context.
     pub service: Option<String>,
-    /// Branch name, when the emitting event attached a `branch` field.
-    pub branch: Option<String>,
+    /// Version string, when the emitting event attached a `version` field.
+    pub version: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -725,7 +709,10 @@ pub struct AuditLogEntry {
     pub action: String,
     pub details: String,
     pub service: Option<String>,
-    pub branch: Option<String>,
+    /// Version string for 2.0 entries. Branch-era audit entries survive in the
+    /// same column and stay readable — they just describe a world that no
+    /// longer exists.
+    pub version: Option<String>,
     pub action_type: Option<String>,
     pub diff: Option<String>,
 }
@@ -736,7 +723,7 @@ pub struct AuditLogFilter {
     pub to_date: Option<String>,
     pub action_type: Option<String>,
     pub service_wildcard: Option<String>,
-    pub branch_wildcard: Option<String>,
+    pub version_wildcard: Option<String>,
     pub limit: u32,
 }
 

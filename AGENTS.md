@@ -37,7 +37,7 @@ Other top-level modules: `src/openapi.rs`, `src/asyncapi.rs`, `src/proto.rs` (sp
 - No hardcoded auth-bypass literals (e.g. `"test-token"`) in production code paths, even for convenience. Test-only helpers must be behind `#[cfg(test)]`.
 - All state-changing endpoints must go through CSRF validation (`validate_csrf` middleware); tests use real seeded tokens, not bypasses.
 - Never log secrets, tokens, or passwords.
-- Every `/admin/*` route must carry `admin_auth` or `authenticated_auth` middleware — this is enforced by a compile-time-checked test in `src/lib.rs` (`all_admin_routes_have_auth_middleware`); keep it passing when adding routes.
+- Every `/admin/*` route must declare a `RouteGuard` (via the `require(...)` layer) — this is enforced by a compile-time-checked test in `src/lib.rs` (`all_admin_routes_declare_a_route_guard`); keep it passing when adding routes.
 - All schema changes go through SQL migrations in `src/infrastructure/migrations/` — never hand-edit the DB shape elsewhere.
 
 ## Build, Test, Verify

@@ -121,7 +121,7 @@ paths:
 
     let provide_payload = json!({
         "producername": "pg-service",
-        "branch": "main",
+        "stability": "ga",
         "openapi_yaml": openapi_yaml
     });
 
@@ -146,7 +146,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/require?consumername=pg-client&producername=pg-service&branch=main&path=/test&method=GET")
+                .uri("/require?consumername=pg-client&producername=pg-service&version=1.0.0&path=/test&method=GET")
                 .body(Body::empty())
                 .unwrap(),
         )

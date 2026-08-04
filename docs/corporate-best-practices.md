@@ -5,8 +5,8 @@ This guide outlines the recommended strategies for deploying and using Sanshain 
 ### TL;DR
 1. **Environment over Hardcoding**: Avoid putting `sanshainUrl` in `sanshain.yaml`.
 2. **Centralized Variables**: Use CI/CD organization variables for the server URL and authentication tokens.
-3. **Path-Based Versioning**: Handle breaking changes by keeping old endpoints and adding new ones.
-4. **Protected Branches**: Enable protection for `main` and `release/*` branches.
+3. **Honest Semver**: Let the server propose the next version on a `409` — never work around a bump.
+4. **CI Releases GA**: Set the ga switch (`SANSHAIN_GA=true`) only in your protected-branch pipelines, so only those builds publish immutable GA versions — everything else is a snapshot.
 5. **LDAP/OIDC**: Integrate with your corporate identity provider for user management.
 
 ---
@@ -31,21 +31,22 @@ Never check API tokens into version control.
 
 ## 3. Managing Breaking Changes
 
-Sanshain's core value is preventing breaking changes on protected branches. In a corporate environment, simply "fixing" a breaking change by forcing it is rarely the right answer, as it breaks downstream consumers you might not even know about.
+Pinned Consumers can never be broken by a new version — Sanshain's job is keeping version numbers *honest*, so a Consumer deciding on an upgrade can trust what the numbers claim. A GA whose changes are breaking without a major bump is rejected with the correct proposal.
 
 **Best Practice**:
-- Follow the **Side-by-Side Versioning** strategy described in the [API Lifecycle](api-lifecycle.md) guide.
-- Use the **Dependency Graph** in the Sanshain UI to identify which teams are still using deprecated versions of your API.
-- Only remove an old endpoint after the graph shows zero active consumers.
+- Publish breaking changes as a new **major** GA version; the old majors remain immutable and keep serving their pinned Consumers.
+- Follow the **deprecate-then-remove** strategy described in the [API Lifecycle](api-lifecycle.md) guide.
+- Use the **Dependency Graph** in the Sanshain UI to identify which teams still pin old versions of your API (**Outdated** highlights).
+- Only delete an old GA version (the audited admin escape hatch) after the dependents listing shows zero pinned Consumers.
 
-## 4. VCS Integration & Branch Protection
+## 4. VCS Integration & Stability
 
-Sanshain uses branch names to track the evolution of APIs. 
+Sanshain never sees your git repository — stability is declared by the build. The mapping from branches to stability belongs in the client plugin.
 
 **Best Practice**:
-- Define **Protected Branch Patterns** in the Sanshain Admin settings (e.g., `main`, `master`, `release/*`).
-- Changes to these branches are strictly validated for backward compatibility.
-- Use **Feature Branches** for experimental changes. Clients can "opt-in" to a feature branch to test new API versions before they are merged.
+- Set `SANSHAIN_GA=true` in the release pipeline (and nowhere else) so those builds publish **GA** and every other build — CI or local — publishes **snapshots**. No branch detection, no config: the pipeline is the release authority.
+- Keep feature work on **snapshots**: overwritable, never compatibility-checked, expiring when unused. Consumers can opt in by pinning a snapshot version — the graph flags them as **Snapshot-pinned**.
+- Reserve the explicit `stability:` override (or CI flag) for unusual setups; the branch-derived default keeps day-to-day publishing hands-off.
 
 ## 5. Infrastructure & Scalability
 
@@ -62,4 +63,4 @@ For production usage, ensure your Sanshain instance is robust.
 - [**`sanshain.yaml` Reference**](sanshain-yaml.md) — Configuration details.
 - [**CI Integration**](ci-integration.md) — Setting up pipelines.
 - [**API Lifecycle**](api-lifecycle.md) — Handling versioning.
-- [**Administration**](administration.md) — LDAP and branch protection setup.
+- [**Administration**](administration.md) — LDAP setup and version administration.

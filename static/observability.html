@@ -174,7 +174,7 @@
             <div class="flex justify-between items-center mb-4">
                 <div>
                     <h3 class="text-sm font-semibold text-slate-800 uppercase tracking-tight">Database Audit Log</h3>
-                    <p class="text-xs text-slate-500 mt-1">Last 30 database mutating operations, admin settings changes, and rejected pushes to protected branches. Use the <a href="/audit.html" class="text-indigo-600 hover:text-indigo-800">Audit timeline</a> to filter or look further back.</p>
+                    <p class="text-xs text-slate-500 mt-1">Last 30 database mutating operations, admin settings changes, and rejected provides. Use the <a href="/audit.html" class="text-indigo-600 hover:text-indigo-800">Audit timeline</a> to filter or look further back.</p>
                 </div>
                 <div>
                     <button onclick="exportAuditLogs()" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition-colors border border-indigo-700 shadow-sm flex items-center gap-1">
@@ -395,11 +395,11 @@
                 'TRACE': 'text-slate-600'
             }[l.level] || 'text-slate-300';
 
-            // Some events (provide/require) carry service/branch context; show it as
+            // Some events (provide/require) carry service/version context; show it as
             // a compact chip when present. Most lines (auth, startup, migrations)
             // have none, so the chip is omitted rather than padded with a placeholder.
             const context = l.service
-                ? `<span class="text-teal-400">[${escapeHtml(l.service)}${l.branch ? '/' + escapeHtml(l.branch) : ''}]</span> `
+                ? `<span class="text-teal-400">[${escapeHtml(l.service)}${l.version ? '@' + escapeHtml(l.version) : ''}]</span> `
                 : '';
             return `<div class="mb-1"><span class="text-slate-500">[${l.timestamp.substring(11, 19)}]</span> <span class="${color} font-bold">${l.level.padEnd(5)}</span> <span class="text-indigo-400">${escapeHtml(l.target)}</span>: ${context}${escapeHtml(l.message)}</div>`;
         }).join('');
@@ -496,15 +496,13 @@
             let actionBadgeColor = 'bg-slate-100 text-slate-700';
             if (log.action === 'NUKE_DATABASE') {
                 actionBadgeColor = 'bg-red-100 text-red-700';
-            } else if (log.action === 'QUARANTINED_SPEC') {
-                // Distinct from NUKE_DATABASE's red: holding a Provide is the
-                // registry protecting a branch, not a destructive act.
+            } else if (log.action === 'DELETE_VERSION') {
+                // The audited escape hatch from GA immutability — destructive
+                // for any Consumer pinned to the deleted version.
                 actionBadgeColor = 'bg-orange-100 text-orange-700';
-            } else if (log.action === 'ACCEPTED_BREAKING') {
-                // A breaking change that landed because the Producer is
-                // onboarding — worth noticing, but it was allowed.
-                actionBadgeColor = 'bg-amber-100 text-amber-700';
-            } else if (log.action === 'PROVIDE_SPEC') {
+            } else if (log.action === 'VERSION_REJECTED') {
+                actionBadgeColor = 'bg-rose-100 text-rose-700';
+            } else if (log.action === 'PROVIDE_SPEC' || log.action === 'VERSION_PROMOTED') {
                 actionBadgeColor = 'bg-green-100 text-green-700';
             } else if (log.action === 'UPDATE_SETTINGS' || log.action === 'SET_DEV_MODE' || log.action === 'SET_LOCAL_USERS' || log.action === 'SET_AUTO_APPROVE') {
                 actionBadgeColor = 'bg-amber-100 text-amber-700';

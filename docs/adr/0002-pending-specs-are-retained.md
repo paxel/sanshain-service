@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0003
 ---
 
 # A refused Provide is retained in full, and approving it applies what was submitted

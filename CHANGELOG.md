@@ -5,49 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [Unreleased]
+## [2.0.0] - 2026-08-02
+
+Sanshain 2.0 replaces branches with **producer-declared versions** (see
+[ADR-0003](docs/adr/0003-versions-replace-branches.md)). You publish your spec
+under the version written in the document itself and say whether it is an
+overwritable `snapshot` or an immutable `ga` release; consumers pin the exact
+version they build against. Nothing changes underneath you anymore — not by
+inheritance, not by fallback, not by someone else's push.
+
+### Breaking Changes
+- **Every request changes shape.** A Provide carries `stability: snapshot | ga` and no version parameter — the version is read from the spec itself (`info.version`; for proto a mandatory `// sanshain-version: MAJOR.MINOR.PATCH` comment). A Require pins a required exact `version`. The 1.x parameters `branch`, `base_version`, `force`, `timeout`, `source_protected_branch` and `pull_from_branch` are rejected by name.
+- **Upgrading drops all stored spec data.** Branches, endpoints, per-branch history and dependencies have no honest mapping onto version lines; accounts, tokens, roles, groups, maintainers, settings and the audit log survive. Back up the database, then roll out by republishing each Producer under a real version and repointing Consumers' pins.
+- **Resolution is exact-pin only.** You get GA for your pinned version, else the same-numbered snapshot, else an immediate `404`; a version that exists but deliberately lacks the endpoint answers `410`. Previously (1.7.0) a branch without its own spec inherited from an ancestor, and an unknown endpoint could long-poll until `timeout`.
+- **Versions must be strict semver.** `1.0`, `v2.0.0` and `1.2.0-SNAPSHOT` are rejected with an explanation — snapshot status is the stability flag, never part of the version string.
+- Requests with a wrong-shaped JSON body (missing `stability`, 1.x fields) answer `422`; malformed specs and bad versions answer `400`, both as JSON. Previously (1.7.0) errors could be plain text.
 
 ### Added
-- `maintenance.yaml`: the `/admin/*` administrative surface now has its own OpenAPI contract, documenting the permission each endpoint requires. `api.yaml` is left as the Producer/Consumer contract alone — the eight admin paths it used to carry moved across. Build-time checks keep both in sync with the router.
-- Held Provides inbox: refused breaking changes are listed on the admin dashboard with their reason and the submitted spec, and can be accepted — applying the spec with the refusals waived — or rejected. Administrators see every Producer, maintainers see theirs. Both decisions are audited. See [Administration](docs/administration.md).
-- Admin dashboard: role assignment on each user, group management with an origin badge distinguishing Sanshain's own groups from those mirrored from the directory, and maintainer assignment per Producer. Root is shown as configuration-held and cannot be granted or revoked from the UI.
-- Producer onboarding: a Producer can be marked as still stabilising, and its Provides to a protected branch are then accepted instead of refused for breaking changes. Soft deletes, version history and version bumps are unaffected, and each accepted change is audited as `ACCEPTED_BREAKING`. See [Administration](docs/administration.md).
-- `SANSHAIN_ROOT_USERS`: usernames holding every permission, read from configuration and never stored, so root cannot be revoked from inside the application. Defaults to `INITIAL_ADMIN_USERNAME`. See [Configuration](docs/configuration.md).
-- Maintainers: a user or group can be made responsible for specific Producers, administered under `/admin/producers/{name}/maintainers`. A Producer-scoped action admits either the instance-wide permission or maintainership of that Producer. See [Administration](docs/administration.md).
-- Roles and groups: users can hold `admin`, `user_manager` or `viewer` directly or through a group, administered under `/admin/roles`, `/admin/users/{id}/roles` and `/admin/groups`. Groups record whether their membership is Sanshain's own or mirrored from the directory. See [Administration](docs/administration.md).
+- **You cannot forget to bump anymore.** Re-publishing a GA version with different content, publishing a snapshot for a released number, or hiding a breaking change behind a minor bump is rejected with `proposed_version` — the exact next version to publish instead. Fix the version, republish, done; no admin involved.
+- **Promotion.** Publishing GA for a number that exists as a snapshot releases it in place — iterate on a snapshot, then promote the same version. The Provide response reports `promoted: true`, even when the released content is byte-identical.
+- **Snapshots clean themselves up.** A snapshot neither provided nor required for `snapshot_max_age_days` (default 30, `0` disables) is removed; GA versions are never touched, and anything a Consumer still builds against stays.
+- `GET /producers/{producername}/versions`: every version of a Producer with stability, endpoint count, last provider and snapshot expiry — the "what can I upgrade to?" answer.
+- `POST /validate`: a free, unauthenticated spec validator on the landing page — paste an OpenAPI, AsyncAPI or Protobuf document and get exactly the verdict a publish would produce (strict version check, parse, and a preview of the endpoints Sanshain would store). Stateless; nothing is saved.
+- The admin dashboard's producer creation is now paste-a-spec: name, API type, the full document and a GA toggle go through the same `/provide*` endpoints as any client, with a dry-run Validate button. Previously (1.7.0) manual creation fabricated a placeholder API.
+- Admin dashboard: native groups can now be given and stripped of members directly on the group card; directory groups keep stating that their membership lives in the directory.
+- **Delete-version** for administrators and maintainers: the one escape hatch from GA immutability. The Consumers pinned to the version are shown before you confirm and named in the audit log.
+- Version-rule rejections are counted: every real (non-dry-run) 409 writes a `VERSION_REJECTED` audit entry under the Rejected filter and increments the `sanshain_version_rejected_total{reason, producer}` Prometheus counter — forgotten bumps, snapshots on released numbers and unbumped breaking changes become a visible metric.
+- **The dashboard thinks in versions.** Producers show one timeline per API type with GA/SNAPSHOT badges, diff between any two versions, and per-endpoint blame ("last changed in 1.3.0 by …"); Consumers show their pins, cross-linked; the graph highlights **Outdated** (pinned below the latest GA) and **Snapshot-pinned** dependencies with independent toggles.
+- `maintenance.yaml`: the `/admin/*` surface has its own OpenAPI contract naming the permission each endpoint requires, kept in sync with the router by build-time checks.
+- Roles, groups and maintainers: users hold `admin`, `user_manager` or `viewer` directly or through groups (with a directory-origin badge), and a user or group can be made maintainer of specific Producers — all administered from the dashboard. See [Administration](docs/administration.md).
+- `SANSHAIN_ROOT_USERS`: usernames holding every permission by configuration, so root cannot be revoked from inside the application. Defaults to `INITIAL_ADMIN_USERNAME`; unclaimed root names are claimed at startup with locked accounts and cannot be taken through open registration. See [Configuration](docs/configuration.md).
 
 ### Changed
-- The dashboard's Maintainers section loads with one request: `GET /admin/maintainers` answers for every Producer at once, instead of one request per Producer.
-- A maintainer can now edit their own Producer's endpoints — the editor at `/admin/endpoints/update` and the Edit button admit maintainership of the Producer being edited, not only the global `manage_producers` permission. `GET /auth/me` reports `maintains` so the UI knows.
-- A maintainer can now read their own Producer's maintainer list (`GET /admin/producers/{name}/maintainers`); assigning still requires `manage_roles`.
-- **Breaking:** the administrator flag is gone. On upgrade, every account that had it is granted the `admin` role, and the column is dropped; the change is not reversible, and the grants are the record. `POST /auth/login` no longer returns `is_admin` and `GET /admin/users` no longer reports it — `GET /auth/me` reports `roles` and `permissions` instead. Recovery from a lockout is `SANSHAIN_ROOT_USERS`.
-- The web UI now shows what you may do rather than whether you are an administrator: navigation links, the admin dashboard and the endpoint editor gate on permissions, so a user manager sees user administration without being offered the audit timeline. `GET /auth/me` reports `roles`, `permissions` and `is_root`, and `GET /admin/users` reports each user's roles.
-- A breaking change on a protected branch is now retained for review instead of discarded, and the `409` carries `pending_id` and `status`. Previously (1.7.0) the submitted spec was thrown away and only an audit line survived, so the only way through was to delete the branch. The audit action `REJECTED_SPEC` is superseded by `QUARANTINED_SPEC`, which keeps the same `REJECT` timeline type.
-- Administrative endpoints now require the specific permission they need rather than administrator status, so a `user_manager` reaches user administration and nothing else. Previously (1.7.0) every `/admin/*` route asked only whether the caller was an administrator.
-- Every error response is now JSON — `{"error": "..."}` — where previously (1.7.0) errors returned a plain-text body. Tooling that reads the reason out of the raw body must now read the `error` field.
+- Reports are instance-wide: `GET /report` and the markdown/isolation exports cover every recorded dependency with its pinned version and stability, instead of one branch at a time.
+- Attribution is the authenticated token: the client-supplied `author` hint is gone from the contract. A promotion carrying byte-identical content keeps the snapshot's provider on the released version — the developer who built it stays credited — while the audit records the promoting Actor.
+- Snapshot overwrites are last-writer-wins but never silent: the previous provider is named in the audit trail and shown in the UI.
+- AsyncAPI message contracts are keyed globally by `(channel, message)` and enforced on GA publishes only, so work-in-progress can neither claim nor violate topic ownership.
+- The audit log records the version where it recorded a branch (old entries stay readable), and its timeline filter parameter is `version`.
+
+### Removed
+- The entire branch model: protected-branch patterns, inheritance and fallback, pull-from, per-branch history, stale-branch cleanup, branch deletion/nuke, and `/branches/*`. Pinned versions carry the intent branches were being used to guess at.
+- Breaking-change gatekeeping and review: pinned Consumers cannot be broken by a new version, so refusals and held submissions are gone — every rejection is now self-service. (1.7.0's `REJECTED_SPEC` refusals no longer occur.)
+- `base_version` optimistic concurrency and require long-polling: GA immutability is the concurrency control, and a missing pinned version is a configuration error that fails immediately.
+- Manual endpoint editing: stored content is immutable; the way out is delete-version and a republish.
+- The pre-1.6 wire aliases `servicename`/`clientname`: only the canonical `producername`/`consumername` are accepted, and the aliases are rejected as unknown fields.
+- The `external` endpoint flag: nothing could set it anymore, and provenance is carried by the version's `provided_by` attribution (an admin's name vs. a CI token) instead of a marker.
+- The `/admin/settings/dev-mode` routes: the auth-mode setting already persists the dev toggle, so the second write path (and a broken unauthenticated UI fallback reading it) served nothing.
 
 ### Fixed
-- A directory user's privileges now follow their directory groups. Previously (1.7.0) group membership was read at their first ever login and written to their account, and never refreshed — so a promotion or demotion in the directory never took effect. Membership is now re-read through the configured service account and cached for `SANSHAIN_DIRECTORY_GROUP_TTL_SECS` (default 5 minutes).
-
-## [1.7.0] - 2026-07-29
-
-### Added
-- `EXTRA_CA_CERTS_DIR`: directory of CA certificates to trust for LDAPS, added to the platform trust store. Startup fails, naming the file, on a bad certificate. See [Configuration](docs/configuration.md).
-- Helm chart: `extraVolumes` and `extraVolumeMounts`. Unset, the chart renders as in 1.6.2.
-- Rejected Provides on a Protected branch are recorded in the audit log as `REJECTED_SPEC`, with the Producer, Branch and reason, and are filterable in the timeline under the new "Rejected" type. Previously (1.6.2) a refusal left only a transient log line — and the refusal to remove a non-deprecated endpoint left nothing at all — so there was no way to review what a Protected branch had blocked. The caller still receives the same `409` and message.
-
-### Security
-- The audit timeline (`GET /api/audit/timeline`) is now admin-only; previously (1.6.2) any signed-in account or API token could read it. Non-admins now get `403`, anonymous `401`, and API tokens no longer work on this route. The Audit nav link is hidden from non-admins.
-
-### Changed
-- A Provide that changes no endpoint no longer bumps the version, stores a revision, or notifies listeners. Previously (1.6.2) every Provide bumped the patch version, so re-publishing an unchanged spec produced a version per build.
-- Consequently, an edit confined to `info`, `servers` or other document-level fields is no longer versioned or stored. The first Provide still establishes `1.0.0`.
-- The logo images shrank from 3.2 MB to ~123 KB combined, and the favicon is its own small file. Previously (1.6.2) both logos were roughly 20x oversized for how they are drawn and the icon link pointed at the full-resolution logo, so every page load fetched 865 KB and the first dark-mode toggle a further 2.3 MB.
-
-### Fixed
-- The **Edit** button on the endpoint view now appears for admins, and the editor opens instead of answering "Admin access required." Editing an endpoint from the UI has never worked since the button was added; the auth helper resolved the signed-in Actor but did not pass it to the code gating the button.
-- LDAPS no longer panics on first use with "Could not automatically determine the process-level CryptoProvider", which terminated the process in 1.6.2. Local authentication and plain LDAP were unaffected.
-- LDAPS no longer silently trusts nothing when reading the platform certificates partly fails; previously (1.6.2) any such error left an empty trust store.
+- A directory user's privileges now follow their directory groups. Previously (1.7.0) membership was read once at first login and never refreshed, so a promotion or demotion in the directory never took effect; it is now re-read and cached for `SANSHAIN_DIRECTORY_GROUP_TTL_SECS` (default 5 minutes).
+- LDAP connection attempts are bounded by a 5-second timeout, and a failed membership read is cached like a successful one. Previously (1.7.0) an unreachable directory could stall logins for the OS's TCP timeout.
 
 ---
 

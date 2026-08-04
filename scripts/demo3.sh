@@ -14,9 +14,9 @@ set -euo pipefail
 # architecture used throughout Google's documentation, conference talks and
 # training material (Kubernetes, Istio, Anthos Service Mesh).
 #
-# All services are registered on the dedicated "google" branch so that the
-# dependency graph in the Sanshain UI can be viewed by switching to that
-# branch alongside the existing `main` (demo / demo2) scenario.
+# All services provide as GA under version 1.0.0 (read from each spec's
+# info.version) and every dependency pins that version, so the scenario sits
+# alongside the demo / demo2 data in the same dependency graph.
 #
 # Services (11):
 #   frontend, cartservice, productcatalogservice, currencyservice,
@@ -30,7 +30,7 @@ BASE_URL="${SANSHAIN_URL:-http://localhost:3000}"
 ADMIN_USER="${SANSHAIN_USER:-root}"
 ADMIN_PASSWORD="${SANSHAIN_PASSWORD:-}"
 TOKEN="${SANSHAIN_TOKEN:-}"
-BRANCH="${DEMO3_BRANCH:-google}"
+PIN="1.0.0"
 
 if [ -z "$TOKEN" ] && [ -n "$ADMIN_PASSWORD" ]; then
   echo ">>> Logging in to obtain token..."
@@ -55,10 +55,10 @@ fi
 # Helpers (same CLI-registration style as demo.sh / demo2.sh)
 # ---------------------------------------------------------------------------
 provide() {
-  local svc="$1" branch="$2" yaml="$3"
-  echo ">>> PROVIDE  $svc @ $branch"
-  PAYLOAD=$(jq -n --arg s "$svc" --arg b "$branch" --arg y "$yaml" \
-    '{producername:$s, branch:$b, openapi_yaml:$y}')
+  local svc="$1" stability="$2" yaml="$3"
+  echo ">>> PROVIDE  $svc ($stability)"
+  PAYLOAD=$(jq -n --arg s "$svc" --arg st "$stability" --arg y "$yaml" \
+    '{producername:$s, stability:$st, openapi_yaml:$y}')
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST "$BASE_URL/provide" \
     -H "Content-Type: application/json" \
@@ -69,13 +69,13 @@ provide() {
 }
 
 require_endpoint() {
-  local client="$1" svc="$2" branch="$3" path="$4" method="$5"
-  echo ">>> REQUIRE  $client -> $svc $method $path ($branch)"
+  local client="$1" svc="$2" version="$3" path="$4" method="$5"
+  echo ">>> REQUIRE  $client -> $svc $method $path @ $version"
   RESPONSE=$(curl -s -w "\n%{http_code}" \
     -G "$BASE_URL/require" \
     --data-urlencode "consumername=$client" \
     --data-urlencode "producername=$svc" \
-    --data-urlencode "branch=$branch" \
+    --data-urlencode "version=$version" \
     --data-urlencode "path=$path" \
     --data-urlencode "method=$method" \
     ${AUTH_HEADER:+-H "$AUTH_HEADER"})
@@ -160,52 +160,52 @@ paths:
 # DEMO START
 # ============================================================================
 
-section "Demo 3 — Google Cloud Online Boutique (branch: $BRANCH)"
+section "Demo 3 — Google Cloud Online Boutique (all pins @ $PIN)"
 echo "Source: https://github.com/GoogleCloudPlatform/microservices-demo"
 
-section "1. Providing Services"
+section "1. Providing Services (GA $PIN)"
 
-provide "frontend"                "$BRANCH" "$(GENERIC_SPEC 'Frontend (HTTP UI)')"
-provide "cartservice"             "$BRANCH" "$CART_SPEC"
-provide "productcatalogservice"   "$BRANCH" "$(GENERIC_SPEC 'Product Catalog Service')"
-provide "currencyservice"         "$BRANCH" "$(GENERIC_SPEC 'Currency Service')"
-provide "paymentservice"          "$BRANCH" "$(GENERIC_SPEC 'Payment Service')"
-provide "shippingservice"         "$BRANCH" "$(GENERIC_SPEC 'Shipping Service')"
-provide "emailservice"            "$BRANCH" "$(GENERIC_SPEC 'Email Service')"
-provide "checkoutservice"         "$BRANCH" "$CHECKOUT_SPEC"
-provide "recommendationservice"   "$BRANCH" "$(GENERIC_SPEC 'Recommendation Service')"
-provide "adservice"               "$BRANCH" "$(GENERIC_SPEC 'Ad Service')"
-provide "loadgenerator"           "$BRANCH" "$(GENERIC_SPEC 'Load Generator (Locust)')"
+provide "frontend"                "ga" "$(GENERIC_SPEC 'Frontend (HTTP UI)')"
+provide "cartservice"             "ga" "$CART_SPEC"
+provide "productcatalogservice"   "ga" "$(GENERIC_SPEC 'Product Catalog Service')"
+provide "currencyservice"         "ga" "$(GENERIC_SPEC 'Currency Service')"
+provide "paymentservice"          "ga" "$(GENERIC_SPEC 'Payment Service')"
+provide "shippingservice"         "ga" "$(GENERIC_SPEC 'Shipping Service')"
+provide "emailservice"            "ga" "$(GENERIC_SPEC 'Email Service')"
+provide "checkoutservice"         "ga" "$CHECKOUT_SPEC"
+provide "recommendationservice"   "ga" "$(GENERIC_SPEC 'Recommendation Service')"
+provide "adservice"               "ga" "$(GENERIC_SPEC 'Ad Service')"
+provide "loadgenerator"           "ga" "$(GENERIC_SPEC 'Load Generator (Locust)')"
 
 section "2. Registering Dependencies (per upstream architecture diagram)"
 
 echo ">>> frontend -> downstream services"
-require_endpoint "frontend" "productcatalogservice" "$BRANCH" "/api/v1/resource" "GET"
-require_endpoint "frontend" "cartservice"           "$BRANCH" "/cart/{userId}"   "GET"
-require_endpoint "frontend" "currencyservice"       "$BRANCH" "/api/v1/resource" "GET"
-require_endpoint "frontend" "recommendationservice" "$BRANCH" "/api/v1/resource" "GET"
-require_endpoint "frontend" "shippingservice"       "$BRANCH" "/api/v1/resource" "GET"
-require_endpoint "frontend" "checkoutservice"       "$BRANCH" "/checkout"        "POST"
-require_endpoint "frontend" "adservice"             "$BRANCH" "/api/v1/resource" "GET"
+require_endpoint "frontend" "productcatalogservice" "$PIN" "/api/v1/resource" "GET"
+require_endpoint "frontend" "cartservice"           "$PIN" "/cart/{userId}"   "GET"
+require_endpoint "frontend" "currencyservice"       "$PIN" "/api/v1/resource" "GET"
+require_endpoint "frontend" "recommendationservice" "$PIN" "/api/v1/resource" "GET"
+require_endpoint "frontend" "shippingservice"       "$PIN" "/api/v1/resource" "GET"
+require_endpoint "frontend" "checkoutservice"       "$PIN" "/checkout"        "POST"
+require_endpoint "frontend" "adservice"             "$PIN" "/api/v1/resource" "GET"
 
 echo ">>> checkoutservice -> downstream services"
-require_endpoint "checkoutservice" "cartservice"           "$BRANCH" "/cart/{userId}"   "GET"
-require_endpoint "checkoutservice" "productcatalogservice" "$BRANCH" "/api/v1/resource" "GET"
-require_endpoint "checkoutservice" "currencyservice"       "$BRANCH" "/api/v1/resource" "GET"
-require_endpoint "checkoutservice" "paymentservice"        "$BRANCH" "/api/v1/resource" "POST"
-require_endpoint "checkoutservice" "shippingservice"       "$BRANCH" "/api/v1/resource" "POST"
-require_endpoint "checkoutservice" "emailservice"          "$BRANCH" "/api/v1/resource" "POST"
+require_endpoint "checkoutservice" "cartservice"           "$PIN" "/cart/{userId}"   "GET"
+require_endpoint "checkoutservice" "productcatalogservice" "$PIN" "/api/v1/resource" "GET"
+require_endpoint "checkoutservice" "currencyservice"       "$PIN" "/api/v1/resource" "GET"
+require_endpoint "checkoutservice" "paymentservice"        "$PIN" "/api/v1/resource" "POST"
+require_endpoint "checkoutservice" "shippingservice"       "$PIN" "/api/v1/resource" "POST"
+require_endpoint "checkoutservice" "emailservice"          "$PIN" "/api/v1/resource" "POST"
 
 echo ">>> recommendationservice -> productcatalogservice"
-require_endpoint "recommendationservice" "productcatalogservice" "$BRANCH" "/api/v1/resource" "GET"
+require_endpoint "recommendationservice" "productcatalogservice" "$PIN" "/api/v1/resource" "GET"
 
 echo ">>> loadgenerator -> frontend (Locust traffic)"
-require_endpoint "loadgenerator" "frontend" "$BRANCH" "/api/v1/resource" "GET"
+require_endpoint "loadgenerator" "frontend" "$PIN" "/api/v1/resource" "GET"
 
 echo ""
 echo "==========================================================================="
 echo "  Demo 3 Scenario complete!"
-echo "  Registered 11 Online Boutique services on branch '$BRANCH'."
-echo "  In the Sanshain UI, switch to the '$BRANCH' branch to view the graph."
+echo "  Registered 11 Online Boutique services, all pinned to $PIN."
+echo "  Open $BASE_URL to see them in the dependency graph."
 echo "  Source: https://github.com/GoogleCloudPlatform/microservices-demo"
 echo "==========================================================================="

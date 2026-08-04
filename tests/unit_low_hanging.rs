@@ -228,38 +228,41 @@ async fn change_password_with_token() {
     assert_eq!(new_sess.user_id, id);
 }
 
-// 19. admin: protected branches list/add/remove
+// 19. admin: snapshot max age set/get (ADR-0003: use-based snapshot expiry)
 #[tokio::test]
-async fn admin_protected_branches_flow() {
+async fn admin_snapshot_max_age_roundtrip() {
     let repo = MockRepo::new();
-    // defaults contain main/master
-    let mut list = admin_service::list_protected_branches(&repo).await.unwrap();
-    assert!(list.contains(&"main".to_string()));
-    admin_service::add_protected_branch(&repo, "release/*")
+    assert_eq!(
+        admin_service::get_snapshot_max_age_days(&repo)
+            .await
+            .unwrap(),
+        30,
+        "default is 30 days"
+    );
+    admin_service::set_snapshot_max_age_days(&repo, 14)
         .await
         .unwrap();
-    list = admin_service::list_protected_branches(&repo).await.unwrap();
-    assert!(list.iter().any(|s| s == "release/*"));
-    assert!(
-        admin_service::remove_protected_branch(&repo, "release/*")
+    assert_eq!(
+        admin_service::get_snapshot_max_age_days(&repo)
             .await
-            .unwrap()
+            .unwrap(),
+        14
     );
 }
 
-// 20. admin: fallback branch set/get
+// 20. admin: snapshot cleanup is disabled at 0 days
 #[tokio::test]
-async fn admin_fallback_branch() {
+async fn admin_snapshot_cleanup_disabled_at_zero() {
     let repo = MockRepo::new();
-    // ensure a service exists
-    repo.ensure_service("svc").await.unwrap();
-    admin_service::set_fallback_branch(&repo, "svc", Some("dev"))
+    admin_service::set_snapshot_max_age_days(&repo, 0)
         .await
         .unwrap();
-    let got = admin_service::get_fallback_branch(&repo, "svc")
-        .await
-        .unwrap();
-    assert_eq!(got, Some("dev".to_string()));
+    assert_eq!(
+        admin_service::cleanup_expired_snapshots(&repo)
+            .await
+            .unwrap(),
+        0
+    );
 }
 
 // 21. admin: list services/clients initially empty
@@ -302,83 +305,84 @@ async fn admin_delete_all_counts() {
     assert!(ccount >= 1);
 }
 
-// 24. admin: delete_branch_all_services counts only ones having the branch
+// 24. admin: delete_version of an unknown version reports NotFound
 #[tokio::test]
-async fn admin_delete_branch_all_services() {
+async fn admin_delete_unknown_version_not_found() {
     let repo = MockRepo::new();
-    let s1 = repo.ensure_service("a").await.unwrap();
-    let s2 = repo.ensure_service("b").await.unwrap();
-    let b1 = repo.ensure_branch(s1, "dev").await.unwrap();
-    let _b2 = repo.ensure_branch(s2, "main").await.unwrap();
-    // attach endpoints so delete_branch returns true for service a, false for b
-    {
-        let mut eps = repo.endpoints.lock().unwrap();
-        eps.insert(b1, vec![]);
-    }
-    let cnt = admin_service::delete_branch_all_services(&repo, "dev")
+    repo.ensure_service("a").await.unwrap();
+    let err = admin_service::delete_version(&repo, "a", ApiType::OpenApi, "9.9.9".parse().unwrap())
         .await
-        .unwrap();
-    // both services may report deletion depending on internal state
-    assert!(cnt >= 1);
+        .unwrap_err();
+    assert!(matches!(err, AppError::NotFound(_)));
 }
 
-// 25. spec_service: provide_spec_dry_run OpenAPI minimal
+// 25. spec_service: dry-run provide OpenAPI minimal — the version is read from
+// the document, and nothing is persisted
 #[tokio::test]
 async fn provide_spec_dry_run_minimal_openapi() {
     let repo = MockRepo::new();
     let yaml = r#"
 openapi: 3.0.0
-info: { title: x, version: v }
+info: { title: x, version: 1.2.3 }
 paths:
   /ping:
     get:
       responses:
         '200': { description: OK }
 "#;
-    let resp =
-        spec_service::provide_spec_dry_run(&repo, "svc", "main", ApiType::OpenApi, yaml, false)
-            .await
-            .unwrap();
-    assert_eq!(resp.changes.inserts, 1);
-    assert_eq!(resp.version, SemVer::default()); // dry-run leaves version 0 in mock
-}
-
-// 26. spec_service: provide_spec_with_tags applies tags
-#[tokio::test]
-async fn provide_spec_with_tags_adds_tags() {
-    let repo = MockRepo::new();
-    let yaml = r#"
-openapi: 3.0.0
-info: { title: x, version: v }
-paths:
-  /a:
-    get:
-      responses:
-        '200': { description: OK }
-"#;
-    let tags = vec!["messaging".to_string(), "api".to_string()];
-    let _ = spec_service::provide_spec_with_tags(
+    let resp = spec_service::provide_spec(
         &repo,
         spec_service::ProvideSpecParams {
             producername: "svc",
-            branch: "main",
             api_type: ApiType::OpenApi,
             content: yaml,
-            base_version: None,
-            force: false,
-            source_protected_branch: None,
-            author: None,
+            stability: Stability::Snapshot,
+            dry_run: true,
+            username: Some("ci"),
         },
-        &tags,
     )
     .await
     .unwrap();
-    // verify tags recorded
+    assert_eq!(resp.changes.inserts, 1);
+    assert_eq!(resp.version, SemVer::new(1, 2, 3));
+    assert!(
+        repo.spec_versions.lock().unwrap().is_empty(),
+        "a dry run must persist nothing"
+    );
+}
+
+// 26. spec_service: provide auto-tags the service by API type
+#[tokio::test]
+async fn provide_spec_auto_tags_by_api_type() {
+    let repo = MockRepo::new();
+    let proto = r#"syntax = "proto3";
+// sanshain-version: 1.0.0
+package svc.v1;
+service AService {
+  rpc Do (In) returns (Out);
+}
+message In {}
+message Out {}
+"#;
+    let _ = spec_service::provide_spec(
+        &repo,
+        spec_service::ProvideSpecParams {
+            producername: "svc",
+            api_type: ApiType::Proto,
+            content: proto,
+            stability: Stability::Snapshot,
+            dry_run: false,
+            username: Some("ci"),
+        },
+    )
+    .await
+    .unwrap();
+    // verify the automatic grpc tag was recorded
     let services = repo.services.lock().unwrap().clone();
     let svc_id = *services.get("svc").unwrap();
     let tag_map = repo.service_tags.lock().unwrap();
     let stored = tag_map.get(&svc_id).cloned().unwrap_or_default();
-    assert!(stored.contains(&"messaging".to_string()) && stored.contains(&"api".to_string()));
+    assert_eq!(stored, vec!["grpc".to_string()]);
 }
 
 // 27. openapi::normalize_path basic behavior via crate function (re-exported in lib)
@@ -391,20 +395,38 @@ fn normalize_path_keeps_static_segments() {
     assert_eq!(input, "/a/b/c");
 }
 
-// 28. Admin delete branch for service
+// 28. Admin delete a provided version for a service
 #[tokio::test]
-async fn admin_delete_branch_for_service() {
+async fn admin_delete_version_for_service() {
     let repo = MockRepo::new();
-    let sid = repo.ensure_service("svc").await.unwrap();
-    let bid = repo.ensure_branch(sid, "dev").await.unwrap();
-    {
-        let mut eps = repo.endpoints.lock().unwrap();
-        eps.insert(bid, vec![]);
-    }
-    let ok = admin_service::delete_branch(&repo, "svc", "dev")
-        .await
-        .unwrap();
-    assert!(ok);
+    let yaml = r#"
+openapi: 3.0.0
+info: { title: x, version: 1.0.0 }
+paths:
+  /a:
+    get:
+      responses:
+        '200': { description: OK }
+"#;
+    spec_service::provide_spec(
+        &repo,
+        spec_service::ProvideSpecParams {
+            producername: "svc",
+            api_type: ApiType::OpenApi,
+            content: yaml,
+            stability: Stability::Ga,
+            dry_run: false,
+            username: Some("ci"),
+        },
+    )
+    .await
+    .unwrap();
+    let dependents =
+        admin_service::delete_version(&repo, "svc", ApiType::OpenApi, "1.0.0".parse().unwrap())
+            .await
+            .unwrap();
+    assert!(dependents.is_empty(), "nobody was pinned to it");
+    assert!(repo.spec_versions.lock().unwrap().is_empty());
 }
 
 // 29. Admin nuke database keeps specific user

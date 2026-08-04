@@ -115,14 +115,14 @@ pub async fn auth_me(
     axum::Extension(user): axum::Extension<User>,
     actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
 ) -> Result<impl IntoResponse, AppError> {
-    let (roles, permissions, is_root) = match actor {
+    let (roles, permissions, is_root) = match &actor {
         Some(axum::Extension(actor)) => (
             actor
                 .roles
                 .iter()
                 .map(|r| r.as_str().to_string())
                 .collect::<Vec<_>>(),
-            crate::application::authz::permission_names(&actor),
+            crate::application::authz::permission_names(actor),
             actor.is_root,
         ),
         None => (Vec::new(), Vec::new(), false),
@@ -131,8 +131,14 @@ pub async fn auth_me(
     // The Producers this caller maintains, so pages tied to one Producer (the
     // endpoint editor) can admit a maintainer whose permission is scoped rather
     // than global. Root is not expanded: it maintains everything, and the UI
-    // already knows that from `is_root`.
-    let maintains = crate::application::authz::maintained_producers(&state.repo, user.id).await?;
+    // already knows that from `is_root`. Grants made to the caller's directory
+    // groups are included, matching what the server would actually allow.
+    let maintains = match &actor {
+        Some(axum::Extension(actor)) => {
+            crate::application::authz::maintained_producers_for_actor(&state.repo, actor).await?
+        }
+        None => crate::application::authz::maintained_producers(&state.repo, user.id).await?,
+    };
 
     Ok(Json(serde_json::json!({
         "id": user.id,
@@ -180,7 +186,7 @@ pub async fn auth_change_password(
                     action: "CHANGE_PASSWORD",
                     details: "Successfully changed user password",
                     service: None,
-                    branch: None,
+                    version: None,
                     action_type: Some("ADMIN"),
                     diff: None,
                 },
@@ -203,7 +209,13 @@ pub async fn auth_register(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    services::register_user(&state.repo, &payload.username, &payload.password).await?;
+    services::register_user(
+        &state.repo,
+        &state.root_users,
+        &payload.username,
+        &payload.password,
+    )
+    .await?;
     record_audit_log(
         &state.repo,
         None,
@@ -211,7 +223,7 @@ pub async fn auth_register(
             action: "REGISTER_USER",
             details: &format!("Registered user '{}'", payload.username),
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
@@ -277,7 +289,7 @@ pub async fn create_token(
             action: "CREATE_TOKEN",
             details: "Created an API token",
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
@@ -305,7 +317,7 @@ pub async fn revoke_token(
             action: "REVOKE_TOKEN",
             details: "Revoked an API token",
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },

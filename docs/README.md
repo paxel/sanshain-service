@@ -4,8 +4,8 @@ Detailed guides for users, administrators, and developers.
 
 ### TL;DR
 - **New Users**: Start with [**Getting Started**](getting-started.md).
-- **Producers**: Learn how to [**Provide Specs**](user-guide.md#providing-specifications).
-- **Consumers**: Learn how to [**Require Endpoints**](user-guide.md#requiring-endpoints).
+- **Producers**: Learn how to [**Provide Specs**](user-guide.md#providing-a-spec).
+- **Consumers**: Learn how to [**Require Endpoints**](user-guide.md#requiring-an-endpoint).
 - **Automation**: Use [**CI Integration**](ci-integration.md) and [**`sanshain.yaml`**](sanshain-yaml.md).
 
 ---
@@ -27,7 +27,7 @@ Detailed guides for users, administrators, and developers.
 - [**AI Migration**](ai-migration.md) — Using AI to migrate existing services to Sanshain.
 
 ### Administration & Operations
-- [**Administration**](administration.md) — Managing users, protected branches, and LDAP.
+- [**Administration**](administration.md) — Managing users, versions, and LDAP.
 - [**Configuration**](configuration.md) — Environment variables and system settings.
 - [**Benchmarking**](benchmarking.md) — Performance results and how to run benchmarks.
 

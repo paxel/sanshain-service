@@ -6,8 +6,8 @@ set -euo pipefail
 #
 # Demonstrates:
 #   1. Services providing AsyncAPI specifications (Kafka topics/channels)
-#   2. Services providing gRPC/Proto definitions
-#   3. Clients requiring specific channels and methods
+#   2. Services providing gRPC/Proto definitions (// sanshain-version: marker)
+#   3. Clients requiring specific channels and methods at pinned versions
 #   4. Cross-protocol dependency tracking (REST -> Kafka, REST -> gRPC)
 #   5. Unified dependency graph showing all protocol types
 # ============================================================================
@@ -40,10 +40,10 @@ fi
 # Helpers
 # ---------------------------------------------------------------------------
 provide_openapi() {
-  local svc="$1" branch="$2" yaml="$3"
-  echo ">>> PROVIDE OPENAPI  $svc @ $branch"
-  PAYLOAD=$(jq -n --arg s "$svc" --arg b "$branch" --arg y "$yaml" \
-    '{producername:$s, branch:$b, openapi_yaml:$y}')
+  local svc="$1" stability="$2" yaml="$3"
+  echo ">>> PROVIDE OPENAPI  $svc ($stability)"
+  PAYLOAD=$(jq -n --arg s "$svc" --arg st "$stability" --arg y "$yaml" \
+    '{producername:$s, stability:$st, openapi_yaml:$y}')
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST "$BASE_URL/provide" \
     -H "Content-Type: application/json" \
@@ -53,10 +53,10 @@ provide_openapi() {
 }
 
 provide_asyncapi() {
-  local svc="$1" branch="$2" yaml="$3"
-  echo ">>> PROVIDE ASYNCAPI $svc @ $branch"
-  PAYLOAD=$(jq -n --arg s "$svc" --arg b "$branch" --arg y "$yaml" \
-    '{producername:$s, branch:$b, asyncapi_yaml:$y}')
+  local svc="$1" stability="$2" yaml="$3"
+  echo ">>> PROVIDE ASYNCAPI $svc ($stability)"
+  PAYLOAD=$(jq -n --arg s "$svc" --arg st "$stability" --arg y "$yaml" \
+    '{producername:$s, stability:$st, asyncapi_yaml:$y}')
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST "$BASE_URL/provide/asyncapi" \
     -H "Content-Type: application/json" \
@@ -66,10 +66,10 @@ provide_asyncapi() {
 }
 
 provide_grpc() {
-  local svc="$1" branch="$2" proto="$3"
-  echo ">>> PROVIDE GRPC     $svc @ $branch"
-  PAYLOAD=$(jq -n --arg s "$svc" --arg b "$branch" --arg p "$proto" \
-    '{producername:$s, branch:$b, proto_content:$p}')
+  local svc="$1" stability="$2" proto="$3"
+  echo ">>> PROVIDE GRPC     $svc ($stability)"
+  PAYLOAD=$(jq -n --arg s "$svc" --arg st "$stability" --arg p "$proto" \
+    '{producername:$s, stability:$st, proto_content:$p}')
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST "$BASE_URL/provide/grpc" \
     -H "Content-Type: application/json" \
@@ -79,13 +79,13 @@ provide_grpc() {
 }
 
 require_endpoint() {
-  local client="$1" svc="$2" branch="$3" path="$4" method="$5"
-  echo ">>> REQUIRE REST     $client -> $svc $method $path ($branch)"
+  local client="$1" svc="$2" version="$3" path="$4" method="$5"
+  echo ">>> REQUIRE REST     $client -> $svc $method $path @ $version"
   RESPONSE=$(curl -s -w "\n%{http_code}" \
     -G "$BASE_URL/require" \
     --data-urlencode "consumername=$client" \
     --data-urlencode "producername=$svc" \
-    --data-urlencode "branch=$branch" \
+    --data-urlencode "version=$version" \
     --data-urlencode "path=$path" \
     --data-urlencode "method=$method" \
     ${AUTH_HEADER:+-H "$AUTH_HEADER"})
@@ -94,13 +94,13 @@ require_endpoint() {
 }
 
 require_asyncapi() {
-  local client="$1" svc="$2" branch="$3" channel="$4" op="$5"
-  echo ">>> REQUIRE ASYNC    $client -> $svc $op $channel ($branch)"
+  local client="$1" svc="$2" version="$3" channel="$4" op="$5"
+  echo ">>> REQUIRE ASYNC    $client -> $svc $op $channel @ $version"
   RESPONSE=$(curl -s -w "\n%{http_code}" \
     -G "$BASE_URL/require/asyncapi" \
     --data-urlencode "consumername=$client" \
     --data-urlencode "producername=$svc" \
-    --data-urlencode "branch=$branch" \
+    --data-urlencode "version=$version" \
     --data-urlencode "path=$channel" \
     --data-urlencode "method=$op" \
     ${AUTH_HEADER:+-H "$AUTH_HEADER"})
@@ -109,13 +109,13 @@ require_asyncapi() {
 }
 
 require_grpc() {
-  local client="$1" svc="$2" branch="$3" service="$4" method="$5"
-  echo ">>> REQUIRE GRPC     $client -> $svc $service.$method ($branch)"
+  local client="$1" svc="$2" version="$3" service="$4" method="$5"
+  echo ">>> REQUIRE GRPC     $client -> $svc $service.$method @ $version"
   RESPONSE=$(curl -s -w "\n%{http_code}" \
     -G "$BASE_URL/require/grpc" \
     --data-urlencode "consumername=$client" \
     --data-urlencode "producername=$svc" \
-    --data-urlencode "branch=$branch" \
+    --data-urlencode "version=$version" \
     --data-urlencode "path=$service" \
     --data-urlencode "method=$method" \
     ${AUTH_HEADER:+-H "$AUTH_HEADER"})
@@ -133,6 +133,8 @@ section() {
 
 # ---------------------------------------------------------------------------
 # Sample Specifications
+# OpenAPI/AsyncAPI carry their version in info.version; proto files carry a
+# mandatory "// sanshain-version:" comment that travels into the split files.
 # ---------------------------------------------------------------------------
 
 GATEWAY_OPENAPI='openapi: 3.0.0
@@ -156,6 +158,7 @@ channels:
     publish:
       summary: Receive user signup events
       message:
+        name: UserSignedUp
         payload:
           type: object
           properties:
@@ -165,6 +168,7 @@ channels:
     publish:
       summary: Publish order-related events
       message:
+        name: OrderEvent
         payload:
           type: object
           properties:
@@ -172,6 +176,7 @@ channels:
             status: { type: string }'
 
 USER_PROTO='syntax = "proto3";
+// sanshain-version: 1.0.0
 package users;
 
 message GetUserRequest { string id = 1; }
@@ -183,6 +188,7 @@ service UserService {
 }'
 
 INVENTORY_PROTO='syntax = "proto3";
+// sanshain-version: 1.0.0
 package inventory;
 
 message StockRequest { string sku = 1; }
@@ -196,39 +202,39 @@ service InventoryService {
 # Demo Start
 # ---------------------------------------------------------------------------
 
-section "1. Provide Specifications (OpenAPI, AsyncAPI, Proto)"
+section "1. Provide Specifications (OpenAPI, AsyncAPI, Proto) as GA 1.0.0"
 
-provide_openapi "api-gateway" "main" "$GATEWAY_OPENAPI"
-provide_asyncapi "event-bus" "main" "$EVENT_BUS_ASYNCAPI"
-provide_grpc "user-service" "main" "$USER_PROTO"
-provide_grpc "inventory-service" "main" "$INVENTORY_PROTO"
+provide_openapi "api-gateway" "ga" "$GATEWAY_OPENAPI"
+provide_asyncapi "event-bus" "ga" "$EVENT_BUS_ASYNCAPI"
+provide_grpc "user-service" "ga" "$USER_PROTO"
+provide_grpc "inventory-service" "ga" "$INVENTORY_PROTO"
 
-section "2. Register Dependencies (Cross-Protocol)"
+section "2. Register Dependencies (Cross-Protocol, pinned @ 1.0.0)"
 
 # User Service (gRPC) requires notifications from Event Bus (AsyncAPI)
 echo "  User Service publishes to user-signups topic..."
-require_asyncapi "user-service" "event-bus" "main" "user-signups" "PUB"
+require_asyncapi "user-service" "event-bus" "1.0.0" "user-signups" "PUB"
 
 # API Gateway (REST) calls User Service (gRPC)
 echo "  API Gateway calls User Service via gRPC..."
-require_grpc "api-gateway" "user-service" "main" "UserService" "GetUser"
+require_grpc "api-gateway" "user-service" "1.0.0" "UserService" "GetUser"
 
 # Order Service (New) calls API Gateway (REST) and Inventory Service (gRPC)
 # and also listens to order-events (AsyncAPI)
 echo "  Order Service (unregistered) consumes from multiple protocols..."
-require_endpoint "order-service" "api-gateway" "main" "/orders" "POST"
-require_grpc     "order-service" "inventory-service" "main" "InventoryService" "CheckStock"
-require_asyncapi "order-service" "event-bus" "main" "order-events" "PUB"
+require_endpoint "order-service" "api-gateway" "1.0.0" "/orders" "POST"
+require_grpc     "order-service" "inventory-service" "1.0.0" "InventoryService" "CheckStock"
+require_asyncapi "order-service" "event-bus" "1.0.0" "order-events" "PUB"
 
 # Analytics Service consumes all events
 echo "  Analytics Service consumes all events from Event Bus..."
-require_asyncapi "analytics-service" "event-bus" "main" "user-signups" "PUB"
-require_asyncapi "analytics-service" "event-bus" "main" "order-events" "PUB"
+require_asyncapi "analytics-service" "event-bus" "1.0.0" "user-signups" "PUB"
+require_asyncapi "analytics-service" "event-bus" "1.0.0" "order-events" "PUB"
 
 section "3. Verify Reports"
 
 echo ">>> Fetching Markdown Report..."
-RESPONSE=$(curl -s -w "\n%{http_code}" "$BASE_URL/report/markdown?branch=main" \
+RESPONSE=$(curl -s -w "\n%{http_code}" "$BASE_URL/report/markdown" \
   ${AUTH_HEADER:+-H "$AUTH_HEADER"})
 BODY=$(echo "$RESPONSE" | sed '$d')
 STATUS=$(echo "$RESPONSE" | tail -1)
