@@ -35,8 +35,12 @@ fn params<'a>(
         content,
         stability,
         dry_run: false,
-        username: Some("ci"),
-        caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
+        caller: Some(if stability == Stability::Ga {
+            sanshain_service::domain::permissions::Actor::test_releaser()
+        } else {
+            sanshain_service::domain::permissions::Actor::test_caller()
+        }),
+        expected_prior_hash: None,
     }
 }
 

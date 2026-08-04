@@ -24,13 +24,16 @@ pub struct ProvideSpecParams<'a> {
     /// Declared by the caller: `snapshot` (overwritable) or `ga` (immutable).
     pub stability: Stability,
     pub dry_run: bool,
-    /// The real authenticated Actor — always used for the audit log and
-    /// credited as the version's provider.
-    pub username: Option<&'a str>,
-    /// The resolved caller, for the GA gate: publishing `stability: ga`
-    /// requires [`Permission::ReleaseGa`]. `None` (no authenticated Actor)
-    /// can never release.
+    /// The resolved caller: the GA gate checks it for
+    /// [`Permission::ReleaseGa`], and its username is the single identity used
+    /// for audit attribution and the version's `provided_by` credit. `None`
+    /// (no authenticated Actor) can never release.
     pub caller: Option<Actor>,
+    /// Compare-and-set for promote-by-copy (#28): when `Some`, the write only
+    /// lands if the stored entry still carries this content hash, so a
+    /// snapshot overwritten between read and release answers 409 instead of
+    /// silently going GA with stale bytes.
+    pub expected_prior_hash: Option<&'a str>,
 }
 
 pub struct RequireEndpointParams<'a> {
@@ -169,21 +172,25 @@ pub async fn promote_version(
     producername: &str,
     api_type: ApiType,
     version: SemVer,
-    username: Option<&str>,
     caller: Option<Actor>,
 ) -> Result<ProvideResponse, AppError> {
-    let service_id = repo
-        .find_service(producername)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Producer not found".to_string()))?;
-    let entry = repo
-        .find_spec_version(service_id, api_type, version)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Version not found".to_string()))?;
+    let entry = crate::application::admin_service::find_version_entry(
+        repo,
+        producername,
+        api_type,
+        version,
+    )
+    .await?;
     let content = repo
         .get_spec_content(entry.id)
         .await?
         .ok_or_else(|| AppError::NotFound("Version not found".to_string()))?;
+    // The CAS hash is derived from the bytes being submitted — NOT from the
+    // separately-read metadata. The two travel through different caches, and
+    // hashing the payload itself makes guard and content inseparable: if this
+    // replica's content cache is stale, the hash is stale with it, the DB row
+    // doesn't match, and the release refuses instead of freezing old bytes.
+    let expected = content_hash(&content);
     provide_spec(
         repo,
         ProvideSpecParams {
@@ -192,8 +199,8 @@ pub async fn promote_version(
             content: &content,
             stability: Stability::Ga,
             dry_run: false,
-            username,
             caller,
+            expected_prior_hash: Some(&expected),
         },
     )
     .await
@@ -309,6 +316,24 @@ async fn record_version_rejection(
     if dry_run {
         return;
     }
+    // The producer name becomes a Prometheus label and an audit row, so only
+    // Producers that exist are recorded — otherwise any authenticated caller
+    // could mint unbounded label cardinality out of made-up names. The check
+    // lives here, not at call sites, so no future caller can forget it; and it
+    // is best-effort like the rest of this function — a DB hiccup while
+    // deciding whether to record must not turn a clean refusal into a 500.
+    match repo.find_service(producername).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return,
+        Err(e) => {
+            tracing::warn!(
+                service = producername,
+                "Could not check producer existence for rejection telemetry: {}",
+                e
+            );
+            return;
+        }
+    }
     metrics::counter!(
         "sanshain_version_rejected_total",
         "reason" => reason,
@@ -349,9 +374,12 @@ pub async fn provide_spec(
         content,
         stability,
         dry_run,
-        username,
         caller,
+        expected_prior_hash,
     } = params;
+    // One identity: authorization and audit attribution both come from the
+    // Actor, so they cannot drift apart.
+    let username: Option<&str> = caller.as_ref().map(|a| a.username.as_str());
 
     let version = extract_spec_version(api_type, content)?;
     let hash = content_hash(content);
@@ -586,6 +614,7 @@ pub async fn provide_spec(
         content,
         content_hash: &hash,
         provided_by: &credited,
+        expected_prior_hash,
         now_iso: &now_iso(),
         endpoints: endpoints
             .into_iter()
@@ -600,7 +629,31 @@ pub async fn provide_spec(
             })
             .collect(),
     };
-    repo.upsert_spec_version(record).await?;
+    if let Err(e) = repo.upsert_spec_version(record).await {
+        // A CAS refusal deserves a remedy, not a bare "Conflict" — and an
+        // accurate one: the guard has three arms (row released concurrently,
+        // row overwritten, row vanished), so re-read to say which happened.
+        if matches!(e, crate::domain::ports::RepositoryError::Conflict)
+            && expected_prior_hash.is_some()
+        {
+            let now = repo.find_spec_version(sid, api_type, version).await?;
+            let message = match now {
+                Some(entry) if entry.stability == Stability::Ga => format!(
+                    "version {} was released concurrently — nothing left to do",
+                    version
+                ),
+                Some(_) => {
+                    "the snapshot changed while releasing — reload and promote again".to_string()
+                }
+                None => format!(
+                    "version {} was deleted while releasing — nothing left to promote",
+                    version
+                ),
+            };
+            return Err(AppError::Conflict(message));
+        }
+        return Err(e.into());
+    }
 
     apply_contract_ops(repo, contract_ops).await?;
 

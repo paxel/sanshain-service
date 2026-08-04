@@ -72,12 +72,6 @@ async fn provide_common(
         stability,
         dry_run,
     } = params;
-    let actor = if let Some(axum::Extension(ref u)) = user {
-        u.username.clone()
-    } else {
-        "DevMode/Anonymous".to_string()
-    };
-
     let res = services::provide_spec(
         &state.repo,
         services::ProvideSpecParams {
@@ -86,8 +80,8 @@ async fn provide_common(
             content,
             stability,
             dry_run,
-            username: Some(&actor),
             caller: caller.map(|axum::Extension(a)| a),
+            expected_prior_hash: None,
         },
     )
     .await?;

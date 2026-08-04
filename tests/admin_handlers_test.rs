@@ -108,8 +108,12 @@ async fn provide(repo: &SqliteSpecRepository, producer: &str, content: &str, sta
             content,
             stability,
             dry_run: false,
-            username: Some("ci"),
-            caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
+            caller: Some(if stability == Stability::Ga {
+                sanshain_service::domain::permissions::Actor::test_releaser()
+            } else {
+                sanshain_service::domain::permissions::Actor::test_caller()
+            }),
+            expected_prior_hash: None,
         },
     )
     .await
@@ -1094,6 +1098,44 @@ async fn same_content_promotion_preserves_the_snapshot_provider() {
     );
 }
 
+/// Seed `promo-svc` 2.0.0 as a snapshot pushed by a fresh role-less
+/// `dev-user`, through the real HTTP surface. Returns dev-user's token.
+#[cfg(test)]
+async fn seed_promo_snapshot(app: &axum::Router, repo: &SqliteSpecRepository) -> String {
+    let hash = services::hash_password("pw").unwrap();
+    let dev = repo.create_user("dev-user", &hash, true).await.unwrap();
+    let dev_session = repo
+        .create_session(dev.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap();
+    let spec = spec_with_paths("2.0.0", &["/promoted"]);
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {}", dev_session.token),
+                )
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "producername": "promo-svc",
+                        "stability": "snapshot",
+                        "openapi_yaml": spec,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    dev_session.token
+}
+
 #[cfg(test)]
 async fn post_promote(
     app: &axum::Router,
@@ -1133,37 +1175,7 @@ async fn post_promote(
 async fn one_click_promote_releases_the_stored_snapshot() {
     let (app, repo, root_token) = app_with_seed().await;
 
-    let hash = services::hash_password("pw").unwrap();
-    let dev = repo.create_user("dev-user", &hash, true).await.unwrap();
-    let dev_session = repo
-        .create_session(dev.id, "2099-12-31T23:59:59")
-        .await
-        .unwrap();
-    let spec = spec_with_paths("2.0.0", &["/promoted"]);
-    let res = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/provide")
-                .header(
-                    axum::http::header::AUTHORIZATION,
-                    format!("Bearer {}", dev_session.token),
-                )
-                .header(axum::http::header::CONTENT_TYPE, "application/json")
-                .body(Body::from(
-                    serde_json::json!({
-                        "producername": "promo-svc",
-                        "stability": "snapshot",
-                        "openapi_yaml": spec,
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    let _dev_token = seed_promo_snapshot(&app, &repo).await;
 
     let (status, body) = post_promote(&app, &root_token, "promo-svc", "2.0.0").await;
     assert_eq!(status, StatusCode::ACCEPTED);
@@ -1211,39 +1223,9 @@ async fn promote_of_an_unknown_version_is_not_found() {
 async fn promote_without_release_ga_is_refused_and_audited() {
     let (app, repo, _root_token) = app_with_seed().await;
 
-    let hash = services::hash_password("pw").unwrap();
-    let dev = repo.create_user("dev-user", &hash, true).await.unwrap();
-    let dev_session = repo
-        .create_session(dev.id, "2099-12-31T23:59:59")
-        .await
-        .unwrap();
-    let spec = spec_with_paths("2.0.0", &["/promoted"]);
-    let res = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/provide")
-                .header(
-                    axum::http::header::AUTHORIZATION,
-                    format!("Bearer {}", dev_session.token),
-                )
-                .header(axum::http::header::CONTENT_TYPE, "application/json")
-                .body(Body::from(
-                    serde_json::json!({
-                        "producername": "promo-svc",
-                        "stability": "snapshot",
-                        "openapi_yaml": spec,
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    let dev_token = seed_promo_snapshot(&app, &repo).await;
 
-    let (status, body) = post_promote(&app, &dev_session.token, "promo-svc", "2.0.0").await;
+    let (status, body) = post_promote(&app, &dev_token, "promo-svc", "2.0.0").await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert!(
         body["error"].as_str().unwrap_or("").contains("releaser"),

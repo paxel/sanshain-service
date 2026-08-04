@@ -245,7 +245,10 @@ pub async fn permission_auth(
                 )
                 .await
                 .map_err(|e| match e {
-                    crate::domain::models::AppError::Forbidden => StatusCode::FORBIDDEN,
+                    crate::domain::models::AppError::Forbidden
+                    | crate::domain::models::AppError::ForbiddenWithReason(_) => {
+                        StatusCode::FORBIDDEN
+                    }
                     _ => StatusCode::INTERNAL_SERVER_ERROR,
                 })?;
             }

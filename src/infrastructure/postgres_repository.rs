@@ -171,7 +171,10 @@ impl SpecRepository for PostgresSpecRepository {
             r#"
             INSERT INTO spec_versions
               (service_id, api_type, major, minor, patch, stability, content, content_hash, provided_by, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            SELECT $1::bigint, $2::text, $3::int, $4::int, $5::int, $6::text, $7::text, $8::text, $9::text, $10::text, $11::text
+            WHERE $12::text IS NULL OR EXISTS (
+                SELECT 1 FROM spec_versions
+                 WHERE service_id = $1 AND api_type = $2 AND major = $3 AND minor = $4 AND patch = $5)
             ON CONFLICT(service_id, api_type, major, minor, patch) DO UPDATE SET
                 stability = EXCLUDED.stability,
                 content = EXCLUDED.content,
@@ -179,6 +182,7 @@ impl SpecRepository for PostgresSpecRepository {
                 provided_by = EXCLUDED.provided_by,
                 updated_at = EXCLUDED.updated_at
             WHERE spec_versions.stability != 'ga'
+              AND ($12::text IS NULL OR spec_versions.content_hash = $12)
             "#,
         )
         .bind(params.service_id)
@@ -192,14 +196,16 @@ impl SpecRepository for PostgresSpecRepository {
         .bind(params.provided_by)
         .bind(params.now_iso)
         .bind(params.now_iso)
+        .bind(params.expected_prior_hash)
         .execute(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        // The `WHERE stability != 'ga'` guard on the upsert is the last line of
-        // defense against two racing writers: if a GA row landed between the
-        // application layer's immutability check and this statement, nothing
-        // was written — surface that as a conflict instead of silently
-        // replacing endpoints under a GA entry.
+        // The guards on BOTH branches are the last line of defense against
+        // racing writers: the DO UPDATE arm refuses if a GA row landed or the
+        // compare-and-set hash no longer matches, and the INSERT arm's SELECT
+        // refuses if a CAS caller's row vanished entirely (a concurrent
+        // delete/expiry must not be resurrected as GA). Zero rows written is
+        // surfaced as a conflict.
         if upsert.rows_affected() == 0 {
             return Err(RepositoryError::Conflict);
         }

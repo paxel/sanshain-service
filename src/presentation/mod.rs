@@ -117,6 +117,11 @@ mod tests {
             ),
             (AppError::Forbidden, StatusCode::FORBIDDEN, "Forbidden"),
             (
+                AppError::ForbiddenWithReason("needs the releaser role".to_string()),
+                StatusCode::FORBIDDEN,
+                "needs the releaser role",
+            ),
+            (
                 AppError::Internal("boom".into()),
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "boom",

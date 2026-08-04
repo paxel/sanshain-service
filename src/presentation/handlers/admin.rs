@@ -267,20 +267,17 @@ pub async fn admin_get_version_dependents(
 /// [`Permission::ReleaseGa`]: crate::domain::permissions::Permission::ReleaseGa
 pub async fn admin_promote_version(
     State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
     caller: Option<axum::Extension<crate::domain::permissions::Actor>>,
     Path((name, api_type, version)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     let api_type = ApiType::from_str(&api_type).map_err(AppError::BadRequest)?;
     let version = crate::domain::models::SemVer::parse_spec_version(&version)
         .map_err(AppError::BadRequest)?;
-    let username = user.as_ref().map(|axum::Extension(u)| u.username.clone());
     let res = services::promote_version(
         &state.repo,
         &name,
         api_type,
         version,
-        username.as_deref(),
         caller.map(|axum::Extension(a)| a),
     )
     .await?;

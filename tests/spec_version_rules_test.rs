@@ -1156,6 +1156,19 @@ async fn an_unauthorized_ga_attempt_writes_nothing_at_all() {
         count.0, 0,
         "the refusal must come before the service is even created"
     );
+
+    // And no telemetry either: the made-up name must not become an audit row
+    // (or a Prometheus label) — that would let any authenticated caller mint
+    // unbounded label cardinality out of thin air.
+    let audits: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM audit_logs WHERE action = 'VERSION_REJECTED'")
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        audits.0, 0,
+        "unknown producers are refused without telemetry"
+    );
 }
 
 #[tokio::test]

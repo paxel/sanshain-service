@@ -292,6 +292,14 @@ test.describe('One-click promote', () => {
       headers: { Authorization: `Bearer ${token}` },
       data: { producername: SERVICE, stability: 'snapshot', openapi_yaml: SPEC },
     });
+    await request.post('/provide', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        producername: `${SERVICE}-admin`,
+        stability: 'snapshot',
+        openapi_yaml: SPEC,
+      },
+    });
   });
 
   // The happy path decided in #28: see the button on a snapshot row, confirm,
@@ -318,6 +326,35 @@ test.describe('One-click promote', () => {
     const refreshed = page.locator('.endpoint-card', { hasText: '1.0.0' });
     await expect(refreshed).toContainText('GA', { timeout: 10000 });
     await expect(refreshed.locator('button:has-text("Promote to GA")')).toHaveCount(0);
+  });
+
+  // The admin dashboard's promote path re-renders the versions panel in place
+  // (no toggle-button driving) — this covers the refresh the producers-page
+  // test cannot reach.
+  test('the admin dashboard promotes and re-renders the versions panel', async ({ page }) => {
+    await page.goto('/account.html');
+    await page.waitForSelector('#login-username', { state: 'visible' });
+    await page.fill('input[id="login-username"]', 'root');
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator('#account-dashboard')).toBeVisible({ timeout: 10000 });
+
+    await page.goto('/admin.html');
+    await expect(page.locator('#admin-dashboard')).toBeVisible({ timeout: 10000 });
+
+    const card = page.locator('#services-list > div', { hasText: `${SERVICE}-admin` });
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await card.locator('button:has-text("▶")').click();
+    const row = card.locator('.versions-container > div', { hasText: '1.0.0' });
+    await expect(row).toContainText('snapshot', { timeout: 10000 });
+
+    await row.locator('button:has-text("Promote to GA")').click();
+    await expect(page.locator('#confirm-modal')).toBeVisible();
+    await page.click('#confirm-yes');
+
+    const refreshedRow = card.locator('.versions-container > div', { hasText: '1.0.0' });
+    await expect(refreshedRow).toContainText('GA', { timeout: 10000 });
+    await expect(refreshedRow.locator('button:has-text("Promote to GA")')).toHaveCount(0);
   });
 });
 
