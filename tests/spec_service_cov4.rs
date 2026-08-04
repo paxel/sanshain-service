@@ -35,8 +35,8 @@ fn params<'a>(
         content,
         stability,
         dry_run: false,
-        username: Some("ci"),
         caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
+        expected_prior_hash: None,
     }
 }
 

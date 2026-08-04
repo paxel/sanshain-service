@@ -177,6 +177,7 @@ impl SpecRepository for SqliteSpecRepository {
                 provided_by = excluded.provided_by,
                 updated_at = excluded.updated_at
             WHERE spec_versions.stability != 'ga'
+              AND (? IS NULL OR spec_versions.content_hash = ?)
             "#,
         )
         .bind(params.service_id)
@@ -190,14 +191,16 @@ impl SpecRepository for SqliteSpecRepository {
         .bind(params.provided_by)
         .bind(params.now_iso)
         .bind(params.now_iso)
+        .bind(params.expected_prior_hash)
+        .bind(params.expected_prior_hash)
         .execute(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        // The `WHERE stability != 'ga'` guard on the upsert is the last line of
-        // defense against two racing writers: if a GA row landed between the
-        // application layer's immutability check and this statement, nothing
-        // was written — surface that as a conflict instead of silently
-        // replacing endpoints under a GA entry.
+        // The upsert's WHERE guard is the last line of defense against two
+        // racing writers: nothing was written if a GA row landed between the
+        // application layer's immutability check and this statement, or if a
+        // compare-and-set hash (`expected_prior_hash`) no longer matches —
+        // surface either as a conflict instead of writing over the newer row.
         if upsert.rows_affected() == 0 {
             return Err(RepositoryError::Conflict);
         }
@@ -2153,6 +2156,7 @@ mod tests {
             content: "content",
             content_hash: "sha256:x",
             provided_by: "ci",
+            expected_prior_hash: None,
             now_iso: now,
             endpoints,
         })
@@ -2439,6 +2443,7 @@ mod tests {
                 content: "other",
                 content_hash: "sha256:y",
                 provided_by: "racer",
+                expected_prior_hash: None,
                 now_iso: "2026-01-02T00:00:00Z",
                 endpoints: vec![endpoint("/b", "GET", "b")],
             })
@@ -2456,6 +2461,63 @@ mod tests {
         let endpoints = repo.get_endpoints_for_version(meta.id).await.unwrap();
         assert_eq!(endpoints.len(), 1);
         assert_eq!(endpoints[0].path, "/a", "the GA endpoint set is untouched");
+    }
+
+    /// The compare-and-set arm of the upsert guard: a stale expected hash
+    /// means the row moved since the caller read it.
+    #[tokio::test]
+    async fn upsert_with_a_stale_expected_hash_conflicts() {
+        let repo = setup().await;
+        let sid = repo.ensure_service("svc").await.unwrap();
+        provide(
+            &repo,
+            sid,
+            "1.0.0",
+            Stability::Snapshot,
+            vec![endpoint("/a", "GET", "a")],
+            "2026-01-01T00:00:00Z",
+        )
+        .await;
+
+        let err = repo
+            .upsert_spec_version(UpsertSpecVersion {
+                service_id: sid,
+                api_type: ApiType::OpenApi,
+                version: "1.0.0".parse().unwrap(),
+                stability: Stability::Ga,
+                content: "content",
+                content_hash: "sha256:x",
+                provided_by: "releaser",
+                expected_prior_hash: Some("sha256:stale"),
+                now_iso: "2026-01-02T00:00:00Z",
+                endpoints: vec![endpoint("/a", "GET", "a")],
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(err, RepositoryError::Conflict));
+
+        let meta = repo
+            .find_spec_version(sid, ApiType::OpenApi, "1.0.0".parse().unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(meta.stability, Stability::Snapshot, "nothing was written");
+
+        // The matching hash goes through.
+        repo.upsert_spec_version(UpsertSpecVersion {
+            service_id: sid,
+            api_type: ApiType::OpenApi,
+            version: "1.0.0".parse().unwrap(),
+            stability: Stability::Ga,
+            content: "content",
+            content_hash: "sha256:x",
+            provided_by: "releaser",
+            expected_prior_hash: Some(&meta.content_hash),
+            now_iso: "2026-01-02T00:00:00Z",
+            endpoints: vec![endpoint("/a", "GET", "a")],
+        })
+        .await
+        .expect("matching hash lands");
     }
 
     /// AsyncAPI channels are stored verbatim, so lookups must not blank their
@@ -2482,6 +2544,7 @@ mod tests {
                 content: "content",
                 content_hash: "sha256:x",
                 provided_by: "ci",
+                expected_prior_hash: None,
                 now_iso: "2026-01-01T00:00:00Z",
                 endpoints: vec![channel],
             })

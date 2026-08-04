@@ -20,8 +20,8 @@ async fn dry_run(
             content,
             stability: Stability::Snapshot,
             dry_run: true,
-            username: Some("ci"),
             caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
+            expected_prior_hash: None,
         },
     )
     .await
@@ -393,8 +393,8 @@ channels:
                 content,
                 stability: Stability::Snapshot,
                 dry_run: false,
-                username: Some("ci"),
                 caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
+                expected_prior_hash: None,
             },
         )
         .await

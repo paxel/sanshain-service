@@ -179,6 +179,7 @@ impl SpecRepository for PostgresSpecRepository {
                 provided_by = EXCLUDED.provided_by,
                 updated_at = EXCLUDED.updated_at
             WHERE spec_versions.stability != 'ga'
+              AND ($12::text IS NULL OR spec_versions.content_hash = $12)
             "#,
         )
         .bind(params.service_id)
@@ -192,14 +193,15 @@ impl SpecRepository for PostgresSpecRepository {
         .bind(params.provided_by)
         .bind(params.now_iso)
         .bind(params.now_iso)
+        .bind(params.expected_prior_hash)
         .execute(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        // The `WHERE stability != 'ga'` guard on the upsert is the last line of
-        // defense against two racing writers: if a GA row landed between the
-        // application layer's immutability check and this statement, nothing
-        // was written — surface that as a conflict instead of silently
-        // replacing endpoints under a GA entry.
+        // The upsert's WHERE guard is the last line of defense against two
+        // racing writers: nothing was written if a GA row landed between the
+        // application layer's immutability check and this statement, or if a
+        // compare-and-set hash (`expected_prior_hash`) no longer matches —
+        // surface either as a conflict instead of writing over the newer row.
         if upsert.rows_affected() == 0 {
             return Err(RepositoryError::Conflict);
         }

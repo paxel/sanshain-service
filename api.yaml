@@ -53,9 +53,10 @@ paths:
         permission (the `releaser` role; admins and root hold it implicitly)
         and is otherwise refused 403. Snapshots need only authentication.
 
-        **Idempotency**: re-providing byte-identical content is a no-op
-        regardless of stability or caller — CI re-runs of the same commit never
-        fight. `changes` reports all zero.
+        **Idempotency**: re-providing byte-identical content is a no-op —
+        CI re-runs of the same commit never fight. `changes` reports all zero.
+        The GA gate still applies first: for `stability: ga` the caller must
+        hold `release_ga` even when the re-provide would change nothing.
 
         **Snapshots** are overwritable: a snapshot Provide for an existing
         snapshot version replaces it wholesale (last writer wins; the previous

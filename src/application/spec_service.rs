@@ -24,13 +24,16 @@ pub struct ProvideSpecParams<'a> {
     /// Declared by the caller: `snapshot` (overwritable) or `ga` (immutable).
     pub stability: Stability,
     pub dry_run: bool,
-    /// The real authenticated Actor — always used for the audit log and
-    /// credited as the version's provider.
-    pub username: Option<&'a str>,
-    /// The resolved caller, for the GA gate: publishing `stability: ga`
-    /// requires [`Permission::ReleaseGa`]. `None` (no authenticated Actor)
-    /// can never release.
+    /// The resolved caller: the GA gate checks it for
+    /// [`Permission::ReleaseGa`], and its username is the single identity used
+    /// for audit attribution and the version's `provided_by` credit. `None`
+    /// (no authenticated Actor) can never release.
     pub caller: Option<Actor>,
+    /// Compare-and-set for promote-by-copy (#28): when `Some`, the write only
+    /// lands if the stored entry still carries this content hash, so a
+    /// snapshot overwritten between read and release answers 409 instead of
+    /// silently going GA with stale bytes.
+    pub expected_prior_hash: Option<&'a str>,
 }
 
 pub struct RequireEndpointParams<'a> {
@@ -169,17 +172,15 @@ pub async fn promote_version(
     producername: &str,
     api_type: ApiType,
     version: SemVer,
-    username: Option<&str>,
     caller: Option<Actor>,
 ) -> Result<ProvideResponse, AppError> {
-    let service_id = repo
-        .find_service(producername)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Producer not found".to_string()))?;
-    let entry = repo
-        .find_spec_version(service_id, api_type, version)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Version not found".to_string()))?;
+    let entry = crate::application::admin_service::find_version_entry(
+        repo,
+        producername,
+        api_type,
+        version,
+    )
+    .await?;
     let content = repo
         .get_spec_content(entry.id)
         .await?
@@ -192,8 +193,11 @@ pub async fn promote_version(
             content: &content,
             stability: Stability::Ga,
             dry_run: false,
-            username,
             caller,
+            // Release exactly what was read: if the snapshot is overwritten
+            // between this read and the write, the CAS refuses (409) instead
+            // of releasing stale bytes immutably.
+            expected_prior_hash: Some(&entry.content_hash),
         },
     )
     .await
@@ -349,9 +353,12 @@ pub async fn provide_spec(
         content,
         stability,
         dry_run,
-        username,
         caller,
+        expected_prior_hash,
     } = params;
+    // One identity: authorization and audit attribution both come from the
+    // Actor, so they cannot drift apart.
+    let username: Option<&str> = caller.as_ref().map(|a| a.username.as_str());
 
     let version = extract_spec_version(api_type, content)?;
     let hash = content_hash(content);
@@ -372,16 +379,22 @@ pub async fn provide_spec(
             "publishing GA for '{}' requires the 'releaser' role — publish as a snapshot, or ask an administrator to grant the role",
             producername
         );
-        record_version_rejection(
-            repo,
-            dry_run,
-            username,
-            producername,
-            version,
-            "ga_requires_releaser",
-            &message,
-        )
-        .await;
+        // Telemetry only for Producers that exist: the producer name becomes a
+        // Prometheus label and an audit row, and this refusal fires before
+        // `ensure_service` — without the check, any authenticated non-releaser
+        // could mint unbounded label cardinality out of made-up names.
+        if repo.find_service(producername).await?.is_some() {
+            record_version_rejection(
+                repo,
+                dry_run,
+                username,
+                producername,
+                version,
+                "ga_requires_releaser",
+                &message,
+            )
+            .await;
+        }
         return Err(AppError::ForbiddenWithReason(message));
     }
 
@@ -586,6 +599,7 @@ pub async fn provide_spec(
         content,
         content_hash: &hash,
         provided_by: &credited,
+        expected_prior_hash,
         now_iso: &now_iso(),
         endpoints: endpoints
             .into_iter()
@@ -600,7 +614,19 @@ pub async fn provide_spec(
             })
             .collect(),
     };
-    repo.upsert_spec_version(record).await?;
+    repo.upsert_spec_version(record).await.map_err(|e| {
+        // A CAS refusal deserves a remedy, not a bare "Conflict": the caller
+        // read a snapshot that has since been overwritten.
+        if matches!(e, crate::domain::ports::RepositoryError::Conflict)
+            && expected_prior_hash.is_some()
+        {
+            AppError::Conflict(
+                "the snapshot changed while releasing — reload and promote again".to_string(),
+            )
+        } else {
+            e.into()
+        }
+    })?;
 
     apply_contract_ops(repo, contract_ops).await?;
 

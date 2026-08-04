@@ -1019,6 +1019,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+        "409":
+          description: |
+            Rejected by the same rules a GA Provide faces — semver honesty
+            against the GA baseline (carries `proposed_version`), an AsyncAPI
+            channel-message contract owned by another Producer, or the snapshot
+            changing between click and release.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/producers/{name}/versions/{api_type}/{version}/dependents:
     get:
       summary: "Read: producers/name/versions/api_type/version/dependents"

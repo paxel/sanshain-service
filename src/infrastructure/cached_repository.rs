@@ -1219,6 +1219,7 @@ mod tests {
             content: "spec-content",
             content_hash,
             provided_by: "tester",
+            expected_prior_hash: None,
             now_iso: "2026-01-01T00:00:00Z",
             endpoints,
         })

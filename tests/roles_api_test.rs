@@ -794,6 +794,93 @@ async fn putting_releaser_on_a_group_requires_an_admin() {
     assert_eq!(status, StatusCode::OK, "an admin may");
 }
 
+/// The membership side door, closed: joining a releaser-holding group is a
+/// grant of release rights and needs an admin behind it.
+#[tokio::test]
+async fn joining_a_releaser_group_requires_an_admin() {
+    let f = fixture().await;
+    let hash = services::hash_password("um-pass").expect("hash");
+    let um = f
+        .repo
+        .create_user("um", &hash, true)
+        .await
+        .expect("user manager");
+    f.repo
+        .grant_user_role(um.id, "user_manager")
+        .await
+        .expect("grant user_manager");
+    let um_token = f
+        .repo
+        .create_session(um.id, "2099-12-31T23:59:59")
+        .await
+        .expect("session")
+        .token;
+
+    let (status, group) = call(
+        &f.app,
+        "POST",
+        "/admin/groups",
+        Some(&f.admin_token),
+        true,
+        Some(serde_json::json!({ "name": "ci-releasers" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let group_id = group["id"].as_i64().expect("group id");
+    let (status, _) = call(
+        &f.app,
+        "PUT",
+        &format!("/admin/groups/{}", group_id),
+        Some(&f.admin_token),
+        true,
+        Some(serde_json::json!({ "roles": ["releaser"] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // The user_manager cannot add themselves (or anyone) to the group…
+    let (status, _) = call(
+        &f.app,
+        "POST",
+        &format!("/admin/groups/{}/members", group_id),
+        Some(&um_token),
+        true,
+        Some(serde_json::json!({ "user_id": um.id })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "membership of a releaser group is a grant of release rights"
+    );
+
+    // …an admin can, and the user_manager cannot remove them again.
+    let (status, _) = call(
+        &f.app,
+        "POST",
+        &format!("/admin/groups/{}/members", group_id),
+        Some(&f.admin_token),
+        true,
+        Some(serde_json::json!({ "user_id": f.plain_user_id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (status, _) = call(
+        &f.app,
+        "DELETE",
+        &format!("/admin/groups/{}/members/{}", group_id, f.plain_user_id),
+        Some(&um_token),
+        true,
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "stripping release rights is guarded in both directions"
+    );
+}
+
 // --- Maintainer scope ---
 
 #[tokio::test]

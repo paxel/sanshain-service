@@ -232,9 +232,16 @@ impl Actor {
     /// that publish GA through the application seam.
     #[cfg(any(test, feature = "test-support"))]
     pub fn test_releaser() -> Self {
+        Self::test_releaser_named("test-releaser")
+    }
+
+    /// [`Actor::test_releaser`] under a chosen username, for tests that
+    /// assert attribution.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn test_releaser_named(username: &str) -> Self {
         Actor {
             user_id: 0,
-            username: "test-releaser".to_string(),
+            username: username.to_string(),
             is_root: false,
             roles: vec![Role::Releaser],
             directory_groups: Vec::new(),

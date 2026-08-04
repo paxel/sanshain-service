@@ -7,11 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [2.1.0] - 2026-08-04
 
-### Breaking Changes
-- **Releasing is now a role.** Publishing with `stability: ga` — a fresh GA, a promotion, or an
-  idempotent GA re-provide — requires the new `release_ga` permission, held by the new `releaser`
-  role (admins and root hold it implicitly). **On upgrade, grant `releaser` to whatever pushes GA
-  today — typically your CI user — or releases fail with `403`.** Snapshots are unaffected.
+### Security
+- Publishing `stability: ga` now requires the `release_ga` permission (new `releaser` role; admins
+  and root hold it implicitly) — previously any authenticated token could release, and snapshots are
+  unaffected. **On upgrade, grant `releaser` to whatever pushes GA today — typically your CI user —
+  or releases fail with an instructive `403`.**
 
 ### Added
 - `releaser`: a global role conferring exactly `release_ga`, grantable to users, native groups and

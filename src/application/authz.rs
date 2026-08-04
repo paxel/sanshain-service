@@ -191,33 +191,59 @@ pub async fn set_group_roles(
     // Adding a guarded role (admin, releaser) to the set — or stripping one
     // from a group that holds it — needs an admin behind it.
     let current = repo.list_group_roles(group_id).await?;
-    let touches_guarded = Role::ADMIN_GUARDED.iter().any(|guarded| {
-        parsed.iter().any(|r| r == guarded.as_str())
-            != current.iter().any(|r| r == guarded.as_str())
-    });
-    if touches_guarded {
-        require_admin_for_guarded_roles(actor, &[Role::Admin.as_str()])?;
-    }
+    let touched_guarded: Vec<&str> = Role::ADMIN_GUARDED
+        .iter()
+        .filter(|guarded| {
+            parsed.iter().any(|r| r == guarded.as_str())
+                != current.iter().any(|r| r == guarded.as_str())
+        })
+        .map(|g| g.as_str())
+        .collect();
+    require_admin_for_guarded_roles(actor, &touched_guarded)?;
     repo.set_group_roles(group_id, &parsed).await?;
     Ok(())
 }
 
+/// Membership of a group that holds a guarded role IS a grant of that role,
+/// so it gets the same admin-guard as granting the role directly — without
+/// this, joining a releaser-holding group would be the side door the direct
+/// grant closes.
+async fn require_admin_for_guarded_group(
+    repo: &impl SpecRepository,
+    actor: Option<&Actor>,
+    group_id: i64,
+) -> Result<(), AppError> {
+    let roles = repo.list_group_roles(group_id).await?;
+    let guarded: Vec<&str> = roles
+        .iter()
+        .map(String::as_str)
+        .filter(|r| Role::ADMIN_GUARDED.iter().any(|g| g.as_str() == *r))
+        .collect();
+    require_admin_for_guarded_roles(actor, &guarded)
+}
+
 pub async fn add_group_member(
     repo: &impl SpecRepository,
+    actor: Option<&Actor>,
     group_id: i64,
     user_id: i64,
 ) -> Result<(), AppError> {
     let group = require_native_group(repo, group_id).await?;
+    require_admin_for_guarded_group(repo, actor, group.id).await?;
     repo.add_group_member(group.id, user_id).await?;
     Ok(())
 }
 
 pub async fn remove_group_member(
     repo: &impl SpecRepository,
+    actor: Option<&Actor>,
     group_id: i64,
     user_id: i64,
 ) -> Result<bool, AppError> {
     let group = require_native_group(repo, group_id).await?;
+    // Guarded in both directions: removal strips the member's admin/releaser
+    // rights, which is as much an admin-role change as granting them.
+    require_admin_for_guarded_group(repo, actor, group.id).await?;
     Ok(repo.remove_group_member(group.id, user_id).await?)
 }
 
@@ -611,7 +637,7 @@ mod tests {
         )
         .await
         .expect("roles should be set");
-        add_group_member(&repo, group.id, carol.id)
+        add_group_member(&repo, Some(&admin_actor()), group.id, carol.id)
             .await
             .expect("member should be added");
 
@@ -637,11 +663,11 @@ mod tests {
         )
         .await
         .expect("roles should be set");
-        add_group_member(&repo, group.id, carol.id)
+        add_group_member(&repo, Some(&admin_actor()), group.id, carol.id)
             .await
             .expect("member should be added");
         assert!(
-            remove_group_member(&repo, group.id, carol.id)
+            remove_group_member(&repo, Some(&admin_actor()), group.id, carol.id)
                 .await
                 .expect("removal should succeed")
         );
@@ -670,7 +696,7 @@ mod tests {
         )
         .await
         .expect("roles should be set");
-        add_group_member(&repo, group.id, dave.id)
+        add_group_member(&repo, Some(&admin_actor()), group.id, dave.id)
             .await
             .expect("member should be added");
 
@@ -725,7 +751,7 @@ mod tests {
             .await
             .expect("group should be created");
 
-        let err = add_group_member(&repo, group.id, frank.id)
+        let err = add_group_member(&repo, Some(&admin_actor()), group.id, frank.id)
             .await
             .expect_err("directory membership should be refused");
         assert!(matches!(err, AppError::BadRequest(_)));
@@ -794,7 +820,7 @@ mod tests {
         )
         .await
         .expect("roles should be set");
-        add_group_member(&repo, group.id, gail.id)
+        add_group_member(&repo, Some(&admin_actor()), group.id, gail.id)
             .await
             .expect("member should be added");
 
@@ -848,7 +874,7 @@ mod tests {
         )
         .await
         .expect("roles should be set");
-        add_group_member(&repo, group.id, hana.id)
+        add_group_member(&repo, Some(&admin_actor()), group.id, hana.id)
             .await
             .expect("member should be added");
 
@@ -917,7 +943,7 @@ mod tests {
         let jon = user(&repo, "jon", false).await;
         repo.ensure_service("orders").await.expect("producer");
         let group = create_native_group(&repo, "platform").await.expect("group");
-        add_group_member(&repo, group.id, jon.id)
+        add_group_member(&repo, Some(&admin_actor()), group.id, jon.id)
             .await
             .expect("member");
         assign_group_maintainer(&repo, "orders", group.id)
@@ -1021,7 +1047,7 @@ mod tests {
             .await
             .expect("assignment");
         let group = create_native_group(&repo, "platform").await.expect("group");
-        add_group_member(&repo, group.id, ida.id)
+        add_group_member(&repo, Some(&admin_actor()), group.id, ida.id)
             .await
             .expect("member");
         assign_group_maintainer(&repo, "shipping", group.id)
@@ -1158,6 +1184,58 @@ mod tests {
         )
         .await
         .expect("admin kept, viewer added — not an admin-role change");
+    }
+
+    /// The side door the direct-grant guard would otherwise leave open:
+    /// membership of a guarded-role group IS the grant.
+    #[tokio::test]
+    async fn joining_a_guarded_role_group_requires_an_admin() {
+        let repo = MockRepo::new();
+        let bob = user(&repo, "bob", false).await;
+        let group = create_native_group(&repo, "releasers")
+            .await
+            .expect("group");
+        set_group_roles(
+            &repo,
+            Some(&admin_actor()),
+            group.id,
+            &["releaser".to_string()],
+        )
+        .await
+        .expect("roles");
+        let user_manager = Actor {
+            user_id: 500,
+            username: "manager".into(),
+            is_root: false,
+            roles: vec![Role::UserManager],
+            directory_groups: vec![],
+        };
+
+        assert!(matches!(
+            add_group_member(&repo, Some(&user_manager), group.id, bob.id).await,
+            Err(AppError::Forbidden)
+        ));
+        add_group_member(&repo, Some(&admin_actor()), group.id, bob.id)
+            .await
+            .expect("an admin may");
+        assert!(matches!(
+            remove_group_member(&repo, Some(&user_manager), group.id, bob.id).await,
+            Err(AppError::Forbidden)
+        ));
+
+        // Plain groups stay within manage_roles.
+        let plain = create_native_group(&repo, "viewers").await.expect("group");
+        set_group_roles(
+            &repo,
+            Some(&user_manager),
+            plain.id,
+            &["viewer".to_string()],
+        )
+        .await
+        .expect("viewer roles need no admin");
+        add_group_member(&repo, Some(&user_manager), plain.id, bob.id)
+            .await
+            .expect("membership of an unguarded group needs no admin");
     }
 
     /// A maintainer grant to a *directory* group has no stored membership;

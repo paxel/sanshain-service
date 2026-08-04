@@ -409,7 +409,11 @@
         if (promoteBtn) {
             promoteBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                promoteVersion(serviceName, apiType, v.version);
+                // Shared flow from common.js; the callback is this page's refresh.
+                promoteVersion(serviceName, apiType, v.version, async () => {
+                    await loadAllProducers();
+                    showProducerVersions(serviceName);
+                });
             });
         }
         return card;
@@ -468,28 +472,6 @@
                 alert('Failed to delete: ' + e.message);
             }
         });
-    }
-
-    // One-click release (#28): the server re-uses the stored snapshot content
-    // and runs it through the same GA gate as any release.
-    function promoteVersion(serviceName, apiType, version) {
-        confirmAction(
-            `Release ${escapeHtml(apiType)} version <strong>${escapeHtml(version)}</strong> of <strong>${escapeHtml(serviceName)}</strong> as GA?<br><br>The number is permanently claimed and its content becomes immutable.`,
-            async () => {
-                try {
-                    const res = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/versions/${encodeURIComponent(apiType)}/${encodeURIComponent(version)}/promote`, { method: 'POST' });
-                    if (!res.ok) {
-                        alert('Failed to promote: ' + (await errorMessage(res)));
-                        return;
-                    }
-                    await loadAllProducers();
-                    showProducerVersions(serviceName);
-                } catch (e) {
-                    alert('Failed to promote: ' + e.message);
-                }
-            },
-            'Promote to GA',
-            'Promote');
     }
 
     async function downloadFullApi(service, apiType, version) {

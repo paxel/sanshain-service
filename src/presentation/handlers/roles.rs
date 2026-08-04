@@ -219,10 +219,12 @@ pub struct AddMemberRequest {
 pub async fn add_group_member(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
     Path(group_id): Path<i64>,
     Json(payload): Json<AddMemberRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    authz::add_group_member(&state.repo, group_id, payload.user_id).await?;
+    let actor = actor.map(|axum::Extension(a)| a);
+    authz::add_group_member(&state.repo, actor.as_ref(), group_id, payload.user_id).await?;
     record(
         &state,
         user,
@@ -236,9 +238,11 @@ pub async fn add_group_member(
 pub async fn remove_group_member(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
     Path((group_id, user_id)): Path<(i64, i64)>,
 ) -> Result<impl IntoResponse, AppError> {
-    if !authz::remove_group_member(&state.repo, group_id, user_id).await? {
+    let actor = actor.map(|axum::Extension(a)| a);
+    if !authz::remove_group_member(&state.repo, actor.as_ref(), group_id, user_id).await? {
         return Err(AppError::NotFound(format!(
             "User {} is not a member of group {}",
             user_id, group_id
