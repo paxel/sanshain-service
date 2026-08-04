@@ -496,6 +496,10 @@
 
     <script>
         // Use sanshainToken and renderBanner from common.js
+        // The signed-in caller, for gating affordances (the Promote button).
+        // Hiding is a usability affordance; the server's GA gate is the boundary.
+        let adminActor = null;
+
         function onSessionExpired() {
             window.location.href = '/account.html';
         }
@@ -522,6 +526,7 @@
                 const res = await apiCall('/auth/me');
                 if (res.ok) {
                     const data = await res.json();
+                    adminActor = data;
                     // Anyone holding at least one administrative permission has
                     // something to do here; the individual sections gate
                     // themselves.
@@ -1242,8 +1247,14 @@
                                 : '<span class="text-[10px] text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full font-bold uppercase">snapshot</span>'}
                             <span class="text-xs text-slate-400">${v.endpoint_count} endpoint${v.endpoint_count !== 1 ? 's' : ''}</span>
                         </span>
-                        <button onclick="deleteVersion('${escapeAttr(serviceName)}', '${escapeAttr(v.api_type)}', '${escapeAttr(v.version)}')"
-                            class="text-red-400 hover:text-red-600 text-xs">Delete</button>
+                        <span class="flex items-center gap-3">
+                            ${v.stability !== 'ga' && hasPermission(adminActor, 'release_ga')
+                                ? `<button onclick="promoteVersion(this, '${escapeAttr(serviceName)}', '${escapeAttr(v.api_type)}', '${escapeAttr(v.version)}')"
+                                    class="text-green-600 hover:text-green-700 text-xs">Promote to GA</button>`
+                                : ''}
+                            <button onclick="deleteVersion('${escapeAttr(serviceName)}', '${escapeAttr(v.api_type)}', '${escapeAttr(v.version)}')"
+                                class="text-red-400 hover:text-red-600 text-xs">Delete</button>
+                        </span>
                     </div>
                 `).join('');
             } catch (_) {
@@ -1279,6 +1290,30 @@
                     }
                     loadServices();
                 });
+        }
+
+        // One-click release (#28): the server re-uses the stored snapshot
+        // content and runs it through the same GA gate as any release.
+        function promoteVersion(btn, service, apiType, version) {
+            const row = btn.closest('.bg-slate-50');
+            confirmAction(
+                `Release ${escapeHtml(apiType)} version <strong>${escapeHtml(version)}</strong> of <strong>${escapeHtml(service)}</strong> as GA?<br><br>The number is permanently claimed and its content becomes immutable.`,
+                async () => {
+                    const res = await apiCall(`/admin/producers/${encodeURIComponent(service)}/versions/${encodeURIComponent(apiType)}/${encodeURIComponent(version)}/promote`, { method: 'POST' });
+                    if (!res.ok) {
+                        alert('Failed to promote: ' + (await errorMessage(res)));
+                        return;
+                    }
+                    // Re-render the open versions panel so the badge flips.
+                    const toggle = row ? row.querySelector('button') : null;
+                    if (toggle) {
+                        toggle.textContent = '▶';
+                        row.querySelector('.versions-container').classList.add('hidden');
+                        toggleVersions(toggle, service);
+                    }
+                },
+                'Promote to GA',
+                'Promote');
         }
 
         // --- Clients ---

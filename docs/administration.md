@@ -211,6 +211,11 @@ Grant `releaser` to whatever performs your releases — typically the CI user wh
 maintainer can delete a GA version of their Producer (remediation), but releasing is deliberately
 the pipeline's job.
 
+Holders of the permission also get a **Promote to GA** button on snapshot entries (producers page
+and admin dashboard): it releases the stored snapshot in place, exactly as if its content were
+re-provided as GA — the original provider stays credited, the promoting account is named in the
+audit's `VERSION_PROMOTED` entry.
+
 ### Groups
 
 A **group** is a set of users that roles attach to. Groups carry a source, which records where their

@@ -1094,6 +1094,180 @@ async fn same_content_promotion_preserves_the_snapshot_provider() {
     );
 }
 
+#[cfg(test)]
+async fn post_promote(
+    app: &axum::Router,
+    token: &str,
+    producer: &str,
+    version: &str,
+) -> (StatusCode, serde_json::Value) {
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/admin/producers/{producer}/versions/openapi/{version}/promote"
+                ))
+                .header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {}", token),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = res.status();
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let value = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    (status, value)
+}
+
+// The one-click promote (#28) is definitionally "provide the stored content
+// as GA": in-place flip, original provider credited, VERSION_PROMOTED naming
+// the promoting Actor, and an idempotent no-op the second time.
+#[tokio::test]
+async fn one_click_promote_releases_the_stored_snapshot() {
+    let (app, repo, root_token) = app_with_seed().await;
+
+    let hash = services::hash_password("pw").unwrap();
+    let dev = repo.create_user("dev-user", &hash, true).await.unwrap();
+    let dev_session = repo
+        .create_session(dev.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap();
+    let spec = spec_with_paths("2.0.0", &["/promoted"]);
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {}", dev_session.token),
+                )
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "producername": "promo-svc",
+                        "stability": "snapshot",
+                        "openapi_yaml": spec,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+
+    let (status, body) = post_promote(&app, &root_token, "promo-svc", "2.0.0").await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(body["promoted"], true);
+    assert_eq!(body["stability"], "ga");
+
+    let sid = repo.find_service("promo-svc").await.unwrap().unwrap();
+    let meta = repo
+        .find_spec_version(sid, ApiType::OpenApi, "2.0.0".parse().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(meta.stability, Stability::Ga);
+    assert_eq!(
+        meta.provided_by, "dev-user",
+        "the stored content is byte-identical, so the snapshot's provider stays credited"
+    );
+
+    let logs = repo.get_audit_logs(all_audit_logs_filter()).await.unwrap();
+    let promoted = logs
+        .iter()
+        .find(|l| l.action == "VERSION_PROMOTED" && l.service.as_deref() == Some("promo-svc"))
+        .expect("promotion must be audited");
+    assert_eq!(promoted.username, "root");
+
+    // Double-click / racing colleague: the second promote is a harmless no-op.
+    let (status, body) = post_promote(&app, &root_token, "promo-svc", "2.0.0").await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(body["promoted"], false);
+}
+
+#[tokio::test]
+async fn promote_of_an_unknown_version_is_not_found() {
+    let (app, _repo, root_token) = app_with_seed().await;
+    let (status, _) = post_promote(&app, &root_token, "demo-svc", "9.9.9").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = post_promote(&app, &root_token, "no-such-svc", "1.0.0").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// The button is hidden for non-releasers, but the guard is the boundary —
+/// and because enforcement runs through the shared GA gate, the refusal is
+/// instructive and audited, unlike a bare route-guard 403.
+#[tokio::test]
+async fn promote_without_release_ga_is_refused_and_audited() {
+    let (app, repo, _root_token) = app_with_seed().await;
+
+    let hash = services::hash_password("pw").unwrap();
+    let dev = repo.create_user("dev-user", &hash, true).await.unwrap();
+    let dev_session = repo
+        .create_session(dev.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap();
+    let spec = spec_with_paths("2.0.0", &["/promoted"]);
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/provide")
+                .header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {}", dev_session.token),
+                )
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "producername": "promo-svc",
+                        "stability": "snapshot",
+                        "openapi_yaml": spec,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+
+    let (status, body) = post_promote(&app, &dev_session.token, "promo-svc", "2.0.0").await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(
+        body["error"].as_str().unwrap_or("").contains("releaser"),
+        "the refusal names the missing role: {body}"
+    );
+
+    let logs = repo.get_audit_logs(all_audit_logs_filter()).await.unwrap();
+    let rejected = logs
+        .iter()
+        .find(|l| l.action == "VERSION_REJECTED" && l.service.as_deref() == Some("promo-svc"))
+        .expect("an unauthorized promote is a real release attempt and must be audited");
+    assert_eq!(rejected.username, "dev-user");
+    assert_eq!(rejected.version.as_deref(), Some("2.0.0"));
+
+    // Nothing changed.
+    let sid = repo.find_service("promo-svc").await.unwrap().unwrap();
+    let meta = repo
+        .find_spec_version(sid, ApiType::OpenApi, "2.0.0".parse().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(meta.stability, Stability::Snapshot);
+}
+
 // A promotion carrying *different* content transfers attribution to the
 // promoter — whoever pushed those bytes owns them.
 #[tokio::test]

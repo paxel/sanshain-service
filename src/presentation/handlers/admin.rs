@@ -257,6 +257,41 @@ pub async fn admin_get_version_dependents(
     Ok(Json(dependents))
 }
 
+/// Release a stored snapshot in place (#28) — the dashboard's one-click
+/// promote. Authorisation is the same GA gate every release goes through
+/// ([`Permission::ReleaseGa`] inside the provide path), so an unauthorized
+/// click gets the instructive 403 plus the `ga_requires_releaser` telemetry a
+/// bare route guard could not produce. The shared path also writes the
+/// `VERSION_PROMOTED` audit entry; nothing is logged twice here.
+///
+/// [`Permission::ReleaseGa`]: crate::domain::permissions::Permission::ReleaseGa
+pub async fn admin_promote_version(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    caller: Option<axum::Extension<crate::domain::permissions::Actor>>,
+    Path((name, api_type, version)): Path<(String, String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let api_type = ApiType::from_str(&api_type).map_err(AppError::BadRequest)?;
+    let version = crate::domain::models::SemVer::parse_spec_version(&version)
+        .map_err(AppError::BadRequest)?;
+    let username = user.as_ref().map(|axum::Extension(u)| u.username.clone());
+    let res = services::promote_version(
+        &state.repo,
+        &name,
+        api_type,
+        version,
+        username.as_deref(),
+        caller.map(|axum::Extension(a)| a),
+    )
+    .await?;
+    // The stability flip is a state change listeners care about even though
+    // the content is byte-identical; the no-op case broadcasts nothing.
+    if res.promoted {
+        let _ = state.spec_updated_tx.send(());
+    }
+    Ok((StatusCode::ACCEPTED, Json(res)))
+}
+
 pub async fn admin_delete_version(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,

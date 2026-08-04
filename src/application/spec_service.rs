@@ -157,6 +157,48 @@ fn parse_spec_endpoints(
     }
 }
 
+/// Promote a stored snapshot to GA without re-uploading (#28).
+///
+/// Definitionally "provide the stored content with `stability: ga`": the call
+/// funnels into [`provide_spec`], so the GA gate, promotion semantics,
+/// attribution, audit entries and rejection telemetry are all the same as for
+/// any release. An already-GA version is the idempotent no-op; an unknown
+/// producer or version is a 404.
+pub async fn promote_version(
+    repo: &impl SpecRepository,
+    producername: &str,
+    api_type: ApiType,
+    version: SemVer,
+    username: Option<&str>,
+    caller: Option<Actor>,
+) -> Result<ProvideResponse, AppError> {
+    let service_id = repo
+        .find_service(producername)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Producer not found".to_string()))?;
+    let entry = repo
+        .find_spec_version(service_id, api_type, version)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Version not found".to_string()))?;
+    let content = repo
+        .get_spec_content(entry.id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Version not found".to_string()))?;
+    provide_spec(
+        repo,
+        ProvideSpecParams {
+            producername,
+            api_type,
+            content: &content,
+            stability: Stability::Ga,
+            dry_run: false,
+            username,
+            caller,
+        },
+    )
+    .await
+}
+
 /// Whole-document backward-compatibility verdict for one API type.
 pub fn check_compatibility(api_type: ApiType, old: &str, new: &str) -> Result<(), String> {
     match api_type {

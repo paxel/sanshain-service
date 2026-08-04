@@ -970,6 +970,55 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/versions/{api_type}/{version}/promote:
+    post:
+      summary: "Write: producers/name/versions/api_type/version/promote"
+      description: |
+        Requires the `release_ga` permission — enforced by the same GA gate every release goes
+        through, so an unauthorized attempt answers the instructive `403` and is recorded as a
+        `VERSION_REJECTED` audit entry with reason `ga_requires_releaser`.
+
+        One-click promote: releases the stored snapshot in place, exactly as if its content were
+        re-provided with `stability: ga` — the original provider stays credited, the promoting
+        Actor is named in the `VERSION_PROMOTED` audit entry, and AsyncAPI GA contract checks
+        apply. Promoting an already-GA version is an idempotent no-op (`promoted: false`).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api_type
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Promoted (or already GA — idempotent no-op). Standard Provide response body.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without the `release_ga` permission.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: Unknown Producer or version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/producers/{name}/versions/{api_type}/{version}/dependents:
     get:
       summary: "Read: producers/name/versions/api_type/version/dependents"
