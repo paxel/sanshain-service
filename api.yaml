@@ -28,7 +28,7 @@ info:
     **Only the canonical names** `producername` and `consumername` are
     accepted; the 1.x aliases `servicename` and `clientname` are rejected as
     unknown fields like every other branch-era leftover.
-  version: "2.0.0"
+  version: "2.1.0"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt
