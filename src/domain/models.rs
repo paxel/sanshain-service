@@ -299,6 +299,10 @@ pub struct ProvideResponse {
     pub stability: Stability,
     pub content_hash: String,
     pub changes: ProvideChanges,
+    /// True when this Provide released an existing snapshot in place — a state
+    /// change listeners care about even when the content is byte-identical.
+    #[serde(default)]
+    pub promoted: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

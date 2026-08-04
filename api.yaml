@@ -617,6 +617,12 @@ components:
             inserts: { type: integer }
             updates: { type: integer }
             deletes: { type: integer }
+        promoted:
+          type: boolean
+          description: |
+            True when this Provide released an existing snapshot in place
+            (snapshot → GA under the same number), including the byte-identical
+            case where `changes` is all zero.
 
     RequireBundlePayload:
       type: object

@@ -86,6 +86,14 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, touch_spec_version_required(spec_version_id, now_iso))
     }
 
+    async fn touch_spec_version_provided(
+        &self,
+        spec_version_id: i64,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, touch_spec_version_provided(spec_version_id, now_iso))
+    }
+
     async fn delete_expired_snapshots(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
         delegate!(self, delete_expired_snapshots(cutoff_iso))
     }
@@ -171,8 +179,11 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, delete_all_clients())
     }
 
-    async fn delete_all_non_admin_users(&self) -> Result<u64, RepositoryError> {
-        delegate!(self, delete_all_non_admin_users())
+    async fn delete_all_non_admin_users(
+        &self,
+        spare_usernames: &[String],
+    ) -> Result<u64, RepositoryError> {
+        delegate!(self, delete_all_non_admin_users(spare_usernames))
     }
 
     async fn nuke_database(&self, keep_user_id: Option<i64>) -> Result<(), RepositoryError> {
@@ -424,6 +435,21 @@ impl SpecRepository for DatabaseRepo {
         service_id: i64,
     ) -> Result<Vec<i64>, RepositoryError> {
         delegate!(self, list_group_maintainer_ids(service_id))
+    }
+
+    async fn list_all_user_maintainers(&self) -> Result<Vec<(String, i64)>, RepositoryError> {
+        delegate!(self, list_all_user_maintainers())
+    }
+
+    async fn list_all_group_maintainers(&self) -> Result<Vec<(String, i64)>, RepositoryError> {
+        delegate!(self, list_all_group_maintainers())
+    }
+
+    async fn list_group_maintained_producers(
+        &self,
+        group_ids: &[i64],
+    ) -> Result<Vec<String>, RepositoryError> {
+        delegate!(self, list_group_maintained_producers(group_ids))
     }
 
     async fn maintains_producer(

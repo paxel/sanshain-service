@@ -273,6 +273,13 @@ pub async fn main() {
         "Root users (configuration-held, cannot be revoked in-app): {}",
         root_users.usernames().collect::<Vec<_>>().join(", ")
     );
+    // Root authority is a username match, so every root name must be claimed
+    // by an account before anyone else can claim it.
+    if let Err(e) = services::claim_root_usernames(&repo, &root_users).await {
+        tracing::error!("Can't claim root usernames: {}", e);
+        eprintln!("ERROR: Can't claim root usernames: {}", e);
+        std::process::exit(1);
+    }
 
     let (spec_updated_tx, _) = tokio::sync::broadcast::channel(spec_updated_channel_size);
     let mut system = sysinfo::System::new_all();

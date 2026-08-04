@@ -418,6 +418,22 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
+    async fn touch_spec_version_provided(
+        &self,
+        spec_version_id: i64,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .touch_spec_version_provided(spec_version_id, now_iso)
+            .await?;
+        // Same shape as `touch_spec_version_required`: cached metas carry
+        // `updated_at`, and only the row id is known here.
+        if !self.is_disabled() {
+            self.spec_version_cache.invalidate_all();
+        }
+        Ok(())
+    }
+
     async fn delete_expired_snapshots(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
         let result = self.inner.delete_expired_snapshots(cutoff_iso).await?;
         if result > 0 && !self.is_disabled() {
@@ -643,8 +659,11 @@ impl SpecRepository for CachedSpecRepository {
         Ok(result)
     }
 
-    async fn delete_all_non_admin_users(&self) -> Result<u64, RepositoryError> {
-        self.inner.delete_all_non_admin_users().await
+    async fn delete_all_non_admin_users(
+        &self,
+        spare_usernames: &[String],
+    ) -> Result<u64, RepositoryError> {
+        self.inner.delete_all_non_admin_users(spare_usernames).await
     }
 
     async fn nuke_database(&self, keep_user_id: Option<i64>) -> Result<(), RepositoryError> {
@@ -1011,6 +1030,21 @@ impl SpecRepository for CachedSpecRepository {
         service_id: i64,
     ) -> Result<Vec<i64>, RepositoryError> {
         self.inner.list_group_maintainer_ids(service_id).await
+    }
+
+    async fn list_all_user_maintainers(&self) -> Result<Vec<(String, i64)>, RepositoryError> {
+        self.inner.list_all_user_maintainers().await
+    }
+
+    async fn list_all_group_maintainers(&self) -> Result<Vec<(String, i64)>, RepositoryError> {
+        self.inner.list_all_group_maintainers().await
+    }
+
+    async fn list_group_maintained_producers(
+        &self,
+        group_ids: &[i64],
+    ) -> Result<Vec<String>, RepositoryError> {
+        self.inner.list_group_maintained_producers(group_ids).await
     }
 
     async fn maintains_producer(

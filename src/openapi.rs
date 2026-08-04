@@ -1,4 +1,4 @@
-use crate::domain::models::Impact;
+use crate::domain::models::{ApiType, Impact};
 use openapiv3::{Components, OpenAPI, PathItem, ReferenceOr, SchemaKind, Type as OaType};
 use serde::Serialize;
 use serde_json;
@@ -35,6 +35,18 @@ pub fn extract_info_version(yaml_str: &str) -> Result<crate::domain::models::Sem
         .ok_or_else(|| "spec has no info.version — the version is required and lives in the spec file (MAJOR.MINOR.PATCH)".to_string())?;
     crate::domain::models::SemVer::parse_spec_version(&raw)
         .map_err(|e| format!("info.version: {}", e))
+}
+
+/// The key an endpoint lookup must match against the stored
+/// `normalized_path`. Only OpenAPI paths are normalized at provide time;
+/// AsyncAPI channels and Proto service names are stored verbatim, so
+/// normalizing them here would blank their `{param}` segments and miss every
+/// parameterized channel.
+pub fn lookup_path(api_type: ApiType, path: &str) -> String {
+    match api_type {
+        ApiType::OpenApi => normalize_path(path),
+        ApiType::AsyncApi | ApiType::Proto => path.to_string(),
+    }
 }
 
 pub fn normalize_path(path: &str) -> String {

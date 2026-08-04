@@ -550,6 +550,107 @@ async fn snapshot_overwrite_by_another_actor_is_audited() {
     assert_eq!(overwrites[0].version.as_deref(), Some("1.0.0"));
 }
 
+/// A same-content promotion is a release, not an overwrite: the audit trail
+/// carries VERSION_PROMOTED and must not also claim a snapshot was clobbered.
+#[tokio::test]
+async fn a_promotion_is_not_audited_as_a_snapshot_overwrite() {
+    let repo = MockRepo::new();
+    let content = one_endpoint("1.0.0");
+    let mut params = provide_params(
+        "svc",
+        ApiType::OpenApi,
+        &content,
+        Stability::Snapshot,
+        false,
+    );
+    params.username = Some("alice");
+    spec_service::provide_spec(&repo, params).await.unwrap();
+
+    let mut params = provide_params("svc", ApiType::OpenApi, &content, Stability::Ga, false);
+    params.username = Some("jenkins");
+    let resp = spec_service::provide_spec(&repo, params).await.unwrap();
+    assert!(resp.promoted, "the response must report the state change");
+    assert_eq!(resp.stability, Stability::Ga);
+    assert!(resp.changes.is_empty(), "byte-identical content");
+
+    let logs = repo.audit_logs.lock().unwrap().clone();
+    assert!(
+        logs.iter().any(|l| l.action == "VERSION_PROMOTED"),
+        "{logs:?}"
+    );
+    assert!(
+        !logs.iter().any(|l| l.action == "SNAPSHOT_OVERWRITTEN"),
+        "a promotion is not an overwrite: {logs:?}"
+    );
+}
+
+/// An ordinary provide reports `promoted: false`.
+#[tokio::test]
+async fn a_plain_snapshot_provide_is_not_a_promotion() {
+    let repo = MockRepo::new();
+    let content = one_endpoint("1.0.0");
+    let resp = spec_service::provide_spec(
+        &repo,
+        provide_params(
+            "svc",
+            ApiType::OpenApi,
+            &content,
+            Stability::Snapshot,
+            false,
+        ),
+    )
+    .await
+    .unwrap();
+    assert!(!resp.promoted);
+}
+
+/// The idempotent no-op still counts as "provided": a snapshot a CI
+/// re-provides nightly must not age out of the use-based expiry.
+#[tokio::test]
+async fn an_identical_reprovide_refreshes_the_snapshot_provided_time() {
+    let repo = MockRepo::new();
+    let content = one_endpoint("1.0.0");
+    spec_service::provide_spec(
+        &repo,
+        provide_params(
+            "svc",
+            ApiType::OpenApi,
+            &content,
+            Stability::Snapshot,
+            false,
+        ),
+    )
+    .await
+    .unwrap();
+
+    // Backdate the stored entry, as if the first provide were weeks old.
+    let stale = "2020-01-01T00:00:00Z".to_string();
+    {
+        let mut versions = repo.spec_versions.lock().unwrap();
+        versions[0].updated_at = stale.clone();
+    }
+
+    let resp = spec_service::provide_spec(
+        &repo,
+        provide_params(
+            "svc",
+            ApiType::OpenApi,
+            &content,
+            Stability::Snapshot,
+            false,
+        ),
+    )
+    .await
+    .unwrap();
+    assert!(resp.changes.is_empty(), "still an idempotent no-op");
+
+    let updated_at = repo.spec_versions.lock().unwrap()[0].updated_at.clone();
+    assert_ne!(
+        updated_at, stale,
+        "the no-op must refresh the provided time so expiry counts it"
+    );
+}
+
 #[tokio::test]
 async fn provide_timeline_lists_newest_provides_with_endpoint_counts() {
     let repo = MockRepo::new();

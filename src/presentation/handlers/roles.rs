@@ -85,10 +85,12 @@ pub struct GrantRoleRequest {
 pub async fn grant_user_role(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
     Path(user_id): Path<i64>,
     Json(payload): Json<GrantRoleRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    authz::grant_user_role(&state.repo, user_id, &payload.role).await?;
+    let actor = actor.map(|axum::Extension(a)| a);
+    authz::grant_user_role(&state.repo, actor.as_ref(), user_id, &payload.role).await?;
     record(
         &state,
         user,
@@ -102,9 +104,11 @@ pub async fn grant_user_role(
 pub async fn revoke_user_role(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
     Path((user_id, role)): Path<(i64, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    if !authz::revoke_user_role(&state.repo, user_id, &role).await? {
+    let actor = actor.map(|axum::Extension(a)| a);
+    if !authz::revoke_user_role(&state.repo, actor.as_ref(), user_id, &role).await? {
         return Err(AppError::NotFound(format!(
             "User {} does not hold role '{}'",
             user_id, role
@@ -160,16 +164,18 @@ pub struct UpdateGroupRequest {
 pub async fn update_group(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
     Path(group_id): Path<i64>,
     Json(payload): Json<UpdateGroupRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    let actor = actor.map(|axum::Extension(a)| a);
     let mut changes = Vec::new();
     if let Some(name) = &payload.name {
         authz::rename_group(&state.repo, group_id, name).await?;
         changes.push(format!("renamed to '{}'", name));
     }
     if let Some(roles) = &payload.roles {
-        authz::set_group_roles(&state.repo, group_id, roles).await?;
+        authz::set_group_roles(&state.repo, actor.as_ref(), group_id, roles).await?;
         changes.push(format!("roles set to [{}]", roles.join(", ")));
     }
     if changes.is_empty() {

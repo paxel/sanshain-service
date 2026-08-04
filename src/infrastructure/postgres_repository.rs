@@ -167,7 +167,7 @@ impl SpecRepository for PostgresSpecRepository {
         // Insert-or-overwrite keeps the row's identity and `created_at` on an
         // overwrite/promotion; only the content, stability, attribution and
         // `updated_at` move.
-        sqlx::query(
+        let upsert = sqlx::query(
             r#"
             INSERT INTO spec_versions
               (service_id, api_type, major, minor, patch, stability, content, content_hash, provided_by, created_at, updated_at)
@@ -178,6 +178,7 @@ impl SpecRepository for PostgresSpecRepository {
                 content_hash = EXCLUDED.content_hash,
                 provided_by = EXCLUDED.provided_by,
                 updated_at = EXCLUDED.updated_at
+            WHERE spec_versions.stability != 'ga'
             "#,
         )
         .bind(params.service_id)
@@ -194,6 +195,14 @@ impl SpecRepository for PostgresSpecRepository {
         .execute(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // The `WHERE stability != 'ga'` guard on the upsert is the last line of
+        // defense against two racing writers: if a GA row landed between the
+        // application layer's immutability check and this statement, nothing
+        // was written — surface that as a conflict instead of silently
+        // replacing endpoints under a GA entry.
+        if upsert.rows_affected() == 0 {
+            return Err(RepositoryError::Conflict);
+        }
 
         let (id,): (i64,) = sqlx::query_as(
             "SELECT id FROM spec_versions WHERE service_id = $1 AND api_type = $2 AND major = $3 AND minor = $4 AND patch = $5",
@@ -378,6 +387,20 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(())
     }
 
+    async fn touch_spec_version_provided(
+        &self,
+        spec_version_id: i64,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE spec_versions SET updated_at = $1 WHERE id = $2")
+            .bind(now_iso)
+            .bind(spec_version_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
     async fn delete_expired_snapshots(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
         // Use-based: a snapshot survives if it was provided (updated_at) OR
         // required (last_required_at) since the cutoff. GA never expires.
@@ -509,7 +532,7 @@ impl SpecRepository for PostgresSpecRepository {
         path: &str,
         method: &str,
     ) -> Result<Option<(i64, String, bool)>, RepositoryError> {
-        let normalized_path = crate::openapi::normalize_path(path);
+        let normalized_path = crate::openapi::lookup_path(api_type, path);
         let row: Option<(i64, String, bool)> = sqlx::query_as(
             r#"
             SELECT e.id, e.yaml_content, e.deprecated
@@ -556,7 +579,7 @@ impl SpecRepository for PostgresSpecRepository {
                 query_builder.push(" OR ");
             }
             query_builder.push("(e.normalized_path = ");
-            query_builder.push_bind(crate::openapi::normalize_path(path));
+            query_builder.push_bind(crate::openapi::lookup_path(api_type, path));
             query_builder.push(" AND e.method = ");
             query_builder.push_bind(method);
             query_builder.push(")");
@@ -572,16 +595,16 @@ impl SpecRepository for PostgresSpecRepository {
 
         // Key the result by what the caller *asked for*, matched via the
         // normalized path, so lenient path matching works for bundles too.
-        let mut by_normalized: HashMap<(String, String), (i64, String, bool)> = rows
+        let by_normalized: HashMap<(String, String), (i64, String, bool)> = rows
             .into_iter()
             .map(|(id, _path, normalized, method, yaml, deprecated)| {
                 ((normalized, method), (id, yaml, deprecated))
             })
             .collect();
         for (path, method) in endpoints {
-            let normalized = crate::openapi::normalize_path(path);
-            if let Some(details) = by_normalized.remove(&(normalized, method.clone())) {
-                result.insert((path.clone(), method.clone()), details);
+            let normalized = crate::openapi::lookup_path(api_type, path);
+            if let Some(details) = by_normalized.get(&(normalized, method.clone())) {
+                result.insert((path.clone(), method.clone()), details.clone());
             }
         }
 
@@ -798,22 +821,28 @@ impl SpecRepository for PostgresSpecRepository {
     ///
     /// Keys on the role grant rather than the flag it replaced, so the set it
     /// spares is the same set the permission checks treat as administrators.
-    async fn delete_all_non_admin_users(&self) -> Result<u64, RepositoryError> {
-        // Delete sessions for non-admin users
-        sqlx::query(
-            "DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = users.id AND r.role = 'admin'))",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        // Delete API tokens for non-admin users
-        sqlx::query(
-            "DELETE FROM api_tokens WHERE user_id IN (SELECT id FROM users WHERE NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = users.id AND r.role = 'admin'))",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        let result = sqlx::query("DELETE FROM users WHERE NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = users.id AND r.role = 'admin')")
+    async fn delete_all_non_admin_users(
+        &self,
+        spare_usernames: &[String],
+    ) -> Result<u64, RepositoryError> {
+        // A user survives the purge when they are an effective administrator:
+        // direct `admin` role, `admin` via group membership, or a
+        // configuration-held root username (`spare_usernames`).
+        const DOOMED: &str = "SELECT id FROM users \
+             WHERE NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = users.id AND r.role = 'admin') \
+             AND NOT EXISTS (SELECT 1 FROM user_group_members m \
+                 JOIN user_group_roles gr ON gr.group_id = m.group_id AND gr.role = 'admin' \
+                 WHERE m.user_id = users.id) \
+             AND users.username <> ALL($1)";
+        for table in ["sessions", "api_tokens"] {
+            sqlx::query(&format!("DELETE FROM {table} WHERE user_id IN ({DOOMED})"))
+                .bind(spare_usernames)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        let result = sqlx::query(&format!("DELETE FROM users WHERE id IN ({DOOMED})"))
+            .bind(spare_usernames)
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -1665,6 +1694,42 @@ impl SpecRepository for PostgresSpecRepository {
             "SELECT group_id FROM producer_group_maintainers WHERE service_id = $1 ORDER BY group_id",
         )
         .bind(service_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn list_all_user_maintainers(&self) -> Result<Vec<(String, i64)>, RepositoryError> {
+        sqlx::query_as(
+            "SELECT s.name, m.user_id FROM producer_user_maintainers m \
+             JOIN services s ON s.id = m.service_id ORDER BY s.name, m.user_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))
+    }
+
+    async fn list_all_group_maintainers(&self) -> Result<Vec<(String, i64)>, RepositoryError> {
+        sqlx::query_as(
+            "SELECT s.name, m.group_id FROM producer_group_maintainers m \
+             JOIN services s ON s.id = m.service_id ORDER BY s.name, m.group_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))
+    }
+
+    async fn list_group_maintained_producers(
+        &self,
+        group_ids: &[i64],
+    ) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT s.name FROM producer_group_maintainers pgm \
+             JOIN services s ON s.id = pgm.service_id \
+             WHERE pgm.group_id = ANY($1) ORDER BY s.name",
+        )
+        .bind(group_ids)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;

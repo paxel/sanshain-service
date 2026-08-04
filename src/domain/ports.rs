@@ -149,6 +149,15 @@ pub trait SpecRepository: Send + Sync {
         now_iso: &str,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
+    /// Record that a version was re-provided with identical content — the
+    /// idempotent no-op still counts as "provided" for use-based snapshot
+    /// expiry, so only `updated_at` moves.
+    fn touch_spec_version_provided(
+        &self,
+        spec_version_id: i64,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
     /// Delete snapshot entries that were neither provided nor required since
     /// the cutoff — GA entries are never age-culled. Returns how many died.
     fn delete_expired_snapshots(
@@ -234,9 +243,13 @@ pub trait SpecRepository: Send + Sync {
     /// Delete all clients and their dependencies.
     fn delete_all_clients(&self) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
 
-    /// Delete all non-admin users and their sessions.
+    /// Delete all users who are not *effective* administrators — spared are
+    /// users with a direct `admin` grant, users holding `admin` through a
+    /// stored group membership, and the configuration-held root usernames in
+    /// `spare_usernames` (who need no stored grant at all).
     fn delete_all_non_admin_users(
         &self,
+        spare_usernames: &[String],
     ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
 
     /// Nuke the entire database: delete all data from all tables (except settings and the calling admin user).
@@ -543,6 +556,25 @@ pub trait SpecRepository: Send + Sync {
         &self,
         service_id: i64,
     ) -> impl Future<Output = Result<Vec<i64>, RepositoryError>> + Send;
+
+    /// Names of every Producer any of `group_ids` maintains. Used to expand a
+    /// caller's directory groups into the Producers they confer.
+    fn list_group_maintained_producers(
+        &self,
+        group_ids: &[i64],
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    /// Every (producer name, maintainer user id) pair, instance-wide. Feeds
+    /// the aggregate maintainers listing in one query instead of one per
+    /// Producer.
+    fn list_all_user_maintainers(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(String, i64)>, RepositoryError>> + Send;
+
+    /// Every (producer name, maintainer group id) pair, instance-wide.
+    fn list_all_group_maintainers(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(String, i64)>, RepositoryError>> + Send;
 
     /// Whether a user maintains a Producer, directly or through a group whose
     /// membership Sanshain stores.

@@ -353,11 +353,19 @@ pub async fn provide_spec(
         && entry.content_hash == hash
         && !(entry.stability == Stability::Snapshot && stability == Stability::Ga)
     {
+        // The no-op still counts as "provided": a snapshot a CI re-provides
+        // every night is in active use and must not age out of the use-based
+        // expiry just because its content never changed.
+        if entry.stability == Stability::Snapshot {
+            repo.touch_spec_version_provided(entry.id, &now_iso())
+                .await?;
+        }
         return Ok(ProvideResponse {
             version,
             stability: entry.stability,
             content_hash: hash,
             changes: ProvideChanges::default(),
+            promoted: false,
         });
     }
 
@@ -467,17 +475,19 @@ pub async fn provide_spec(
         Vec::new()
     };
 
+    let promoting = existing.as_ref().map(|e| e.stability) == Some(Stability::Snapshot)
+        && stability == Stability::Ga;
+
     if dry_run {
         return Ok(ProvideResponse {
             version,
             stability,
             content_hash: hash,
             changes,
+            promoted: promoting,
         });
     }
 
-    let promoting = existing.as_ref().map(|e| e.stability) == Some(Stability::Snapshot)
-        && stability == Stability::Ga;
     let overwriting = existing.as_ref().map(|e| e.provided_by.clone());
     // Attribution is the authenticated Actor — with one exception: promoting a
     // snapshot with byte-identical content keeps the snapshot's provider, so
@@ -552,6 +562,7 @@ pub async fn provide_spec(
     // An overwrite by a different Actor is allowed (last writer wins) but
     // never silent: the previous provider is named in the audit trail.
     if let Some(previous) = overwriting
+        && !promoting
         && let Some(actor) = username
         && !previous.is_empty()
         && previous != actor
@@ -603,6 +614,7 @@ pub async fn provide_spec(
         stability,
         content_hash: hash,
         changes,
+        promoted: promoting,
     })
 }
 
@@ -938,7 +950,7 @@ async fn record_pins(
     let client_id = repo.ensure_client(consumername).await?;
     let normalized: Vec<String> = endpoints
         .iter()
-        .map(|(path, _)| openapi::normalize_path(path))
+        .map(|(path, _)| openapi::lookup_path(entry.api_type, path))
         .collect();
     let deps: Vec<RecordDependencyParams> = endpoints
         .iter()
@@ -1146,7 +1158,7 @@ pub async fn get_endpoint_history(
     line.sort_by_key(|v| v.version);
 
     let method = method_for(api_type, method);
-    let normalized = openapi::normalize_path(path);
+    let normalized = openapi::lookup_path(api_type, path);
     let mut entries = Vec::with_capacity(line.len());
     let mut previous: Option<String> = None;
     for meta in line {

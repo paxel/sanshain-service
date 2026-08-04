@@ -23,7 +23,7 @@ inheritance, not by fallback, not by someone else's push.
 
 ### Added
 - **You cannot forget to bump anymore.** Re-publishing a GA version with different content, publishing a snapshot for a released number, or hiding a breaking change behind a minor bump is rejected with `proposed_version` — the exact next version to publish instead. Fix the version, republish, done; no admin involved.
-- **Promotion.** Publishing GA for a number that exists as a snapshot releases it in place — iterate on a snapshot, then promote the same version.
+- **Promotion.** Publishing GA for a number that exists as a snapshot releases it in place — iterate on a snapshot, then promote the same version. The Provide response reports `promoted: true`, even when the released content is byte-identical.
 - **Snapshots clean themselves up.** A snapshot neither provided nor required for `snapshot_max_age_days` (default 30, `0` disables) is removed; GA versions are never touched, and anything a Consumer still builds against stays.
 - `GET /producers/{producername}/versions`: every version of a Producer with stability, endpoint count, last provider and snapshot expiry — the "what can I upgrade to?" answer.
 - `POST /validate`: a free, unauthenticated spec validator on the landing page — paste an OpenAPI, AsyncAPI or Protobuf document and get exactly the verdict a publish would produce (strict version check, parse, and a preview of the endpoints Sanshain would store). Stateless; nothing is saved.
@@ -34,7 +34,7 @@ inheritance, not by fallback, not by someone else's push.
 - **The dashboard thinks in versions.** Producers show one timeline per API type with GA/SNAPSHOT badges, diff between any two versions, and per-endpoint blame ("last changed in 1.3.0 by …"); Consumers show their pins, cross-linked; the graph highlights **Outdated** (pinned below the latest GA) and **Snapshot-pinned** dependencies with independent toggles.
 - `maintenance.yaml`: the `/admin/*` surface has its own OpenAPI contract naming the permission each endpoint requires, kept in sync with the router by build-time checks.
 - Roles, groups and maintainers: users hold `admin`, `user_manager` or `viewer` directly or through groups (with a directory-origin badge), and a user or group can be made maintainer of specific Producers — all administered from the dashboard. See [Administration](docs/administration.md).
-- `SANSHAIN_ROOT_USERS`: usernames holding every permission by configuration, so root cannot be revoked from inside the application. Defaults to `INITIAL_ADMIN_USERNAME`. See [Configuration](docs/configuration.md).
+- `SANSHAIN_ROOT_USERS`: usernames holding every permission by configuration, so root cannot be revoked from inside the application. Defaults to `INITIAL_ADMIN_USERNAME`; unclaimed root names are claimed at startup with locked accounts and cannot be taken through open registration. See [Configuration](docs/configuration.md).
 
 ### Changed
 - Reports are instance-wide: `GET /report` and the markdown/isolation exports cover every recorded dependency with its pinned version and stability, instead of one branch at a time.
@@ -54,6 +54,7 @@ inheritance, not by fallback, not by someone else's push.
 
 ### Fixed
 - A directory user's privileges now follow their directory groups. Previously (1.7.0) membership was read once at first login and never refreshed, so a promotion or demotion in the directory never took effect; it is now re-read and cached for `SANSHAIN_DIRECTORY_GROUP_TTL_SECS` (default 5 minutes).
+- LDAP connection attempts are bounded by a 5-second timeout, and a failed membership read is cached like a successful one. Previously (1.7.0) an unreachable directory could stall logins for the OS's TCP timeout.
 
 ---
 

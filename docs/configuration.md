@@ -45,6 +45,11 @@ existing deployment keeps a root account without being reconfigured.
 Naming an account here grants full authority whether or not that account exists, is approved, or holds
 any role. Keep the list short.
 
+Because the grant is a pure username match, an unclaimed root name would be a standing invitation:
+whoever registered it would silently become root. Startup therefore claims every configured name that
+has no account yet with a locked account (random password), and open registration refuses reserved
+names outright.
+
 ```bash
 SANSHAIN_ROOT_USERS=root,breakglass
 ```

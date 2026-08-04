@@ -16,6 +16,11 @@ use sanshain_service::domain::ports::SpecRepository;
 use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
 use sanshain_service::infrastructure::database::DatabaseRepo;
 use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
+
+/// A root set that reserves no username used by these tests.
+fn no_root_users() -> sanshain_service::domain::permissions::RootUsers {
+    sanshain_service::domain::permissions::RootUsers::resolve(Some("__unused-root__"), None)
+}
 use sanshain_service::{AppState, create_app};
 use sqlx::sqlite::SqlitePoolOptions;
 use std::collections::{HashMap, VecDeque};
@@ -778,7 +783,7 @@ async fn audit_logs_are_admin_only() {
     auth_service::set_auth_mode(&repo, &AuthMode::Local)
         .await
         .unwrap();
-    auth_service::register_user(&repo, "regular-user", "password123")
+    auth_service::register_user(&repo, &no_root_users(), "regular-user", "password123")
         .await
         .unwrap();
     let users = auth_service::list_users(&repo).await.unwrap();

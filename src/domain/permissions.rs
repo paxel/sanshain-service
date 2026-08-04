@@ -203,6 +203,11 @@ pub struct Actor {
     /// after this build.
     pub is_root: bool,
     pub roles: Vec<Role>,
+    /// The directory groups the caller is currently in (empty for native
+    /// users). Carried on the Actor so Producer-scoped checks can honour a
+    /// maintainer grant made to a directory group, whose membership Sanshain
+    /// never stores.
+    pub directory_groups: Vec<String>,
 }
 
 impl Actor {
@@ -306,6 +311,7 @@ mod tests {
             username: "root".into(),
             is_root: true,
             roles: vec![],
+            directory_groups: vec![],
         };
         for permission in Permission::ALL {
             assert!(actor.has_permission(*permission));
@@ -320,6 +326,7 @@ mod tests {
             username: "nobody".into(),
             is_root: false,
             roles: vec![],
+            directory_groups: vec![],
         };
         for permission in Permission::ALL {
             assert!(!actor.has_permission(*permission));
@@ -334,6 +341,7 @@ mod tests {
             username: "helper".into(),
             is_root: false,
             roles: vec![Role::UserManager, Role::Viewer],
+            directory_groups: vec![],
         };
         assert!(actor.has_permission(Permission::ManageUsers));
         assert!(actor.has_permission(Permission::ViewAudit));

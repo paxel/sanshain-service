@@ -166,6 +166,11 @@ impl SpecRepository for MockRepo {
                 && v.api_type == params.api_type
                 && v.version == params.version
         }) {
+            // Mirrors the SQL upserts' `WHERE stability != 'ga'` guard: a GA
+            // row is immutable even against a racing writer.
+            if existing.stability == Stability::Ga {
+                return Err(RepositoryError::Conflict);
+            }
             // Overwrite/promotion keeps the row's identity and `created_at`;
             // the endpoint set is replaced wholesale.
             existing.stability = params.stability;
@@ -299,6 +304,21 @@ impl SpecRepository for MockRepo {
         Ok(())
     }
 
+    async fn touch_spec_version_provided(
+        &self,
+        spec_version_id: i64,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut versions = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(entry) = versions.iter_mut().find(|v| v.id == spec_version_id) {
+            entry.updated_at = now_iso.to_string();
+        }
+        Ok(())
+    }
+
     async fn delete_expired_snapshots(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
         let mut versions = self
             .spec_versions
@@ -402,7 +422,7 @@ impl SpecRepository for MockRepo {
         path: &str,
         method: &str,
     ) -> Result<Option<(i64, String, bool)>, RepositoryError> {
-        let normalized_path = crate::openapi::normalize_path(path);
+        let normalized_path = crate::openapi::lookup_path(api_type, path);
         let versions = self
             .spec_versions
             .lock()
@@ -443,7 +463,7 @@ impl SpecRepository for MockRepo {
         // Key the result by what the caller asked for, matched via the
         // normalized path, so lenient path matching works for bundles too.
         for (path, method) in endpoints {
-            let normalized = crate::openapi::normalize_path(path);
+            let normalized = crate::openapi::lookup_path(api_type, path);
             if let Some(found) = version.endpoints.iter().find(|e| {
                 e.api_type == api_type && e.normalized_path == normalized && e.method == *method
             }) {
@@ -607,8 +627,11 @@ impl SpecRepository for MockRepo {
         Ok(count)
     }
 
-    async fn delete_all_non_admin_users(&self) -> Result<u64, RepositoryError> {
-        let admins: Vec<i64> = self
+    async fn delete_all_non_admin_users(
+        &self,
+        spare_usernames: &[String],
+    ) -> Result<u64, RepositoryError> {
+        let mut admins: Vec<i64> = self
             .user_roles
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -616,9 +639,25 @@ impl SpecRepository for MockRepo {
             .filter(|(_, role)| role == "admin")
             .map(|(user_id, _)| *user_id)
             .collect();
+        let admin_groups: Vec<i64> = self
+            .group_roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|(_, role)| role == "admin")
+            .map(|(group_id, _)| *group_id)
+            .collect();
+        admins.extend(
+            self.group_members
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .filter(|(group_id, _)| admin_groups.contains(group_id))
+                .map(|(_, user_id)| *user_id),
+        );
         let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
         let initial_count = users.len() as u64;
-        users.retain(|u| admins.contains(&u.id));
+        users.retain(|u| admins.contains(&u.id) || spare_usernames.contains(&u.username));
         Ok(initial_count - users.len() as u64)
     }
 
@@ -1235,6 +1274,50 @@ impl SpecRepository for MockRepo {
             .map(|(_, gid)| *gid)
             .collect();
         out.sort();
+        Ok(out)
+    }
+
+    async fn list_all_user_maintainers(&self) -> Result<Vec<(String, i64)>, RepositoryError> {
+        let m = self
+            .user_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut out: Vec<(String, i64)> = m
+            .iter()
+            .filter_map(|(sid, uid)| self.service_name(*sid).map(|name| (name, *uid)))
+            .collect();
+        out.sort();
+        Ok(out)
+    }
+
+    async fn list_all_group_maintainers(&self) -> Result<Vec<(String, i64)>, RepositoryError> {
+        let m = self
+            .group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut out: Vec<(String, i64)> = m
+            .iter()
+            .filter_map(|(sid, gid)| self.service_name(*sid).map(|name| (name, *gid)))
+            .collect();
+        out.sort();
+        Ok(out)
+    }
+
+    async fn list_group_maintained_producers(
+        &self,
+        group_ids: &[i64],
+    ) -> Result<Vec<String>, RepositoryError> {
+        let maintainers = self
+            .group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut out: Vec<String> = maintainers
+            .iter()
+            .filter(|(_, gid)| group_ids.contains(gid))
+            .filter_map(|(sid, _)| self.service_name(*sid))
+            .collect();
+        out.sort();
+        out.dedup();
         Ok(out)
     }
 

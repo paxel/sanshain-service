@@ -93,9 +93,14 @@ async fn provide_common(
     if !dry_run {
         // Skip both the broadcast and the audit entry for a no-op re-upload (no
         // endpoint changes): nothing changed, so there is nothing for a listener
-        // to refetch and nothing worth recording.
-        if !res.changes.is_empty() {
+        // to refetch and nothing worth recording. A same-content promotion is
+        // the exception — the endpoints are unchanged but the stability
+        // flipped, which listeners (and the graph) do care about. Its audit
+        // trail is the VERSION_PROMOTED entry the application layer writes.
+        if res.promoted || !res.changes.is_empty() {
             let _ = state.spec_updated_tx.send(());
+        }
+        if !res.changes.is_empty() {
             let version_str = res.version.to_string();
             record_audit_log(
                 &state.repo,

@@ -709,7 +709,7 @@ pub async fn admin_nuke_users(
     if payload.confirmation != "DELETE ALL USERS" {
         return Err(AppError::BadRequest("Invalid confirmation".to_string()));
     }
-    let res = services::delete_all_non_admin_users(&state.repo).await?;
+    let res = services::delete_all_non_admin_users(&state.repo, &state.root_users).await?;
     let _ = state.spec_updated_tx.send(());
     record_audit_log(
         &state.repo,

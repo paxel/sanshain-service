@@ -11,8 +11,15 @@ pub async fn delete_all_clients(repo: &impl SpecRepository) -> Result<u64, AppEr
     Ok(repo.delete_all_clients().await?)
 }
 
-pub async fn delete_all_non_admin_users(repo: &impl SpecRepository) -> Result<u64, AppError> {
-    Ok(repo.delete_all_non_admin_users().await?)
+/// Delete every user who is not an effective administrator. Spared alongside
+/// direct/group admins are the configured root usernames, who hold their power
+/// through configuration rather than a stored role.
+pub async fn delete_all_non_admin_users(
+    repo: &impl SpecRepository,
+    root_users: &crate::domain::permissions::RootUsers,
+) -> Result<u64, AppError> {
+    let spare: Vec<String> = root_users.usernames().map(str::to_string).collect();
+    Ok(repo.delete_all_non_admin_users(&spare).await?)
 }
 
 pub async fn nuke_database(

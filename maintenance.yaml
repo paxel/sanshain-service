@@ -501,7 +501,9 @@ paths:
     post:
       summary: "Create or run: nuke/users"
       description: |
-        Requires the `run_destructive_operations` permission.
+        Deletes every user who is not an effective administrator — users with a
+        direct `admin` role, `admin` via group membership, or a configured root
+        username survive. Requires the `run_destructive_operations` permission.
       responses:
         "200":
           description: Success.
