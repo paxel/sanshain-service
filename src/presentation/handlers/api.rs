@@ -81,7 +81,7 @@ async fn provide_common(
             stability,
             dry_run,
             caller: caller.map(|axum::Extension(a)| a),
-            expected_prior_hash: None,
+            require_prior_content_match: false,
         },
     )
     .await?;

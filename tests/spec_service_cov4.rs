@@ -40,7 +40,7 @@ fn params<'a>(
         } else {
             sanshain_service::domain::permissions::Actor::test_caller()
         }),
-        expected_prior_hash: None,
+        require_prior_content_match: false,
     }
 }
 

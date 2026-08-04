@@ -21,7 +21,7 @@ async fn dry_run(
             stability: Stability::Snapshot,
             dry_run: true,
             caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
-            expected_prior_hash: None,
+            require_prior_content_match: false,
         },
     )
     .await
@@ -394,7 +394,7 @@ channels:
                 stability: Stability::Snapshot,
                 dry_run: false,
                 caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
-                expected_prior_hash: None,
+                require_prior_content_match: false,
             },
         )
         .await

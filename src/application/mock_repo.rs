@@ -188,9 +188,9 @@ impl SpecRepository for MockRepo {
             return Ok(existing.id);
         }
 
-        // Mirrors the SQL INSERT arm's guard: a CAS caller asserted a prior
-        // row exists — if it vanished (concurrent delete/expiry), refuse
-        // rather than resurrect it.
+        // Mirrors the SQL CAS UPDATE matching zero rows: a CAS caller asserted
+        // a prior row exists — if it vanished (concurrent delete/expiry),
+        // refuse rather than resurrect it.
         if params.expected_prior_hash.is_some() {
             return Err(RepositoryError::Conflict);
         }

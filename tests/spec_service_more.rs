@@ -68,7 +68,7 @@ fn provide_params<'a>(
         } else {
             sanshain_service::domain::permissions::Actor::test_caller()
         }),
-        expected_prior_hash: None,
+        require_prior_content_match: false,
     }
 }
 
@@ -131,7 +131,7 @@ async fn provide_persists_the_auto_tag() {
             stability: Stability::Snapshot,
             dry_run: false,
             caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
-            expected_prior_hash: None,
+            require_prior_content_match: false,
         },
     )
     .await
@@ -598,22 +598,34 @@ async fn a_promotion_is_not_audited_as_a_snapshot_overwrite() {
 #[tokio::test]
 async fn a_promote_with_a_stale_content_hash_conflicts() {
     let repo = MockRepo::new();
-    let content = one_endpoint("1.0.0");
-    let mut params = provide_params(
+    let read_content = one_endpoint("1.0.0");
+    let params = provide_params(
         "svc",
         ApiType::OpenApi,
-        &content,
+        &read_content,
         Stability::Snapshot,
         false,
     );
-    params.caller =
-        Some(sanshain_service::domain::permissions::Actor::test_releaser_named("alice"));
     spec_service::provide_spec(&repo, params).await.unwrap();
 
-    // The releaser read the snapshot, then someone overwrote it: releasing
-    // with the pre-overwrite hash must refuse.
-    let mut params = provide_params("svc", ApiType::OpenApi, &content, Stability::Ga, false);
-    params.expected_prior_hash = Some("sha256:stale");
+    // The releaser read the snapshot, then someone overwrote it with other
+    // content under the same version number...
+    let overwritten = openapi(
+        "1.0.0",
+        "  /y:\n    get:\n      responses:\n        '200':\n          description: OK\n",
+    );
+    let params = provide_params(
+        "svc",
+        ApiType::OpenApi,
+        &overwritten,
+        Stability::Snapshot,
+        false,
+    );
+    spec_service::provide_spec(&repo, params).await.unwrap();
+
+    // ...so releasing the earlier read must refuse.
+    let mut params = provide_params("svc", ApiType::OpenApi, &read_content, Stability::Ga, false);
+    params.require_prior_content_match = true;
     let err = spec_service::provide_spec(&repo, params).await.unwrap_err();
     match &err {
         AppError::Conflict(msg) => assert!(
@@ -635,10 +647,10 @@ async fn a_promote_of_a_vanished_version_conflicts_with_the_right_message() {
     // The service exists but the version does not (deleted after the read).
     repo.ensure_service("svc").await.unwrap();
     let content = one_endpoint("1.0.0");
-    // Any asserted prior hash will do: the row is gone, so the INSERT arm
-    // must refuse regardless of the value.
+    // The row is gone, so the CAS must refuse no matter what content the
+    // caller read before the delete.
     let mut params = provide_params("svc", ApiType::OpenApi, &content, Stability::Ga, false);
-    params.expected_prior_hash = Some("sha256:whatever-was-read");
+    params.require_prior_content_match = true;
     let err = spec_service::provide_spec(&repo, params).await.unwrap_err();
     match &err {
         AppError::Conflict(msg) => assert!(

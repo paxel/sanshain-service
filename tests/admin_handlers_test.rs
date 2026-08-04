@@ -113,7 +113,7 @@ async fn provide(repo: &SqliteSpecRepository, producer: &str, content: &str, sta
             } else {
                 sanshain_service::domain::permissions::Actor::test_caller()
             }),
-            expected_prior_hash: None,
+            require_prior_content_match: false,
         },
     )
     .await

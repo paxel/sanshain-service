@@ -339,7 +339,7 @@ paths:
             stability: Stability::Snapshot,
             dry_run: true,
             caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
-            expected_prior_hash: None,
+            require_prior_content_match: false,
         },
     )
     .await
@@ -374,7 +374,7 @@ message Out {}
             stability: Stability::Snapshot,
             dry_run: false,
             caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
-            expected_prior_hash: None,
+            require_prior_content_match: false,
         },
     )
     .await
@@ -419,7 +419,7 @@ paths:
             stability: Stability::Ga,
             dry_run: false,
             caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
-            expected_prior_hash: None,
+            require_prior_content_match: false,
         },
     )
     .await

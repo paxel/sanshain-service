@@ -311,7 +311,9 @@ paths:
     put:
       summary: "Replace: groups/id"
       description: |
-        Requires the `manage_roles` permission.
+        Requires the `manage_roles` permission. Adding an admin-guarded role
+        (`admin`, `releaser`) to the group's role set — or removing one it
+        holds — additionally requires the caller to be an admin.
       parameters:
         - name: id
           in: path
@@ -336,7 +338,9 @@ paths:
     delete:
       summary: "Delete: groups/id"
       description: |
-        Requires the `manage_roles` permission.
+        Requires the `manage_roles` permission. Deleting a group that holds an
+        admin-guarded role (`admin`, `releaser`) strips that role from every
+        member at once, so it additionally requires the caller to be an admin.
       parameters:
         - name: id
           in: path
@@ -362,7 +366,10 @@ paths:
     post:
       summary: "Create or run: groups/id/members"
       description: |
-        Requires the `manage_roles` permission.
+        Requires the `manage_roles` permission. Membership of a group that
+        holds an admin-guarded role (`admin`, `releaser`) IS a grant of that
+        role, so adding a member then additionally requires the caller to be
+        an admin.
       parameters:
         - name: id
           in: path
@@ -388,7 +395,9 @@ paths:
     delete:
       summary: "Delete: groups/id/members/user_id"
       description: |
-        Requires the `manage_roles` permission.
+        Requires the `manage_roles` permission. Removing a member from a group
+        that holds an admin-guarded role (`admin`, `releaser`) strips that
+        role, so it additionally requires the caller to be an admin.
       parameters:
         - name: id
           in: path
@@ -1289,7 +1298,11 @@ paths:
     delete:
       summary: "Delete: users/id"
       description: |
-        Requires the `manage_users` permission.
+        Requires the `manage_users` permission. Deleting a user who holds an
+        admin-guarded role (`admin`, `releaser`) — directly or via a stored
+        group — strips those roles at once, and deleting a configured root
+        account un-claims the reserved name, so both additionally require the
+        caller to be an admin.
       parameters:
         - name: id
           in: path
@@ -1392,7 +1405,8 @@ paths:
     post:
       summary: "Create or run: users/id/roles"
       description: |
-        Requires the `manage_roles` permission.
+        Requires the `manage_roles` permission. Granting an admin-guarded role
+        (`admin`, `releaser`) additionally requires the caller to be an admin.
       parameters:
         - name: id
           in: path
@@ -1418,7 +1432,8 @@ paths:
     delete:
       summary: "Delete: users/id/roles/role"
       description: |
-        Requires the `manage_roles` permission.
+        Requires the `manage_roles` permission. Revoking an admin-guarded role
+        (`admin`, `releaser`) additionally requires the caller to be an admin.
       parameters:
         - name: id
           in: path

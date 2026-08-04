@@ -29,11 +29,16 @@ pub struct ProvideSpecParams<'a> {
     /// for audit attribution and the version's `provided_by` credit. `None`
     /// (no authenticated Actor) can never release.
     pub caller: Option<Actor>,
-    /// Compare-and-set for promote-by-copy (#28): when `Some`, the write only
-    /// lands if the stored entry still carries this content hash, so a
-    /// snapshot overwritten between read and release answers 409 instead of
-    /// silently going GA with stale bytes.
-    pub expected_prior_hash: Option<&'a str>,
+    /// Compare-and-set for promote-by-copy (#28): when `true`, the write only
+    /// lands if the stored entry still carries the hash of the exact bytes
+    /// being submitted, so a snapshot overwritten between read and release
+    /// answers 409 instead of silently going GA with stale bytes.
+    /// The expected hash is derived in [`provide_spec`] from `content` itself —
+    /// never passed in — so guard and payload cannot drift apart: if a
+    /// replica's content cache is stale, the derived hash is stale with it,
+    /// the stored row doesn't match, and the release refuses instead of
+    /// freezing old bytes.
+    pub require_prior_content_match: bool,
 }
 
 pub struct RequireEndpointParams<'a> {
@@ -185,12 +190,6 @@ pub async fn promote_version(
         .get_spec_content(entry.id)
         .await?
         .ok_or_else(|| AppError::NotFound("Version not found".to_string()))?;
-    // The CAS hash is derived from the bytes being submitted — NOT from the
-    // separately-read metadata. The two travel through different caches, and
-    // hashing the payload itself makes guard and content inseparable: if this
-    // replica's content cache is stale, the hash is stale with it, the DB row
-    // doesn't match, and the release refuses instead of freezing old bytes.
-    let expected = content_hash(&content);
     provide_spec(
         repo,
         ProvideSpecParams {
@@ -200,7 +199,7 @@ pub async fn promote_version(
             stability: Stability::Ga,
             dry_run: false,
             caller,
-            expected_prior_hash: Some(&expected),
+            require_prior_content_match: true,
         },
     )
     .await
@@ -375,7 +374,7 @@ pub async fn provide_spec(
         stability,
         dry_run,
         caller,
-        expected_prior_hash,
+        require_prior_content_match,
     } = params;
     // One identity: authorization and audit attribution both come from the
     // Actor, so they cannot drift apart.
@@ -383,6 +382,9 @@ pub async fn provide_spec(
 
     let version = extract_spec_version(api_type, content)?;
     let hash = content_hash(content);
+    // The one derivation point of the CAS hash (see the field's doc): the
+    // guard compares the stored row against the very bytes being written.
+    let expected_prior_hash = require_prior_content_match.then_some(hash.as_str());
     let endpoints = parse_spec_endpoints(api_type, content, producername)?;
 
     // The GA gate (#27): releasing is a permission, snapshots are open to any
@@ -636,19 +638,23 @@ pub async fn provide_spec(
         if matches!(e, crate::domain::ports::RepositoryError::Conflict)
             && expected_prior_hash.is_some()
         {
-            let now = repo.find_spec_version(sid, api_type, version).await?;
-            let message = match now {
-                Some(entry) if entry.stability == Stability::Ga => format!(
+            // The refusal is already decided; the re-read only makes the
+            // message accurate. If it fails — most likely under exactly the
+            // write load that caused the conflict — degrade the message
+            // rather than escalate the 409 into a 500.
+            let message = match repo.find_spec_version(sid, api_type, version).await {
+                Ok(Some(entry)) if entry.stability == Stability::Ga => format!(
                     "version {} was released concurrently — nothing left to do",
                     version
                 ),
-                Some(_) => {
+                Ok(Some(_)) => {
                     "the snapshot changed while releasing — reload and promote again".to_string()
                 }
-                None => format!(
+                Ok(None) => format!(
                     "version {} was deleted while releasing — nothing left to promote",
                     version
                 ),
+                Err(_) => "the version moved while releasing — reload and retry".to_string(),
             };
             return Err(AppError::Conflict(message));
         }

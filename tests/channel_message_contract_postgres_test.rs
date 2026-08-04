@@ -149,7 +149,7 @@ async fn postgres_contracts_registered_on_ga_provides_only() {
             stability: Stability::Snapshot,
             dry_run: false,
             caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
-            expected_prior_hash: None,
+            require_prior_content_match: false,
         },
     )
     .await
@@ -174,7 +174,7 @@ async fn postgres_contracts_registered_on_ga_provides_only() {
             stability: Stability::Ga,
             dry_run: false,
             caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
-            expected_prior_hash: None,
+            require_prior_content_match: false,
         },
     )
     .await

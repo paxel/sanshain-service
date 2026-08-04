@@ -26,6 +26,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and root hold it implicitly) — previously any authenticated token could release, and snapshots are
   unaffected. **On upgrade, grant `releaser` to whatever pushes GA today — typically your CI user —
   or releases fail with an instructive `403`.**
+- Changing the membership or existence of a group that holds an admin-guarded role (`admin`,
+  `releaser`), and deleting a user who holds such a role or is a configured root account, now
+  additionally require an admin — previously any `manage_roles` (or, for user deletion,
+  `manage_users`) holder could do so and thereby grant or strip those rights. Replacing a group's
+  role set already required an admin for `admin` in 2.0; that guard now covers `releaser` too.
 
 ---
 

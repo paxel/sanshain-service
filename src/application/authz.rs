@@ -230,6 +230,40 @@ async fn require_admin_for_guarded_group(
     require_admin_for_guarded_roles(actor, &guarded)
 }
 
+/// Deleting a user strips every role they hold at once — for an
+/// `admin`/`releaser` holder that is the bulk form of the revocation
+/// [`require_admin_for_guarded_roles`] guards, so it gets the same admin-guard.
+/// Without this, deleting the account would be the side door the direct
+/// revocation closes. Only stored roles (direct, and via stored groups) count:
+/// directory-conferred roles belong to the directory, not the deleted record.
+pub async fn require_admin_to_delete_user(
+    repo: &impl SpecRepository,
+    root_users: &RootUsers,
+    actor: Option<&Actor>,
+    user_id: i64,
+) -> Result<(), AppError> {
+    // A claimed root account is superuser by pure name match and deliberately
+    // holds no stored roles, so the role check below cannot see it: destroying
+    // it un-claims the reserved name (and locks root out until a restart),
+    // which outranks any single role change. Same guard as touching `admin`.
+    let target_is_root = repo
+        .list_users()
+        .await?
+        .into_iter()
+        .any(|u| u.id == user_id && root_users.contains(&u.username));
+    if target_is_root {
+        return require_admin_for_guarded_roles(actor, &[Role::Admin.as_str()]);
+    }
+
+    let stored = repo.effective_stored_roles(user_id).await?;
+    let guarded: Vec<&str> = stored
+        .iter()
+        .map(String::as_str)
+        .filter(|r| Role::ADMIN_GUARDED.iter().any(|g| g.as_str() == *r))
+        .collect();
+    require_admin_for_guarded_roles(actor, &guarded)
+}
+
 pub async fn add_group_member(
     repo: &impl SpecRepository,
     actor: Option<&Actor>,
@@ -1244,6 +1278,75 @@ mod tests {
         add_group_member(&repo, Some(&user_manager), plain.id, bob.id)
             .await
             .expect("membership of an unguarded group needs no admin");
+    }
+
+    /// The bulk side door of the revocation guard: deleting an account strips
+    /// every admin/releaser role it holds, so it needs an admin behind it too.
+    #[tokio::test]
+    async fn deleting_a_guarded_role_holder_requires_an_admin() {
+        let repo = MockRepo::new();
+        let bob = user(&repo, "bob", false).await;
+        grant_user_role(&repo, Some(&admin_actor()), bob.id, "releaser")
+            .await
+            .expect("grant");
+        let user_manager = Actor {
+            user_id: 500,
+            username: "manager".into(),
+            is_root: false,
+            roles: vec![Role::UserManager],
+            directory_groups: vec![],
+        };
+
+        assert!(matches!(
+            require_admin_to_delete_user(&repo, &roots("root"), Some(&user_manager), bob.id).await,
+            Err(AppError::Forbidden)
+        ));
+        require_admin_to_delete_user(&repo, &roots("root"), Some(&admin_actor()), bob.id)
+            .await
+            .expect("an admin may");
+
+        // Guarded via stored group membership counts the same as a direct grant.
+        let carol = user(&repo, "carol", false).await;
+        let group = create_native_group(&repo, "admins").await.expect("group");
+        set_group_roles(
+            &repo,
+            Some(&admin_actor()),
+            group.id,
+            &["admin".to_string()],
+        )
+        .await
+        .expect("roles");
+        add_group_member(&repo, Some(&admin_actor()), group.id, carol.id)
+            .await
+            .expect("member");
+        assert!(matches!(
+            require_admin_to_delete_user(&repo, &roots("root"), Some(&user_manager), carol.id)
+                .await,
+            Err(AppError::Forbidden)
+        ));
+
+        // A claimed root account holds no stored roles at all — the name alone
+        // must trip the guard.
+        let ops_root = user(&repo, "ops-root", false).await;
+        assert!(matches!(
+            require_admin_to_delete_user(
+                &repo,
+                &roots("ops-root"),
+                Some(&user_manager),
+                ops_root.id
+            )
+            .await,
+            Err(AppError::Forbidden)
+        ));
+        require_admin_to_delete_user(&repo, &roots("ops-root"), Some(&admin_actor()), ops_root.id)
+            .await
+            .expect("an admin may");
+
+        // A plain user stays within manage_users.
+        let dave = user(&repo, "dave", false).await;
+        require_admin_to_delete_user(&repo, &roots("root"), Some(&user_manager), dave.id)
+            .await
+            .expect("no guarded role — no admin needed");
     }
 
     /// A maintainer grant to a *directory* group has no stored membership;

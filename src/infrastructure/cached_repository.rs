@@ -323,11 +323,16 @@ impl SpecRepository for CachedSpecRepository {
         &self,
         params: UpsertSpecVersion<'_>,
     ) -> Result<i64, RepositoryError> {
-        let id = self.inner.upsert_spec_version(params).await?;
+        let result = self.inner.upsert_spec_version(params).await;
         if !self.is_disabled() {
+            // Invalidate on failure too: a Conflict means another replica moved
+            // the row past what this process has cached, and the application
+            // layer re-reads to diagnose the refusal — that re-read must see
+            // the row as the database refused it, not the stale cached state
+            // that made the write look viable.
             self.invalidate_spec_caches();
         }
-        Ok(id)
+        result
     }
 
     async fn find_spec_version(

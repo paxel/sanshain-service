@@ -107,7 +107,7 @@ async fn app_with_seed() -> (axum::Router, SqliteSpecRepository, String) {
             stability: Stability::Ga,
             dry_run: false,
             caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
-            expected_prior_hash: None,
+            require_prior_content_match: false,
         },
     )
     .await

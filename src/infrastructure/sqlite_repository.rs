@@ -165,52 +165,73 @@ impl SpecRepository for SqliteSpecRepository {
         // Insert-or-overwrite keeps the row's identity and `created_at` on an
         // overwrite/promotion; only the content, stability, attribution and
         // `updated_at` move.
-        let upsert = sqlx::query(
-            r#"
-            INSERT INTO spec_versions
-              (service_id, api_type, major, minor, patch, stability, content, content_hash, provided_by, created_at, updated_at)
-            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-            WHERE ? IS NULL OR EXISTS (
-                SELECT 1 FROM spec_versions
-                 WHERE service_id = ? AND api_type = ? AND major = ? AND minor = ? AND patch = ?)
-            ON CONFLICT(service_id, api_type, major, minor, patch) DO UPDATE SET
-                stability = excluded.stability,
-                content = excluded.content,
-                content_hash = excluded.content_hash,
-                provided_by = excluded.provided_by,
-                updated_at = excluded.updated_at
-            WHERE spec_versions.stability != 'ga'
-              AND (? IS NULL OR spec_versions.content_hash = ?)
-            "#,
-        )
-        .bind(params.service_id)
-        .bind(params.api_type.as_str())
-        .bind(params.version.major as i64)
-        .bind(params.version.minor as i64)
-        .bind(params.version.patch as i64)
-        .bind(params.stability.as_str())
-        .bind(params.content)
-        .bind(params.content_hash)
-        .bind(params.provided_by)
-        .bind(params.now_iso)
-        .bind(params.now_iso)
-        .bind(params.expected_prior_hash)
-        .bind(params.service_id)
-        .bind(params.api_type.as_str())
-        .bind(params.version.major as i64)
-        .bind(params.version.minor as i64)
-        .bind(params.version.patch as i64)
-        .bind(params.expected_prior_hash)
-        .bind(params.expected_prior_hash)
+        //
+        // A compare-and-set caller never inserts: the row it read must still
+        // exist and carry the expected hash, so it gets a plain conditional
+        // UPDATE — the same statement shape as the Postgres twin (numbered
+        // placeholders, one bind per value, so the two can be diffed
+        // side by side). SQLite's single writer makes the race the Postgres
+        // comment describes impossible here, but the two backends must enforce
+        // the same contract.
+        let upsert = if let Some(expected) = params.expected_prior_hash {
+            sqlx::query(
+                r#"
+                UPDATE spec_versions SET
+                    stability = ?6,
+                    content = ?7,
+                    content_hash = ?8,
+                    provided_by = ?9,
+                    updated_at = ?10
+                 WHERE service_id = ?1 AND api_type = ?2 AND major = ?3 AND minor = ?4 AND patch = ?5
+                   AND stability != 'ga'
+                   AND content_hash = ?11
+                "#,
+            )
+            .bind(params.service_id)
+            .bind(params.api_type.as_str())
+            .bind(params.version.major as i64)
+            .bind(params.version.minor as i64)
+            .bind(params.version.patch as i64)
+            .bind(params.stability.as_str())
+            .bind(params.content)
+            .bind(params.content_hash)
+            .bind(params.provided_by)
+            .bind(params.now_iso)
+            .bind(expected)
+        } else {
+            sqlx::query(
+                r#"
+                INSERT INTO spec_versions
+                  (service_id, api_type, major, minor, patch, stability, content, content_hash, provided_by, created_at, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                ON CONFLICT(service_id, api_type, major, minor, patch) DO UPDATE SET
+                    stability = excluded.stability,
+                    content = excluded.content,
+                    content_hash = excluded.content_hash,
+                    provided_by = excluded.provided_by,
+                    updated_at = excluded.updated_at
+                WHERE spec_versions.stability != 'ga'
+                "#,
+            )
+            .bind(params.service_id)
+            .bind(params.api_type.as_str())
+            .bind(params.version.major as i64)
+            .bind(params.version.minor as i64)
+            .bind(params.version.patch as i64)
+            .bind(params.stability.as_str())
+            .bind(params.content)
+            .bind(params.content_hash)
+            .bind(params.provided_by)
+            .bind(params.now_iso)
+            .bind(params.now_iso)
+        }
         .execute(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        // The guards on BOTH branches are the last line of defense against
-        // racing writers: the DO UPDATE arm refuses if a GA row landed or the
-        // compare-and-set hash no longer matches, and the INSERT arm's SELECT
-        // refuses if a CAS caller's row vanished entirely (a concurrent
-        // delete/expiry must not be resurrected as GA). Zero rows written is
-        // surfaced as a conflict.
+        // Zero rows written means the guard refused — the last line of defense
+        // against racing writers: for a CAS caller the row vanished, was
+        // released, or no longer carries the expected hash; for a plain provide
+        // a GA row is immutable even against a racing writer.
         if upsert.rows_affected() == 0 {
             return Err(RepositoryError::Conflict);
         }
@@ -2530,8 +2551,8 @@ mod tests {
         .expect("matching hash lands");
     }
 
-    /// The INSERT arm of the CAS: a caller asserting a prior row exists must
-    /// not resurrect a concurrently-deleted version as a fresh GA.
+    /// A CAS caller asserted a prior row exists: if it vanished, the upsert
+    /// must refuse rather than resurrect the version as a fresh GA.
     #[tokio::test]
     async fn upsert_with_expected_hash_refuses_when_the_row_vanished() {
         let repo = setup().await;
