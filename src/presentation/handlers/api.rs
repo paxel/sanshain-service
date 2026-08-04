@@ -62,6 +62,7 @@ struct ProvideCommon<'a> {
 async fn provide_common(
     state: &AppState,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    caller: Option<axum::Extension<crate::domain::permissions::Actor>>,
     params: ProvideCommon<'_>,
 ) -> Result<impl IntoResponse + use<>, AppError> {
     let ProvideCommon {
@@ -71,12 +72,6 @@ async fn provide_common(
         stability,
         dry_run,
     } = params;
-    let actor = if let Some(axum::Extension(ref u)) = user {
-        u.username.clone()
-    } else {
-        "DevMode/Anonymous".to_string()
-    };
-
     let res = services::provide_spec(
         &state.repo,
         services::ProvideSpecParams {
@@ -85,7 +80,8 @@ async fn provide_common(
             content,
             stability,
             dry_run,
-            username: Some(&actor),
+            caller: caller.map(|axum::Extension(a)| a),
+            require_prior_content_match: false,
         },
     )
     .await?;
@@ -133,11 +129,13 @@ async fn provide_common(
 pub async fn provide(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    caller: Option<axum::Extension<crate::domain::permissions::Actor>>,
     Json(payload): Json<ProvideRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     provide_common(
         &state,
         user,
+        caller,
         ProvideCommon {
             api_type: ApiType::OpenApi,
             producername: &payload.producername,
@@ -163,11 +161,13 @@ pub struct ProvideAsyncApiRequest {
 pub async fn provide_asyncapi(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    caller: Option<axum::Extension<crate::domain::permissions::Actor>>,
     Json(payload): Json<ProvideAsyncApiRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     provide_common(
         &state,
         user,
+        caller,
         ProvideCommon {
             api_type: ApiType::AsyncApi,
             producername: &payload.producername,
@@ -193,11 +193,13 @@ pub struct ProvideProtoRequest {
 pub async fn provide_proto(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    caller: Option<axum::Extension<crate::domain::permissions::Actor>>,
     Json(payload): Json<ProvideProtoRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     provide_common(
         &state,
         user,
+        caller,
         ProvideCommon {
             api_type: ApiType::Proto,
             producername: &payload.producername,

@@ -7,6 +7,7 @@
 
 use crate::asyncapi;
 use crate::domain::models::*;
+use crate::domain::permissions::{Actor, Permission};
 use crate::domain::ports::{
     NewAuditLog, RecordDependencyParams, SpecRepository, UpsertSpecVersion,
 };
@@ -23,9 +24,21 @@ pub struct ProvideSpecParams<'a> {
     /// Declared by the caller: `snapshot` (overwritable) or `ga` (immutable).
     pub stability: Stability,
     pub dry_run: bool,
-    /// The real authenticated Actor — always used for the audit log and
-    /// credited as the version's provider.
-    pub username: Option<&'a str>,
+    /// The resolved caller: the GA gate checks it for
+    /// [`Permission::ReleaseGa`], and its username is the single identity used
+    /// for audit attribution and the version's `provided_by` credit. `None`
+    /// (no authenticated Actor) can never release.
+    pub caller: Option<Actor>,
+    /// Compare-and-set for promote-by-copy (#28): when `true`, the write only
+    /// lands if the stored entry still carries the hash of the exact bytes
+    /// being submitted, so a snapshot overwritten between read and release
+    /// answers 409 instead of silently going GA with stale bytes.
+    /// The expected hash is derived in [`provide_spec`] from `content` itself —
+    /// never passed in — so guard and payload cannot drift apart: if a
+    /// replica's content cache is stale, the derived hash is stale with it,
+    /// the stored row doesn't match, and the release refuses instead of
+    /// freezing old bytes.
+    pub require_prior_content_match: bool,
 }
 
 pub struct RequireEndpointParams<'a> {
@@ -152,6 +165,46 @@ fn parse_spec_endpoints(
     }
 }
 
+/// Promote a stored snapshot to GA without re-uploading (#28).
+///
+/// Definitionally "provide the stored content with `stability: ga`": the call
+/// funnels into [`provide_spec`], so the GA gate, promotion semantics,
+/// attribution, audit entries and rejection telemetry are all the same as for
+/// any release. An already-GA version is the idempotent no-op; an unknown
+/// producer or version is a 404.
+pub async fn promote_version(
+    repo: &impl SpecRepository,
+    producername: &str,
+    api_type: ApiType,
+    version: SemVer,
+    caller: Option<Actor>,
+) -> Result<ProvideResponse, AppError> {
+    let entry = crate::application::admin_service::find_version_entry(
+        repo,
+        producername,
+        api_type,
+        version,
+    )
+    .await?;
+    let content = repo
+        .get_spec_content(entry.id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Version not found".to_string()))?;
+    provide_spec(
+        repo,
+        ProvideSpecParams {
+            producername,
+            api_type,
+            content: &content,
+            stability: Stability::Ga,
+            dry_run: false,
+            caller,
+            require_prior_content_match: true,
+        },
+    )
+    .await
+}
+
 /// Whole-document backward-compatibility verdict for one API type.
 pub fn check_compatibility(api_type: ApiType, old: &str, new: &str) -> Result<(), String> {
     match api_type {
@@ -262,6 +315,24 @@ async fn record_version_rejection(
     if dry_run {
         return;
     }
+    // The producer name becomes a Prometheus label and an audit row, so only
+    // Producers that exist are recorded — otherwise any authenticated caller
+    // could mint unbounded label cardinality out of made-up names. The check
+    // lives here, not at call sites, so no future caller can forget it; and it
+    // is best-effort like the rest of this function — a DB hiccup while
+    // deciding whether to record must not turn a clean refusal into a 500.
+    match repo.find_service(producername).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return,
+        Err(e) => {
+            tracing::warn!(
+                service = producername,
+                "Could not check producer existence for rejection telemetry: {}",
+                e
+            );
+            return;
+        }
+    }
     metrics::counter!(
         "sanshain_version_rejected_total",
         "reason" => reason,
@@ -302,12 +373,47 @@ pub async fn provide_spec(
         content,
         stability,
         dry_run,
-        username,
+        caller,
+        require_prior_content_match,
     } = params;
+    // One identity: authorization and audit attribution both come from the
+    // Actor, so they cannot drift apart.
+    let username: Option<&str> = caller.as_ref().map(|a| a.username.as_str());
 
     let version = extract_spec_version(api_type, content)?;
     let hash = content_hash(content);
+    // The one derivation point of the CAS hash (see the field's doc): the
+    // guard compares the stored row against the very bytes being written.
+    let expected_prior_hash = require_prior_content_match.then_some(hash.as_str());
     let endpoints = parse_spec_endpoints(api_type, content, producername)?;
+
+    // The GA gate (#27): releasing is a permission, snapshots are open to any
+    // authenticated caller. Checked after parsing, so the refusal names a real
+    // version and malformed documents keep their 400 — and before any write,
+    // so an unauthorized attempt cannot even create the service. All GA
+    // shapes are gated, including promotions and the idempotent no-op: a 202
+    // must never tell a misconfigured CI that its credentials can release.
+    if stability == Stability::Ga
+        && !caller
+            .as_ref()
+            .is_some_and(|a| a.has_permission(Permission::ReleaseGa))
+    {
+        let message = format!(
+            "publishing GA for '{}' requires the 'releaser' role — publish as a snapshot, or ask an administrator to grant the role",
+            producername
+        );
+        record_version_rejection(
+            repo,
+            dry_run,
+            username,
+            producername,
+            version,
+            "ga_requires_releaser",
+            &message,
+        )
+        .await;
+        return Err(AppError::ForbiddenWithReason(message));
+    }
 
     tracing::debug!(
         "Providing {:?} {} for service '{}' as {} (dry_run: {})",
@@ -510,6 +616,7 @@ pub async fn provide_spec(
         content,
         content_hash: &hash,
         provided_by: &credited,
+        expected_prior_hash,
         now_iso: &now_iso(),
         endpoints: endpoints
             .into_iter()
@@ -524,7 +631,35 @@ pub async fn provide_spec(
             })
             .collect(),
     };
-    repo.upsert_spec_version(record).await?;
+    if let Err(e) = repo.upsert_spec_version(record).await {
+        // A CAS refusal deserves a remedy, not a bare "Conflict" — and an
+        // accurate one: the guard has three arms (row released concurrently,
+        // row overwritten, row vanished), so re-read to say which happened.
+        if matches!(e, crate::domain::ports::RepositoryError::Conflict)
+            && expected_prior_hash.is_some()
+        {
+            // The refusal is already decided; the re-read only makes the
+            // message accurate. If it fails — most likely under exactly the
+            // write load that caused the conflict — degrade the message
+            // rather than escalate the 409 into a 500.
+            let message = match repo.find_spec_version(sid, api_type, version).await {
+                Ok(Some(entry)) if entry.stability == Stability::Ga => format!(
+                    "version {} was released concurrently — nothing left to do",
+                    version
+                ),
+                Ok(Some(_)) => {
+                    "the snapshot changed while releasing — reload and promote again".to_string()
+                }
+                Ok(None) => format!(
+                    "version {} was deleted while releasing — nothing left to promote",
+                    version
+                ),
+                Err(_) => "the version moved while releasing — reload and retry".to_string(),
+            };
+            return Err(AppError::Conflict(message));
+        }
+        return Err(e.into());
+    }
 
     apply_contract_ops(repo, contract_ops).await?;
 

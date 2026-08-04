@@ -48,6 +48,7 @@ impl IntoResponse for AppError {
                 StatusCode::FORBIDDEN,
                 ErrorBody::message("Forbidden".to_string()),
             ),
+            AppError::ForbiddenWithReason(msg) => (StatusCode::FORBIDDEN, ErrorBody::message(msg)),
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, ErrorBody::message(msg)),
             AppError::BreakingChange(msg) => (StatusCode::CONFLICT, ErrorBody::message(msg)),
             // 409 with the remedy machine-readable: the rejection is
@@ -115,6 +116,11 @@ mod tests {
                 "Unauthorized",
             ),
             (AppError::Forbidden, StatusCode::FORBIDDEN, "Forbidden"),
+            (
+                AppError::ForbiddenWithReason("needs the releaser role".to_string()),
+                StatusCode::FORBIDDEN,
+                "needs the releaser role",
+            ),
             (
                 AppError::Internal("boom".into()),
                 StatusCode::INTERNAL_SERVER_ERROR,

@@ -165,39 +165,73 @@ impl SpecRepository for SqliteSpecRepository {
         // Insert-or-overwrite keeps the row's identity and `created_at` on an
         // overwrite/promotion; only the content, stability, attribution and
         // `updated_at` move.
-        let upsert = sqlx::query(
-            r#"
-            INSERT INTO spec_versions
-              (service_id, api_type, major, minor, patch, stability, content, content_hash, provided_by, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(service_id, api_type, major, minor, patch) DO UPDATE SET
-                stability = excluded.stability,
-                content = excluded.content,
-                content_hash = excluded.content_hash,
-                provided_by = excluded.provided_by,
-                updated_at = excluded.updated_at
-            WHERE spec_versions.stability != 'ga'
-            "#,
-        )
-        .bind(params.service_id)
-        .bind(params.api_type.as_str())
-        .bind(params.version.major as i64)
-        .bind(params.version.minor as i64)
-        .bind(params.version.patch as i64)
-        .bind(params.stability.as_str())
-        .bind(params.content)
-        .bind(params.content_hash)
-        .bind(params.provided_by)
-        .bind(params.now_iso)
-        .bind(params.now_iso)
+        //
+        // A compare-and-set caller never inserts: the row it read must still
+        // exist and carry the expected hash, so it gets a plain conditional
+        // UPDATE — the same statement shape as the Postgres twin (numbered
+        // placeholders, one bind per value, so the two can be diffed
+        // side by side). SQLite's single writer makes the race the Postgres
+        // comment describes impossible here, but the two backends must enforce
+        // the same contract.
+        let upsert = if let Some(expected) = params.expected_prior_hash {
+            sqlx::query(
+                r#"
+                UPDATE spec_versions SET
+                    stability = ?6,
+                    content = ?7,
+                    content_hash = ?8,
+                    provided_by = ?9,
+                    updated_at = ?10
+                 WHERE service_id = ?1 AND api_type = ?2 AND major = ?3 AND minor = ?4 AND patch = ?5
+                   AND stability != 'ga'
+                   AND content_hash = ?11
+                "#,
+            )
+            .bind(params.service_id)
+            .bind(params.api_type.as_str())
+            .bind(params.version.major as i64)
+            .bind(params.version.minor as i64)
+            .bind(params.version.patch as i64)
+            .bind(params.stability.as_str())
+            .bind(params.content)
+            .bind(params.content_hash)
+            .bind(params.provided_by)
+            .bind(params.now_iso)
+            .bind(expected)
+        } else {
+            sqlx::query(
+                r#"
+                INSERT INTO spec_versions
+                  (service_id, api_type, major, minor, patch, stability, content, content_hash, provided_by, created_at, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                ON CONFLICT(service_id, api_type, major, minor, patch) DO UPDATE SET
+                    stability = excluded.stability,
+                    content = excluded.content,
+                    content_hash = excluded.content_hash,
+                    provided_by = excluded.provided_by,
+                    updated_at = excluded.updated_at
+                WHERE spec_versions.stability != 'ga'
+                "#,
+            )
+            .bind(params.service_id)
+            .bind(params.api_type.as_str())
+            .bind(params.version.major as i64)
+            .bind(params.version.minor as i64)
+            .bind(params.version.patch as i64)
+            .bind(params.stability.as_str())
+            .bind(params.content)
+            .bind(params.content_hash)
+            .bind(params.provided_by)
+            .bind(params.now_iso)
+            .bind(params.now_iso)
+        }
         .execute(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        // The `WHERE stability != 'ga'` guard on the upsert is the last line of
-        // defense against two racing writers: if a GA row landed between the
-        // application layer's immutability check and this statement, nothing
-        // was written — surface that as a conflict instead of silently
-        // replacing endpoints under a GA entry.
+        // Zero rows written means the guard refused — the last line of defense
+        // against racing writers: for a CAS caller the row vanished, was
+        // released, or no longer carries the expected hash; for a plain provide
+        // a GA row is immutable even against a racing writer.
         if upsert.rows_affected() == 0 {
             return Err(RepositoryError::Conflict);
         }
@@ -2153,6 +2187,7 @@ mod tests {
             content: "content",
             content_hash: "sha256:x",
             provided_by: "ci",
+            expected_prior_hash: None,
             now_iso: now,
             endpoints,
         })
@@ -2439,6 +2474,7 @@ mod tests {
                 content: "other",
                 content_hash: "sha256:y",
                 provided_by: "racer",
+                expected_prior_hash: None,
                 now_iso: "2026-01-02T00:00:00Z",
                 endpoints: vec![endpoint("/b", "GET", "b")],
             })
@@ -2456,6 +2492,95 @@ mod tests {
         let endpoints = repo.get_endpoints_for_version(meta.id).await.unwrap();
         assert_eq!(endpoints.len(), 1);
         assert_eq!(endpoints[0].path, "/a", "the GA endpoint set is untouched");
+    }
+
+    /// The compare-and-set arm of the upsert guard: a stale expected hash
+    /// means the row moved since the caller read it.
+    #[tokio::test]
+    async fn upsert_with_a_stale_expected_hash_conflicts() {
+        let repo = setup().await;
+        let sid = repo.ensure_service("svc").await.unwrap();
+        provide(
+            &repo,
+            sid,
+            "1.0.0",
+            Stability::Snapshot,
+            vec![endpoint("/a", "GET", "a")],
+            "2026-01-01T00:00:00Z",
+        )
+        .await;
+
+        let err = repo
+            .upsert_spec_version(UpsertSpecVersion {
+                service_id: sid,
+                api_type: ApiType::OpenApi,
+                version: "1.0.0".parse().unwrap(),
+                stability: Stability::Ga,
+                content: "content",
+                content_hash: "sha256:x",
+                provided_by: "releaser",
+                expected_prior_hash: Some("sha256:stale"),
+                now_iso: "2026-01-02T00:00:00Z",
+                endpoints: vec![endpoint("/a", "GET", "a")],
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(err, RepositoryError::Conflict));
+
+        let meta = repo
+            .find_spec_version(sid, ApiType::OpenApi, "1.0.0".parse().unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(meta.stability, Stability::Snapshot, "nothing was written");
+
+        // The matching hash goes through.
+        repo.upsert_spec_version(UpsertSpecVersion {
+            service_id: sid,
+            api_type: ApiType::OpenApi,
+            version: "1.0.0".parse().unwrap(),
+            stability: Stability::Ga,
+            content: "content",
+            content_hash: "sha256:x",
+            provided_by: "releaser",
+            expected_prior_hash: Some(&meta.content_hash),
+            now_iso: "2026-01-02T00:00:00Z",
+            endpoints: vec![endpoint("/a", "GET", "a")],
+        })
+        .await
+        .expect("matching hash lands");
+    }
+
+    /// A CAS caller asserted a prior row exists: if it vanished, the upsert
+    /// must refuse rather than resurrect the version as a fresh GA.
+    #[tokio::test]
+    async fn upsert_with_expected_hash_refuses_when_the_row_vanished() {
+        let repo = setup().await;
+        let sid = repo.ensure_service("svc").await.unwrap();
+
+        let err = repo
+            .upsert_spec_version(UpsertSpecVersion {
+                service_id: sid,
+                api_type: ApiType::OpenApi,
+                version: "1.0.0".parse().unwrap(),
+                stability: Stability::Ga,
+                content: "content",
+                content_hash: "sha256:x",
+                provided_by: "releaser",
+                expected_prior_hash: Some("sha256:x"),
+                now_iso: "2026-01-02T00:00:00Z",
+                endpoints: vec![endpoint("/a", "GET", "a")],
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(err, RepositoryError::Conflict));
+        assert!(
+            repo.find_spec_version(sid, ApiType::OpenApi, "1.0.0".parse().unwrap())
+                .await
+                .unwrap()
+                .is_none(),
+            "nothing was resurrected"
+        );
     }
 
     /// AsyncAPI channels are stored verbatim, so lookups must not blank their
@@ -2482,6 +2607,7 @@ mod tests {
                 content: "content",
                 content_hash: "sha256:x",
                 provided_by: "ci",
+                expected_prior_hash: None,
                 now_iso: "2026-01-01T00:00:00Z",
                 endpoints: vec![channel],
             })

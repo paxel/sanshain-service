@@ -528,6 +528,33 @@ function closeConfirmModal() {
   document.getElementById("confirm-modal").classList.add("hidden");
 }
 
+// --- One-click promote (#28) ---
+// Releases a stored snapshot in place through the same GA gate as any release.
+// Shared by the producers page and the admin dashboard; `onSuccess` is the
+// page's own refresh hook.
+function promoteVersion(serviceName, apiType, version, onSuccess) {
+  confirmAction(
+    `Release ${escapeHtml(apiType)} version <strong>${escapeHtml(version)}</strong> of <strong>${escapeHtml(serviceName)}</strong> as GA?<br><br>The number is permanently claimed and its content becomes immutable.`,
+    async () => {
+      try {
+        const res = await apiCall(
+          `/admin/producers/${encodeURIComponent(serviceName)}/versions/${encodeURIComponent(apiType)}/${encodeURIComponent(version)}/promote`,
+          { method: "POST" },
+        );
+        if (!res.ok) {
+          alert("Failed to promote: " + (await errorMessage(res)));
+          return;
+        }
+        if (onSuccess) await onSuccess();
+      } catch (e) {
+        alert("Failed to promote: " + e.message);
+      }
+    },
+    "Promote to GA",
+    "Promote",
+  );
+}
+
 // --- Version badge ---
 function loadVersionBadge(elementId) {
   fetch("/version")

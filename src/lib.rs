@@ -115,6 +115,11 @@ pub fn create_app(state: AppState) -> Router {
         // Delete-version is the sole escape hatch from GA immutability
         // (ADR-0003): admins anywhere, Maintainers for their own Producers.
         .route("/admin/producers/{name}/versions/{api_type}/{version}", delete(admin::admin_delete_version).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
+        // Promote declares Authenticated, not Global(ReleaseGa): the release_ga
+        // check runs inside the shared GA gate so an unauthorized click gets the
+        // instructive 403 + ga_requires_releaser telemetry, which a guard-level
+        // refusal could not produce.
+        .route("/admin/producers/{name}/versions/{api_type}/{version}/promote", post(admin::admin_promote_version).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/versions/{api_type}/{version}/dependents", get(admin::admin_get_version_dependents).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/endpoints", get(admin::admin_list_producer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/full-spec", get(admin::admin_get_full_spec).layer(require(state.clone(), RouteGuard::Authenticated)))

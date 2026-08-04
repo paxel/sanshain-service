@@ -166,9 +166,15 @@ impl SpecRepository for MockRepo {
                 && v.api_type == params.api_type
                 && v.version == params.version
         }) {
-            // Mirrors the SQL upserts' `WHERE stability != 'ga'` guard: a GA
-            // row is immutable even against a racing writer.
+            // Mirrors the SQL upserts' WHERE guard: a GA row is immutable
+            // even against a racing writer, and a compare-and-set hash that
+            // no longer matches means the row moved since the caller read it.
             if existing.stability == Stability::Ga {
+                return Err(RepositoryError::Conflict);
+            }
+            if let Some(expected) = params.expected_prior_hash
+                && existing.content_hash != expected
+            {
                 return Err(RepositoryError::Conflict);
             }
             // Overwrite/promotion keeps the row's identity and `created_at`;
@@ -180,6 +186,13 @@ impl SpecRepository for MockRepo {
             existing.updated_at = params.now_iso.to_string();
             existing.endpoints = endpoints;
             return Ok(existing.id);
+        }
+
+        // Mirrors the SQL CAS UPDATE matching zero rows: a CAS caller asserted
+        // a prior row exists — if it vanished (concurrent delete/expiry),
+        // refuse rather than resurrect it.
+        if params.expected_prior_hash.is_some() {
+            return Err(RepositoryError::Conflict);
         }
 
         let id = self.next_id();

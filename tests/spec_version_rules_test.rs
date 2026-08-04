@@ -988,6 +988,222 @@ async fn validator_rejects_unknown_shapes_but_stores_nothing() {
 }
 
 // ---------------------------------------------------------------------------
+// The GA gate (#27): releasing is a role.
+// ---------------------------------------------------------------------------
+
+/// A second seeded caller with the given roles, alongside the suite's
+/// root/admin user.
+#[cfg(test)]
+async fn seeded_token(ctx: &TestContext, name: &str, roles: &[&str]) -> String {
+    let repo = SqliteSpecRepository::new(ctx.pool.clone());
+    let hash = services::hash_password("pw").unwrap();
+    let user = repo.create_user(name, &hash, true).await.unwrap();
+    for role in roles {
+        repo.grant_user_role(user.id, role).await.unwrap();
+    }
+    repo.create_session(user.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap()
+        .token
+}
+
+#[cfg(test)]
+async fn provide_as(
+    ctx: &TestContext,
+    token: &str,
+    producer: &str,
+    stability: &str,
+    yaml: &str,
+    dry_run: bool,
+) -> (StatusCode, Value) {
+    let payload = json!({
+        "producername": producer,
+        "openapi_yaml": yaml,
+        "stability": stability,
+        "dry_run": dry_run,
+    });
+    let request = Request::builder()
+        .method("POST")
+        .uri("/provide")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+        .unwrap();
+    let response = ctx.app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (status, as_json(&String::from_utf8_lossy(&bytes)))
+}
+
+#[tokio::test]
+async fn publishing_ga_requires_the_releaser_role() {
+    let ctx = setup().await;
+    let dev = seeded_token(&ctx, "dev", &[]).await;
+
+    // Snapshots stay open to any authenticated caller.
+    let (status, _) = provide_as(
+        &ctx,
+        &dev,
+        "svc",
+        "snapshot",
+        &spec_users_only("1.0.0"),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    // GA is refused, instructively.
+    let (status, body) =
+        provide_as(&ctx, &dev, "svc", "ga", &spec_users_only("1.0.0"), false).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let error = body["error"].as_str().expect("error message");
+    assert!(
+        error.contains("releaser"),
+        "names the missing role: {error}"
+    );
+    assert!(error.contains("snapshot"), "names the alternative: {error}");
+
+    // The real attempt is audited with the full context.
+    let row: (String, String, String, String) = sqlx::query_as(
+        "SELECT username, details, version, action_type FROM audit_logs WHERE action = 'VERSION_REJECTED'",
+    )
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("the refusal must be audited");
+    assert_eq!(row.0, "dev");
+    assert!(row.1.contains("releaser"), "{}", row.1);
+    assert_eq!(row.2, "1.0.0");
+    assert_eq!(row.3, "REJECT");
+}
+
+#[tokio::test]
+async fn a_releaser_publishes_and_promotes_ga() {
+    let ctx = setup().await;
+    let dev = seeded_token(&ctx, "dev", &[]).await;
+    let ci = seeded_token(&ctx, "ci", &["releaser"]).await;
+
+    // The developer iterates on a snapshot; CI releases the same content.
+    let (status, _) = provide_as(
+        &ctx,
+        &dev,
+        "svc",
+        "snapshot",
+        &spec_users_only("1.0.0"),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let (status, body) = provide_as(&ctx, &ci, "svc", "ga", &spec_users_only("1.0.0"), false).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(body["stability"], "ga");
+    assert_eq!(body["promoted"], true);
+
+    // A promotion attempt by the non-releaser is refused even though the
+    // content is byte-identical (the idempotent-GA shape is gated too).
+    let (status, _) = provide_as(&ctx, &dev, "svc", "ga", &spec_users_only("1.0.0"), false).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // A fresh GA under a new number also works for the releaser.
+    let (status, body) = provide_as(&ctx, &ci, "svc", "ga", &spec_users_only("1.1.0"), false).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(body["promoted"], false);
+}
+
+#[tokio::test]
+async fn a_ga_dry_run_without_the_role_is_refused_but_unaudited() {
+    let ctx = setup().await;
+    let dev = seeded_token(&ctx, "dev", &[]).await;
+
+    let (status, body) = provide_as(&ctx, &dev, "svc", "ga", &spec_users_only("1.0.0"), true).await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "preflight must see what the real push would get"
+    );
+    assert!(body["error"].as_str().unwrap_or("").contains("releaser"));
+
+    let count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM audit_logs WHERE action = 'VERSION_REJECTED'")
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(count.0, 0, "a dry run records nothing");
+}
+
+#[tokio::test]
+async fn an_unauthorized_ga_attempt_writes_nothing_at_all() {
+    let ctx = setup().await;
+    let dev = seeded_token(&ctx, "dev", &[]).await;
+
+    let (status, _) = provide_as(
+        &ctx,
+        &dev,
+        "brand-new",
+        "ga",
+        &spec_users_only("1.0.0"),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM services WHERE name = 'brand-new'")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        count.0, 0,
+        "the refusal must come before the service is even created"
+    );
+
+    // And no telemetry either: the made-up name must not become an audit row
+    // (or a Prometheus label) — that would let any authenticated caller mint
+    // unbounded label cardinality out of thin air.
+    let audits: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM audit_logs WHERE action = 'VERSION_REJECTED'")
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        audits.0, 0,
+        "unknown producers are refused without telemetry"
+    );
+}
+
+#[tokio::test]
+async fn a_malformed_ga_document_keeps_its_parse_error() {
+    let ctx = setup().await;
+    let dev = seeded_token(&ctx, "dev", &[]).await;
+
+    let (status, _) = provide_as(&ctx, &dev, "svc", "ga", "not: [valid openapi", false).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a parse error wins over the role refusal"
+    );
+}
+
+#[tokio::test]
+async fn an_admin_releases_without_an_explicit_grant() {
+    let ctx = setup().await;
+    // The suite's own token belongs to root+admin.
+    let (status, _, _) = send(
+        &ctx,
+        "POST",
+        "/provide",
+        Some(json!({
+            "producername": "svc",
+            "stability": "ga",
+            "openapi_yaml": spec_users_only("1.0.0"),
+        })),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+}
+
+// ---------------------------------------------------------------------------
 // VERSION_REJECTED: rejections are self-service but counted.
 // ---------------------------------------------------------------------------
 

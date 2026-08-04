@@ -36,6 +36,9 @@ pub enum Permission {
     ViewObservability,
     /// Bulk deletion of producers, consumers, users or the whole database.
     RunDestructiveOperations,
+    /// Publish a version with `stability: ga` — a fresh GA, a promotion, or an
+    /// idempotent GA re-provide. Snapshots need no permission; releasing does.
+    ReleaseGa,
 }
 
 impl Permission {
@@ -54,6 +57,7 @@ impl Permission {
         Permission::ManageAuthConfig,
         Permission::ViewObservability,
         Permission::RunDestructiveOperations,
+        Permission::ReleaseGa,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -67,6 +71,7 @@ impl Permission {
             Permission::ManageAuthConfig => "manage_auth_config",
             Permission::ViewObservability => "view_observability",
             Permission::RunDestructiveOperations => "run_destructive_operations",
+            Permission::ReleaseGa => "release_ga",
         }
     }
 
@@ -90,6 +95,7 @@ pub enum Role {
     UserManager,
     Viewer,
     Maintainer,
+    Releaser,
 }
 
 impl Role {
@@ -98,13 +104,22 @@ impl Role {
         Role::UserManager,
         Role::Viewer,
         Role::Maintainer,
+        Role::Releaser,
     ];
 
     /// Roles that may be granted instance-wide.
     ///
     /// `Maintainer` is excluded deliberately — it means nothing without the set
     /// of Producers it is over, so it is assigned as a scope, not granted.
-    pub const GLOBALLY_GRANTABLE: &'static [Role] = &[Role::Admin, Role::UserManager, Role::Viewer];
+    pub const GLOBALLY_GRANTABLE: &'static [Role] =
+        &[Role::Admin, Role::UserManager, Role::Viewer, Role::Releaser];
+
+    /// Roles only an admin (or root) may grant, revoke, or move on or off a
+    /// group. `Admin` because it is self-escalation to everything;
+    /// `Releaser` because release rights are exactly what the GA gate exists
+    /// to control, and a `manage_roles` holder must not be a side door to
+    /// them.
+    pub const ADMIN_GUARDED: &'static [Role] = &[Role::Admin, Role::Releaser];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -112,6 +127,7 @@ impl Role {
             Role::UserManager => "user_manager",
             Role::Viewer => "viewer",
             Role::Maintainer => "maintainer",
+            Role::Releaser => "releaser",
         }
     }
 
@@ -130,6 +146,7 @@ impl Role {
             Role::UserManager => &[Permission::ManageUsers, Permission::ManageRoles],
             Role::Viewer => &[Permission::ViewAudit, Permission::ViewObservability],
             Role::Maintainer => &[Permission::ManageProducers],
+            Role::Releaser => &[Permission::ReleaseGa],
         }
     }
 
@@ -211,6 +228,40 @@ pub struct Actor {
 }
 
 impl Actor {
+    /// A role-less Actor — the default fixture for snapshot provides, so a
+    /// test caller only carries `releaser` when the call actually needs it
+    /// and a gate that accidentally widens fails the suite.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn test_caller() -> Self {
+        Actor {
+            user_id: 0,
+            username: "test-caller".to_string(),
+            is_root: false,
+            roles: Vec::new(),
+            directory_groups: Vec::new(),
+        }
+    }
+
+    /// An Actor holding exactly the `releaser` role — a fixture for tests
+    /// that publish GA through the application seam.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn test_releaser() -> Self {
+        Self::test_releaser_named("test-releaser")
+    }
+
+    /// [`Actor::test_releaser`] under a chosen username, for tests that
+    /// assert attribution.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn test_releaser_named(username: &str) -> Self {
+        Actor {
+            user_id: 0,
+            username: username.to_string(),
+            is_root: false,
+            roles: vec![Role::Releaser],
+            directory_groups: Vec::new(),
+        }
+    }
+
     pub fn has_permission(&self, permission: Permission) -> bool {
         // Root short-circuits before consulting roles, which is what makes
         // "holds every permission" survive a permission being added later.
@@ -240,7 +291,7 @@ mod tests {
         for name in &names {
             assert_eq!(Permission::parse(name).map(|p| p.as_str()), Some(*name));
         }
-        assert_eq!(Permission::ALL.len(), 9);
+        assert_eq!(Permission::ALL.len(), 10);
     }
 
     #[test]
@@ -347,5 +398,17 @@ mod tests {
         assert!(actor.has_permission(Permission::ViewAudit));
         assert!(!actor.has_permission(Permission::ManageProducers));
         assert_eq!(actor.effective_permissions().len(), 4);
+    }
+
+    #[test]
+    fn the_releaser_bundle_is_exactly_release_ga() {
+        assert_eq!(Role::Releaser.permissions(), &[Permission::ReleaseGa]);
+        assert!(Role::GLOBALLY_GRANTABLE.contains(&Role::Releaser));
+        assert!(Role::ADMIN_GUARDED.contains(&Role::Admin));
+        assert!(Role::ADMIN_GUARDED.contains(&Role::Releaser));
+        assert!(
+            !Role::ADMIN_GUARDED.contains(&Role::Viewer),
+            "guarding is the exception, not the rule"
+        );
     }
 }

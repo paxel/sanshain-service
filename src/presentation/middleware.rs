@@ -1,6 +1,6 @@
 use crate::AppState;
 use crate::application::services;
-use crate::domain::models::LogEntry;
+use crate::domain::models::{AppError, LogEntry};
 use axum::{
     extract::{Request, State},
     http::{StatusCode, header},
@@ -168,7 +168,7 @@ async fn producer_from_path(parts: &mut axum::http::request::Parts) -> Option<St
 /// Boxed so `require`'s return type can be written down at all: the layer's type
 /// mentions the closure's future, and an `async fn`'s future is unnameable.
 type GuardFuture =
-    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, StatusCode>> + Send>>;
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, Response>> + Send>>;
 
 /// The middleware layer `require` produces.
 type GuardLayer<F> = axum::middleware::FromFnLayer<F, AppState, (State<AppState>, Request)>;
@@ -186,12 +186,17 @@ pub fn require(
 }
 
 /// Authenticate the caller and enforce the route's declared requirement.
+///
+/// Refusals surface as an [`AppError`] response, not a bare status: the 403 an
+/// application-layer check produces can carry a reason
+/// (`ForbiddenWithReason`), and flattening it here would silently break the
+/// promise that refusals are instructive.
 pub async fn permission_auth(
     state: AppState,
     guard: RouteGuard,
     req: Request,
     next: Next,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, Response> {
     let user = if services::get_dev_mode(&state.repo).await.unwrap_or(false)
         && let Some(dev_user) = resolve_dev_user(&state).await
     {
@@ -202,27 +207,29 @@ pub async fn permission_auth(
             .get(header::AUTHORIZATION)
             .and_then(|h| h.to_str().ok())
             .and_then(|t| t.strip_prefix("Bearer "))
-            .ok_or(StatusCode::UNAUTHORIZED)?;
+            .ok_or_else(|| AppError::Unauthorized.into_response())?;
         match services::validate_session(&state.repo, token).await {
             Ok(Some((user, _session))) => user,
-            _ => return Err(StatusCode::UNAUTHORIZED),
+            _ => return Err(AppError::Unauthorized.into_response()),
         }
     };
 
     let mut req = req;
-    attach_caller(&mut req, &state, user).await?;
+    attach_caller(&mut req, &state, user)
+        .await
+        .map_err(IntoResponse::into_response)?;
 
     let actor = req
         .extensions()
         .get::<crate::domain::permissions::Actor>()
         .cloned()
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        .ok_or_else(|| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
 
     match guard {
         RouteGuard::Authenticated => {}
         RouteGuard::Global(permission) => {
             if !actor.has_permission(permission) {
-                return Err(StatusCode::FORBIDDEN);
+                return Err(AppError::Forbidden.into_response());
             }
         }
         RouteGuard::Producer(permission) => {
@@ -236,7 +243,7 @@ pub async fn permission_auth(
                 // permission. Duplicating the logic here once omitted that, so a
                 // route declared with a permission outside the bundle would have
                 // over-granted to maintainers.
-                let producer = producer.ok_or(StatusCode::FORBIDDEN)?;
+                let producer = producer.ok_or_else(|| AppError::Forbidden.into_response())?;
                 crate::application::authz::require_producer_permission(
                     &state.repo,
                     &actor,
@@ -244,10 +251,7 @@ pub async fn permission_auth(
                     &producer,
                 )
                 .await
-                .map_err(|e| match e {
-                    crate::domain::models::AppError::Forbidden => StatusCode::FORBIDDEN,
-                    _ => StatusCode::INTERNAL_SERVER_ERROR,
-                })?;
+                .map_err(IntoResponse::into_response)?;
             }
         }
     }

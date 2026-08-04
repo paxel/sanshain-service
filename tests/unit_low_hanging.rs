@@ -338,7 +338,8 @@ paths:
             content: yaml,
             stability: Stability::Snapshot,
             dry_run: true,
-            username: Some("ci"),
+            caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
+            require_prior_content_match: false,
         },
     )
     .await
@@ -372,7 +373,8 @@ message Out {}
             content: proto,
             stability: Stability::Snapshot,
             dry_run: false,
-            username: Some("ci"),
+            caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
+            require_prior_content_match: false,
         },
     )
     .await
@@ -416,7 +418,8 @@ paths:
             content: yaml,
             stability: Stability::Ga,
             dry_run: false,
-            username: Some("ci"),
+            caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
+            require_prior_content_match: false,
         },
     )
     .await

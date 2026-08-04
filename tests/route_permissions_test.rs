@@ -109,7 +109,8 @@ async fn provide_version(repo: &SqliteSpecRepository, producer: &str, version: &
             content: &spec,
             stability: Stability::Snapshot,
             dry_run: false,
-            username: Some("ci"),
+            caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
+            require_prior_content_match: false,
         },
     )
     .await

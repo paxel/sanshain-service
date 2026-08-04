@@ -109,6 +109,10 @@
 </div>
 
 <script>
+    // The signed-in caller, for gating affordances (the Promote button).
+    // Hiding is a usability affordance; the server's GA gate is the boundary.
+    let currentUser = null;
+
     async function loadServices() {
         showLoader();
         const list = document.getElementById('services-list');
@@ -381,6 +385,9 @@
                 </div>
                 <div class="flex items-center gap-2">
                     <button type="button" data-download class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-indigo-600">Full spec</button>
+                    ${isSnapshot && hasPermission(currentUser, 'release_ga')
+                        ? '<button type="button" data-promote class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-green-50 text-green-700">Promote to GA</button>'
+                        : ''}
                     <button type="button" data-delete class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-red-50 text-red-600">Delete</button>
                     <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
@@ -398,6 +405,17 @@
             e.stopPropagation();
             deleteVersion(serviceName, apiType, v.version);
         });
+        const promoteBtn = card.querySelector('[data-promote]');
+        if (promoteBtn) {
+            promoteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                // Shared flow from common.js; the callback is this page's refresh.
+                promoteVersion(serviceName, apiType, v.version, async () => {
+                    await loadAllProducers();
+                    showProducerVersions(serviceName);
+                });
+            });
+        }
         return card;
     }
 
@@ -644,7 +662,8 @@
     }
 
     // Initial load
-    checkDiscoveryAuth(async () => {
+    checkDiscoveryAuth(async (user) => {
+        currentUser = user;
         await loadAllProducers();
         await handleDeepLink();
     });

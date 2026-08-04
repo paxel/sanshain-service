@@ -28,7 +28,7 @@ info:
     **Only the canonical names** `producername` and `consumername` are
     accepted; the 1.x aliases `servicename` and `clientname` are rejected as
     unknown fields like every other branch-era leftover.
-  version: "2.0.0"
+  version: "2.1.0"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt
@@ -48,9 +48,15 @@ paths:
         full document and the snippets as one version-line entry for the
         Producer.
 
-        **Idempotency**: re-providing byte-identical content is a no-op
-        regardless of stability or caller — CI re-runs of the same commit never
-        fight. `changes` reports all zero.
+        **Releasing is a role**: `stability: ga` — a fresh GA, a promotion,
+        or even an idempotent GA re-provide — requires the `release_ga`
+        permission (the `releaser` role; admins and root hold it implicitly)
+        and is otherwise refused 403. Snapshots need only authentication.
+
+        **Idempotency**: re-providing byte-identical content is a no-op —
+        CI re-runs of the same commit never fight. `changes` reports all zero.
+        The GA gate still applies first: for `stability: ga` the caller must
+        hold `release_ga` even when the re-provide would change nothing.
 
         **Snapshots** are overwritable: a snapshot Provide for an existing
         snapshot version replaces it wholesale (last writer wins; the previous
@@ -93,6 +99,15 @@ paths:
             Request body has the wrong shape — missing `stability`, or unknown
             (1.x) fields such as `branch`, `base_version` or `force`, which are
             rejected by name rather than silently ignored.
+        "403":
+          description: |
+            `stability: ga` without the `release_ga` permission. Releasing is
+            a role: grant `releaser` to the publishing user or token (admins
+            and root always may), or publish as a snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "409":
           description: |
             Rejected by the version rules. The body carries `proposed_version`,
@@ -136,6 +151,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: |
+            `stability: ga` without the `release_ga` permission (see
+            `/provide`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "409":
           description: |
             Rejected by the version rules (see `/provide`), or by a channel
@@ -172,6 +195,14 @@ paths:
                 $ref: "#/components/schemas/ProvideResponse"
         "400":
           description: Invalid request (e.g. missing sanshain-version marker).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: |
+            `stability: ga` without the `release_ga` permission (see
+            `/provide`).
           content:
             application/json:
               schema:

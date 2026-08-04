@@ -79,6 +79,10 @@ pub struct UpsertSpecVersion<'a> {
     /// decides: the caller, or — on a same-content promotion — the snapshot's
     /// original provider.
     pub provided_by: &'a str,
+    /// Compare-and-set: when `Some`, an overwrite only lands if the stored
+    /// row still carries this content hash; a mismatch is a `Conflict`.
+    /// `None` skips the check (ordinary provides).
+    pub expected_prior_hash: Option<&'a str>,
     pub now_iso: &'a str,
     pub endpoints: Vec<EndpointRecord>,
 }

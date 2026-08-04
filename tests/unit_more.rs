@@ -137,7 +137,10 @@ async fn approve_user_not_found() {
 #[tokio::test]
 async fn admin_delete_user_not_found() {
     let repo = MockRepo::new();
-    let ok = auth_service::admin_delete_user(&repo, 123).await.unwrap();
+    let roots = sanshain_service::domain::permissions::RootUsers::resolve(None, None);
+    let ok = auth_service::admin_delete_user(&repo, &roots, None, 123)
+        .await
+        .unwrap();
     assert!(!ok);
 }
 

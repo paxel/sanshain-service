@@ -148,7 +148,8 @@ async fn postgres_contracts_registered_on_ga_provides_only() {
             content: ASYNCAPI_SPEC,
             stability: Stability::Snapshot,
             dry_run: false,
-            username: Some("ci"),
+            caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
+            require_prior_content_match: false,
         },
     )
     .await
@@ -172,7 +173,8 @@ async fn postgres_contracts_registered_on_ga_provides_only() {
             content: &ga_spec,
             stability: Stability::Ga,
             dry_run: false,
-            username: Some("ci"),
+            caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
+            require_prior_content_match: false,
         },
     )
     .await
