@@ -24,7 +24,7 @@ spec:
         fsGroup: 1000
       containers:
       - name: sanshain
-        image: ghcr.io/sanshain/sanshain-service:v1.5.0
+        image: ghcr.io/sanshain/sanshain-service:v1.6.0
         ports:
         - containerPort: 3000
         envFrom:
@@ -35,6 +35,14 @@ spec:
         volumeMounts:
         - name: data
           mountPath: /data
+        # To trust a corporate CA for outbound TLS (e.g. LDAPS), mount the
+        # certificates and set EXTRA_CA_CERTS_DIR in the ConfigMap to the same
+        # path. They are added to the platform trust store, not substituted for
+        # it. Every *.pem in the directory is read at startup; a malformed one
+        # fails startup rather than being skipped silently.
+        # - name: ca-certs
+        #   mountPath: /certs
+        #   readOnly: true
         resources:
           requests:
             cpu: "100m"
@@ -58,3 +66,7 @@ spec:
       - name: data
         persistentVolumeClaim:
           claimName: sanshain-data
+      # Companion to the ca-certs mount above — a PVC, or a Secret:
+      # - name: ca-certs
+      #   secret:
+      #     secretName: corporate-ca-certs

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="/images/sonne.png">
+    <link rel="icon" type="image/png" href="/images/favicon.png">
     <title>Sanshain — Observability (サンシャイン)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/js/common.js"></script>
@@ -49,11 +49,11 @@
             <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
         <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-            <a href="/services.html" class="text-white hover:text-indigo-100 transition-colors">Services</a>
-            <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors">Producers</a>
+            <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
             <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
             <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
-            <a href="/audit.html" class="text-white hover:text-indigo-100 transition-colors">Audit</a>
+            <a id="nav-audit-link" href="/audit.html" class="hidden text-white hover:text-indigo-100 transition-colors">Audit</a>
             <a href="/observability.html" class="text-white font-bold underline underline-offset-4">Observability</a>
             <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
@@ -174,7 +174,7 @@
             <div class="flex justify-between items-center mb-4">
                 <div>
                     <h3 class="text-sm font-semibold text-slate-800 uppercase tracking-tight">Database Audit Log</h3>
-                    <p class="text-xs text-slate-500 mt-1">Last 30 successful database mutating operations and admin settings changes.</p>
+                    <p class="text-xs text-slate-500 mt-1">Last 30 database mutating operations, admin settings changes, and rejected provides. Use the <a href="/audit.html" class="text-indigo-600 hover:text-indigo-800">Audit timeline</a> to filter or look further back.</p>
                 </div>
                 <div>
                     <button onclick="exportAuditLogs()" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition-colors border border-indigo-700 shadow-sm flex items-center gap-1">
@@ -220,7 +220,9 @@
             const res = await apiCall('/auth/me');
             if (res.ok) {
                 const data = await res.json();
-                isAdmin = !!data.is_admin;
+                // Reading logs and stats needs only `view_observability`;
+                // changing the debug configuration is a settings change.
+                isAdmin = hasPermission(data, 'manage_settings');
                 await renderBanner(data);
                 applyAdminState();
                 hideLoader();
@@ -393,7 +395,13 @@
                 'TRACE': 'text-slate-600'
             }[l.level] || 'text-slate-300';
 
-            return `<div class="mb-1"><span class="text-slate-500">[${l.timestamp.substring(11, 19)}]</span> <span class="${color} font-bold">${l.level.padEnd(5)}</span> <span class="text-indigo-400">${escapeHtml(l.target)}</span>: ${escapeHtml(l.message)}</div>`;
+            // Some events (provide/require) carry service/version context; show it as
+            // a compact chip when present. Most lines (auth, startup, migrations)
+            // have none, so the chip is omitted rather than padded with a placeholder.
+            const context = l.service
+                ? `<span class="text-teal-400">[${escapeHtml(l.service)}${l.version ? '@' + escapeHtml(l.version) : ''}]</span> `
+                : '';
+            return `<div class="mb-1"><span class="text-slate-500">[${l.timestamp.substring(11, 19)}]</span> <span class="${color} font-bold">${l.level.padEnd(5)}</span> <span class="text-indigo-400">${escapeHtml(l.target)}</span>: ${context}${escapeHtml(l.message)}</div>`;
         }).join('');
 
         const autoScroll = document.getElementById('log-autoscroll');
@@ -470,6 +478,9 @@
             if (res.ok) {
                 const logs = await res.json();
                 renderAuditLogs(logs);
+            } else if (res.status === 403) {
+                const body = document.getElementById('audit-log-body');
+                body.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-400 italic">Admin access required to view the audit log.</td></tr>';
             }
         } catch (_) {}
     }
@@ -485,7 +496,13 @@
             let actionBadgeColor = 'bg-slate-100 text-slate-700';
             if (log.action === 'NUKE_DATABASE') {
                 actionBadgeColor = 'bg-red-100 text-red-700';
-            } else if (log.action === 'PROVIDE_SPEC') {
+            } else if (log.action === 'DELETE_VERSION') {
+                // The audited escape hatch from GA immutability — destructive
+                // for any Consumer pinned to the deleted version.
+                actionBadgeColor = 'bg-orange-100 text-orange-700';
+            } else if (log.action === 'VERSION_REJECTED') {
+                actionBadgeColor = 'bg-rose-100 text-rose-700';
+            } else if (log.action === 'PROVIDE_SPEC' || log.action === 'VERSION_PROMOTED') {
                 actionBadgeColor = 'bg-green-100 text-green-700';
             } else if (log.action === 'UPDATE_SETTINGS' || log.action === 'SET_DEV_MODE' || log.action === 'SET_LOCAL_USERS' || log.action === 'SET_AUTO_APPROVE') {
                 actionBadgeColor = 'bg-amber-100 text-amber-700';

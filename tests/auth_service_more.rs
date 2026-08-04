@@ -3,6 +3,11 @@ use sanshain_service::application::mock_repo::MockRepo;
 use sanshain_service::domain::models::*;
 use sanshain_service::domain::ports::SpecRepository;
 
+/// A root set that reserves no username used by these tests.
+fn no_root_users() -> sanshain_service::domain::permissions::RootUsers {
+    sanshain_service::domain::permissions::RootUsers::resolve(Some("__unused-root__"), None)
+}
+
 // 1. dev_mode default false
 #[tokio::test]
 async fn dev_mode_default_false() {
@@ -75,7 +80,6 @@ async fn change_password_wrong_old_password() {
         id: 1,
         username: "u".into(),
         password_hash: hash,
-        is_admin: false,
         approved: true,
     };
     let res = auth::change_password(&repo, &user, None, "bad", "new").await;
@@ -124,8 +128,8 @@ async fn register_user_conflict() {
     // enable and no auto-approve just for path
     auth::set_auth_mode(&repo, &AuthMode::Local).await.unwrap();
     let hash = auth::hash_password("pw").unwrap();
-    repo.create_user("bob", &hash, false, true).await.unwrap();
-    let res = auth::register_user(&repo, "bob", "pw").await;
+    repo.create_user("bob", &hash, true).await.unwrap();
+    let res = auth::register_user(&repo, &no_root_users(), "bob", "pw").await;
     match res {
         Err(AppError::Conflict(_)) => {}
         _ => panic!("expected conflict"),

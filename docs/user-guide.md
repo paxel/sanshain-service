@@ -3,18 +3,18 @@
 This guide covers day-to-day workflows for developers using Sanshain Service.
 
 ### TL;DR
-- **Publish**: Services upload their API specs (OpenAPI, AsyncAPI, Proto) to Sanshain.
-- **Consume**: Clients download only the specific endpoint snippets they need.
-- **Verify**: Use **Dry Run** mode in PRs to catch breaking changes before they merge.
+- **Publish**: Producers upload their API specs (OpenAPI, AsyncAPI, Proto) to Sanshain, versioned and with a declared stability.
+- **Consume**: Consumers pin an exact version and download only the specific endpoint snippets they need.
+- **Verify**: Use **Dry Run** mode in PRs to validate specs and preview version classification before they merge.
 - **Explore**: Use the Web UI to navigate the dependency graph and audit logs.
 
 ---
 
 ## Core Concepts
-- **Provide**: Upload a spec. Sanshain splits it into per-endpoint snippets.
-- **Require**: Request a snippet for a single endpoint and record the dependency.
-- **Protected Branch**: A branch (e.g., `main`) where breaking changes are blocked.
-- **Feature Branch Fallback**: If an endpoint isn't on your branch, Sanshain looks on `main`.
+- **Provide**: Upload a spec. Sanshain reads the version from the spec itself (`info.version`, or `// sanshain-version:` for proto) and splits it into per-endpoint snippets.
+- **Stability**: Declared on every Provide. `snapshot` = overwritable work-in-progress that expires when unused; `ga` = immutable, the number is permanently claimed.
+- **Require**: Request a snippet for a single endpoint at a pinned version and record the dependency.
+- **Pin**: A Consumer's exact version choice, written in its own configuration. No ranges, no `latest`, no fallback.
 - **Dry Run**: Validation-only mode for CI pipelines (`dry_run: true`).
 
 ## Build Tool Integration
@@ -33,45 +33,48 @@ The API is formally specified in [`api.yaml`](../api.yaml).
 ## How it Works
 
 ### Providing a Spec
-1. Plugin uploads your spec to `/provide` (or `/provide/asyncapi`, `/provide/grpc`).
-2. Sanshain splits the file into standalone snippets per operation.
-3. **Compatibility Check**: On protected branches, breaking changes return `409 Conflict`.
-4. **Idempotency**: Identical specs are skipped to avoid version inflation.
-5. **Ownership**: Feature branches track who "owns" an endpoint to prevent cross-service conflicts.
+1. Plugin uploads your spec to `/provide` (or `/provide/asyncapi`, `/provide/grpc`), declaring `snapshot` or `ga` stability (`snapshot` unless the build sets the ga switch — see [sanshain.yaml](sanshain-yaml.md#how-stability-is-decided)).
+2. Sanshain reads the version from the spec and splits the file into standalone snippets per operation.
+3. **Version Rules**: a GA number is immutable — re-providing it with different content returns `409 Conflict` with a `proposed_version` to publish as instead. A GA whose changes against the previous GA are breaking without a major bump is also rejected with the correct proposal.
+4. **Idempotency**: Byte-identical specs are a no-op — CI re-runs never fight.
+5. **Snapshots**: Overwritable, last writer wins; the previous provider is named in the audit trail.
 
 ### Multi-Producer Topics (AsyncAPI)
 
 Kafka topic names are a **global namespace**, so a topic (audit log, DLQ, …) can have many
-producers. Sanshain tracks AsyncAPI compatibility per **message**: every *named* `publish`
-message registers a contract keyed by `(branch, channel, message name)`, owned by the first
-service to publish it. The owner may widen its own message; a second producer of the same
+producers. Sanshain tracks AsyncAPI compatibility per **message**: on GA provides, every *named*
+`publish` message registers a contract keyed by `(channel, message name)`, owned by the first
+Producer to publish it. The owner may widen its own message; a second producer of the same
 channel + message name is accepted only if its payload is identical, otherwise rejected with
-`409` naming the owner. **Name your messages** (`name`/`title`) — unnamed messages have no
-cross-service identity and are skipped. See
+`409` naming the owner. Snapshots are never contract-checked. **Name your messages**
+(`name`/`title`) — unnamed messages have no cross-service identity and are skipped. See
 [API Lifecycle §6](api-lifecycle.md#6-multi-producer-topics-asyncapi-message-contracts) for the
 full rules.
 
 ### Requiring an Endpoint
-1. Plugin calls `/require` for a specific path + method.
-2. Sanshain returns a minimal YAML/Proto containing only that operation and its models.
-3. Plugin generates client code from the returned snippet.
-4. **Long-polling**: If the provider hasn't published yet, the request waits (up to a timeout).
+1. Plugin calls `/require` for a specific path + method at the pinned version.
+2. Sanshain resolves immediately: GA preferred, else the same-numbered snapshot, else `404`. Nothing waits.
+3. Sanshain returns a minimal YAML/Proto containing only that operation and its models.
+4. Plugin generates client code from the returned snippet.
 
 ---
 
 ## Web Dashboard Features
 
-#### Services (`/services.html`)
-- Browse registered services and branches.
+#### Producers (`/producers.html`)
+- Browse registered producers and their version lines (version, stability, snapshot expiry).
 - View endpoint usage and availability.
 - Copy or download endpoint specifications.
 
 #### Dependency Graph (`/graph.html`)
 - High-performance SVG visualization of all service relationships.
+- Highlights **Outdated** pins (below the latest GA) and **Snapshot-pinned** dependencies (building against overwritable content).
 - Interactive tooltips with direct links to specs.
 - Export as high-resolution PNG.
 
 #### Audit Timeline (`/audit.html`)
+- **Administrators only.** The page and the data behind it are restricted, and
+  the Audit link is hidden from the navigation for everyone else.
 - Global log of all spec updates.
 - Side-by-side diff viewer for every change.
 

@@ -16,6 +16,136 @@ window.graphProtocolFilters = {
   asyncapi: true,
   proto: true,
 };
+// Independent display-state highlights (never resolution inputs):
+// outdated = Pin semantically below the line's latest GA;
+// snapshot = Pin currently served from a Snapshot.
+window.graphHighlightFilters = {
+  outdated: false,
+  snapshot: false,
+};
+
+const GRAPH_OUTDATED_COLOR = "#f43f5e";
+const GRAPH_SNAPSHOT_COLOR = "#f59e0b";
+
+function _graphCompareSemver(a, b) {
+  const pa = String(a)
+    .split(".")
+    .map((n) => parseInt(n, 10) || 0);
+  const pb = String(b)
+    .split(".")
+    .map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+  }
+  return 0;
+}
+
+// Latest GA per version line, from the Producer listing that rides along in
+// report.services_detailed: Map "producer|api_type" -> "x.y.z" (absent when
+// the line has no GA yet).
+function graphLatestGaMap(report) {
+  const map = new Map();
+  (report.services_detailed || []).forEach((svc) => {
+    (svc.versions || []).forEach((v) => {
+      if (v.stability !== "ga") return;
+      const key = `${svc.name}|${(v.api_type || "openapi").toLowerCase()}`;
+      const cur = map.get(key);
+      if (!cur || _graphCompareSemver(v.version, cur) > 0) map.set(key, v.version);
+    });
+  });
+  return map;
+}
+
+// Per aggregated edge ("client-->service"): does any dependency on it carry an
+// Outdated or Snapshot-pinned Pin? Map key -> { outdated, snapshot }.
+function graphEdgeFlags(report, latestGaMap) {
+  const flags = new Map();
+  (report.dependency_graph || []).forEach((d) => {
+    const key = `${d.client}-->${d.service}`;
+    if (!flags.has(key)) flags.set(key, { outdated: false, snapshot: false });
+    const f = flags.get(key);
+    if (d.stability === "snapshot") f.snapshot = true;
+    const latestGa = latestGaMap.get(`${d.service}|${(d.api_type || "openapi").toLowerCase()}`);
+    if (latestGa && _graphCompareSemver(d.version, latestGa) < 0) f.outdated = true;
+  });
+  return flags;
+}
+window.graphLatestGaMap = graphLatestGaMap;
+window.graphEdgeFlags = graphEdgeFlags;
+
+function updateHighlightButtons() {
+  const styles = [
+    ["highlight-outdated", "outdated", "bg-rose-500 text-white"],
+    ["highlight-snapshot", "snapshot", "bg-amber-500 text-white"],
+  ];
+  for (const [id, filter, activeClasses] of styles) {
+    const btn = document.getElementById(id);
+    if (!btn) continue;
+    btn.className = window.graphHighlightFilters[filter]
+      ? `px-2.5 py-1.5 ${activeClasses} font-medium`
+      : "px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium";
+  }
+}
+window.updateHighlightButtons = updateHighlightButtons;
+
+function toggleHighlightFilter(filter) {
+  window.graphHighlightFilters[filter] = !window.graphHighlightFilters[filter];
+  updateHighlightButtons();
+  if (window.updateGraphUrl) window.updateGraphUrl(true);
+  // Mermaid encodes the highlight in its generated code, so it needs a full
+  // redraw; the custom renderer just restyles in place.
+  const mode = typeof currentGraphMode !== "undefined" ? currentGraphMode : "custom";
+  if (mode === "custom") {
+    applyGraphHighlights();
+  } else {
+    redrawGraph();
+  }
+}
+window.toggleHighlightFilter = toggleHighlightFilter;
+
+// Restyle the rendered custom graph for the active highlight toggles: matching
+// edges get their highlight color, everything else is dimmed. With both
+// toggles off every element returns to its base styling.
+function applyGraphHighlights() {
+  const nodes = window._graphNodeElements;
+  const edges = window._graphEdgeElements;
+  if (!nodes || !edges) return;
+
+  const { outdated, snapshot } = window.graphHighlightFilters;
+  if (!outdated && !snapshot) {
+    edges.forEach((els) => {
+      els.path.style.opacity = "1";
+      els.path.setAttribute("stroke", els.path.dataset.baseStroke);
+      els.path.setAttribute("stroke-width", els.path.dataset.baseWidth);
+    });
+    nodes.forEach((el) => {
+      el.style.opacity = "1";
+    });
+    return;
+  }
+
+  const litNodes = new Set();
+  edges.forEach((els, key) => {
+    const isOutdated = outdated && els.path.dataset.outdated === "1";
+    const isSnapshot = snapshot && els.path.dataset.snapshot === "1";
+    if (isOutdated || isSnapshot) {
+      els.path.style.opacity = "1";
+      els.path.setAttribute("stroke", isOutdated ? GRAPH_OUTDATED_COLOR : GRAPH_SNAPSHOT_COLOR);
+      els.path.setAttribute("stroke-width", "3");
+      const [from, to] = key.split("-->");
+      litNodes.add(from);
+      litNodes.add(to);
+    } else {
+      els.path.style.opacity = "0.12";
+      els.path.setAttribute("stroke", els.path.dataset.baseStroke);
+      els.path.setAttribute("stroke-width", els.path.dataset.baseWidth);
+    }
+  });
+  nodes.forEach((el, name) => {
+    el.style.opacity = litNodes.has(name) ? "1" : "0.2";
+  });
+}
+window.applyGraphHighlights = applyGraphHighlights;
 
 // ── Redraw Coordinator ───────────────────────────────────────────────
 
@@ -315,8 +445,7 @@ function renderCustomGraph(report, svgElement, direction) {
   // Build graph data
   const allNodes = new Set();
   const adjMap = new Map();
-  const edgeLabels = new Map(); // "from-->to" -> Set<"METHOD /path">
-  const edgeSources = new Map(); // "from-->to" -> Set<"Both" | "Branch" | "Target">
+  const edgeLabels = new Map(); // "from-->to" -> [dependency, ...]
 
   deps.forEach((d) => {
     const from = d.client,
@@ -328,13 +457,15 @@ function renderCustomGraph(report, svgElement, direction) {
     const key = `${from}-->${to}`;
     if (!edgeLabels.has(key)) edgeLabels.set(key, []);
     edgeLabels.get(key).push(d);
-    if (!edgeSources.has(key)) edgeSources.set(key, new Set());
-    if (d.source) edgeSources.get(key).add(d.source);
   });
 
   const clientNodes = new Set(deps.map((d) => d.client));
   const serviceNodes = new Set(deps.map((d) => d.service));
   const cycleEdges = graphDetectCycles(adjMap);
+
+  // Outdated / Snapshot-pinned flags per aggregated edge.
+  const latestGaMap = graphLatestGaMap(report);
+  const edgeHighlightFlags = graphEdgeFlags(report, latestGaMap);
 
   // Detect bidirectional PUB/SUB edges (both directions between same pair)
   const pubsubBidirectional = new Set();
@@ -799,23 +930,6 @@ function renderCustomGraph(report, svgElement, direction) {
       edgeWidth = "2";
       markerEnd = "url(#arrow)";
     }
-    // Ghost edge styling: determine if this edge exists only in target
-    const eSources = edgeSources.get(key);
-    let isGhostEdge = false;
-    if (eSources && eSources.has("Target") && !eSources.has("Both") && !eSources.has("Branch")) {
-      isGhostEdge = true;
-    } else if (!eSources || eSources.size === 0) {
-      // Fallback to node-based ghosting if edge sources are missing (non-merged report)
-      const edgeSourceFrom = report.node_sources && report.node_sources[e.v];
-      const edgeSourceTo = report.node_sources && report.node_sources[e.w];
-      isGhostEdge = edgeSourceFrom === "Target" || edgeSourceTo === "Target";
-    }
-
-    if (isGhostEdge) {
-      edgeColor = "#cbd5e1";
-      edgeWidth = "1.5";
-    }
-
     path.setAttribute("stroke", edgeColor);
     path.setAttribute("stroke-width", edgeWidth);
     path.setAttribute("fill", "none");
@@ -828,12 +942,15 @@ function renderCustomGraph(report, svgElement, direction) {
     else if (isMessagingRegister) path.dataset.edgeType = "messaging-register";
     else if (isBidirectionalPubSub) path.dataset.edgeType = "pubsub-bidir";
     else path.dataset.edgeType = "normal";
+    // Independent highlight flags + base styling, so the Outdated /
+    // Snapshot-pinned toggles can restyle and restore without a redraw.
+    const hFlags = edgeHighlightFlags.get(key);
+    path.dataset.outdated = hFlags && hFlags.outdated ? "1" : "0";
+    path.dataset.snapshot = hFlags && hFlags.snapshot ? "1" : "0";
+    path.dataset.baseStroke = edgeColor;
+    path.dataset.baseWidth = edgeWidth;
     if (isMissing || isBidirectionalPubSub || isMessagingRegister)
       path.setAttribute("stroke-dasharray", "6 3");
-    if (isGhostEdge) {
-      path.setAttribute("stroke-dasharray", "4 2");
-      path.setAttribute("opacity", "0.3");
-    }
     mainG.appendChild(path);
 
     edgeElements.set(key, { path, hitArea });
@@ -872,29 +989,10 @@ function renderCustomGraph(report, svgElement, direction) {
       textColor = "#115e59";
     }
 
-    // Ghost / branch-only / conflict styling from merged report
-    const nodeSource = report.node_sources && report.node_sources[node];
-    let isGhost = false;
-    let isBranchOnly = false;
-    let strokeDash = "";
-    if (nodeSource === "Target") {
-      isGhost = true;
-      fill = "#f1f5f9";
-      stroke = "#94a3b8";
-      textColor = "#94a3b8";
-      strokeDash = "4 2";
-    } else if (nodeSource === "Branch") {
-      isBranchOnly = true;
-      stroke = "#22c55e";
-    }
-
-    const hasConflict = report.conflicts && report.conflicts.some((c) => c.service === node);
-
     const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
     group.setAttribute("class", "graph-node");
     group.dataset.node = node;
     if (nodeTags.length > 0) group.dataset.tags = nodeTags.join(",");
-    if (nodeSource) group.dataset.source = nodeSource.toLowerCase();
     // Set role for legend highlighting
     if (isMissingService) group.dataset.role = "missing";
     else if (hasTag("messaging")) group.dataset.role = "tag-messaging";
@@ -903,7 +1001,6 @@ function renderCustomGraph(report, svgElement, direction) {
     else if (isService) group.dataset.role = "service";
     else group.dataset.role = "client";
     group.style.cursor = "pointer";
-    if (isGhost) group.setAttribute("opacity", "0.35");
 
     const cx = nd.x,
       cy = nd.y,
@@ -920,9 +1017,8 @@ function renderCustomGraph(report, svgElement, direction) {
     rect.setAttribute("ry", "8");
     rect.setAttribute("fill", fill);
     rect.setAttribute("stroke", stroke);
-    rect.setAttribute("stroke-width", isBranchOnly ? "3" : "2");
+    rect.setAttribute("stroke-width", "2");
     if (isMissingService) rect.setAttribute("stroke-dasharray", "6 3");
-    if (strokeDash) rect.setAttribute("stroke-dasharray", strokeDash);
     group.appendChild(rect);
 
     // Add Symbols (Top-Left: ! for missing, Top-Right: ✉️ for AsyncAPI, 🔌 for gRPC)
@@ -964,30 +1060,6 @@ function renderCustomGraph(report, svgElement, direction) {
         group.appendChild(svgG);
       }
     });
-
-    // Ghost indicator
-    if (isGhost) {
-      const ghost = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      ghost.setAttribute("x", cx - hw + 10);
-      ghost.setAttribute("y", cy - hh + 14);
-      ghost.setAttribute("font-size", "11");
-      ghost.setAttribute("text-anchor", "middle");
-      ghost.textContent = "👻";
-      group.appendChild(ghost);
-    }
-
-    // Conflict warning badge
-    if (hasConflict) {
-      const badge = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      badge.setAttribute("x", cx - hw + (isGhost ? 24 : 8));
-      badge.setAttribute("y", cy - hh + 14);
-      badge.setAttribute("font-size", "12");
-      badge.setAttribute("font-weight", "bold");
-      badge.setAttribute("text-anchor", "middle");
-      badge.setAttribute("fill", "#dc2626");
-      badge.textContent = "⚠";
-      group.appendChild(badge);
-    }
 
     // Double border for "both" nodes
     if (isClient && isService) {
@@ -1077,9 +1149,6 @@ function renderCustomGraph(report, svgElement, direction) {
     const endpoints = edgeLabels.get(key);
     if (!endpoints || endpoints.length === 0) return;
 
-    const branch =
-      document.getElementById("graph-branch-select")?.value || lastGraphReport?.branch || "main";
-
     tooltip.innerHTML = `
       <div class="mb-2 pb-1 border-b border-slate-700/50">
         <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Dependency</div>
@@ -1098,7 +1167,7 @@ function renderCustomGraph(report, svgElement, direction) {
               return `<div class="text-slate-400 italic text-[11px] py-1 border-b border-slate-800/50 last:border-0">${_graphEscapeHtml(method)} ${_graphEscapeHtml(path)}</div>`;
             }
 
-            const url = `/yaml.html?service=${encodeURIComponent(to)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}&api_type=${encodeURIComponent(type)}`;
+            const url = `/yaml.html?service=${encodeURIComponent(to)}&api_type=${encodeURIComponent(type)}&version=${encodeURIComponent(d.version || "")}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}`;
 
             let methodClass = "text-indigo-400";
             if (method === "POST" || method === "PUB") methodClass = "text-emerald-400";
@@ -1108,9 +1177,6 @@ function renderCustomGraph(report, svgElement, direction) {
             const deprecatedBadge = d.deprecated
               ? '<span class="px-1 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[9px] font-bold ml-1">DEPRECATED</span>'
               : "";
-            const externalBadge = d.external
-              ? '<span class="px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold ml-1">EXTERNAL</span>'
-              : "";
 
             return `
             <a href="${url}" class="group block p-1.5 rounded bg-white/5 hover:bg-indigo-500/20 border border-transparent hover:border-indigo-500/30 transition-all">
@@ -1118,9 +1184,8 @@ function renderCustomGraph(report, svgElement, direction) {
                 <div class="flex items-center gap-1">
                   <span class="font-mono text-[11px] ${methodClass} font-bold">${_graphEscapeHtml(method)}</span>
                   ${deprecatedBadge}
-                  ${externalBadge}
                 </div>
-                <span class="text-[10px] text-slate-500 group-hover:text-indigo-300 transition-colors">${_graphEscapeHtml(type)}</span>
+                <span class="text-[10px] text-slate-500 group-hover:text-indigo-300 transition-colors">${_graphEscapeHtml(type)} ${_graphEscapeHtml(String(d.version || ""))}${d.stability === "snapshot" ? ' <span class="text-amber-400 font-bold">SNAP</span>' : ""}</span>
               </div>
               <div class="font-mono text-[11px] text-slate-300 truncate group-hover:text-white transition-colors" title="${_graphEscapeHtml(path)}">${_graphEscapeHtml(path)}</div>
             </a>
@@ -1160,8 +1225,6 @@ function renderCustomGraph(report, svgElement, direction) {
     }
 
     const tags = report?.service_tags?.[name] || [];
-    const branch =
-      document.getElementById("graph-branch-select")?.value || report?.branch || "main";
 
     tooltip.innerHTML = `
       <div class="mb-3 pb-2 border-b border-slate-700/50">
@@ -1172,7 +1235,7 @@ function renderCustomGraph(report, svgElement, direction) {
         </div>
       </div>
       <div class="space-y-3">
-        <a href="/services.html?service=${encodeURIComponent(name)}&branch=${encodeURIComponent(branch)}" class="flex items-center justify-center gap-2 w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-all shadow-lg shadow-indigo-500/20">
+        <a href="/producers.html?service=${encodeURIComponent(name)}" class="flex items-center justify-center gap-2 w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-all shadow-lg shadow-indigo-500/20">
           <span>View Service Details</span>
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
         </a>
@@ -1275,6 +1338,9 @@ function renderCustomGraph(report, svgElement, direction) {
   // Expose nodeElements/edgeElements so the legend hover code can access them
   window._graphNodeElements = nodeElements;
   window._graphEdgeElements = edgeElements;
+
+  // Re-apply the persistent Outdated / Snapshot-pinned highlight toggles.
+  applyGraphHighlights();
 
   // ── Zoom & Pan ───────────────────────────────────────────────────
   let scale = 1;
@@ -1381,8 +1447,7 @@ function exportToPng(currentGraphMode) {
   if (!svg) return;
   if (currentGraphMode === "custom" && !svg.firstChild) return;
 
-  const branch = document.getElementById("graph-branch-select").value || "graph";
-  const filename = `dependency_graph_${branch}.png`;
+  const filename = "dependency_graph.png";
 
   // Clone the SVG to avoid modifying the live one
   const svgClone = svg.cloneNode(true);

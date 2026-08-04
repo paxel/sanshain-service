@@ -8,6 +8,7 @@
     "test:unit": "cargo test",
     "test:itest": "./scripts/itest.sh",
     "test:ui": "npx playwright test tests/ui/smoke.test.js",
+    "screenshots": "./scripts/update_screenshots.sh",
     "test": "cargo test",
     "check": "npm run fmt:check && npm run lint && npm run test"
   },

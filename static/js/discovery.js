@@ -1,11 +1,11 @@
 /**
  * discovery.js — Shared utilities for the Sanshain discovery pages
- * (services.html, clients.html, graph.html, reports.html)
+ * (producers.html, consumers.html, graph.html, reports.html)
  */
 
-let allServices = [];
-let allServiceBranches = {}; // cache: serviceName -> branches[]
+let allServices = []; // ProducerSummary[]: { name, versions[], is_favorite, icon, domain }
 let userFavorites = { services: [], clients: [] };
+
 const YAML_PAGE_SIZE = 80; // lines per page for YAML viewer
 
 async function fetchJSON(url) {
@@ -14,13 +14,57 @@ async function fetchJSON(url) {
   return res.json();
 }
 
-async function loadAllServiceBranches() {
-  const services = await fetchJSON("/admin/services");
-  allServices = services || [];
-  allServiceBranches = {};
-  for (const svc of allServices) {
-    allServiceBranches[svc.name] = svc.branches || [];
+// Load every Producer with its version lines (all API types) in one request.
+async function loadAllProducers() {
+  allServices = (await fetchJSON("/admin/producers")) || [];
+}
+
+function producerByName(name) {
+  return allServices.find((s) => s.name === name) || null;
+}
+
+function producerVersions(name) {
+  const svc = producerByName(name);
+  return svc ? svc.versions || [] : [];
+}
+
+// A Producer "serves something" once at least one entry of its version lines
+// has at least one endpoint. Used by the discovery view (producers.html) to
+// hide Producers that provide nothing — e.g. a spec published with no paths.
+function producerHasAnyEndpoints(name) {
+  return producerVersions(name).some((v) => (v.endpoint_count || 0) > 0);
+}
+
+// --- Semver helpers (versions are strict MAJOR.MINOR.PATCH strings) ---
+
+function parseSemver(v) {
+  return String(v)
+    .split(".")
+    .map((n) => parseInt(n, 10) || 0);
+}
+
+function compareSemver(a, b) {
+  const pa = parseSemver(a);
+  const pb = parseSemver(b);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
   }
+  return 0;
+}
+
+// The highest GA version of one line (an array of version entries), or null
+// when the line has no GA yet.
+function latestGaVersion(versions) {
+  const gas = versions.filter((v) => v.stability === "ga").map((v) => v.version);
+  gas.sort(compareSemver);
+  return gas.length > 0 ? gas[gas.length - 1] : null;
+}
+
+// SNAPSHOT / GA badge markup for a version entry.
+function stabilityBadge(stability) {
+  return stability === "ga"
+    ? '<span class="text-[10px] text-green-700 bg-green-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter">GA</span>'
+    : '<span class="text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter">Snapshot</span>';
 }
 
 async function loadUserFavorites() {
@@ -31,52 +75,6 @@ async function loadUserFavorites() {
     console.error("Failed to load user favorites:", err);
     userFavorites = { services: [], clients: [] };
   }
-}
-
-let allBranchesMetadata = [];
-
-async function loadBranchesMetadata() {
-  try {
-    allBranchesMetadata = await fetchJSON("/branches/metadata");
-  } catch (err) {
-    console.error("Failed to load branches metadata:", err);
-    allBranchesMetadata = [];
-  }
-}
-
-function isBranchProtected(branchName, protectedPatterns) {
-  if (!protectedPatterns || !Array.isArray(protectedPatterns)) return false;
-  return protectedPatterns.some((pattern) => {
-    if (pattern === branchName) return true;
-    const regexStr =
-      "^" + pattern.replace(/[-\/\\^$+?.()|[\]{}]/g, "\\$&").replace(/\*/g, ".*") + "$";
-    const regex = new RegExp(regexStr);
-    return regex.test(branchName);
-  });
-}
-
-function sortBranchNames(branchNames, protectedBranches) {
-  const list = Array.from(branchNames);
-  const lastModifiedMap = {};
-  for (const b of allBranchesMetadata) {
-    lastModifiedMap[b.name] = b.last_modified;
-  }
-
-  return list.sort((a, b) => {
-    const aProt = isBranchProtected(a, protectedBranches);
-    const bProt = isBranchProtected(b, protectedBranches);
-
-    if (aProt && !bProt) return -1;
-    if (!aProt && bProt) return 1;
-
-    const aTime = lastModifiedMap[a] || "1970-01-01T00:00:00Z";
-    const bTime = lastModifiedMap[b] || "1970-01-01T00:00:00Z";
-
-    if (aTime !== bTime) {
-      return bTime.localeCompare(aTime); // descending (newest first)
-    }
-    return a.localeCompare(b);
-  });
 }
 
 async function toggleFavorite(event, itemType, itemName, currentIsFavorite) {
@@ -268,123 +266,34 @@ function renderDiffHtml(diffLines) {
     .join("\n");
 }
 
-function renderVersionHistory(container, versions) {
-  versions.sort((a, b) => a.version - b.version);
-
-  let html = `<div class="space-y-3">
-        <div class="flex items-center gap-3 mb-4">
-            <label class="text-sm font-medium text-slate-600">Compare:</label>
-            <select id="diff-from" class="text-sm border border-slate-300 rounded-lg px-2 py-1">
-                ${versions.map((v) => `<option value="${v.version}"${v.version === versions[0].version ? " selected" : ""}>v${v.version} (${v.created_at})</option>`).join("")}
-            </select>
-            <span class="text-slate-500">→</span>
-            <select id="diff-to" class="text-sm border border-slate-300 rounded-lg px-2 py-1">
-                ${versions.map((v) => `<option value="${v.version}"${v.version === versions[versions.length - 1].version ? " selected" : ""}>v${v.version} (${v.created_at})</option>`).join("")}
-            </select>
-            <button id="diff-go" class="px-3 py-1 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Diff</button>
-        </div>
-        <div id="diff-output"></div>
-        <h4 class="text-sm font-semibold text-slate-700 mt-6 mb-2">All Versions</h4>`;
-
-  for (const v of [...versions].reverse()) {
-    const hasDiff = v.diff_from_previous && v.diff_from_previous.trim().length > 0;
-    html += `
-        <div class="bg-white border border-slate-200 rounded-xl p-3">
-            <div class="flex items-center justify-between">
-                <div>
-                    <span class="text-sm font-semibold text-slate-700">Version ${v.version}</span>
-                    <span class="text-xs text-slate-500 ml-2">${v.created_at}</span>
-                </div>
-                <div class="flex gap-2">
-                    <button class="ver-yaml-btn text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200" data-version="${v.version}">View YAML</button>
-                    ${hasDiff ? `<button class="ver-diff-btn text-xs px-2 py-1 bg-amber-100 text-amber-700 rounded hover:bg-amber-200" data-version="${v.version}">Diff from v${v.version - 1}</button>` : ""}
-                </div>
-            </div>
-            <div id="ver-detail-${v.version}" class="hidden mt-3"></div>
-        </div>`;
-  }
-  html += "</div>";
-  container.innerHTML = html;
-
-  const versionMap = {};
-  versions.forEach((v) => (versionMap[v.version] = v));
-
-  document.getElementById("diff-go").onclick = () => {
-    const fromV = parseInt(document.getElementById("diff-from").value);
-    const toV = parseInt(document.getElementById("diff-to").value);
-    const output = document.getElementById("diff-output");
-    if (fromV === toV) {
-      output.innerHTML = '<div class="text-sm text-slate-500 italic">Same version selected.</div>';
-      return;
-    }
-    const vFrom = versionMap[fromV];
-    const vTo = versionMap[toV];
-    if (!vFrom || !vTo) {
-      output.innerHTML = '<div class="text-sm text-red-500">Version not found.</div>';
-      return;
-    }
-    const diff = simpleDiff(vFrom.yaml_content, vTo.yaml_content);
-    const adds = diff.filter((d) => d.type === "add").length;
-    const dels = diff.filter((d) => d.type === "del").length;
-    output.innerHTML = `
-            <div class="text-xs text-slate-500 mb-1">v${fromV} → v${toV}: <span class="text-green-600">+${adds}</span> / <span class="text-red-600">-${dels}</span> lines</div>
-            <pre class="diff-pre bg-slate-800 p-4 rounded-xl text-sm overflow-x-auto whitespace-pre-wrap leading-relaxed">${renderDiffHtml(diff)}</pre>`;
-  };
-
-  container.querySelectorAll(".ver-yaml-btn").forEach((btn) => {
-    btn.onclick = () => {
-      const ver = parseInt(btn.dataset.version);
-      const detail = document.getElementById(`ver-detail-${ver}`);
-      if (!detail.classList.contains("hidden")) {
-        detail.classList.add("hidden");
-        return;
-      }
-      detail.classList.remove("hidden");
-      const v = versionMap[ver];
-      const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      detail.innerHTML = `<pre class="bg-slate-800 text-green-300 p-4 rounded-xl text-sm overflow-x-auto whitespace-pre-wrap leading-relaxed">${esc(v.yaml_content)}</pre>`;
-    };
-  });
-
-  container.querySelectorAll(".ver-diff-btn").forEach((btn) => {
-    btn.onclick = () => {
-      const ver = parseInt(btn.dataset.version);
-      const detail = document.getElementById(`ver-detail-${ver}`);
-      if (!detail.classList.contains("hidden")) {
-        detail.classList.add("hidden");
-        return;
-      }
-      detail.classList.remove("hidden");
-      const v = versionMap[ver];
-      const prev = versionMap[ver - 1];
-      if (prev) {
-        const diff = simpleDiff(prev.yaml_content, v.yaml_content);
-        const adds = diff.filter((d) => d.type === "add").length;
-        const dels = diff.filter((d) => d.type === "del").length;
-        detail.innerHTML = `
-                    <div class="text-xs text-slate-500 mb-1">v${ver - 1} → v${ver}: <span class="text-green-600">+${adds}</span> / <span class="text-red-600">-${dels}</span></div>
-                    <pre class="diff-pre bg-slate-800 p-4 rounded-xl text-sm overflow-x-auto whitespace-pre-wrap leading-relaxed">${renderDiffHtml(diff)}</pre>`;
-      } else if (v.diff_from_previous) {
-        const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        const coloredDiff = v.diff_from_previous
-          .split("\n")
-          .map((line) => {
-            if (line.startsWith("+"))
-              return `<span class="text-green-400">` + esc(line) + `</span>`;
-            if (line.startsWith("-")) return `<span class="text-red-400">` + esc(line) + `</span>`;
-            return `<span class="text-slate-300">` + esc(line) + `</span>`;
-          })
-          .join("\n");
-        detail.innerHTML = `<pre class="diff-pre bg-slate-800 p-4 rounded-xl text-sm overflow-x-auto whitespace-pre-wrap leading-relaxed">${coloredDiff}</pre>`;
-      }
-    };
-  });
+// Colorize a server-produced unified diff (text/plain from
+// /admin/producers/{name}/diff) for display in a dark <pre> block.
+function renderUnifiedDiffHtml(diffText) {
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return diffText
+    .split("\n")
+    .map((line) => {
+      if (line.startsWith("+++") || line.startsWith("---"))
+        return `<span class="text-slate-300 font-bold">${esc(line)}</span>`;
+      if (line.startsWith("@@")) return `<span class="text-indigo-400">${esc(line)}</span>`;
+      if (line.startsWith("+")) return `<span class="text-green-400">${esc(line)}</span>`;
+      if (line.startsWith("-")) return `<span class="text-red-400">${esc(line)}</span>`;
+      return `<span class="text-slate-400">${esc(line)}</span>`;
+    })
+    .join("\n");
 }
 
+/// Resolve who the caller is, then hand that to `onSuccess`.
+///
+/// The callback ALWAYS receives the resolved user, or `null` when the caller is
+/// not identified. Callers that gate admin-only affordances depend on it:
+/// invoking the callback with no argument leaves their `user` parameter
+/// `undefined`, which reads as not-an-admin and silently disables the feature
+/// for everyone.
 async function checkDiscoveryAuth(onSuccess) {
   if (window.SANSHAIN_FAST_SCREENSHOT) {
     console.log("Fast screenshot mode: bypassing auth check");
-    if (onSuccess) await onSuccess();
+    if (onSuccess) await onSuccess(null);
     return;
   }
   const token = getSanshainToken();
@@ -396,26 +305,13 @@ async function checkDiscoveryAuth(onSuccess) {
       if (res.ok) {
         const user = await res.json();
         renderBanner(user);
-        if (onSuccess) await onSuccess();
+        if (onSuccess) await onSuccess(user);
         return;
       }
     } catch (err) {
       console.error("Auth check failed:", err);
     }
   }
-
-  // Fallback: check if dev mode is enabled
-  try {
-    const devRes = await fetch("/admin/settings/dev-mode");
-    if (devRes.ok) {
-      const devData = await devRes.json();
-      if (devData.enabled) {
-        renderBanner(null);
-        if (onSuccess) await onSuccess();
-        return;
-      }
-    }
-  } catch (e) {}
 
   if (window.SANSHAIN_FAST_SCREENSHOT) {
     console.log("Fast screenshot mode: skipping auth redirect");

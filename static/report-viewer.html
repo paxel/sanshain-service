@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="/images/sonne.png">
+    <link rel="icon" type="image/png" href="/images/favicon.png">
     <title>Report — Sanshain</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -37,7 +37,7 @@
     <header class="bg-gradient-to-r from-indigo-700 to-indigo-900 text-white shadow-lg">
         <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
             <div class="flex items-center gap-3">
-                <a href="/services.html" class="text-indigo-200 hover:text-white transition-colors text-sm">← Back to Dashboard</a>
+                <a href="/producers.html" class="text-indigo-200 hover:text-white transition-colors text-sm">← Back to Dashboard</a>
                 <span class="text-indigo-300">|</span>
                 <h1 id="report-title" class="text-lg font-semibold">Report</h1>
             </div>
@@ -93,8 +93,7 @@
 
             // Derive filename from src
             const srcPath = src.split('?')[0].split('/').pop() || 'report';
-            const branch = params.get('branch') || new URLSearchParams(src.split('?')[1] || '').get('branch') || '';
-            reportFilename = branch ? `${srcPath}_${branch}.md` : `${srcPath}.md`;
+            reportFilename = `${srcPath}.md`;
 
             try {
                 const headers = {};

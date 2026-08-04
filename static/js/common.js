@@ -19,11 +19,62 @@ function setBannerVersion(version) {
   if (desktop) desktop.textContent = text;
 }
 
+// --- Permissions ---
+//
+// The server answers `/auth/me` with the permissions the caller actually holds,
+// so the UI asks what someone may *do* rather than whether they are an
+// administrator. That is what lets a partial administrator — a user manager, or
+// the maintainer of one Producer — see the parts they hold instead of an
+// all-or-nothing view.
+//
+// Hiding a control is a usability affordance, not a security boundary: the route
+// guard on the server is the boundary. Never let a hidden button stand in for
+// one.
+function hasPermission(user, permission) {
+  return Array.isArray(user?.permissions) && user.permissions.includes(permission);
+}
+
+// True when the caller holds any of the listed permissions.
+function hasAnyPermission(user, permissions) {
+  return permissions.some((permission) => hasPermission(user, permission));
+}
+
+// Permissions that, between them, mean "there is something on the admin
+// dashboard for this person". Kept in one place so a new section does not have
+// to remember to extend every caller.
+const ADMIN_DASHBOARD_PERMISSIONS = [
+  "manage_users",
+  "manage_roles",
+  "manage_producers",
+  "manage_consumers",
+  "manage_settings",
+  "manage_auth_config",
+  "view_audit",
+  "view_observability",
+  "run_destructive_operations",
+];
+
+function canSeeAdminDashboard(user) {
+  // A maintainer's permissions are scoped to their Producers rather than
+  // granted globally, so `permissions` alone would hide the dashboard from
+  // exactly the people expected to manage something there.
+  const maintainsSomething = user && Array.isArray(user.maintains) && user.maintains.length > 0;
+  return maintainsSomething || hasAnyPermission(user, ADMIN_DASHBOARD_PERMISSIONS);
+}
+
 function updateBannerAuth(user) {
   const usernameEl = document.getElementById("banner-username");
   const logoutEl = document.getElementById("banner-logout");
   const signinEl = document.getElementById("banner-signin");
   const adminLink = document.getElementById("nav-admin-link");
+  // Each link is shown against the permission its destination actually needs,
+  // so a user manager sees the dashboard without being offered the audit
+  // timeline they would be refused.
+  const auditLink = document.getElementById("nav-audit-link");
+  const gatedLinks = [
+    [adminLink, () => canSeeAdminDashboard(user)],
+    [auditLink, () => hasPermission(user, "view_audit")],
+  ];
   if (!usernameEl || !logoutEl || !signinEl) return;
 
   if (user && user.username) {
@@ -31,17 +82,21 @@ function updateBannerAuth(user) {
     usernameEl.classList.remove("hidden");
     logoutEl.classList.remove("hidden");
     signinEl.classList.add("hidden");
-    if (adminLink) {
-      adminLink.classList.toggle("hidden", !user.is_admin);
-    }
+    gatedLinks.forEach(([link, allowed]) => {
+      if (link) {
+        link.classList.toggle("hidden", !allowed());
+      }
+    });
   } else {
     usernameEl.textContent = "";
     usernameEl.classList.add("hidden");
     logoutEl.classList.add("hidden");
     signinEl.classList.remove("hidden");
-    if (adminLink) {
-      adminLink.classList.add("hidden");
-    }
+    gatedLinks.forEach(([link]) => {
+      if (link) {
+        link.classList.add("hidden");
+      }
+    });
   }
 }
 
@@ -381,6 +436,22 @@ function friendlyError(err) {
   return err.message || String(err);
 }
 
+// Reads the message out of a failed response.
+//
+// Errors are JSON — `{ "error": "..." }`, sometimes with extra fields — so the
+// raw body is not fit to show a user. Falls back to the raw text for anything
+// that is not the expected shape, such as a proxy or gateway error that never
+// reached the service.
+async function errorMessage(res) {
+  const raw = await res.text();
+  if (!raw) return `Request failed (${res.status})`;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.error === "string") return parsed.error;
+  } catch (_) {}
+  return raw;
+}
+
 // --- CSRF ---
 async function fetchCsrfToken() {
   try {
@@ -455,6 +526,33 @@ const confirmDelete = (message, onConfirm) =>
 
 function closeConfirmModal() {
   document.getElementById("confirm-modal").classList.add("hidden");
+}
+
+// --- One-click promote (#28) ---
+// Releases a stored snapshot in place through the same GA gate as any release.
+// Shared by the producers page and the admin dashboard; `onSuccess` is the
+// page's own refresh hook.
+function promoteVersion(serviceName, apiType, version, onSuccess) {
+  confirmAction(
+    `Release ${escapeHtml(apiType)} version <strong>${escapeHtml(version)}</strong> of <strong>${escapeHtml(serviceName)}</strong> as GA?<br><br>The number is permanently claimed and its content becomes immutable.`,
+    async () => {
+      try {
+        const res = await apiCall(
+          `/admin/producers/${encodeURIComponent(serviceName)}/versions/${encodeURIComponent(apiType)}/${encodeURIComponent(version)}/promote`,
+          { method: "POST" },
+        );
+        if (!res.ok) {
+          alert("Failed to promote: " + (await errorMessage(res)));
+          return;
+        }
+        if (onSuccess) await onSuccess();
+      } catch (e) {
+        alert("Failed to promote: " + e.message);
+      }
+    },
+    "Promote to GA",
+    "Promote",
+  );
 }
 
 // --- Version badge ---

@@ -11,6 +11,10 @@ set -euo pipefail
 # - Multiple Data Sources & Exports
 # - Infrastructure wrappers (Postgres, Elastic, Redis, Kafka)
 # - Cross-cutting concerns (Auth, Config, Audit, Rules)
+#
+# 2.0 model: every Provide declares a stability (ga/snapshot) and the version
+# is read from the spec's info.version; every require pins an exact version.
+# The final section adds a snapshot pin and an Outdated pin for the graph.
 # ============================================================================
 
 BASE_URL="${SANSHAIN_URL:-http://localhost:3000}"
@@ -42,10 +46,10 @@ fi
 # Helpers
 # ---------------------------------------------------------------------------
 provide() {
-  local svc="$1" branch="$2" yaml="$3"
-  echo ">>> PROVIDE  $svc @ $branch"
-  PAYLOAD=$(jq -n --arg s "$svc" --arg b "$branch" --arg y "$yaml" \
-    '{servicename:$s, branch:$b, openapi_yaml:$y}')
+  local svc="$1" stability="$2" yaml="$3"
+  echo ">>> PROVIDE  $svc ($stability)"
+  PAYLOAD=$(jq -n --arg s "$svc" --arg st "$stability" --arg y "$yaml" \
+    '{producername:$s, stability:$st, openapi_yaml:$y}')
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST "$BASE_URL/provide" \
     -H "Content-Type: application/json" \
@@ -56,13 +60,13 @@ provide() {
 }
 
 require_endpoint() {
-  local client="$1" svc="$2" branch="$3" path="$4" method="$5"
-  echo ">>> REQUIRE  $client -> $svc $method $path ($branch)"
+  local client="$1" svc="$2" version="$3" path="$4" method="$5"
+  echo ">>> REQUIRE  $client -> $svc $method $path @ $version"
   RESPONSE=$(curl -s -w "\n%{http_code}" \
     -G "$BASE_URL/require" \
-    --data-urlencode "clientname=$client" \
-    --data-urlencode "servicename=$svc" \
-    --data-urlencode "branch=$branch" \
+    --data-urlencode "consumername=$client" \
+    --data-urlencode "producername=$svc" \
+    --data-urlencode "version=$version" \
     --data-urlencode "path=$path" \
     --data-urlencode "method=$method" \
     ${AUTH_HEADER:+-H "$AUTH_HEADER"})
@@ -189,55 +193,55 @@ paths:
 
 section "1. Providing Infrastructure & Core Services"
 
-provide "config-service"   "main" "$(GENERIC_SPEC 'Config Service')"
-provide "secret-manager"   "main" "$(GENERIC_SPEC 'Secret Manager')"
-provide "auth-service"     "main" "$(GENERIC_SPEC 'Auth Service')"
-provide "audit-service"    "main" "$(GENERIC_SPEC 'Audit Log Service')"
-provide "postgres-wrapper" "main" "$(GENERIC_SPEC 'Postgres DB Wrapper')"
-provide "redis-wrapper"    "main" "$(GENERIC_SPEC 'Redis Cache Wrapper')"
-provide "kafka-wrapper"    "main" "$(GENERIC_SPEC 'Kafka Message Bus')"
-provide "elastic-wrapper"  "main" "$SEARCH_SPEC"
+provide "config-service"   "ga" "$(GENERIC_SPEC 'Config Service')"
+provide "secret-manager"   "ga" "$(GENERIC_SPEC 'Secret Manager')"
+provide "auth-service"     "ga" "$(GENERIC_SPEC 'Auth Service')"
+provide "audit-service"    "ga" "$(GENERIC_SPEC 'Audit Log Service')"
+provide "postgres-wrapper" "ga" "$(GENERIC_SPEC 'Postgres DB Wrapper')"
+provide "redis-wrapper"    "ga" "$(GENERIC_SPEC 'Redis Cache Wrapper')"
+provide "kafka-wrapper"    "ga" "$(GENERIC_SPEC 'Kafka Message Bus')"
+provide "elastic-wrapper"  "ga" "$SEARCH_SPEC"
 
 section "2. Providing Data Sources & Ingestion"
 
-provide "ingestion-stream-a" "main" "$(GENERIC_SPEC 'Data Source A')"
-provide "ingestion-stream-b" "main" "$(GENERIC_SPEC 'Data Source B')"
-provide "ingestion-legacy"   "main" "$(GENERIC_SPEC 'Legacy DB Source')"
+provide "ingestion-stream-a" "ga" "$(GENERIC_SPEC 'Data Source A')"
+provide "ingestion-stream-b" "ga" "$(GENERIC_SPEC 'Data Source B')"
+provide "ingestion-legacy"   "ga" "$(GENERIC_SPEC 'Legacy DB Source')"
 
 section "3. Providing ETL Pipeline Services"
 
-provide "etl-orchestrator" "main" "$ETL_ORCHESTRATOR_SPEC"
-provide "etl-cleaner"      "main" "$(GENERIC_SPEC 'ETL Cleaner')"
-provide "etl-validator"    "main" "$(GENERIC_SPEC 'ETL Validator')"
-provide "etl-geo"          "main" "$(GENERIC_SPEC 'ETL Geo Enricher')"
-provide "etl-user-segment" "main" "$(GENERIC_SPEC 'ETL User Segmenter')"
-provide "etl-purger"       "main" "$(GENERIC_SPEC 'Data Purging Service')"
-provide "rule-engine"      "main" "$(GENERIC_SPEC 'Business Rules Engine')"
+provide "etl-orchestrator" "ga" "$ETL_ORCHESTRATOR_SPEC"
+provide "etl-cleaner"      "ga" "$(GENERIC_SPEC 'ETL Cleaner')"
+provide "etl-validator"    "ga" "$(GENERIC_SPEC 'ETL Validator')"
+provide "etl-geo"          "ga" "$(GENERIC_SPEC 'ETL Geo Enricher')"
+provide "etl-user-segment" "ga" "$(GENERIC_SPEC 'ETL User Segmenter')"
+provide "etl-purger"       "ga" "$(GENERIC_SPEC 'Data Purging Service')"
+provide "rule-engine"      "ga" "$(GENERIC_SPEC 'Business Rules Engine')"
 
 section "4. Providing ML System Services"
 
-provide "ml-feature-store" "main" "$(GENERIC_SPEC 'ML Feature Store')"
-provide "ml-training"      "main" "$(GENERIC_SPEC 'ML Model Training')"
-provide "ml-inference"     "main" "$ML_INFERENCE_SPEC"
-provide "ml-ab-testing"    "main" "$(GENERIC_SPEC 'ML AB Testing Service')"
+provide "ml-feature-store" "ga" "$(GENERIC_SPEC 'ML Feature Store')"
+provide "ml-training"      "ga" "$(GENERIC_SPEC 'ML Model Training')"
+provide "ml-inference"     "ga" "$ML_INFERENCE_SPEC"
+provide "ml-ab-testing"    "ga" "$(GENERIC_SPEC 'ML AB Testing Service')"
 
 section "5. Providing Application & Presentation Services"
 
-provide "user-profile-service" "main" "$(GENERIC_SPEC 'User Profile Service')"
-provide "api-middleware"       "main" "$(GENERIC_SPEC 'API Middleware')"
+provide "user-profile-service" "ga" "$(GENERIC_SPEC 'User Profile Service')"
+provide "api-middleware"       "ga" "$(GENERIC_SPEC 'API Middleware')"
 # frontend is usually a client, but can also provide a manifest or similar
-provide "frontend-ui"          "main" "$(GENERIC_SPEC 'Web Frontend Assets')"
+provide "frontend-ui"          "ga" "$(GENERIC_SPEC 'Web Frontend Assets')"
 
 section "6. Providing Export Services"
 
-provide "export-s3"      "main" "$(GENERIC_SPEC 'S3 Export Service')"
-provide "export-bi"      "main" "$(GENERIC_SPEC 'BI Tool Export')"
-provide "export-partner" "main" "$(GENERIC_SPEC 'Partner API Export')"
+provide "export-s3"      "ga" "$(GENERIC_SPEC 'S3 Export Service')"
+provide "export-bi"      "ga" "$(GENERIC_SPEC 'BI Tool Export')"
+provide "export-partner" "ga" "$(GENERIC_SPEC 'Partner API Export')"
 
 section "7. Providing Observability"
 # These are mostly clients but we provide them to have them in the system
-provide "monitoring-service" "main" "$(GENERIC_SPEC 'Monitoring & Metrics')"
-provide "logging-aggregator" "main" "$(GENERIC_SPEC 'Log Aggregator')"
+provide "monitoring-service" "ga" "$(GENERIC_SPEC 'Monitoring & Metrics')"
+provide "logging-aggregator" "ga" "$(GENERIC_SPEC 'Log Aggregator')"
 
 # Total services provided: 
 # 1-8 (Infra/Core) + 9-11 (Ingestion) + 12-18 (ETL) + 19-22 (ML) + 23-25 (App) + 26-28 (Export) + 29-30 (Obs) = 30 services.
@@ -245,54 +249,98 @@ provide "logging-aggregator" "main" "$(GENERIC_SPEC 'Log Aggregator')"
 section "8. Registering Complex Dependencies"
 
 echo ">>> Setting up Frontend -> Middleware -> Backend chain"
-require_endpoint "frontend-ui"    "api-middleware" "main" "/api/v1/resource" "GET"
-require_endpoint "api-middleware" "auth-service"   "main" "/api/v1/resource" "POST"
-require_endpoint "api-middleware" "user-profile-service" "main" "/api/v1/resource" "GET"
-require_endpoint "api-middleware" "elastic-wrapper" "main" "/search" "GET"
-require_endpoint "api-middleware" "ml-inference"   "main" "/predict" "POST"
+require_endpoint "frontend-ui"    "api-middleware" "1.0.0" "/api/v1/resource" "GET"
+require_endpoint "api-middleware" "auth-service"   "1.0.0" "/api/v1/resource" "POST"
+require_endpoint "api-middleware" "user-profile-service" "1.0.0" "/api/v1/resource" "GET"
+require_endpoint "api-middleware" "elastic-wrapper" "1.0.0" "/search" "GET"
+require_endpoint "api-middleware" "ml-inference"   "1.0.0" "/predict" "POST"
 
 echo ">>> Setting up ETL Pipeline Dependencies"
-require_endpoint "etl-orchestrator" "ingestion-stream-a" "main" "/api/v1/resource" "GET"
-require_endpoint "etl-orchestrator" "ingestion-stream-b" "main" "/api/v1/resource" "GET"
-require_endpoint "etl-orchestrator" "ingestion-legacy"   "main" "/api/v1/resource" "GET"
-require_endpoint "etl-orchestrator" "etl-cleaner"        "main" "/api/v1/resource" "POST"
-require_endpoint "etl-orchestrator" "etl-validator"      "main" "/api/v1/resource" "POST"
-require_endpoint "etl-orchestrator" "etl-geo"            "main" "/api/v1/resource" "POST"
-require_endpoint "etl-orchestrator" "etl-user-segment"   "main" "/api/v1/resource" "POST"
-require_endpoint "etl-orchestrator" "etl-purger"         "main" "/api/v1/resource" "POST"
-require_endpoint "etl-orchestrator" "postgres-wrapper"   "main" "/api/v1/resource" "POST"
-require_endpoint "etl-orchestrator" "kafka-wrapper"      "main" "/api/v1/resource" "POST"
+require_endpoint "etl-orchestrator" "ingestion-stream-a" "1.0.0" "/api/v1/resource" "GET"
+require_endpoint "etl-orchestrator" "ingestion-stream-b" "1.0.0" "/api/v1/resource" "GET"
+require_endpoint "etl-orchestrator" "ingestion-legacy"   "1.0.0" "/api/v1/resource" "GET"
+require_endpoint "etl-orchestrator" "etl-cleaner"        "1.0.0" "/api/v1/resource" "POST"
+require_endpoint "etl-orchestrator" "etl-validator"      "1.0.0" "/api/v1/resource" "POST"
+require_endpoint "etl-orchestrator" "etl-geo"            "1.0.0" "/api/v1/resource" "POST"
+require_endpoint "etl-orchestrator" "etl-user-segment"   "1.0.0" "/api/v1/resource" "POST"
+require_endpoint "etl-orchestrator" "etl-purger"         "1.0.0" "/api/v1/resource" "POST"
+require_endpoint "etl-orchestrator" "postgres-wrapper"   "1.0.0" "/api/v1/resource" "POST"
+require_endpoint "etl-orchestrator" "kafka-wrapper"      "1.0.0" "/api/v1/resource" "POST"
 
-require_endpoint "etl-cleaner"      "rule-engine" "main" "/api/v1/resource" "GET"
-require_endpoint "etl-geo"          "redis-wrapper" "main" "/api/v1/resource" "GET"
-require_endpoint "etl-user-segment" "ml-inference" "main" "/predict" "POST"
+require_endpoint "etl-cleaner"      "rule-engine" "1.0.0" "/api/v1/resource" "GET"
+require_endpoint "etl-geo"          "redis-wrapper" "1.0.0" "/api/v1/resource" "GET"
+require_endpoint "etl-user-segment" "ml-inference" "1.0.0" "/predict" "POST"
 
 echo ">>> Setting up ML System Dependencies"
-require_endpoint "ml-inference"     "ml-feature-store" "main" "/api/v1/resource" "GET"
-require_endpoint "ml-feature-store" "postgres-wrapper" "main" "/api/v1/resource" "GET"
-require_endpoint "ml-training"      "postgres-wrapper" "main" "/api/v1/resource" "GET"
-require_endpoint "ml-training"      "ml-feature-store" "main" "/api/v1/resource" "POST"
-require_endpoint "ml-ab-testing"    "ml-inference"     "main" "/predict" "POST"
+require_endpoint "ml-inference"     "ml-feature-store" "1.0.0" "/api/v1/resource" "GET"
+require_endpoint "ml-feature-store" "postgres-wrapper" "1.0.0" "/api/v1/resource" "GET"
+require_endpoint "ml-training"      "postgres-wrapper" "1.0.0" "/api/v1/resource" "GET"
+require_endpoint "ml-training"      "ml-feature-store" "1.0.0" "/api/v1/resource" "POST"
+require_endpoint "ml-ab-testing"    "ml-inference"     "1.0.0" "/predict" "POST"
 
 echo ">>> Setting up Exports & Wrappers"
-require_endpoint "export-s3"      "postgres-wrapper" "main" "/api/v1/resource" "GET"
-require_endpoint "export-bi"      "postgres-wrapper" "main" "/api/v1/resource" "GET"
-require_endpoint "export-partner" "kafka-wrapper"    "main" "/api/v1/resource" "GET"
-require_endpoint "elastic-wrapper" "postgres-wrapper" "main" "/api/v1/resource" "GET"
+require_endpoint "export-s3"      "postgres-wrapper" "1.0.0" "/api/v1/resource" "GET"
+require_endpoint "export-bi"      "postgres-wrapper" "1.0.0" "/api/v1/resource" "GET"
+require_endpoint "export-partner" "kafka-wrapper"    "1.0.0" "/api/v1/resource" "GET"
+require_endpoint "elastic-wrapper" "postgres-wrapper" "1.0.0" "/api/v1/resource" "GET"
 
 echo ">>> Cross-cutting dependencies"
-require_endpoint "postgres-wrapper" "audit-service" "main" "/api/v1/resource" "POST"
-require_endpoint "api-middleware"   "config-service" "main" "/api/v1/resource" "GET"
-require_endpoint "api-middleware"   "secret-manager" "main" "/api/v1/resource" "GET"
+require_endpoint "postgres-wrapper" "audit-service" "1.0.0" "/api/v1/resource" "POST"
+require_endpoint "api-middleware"   "config-service" "1.0.0" "/api/v1/resource" "GET"
+require_endpoint "api-middleware"   "secret-manager" "1.0.0" "/api/v1/resource" "GET"
 
 echo ">>> Observability"
-require_endpoint "monitoring-service" "api-middleware" "main" "/health" "GET"
-require_endpoint "monitoring-service" "etl-orchestrator" "main" "/health" "GET"
-require_endpoint "logging-aggregator" "api-middleware" "main" "/api/v1/resource" "GET"
+require_endpoint "monitoring-service" "api-middleware" "1.0.0" "/health" "GET"
+require_endpoint "monitoring-service" "etl-orchestrator" "1.0.0" "/health" "GET"
+require_endpoint "logging-aggregator" "api-middleware" "1.0.0" "/api/v1/resource" "GET"
+
+section "9. Version-model highlights (Snapshot-pinned + Outdated)"
+
+# ml-inference publishes a 1.1.0 snapshot with a new batch endpoint;
+# ml-ab-testing opts in -> Snapshot-pinned in the graph.
+ML_INFERENCE_SPEC_V11='openapi: 3.0.0
+info:
+  title: ML Inference API
+  version: 1.1.0
+paths:
+  /predict:
+    post:
+      summary: Run model prediction
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Prediction result
+  /predict/batch:
+    post:
+      summary: Run batch prediction
+      responses:
+        "202":
+          description: Accepted'
+
+provide "ml-inference" "snapshot" "$ML_INFERENCE_SPEC_V11"
+require_endpoint "ml-ab-testing" "ml-inference" "1.1.0" "/predict/batch" "POST"
+
+# etl-orchestrator releases 1.1.0 as GA; monitoring-service stays pinned to
+# 1.0.0 -> Outdated in the graph (a display state, still served unchanged).
+ETL_ORCHESTRATOR_SPEC_V11="${ETL_ORCHESTRATOR_SPEC/version: 1.0.0/version: 1.1.0}
+  /jobs/{id}/retry:
+    post:
+      summary: Retry a failed job
+      responses:
+        \"202\":
+          description: Retry scheduled"
+
+provide "etl-orchestrator" "ga" "$ETL_ORCHESTRATOR_SPEC_V11"
+echo "    monitoring-service still pins etl-orchestrator@1.0.0 -> Outdated highlight."
 
 echo ""
 echo "==========================================================================="
 echo "  Demo 2 Scenario complete!"
-echo "  Registered 30 services with complex inter-dependencies."
+echo "  Registered 30 services with complex inter-dependencies,"
+echo "  one Snapshot-pinned dependency and one Outdated pin."
 echo "  Open $BASE_URL to see the dependency graph."
 echo "==========================================================================="

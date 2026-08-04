@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="/images/sonne.png">
+    <link rel="icon" type="image/png" href="/images/favicon.png">
     <title>Sanshain - Dependency Graph</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/js/common.js"></script>
@@ -61,11 +61,11 @@
             <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
         <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-            <a href="/services.html" class="text-white hover:text-indigo-100 transition-colors">Services</a>
-            <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors">Producers</a>
+            <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
             <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
             <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
-            <a href="/audit.html" class="text-white hover:text-indigo-100 transition-colors">Audit</a>
+            <a id="nav-audit-link" href="/audit.html" class="hidden text-white hover:text-indigo-100 transition-colors">Audit</a>
             <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors">Observability</a>
             <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
@@ -91,13 +91,6 @@
                 Dependency Graph
             </h2>
             <div class="flex items-center space-x-3">
-                <select id="graph-branch-select" class="rounded-lg border border-slate-300 text-sm text-slate-700 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <option value="">Loading branches...</option>
-                </select>
-                <label class="text-xs text-slate-500 font-medium">Target:</label>
-                <select id="graph-target-select" class="rounded-lg border border-slate-300 text-sm text-slate-700 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <option value="">None</option>
-                </select>
                 <div class="inline-flex rounded-lg border border-slate-300 text-sm overflow-hidden bg-white">
                     <button id="graph-mode-custom" class="px-3 py-1.5 bg-indigo-600 text-white" onclick="switchGraphMode('custom')">Graph</button>
                     <button id="graph-mode-mermaid" class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50" onclick="switchGraphMode('mermaid')">Mermaid</button>
@@ -127,6 +120,13 @@
                     <button id="filter-openapi" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('openapi')">OpenAPI</button>
                     <button id="filter-asyncapi" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('asyncapi')">AsyncAPI</button>
                     <button id="filter-proto" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('proto')">Proto</button>
+                </div>
+                <!-- Independent highlight toggles: Outdated (Pin below the
+                     line's latest GA) and Snapshot-pinned (Pin served from a
+                     Snapshot). Display states, never resolution inputs. -->
+                <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
+                    <button id="highlight-outdated" class="px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('outdated')" title="Highlight dependencies whose Pin is semantically below the latest GA of the line">Outdated</button>
+                    <button id="highlight-snapshot" class="px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('snapshot')" title="Highlight dependencies served from a Snapshot (building against overwritable content)">Snapshot-pinned</button>
                 </div>
                 <button id="graph-direction-toggle"
                         class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
@@ -175,19 +175,15 @@
                 <div class="space-y-3 text-[11px] font-medium text-slate-600">
                     <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:client">
                         <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#ccfbf1;border:2px solid #14b8a6"></span>
-                        <span>Client only</span>
+                        <span>Consumer only</span>
                     </div>
                     <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:service">
                         <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#e0e7ff;border:2px solid #6366f1"></span>
-                        <span>Service only</span>
+                        <span>Producer only</span>
                     </div>
                     <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:both">
                         <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#fef3c7;border:2px solid #f59e0b"></span>
-                        <span>Client &amp; Service</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:external">
-                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#d1fae5;border:2px solid #10b981"></span>
-                        <span>External endpoint</span>
+                        <span>Consumer &amp; Producer</span>
                     </div>
                     <div class="flex items-center gap-2.5 pt-2 border-t border-slate-50 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:circular">
                         <span class="w-6 h-0.5 rounded shadow-sm" style="background:#a855f7"></span>
@@ -196,6 +192,14 @@
                     <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:missing">
                         <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f97316;border-top:2px dashed #f97316"></span>
                         <span>Missing dep.</span>
+                    </div>
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:outdated">
+                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f43f5e"></span>
+                        <span>Outdated Pin</span>
+                    </div>
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:snapshot">
+                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f59e0b"></span>
+                        <span>Snapshot-pinned</span>
                     </div>
                     <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:pubsub-bidir">
                         <span class="w-6" style="border-top:2px dashed #94a3b8"></span>
@@ -209,20 +213,8 @@
                         <span class="w-4 text-center font-bold text-orange-600">!</span>
                         <span>Missing svc.</span>
                     </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-source:target">
-                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#f1f5f9;border:2px dashed #94a3b8;opacity:0.5"></span>
-                        <span>Ghost (target)</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-source:branch">
-                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#dcfce7;border:2px solid #22c55e"></span>
-                        <span>Branch only</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-source:conflict">
-                        <span class="w-4 text-center font-bold text-red-600">⚠</span>
-                        <span>Conflict</span>
-                    </div>
                     <div class="pt-2 border-t border-slate-100">
-                        <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">Service Tags</p>
+                        <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">Producer Tags</p>
                         <div class="space-y-2">
                             <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:tag-messaging">
                                 <span class="w-4 text-center text-[10px]">🛢️</span>
@@ -294,54 +286,6 @@
 
     async function showGraph() {
         try {
-            await loadAllServiceBranches();
-            let protectedBranches = [];
-            try {
-                protectedBranches = await fetchJSON('/branches/protected');
-            } catch (e) {
-                console.warn('Could not load protected branches:', e);
-            }
-            await loadBranchesMetadata();
-
-            const branchSelect = document.getElementById('graph-branch-select');
-            const allBranchNames = new Set();
-            for (const branches of Object.values(allServiceBranches)) {
-                for (const b of branches) allBranchNames.add(typeof b === 'string' ? b : b.name);
-            }
-
-            const sortedBranches = sortBranchNames([...allBranchNames], protectedBranches);
-
-            if (allBranchNames.size === 0) {
-                branchSelect.innerHTML = '<option value="">No branches found</option>';
-            } else {
-                const prev = branchSelect.value;
-                branchSelect.innerHTML = '';
-                for (const name of sortedBranches) {
-                    const opt = document.createElement('option');
-                    opt.value = name;
-                    opt.textContent = name;
-                    branchSelect.appendChild(opt);
-                }
-                if (allBranchNames.has(prev)) branchSelect.value = prev;
-                else if (allBranchNames.has('main')) branchSelect.value = 'main';
-            }
-
-            // Populate target branch dropdown
-            const targetSelect = document.getElementById('graph-target-select');
-            targetSelect.innerHTML = '<option value="">None</option>';
-            for (const name of sortedBranches) {
-                const opt = document.createElement('option');
-                opt.value = name;
-                opt.textContent = name;
-                targetSelect.appendChild(opt);
-            }
-
-            // Default to first protected branch if current branch is not protected
-            const currentBranch = branchSelect.value;
-            if (protectedBranches.length > 0 && !protectedBranches.includes(currentBranch)) {
-                targetSelect.value = protectedBranches[0];
-            }
-
             restoreGraphFiltersFromUrl();
             await loadGraph();
         } catch (err) {
@@ -355,27 +299,10 @@
         }
     }
 
-    document.getElementById('graph-branch-select').addEventListener('change', () => {
-        updateGraphUrl(true);
-        loadGraph();
-    });
-    document.getElementById('graph-target-select').addEventListener('change', () => {
-        updateGraphUrl(true);
-        loadGraph();
-    });
-
     async function loadGraph() {
         showLoader();
         const customSvg = document.getElementById('custom-graph');
         const graphDiv = document.getElementById('mermaid-graph');
-        const branch = document.getElementById('graph-branch-select').value;
-        if (!branch) {
-            customSvg.classList.add('hidden');
-            graphDiv.classList.remove('hidden');
-            graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">No branch selected.</div>';
-            hideLoader();
-            return;
-        }
         if (currentGraphMode === 'custom') {
             while (customSvg.firstChild) customSvg.removeChild(customSvg.firstChild);
             customSvg.classList.remove('hidden');
@@ -387,22 +314,18 @@
         }
 
         try {
-            const target = document.getElementById('graph-target-select').value;
-            let report;
-            if (target && target !== branch) {
-                report = await fetchJSON(`/report/merged?branch=${encodeURIComponent(branch)}&target=${encodeURIComponent(target)}`);
-            } else {
-                report = await fetchJSON(`/report?branch=${encodeURIComponent(branch)}`);
-            }
-            
-            // Fetch service details for icons and domains
+            const report = await fetchJSON('/report');
+
+            // Fetch Producer details for icons, domains and — decisive for the
+            // Outdated highlight — the version lines, whose latest GA is the
+            // reference an edge's Pin is compared against.
             try {
-                const servicesDetailed = await fetchJSON('/admin/services');
+                const servicesDetailed = await fetchJSON('/admin/producers');
                 report.services_detailed = servicesDetailed;
             } catch (e) {
                 console.warn('Could not load service details:', e);
             }
-            
+
             lastGraphReport = report;
 
             const datalist = document.getElementById('graph-services-list');
@@ -497,7 +420,7 @@
             if (!adjMap.get(from).includes(to)) adjMap.get(from).push(to);
             const key = `${from}-->${to}`;
             if (!edgeLabels.has(key)) edgeLabels.set(key, new Set());
-            edgeLabels.get(key).add(`[${d.api_type || 'REST'}] ${d.method} ${d.path}`);
+            edgeLabels.get(key).add(`[${d.api_type || 'REST'}] ${d.method} ${d.path} @${d.version}`);
         });
 
         const cycleEdges = detectCycles(adjMap);
@@ -511,6 +434,10 @@
 
         const clientNodes = new Set(report.dependency_graph.map(d => d.client));
         const serviceNodes = new Set(report.dependency_graph.map(d => d.service));
+
+        // Per-edge highlight flags (Outdated / Snapshot-pinned).
+        const latestGaMap = graphLatestGaMap(report);
+        const edgeFlags = graphEdgeFlags(report, latestGaMap);
 
         let mmd = 'graph TD\n';
 
@@ -548,6 +475,8 @@
 
         let edgeIndex = 0;
         const cycleEdgeIndices = [];
+        const outdatedEdgeIndices = [];
+        const snapshotEdgeIndices = [];
         const uniqueEdges = new Set();
         report.dependency_graph.forEach(d => {
             const key = `${d.client}-->${d.service}`;
@@ -567,11 +496,26 @@
             }
 
             if (isCycle) cycleEdgeIndices.push(edgeIndex);
+            const flags = edgeFlags.get(key);
+            if (flags && flags.outdated) outdatedEdgeIndices.push(edgeIndex);
+            if (flags && flags.snapshot) snapshotEdgeIndices.push(edgeIndex);
             edgeIndex++;
         });
 
         for (const idx of cycleEdgeIndices) {
             mmd += `  linkStyle ${idx} stroke:#ef4444,stroke-width:3px\n`;
+        }
+        // Highlight toggles: snapshot first, so an edge that is both keeps the
+        // Outdated color, matching the custom renderer's precedence.
+        if (window.graphHighlightFilters.snapshot) {
+            for (const idx of snapshotEdgeIndices) {
+                mmd += `  linkStyle ${idx} stroke:#f59e0b,stroke-width:3px\n`;
+            }
+        }
+        if (window.graphHighlightFilters.outdated) {
+            for (const idx of outdatedEdgeIndices) {
+                mmd += `  linkStyle ${idx} stroke:#f43f5e,stroke-width:3px\n`;
+            }
         }
 
         lastMermaidCode = mmd;
@@ -601,18 +545,17 @@
     };
 
     document.getElementById('graph-download').onclick = () => {
-        const branch = document.getElementById('graph-branch-select').value || 'graph';
         let content, filename, mime;
         if (currentGraphMode === 'custom') {
             const svg = document.getElementById('custom-graph');
             if (!svg.firstChild) return;
             content = getCustomGraphSVG(svg);
-            filename = `dependency_graph_${branch}.svg`;
+            filename = 'dependency_graph.svg';
             mime = 'image/svg+xml';
         } else {
             if (!lastMermaidCode) return;
             content = lastMermaidCode;
-            filename = `dependency_graph_${branch}.mmd`;
+            filename = 'dependency_graph.mmd';
             mime = 'text/plain';
         }
         const blob = new Blob([content], { type: mime });
@@ -656,10 +599,12 @@
                     els.path.style.opacity = connected ? '1' : '0.08';
                     els.path.style.transition = 'opacity 0.2s';
                 });
-            } else if (type === 'edge-type') {
+            } else if (type === 'edge-type' || type === 'edge-flag') {
                 const connectedNodes = new Set();
                 edges.forEach((els, key) => {
-                    const match = els.path.dataset.edgeType === value;
+                    const match = type === 'edge-type'
+                        ? els.path.dataset.edgeType === value
+                        : els.path.dataset[value === 'outdated' ? 'outdated' : 'snapshot'] === '1';
                     els.path.style.opacity = match ? '1' : '0.08';
                     els.path.style.transition = 'opacity 0.2s';
                     if (match) {
@@ -681,6 +626,8 @@
             if (!nodes || !edges) return;
             nodes.forEach(el => { el.style.opacity = '1'; el.style.transition = 'opacity 0.2s'; });
             edges.forEach(els => { els.path.style.opacity = '1'; els.path.style.transition = 'opacity 0.2s'; });
+            // Re-assert the persistent highlight toggles the hover overrode.
+            if (window.applyGraphHighlights) window.applyGraphHighlights();
         }
 
         legend.querySelectorAll('.legend-item[data-legend-highlight]').forEach(item => {
@@ -695,25 +642,26 @@
     })();
 
     function updateGraphUrl(push = false) {
-        const branch = document.getElementById('graph-branch-select').value;
-        const target = document.getElementById('graph-target-select').value;
         const focus = window.graphFocusTags.join(',');
-        
+
         const hiddenProtocols = [];
         if (!window.graphProtocolFilters.openapi) hiddenProtocols.push('openapi');
         if (!window.graphProtocolFilters.asyncapi) hiddenProtocols.push('asyncapi');
         if (!window.graphProtocolFilters.proto) hiddenProtocols.push('proto');
         const hide_protocols = hiddenProtocols.join(',');
 
+        const highlights = [];
+        if (window.graphHighlightFilters.outdated) highlights.push('outdated');
+        if (window.graphHighlightFilters.snapshot) highlights.push('snapshot');
+
         const params = new URLSearchParams();
-        if (branch) params.set('branch', branch);
-        if (target) params.set('target', target);
         if (focus) params.set('focus', focus);
         if (hide_protocols) params.set('hide_protocols', hide_protocols);
+        if (highlights.length) params.set('highlight', highlights.join(','));
 
         const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
-        const state = { branch, target, focus: window.graphFocusTags, hide_protocols: hiddenProtocols };
-        
+        const state = { focus: window.graphFocusTags, hide_protocols: hiddenProtocols, highlight: highlights };
+
         if (push) {
             history.pushState(state, '', newUrl);
         } else {
@@ -724,24 +672,7 @@
 
     function restoreGraphFiltersFromUrl() {
         const params = new URLSearchParams(window.location.search);
-        
-        const branchSelect = document.getElementById('graph-branch-select');
-        const targetSelect = document.getElementById('graph-target-select');
-        
-        const branch = params.get('branch');
-        const target = params.get('target');
-        
-        if (branchSelect && branch) {
-            branchSelect.value = branch;
-        }
-        if (targetSelect) {
-            if (target !== null) {
-                targetSelect.value = target;
-            } else {
-                targetSelect.value = '';
-            }
-        }
-        
+
         const focus = params.get('focus');
         if (focus) {
             window.graphFocusTags = focus.split(',').filter(Boolean);
@@ -749,16 +680,16 @@
             window.graphFocusTags = [];
         }
         renderFocusTags();
-        
+
         const hide_protocols = params.get('hide_protocols');
         const hiddenSet = new Set(hide_protocols ? hide_protocols.split(',').filter(Boolean) : []);
-        
+
         window.graphProtocolFilters = {
             openapi: !hiddenSet.has('openapi'),
             asyncapi: !hiddenSet.has('asyncapi'),
             proto: !hiddenSet.has('proto')
         };
-        
+
         ['openapi', 'asyncapi', 'proto'].forEach(p => {
             const btn = document.getElementById(`filter-${p}`);
             if (btn) {
@@ -769,6 +700,13 @@
                 }
             }
         });
+
+        const highlightSet = new Set((params.get('highlight') || '').split(',').filter(Boolean));
+        window.graphHighlightFilters = {
+            outdated: highlightSet.has('outdated'),
+            snapshot: highlightSet.has('snapshot'),
+        };
+        updateHighlightButtons();
     }
 
     // Handle back/forward navigation

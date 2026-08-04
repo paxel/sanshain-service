@@ -7,14 +7,14 @@ async function loadTimeline() {
     const to = document.getElementById("filter-to").value;
     const type = document.getElementById("filter-type").value;
     const service = document.getElementById("filter-service").value.trim();
-    const branch = document.getElementById("filter-branch").value.trim();
+    const version = document.getElementById("filter-version").value.trim();
 
     let url = "/api/audit/timeline?limit=100";
     if (from) url += `&from_date=${from}`;
     if (to) url += `&to_date=${to}`;
     if (type) url += `&action_type=${type}`;
     if (service) url += `&service=${encodeURIComponent(service)}`;
-    if (branch) url += `&branch=${encodeURIComponent(branch)}`;
+    if (version) url += `&version=${encodeURIComponent(version)}`;
 
     const res = await apiCall(url);
     if (!res.ok) {
@@ -50,7 +50,10 @@ function renderTimeline(logs) {
       });
 
       let actionColor = "bg-slate-100 text-slate-600";
-      if (log.action_type === "WRITE") actionColor = "bg-green-100 text-green-700";
+      // Checked first: a rejection is a refusal, not a write, and must not be
+      // coloured like one.
+      if (log.action_type === "REJECT") actionColor = "bg-red-100 text-red-700";
+      else if (log.action_type === "WRITE") actionColor = "bg-green-100 text-green-700";
       else if (log.action_type === "READ") actionColor = "bg-blue-100 text-blue-700";
       else if (log.action_type === "ADMIN") actionColor = "bg-amber-100 text-amber-700";
       else if (
@@ -81,8 +84,8 @@ function renderTimeline(logs) {
                                     : ""
                                 }
                                 ${
-                                  log.branch
-                                    ? `<span class="px-2 py-0.5 bg-slate-50 text-slate-600 rounded text-[10px] font-mono border border-slate-100">${escapeHtml(log.branch)}</span>`
+                                  log.version
+                                    ? `<span class="px-2 py-0.5 bg-slate-50 text-slate-600 rounded text-[10px] font-mono border border-slate-100">${escapeHtml(log.version)}</span>`
                                     : ""
                                 }
                             </div>

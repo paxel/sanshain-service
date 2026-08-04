@@ -4,17 +4,19 @@ set -euo pipefail
 # ============================================================================
 # Sanshain Service — Extended Demo Script
 #
-# Demonstrates:
-#   1. Multiple services providing OpenAPI specs (main + feature branches)
-#   2. Client dependencies (services acting as both provider and consumer)
-#   3. Circular dependencies between services
-#   4. Backward-compatible updates on protected branches
-#   5. Breaking change rejection on protected branches
-#   6. Endpoint version history
-#   7. Require-bundle (multi-endpoint fetch)
-#   8. Dry-run mode
-#   9. Dependency report
-#  10. Feature-branch fallback to main
+# Demonstrates the 2.0 version model:
+#   1. Multiple Producers providing GA versions (version read from info.version)
+#   2. Snapshot versions for work-in-progress
+#   3. Consumer dependencies at exact version pins (services as both roles)
+#   4. Circular dependencies between services
+#   5. Snapshot-pinned dependencies (graph highlight)
+#   6. Promotion: snapshot -> GA in place (pins left behind become Outdated)
+#   7. 409 rejections with proposed_version (forgot-to-bump, semver honesty)
+#   8. Version-line listing and endpoint history
+#   9. Require-bundle (multi-endpoint fetch)
+#  10. Dry-run mode
+#  11. Dependency report
+#  12. Unknown pinned version -> immediate 404
 # ============================================================================
 
 BASE_URL="${SANSHAIN_URL:-http://localhost:3000}"
@@ -45,24 +47,27 @@ fi
 # Helpers
 # ---------------------------------------------------------------------------
 provide() {
-  local svc="$1" branch="$2" yaml="$3"
-  echo ">>> PROVIDE  $svc @ $branch"
-  PAYLOAD=$(jq -n --arg s "$svc" --arg b "$branch" --arg y "$yaml" \
-    '{servicename:$s, branch:$b, openapi_yaml:$y}')
-  STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+  local svc="$1" stability="$2" yaml="$3"
+  echo ">>> PROVIDE  $svc ($stability)"
+  PAYLOAD=$(jq -n --arg s "$svc" --arg st "$stability" --arg y "$yaml" \
+    '{producername:$s, stability:$st, openapi_yaml:$y}')
+  RESPONSE=$(curl -s -w "\n%{http_code}" \
     -X POST "$BASE_URL/provide" \
     -H "Content-Type: application/json" \
     ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
     -d "$PAYLOAD")
-  echo "    HTTP $STATUS"
+  BODY=$(echo "$RESPONSE" | sed '$d')
+  STATUS=$(echo "$RESPONSE" | tail -1)
+  VERSION=$(echo "$BODY" | jq -r '.version // empty' 2>/dev/null || true)
+  echo "    HTTP $STATUS${VERSION:+ — stored version $VERSION ($stability)}"
   return 0
 }
 
 provide_expect() {
-  local svc="$1" branch="$2" yaml="$3" expected="$4"
-  echo ">>> PROVIDE  $svc @ $branch  (expect $expected)"
-  PAYLOAD=$(jq -n --arg s "$svc" --arg b "$branch" --arg y "$yaml" \
-    '{servicename:$s, branch:$b, openapi_yaml:$y}')
+  local svc="$1" stability="$2" yaml="$3" expected="$4"
+  echo ">>> PROVIDE  $svc ($stability)  (expect $expected)"
+  PAYLOAD=$(jq -n --arg s "$svc" --arg st "$stability" --arg y "$yaml" \
+    '{producername:$s, stability:$st, openapi_yaml:$y}')
   RESPONSE=$(curl -s -w "\n%{http_code}" \
     -X POST "$BASE_URL/provide" \
     -H "Content-Type: application/json" \
@@ -76,21 +81,23 @@ provide_expect() {
     echo "$BODY" | head -5 | sed 's/^/    /'
   else
     if [ "$STATUS" = "409" ]; then
+      PROPOSED=$(echo "$BODY" | jq -r '.proposed_version // empty' 2>/dev/null || true)
       echo "    Rejection reason:"
-      echo "$BODY" | head -5 | sed 's/^/      /'
+      echo "$BODY" | jq -r '.error' 2>/dev/null | head -3 | sed 's/^/      /'
+      [ -n "$PROPOSED" ] && echo "    Server proposes republishing as: $PROPOSED"
     fi
   fi
   return 0
 }
 
 require_endpoint() {
-  local client="$1" svc="$2" branch="$3" path="$4" method="$5"
-  echo ">>> REQUIRE  $client -> $svc $method $path ($branch)"
+  local client="$1" svc="$2" version="$3" path="$4" method="$5"
+  echo ">>> REQUIRE  $client -> $svc $method $path @ $version"
   RESPONSE=$(curl -s -w "\n%{http_code}" \
     -G "$BASE_URL/require" \
-    --data-urlencode "clientname=$client" \
-    --data-urlencode "servicename=$svc" \
-    --data-urlencode "branch=$branch" \
+    --data-urlencode "consumername=$client" \
+    --data-urlencode "producername=$svc" \
+    --data-urlencode "version=$version" \
     --data-urlencode "path=$path" \
     --data-urlencode "method=$method" \
     ${AUTH_HEADER:+-H "$AUTH_HEADER"})
@@ -106,8 +113,8 @@ require_endpoint() {
 }
 
 require_bundle() {
-  local client="$1" branch="$2" svc="$3"; shift 3
-  echo ">>> REQUIRE-BUNDLE  $client @ $branch (service: $svc)"
+  local client="$1" version="$2" svc="$3"; shift 3
+  echo ">>> REQUIRE-BUNDLE  $client -> $svc @ $version"
   # remaining args are "path:method" pairs
   local endpoints="[]"
   for pair in "$@"; do
@@ -115,8 +122,8 @@ require_bundle() {
     endpoints=$(echo "$endpoints" | jq --arg p "$p" --arg m "$m" \
       '. + [{path:$p, method:$m}]')
   done
-  PAYLOAD=$(jq -n --arg c "$client" --arg s "$svc" --arg b "$branch" --argjson e "$endpoints" \
-    '{clientname:$c, servicename:$s, branch:$b, endpoints:$e}')
+  PAYLOAD=$(jq -n --arg c "$client" --arg s "$svc" --arg v "$version" --argjson e "$endpoints" \
+    '{consumername:$c, producername:$s, version:$v, endpoints:$e}')
   RESPONSE=$(curl -s -w "\n%{http_code}" \
     -X POST "$BASE_URL/require-bundle" \
     -H "Content-Type: application/json" \
@@ -138,6 +145,7 @@ section() {
 
 # ============================================================================
 # OpenAPI specs for demo services
+# The version of every Provide is read from the spec's info.version.
 # ============================================================================
 
 USER_SERVICE_V1='openapi: 3.0.0
@@ -206,7 +214,7 @@ components:
         email:
           type: string'
 
-# V2: adds optional "role" field — backward-compatible
+# 1.2.0: adds optional "role" field — backward-compatible (a minor bump)
 USER_SERVICE_V2='openapi: 3.0.0
 info:
   title: User Service
@@ -277,11 +285,12 @@ components:
         role:
           type: string'
 
-# V3 (breaking): changes User.id from string to integer
-USER_SERVICE_BREAKING='openapi: 3.0.0
+# Breaking template: changes User.id from string to integer.
+# @VERSION@ is substituted below to demonstrate the version rules.
+USER_SERVICE_BREAKING_TEMPLATE='openapi: 3.0.0
 info:
   title: User Service
-  version: 2.0.0
+  version: @VERSION@
 paths:
   /users:
     get:
@@ -429,10 +438,11 @@ components:
           items:
             $ref: "#/components/schemas/OrderItem"'
 
-ORDER_SERVICE_FEATURE='openapi: 3.0.0
+# 1.1.0 (snapshot): work-in-progress discounts feature
+ORDER_SERVICE_DISCOUNTS='openapi: 3.0.0
 info:
   title: Order Service
-  version: 1.0.0-discounts
+  version: 1.1.0
 paths:
   /orders:
     get:
@@ -757,43 +767,44 @@ echo "Target: $BASE_URL"
 echo ""
 
 # --------------------------------------------------------------------------
-section "1. Provide services on main branch"
+section "1. Provide GA versions (version read from info.version)"
 # --------------------------------------------------------------------------
 
-provide "user-service"         "main" "$USER_SERVICE_V1"
-provide "order-service"        "main" "$ORDER_SERVICE"
-provide "notification-service" "main" "$NOTIFICATION_SERVICE"
-provide "payment-service"      "main" "$PAYMENT_SERVICE"
-provide "inventory-service"    "main" "$INVENTORY_SERVICE"
+provide "user-service"         "ga" "$USER_SERVICE_V1"
+provide "order-service"        "ga" "$ORDER_SERVICE"
+provide "notification-service" "ga" "$NOTIFICATION_SERVICE"
+provide "payment-service"      "ga" "$PAYMENT_SERVICE"
+provide "inventory-service"    "ga" "$INVENTORY_SERVICE"
 
 # --------------------------------------------------------------------------
-section "2. Provide feature branches"
+section "2. Provide snapshot versions (work-in-progress)"
 # --------------------------------------------------------------------------
 
-provide "order-service"  "feature/discounts"  "$ORDER_SERVICE_FEATURE"
-provide "user-service"   "feature/add-roles"  "$USER_SERVICE_V2"
+echo "  Snapshots are overwritable and expire when unused; GA never changes."
+provide "order-service"  "snapshot" "$ORDER_SERVICE_DISCOUNTS"
+provide "user-service"   "snapshot" "$USER_SERVICE_V2"
 
 # --------------------------------------------------------------------------
-section "3. Register client dependencies — services as both providers & consumers"
+section "3. Register Consumer dependencies — services as both roles, pinned to 1.0.0"
 # --------------------------------------------------------------------------
 
 # order-service depends on user-service (to look up users)
-require_endpoint "order-service" "user-service" "main" "/users/{id}" "GET"
+require_endpoint "order-service" "user-service" "1.0.0" "/users/{id}" "GET"
 
 # order-service depends on inventory-service (to reserve stock)
-require_endpoint "order-service" "inventory-service" "main" "/inventory/reserve" "POST"
+require_endpoint "order-service" "inventory-service" "1.0.0" "/inventory/reserve" "POST"
 
 # order-service depends on payment-service (to process payments)
-require_endpoint "order-service" "payment-service" "main" "/payments" "POST"
+require_endpoint "order-service" "payment-service" "1.0.0" "/payments" "POST"
 
 # notification-service depends on user-service (to look up user contact info)
-require_endpoint "notification-service" "user-service" "main" "/users/{id}" "GET"
+require_endpoint "notification-service" "user-service" "1.0.0" "/users/{id}" "GET"
 
 # payment-service depends on order-service (to verify order details)
-require_endpoint "payment-service" "order-service" "main" "/orders/{id}" "GET"
+require_endpoint "payment-service" "order-service" "1.0.0" "/orders/{id}" "GET"
 
 # payment-service depends on notification-service (to send payment confirmations)
-require_endpoint "payment-service" "notification-service" "main" "/notifications/send" "POST"
+require_endpoint "payment-service" "notification-service" "1.0.0" "/notifications/send" "POST"
 
 echo ""
 echo "  At this point, order-service -> payment-service -> order-service"
@@ -804,10 +815,10 @@ section "4. Circular dependency: inventory-service -> order-service -> inventory
 # --------------------------------------------------------------------------
 
 # inventory-service depends on order-service (to check order status for reservations)
-require_endpoint "inventory-service" "order-service" "main" "/orders/{id}" "GET"
+require_endpoint "inventory-service" "order-service" "1.0.0" "/orders/{id}" "GET"
 
 # inventory-service also depends on notification-service (low-stock alerts)
-require_endpoint "inventory-service" "notification-service" "main" "/notifications/send" "POST"
+require_endpoint "inventory-service" "notification-service" "1.0.0" "/notifications/send" "POST"
 
 echo ""
 echo "  Now we have two cycles:"
@@ -818,47 +829,66 @@ echo "    order-service -> payment-service -> order-service"
 section "5. External consumers (web-frontend, mobile-app)"
 # --------------------------------------------------------------------------
 
-require_endpoint "web-frontend" "user-service"         "main" "/users"     "GET"
-require_endpoint "web-frontend" "user-service"         "main" "/users"     "POST"
-require_endpoint "web-frontend" "order-service"        "main" "/orders"    "GET"
-require_endpoint "web-frontend" "order-service"        "main" "/orders"    "POST"
-require_endpoint "web-frontend" "notification-service" "main" "/notifications/user/{userId}" "GET"
+require_endpoint "web-frontend" "user-service"         "1.0.0" "/users"     "GET"
+require_endpoint "web-frontend" "user-service"         "1.0.0" "/users"     "POST"
+require_endpoint "web-frontend" "order-service"        "1.0.0" "/orders"    "GET"
+require_endpoint "web-frontend" "order-service"        "1.0.0" "/orders"    "POST"
+require_endpoint "web-frontend" "notification-service" "1.0.0" "/notifications/user/{userId}" "GET"
 
-require_endpoint "mobile-app" "user-service"    "main" "/users/{id}" "GET"
-require_endpoint "mobile-app" "order-service"   "main" "/orders"     "POST"
-require_endpoint "mobile-app" "payment-service" "main" "/payments/{id}" "GET"
-
-# --------------------------------------------------------------------------
-section "6. Feature-branch dependencies"
-# --------------------------------------------------------------------------
-
-# ci-pipeline tests the discounts feature
-require_endpoint "ci-pipeline" "order-service" "feature/discounts" "/discounts" "GET"
-require_endpoint "ci-pipeline" "order-service" "feature/discounts" "/orders"    "POST"
+require_endpoint "mobile-app" "user-service"    "1.0.0" "/users/{id}" "GET"
+require_endpoint "mobile-app" "order-service"   "1.0.0" "/orders"     "POST"
+require_endpoint "mobile-app" "payment-service" "1.0.0" "/payments/{id}" "GET"
 
 # --------------------------------------------------------------------------
-section "7. Backward-compatible update on protected branch"
+section "6. Snapshot-pinned dependency (graph highlight)"
 # --------------------------------------------------------------------------
 
-echo "  Updating user-service on main with a new optional 'role' field..."
-provide_expect "user-service" "main" "$USER_SERVICE_V2" "202"
+echo "  ci-pipeline opts in to the work-in-progress discounts snapshot."
+echo "  The graph flags these dependencies as Snapshot-pinned."
+require_endpoint "ci-pipeline" "order-service" "1.1.0" "/discounts" "GET"
+require_endpoint "ci-pipeline" "order-service" "1.1.0" "/orders"    "POST"
 
 # --------------------------------------------------------------------------
-section "8. Breaking change rejection on protected branch"
+section "7. Promotion: user-service 1.2.0 snapshot -> GA"
 # --------------------------------------------------------------------------
 
-echo "  Attempting to change User.id from string to integer (breaking!)..."
-provide_expect "user-service" "main" "$USER_SERVICE_BREAKING" "409"
+echo "  A GA Provide of a number that exists as a snapshot promotes it in place."
+echo "  Consumers still pinned to 1.0.0 are now Outdated (a display state only)."
+provide_expect "user-service" "ga" "$USER_SERVICE_V2" "202"
 
 # --------------------------------------------------------------------------
-section "9. Endpoint version history"
+section "8. 409 rejections — every one proposes the version to publish as"
 # --------------------------------------------------------------------------
 
-echo ">>> Fetching version history for user-service GET /users on main..."
+echo "  Forgot to bump: breaking content (User.id string -> integer) under the"
+echo "  already-GA'd version 1.2.0..."
+provide_expect "user-service" "ga" "${USER_SERVICE_BREAKING_TEMPLATE//@VERSION@/1.2.0}" "409"
+
+echo ""
+echo "  Semver honesty: the same breaking change as 1.3.0 (minor bump) is a lie..."
+provide_expect "user-service" "ga" "${USER_SERVICE_BREAKING_TEMPLATE//@VERSION@/1.3.0}" "409"
+
+echo ""
+echo "  Publishing it as the proposed major instead..."
+provide_expect "user-service" "ga" "${USER_SERVICE_BREAKING_TEMPLATE//@VERSION@/2.0.0}" "202"
+
+# --------------------------------------------------------------------------
+section "9. Version lines and endpoint history"
+# --------------------------------------------------------------------------
+
+echo ">>> Listing user-service's version line..."
+RESPONSE=$(curl -s -w "\n%{http_code}" "$BASE_URL/producers/user-service/versions" \
+  ${AUTH_HEADER:+-H "$AUTH_HEADER"})
+BODY=$(echo "$RESPONSE" | sed '$d')
+STATUS=$(echo "$RESPONSE" | tail -1)
+echo "    HTTP $STATUS"
+echo "$BODY" | jq -r '.[] | "    \(.version)  \(.stability)  (\(.endpoint_count) endpoints)"' 2>/dev/null || true
+
+echo ""
+echo ">>> Fetching endpoint history for user-service GET /users..."
 RESPONSE=$(curl -s -w "\n%{http_code}" \
   -G "$BASE_URL/endpoint-versions" \
   --data-urlencode "service=user-service" \
-  --data-urlencode "branch=main" \
   --data-urlencode "path=/users" \
   --data-urlencode "method=GET" \
   ${AUTH_HEADER:+-H "$AUTH_HEADER"})
@@ -867,20 +897,16 @@ STATUS=$(echo "$RESPONSE" | tail -1)
 echo "    HTTP $STATUS"
 VERSIONS=$(echo "$BODY" | jq 'length' 2>/dev/null || echo "?")
 echo "    Versions recorded: $VERSIONS"
-if [ "$VERSIONS" != "?" ] && [ "$VERSIONS" -gt 0 ]; then
-  echo "    Latest version diff preview:"
-  echo "$BODY" | jq -r '.[-1].diff_from_previous // "initial version"' | head -10 | sed 's/^/      /'
-fi
 
 # --------------------------------------------------------------------------
 section "10. Require-bundle (multi-endpoint fetch)"
 # --------------------------------------------------------------------------
 
-require_bundle "web-frontend" "main" "user-service" \
+require_bundle "web-frontend" "1.0.0" "user-service" \
   "/users:GET"
-require_bundle "web-frontend" "main" "order-service" \
+require_bundle "web-frontend" "1.0.0" "order-service" \
   "/orders:GET"
-require_bundle "web-frontend" "main" "payment-service" \
+require_bundle "web-frontend" "1.0.0" "payment-service" \
   "/payments/{id}:GET"
 
 # --------------------------------------------------------------------------
@@ -888,8 +914,8 @@ section "11. Dry-run mode"
 # --------------------------------------------------------------------------
 
 echo ">>> DRY-RUN provide (validate without persisting)..."
-PAYLOAD=$(jq -n --arg s "dry-run-test" --arg b "main" --arg y "$USER_SERVICE_V1" \
-  '{servicename:$s, branch:$b, openapi_yaml:$y, dry_run:true}')
+PAYLOAD=$(jq -n --arg s "dry-run-test" --arg y "$USER_SERVICE_V1" \
+  '{producername:$s, stability:"snapshot", openapi_yaml:$y, dry_run:true}')
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
   -X POST "$BASE_URL/provide" \
   -H "Content-Type: application/json" \
@@ -901,9 +927,9 @@ echo ""
 echo ">>> DRY-RUN require (validate without recording dependency)..."
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
   -G "$BASE_URL/require" \
-  --data-urlencode "clientname=dry-run-client" \
-  --data-urlencode "servicename=user-service" \
-  --data-urlencode "branch=main" \
+  --data-urlencode "consumername=dry-run-client" \
+  --data-urlencode "producername=user-service" \
+  --data-urlencode "version=1.0.0" \
   --data-urlencode "path=/users" \
   --data-urlencode "method=GET" \
   --data-urlencode "dry_run=true" \
@@ -915,7 +941,7 @@ section "12. Dependency report"
 # --------------------------------------------------------------------------
 
 echo ">>> Fetching dependency report (JSON)..."
-RESPONSE=$(curl -s -w "\n%{http_code}" "$BASE_URL/report?branch=main" \
+RESPONSE=$(curl -s -w "\n%{http_code}" "$BASE_URL/report" \
   ${AUTH_HEADER:+-H "$AUTH_HEADER"})
 BODY=$(echo "$RESPONSE" | sed '$d')
 STATUS=$(echo "$RESPONSE" | tail -1)
@@ -925,7 +951,7 @@ echo "    HTTP $STATUS — $SERVICES services, $CLIENTS clients"
 
 echo ""
 echo ">>> Fetching dependency report (Markdown)..."
-RESPONSE=$(curl -s -w "\n%{http_code}" "$BASE_URL/report/markdown?branch=main" \
+RESPONSE=$(curl -s -w "\n%{http_code}" "$BASE_URL/report/markdown" \
   ${AUTH_HEADER:+-H "$AUTH_HEADER"})
 BODY=$(echo "$RESPONSE" | sed '$d')
 STATUS=$(echo "$RESPONSE" | tail -1)
@@ -935,12 +961,12 @@ echo "    Preview:"
 echo "$BODY" | head -15 | sed 's/^/      /'
 
 # --------------------------------------------------------------------------
-section "13. Feature-branch fallback to main"
+section "13. Unknown pinned version fails immediately"
 # --------------------------------------------------------------------------
 
-echo "  Requesting an endpoint from a non-existent feature branch..."
-echo "  Should fall back to main branch."
-require_endpoint "fallback-client" "user-service" "feature/nonexistent" "/users" "GET"
+echo "  Requiring a version that does not exist on the line."
+echo "  No fallback, no waiting — an immediate 404 (a Pin configuration error)."
+require_endpoint "misconfigured-client" "user-service" "9.9.9" "/users" "GET"
 
 # ============================================================================
 echo ""
@@ -948,8 +974,8 @@ echo "==========================================================================
 echo "  Demo complete!"
 echo ""
 echo "  Open $BASE_URL to explore:"
-echo "    - Service overview with drill-down to endpoints and YAML"
-echo "    - Client overview showing which services each client depends on"
-echo "    - Dependency graph with cycle detection (red edges)"
-echo "    - Admin dashboard for branch and service management"
+echo "    - Producer overview with version lines (stability, snapshot expiry)"
+echo "    - Consumer overview showing which versions each Consumer pins"
+echo "    - Dependency graph: cycles (red), Outdated pins, Snapshot-pinned"
+echo "    - Admin dashboard for version and Producer management"
 echo "==========================================================================="

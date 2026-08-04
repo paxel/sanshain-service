@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="/images/sonne.png">
+    <link rel="icon" type="image/png" href="/images/favicon.png">
     <title>Sanshain - Admin Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/js/common.js"></script>
@@ -59,11 +59,11 @@
             <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
         <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-            <a href="/services.html" class="text-white hover:text-indigo-100 transition-colors">Services</a>
-            <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors">Producers</a>
+            <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
             <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
             <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
-            <a href="/audit.html" class="text-white hover:text-indigo-100 transition-colors">Audit</a>
+            <a id="nav-audit-link" href="/audit.html" class="hidden text-white hover:text-indigo-100 transition-colors">Audit</a>
             <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors">Observability</a>
             <a href="/admin.html" class="text-white font-bold underline underline-offset-4">Admin</a>
         </nav>
@@ -136,35 +136,19 @@
                 </div>
             </section>
 
-            <!-- Protected Branches -->
-            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                <div class="flex justify-between items-center mb-4">
-                    <div>
-                        <h2 class="text-lg font-semibold text-slate-800">Protected Branches</h2>
-                        <p class="text-sm text-slate-500 mt-1">Endpoints on protected branches are immutable once provided.</p>
-                    </div>
-                    <div class="flex space-x-2">
-                        <input type="text" id="new-branch-pattern" placeholder="e.g. main, release/*"
-                            class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                        <button onclick="addProtectedBranch()" class="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-indigo-700 transition-colors">Add</button>
-                    </div>
-                </div>
-                <div id="protected-branches-list" class="space-y-2"></div>
-            </section>
-
-            <!-- Branch Cleanup -->
+            <!-- Snapshot Cleanup -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="mb-4">
-                    <h2 class="text-lg font-semibold text-slate-800">Branch Cleanup</h2>
-                    <p class="text-sm text-slate-500 mt-1">Automatically delete non-protected branches older than the configured age.</p>
+                    <h2 class="text-lg font-semibold text-slate-800">Snapshot Cleanup</h2>
+                    <p class="text-sm text-slate-500 mt-1">A snapshot expires when neither provided nor required for the configured age. Set 0 days to disable. GA versions are never age-culled.</p>
                 </div>
                 <div class="flex items-center space-x-3">
-                    <input type="number" id="branch-max-age-days" min="1" value="30"
+                    <input type="number" id="snapshot-max-age-days" min="0" value="30"
                         class="w-24 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
                     <span class="text-sm text-slate-500">days</span>
-                    <button onclick="saveBranchMaxAge()" class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors">Save</button>
-                    <button onclick="triggerBranchCleanup()" class="px-3 py-1.5 bg-slate-600 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors">Run Cleanup</button>
-                    <span id="branch-cleanup-result" class="text-sm text-slate-500"></span>
+                    <button onclick="saveSnapshotMaxAge()" class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors">Save</button>
+                    <button onclick="triggerSnapshotCleanup()" class="px-3 py-1.5 bg-slate-600 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors">Run Cleanup</button>
+                    <span id="snapshot-cleanup-result" class="text-sm text-slate-500"></span>
                 </div>
             </section>
 
@@ -252,8 +236,8 @@
                                     class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-slate-600 mb-1">Admin Group DN</label>
-                                <input type="text" id="ldap-admin-group" placeholder="cn=admins,ou=groups,dc=example,dc=com"
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Bootstrap Admin Group <span class="font-normal text-slate-400">(directory group granted the admin role)</span></label>
+                                <input type="text" id="ldap-admin-group" placeholder="cn=admins,ou=groups,dc=example,dc=com" title="Convenience for first-time setup: this directory group is created as a Sanshain group holding the admin role. Manage roles per group in the Groups section afterwards."
                                     class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                             </div>
                         </div>
@@ -292,35 +276,99 @@
                     </div>
                 </div>
                 <div id="users-list" class="space-y-2"></div>
+                <p class="text-xs text-slate-500 mt-3">
+                    Roles are fixed bundles of permissions. <span id="root-note"></span>
+                </p>
             </section>
 
-            <!-- Manual Service Addition -->
-            <section class="bg-white rounded-xl border border-indigo-300 shadow-sm p-6">
+            <!-- Groups -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-800">Groups</h2>
+                        <p class="text-sm text-slate-500 mt-1">
+                            Roles attach to groups. Sanshain's own groups are yours to edit; groups
+                            mirrored from the directory keep their membership there — only the roles
+                            you attach are stored here.
+                        </p>
+                    </div>
+                    <button onclick="loadGroups()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                </div>
+                <div class="flex items-center gap-2 mb-4">
+                    <input id="new-group-name" type="text" placeholder="New group name"
+                        class="flex-1 rounded-lg border-slate-200 text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    <button onclick="createGroup()"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium">Create</button>
+                </div>
+                <div id="groups-list" class="space-y-2"></div>
+            </section>
+
+            <!-- Maintainers -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-800">Maintainers</h2>
+                        <p class="text-sm text-slate-500 mt-1">
+                            Who is responsible for a Producer. A maintainer may administer that
+                            Producer — including deleting its versions — and no other's.
+                        </p>
+                    </div>
+                    <button onclick="loadMaintainers()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
+                </div>
+                <div class="flex items-center gap-2 mb-4">
+                    <select id="maintainer-producer" class="flex-1 rounded-lg border-slate-200 text-sm"></select>
+                    <select id="maintainer-subject" class="flex-1 rounded-lg border-slate-200 text-sm"></select>
+                    <button onclick="assignMaintainer()"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium">Assign</button>
+                </div>
+                <div id="maintainers-list" class="space-y-2"></div>
+            </section>
+
+            <!-- Paste-a-spec Producer Creation -->
+            <section id="paste-spec-section" class="bg-white rounded-xl border border-indigo-300 shadow-sm p-6 hidden">
                 <div class="mb-4">
-                    <h2 class="text-lg font-semibold text-indigo-700">Add Manual / External Service</h2>
-                    <p class="text-sm text-slate-500 mt-1">Register a new service manually. You can then add endpoints and specs to it.</p>
+                    <h2 class="text-lg font-semibold text-indigo-700">Provide a Spec for a Producer</h2>
+                    <p class="text-sm text-slate-500 mt-1">Paste a complete specification to publish it under the version it declares — the same rules as any client. A Producer that does not exist yet is created by its first provide.</p>
                 </div>
-                <div class="flex items-center space-x-3">
-                    <input type="text" id="manual-service-name" placeholder="e.g. external-api"
-                        class="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                    <input type="text" id="paste-spec-name" placeholder="Producer name, e.g. external-api"
+                        class="px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         autocomplete="off">
-                    <button onclick="addManualService()"
-                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm transition-colors font-medium whitespace-nowrap">Add Service</button>
+                    <select id="paste-spec-type"
+                        class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="openapi">OpenAPI</option>
+                        <option value="asyncapi">AsyncAPI</option>
+                        <option value="proto">Proto / gRPC</option>
+                    </select>
+                    <label class="flex items-center gap-2 text-sm text-slate-700 px-1">
+                        <input type="checkbox" id="paste-spec-ga" class="rounded border-slate-300">
+                        <span>Publish as <span class="font-semibold">GA</span></span>
+                    </label>
                 </div>
-                <div id="manual-service-result" class="mt-3 hidden text-sm"></div>
+                <p id="paste-spec-ga-warning" class="hidden text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">GA is immutable — the version number is claimed forever. Unchecked, this publishes an overwritable snapshot.</p>
+                <textarea id="paste-spec-content" rows="10" spellcheck="false"
+                    placeholder="Paste the full spec here. The version comes from the document itself (info.version, or a // sanshain-version: comment for proto)."
+                    class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                <div class="flex items-center gap-3 mt-3">
+                    <button onclick="pasteSpecSubmit(true)"
+                        class="border border-indigo-600 text-indigo-700 hover:bg-indigo-50 px-4 py-2 rounded-lg text-sm transition-colors font-medium">Validate (dry run)</button>
+                    <button onclick="pasteSpecSubmit(false)"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm transition-colors font-medium">Publish</button>
+                </div>
+                <div id="paste-spec-result" class="mt-3 hidden text-sm"></div>
             </section>
 
             <!-- Services -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="flex justify-between items-center mb-4">
                     <div>
-                        <h2 class="text-lg font-semibold text-slate-800">Services</h2>
-                        <p class="text-sm text-slate-500 mt-1">Registered API services. Expand to see branches.</p>
+                        <h2 class="text-lg font-semibold text-slate-800">Producers</h2>
+                        <p class="text-sm text-slate-500 mt-1">Registered API services. Expand to see versions.</p>
                     </div>
                     <div class="flex items-center space-x-3">
                         <button onclick="loadServices()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
                         <button onclick="nukeConfirm('☠️ Delete ALL services and their data?', 'DELETE ALL SERVICES', () => nukeServices())"
-                            class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium">💀 Nuke Services</button>
+                            class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium">💀 Nuke Producers</button>
                     </div>
                 </div>
                 <div class="mb-3">
@@ -335,13 +383,13 @@
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="flex justify-between items-center mb-4">
                     <div>
-                        <h2 class="text-lg font-semibold text-slate-800">Clients</h2>
+                        <h2 class="text-lg font-semibold text-slate-800">Consumers</h2>
                         <p class="text-sm text-slate-500 mt-1">Registered API consumers.</p>
                     </div>
                     <div class="flex items-center space-x-3">
                         <button onclick="loadClients()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
                         <button onclick="nukeConfirm('☠️ Delete ALL clients and their dependencies?', 'DELETE ALL CLIENTS', () => nukeClients())"
-                            class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium">💀 Nuke Clients</button>
+                            class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium">💀 Nuke Consumers</button>
                     </div>
                 </div>
                 <div class="mb-3">
@@ -352,22 +400,6 @@
                 <div id="clients-list" class="space-y-2 max-h-[500px] overflow-y-auto"></div>
             </section>
 
-            <!-- Nuke Branch Across All Services -->
-            <section class="bg-white rounded-xl border border-orange-300 shadow-sm p-6">
-                <div class="mb-4">
-                    <h2 class="text-lg font-semibold text-orange-700">🔥 Nuke Branch Across All Services</h2>
-                    <p class="text-sm text-slate-500 mt-1">Delete a specific branch from <strong>every</strong> service at once. Useful for cleaning up old feature branches.</p>
-                </div>
-                <div class="flex items-center space-x-3">
-                    <input type="text" id="nuke-branch-name" placeholder="e.g. feature/old-experiment"
-                        class="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                        autocomplete="off">
-                    <button onclick="nukeBranchGlobal()"
-                        class="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg text-sm transition-colors font-medium whitespace-nowrap">🔥 Nuke Branch</button>
-                </div>
-                <div id="nuke-branch-result" class="mt-3 hidden text-sm"></div>
-            </section>
-
             <!-- Database Nuke -->
             <section class="bg-white rounded-xl border border-red-300 shadow-sm p-6">
                 <div class="flex justify-between items-center">
@@ -375,7 +407,7 @@
                         <h2 class="text-lg font-semibold text-red-700">☠️ Danger Zone</h2>
                         <p class="text-sm text-red-500 mt-1">Irreversible actions. This will wipe the entire database except your admin account and settings.</p>
                     </div>
-                    <button onclick="nukeConfirm('💀☠️💀 NUKE THE ENTIRE DATABASE? This deletes ALL services, clients, users, branches, endpoints, and protected branches. Only your admin account will survive.', 'NUKE DATABASE', () => nukeDatabase())"
+                    <button onclick="nukeConfirm('💀☠️💀 NUKE THE ENTIRE DATABASE? This deletes ALL services, clients, users, versions, endpoints, and dependencies. Only your admin account will survive.', 'NUKE DATABASE', () => nukeDatabase())"
                         class="bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-lg text-sm transition-colors font-bold border-2 border-red-900">💀☠️ NUKE DATABASE ☠️💀</button>
                 </div>
             </section>
@@ -440,7 +472,7 @@
     <!-- Metadata Modal -->
     <div id="metadata-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-            <h3 class="text-lg font-bold text-slate-800 mb-4">Service Metadata: <span id="metadata-service-name"></span></h3>
+            <h3 class="text-lg font-bold text-slate-800 mb-4">Producer Metadata: <span id="metadata-service-name"></span></h3>
             <form id="metadata-form" class="space-y-4">
                 <input type="hidden" id="metadata-svc-hidden">
                 <div>
@@ -452,7 +484,7 @@
                     <label class="block text-sm font-medium text-slate-600 mb-1">Domain / Group</label>
                     <input type="text" id="metadata-domain" placeholder="e.g. Core, Auth, Billing"
                         class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <p class="text-[10px] text-slate-400 mt-1">Services with the same domain are clustered in the graph.</p>
+                    <p class="text-[10px] text-slate-400 mt-1">Producers with the same domain are clustered in the graph.</p>
                 </div>
                 <div class="flex space-x-3">
                     <button type="submit" class="flex-1 bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium">Save</button>
@@ -464,6 +496,10 @@
 
     <script>
         // Use sanshainToken and renderBanner from common.js
+        // The signed-in caller, for gating affordances (the Promote button).
+        // Hiding is a usability affordance; the server's GA gate is the boundary.
+        let adminActor = null;
+
         function onSessionExpired() {
             window.location.href = '/account.html';
         }
@@ -490,13 +526,22 @@
                 const res = await apiCall('/auth/me');
                 if (res.ok) {
                     const data = await res.json();
-                    if (!data.is_admin) {
+                    adminActor = data;
+                    // Anyone holding at least one administrative permission has
+                    // something to do here; the individual sections gate
+                    // themselves.
+                    if (!canSeeAdminDashboard(data)) {
                         await renderBanner(data);
                         showNotAdmin();
                         return;
                     }
                     await renderBanner(data);
                     showDashboard();
+                    // Providing from the browser is a Producer-administration
+                    // act; the form is shown to those who may do it.
+                    if (hasPermission(data, 'manage_producers')) {
+                        document.getElementById('paste-spec-section').classList.remove('hidden');
+                    }
                 } else {
                     window.location.href = '/account.html';
                 }
@@ -506,17 +551,22 @@
         }
 
         // --- Load All ---
-        function loadAll() {
+        async function loadAll() {
             loadDatabaseInfo();
             loadCacheConfig();
-            loadBranchMaxAge();
+            loadSnapshotMaxAge();
             loadDependencyMaxAge();
-            loadProtectedBranches();
             loadServices();
             loadClients();
             loadAutoApproveUsers();
-            loadUsers();
             loadAuthConfig();
+            // Ordered: the catalogue tells the user and group rows which roles
+            // exist, the user list feeds the maintainer picker, and groups feed
+            // it too — so each waits for what it needs.
+            await loadRoleCatalogue();
+            await loadUsers();
+            await loadGroups();
+            await loadMaintainers();
         }
 
         // --- Database Info ---
@@ -531,52 +581,6 @@
             } catch (_) {}
         }
 
-
-        // --- Protected Branches ---
-        async function loadProtectedBranches() {
-            const list = document.getElementById('protected-branches-list');
-            try {
-                const res = await apiCall('/admin/protected-branches');
-                if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
-                const branches = await res.json();
-                if (branches.length === 0) {
-                    list.innerHTML = '<p class="text-sm text-slate-500 italic">No protected branches configured.</p>';
-                    return;
-                }
-                list.innerHTML = branches.map(b => `
-                    <div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
-                        <span class="font-mono text-sm text-slate-700">${escapeHtml(b)}</span>
-                        <button onclick="confirmDelete('Remove protected branch <strong>${escapeHtml(b)}</strong>?', () => deleteProtectedBranch('${escapeAttr(b)}'))"
-                            class="text-red-500 hover:text-red-700 text-sm">Remove</button>
-                    </div>
-                `).join('');
-            } catch (_) {
-                list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
-            }
-        }
-
-        async function addProtectedBranch() {
-            const input = document.getElementById('new-branch-pattern');
-            const pattern = input.value.trim();
-            if (!pattern) return;
-            try {
-                const res = await apiCall('/admin/protected-branches', {
-                    method: 'POST',
-                    body: { pattern },
-                });
-                if (res.ok) {
-                    input.value = '';
-                    loadProtectedBranches();
-                }
-            } catch (_) {}
-        }
-
-        async function deleteProtectedBranch(pattern) {
-            try {
-                await apiCall(`/admin/protected-branches/${encodeURIComponent(pattern)}`, { method: 'DELETE' });
-                loadProtectedBranches();
-            } catch (_) {}
-        }
 
         // --- Cache Config ---
         async function loadCacheConfig() {
@@ -624,36 +628,36 @@
             } catch (_) {}
         }
 
-        // --- Branch Cleanup ---
-        async function loadBranchMaxAge() {
+        // --- Snapshot Cleanup ---
+        async function loadSnapshotMaxAge() {
             try {
-                const res = await apiCall('/admin/settings/branch-max-age');
+                const res = await apiCall('/admin/settings/snapshot-max-age');
                 if (res.ok) {
                     const data = await res.json();
-                    document.getElementById('branch-max-age-days').value = data.days;
+                    document.getElementById('snapshot-max-age-days').value = data.days;
                 }
             } catch (_) {}
         }
 
-        async function saveBranchMaxAge() {
-            const days = parseInt(document.getElementById('branch-max-age-days').value, 10);
-            if (isNaN(days) || days < 1) return;
+        async function saveSnapshotMaxAge() {
+            const days = parseInt(document.getElementById('snapshot-max-age-days').value, 10);
+            if (isNaN(days) || days < 0) return;
             try {
-                const res = await apiCall('/admin/settings/branch-max-age', { method: 'POST', body: { days } });
+                const res = await apiCall('/admin/settings/snapshot-max-age', { method: 'POST', body: { days } });
                 if (res.ok) {
-                    document.getElementById('branch-cleanup-result').textContent = '✓ Saved';
-                    setTimeout(() => document.getElementById('branch-cleanup-result').textContent = '', 3000);
+                    document.getElementById('snapshot-cleanup-result').textContent = '✓ Saved';
+                    setTimeout(() => document.getElementById('snapshot-cleanup-result').textContent = '', 3000);
                 }
             } catch (_) {}
         }
 
-        async function triggerBranchCleanup() {
+        async function triggerSnapshotCleanup() {
             try {
-                const res = await apiCall('/admin/settings/branch-cleanup', { method: 'POST', body: {} });
+                const res = await apiCall('/admin/cleanup/snapshots', { method: 'POST', body: {} });
                 if (res.ok) {
                     const data = await res.json();
-                    document.getElementById('branch-cleanup-result').textContent = `✓ Deleted ${data.deleted} branches`;
-                    setTimeout(() => document.getElementById('branch-cleanup-result').textContent = '', 5000);
+                    document.getElementById('snapshot-cleanup-result').textContent = `✓ Deleted ${data.deleted} snapshot${data.deleted !== 1 ? 's' : ''}`;
+                    setTimeout(() => document.getElementById('snapshot-cleanup-result').textContent = '', 5000);
                     loadServices();
                 }
             } catch (_) {}
@@ -684,7 +688,7 @@
 
         async function triggerDependencyCleanup() {
             try {
-                const res = await apiCall('/admin/settings/dependency-cleanup', { method: 'POST', body: {} });
+                const res = await apiCall('/admin/cleanup/dependencies', { method: 'POST', body: {} });
                 if (res.ok) {
                     const data = await res.json();
                     document.getElementById('dependency-cleanup-result').textContent = `✓ Deleted ${data.deleted} dependencies`;
@@ -692,37 +696,6 @@
                     loadClients();
                 }
             } catch (_) {}
-        }
-
-        // --- Nuke Branch ---
-        async function nukeBranchGlobal() {
-            const branch = document.getElementById('nuke-branch-name').value.trim();
-            if (!branch) return;
-            const resultEl = document.getElementById('nuke-branch-result');
-            nukeConfirm(`🔥 Delete branch <strong>${escapeHtml(branch)}</strong> from ALL services?`, `DELETE BRANCH ${branch}`, async () => {
-                try {
-                    const res = await apiCall(`/admin/nuke/branch/${encodeURIComponent(branch)}`, {
-                        method: 'POST',
-                        body: { confirmation: `DELETE BRANCH ${branch}` },
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        resultEl.classList.remove('hidden');
-                        resultEl.className = 'mt-3 text-sm text-green-600';
-                        resultEl.textContent = `✓ Deleted branch "${branch}" from ${data.deleted || 0} services`;
-                        document.getElementById('nuke-branch-name').value = '';
-                        loadServices();
-                    } else {
-                        resultEl.classList.remove('hidden');
-                        resultEl.className = 'mt-3 text-sm text-red-600';
-                        resultEl.textContent = 'Failed to delete branch';
-                    }
-                } catch (_) {
-                    resultEl.classList.remove('hidden');
-                    resultEl.className = 'mt-3 text-sm text-red-600';
-                    resultEl.textContent = 'Error deleting branch';
-                }
-            });
         }
 
         // --- Local Users Toggle ---
@@ -769,6 +742,327 @@
             } catch (_) {}
         }
 
+
+
+        // --- Roles, groups and maintainers ---
+        //
+        // Roles are fixed in the service, so this screen assigns them; it cannot
+        // compose new ones. What each role confers is shown so an administrator
+        // can see what they are handing over.
+        let roleCatalogue = [];
+        let knownUsers = [];
+        let knownGroups = [];
+
+        async function loadRoleCatalogue() {
+            try {
+                const res = await apiCall('/admin/roles');
+                if (!res.ok) return;
+                const data = await res.json();
+                roleCatalogue = data.roles || [];
+                const note = document.getElementById('root-note');
+                if (note) {
+                    note.textContent =
+                        'Root is held by configuration (SANSHAIN_ROOT_USERS) and cannot be granted or revoked here.';
+                }
+            } catch (_) {}
+        }
+
+        function grantableRoles() {
+            return roleCatalogue.filter(r => r.globally_grantable);
+        }
+
+        function roleTitle(roleName) {
+            const entry = roleCatalogue.find(r => r.role === roleName);
+            return entry ? `Confers: ${entry.permissions.join(', ')}` : '';
+        }
+
+        function roleControls(user) {
+            const held = user.roles || [];
+            const options = grantableRoles()
+                .filter(r => !held.includes(r.role))
+                .map(r => `<option value="${escapeAttr(r.role)}" title="${escapeAttr(roleTitle(r.role))}">${escapeHtml(r.role)}</option>`)
+                .join('');
+            const grant = options
+                ? `<select id="grant-role-${user.id}" class="text-xs rounded border-slate-200">
+                       <option value="">grant role…</option>${options}
+                   </select>
+                   <button onclick="grantRole(${user.id})" class="text-indigo-600 hover:text-indigo-800 text-sm">Grant</button>`
+                : '';
+            const revoke = held
+                .map(r => `<button onclick="revokeRole(${user.id}, '${escapeAttr(r)}')"
+                        title="Revoke ${escapeAttr(r)}"
+                        class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(r)}</button>`)
+                .join(' ');
+            return grant + revoke;
+        }
+
+        async function grantRole(userId) {
+            const select = document.getElementById(`grant-role-${userId}`);
+            const role = select ? select.value : '';
+            if (!role) return;
+            const res = await apiCall(`/admin/users/${userId}/roles`, {
+                method: 'POST',
+                body: { role },
+            });
+            if (!res.ok) {
+                alert('Failed to grant: ' + (await errorMessage(res)));
+                return;
+            }
+            loadUsers();
+        }
+
+        async function revokeRole(userId, role) {
+            // Warn rather than block: root is configured outside the database and
+            // is the recovery path, so this is recoverable — but it is easy to do
+            // by accident and hard to notice.
+            const me = await currentActor();
+            if (me && me.id === userId && (me.roles || []).length === 1) {
+                if (!window.confirm(
+                    `Revoke your own last role (${role})? You will lose access to this page.`)) {
+                    return;
+                }
+            }
+            const res = await apiCall(`/admin/users/${userId}/roles/${encodeURIComponent(role)}`, {
+                method: 'DELETE',
+            });
+            if (!res.ok) {
+                alert('Failed to revoke: ' + (await errorMessage(res)));
+                return;
+            }
+            loadUsers();
+        }
+
+        async function currentActor() {
+            try {
+                const res = await apiCall('/auth/me');
+                return res.ok ? await res.json() : null;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        async function loadGroups() {
+            const list = document.getElementById('groups-list');
+            if (!list) return;
+            try {
+                const res = await apiCall('/admin/groups');
+                if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
+                const data = await res.json();
+                knownGroups = data.groups || [];
+                if (knownGroups.length === 0) {
+                    list.innerHTML = '<p class="text-sm text-slate-500 italic">No groups yet.</p>';
+                    refreshMaintainerPickers();
+                    return;
+                }
+                list.innerHTML = knownGroups.map(g => {
+                    const directory = g.source === 'ldap';
+                    const badge = directory
+                        ? '<span class="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">directory</span>'
+                        : '<span class="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">sanshain</span>';
+                    const roles = (g.roles || [])
+                        .map(r => `<button onclick="setGroupRoles(${g.id}, '${escapeAttr(r)}', false)"
+                                title="Remove ${escapeAttr(r)}"
+                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(r)}</button>`)
+                        .join(' ');
+                    const addable = grantableRoles()
+                        .filter(r => !(g.roles || []).includes(r.role))
+                        .map(r => `<option value="${escapeAttr(r.role)}" title="${escapeAttr(roleTitle(r.role))}">${escapeHtml(r.role)}</option>`)
+                        .join('');
+                    const memberIds = g.member_ids || [];
+                    const members = directory
+                        ? '<span class="text-xs text-slate-400 italic">membership from the directory</span>'
+                        : `<span class="text-xs text-slate-500">${memberIds.length} member(s)</span>`;
+                    const memberChips = directory ? '' : memberIds.map(id => {
+                        const u = knownUsers.find(x => x.id === id);
+                        const label = u ? u.username : `user #${id}`;
+                        return `<button onclick="removeGroupMember(${g.id}, ${id})"
+                                title="Remove ${escapeAttr(label)} from ${escapeAttr(g.name)}"
+                                class="text-xs text-slate-500 hover:text-red-600 bg-white border border-slate-200 rounded-full px-2 py-0.5">✕ ${escapeHtml(label)}</button>`;
+                    }).join(' ');
+                    const addableMembers = directory ? '' : knownUsers
+                        .filter(u => !memberIds.includes(u.id))
+                        .map(u => `<option value="${u.id}">${escapeHtml(u.username)}</option>`)
+                        .join('');
+                    return `
+                    <div class="bg-slate-50 px-4 py-2 rounded-lg fade-in">
+                        <div class="flex justify-between items-center">
+                            <div class="flex items-center space-x-3">
+                                <span class="font-medium text-slate-800">${escapeHtml(g.name)}</span>
+                                ${badge}
+                                ${members}
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                ${addable ? `<select id="group-role-${g.id}" class="text-xs rounded border-slate-200">
+                                    <option value="">add role…</option>${addable}
+                                </select>
+                                <button onclick="addGroupRole(${g.id})" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>` : ''}
+                                ${directory ? '' : `<button onclick="confirmDelete('Delete group <strong>${escapeHtml(g.name)}</strong>?', () => deleteGroup(${g.id}))" class="text-red-500 hover:text-red-700 text-sm">Delete</button>`}
+                            </div>
+                        </div>
+                        <div class="mt-1 space-x-2">${roles || '<span class="text-xs text-slate-400 italic">no roles attached</span>'}</div>
+                        ${directory ? '' : `<div class="mt-2 flex flex-wrap items-center gap-2">
+                            ${memberChips || '<span class="text-xs text-slate-400 italic">no members</span>'}
+                            ${addableMembers ? `<select id="group-member-${g.id}" class="text-xs rounded border-slate-200">
+                                <option value="">add member…</option>${addableMembers}
+                            </select>
+                            <button onclick="addGroupMember(${g.id})" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>` : ''}
+                        </div>`}
+                    </div>`;
+                }).join('');
+                refreshMaintainerPickers();
+            } catch (_) {
+                list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
+            }
+        }
+
+        async function createGroup() {
+            const input = document.getElementById('new-group-name');
+            const name = input ? input.value.trim() : '';
+            if (!name) return;
+            const res = await apiCall('/admin/groups', { method: 'POST', body: { name } });
+            if (!res.ok) {
+                alert('Failed to create: ' + (await errorMessage(res)));
+                return;
+            }
+            input.value = '';
+            loadGroups();
+        }
+
+        async function addGroupMember(groupId) {
+            const select = document.getElementById(`group-member-${groupId}`);
+            const userId = select ? parseInt(select.value, 10) : NaN;
+            if (!userId) return;
+            const res = await apiCall(`/admin/groups/${groupId}/members`, {
+                method: 'POST',
+                body: { user_id: userId },
+            });
+            if (!res.ok) {
+                alert('Failed to add member: ' + (await errorMessage(res)));
+                return;
+            }
+            loadGroups();
+        }
+
+        async function removeGroupMember(groupId, userId) {
+            const res = await apiCall(`/admin/groups/${groupId}/members/${userId}`, { method: 'DELETE' });
+            if (!res.ok) {
+                alert('Failed to remove member: ' + (await errorMessage(res)));
+                return;
+            }
+            loadGroups();
+        }
+
+        async function addGroupRole(groupId) {
+            const select = document.getElementById(`group-role-${groupId}`);
+            const role = select ? select.value : '';
+            if (!role) return;
+            await setGroupRoles(groupId, role, true);
+        }
+
+        // The endpoint replaces the whole set, so the current roles are read and
+        // the one change applied to them.
+        async function setGroupRoles(groupId, role, add) {
+            const group = knownGroups.find(g => g.id === groupId);
+            const current = group ? (group.roles || []) : [];
+            const roles = add
+                ? current.concat([role])
+                : current.filter(r => r !== role);
+            const res = await apiCall(`/admin/groups/${groupId}`, { method: 'PUT', body: { roles } });
+            if (!res.ok) {
+                alert('Failed to update roles: ' + (await errorMessage(res)));
+                return;
+            }
+            loadGroups();
+        }
+
+        async function deleteGroup(groupId) {
+            const res = await apiCall(`/admin/groups/${groupId}`, { method: 'DELETE' });
+            if (!res.ok) {
+                alert('Failed to delete: ' + (await errorMessage(res)));
+                return;
+            }
+            loadGroups();
+        }
+
+        function refreshMaintainerPickers() {
+            const subject = document.getElementById('maintainer-subject');
+            if (!subject) return;
+            const users = knownUsers.map(u => `<option value="user:${u.id}">user: ${escapeHtml(u.username)}</option>`);
+            const groups = knownGroups.map(g => `<option value="group:${g.id}">group: ${escapeHtml(g.name)}${g.source === 'ldap' ? ' (directory)' : ''}</option>`);
+            subject.innerHTML = users.concat(groups).join('');
+        }
+
+        // One request fills the whole section: /admin/maintainers answers for
+        // every Producer at once. Asking per Producer meant 26 sequential
+        // round-trips for 25 Producers.
+        async function loadMaintainers() {
+            const list = document.getElementById('maintainers-list');
+            const picker = document.getElementById('maintainer-producer');
+            if (!list || !picker) return;
+            try {
+                const res = await apiCall('/admin/maintainers');
+                if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
+                const data = await res.json();
+                const producers = data.producers || [];
+                picker.innerHTML = producers
+                    .map(p => `<option value="${escapeAttr(p.producer)}">${escapeHtml(p.producer)}</option>`)
+                    .join('');
+
+                const rows = producers
+                    .filter(p => (p.user_ids || []).length || (p.group_ids || []).length)
+                    .map(p => {
+                        const users = (p.user_ids || []).map(id => {
+                            const u = knownUsers.find(x => x.id === id);
+                            return `<button onclick="unassignMaintainer('${escapeAttr(p.producer)}', 'users', ${id})"
+                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(u ? u.username : ('user ' + id))}</button>`;
+                        });
+                        const groups = (p.group_ids || []).map(id => {
+                            const g = knownGroups.find(x => x.id === id);
+                            return `<button onclick="unassignMaintainer('${escapeAttr(p.producer)}', 'groups', ${id})"
+                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(g ? g.name : ('group ' + id))}</button>`;
+                        });
+                        return `
+                        <div class="bg-slate-50 px-4 py-2 rounded-lg fade-in">
+                            <span class="font-medium text-slate-800">${escapeHtml(p.producer)}</span>
+                            <span class="ml-3 space-x-2">${users.concat(groups).join(' ')}</span>
+                        </div>`;
+                    });
+                list.innerHTML = rows.length
+                    ? rows.join('')
+                    : '<p class="text-sm text-slate-500 italic">No Producer has a maintainer yet.</p>';
+            } catch (_) {
+                list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
+            }
+        }
+
+        async function assignMaintainer() {
+            const producer = document.getElementById('maintainer-producer').value;
+            const subject = document.getElementById('maintainer-subject').value;
+            if (!producer || !subject) return;
+            const [kind, id] = subject.split(':');
+            const body = kind === 'user' ? { user_id: Number(id) } : { group_id: Number(id) };
+            const res = await apiCall(`/admin/producers/${encodeURIComponent(producer)}/maintainers`, {
+                method: 'POST',
+                body,
+            });
+            if (!res.ok) {
+                alert('Failed to assign: ' + (await errorMessage(res)));
+                return;
+            }
+            loadMaintainers();
+        }
+
+        async function unassignMaintainer(producer, kind, id) {
+            const res = await apiCall(
+                `/admin/producers/${encodeURIComponent(producer)}/maintainers/${kind}/${id}`,
+                { method: 'DELETE' });
+            if (!res.ok) {
+                alert('Failed to unassign: ' + (await errorMessage(res)));
+                return;
+            }
+            loadMaintainers();
+        }
+
         // --- Users ---
         async function loadUsers() {
             const list = document.getElementById('users-list');
@@ -776,6 +1070,7 @@
                 const res = await apiCall('/admin/users');
                 if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
                 const users = await res.json();
+                knownUsers = users;
                 if (users.length === 0) {
                     list.innerHTML = '<p class="text-sm text-slate-500 italic">No users registered.</p>';
                     return;
@@ -784,14 +1079,15 @@
                     <div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
                         <div class="flex items-center space-x-3">
                             <span class="font-medium text-slate-800">${escapeHtml(u.username)}</span>
-                            ${u.is_admin ? '<span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">admin</span>' : ''}
+                            ${(u.roles || []).map(r => `<span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">${escapeHtml(r)}</span>`).join(' ')}
                             ${u.approved
                                 ? '<span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">approved</span>'
                                 : '<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">pending</span>'}
                         </div>
                         <div class="flex items-center space-x-2">
+                            ${roleControls(u)}
                             ${!u.approved ? `<button onclick="approveUser(${u.id})" class="text-green-600 hover:text-green-800 text-sm">Approve</button>` : ''}
-                            ${!u.is_admin ? `<button onclick="confirmDelete('Delete user <strong>${escapeHtml(u.username)}</strong>?', () => deleteUser(${u.id}))" class="text-red-500 hover:text-red-700 text-sm">Delete</button>` : ''}
+                            ${!(u.roles || []).includes('admin') ? `<button onclick="confirmDelete('Delete user <strong>${escapeHtml(u.username)}</strong>?', () => deleteUser(${u.id}))" class="text-red-500 hover:text-red-700 text-sm">Delete</button>` : ''}
                         </div>
                     </div>
                 `).join('');
@@ -814,37 +1110,58 @@
             } catch (_) {}
         }
 
-        // --- Manual Service Addition ---
-        async function addManualService() {
-            const name = document.getElementById('manual-service-name').value.trim();
-            if (!name) return;
-            const resultEl = document.getElementById('manual-service-result');
+        // --- Paste-a-spec Producer Creation ---
+        // The same /provide* endpoints every client uses: no placeholder
+        // content, no side door. The signed-in admin is the authenticated
+        // Actor, so attribution lands on their name.
+        document.getElementById('paste-spec-ga').addEventListener('change', (e) => {
+            document.getElementById('paste-spec-ga-warning').classList.toggle('hidden', !e.target.checked);
+        });
+
+        async function pasteSpecSubmit(dryRun) {
+            const name = document.getElementById('paste-spec-name').value.trim();
+            const apiType = document.getElementById('paste-spec-type').value;
+            const content = document.getElementById('paste-spec-content').value;
+            const ga = document.getElementById('paste-spec-ga').checked;
+            const resultEl = document.getElementById('paste-spec-result');
+            const show = (cls, text) => {
+                resultEl.classList.remove('hidden');
+                resultEl.className = 'mt-3 text-sm ' + cls;
+                resultEl.textContent = text;
+            };
+            if (!name) { show('text-red-600', 'Producer name is required.'); return; }
+            if (!content.trim()) { show('text-red-600', 'Paste a specification first.'); return; }
+
+            const route = apiType === 'asyncapi' ? '/provide/asyncapi'
+                : apiType === 'proto' ? '/provide/grpc' : '/provide';
+            const field = apiType === 'asyncapi' ? 'asyncapi_yaml'
+                : apiType === 'proto' ? 'proto_content' : 'openapi_yaml';
+            const body = {
+                producername: name,
+                stability: ga ? 'ga' : 'snapshot',
+                dry_run: dryRun,
+            };
+            body[field] = content;
+
             try {
-                // Using provide endpoint with a minimal spec to create the service
-                const res = await apiCall('/provide', {
-                    method: 'POST',
-                    body: {
-                        servicename: name,
-                        branch: 'main',
-                        openapi_yaml: 'openapi: 3.0.0\ninfo:\n  title: Manual Service\n  version: 1.0.0\npaths:\n  /_manual_init:\n    get:\n      responses:\n        "200":\n          description: OK'
-                    },
-                });
+                const res = await apiCall(route, { method: 'POST', body });
                 if (res.ok) {
-                    resultEl.classList.remove('hidden');
-                    resultEl.className = 'mt-3 text-sm text-green-600';
-                    resultEl.textContent = `✓ Service "${name}" created successfully`;
-                    document.getElementById('manual-service-name').value = '';
-                    loadServices();
+                    const data = await res.json();
+                    const c = data.changes || {};
+                    show('text-green-600',
+                        `${dryRun ? '✓ Valid — would publish' : '✓ Published'} ${name} ` +
+                        `${data.version} as ${data.stability} ` +
+                        `(+${c.inserts ?? 0} ~${c.updates ?? 0} -${c.deletes ?? 0})`);
+                    if (!dryRun) {
+                        document.getElementById('paste-spec-content').value = '';
+                        loadServices();
+                    }
                 } else {
-                    const err = await res.text();
-                    resultEl.classList.remove('hidden');
-                    resultEl.className = 'mt-3 text-sm text-red-600';
-                    resultEl.textContent = 'Failed to create service: ' + err;
+                    const msg = await errorMessage(res);
+                    show('text-red-600', (dryRun ? 'Rejected (dry run): ' : 'Rejected: ') + msg);
                 }
             } catch (e) {
-                resultEl.classList.remove('hidden');
-                resultEl.className = 'mt-3 text-sm text-red-600';
-                resultEl.textContent = 'Error: ' + e.message;
+                show('text-red-600', 'Error: ' + e.message);
             }
         }
 
@@ -854,7 +1171,7 @@
         async function loadServices() {
             const list = document.getElementById('services-list');
             try {
-                const res = await apiCall('/admin/services');
+                const res = await apiCall('/admin/producers');
                 if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
                 allServices = await res.json();
                 renderServices(allServices);
@@ -885,7 +1202,7 @@
                 div.innerHTML = `
                     <div class="flex justify-between items-center">
                         <div class="flex items-center space-x-3">
-                            <button onclick="toggleBranches(this, '${escapeAttr(svc)}')" class="text-slate-500 hover:text-slate-600 text-sm">▶</button>
+                            <button onclick="toggleVersions(this, '${escapeAttr(svc)}')" class="text-slate-500 hover:text-slate-600 text-sm">▶</button>
                             <span class="font-medium text-slate-800">${escapeHtml(svc)}</span>
                             ${svcObj.domain ? `<span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100 font-bold uppercase">${escapeHtml(svcObj.domain)}</span>` : ''}
                         </div>
@@ -896,14 +1213,14 @@
                                 class="text-red-500 hover:text-red-700 text-sm">Delete</button>
                         </div>
                     </div>
-                    <div class="branches-container hidden mt-3 ml-8 space-y-1"></div>
+                    <div class="versions-container hidden mt-3 ml-8 space-y-1"></div>
                 `;
                 list.appendChild(div);
             }
         }
 
-        async function toggleBranches(btn, serviceName) {
-            const container = btn.closest('.bg-slate-50').querySelector('.branches-container');
+        async function toggleVersions(btn, serviceName) {
+            const container = btn.closest('.bg-slate-50').querySelector('.versions-container');
             if (!container.classList.contains('hidden')) {
                 container.classList.add('hidden');
                 btn.textContent = '▶';
@@ -913,22 +1230,31 @@
             container.classList.remove('hidden');
             container.innerHTML = '<p class="text-xs text-slate-500">Loading...</p>';
             try {
-                const res = await apiCall(`/admin/services/${encodeURIComponent(serviceName)}/branches`);
+                const res = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/versions`);
                 if (!res.ok) { container.innerHTML = '<p class="text-xs text-red-500">Failed</p>'; return; }
-                const branches = await res.json();
-                if (branches.length === 0) {
-                    container.innerHTML = '<p class="text-xs text-slate-500 italic">No branches</p>';
+                const versions = await res.json();
+                if (versions.length === 0) {
+                    container.innerHTML = '<p class="text-xs text-slate-500 italic">No versions</p>';
                     return;
                 }
-                container.innerHTML = branches.map(b => `
+                container.innerHTML = versions.map(v => `
                     <div class="flex justify-between items-center bg-white px-3 py-1.5 rounded border border-slate-100 fade-in">
-                        <span class="text-sm font-mono text-slate-600">${escapeHtml(b)}</span>
-                        <div class="flex space-x-2">
-                            <button onclick="resetBranchHistory('${escapeAttr(serviceName)}', '${escapeAttr(b)}')"
-                                class="text-amber-600 hover:text-amber-800 text-xs font-medium">Reset History</button>
-                            <button onclick="confirmDelete('Delete branch <strong>${escapeHtml(b)}</strong> from <strong>${escapeHtml(serviceName)}</strong>?', () => deleteBranch('${escapeAttr(serviceName)}', '${escapeAttr(b)}'))"
+                        <span class="flex items-center gap-2">
+                            <span class="text-[9px] font-bold uppercase tracking-wider text-slate-400">${escapeHtml(v.api_type)}</span>
+                            <span class="text-sm font-mono text-slate-600">${escapeHtml(v.version)}</span>
+                            ${v.stability === 'ga'
+                                ? '<span class="text-[10px] text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full font-bold uppercase">GA</span>'
+                                : '<span class="text-[10px] text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full font-bold uppercase">snapshot</span>'}
+                            <span class="text-xs text-slate-400">${v.endpoint_count} endpoint${v.endpoint_count !== 1 ? 's' : ''}</span>
+                        </span>
+                        <span class="flex items-center gap-3">
+                            ${v.stability !== 'ga' && hasPermission(adminActor, 'release_ga')
+                                ? `<button onclick="promoteVersionRow(this, '${escapeAttr(serviceName)}', '${escapeAttr(v.api_type)}', '${escapeAttr(v.version)}')"
+                                    class="text-green-600 hover:text-green-700 text-xs">Promote to GA</button>`
+                                : ''}
+                            <button onclick="deleteVersion('${escapeAttr(serviceName)}', '${escapeAttr(v.api_type)}', '${escapeAttr(v.version)}')"
                                 class="text-red-400 hover:text-red-600 text-xs">Delete</button>
-                        </div>
+                        </span>
                     </div>
                 `).join('');
             } catch (_) {
@@ -938,37 +1264,47 @@
 
         async function deleteService(name) {
             try {
-                await apiCall(`/admin/services/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                await apiCall(`/admin/producers/${encodeURIComponent(name)}`, { method: 'DELETE' });
                 loadServices();
             } catch (_) {}
         }
 
-        async function deleteBranch(service, branch) {
+        // The sole escape hatch from GA immutability: fetch the dependents
+        // first so the confirmation names the Consumers whose builds break.
+        async function deleteVersion(service, apiType, version) {
+            let dependents = [];
             try {
-                await apiCall(`/admin/services/${encodeURIComponent(service)}/branches/${encodeURIComponent(branch)}`, { method: 'DELETE' });
-                loadServices();
+                const res = await apiCall(`/admin/producers/${encodeURIComponent(service)}/versions/${encodeURIComponent(apiType)}/${encodeURIComponent(version)}/dependents`);
+                if (res.ok) dependents = await res.json();
             } catch (_) {}
+            const warning = dependents.length > 0
+                ? `<br><br><span class="text-red-600 font-semibold">Consumers pinned to this version will hard-fail:</span><br>${dependents.map(d => escapeHtml(d)).join(', ')}`
+                : '<br><br>No Consumers are pinned to this version.';
+            confirmDelete(
+                `Delete ${escapeHtml(apiType)} version <strong>${escapeHtml(version)}</strong> of <strong>${escapeHtml(service)}</strong>?${warning}`,
+                async () => {
+                    const res = await apiCall(`/admin/producers/${encodeURIComponent(service)}/versions/${encodeURIComponent(apiType)}/${encodeURIComponent(version)}`, { method: 'DELETE' });
+                    if (!res.ok) {
+                        alert('Failed to delete: ' + (await errorMessage(res)));
+                        return;
+                    }
+                    loadServices();
+                });
         }
 
-        async function resetBranchHistory(service, branch) {
-            confirmAction(
-                `Are you sure you want to reset version history for branch <strong>${escapeHtml(branch)}</strong> of service <strong>${escapeHtml(service)}</strong>?<br><br>` +
-                `This will prune all old endpoint versions, renumber the latest version to 1, and reset the version counter, while preserving existing endpoints and client dependencies.`,
-                async () => {
-                    try {
-                        const res = await apiCall(`/admin/services/${encodeURIComponent(service)}/branches/${encodeURIComponent(branch)}/reset-history`, { method: 'POST' });
-                        if (res.ok) {
-                            alert(`✓ History reset successfully for branch "${branch}" of service "${service}"`);
-                        } else {
-                            alert(`Failed to reset history: HTTP ${res.status}`);
-                        }
-                    } catch (e) {
-                        alert(`Error: ${e.message}`);
-                    }
-                },
-                "Confirm Reset History",
-                "Reset History"
-            );
+        // One-click release (#28): shared flow from common.js; this wrapper
+        // only supplies the page's refresh (re-render the open versions panel
+        // so the badge flips).
+        function promoteVersionRow(btn, service, apiType, version) {
+            const row = btn.closest('.bg-slate-50');
+            promoteVersion(service, apiType, version, async () => {
+                const toggle = row ? row.querySelector('button') : null;
+                if (toggle) {
+                    toggle.textContent = '▶';
+                    row.querySelector('.versions-container').classList.add('hidden');
+                    toggleVersions(toggle, service);
+                }
+            });
         }
 
         // --- Clients ---
@@ -977,7 +1313,7 @@
         async function loadClients() {
             const list = document.getElementById('clients-list');
             try {
-                const res = await apiCall('/admin/clients');
+                const res = await apiCall('/admin/consumers');
                 if (!res.ok) { list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>'; return; }
                 allClients = await res.json();
                 renderClients(allClients);
@@ -1011,7 +1347,7 @@
 
         async function deleteClient(name) {
             try {
-                await apiCall(`/admin/clients/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                await apiCall(`/admin/consumers/${encodeURIComponent(name)}`, { method: 'DELETE' });
                 loadClients();
             } catch (_) {}
         }
@@ -1092,7 +1428,7 @@
                     resultEl.textContent = '✓ Connection successful';
                     resultEl.classList.add('bg-green-50', 'text-green-700');
                 } else {
-                    const errorText = await res.text();
+                    const errorText = await errorMessage(res);
                     resultEl.textContent = '✗ Connection failed: ' + errorText;
                     resultEl.classList.add('bg-red-50', 'text-red-700');
                     troubleEl.classList.remove('hidden');
@@ -1202,13 +1538,13 @@
         }
 
         async function nukeServices() {
-            const res = await apiCall('/admin/nuke/services', { method: 'POST', body: { confirmation: 'DELETE ALL SERVICES' } });
+            const res = await apiCall('/admin/nuke/producers', { method: 'POST', body: { confirmation: 'DELETE ALL SERVICES' } });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             loadServices();
         }
 
         async function nukeClients() {
-            const res = await apiCall('/admin/nuke/clients', { method: 'POST', body: { confirmation: 'DELETE ALL CLIENTS' } });
+            const res = await apiCall('/admin/nuke/consumers', { method: 'POST', body: { confirmation: 'DELETE ALL CLIENTS' } });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             loadClients();
         }
@@ -1245,7 +1581,7 @@
             const domain = document.getElementById('metadata-domain').value.trim() || null;
 
             try {
-                const res = await apiCall('/admin/services/metadata', {
+                const res = await apiCall('/admin/producers/metadata', {
                     method: 'POST',
                     body: { name, icon, domain }
                 });

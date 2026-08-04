@@ -92,6 +92,16 @@ pub async fn main() {
             .init();
     }
 
+    // Build the outbound TLS trust store, including any CA certificates the
+    // operator mounted. Runs before the listener binds and so before any LDAPS
+    // connection, and is fatal on failure: starting with a trust store that
+    // silently lacks the mounted certificates is the failure this prevents.
+    if let Err(e) = sanshain_service::infrastructure::tls::init_from_env() {
+        tracing::error!("Can't build the TLS trust store: {}", e);
+        eprintln!("ERROR: Can't build the TLS trust store: {}", e);
+        std::process::exit(1);
+    }
+
     let db_connection_str =
         std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:sanshain.db?mode=rwc".into());
 
@@ -187,6 +197,18 @@ pub async fn main() {
         std::process::exit(1);
     }
 
+    // Carry a previously configured directory admin group into the group
+    // mapping. Best effort: an instance that has never used the directory has
+    // nothing to migrate, and failing to migrate must not stop the service from
+    // starting — it would leave the operator with neither the old behaviour nor
+    // a running instance.
+    if let Err(e) = services::migrate_stored_admin_group(&repo).await {
+        tracing::warn!(
+            "Could not carry the configured directory admin group into the group mapping: {}",
+            e
+        );
+    }
+
     // Dev mode lets any caller reach protected endpoints without a token and
     // must never be left enabled in production. It only takes effect when
     // explicitly requested AND permitted by the `ALLOW_INSECURE_DEV_MODE` safety
@@ -239,6 +261,26 @@ pub async fn main() {
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(100);
 
+    // Root is resolved from configuration and never stored, so no stored grant
+    // can revoke it. Falling back to the bootstrap administrator's name keeps an
+    // existing deployment with a root account without being reconfigured.
+    let root_users =
+        std::sync::Arc::new(sanshain_service::domain::permissions::RootUsers::resolve(
+            std::env::var("SANSHAIN_ROOT_USERS").ok().as_deref(),
+            std::env::var("INITIAL_ADMIN_USERNAME").ok().as_deref(),
+        ));
+    tracing::info!(
+        "Root users (configuration-held, cannot be revoked in-app): {}",
+        root_users.usernames().collect::<Vec<_>>().join(", ")
+    );
+    // Root authority is a username match, so every root name must be claimed
+    // by an account before anyone else can claim it.
+    if let Err(e) = services::claim_root_usernames(&repo, &root_users).await {
+        tracing::error!("Can't claim root usernames: {}", e);
+        eprintln!("ERROR: Can't claim root usernames: {}", e);
+        std::process::exit(1);
+    }
+
     let (spec_updated_tx, _) = tokio::sync::broadcast::channel(spec_updated_channel_size);
     let mut system = sysinfo::System::new_all();
     system.refresh_all();
@@ -262,9 +304,12 @@ pub async fn main() {
         prometheus_handle,
         system: Arc::new(std::sync::Mutex::new(system)),
         max_body_bytes,
+        root_users,
+        directory_roles:
+            sanshain_service::application::directory_roles::DirectoryRoleCache::from_env(),
     };
 
-    // Spawn background branch cleanup task
+    // Spawn background cleanup task (snapshots, dependencies, CSRF tokens)
     let cleanup_repo = state.repo.clone();
     let cleanup_csrf = state.csrf_tokens.clone();
 
@@ -283,22 +328,15 @@ pub async fn main() {
             tokio::time::interval(std::time::Duration::from_secs(cleanup_interval_secs));
         loop {
             interval.tick().await;
-            match services::cleanup_stale_branches(&cleanup_repo).await {
+            match services::cleanup_expired_snapshots(&cleanup_repo).await {
                 Ok(0) => {}
-                Ok(n) => tracing::info!("Branch cleanup: deleted {} stale branches", n),
-                Err(e) => tracing::warn!("Branch cleanup failed: {:?}", e),
+                Ok(n) => tracing::info!("Snapshot cleanup: deleted {} unused snapshots", n),
+                Err(e) => tracing::warn!("Snapshot cleanup failed: {:?}", e),
             }
             match services::cleanup_stale_dependencies(&cleanup_repo).await {
                 Ok(0) => {}
                 Ok(n) => tracing::info!("Dependency cleanup: pruned {} stale dependencies", n),
                 Err(e) => tracing::warn!("Dependency cleanup failed: {:?}", e),
-            }
-            match services::cleanup_orphaned_channel_message_contracts(&cleanup_repo).await {
-                Ok(0) => {}
-                Ok(n) => {
-                    tracing::info!("Contract cleanup: dropped {} orphaned channel contracts", n)
-                }
-                Err(e) => tracing::warn!("Contract cleanup failed: {:?}", e),
             }
 
             // Prune expired CSRF tokens

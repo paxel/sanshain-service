@@ -1,4 +1,4 @@
-use crate::domain::models::Impact;
+use crate::domain::models::{ApiType, Impact};
 use openapiv3::{Components, OpenAPI, PathItem, ReferenceOr, SchemaKind, Type as OaType};
 use serde::Serialize;
 use serde_json;
@@ -12,6 +12,41 @@ pub struct EndpointSpec {
     pub method: String,
     pub yaml_content: String,
     pub deprecated: bool,
+}
+
+/// Read the Producer-declared version out of a spec document's `info.version`
+/// (OpenAPI and AsyncAPI share the same `info` shape). The field is
+/// load-bearing in 2.0: absent or non-semver values reject the Provide.
+pub fn extract_info_version(yaml_str: &str) -> Result<crate::domain::models::SemVer, String> {
+    #[derive(serde::Deserialize)]
+    struct InfoOnly {
+        info: Option<InfoVersion>,
+    }
+    #[derive(serde::Deserialize)]
+    struct InfoVersion {
+        version: Option<String>,
+    }
+
+    let parsed: InfoOnly = serde_yaml_ng::from_str(yaml_str)
+        .map_err(|e| format!("Failed to parse spec YAML: {}", e))?;
+    let raw = parsed
+        .info
+        .and_then(|i| i.version)
+        .ok_or_else(|| "spec has no info.version — the version is required and lives in the spec file (MAJOR.MINOR.PATCH)".to_string())?;
+    crate::domain::models::SemVer::parse_spec_version(&raw)
+        .map_err(|e| format!("info.version: {}", e))
+}
+
+/// The key an endpoint lookup must match against the stored
+/// `normalized_path`. Only OpenAPI paths are normalized at provide time;
+/// AsyncAPI channels and Proto service names are stored verbatim, so
+/// normalizing them here would blank their `{param}` segments and miss every
+/// parameterized channel.
+pub fn lookup_path(api_type: ApiType, path: &str) -> String {
+    match api_type {
+        ApiType::OpenApi => normalize_path(path),
+        ApiType::AsyncApi | ApiType::Proto => path.to_string(),
+    }
 }
 
 pub fn normalize_path(path: &str) -> String {
@@ -442,6 +477,18 @@ pub fn check_backward_compatibility(old_yaml: &str, new_yaml: &str) -> Result<()
 }
 
 /// Analyze the impact of a specification change to determine the SemVer increment.
+///
+/// Deliberately says nothing about the documents as text. `old_yaml` is not the
+/// document previously provided — it is a reconstruction merged back together
+/// from the stored per-endpoint fragments, taking the document header from
+/// whichever fragment sorts first and re-serialising it. Comparing that against
+/// a producer's original is comparing two different artefacts, and it never
+/// matches, so a textual fallback here reported a change on every provide.
+///
+/// The caller already computes a per-endpoint diff, fragment against fragment,
+/// which is the comparison that actually holds. Patch-level impact is derived
+/// from that; anything this function cannot see in the parsed API surface is
+/// not its business.
 pub fn analyze_impact(old_yaml: &str, new_yaml: &str) -> Impact {
     let old: OpenAPI = match serde_yaml_ng::from_str(old_yaml) {
         Ok(o) => o,
@@ -458,10 +505,6 @@ pub fn analyze_impact(old_yaml: &str, new_yaml: &str) -> Impact {
 
     if has_additions(&old, &new) {
         return Impact::Minor;
-    }
-
-    if old_yaml != new_yaml {
-        return Impact::Patch;
     }
 
     Impact::None
@@ -802,6 +845,42 @@ fn get_methods(path_item: &PathItem) -> Vec<(String, &openapiv3::Operation)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_extract_info_version_reads_semver() {
+        let yaml = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 2.1.3\npaths: {}\n";
+        assert_eq!(extract_info_version(yaml).unwrap().to_string(), "2.1.3");
+    }
+
+    #[test]
+    fn test_extract_info_version_missing_is_loud() {
+        let yaml = "openapi: 3.0.3\ninfo:\n  title: T\npaths: {}\n";
+        let err = extract_info_version(yaml).unwrap_err();
+        assert!(err.contains("no info.version"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_extract_info_version_rejects_snapshot_suffix_with_pointer() {
+        let yaml = "openapi: 3.0.3\ninfo:\n  version: 1.2.0-SNAPSHOT\npaths: {}\n";
+        let err = extract_info_version(yaml).unwrap_err();
+        assert!(err.contains("stability"), "got: {}", err);
+        assert!(err.contains("1.2.0"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_extract_info_version_rejects_loose_forms() {
+        for bad in ["1.0", "v2.0.0", "1.2.3.4", "one.two.three", "1.2.3+b7"] {
+            let yaml = format!(
+                "openapi: 3.0.3\ninfo:\n  version: \"{}\"\npaths: {{}}\n",
+                bad
+            );
+            assert!(
+                extract_info_version(&yaml).is_err(),
+                "'{}' should be rejected",
+                bad
+            );
+        }
+    }
 
     #[test]
     fn test_normalize_path() {

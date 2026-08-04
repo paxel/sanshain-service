@@ -108,30 +108,31 @@ test.describe('Sanshain Screenshot Capture', () => {
   });
 
   test('Capture services and drill-down', async ({ page }) => {
-    await page.goto('/services.html', { waitUntil: 'domcontentloaded' });
+    await page.goto('/producers.html', { waitUntil: 'domcontentloaded' });
     await ensureLoaderHidden(page);
     await page.waitForSelector('.endpoint-card', { timeout: 30000 });
-    await page.screenshot({ path: path.join(screenshotDir, 'services_list.png') });
+    await page.screenshot({ path: path.join(screenshotDir, 'producers_list.png') });
 
     // Click on config-service (from demo2)
     const svcCard = page.locator('.endpoint-card', { hasText: 'config-service' }).first();
     await svcCard.click();
     await page.waitForFunction(() => document.body.innerText.includes('config-service'), { timeout: 20000 });
     await page.waitForTimeout(1000);
-    await page.screenshot({ path: path.join(screenshotDir, 'service_branches.png') });
+    await page.screenshot({ path: path.join(screenshotDir, 'producer_versions.png') });
 
-    // Click on main branch
-    const branchCard = page.locator('.endpoint-card', { hasText: 'main' }).first();
-    await branchCard.click();
+    // Click on the newest version entry of the timeline
+    const versionCard = page.locator('.endpoint-card', { hasText: /\d+\.\d+\.\d+/ }).first();
+    await versionCard.click();
     await page.waitForSelector('.endpoint-card', { timeout: 30000 });
     await page.waitForTimeout(1000);
-    await page.screenshot({ path: path.join(screenshotDir, 'branch_endpoints.png') });
+    await page.screenshot({ path: path.join(screenshotDir, 'version_endpoints.png') });
   });
 
   test('Capture YAML viewer', async ({ page }) => {
     test.setTimeout(300000); // 5 minutes
-    // Navigate directly to a YAML view
-    await page.goto('/yaml.html?service=ml-inference&branch=main&path=/predict&method=POST&api_type=openapi', { waitUntil: 'domcontentloaded' });
+    // Navigate directly to a YAML view; without a version param the viewer
+    // loads the endpoint's blame trail and selects the newest version.
+    await page.goto('/yaml.html?service=ml-inference&api_type=openapi&path=/predict&method=POST', { waitUntil: 'domcontentloaded' });
     await ensureLoaderHidden(page);
     
     // Optional network idle, don't fail if it doesn't happen
@@ -212,7 +213,7 @@ test.describe('Sanshain Screenshot Capture', () => {
   });
 
   test('Capture reports and observability', async ({ page }) => {
-    await page.goto('/reports.html?branch=main', { waitUntil: 'domcontentloaded' });
+    await page.goto('/reports.html', { waitUntil: 'domcontentloaded' });
     await ensureLoaderHidden(page);
     
     // Dashboard view
@@ -244,10 +245,10 @@ test.describe('Sanshain Screenshot Capture', () => {
   });
 
   test('Capture clients list', async ({ page }) => {
-    await page.goto('/clients.html', { waitUntil: 'domcontentloaded' });
+    await page.goto('/consumers.html', { waitUntil: 'domcontentloaded' });
     await ensureLoaderHidden(page);
     await page.waitForSelector('.endpoint-card', { timeout: 20000 });
-    await page.screenshot({ path: path.join(screenshotDir, 'clients_list.png') });
+    await page.screenshot({ path: path.join(screenshotDir, 'consumers_list.png') });
     
     // Click on a client to show its requirements
     const clientCard = page.locator('.endpoint-card', { hasText: 'InventoryService' }).first();
@@ -273,11 +274,11 @@ test.describe('Sanshain Screenshot Capture', () => {
     await page.waitForTimeout(1000);
     await page.screenshot({ path: path.join(screenshotDir, 'admin_users.png') });
 
-    // Scroll to Protected Branches
-    const branchesHeader = page.locator('h2', { hasText: /^Protected Branches$/ });
-    await branchesHeader.scrollIntoViewIfNeeded({ timeout: 10000 });
+    // Scroll to Snapshot Cleanup
+    const cleanupHeader = page.locator('h2', { hasText: /^Snapshot Cleanup$/ });
+    await cleanupHeader.scrollIntoViewIfNeeded({ timeout: 10000 });
     await page.waitForTimeout(1000);
-    await page.screenshot({ path: path.join(screenshotDir, 'admin_protected_branches.png') });
+    await page.screenshot({ path: path.join(screenshotDir, 'admin_snapshot_cleanup.png') });
 
     // Scroll to Authentication
     const authHeader = page.locator('h2', { hasText: /^Authentication$/ });

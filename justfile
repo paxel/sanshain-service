@@ -26,3 +26,9 @@ itest:
 # Run Playwright UI smoke tests (requires service running)
 ui-test:
     npx playwright test tests/ui/smoke.test.js
+
+# Regenerate the README/docs screenshots (docs/images/*.png). Builds a release
+# binary, seeds demo data, drives Playwright against a real instance, and
+# overwrites the images in place — nothing else is touched.
+screenshots:
+    ./scripts/update_screenshots.sh

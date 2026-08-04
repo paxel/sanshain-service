@@ -9,9 +9,19 @@ This document is a handoff for follow-up implementation agents. It lists concret
 
 Do not “fix everything” in one pull request. Pick one item, add tests, implement the minimum safe change, run the relevant verification, update `CHANGELOG.md` only when the change is user-facing, and update `docs/ai/plan.md` when task status changes.
 
+> **See also:** [`ai/testing-findings-2026-07-23.md`](testing-findings-2026-07-23.md) — a separate,
+> prioritized plan for 16 issues found during exploratory testing (favorites loss, client-branch
+> navigation dead-ends, audit/observability noise, dark-mode contrast, and several feature
+> requests). Fold those items into this backlog's numbering as they are picked up.
+
 ## Priority legend
 
 ### 6. AsyncAPI subscribe operations: harvest as requires, validate as expectations — REWRITTEN 2026-07-04
+
+> **2.0 note (ADR-0003):** the branch-era mechanics below are stale — contracts are now keyed
+> `(channel, message name)` (no branch), enforced on GA provides only, and there is no
+> protected-branch fallback in resolution. The SUB-harvesting idea itself still stands; re-scope
+> the steps to version lines before implementing.
 
 **Original approach rejected.** The earlier version of this item ("store and serve SUB operations
 as endpoints") contradicts Sanshain's model: **provide = the contract a service produces,
@@ -148,6 +158,11 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 
 ### 7. Make protocol removal explicit and clear stale Kafka/gRPC/OpenAPI markers
 
+> **2.0 note (ADR-0003):** the instructions below are written against the branch model
+> (service/branch sync, protected-branch rules, shared contracts) and are obsolete as written.
+> The underlying concern — stale protocol tags/edges when a Producer drops a protocol family —
+> needs re-triage against version lines before any implementation.
+
 **Problem:** Production services can remain marked as Kafka/messaging even after their current `sanshain.yaml` no longer contains an AsyncAPI provide. The current service write paths are protocol-specific (`/provide`, `/provide/asyncapi`, `/provide/grpc`) and `provide_spec_inner()` only deletes endpoints for the same `ApiType` as the submitted spec. If a later Sanshain YAML update omits an entire protocol family, no request necessarily tells the service to delete the old endpoints, shared contracts, dependencies, or auto-tags for that missing family. `provide_spec_inner()` also auto-adds `messaging` for AsyncAPI and `grpc` for proto, but there is no matching tag reconciliation/removal when those protocols disappear.
 
 **Impact:** The UI and reports can show stale Kafka/gRPC/OpenAPI capability labels, stale AsyncAPI dependency edges, and the virtual `KAFKA` graph node for services that no longer publish or require async APIs. This makes production architecture views untrustworthy and can hide real cleanup work.
@@ -160,7 +175,7 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 - `src/application/spec_service.rs` (`provide_spec_inner`, `parse_spec_endpoints`, shared-contract update/delete logic, auto-tagging)
 - `src/application/report_service.rs` (AsyncAPI renders as `KAFKA` in isolation reports)
 - `static/js/graph.js` (injects virtual `KAFKA` node from `api_type=asyncapi` dependency edges)
-- `static/services.html` (shows stored endpoint `api_type` labels)
+- `static/producers.html` (shows stored endpoint `api_type` labels)
 - `src/domain/ports.rs` and `src/infrastructure/*repository.rs` for endpoint, dependency, shared-contract, and service-tag cleanup APIs
 
 **Implementation instructions:**
@@ -207,7 +222,14 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 - Add migration/cleanup dry-run tests against fixtures with stale `service_tags` and stale protocol edges.
 - Run `cargo test`; run JS/UI checks if graph or services UI code changes.
 
-### 8. Make admin spec and endpoint editing discoverable and complete
+### 8. Make admin spec and endpoint editing discoverable and complete — OBSOLETE (2.0.0)
+
+> 2.0.0: manual endpoint editing was removed deliberately — versions are immutable (ADR-0003);
+> `static/edit.html`, `update_endpoint_manual`, and `POST /admin/endpoints/update` no longer exist,
+> only the read-only `/admin/endpoint-yaml` remains (`src/lib.rs`).
+
+> **2.0 note (ADR-0003):** branch/`base_version`/`force`/`/admin/endpoints/update` references
+> below are 1.x; re-verify the current admin surface (`maintenance.yaml`) before implementing.
 
 **Problem:** Admins can create or update a service by submitting a spec through the API, but the UI does not provide an obvious service/branch-level action for adding endpoints or editing/replacing the source YAML. There is an existing endpoint-level YAML viewer and hidden admin-only edit flow (`static/yaml.html` -> `static/edit.html` -> `POST /admin/endpoints/update`), but it is only reachable after an endpoint already exists and does not help an admin add the first endpoint to a newly-created service.
 
@@ -215,7 +237,7 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 
 **Relevant areas:**
 
-- `static/services.html` branch and endpoint list views
+- `static/producers.html` branch and endpoint list views
 - `static/yaml.html` admin-only `Edit` button for existing endpoints
 - `static/edit.html` manual endpoint editor
 - `src/lib.rs` routes for `/provide`, `/provide/asyncapi`, `/provide/grpc`, `/admin/endpoint-yaml`, `/admin/endpoint-versions`, and `/admin/endpoints/update`
@@ -227,7 +249,7 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 **Implementation instructions:**
 
 1. Keep the main write path spec-first: admins should add endpoints by uploading or pasting a complete OpenAPI/AsyncAPI/proto document, then reuse the existing `provide_spec*` application use cases so endpoint parsing, compatibility checks, protected-branch rules, version history, shared-contract updates, audit logs, and notifications stay consistent.
-2. Add discoverable UI actions in `static/services.html`:
+2. Add discoverable UI actions in `static/producers.html`:
    - On the services page, show an admin-only `Provide spec` or `Add service spec` button near the search/header area.
    - On each service branch page, show an admin-only `Replace branch spec` or `Add endpoints` button.
    - On empty branch/endpoint states, include a clear admin call-to-action instead of only showing “No endpoints found”.
@@ -254,12 +276,17 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 
 **Validation:**
 
-- Add UI/API integration tests for an admin creating a new service/branch by pasting a spec, replacing an existing branch spec, and seeing new endpoints on `services.html`.
+- Add UI/API integration tests for an admin creating a new service/branch by pasting a spec, replacing an existing branch spec, and seeing new endpoints on `producers.html`.
 - Add negative tests: non-admin cannot see/use write routes, invalid YAML/proto is rejected, protected-branch breaking changes are blocked unless the existing force rules allow them, and stale `base_version` handling remains safe.
 - Add or update application tests proving the UI route reuses `provide_spec*` behavior and records audit/version history consistently.
 - Run `cargo test`, `npx eslint static/js/` if JavaScript files are changed, and the relevant Playwright/UI checks if available.
 
-### 9. Reconcile README claims with implemented functionality
+### 9. Reconcile README claims with implemented functionality — DONE (2.0.0)
+
+> 2.0.0: README was rewritten for the version-line model — plugins are linked as external
+> ecosystem repos ("Clients & Plugins"), and the contract-safety/multi-protocol claims now hold
+> (`check_compatibility` in `src/application/spec_service.rs` dispatches native compat checks for
+> OpenAPI, AsyncAPI, and Proto).
 
 **Problem:** The README advertises broad features such as client plugins, live graph, auditing, contract safety, and multi-protocol support. Some are present but basic; others depend on external repositories or are partial inside this service.
 
@@ -314,7 +341,11 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 
 ## P1 — Data integrity and operational reliability
 
-### 12. Make spec updates transactional
+### 12. Make spec updates transactional — DONE (2.0.0)
+
+> 2.0.0: `upsert_spec_version` writes the version row and the wholesale endpoint replace in a
+> single `begin()`/`commit()` transaction in both `src/infrastructure/sqlite_repository.rs` and
+> `src/infrastructure/postgres_repository.rs`.
 
 **Problem:** `provide_spec_inner()` performs multiple repository operations: ensure service/branch, tag updates, shared contract updates, endpoint inserts/updates/deletes, version updates, audit entries, and notifications. If one operation fails midway, the database can be left partially updated.
 
@@ -413,6 +444,31 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 
 ## P2 — Maintainability and quality
 
+### 22. Observability audit panel shows only the last 30 rows, now shared with rejections
+
+> **2.0 note (ADR-0003):** protected branches and the Branch filter no longer exist; refusals are
+> now 409s from the version rules. The crowding concern stands, but re-check what is audited today
+> before implementing.
+
+**Problem:** The Database Audit Log panel on `observability.html` loads a fixed
+`get_recent_audit_logs(30)`. Since 1.7.0 protected-branch rejections (`REJECTED_SPEC`)
+are written to the same table, so a burst of refusals — a CI job retrying a breaking
+change — pushes real changes out of that window.
+
+**Impact:** An operator looking at the observability page can miss recent settings
+changes or provides because refusals crowded them out. The data is not lost; only this
+panel's view of it is truncated.
+
+**Accepted deliberately** when rejection auditing was added (issue #8): the audit
+timeline at `/audit.html` supports filtering by action type, Producer and Branch and is
+the intended place to investigate refusals in depth.
+
+**Relevant areas:**
+- `src/presentation/handlers/admin.rs` — `get_observability_audit_logs`, the hardcoded 30
+- `static/observability.html` — the panel and its heading
+
+**Options:** raise the limit, paginate, or add an action-type filter to the panel.
+
 ### 16. Split large service modules into focused use cases
 
 **Problem:** `src/application/spec_service.rs` is large and mixes provide, require, bundle, compatibility, versioning, tests, and shared-contract logic.
@@ -436,7 +492,12 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 - Run the full existing Rust test suite before and after the refactor.
 - Run `cargo fmt` and `cargo clippy -- -D warnings`.
 
-### 17. Add API-level tests for every documented endpoint group
+### 17. Add API-level tests for every documented endpoint group — OBSOLETE AS WRITTEN
+
+> **2.0 note (ADR-0003):** the test matrix below is branch-era (`base_version`, protected-branch
+> breaking change, service/branch lookups — none of which exist anymore), and the route surface is
+> now contract-checked against `api.yaml`/`maintenance.yaml` in `src/lib.rs`. Redo the matrix from
+> the 2.0 docs if API-level coverage gaps remain.
 
 **Problem:** Unit coverage exists for several application helpers, but API-level behavior can drift from docs when handlers, middleware, and services interact.
 
@@ -487,10 +548,10 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 1. ~~Message-level AsyncAPI channel contracts (#20).~~ — DONE (1.5.0).
 2. AsyncAPI SUB → requires + drift validation (#6; step 3 drift validation now unblocked by #20).
 3. Protocol removal and stale Kafka/gRPC/OpenAPI cleanup (#7).
-4. Admin spec and endpoint editing workflow (#8).
-5. Transactional spec updates (#12).
+4. ~~Admin spec and endpoint editing workflow (#8).~~ — OBSOLETE (2.0.0).
+5. ~~Transactional spec updates (#12).~~ — DONE (2.0.0).
 6. CSP/static asset hardening (#11).
-7. README reconciliation (#9).
+7. ~~README reconciliation (#9).~~ — DONE (2.0.0).
 8. Operational cleanups and configuration validation (#13–#15).
 9. Module split and architecture checks (#16–#18).
 

@@ -57,6 +57,13 @@ fn test_app_state(repo: SqliteSpecRepository) -> AppState {
         prometheus_handle: get_test_prometheus_handle(),
         system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
         max_body_bytes: sanshain_service::DEFAULT_MAX_BODY_BYTES,
+        directory_roles: sanshain_service::application::directory_roles::DirectoryRoleCache::new(
+            std::time::Duration::from_secs(300),
+        ),
+        root_users: std::sync::Arc::new(sanshain_service::domain::permissions::RootUsers::resolve(
+            Some("root"),
+            None,
+        )),
     }
 }
 
@@ -135,9 +142,8 @@ async fn test_admin_settings_interface_consistency() {
         }
     };
 
-    check_setting("/admin/settings/dev-mode", "dev_mode").await;
     check_setting("/admin/settings/auto-approve", "auto_approve_users").await;
-    check_setting("/admin/settings/branch-max-age", "days").await;
+    check_setting("/admin/settings/snapshot-max-age", "days").await;
     check_setting("/admin/settings/dependency-max-age", "days").await;
 }
 
@@ -192,6 +198,6 @@ async fn test_admin_list_interface_consistency() {
     };
 
     check_list("/admin/users").await;
-    check_list("/admin/services").await;
-    check_list("/admin/clients").await;
+    check_list("/admin/producers").await;
+    check_list("/admin/consumers").await;
 }

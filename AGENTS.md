@@ -1,8 +1,8 @@
 # Sanshain Service — Agent Instructions
 
 Sanshain ("Sunshine" in Japanese) is a Rust service that manages, splits, and distributes API
-specifications (OpenAPI, AsyncAPI, gRPC/Proto). Microservices "provide" their full spec; clients
-"require" only the snippets they need.
+specifications (OpenAPI, AsyncAPI, gRPC/Proto). **Producers** "provide" their full spec; **Consumers**
+"require" only the snippets they need (see `CONTEXT.md`).
 
 ## Core Technologies
 - **Backend**: Rust (2024 edition), [Axum](https://github.com/tokio-rs/axum).
@@ -37,7 +37,7 @@ Other top-level modules: `src/openapi.rs`, `src/asyncapi.rs`, `src/proto.rs` (sp
 - No hardcoded auth-bypass literals (e.g. `"test-token"`) in production code paths, even for convenience. Test-only helpers must be behind `#[cfg(test)]`.
 - All state-changing endpoints must go through CSRF validation (`validate_csrf` middleware); tests use real seeded tokens, not bypasses.
 - Never log secrets, tokens, or passwords.
-- Every `/admin/*` route must carry `admin_auth` or `authenticated_auth` middleware — this is enforced by a compile-time-checked test in `src/lib.rs` (`all_admin_routes_have_auth_middleware`); keep it passing when adding routes.
+- Every `/admin/*` route must declare a `RouteGuard` (via the `require(...)` layer) — this is enforced by a compile-time-checked test in `src/lib.rs` (`all_admin_routes_declare_a_route_guard`); keep it passing when adding routes.
 - All schema changes go through SQL migrations in `src/infrastructure/migrations/` — never hand-edit the DB shape elsewhere.
 
 ## Build, Test, Verify
@@ -64,7 +64,13 @@ Update these as part of the same change, not as a follow-up:
 - **`CHANGELOG.md`**: every user-facing change, [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format, under the current unreleased/version heading.
 - **`docs/ai/plan.md`**: check off / update task status when completing backlog items tracked there.
 - **`ai/improvements.md`**: a standing backlog of known risks/gaps (P0 security, P1 features, P2 quality). Pick one item at a time, don't "fix everything" in one PR.
-- **`api.yaml`**: keep in sync with the actual OpenAPI contract exposed by the service.
+- **`api.yaml`**: the contract Producers and Consumers speak (provide/require/report). Keep in sync
+  with what the service exposes. It must stay stable — roughly 25 Producers pin against it.
+- **`maintenance.yaml`**: the `/admin/*` administrative surface, including the permission each
+  endpoint requires. Separate from `api.yaml` because it has a different audience and a different
+  stability promise. Both are enforced by build-time checks in `src/lib.rs`
+  (`router_matches_api_yaml_contract`, `router_matches_maintenance_yaml_contract`): every route must
+  appear in one of them or in the explicit allowlist of routes belonging to neither.
 
 ## Working Agreements
 - Do not "fix everything" in one pass — one focused change, tested, matching the current DDD layout.
@@ -75,7 +81,8 @@ Update these as part of the same change, not as a follow-up:
 | File                                | Purpose                                                     |
 |-------------------------------------|-------------------------------------------------------------|
 | `Cargo.toml`                        | Rust package manifest                                       |
-| `api.yaml`                          | OpenAPI contract for this service's own API                 |
+| `api.yaml`                          | OpenAPI contract for the Producer/Consumer API               |
+| `maintenance.yaml`                  | OpenAPI contract for the `/admin/*` administrative surface   |
 | `justfile` / `package.json`         | Task runner entry points (`just check`, `npm run check`, …) |
 | `CHANGELOG.md` / `OLDER_CHANGES.md` | User-facing change history                                  |
 | `docs/`                             | User and developer documentation (see `docs/README.md`)     |
@@ -84,6 +91,20 @@ Update these as part of the same change, not as a follow-up:
 
 ## External Integrations
 - Playwright MCP server available for browser-based UI testing (`npx @playwright/mcp`).
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`paxel/sanshain-service`); skills use the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout (`CONTEXT.md` + `docs/adr/` at the repo root, created lazily). See `docs/agents/domain.md`.
 
 ## Note for maintainers
 This file is the shared, tool-agnostic instruction set (also usable by Junie, Codex, etc.).

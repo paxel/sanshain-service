@@ -5,7 +5,7 @@ Common issues encountered when setting up or using Sanshain Service and their so
 ### TL;DR
 - **Lost Admin Password?** Reset it by deleting `sanshain.db` (for SQLite) or clearing the `users` table (Postgres) and restarting.
 - **API Returning 401?** Send a valid `Authorization: Bearer <token>` header, or enable **Developer Mode** (which additionally requires the `ALLOW_INSECURE_DEV_MODE=true` safety gate — see below).
-- **Breaking Change Rejection?** Check if you are pushing to a **Protected Branch** (like `main`). Use a feature branch or version your API path.
+- **Provide Rejected with 409?** The body carries `proposed_version` — set your spec's version to it and republish.
 
 ---
 
@@ -46,17 +46,23 @@ PORT=3080 ./sanshain_service
 
 ## Specification Management
 
-### 409 Conflict: Breaking changes detected
-**Issue**: You tried to update an existing endpoint on a protected branch, and it was rejected.
-**Solution**:
-- **Option A**: Version your API path (e.g., `/api/v1/users` -> `/api/v2/users`). See [**API Lifecycle**](api-lifecycle.md) for a detailed walkthrough.
-- **Option B**: If the change is non-breaking, ensure it follows backward compatibility rules (e.g., adding an optional field).
-- **Option C**: Adjust **Protected Branch Patterns** in the admin settings if you don't want `main` to be protected (not recommended).
+### 409 Conflict: Provide rejected by the version rules
+**Issue**: Your Provide was rejected — the version already exists as GA with different content, the changes are breaking without a major bump, or you sent a snapshot for a number that has gone GA.
+**Solution**: Every rejection is self-service. The response body carries `proposed_version` — the next free version, bumped by what actually changed. Set your spec's version (`info.version`, or the `// sanshain-version:` comment for proto) to it and republish. See [**API Lifecycle**](api-lifecycle.md) for the full rules.
+
+### 404 on require: Unknown version
+**Issue**: `GET /require` returns 404 even though the Producer exists.
+**Solution**: The pinned `version` does not exist on the server in either stability — a Pin configuration error. There is no fallback and nothing waits. Check `GET /producers/{name}/versions` for what actually exists, and fix the Pin in your `sanshain.yaml`. Also check whether the version was a snapshot that expired unused, or was deleted by an admin.
+
+### 410 on require: Endpoint absent
+**Issue**: `GET /require` returns 410.
+**Solution**: The pinned version exists but deliberately does not include that endpoint — provided specs are complete, so absence is a definitive no. Check the `path`/`method` spelling against what the Producer's version actually contains, or pin a version that has the endpoint.
 
 ### Spec splitting fails
 **Issue**: The service returns a 400 error when uploading a specification.
 **Solution**:
 - Ensure the YAML is valid.
+- Ensure the version is strict `MAJOR.MINOR.PATCH` — `info.version` for OpenAPI/AsyncAPI, exactly one `// sanshain-version:` comment for proto. No `v` prefix, no suffixes.
 - For OpenAPI: Ensure it's version 3.0 or 3.1.
 - For AsyncAPI: Ensure it's version 2.x or 3.x.
 - For gRPC: Ensure it's a valid `.proto` file.

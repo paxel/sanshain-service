@@ -82,30 +82,28 @@ test.describe('Sanshain 1.5.0 Features Integration Tests', () => {
     await expect(page.locator(`#tokens-list :text("${tokenName}")`)).not.toBeVisible();
   });
 
-  test('Admin Settings - Branch Max Age', async ({ page }) => {
+  test('Admin Settings - Snapshot Max Age', async ({ page }) => {
     await page.goto('/admin.html');
     await ensureLoaderHidden(page);
     await expect(page.locator('#admin-dashboard')).toBeVisible();
-    
+
     // Scroll to settings
-    await page.locator('#branch-max-age-days').scrollIntoViewIfNeeded();
-    
-    // Change value
-    const input = page.locator('#branch-max-age-days');
+    await page.locator('#snapshot-max-age-days').scrollIntoViewIfNeeded();
+
+    // Change value — scope the Save click to the Snapshot Cleanup section,
+    // since the page has several Save buttons.
+    const input = page.locator('#snapshot-max-age-days');
     await input.fill('45');
-    await page.click('button:has-text("Save")'); // There are multiple saves, be careful
-    // Actually, let's use a more specific selector if possible, 
-    // or just the one near the input.
-    const section = page.locator('section').filter({ hasText: 'Branch Auto-Cleanup' });
+    const section = page.locator('section').filter({ hasText: 'Snapshot Cleanup' });
     await section.locator('button:has-text("Save")').click();
-    
+
     // Reload and verify
     await page.reload();
-    await expect(page.locator('#branch-max-age-days')).toHaveValue('45');
-    
+    await expect(page.locator('#snapshot-max-age-days')).toHaveValue('45');
+
     // Restore default
-    await page.locator('#branch-max-age-days').fill('30');
-    const sectionRestore = page.locator('section').filter({ hasText: 'Branch Auto-Cleanup' });
+    await page.locator('#snapshot-max-age-days').fill('30');
+    const sectionRestore = page.locator('section').filter({ hasText: 'Snapshot Cleanup' });
     await sectionRestore.locator('button:has-text("Save")').click();
   });
 });

@@ -1,6 +1,32 @@
 use crate::domain::models::{AuthenticatedUser, LdapConfig};
-use crate::domain::ports::{AuthProvider, AuthProviderError};
-use ldap3::{LdapConnAsync, Scope, SearchEntry};
+use crate::domain::ports::{AuthProvider, AuthProviderError, DirectoryGroups};
+use ldap3::{LdapConnAsync, LdapConnSettings, Scope, SearchEntry};
+use std::time::Duration;
+
+/// How long a connection attempt may take before it counts as down.
+///
+/// Without a bound, an unreachable directory (firewalled port, half-dead VM)
+/// blocks the caller for the OS's TCP timeout — minutes — and because group
+/// resolution runs inside authorisation, that stalls every request from
+/// directory-backed users for that long.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Open an LDAP connection using the trust store built at startup.
+///
+/// The configuration is supplied for every connection, not only when extra CA
+/// certificates were mounted. Leaving ldap3 to build its own means two things
+/// go wrong: it calls `ClientConfig::builder()`, which panics here because two
+/// crypto providers are linked in, and its root store collapses to *empty* if
+/// reading the platform certificates hiccups — trusting nothing, silently.
+async fn open_connection(url: &str) -> ldap3::result::Result<(LdapConnAsync, ldap3::Ldap)> {
+    let settings = LdapConnSettings::new().set_conn_timeout(CONNECT_TIMEOUT);
+    match crate::infrastructure::tls::ldap_client_config() {
+        Some(config) => LdapConnAsync::with_settings(settings.set_config(config), url).await,
+        // Only when the configuration could not be built at all, which is
+        // already logged as an error. Plain LDAP still works on this path.
+        None => LdapConnAsync::with_settings(settings, url).await,
+    }
+}
 
 /// LDAP authentication provider.
 pub struct LdapAuthProvider {
@@ -28,7 +54,7 @@ impl LdapAuthProvider {
     }
 
     async fn connect(&self) -> Result<ldap3::Ldap, AuthProviderError> {
-        let (conn, mut ldap) = LdapConnAsync::new(&self.config.server_url)
+        let (conn, mut ldap) = open_connection(&self.config.server_url)
             .await
             .map_err(|e| {
                 AuthProviderError::ConnectionFailed(format!(
@@ -100,7 +126,7 @@ impl AuthProvider for LdapAuthProvider {
         let user_dn = entry.dn;
 
         // Attempt bind as the user to verify password
-        let (conn2, mut user_ldap) = LdapConnAsync::new(&self.config.server_url)
+        let (conn2, mut user_ldap) = open_connection(&self.config.server_url)
             .await
             .map_err(|e| AuthProviderError::ConnectionFailed(format!("LDAP connect: {}", e)))?;
         ldap3::drive!(conn2);
@@ -113,23 +139,14 @@ impl AuthProvider for LdapAuthProvider {
             .map_err(|_| AuthProviderError::InvalidCredentials)?;
 
         let _ = user_ldap.unbind().await;
-
-        // Determine admin status from group membership
-        let is_admin = if !self.config.admin_group.is_empty() {
-            entry
-                .attrs
-                .get("memberOf")
-                .map(|groups| groups.iter().any(|g| g == &self.config.admin_group))
-                .unwrap_or(false)
-        } else {
-            false
-        };
-
         let _ = ldap.unbind().await;
 
+        // Authentication ends here. What this user may do comes from their
+        // directory groups, read through `groups_for` on every authorisation
+        // check — not captured now and frozen, which is what used to leave a
+        // promotion or demotion in the directory with no effect.
         Ok(AuthenticatedUser {
             username: username.to_string(),
-            is_admin,
         })
     }
 
@@ -137,6 +154,44 @@ impl AuthProvider for LdapAuthProvider {
         let mut ldap = self.connect().await?;
         let _ = ldap.unbind().await;
         Ok(())
+    }
+}
+
+impl DirectoryGroups for LdapAuthProvider {
+    /// The directory groups a user belongs to, read through the service account.
+    ///
+    /// Deliberately does not need the user's password: privileges have to stay
+    /// current between logins, and Sanshain does not retain credentials. The
+    /// bind DN the configuration already carries is what makes that possible.
+    async fn groups_for(&self, username: &str) -> Result<Vec<String>, AuthProviderError> {
+        let mut ldap = self.connect().await?;
+
+        let escaped_username = escape_ldap_filter(username);
+        let filter = self
+            .config
+            .user_filter
+            .replace("{username}", &escaped_username);
+        let (rs, _result) = ldap
+            .search(
+                &self.config.base_dn,
+                Scope::Subtree,
+                &filter,
+                vec!["dn", "memberOf"],
+            )
+            .await
+            .map_err(|e| AuthProviderError::Internal(format!("LDAP search: {}", e)))?
+            .success()
+            .map_err(|e| AuthProviderError::Internal(format!("LDAP search failed: {}", e)))?;
+
+        let groups = rs
+            .into_iter()
+            .next()
+            .map(SearchEntry::construct)
+            .and_then(|entry| entry.attrs.get("memberOf").cloned())
+            .unwrap_or_default();
+
+        let _ = ldap.unbind().await;
+        Ok(groups)
     }
 }
 

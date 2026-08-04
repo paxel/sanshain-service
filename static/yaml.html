@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="/images/sonne.png">
+    <link rel="icon" type="image/png" href="/images/favicon.png">
     <title>Sanshain - YAML Viewer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/js/common.js"></script>
@@ -47,11 +47,11 @@
             <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
         <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-            <a href="/services.html" class="text-white hover:text-indigo-100 transition-colors">Services</a>
-            <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors">Producers</a>
+            <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
             <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
             <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
-            <a href="/audit.html" class="text-white hover:text-indigo-100 transition-colors">Audit</a>
+            <a id="nav-audit-link" href="/audit.html" class="hidden text-white hover:text-indigo-100 transition-colors">Audit</a>
             <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors">Observability</a>
             <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
@@ -69,11 +69,11 @@
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
             <div class="text-sm text-slate-500 flex items-center gap-2 mb-1">
-                <a href="/services.html" class="hover:underline text-indigo-600 font-medium">Services</a>
+                <a href="/producers.html" class="hover:underline text-indigo-600 font-medium">Producers</a>
                 <span>&mdash;</span>
-                <span id="breadcrumb-service" class="font-semibold text-slate-700">Service</span>
+                <span id="breadcrumb-service" class="font-semibold text-slate-700">Producer</span>
                 <span>&mdash;</span>
-                <span id="breadcrumb-branch" class="text-slate-600 font-medium">branch</span>
+                <span id="breadcrumb-version" class="text-slate-600 font-medium font-mono">version</span>
             </div>
             <h1 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
                 <span id="endpoint-method" class="px-2.5 py-0.5 rounded text-sm font-semibold uppercase bg-indigo-100 text-indigo-800">GET</span>
@@ -81,16 +81,16 @@
             </h1>
         </div>
         <div class="flex items-center gap-3">
-            <a href="/services.html" class="px-4 py-2 border border-slate-200 text-slate-600 bg-white rounded-lg hover:bg-slate-50 transition-colors text-sm font-medium flex items-center gap-2">
+            <a id="back-link" href="/producers.html" class="px-4 py-2 border border-slate-200 text-slate-600 bg-white rounded-lg hover:bg-slate-50 transition-colors text-sm font-medium flex items-center gap-2">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-                Back to Services
+                Back to Producer
             </a>
         </div>
     </div>
 
     <!-- Main Workspace Split layout -->
     <div class="flex-grow grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
-        <!-- Left Sidebar: Version History & Comparison -->
+        <!-- Left Sidebar: Version History (blame trail) & Comparison -->
         <div class="lg:col-span-1 bg-white border border-slate-200 rounded-2xl p-5 flex flex-col shadow-sm max-h-[80vh] overflow-y-auto">
             <h2 class="text-md font-bold text-slate-800 mb-4 flex items-center gap-2">
                 <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -148,10 +148,6 @@
                     <div class="h-4 w-[1px] bg-slate-300"></div>
 
                     <!-- Action buttons -->
-                    <button id="edit-btn" class="hidden px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-indigo-600 flex items-center gap-1.5 transition-colors">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-                        Edit
-                    </button>
                     <button id="copy-btn" class="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 flex items-center gap-1.5 transition-colors">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
                         Copy
@@ -172,6 +168,9 @@
 </main>
 
 <script>
+    // The blame trail of one endpoint across its version line, oldest first.
+    // Entries whose yaml_content is null mark versions that do not include the
+    // endpoint (absent — a deliberate omission).
     let globalVersions = [];
     let activeVersion = null;
     let isDiffMode = false;
@@ -180,16 +179,15 @@
     // Retrieve endpoint identity from query params
     const params = new URLSearchParams(window.location.search);
     const serviceName = params.get('service');
-    const branchName = params.get('branch');
+    const apiType = (params.get('api_type') || 'openapi').toLowerCase();
     const endpointPath = params.get('path');
     const endpointMethod = params.get('method');
-    const apiType = params.get('api_type') || 'openapi';
-    let queryVersion = params.get('version') ? parseInt(params.get('version')) : null;
-    let queryCompareVersion = params.get('compare_version') ? parseInt(params.get('compare_version')) : null;
+    let queryVersion = params.get('version') || null;
+    let queryCompareVersion = params.get('compare_version') || null;
 
     // DOM bindings
     const breadcrumbService = document.getElementById('breadcrumb-service');
-    const breadcrumbBranch = document.getElementById('breadcrumb-branch');
+    const breadcrumbVersion = document.getElementById('breadcrumb-version');
     const endpointMethodEl = document.getElementById('endpoint-method');
     const endpointPathEl = document.getElementById('endpoint-path');
 
@@ -200,7 +198,6 @@
 
     const viewYamlBtn = document.getElementById('view-yaml-btn');
     const viewDiffBtn = document.getElementById('view-diff-btn');
-    const editBtn = document.getElementById('edit-btn');
     const blameToggle = document.getElementById('blame-toggle');
     const blameToggleContainer = document.getElementById('blame-toggle-container');
     const copyBtn = document.getElementById('copy-btn');
@@ -208,11 +205,13 @@
     const viewerContainer = document.getElementById('viewer-container');
 
     // Populate Breadcrumbs & Title
-    if (serviceName && branchName && endpointPath && endpointMethod) {
+    if (serviceName && endpointPath && endpointMethod) {
         breadcrumbService.textContent = serviceName;
-        breadcrumbBranch.textContent = branchName;
+        breadcrumbVersion.textContent = queryVersion ? `${apiType} ${queryVersion}` : apiType;
         endpointMethodEl.textContent = endpointMethod;
         endpointPathEl.textContent = endpointPath;
+        document.getElementById('back-link').href =
+            `/producers.html?service=${encodeURIComponent(serviceName)}`;
         // Method badge colors based on method
         const colors = {
             'GET': 'bg-green-100 text-green-800',
@@ -225,39 +224,52 @@
         endpointMethodEl.className = `px-2.5 py-0.5 rounded text-sm font-semibold uppercase ${mClass}`;
     } else {
         alert("Missing endpoint identity parameters.");
-        window.location.href = "/services.html";
+        window.location.href = "/producers.html";
     }
 
     // Auth load
-    checkDiscoveryAuth(async (user) => {
+    checkDiscoveryAuth(async () => {
         await renderBanner();
-        if (user && user.is_admin) {
-            editBtn.classList.remove('hidden');
-        }
         await loadEndpointVersions();
     });
 
+    function attribution(v) {
+        return v.provided_by || 'anonymous';
+    }
+
     async function loadEndpointVersions() {
         try {
-            const res = await fetchJSON(`/admin/endpoint-versions?servicename=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
-            if (!res || res.length === 0) {
-                viewerContainer.innerHTML = `<div class="text-slate-400 italic">No version history found for this endpoint.</div>`;
-                hideLoader();
+            const res = await apiCall(`/admin/endpoint-versions?producername=${encodeURIComponent(serviceName)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
+            // 404 = the Producer's line has no such version at all. Not a
+            // transport failure — hand it to the single-version lookup, which
+            // asks the server for the resolution state and renders the answer.
+            const noHistory = res.status === 404;
+            if (!noHistory && !res.ok) {
+                throw new Error(`Fetch error: ${res.status}`);
+            }
+            const versions = noHistory ? [] : await res.json();
+            if (!versions || versions.length === 0) {
+                await loadSingleVersionFallback();
                 return;
             }
 
-            globalVersions = [...res].sort((a, b) => a.version - b.version);
+            // Oldest first, semantically — the blame trail walks the line.
+            globalVersions = [...versions].sort((a, b) => compareSemver(a.version, b.version));
 
-            // Populate selectors for diffing
-            diffFromSelect.innerHTML = globalVersions.map(v => `<option value="${v.version}">v${v.version} (${v.created_at.slice(0, 16)})</option>`).join('');
-            diffToSelect.innerHTML = globalVersions.map(v => `<option value="${v.version}">v${v.version} (${v.created_at.slice(0, 16)})</option>`).join('');
+            // Populate selectors for diffing (all entries; an absent version
+            // diffs as an empty document, which shows the removal).
+            const optionsHtml = globalVersions.map(v =>
+                `<option value="${escapeHtml(v.version)}">${escapeHtml(v.version)} (${v.stability === 'ga' ? 'GA' : 'snapshot'})</option>`).join('');
+            diffFromSelect.innerHTML = optionsHtml;
+            diffToSelect.innerHTML = optionsHtml;
 
-            // Select default values
-            if (queryVersion) {
-                activeVersion = globalVersions.find(v => v.version === queryVersion) || globalVersions[globalVersions.length - 1];
-            } else {
-                activeVersion = globalVersions[globalVersions.length - 1];
-            }
+            // Select default values: the queried version, else the newest
+            // version that carries the endpoint, else the newest entry.
+            const withContent = globalVersions.filter(v => v.yaml_content != null);
+            activeVersion =
+                (queryVersion && globalVersions.find(v => v.version === queryVersion))
+                || withContent[withContent.length - 1]
+                || globalVersions[globalVersions.length - 1];
 
             if (queryCompareVersion) {
                 diffFromSelect.value = queryCompareVersion;
@@ -271,39 +283,97 @@
         } catch (e) {
             console.error(e);
             hideLoader();
-            viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load versions: ${e.message}</div>`;
+            viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load versions: ${escapeHtml(e.message)}</div>`;
+        }
+    }
+
+    // When the blame trail yields nothing, ask for the pinned version directly:
+    // the server states how it resolved (served / absent / unknown), so the
+    // view renders that answer rather than inferring one from an empty body.
+    async function loadSingleVersionFallback() {
+        const showMessage = (html) => {
+            viewerContainer.innerHTML = `<div class="text-slate-400 italic">${html}</div>`;
+            hideLoader();
+        };
+        if (!queryVersion) {
+            showMessage('No version of this Producer includes this endpoint.');
+            return;
+        }
+        try {
+            const res = await apiCall(`/admin/endpoint-yaml?producername=${encodeURIComponent(serviceName)}&version=${encodeURIComponent(queryVersion)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`);
+            if (!res.ok) {
+                showMessage(`Could not load this endpoint (HTTP ${res.status}).`);
+                return;
+            }
+            const view = await res.json();
+            const version = escapeHtml(queryVersion);
+            if (view.state === 'absent') {
+                showMessage(`Version ${version} exists but does not include this endpoint, so it is deliberately not part of that version's API.`);
+                return;
+            }
+            if (view.state === 'unknown' || !view.yaml) {
+                showMessage(`The ${escapeHtml(apiType)} line of this Producer has no version ${version} in either stability. A Consumer pinned to it would fail immediately.`);
+                return;
+            }
+            globalVersions = [{
+                version: view.version || queryVersion,
+                stability: view.stability || 'snapshot',
+                provided_by: '',
+                updated_at: '',
+                yaml_content: view.yaml,
+                changed: true,
+            }];
+            activeVersion = globalVersions[0];
+            diffFromSelect.innerHTML = '';
+            diffToSelect.innerHTML = '';
+            renderVersionsSidebar();
+            renderActiveView();
+            hideLoader();
+        } catch (e) {
+            console.error(e);
+            hideLoader();
+            viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load spec: ${escapeHtml(e.message)}</div>`;
         }
     }
 
     function renderVersionsSidebar() {
-        versionsListContainer.innerHTML = [...globalVersions].reverse().map(v => {
+        const cards = [...globalVersions].reverse().map(v => {
             const isActive = !isDiffMode && activeVersion && activeVersion.version === v.version;
-            const username = v.username || 'DevMode/Anonymous';
-            const branch = v.source_branch || branchName;
+            const isAbsent = v.yaml_content == null;
+            const changedBadge = v.changed
+                ? '<span class="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.5 rounded-full uppercase">changed</span>'
+                : '';
+            const absentBadge = isAbsent
+                ? '<span class="text-[10px] bg-slate-100 text-slate-500 font-bold px-1.5 py-0.5 rounded-full uppercase">absent</span>'
+                : '';
             return `
-                <div onclick="selectVersion(${v.version})" class="cursor-pointer border rounded-xl p-3.5 transition-all bg-white hover:border-indigo-300 ${isActive ? 'border-indigo-600 bg-indigo-50/20 ring-2 ring-indigo-600/10' : 'border-slate-200' }">
-                    <div class="flex items-center justify-between mb-1.5">
-                        <span class="text-sm font-bold text-slate-800">Version ${v.version}</span>
-                        <span class="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.5 rounded-full uppercase">${branch}</span>
+                <div data-version="${escapeHtml(v.version)}" class="version-card cursor-pointer border rounded-xl p-3.5 transition-all bg-white hover:border-indigo-300 ${isActive ? 'border-indigo-600 bg-indigo-50/20 ring-2 ring-indigo-600/10' : 'border-slate-200'} ${isAbsent ? 'opacity-60' : ''}">
+                    <div class="flex items-center justify-between mb-1.5 gap-1 flex-wrap">
+                        <span class="text-sm font-bold text-slate-800 font-mono">${escapeHtml(v.version)}</span>
+                        <span class="flex items-center gap-1">${stabilityBadge(v.stability)}${changedBadge}${absentBadge}</span>
                     </div>
                     <div class="text-xs text-slate-500 space-y-0.5">
                         <div class="flex items-center gap-1">
                             <svg class="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
-                            <span>${username}</span>
+                            <span>${escapeHtml(attribution(v))}</span>
                         </div>
                         <div class="flex items-center gap-1">
                             <svg class="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                            <span>${v.created_at.slice(0, 16).replace('T', ' ')}</span>
+                            <span>${escapeHtml((v.updated_at || '').slice(0, 16).replace('T', ' '))}</span>
                         </div>
                     </div>
                 </div>
             `;
         }).join('');
+        versionsListContainer.innerHTML = cards;
+        versionsListContainer.querySelectorAll('.version-card').forEach(card => {
+            card.addEventListener('click', () => selectVersion(card.dataset.version));
+        });
     }
 
-    function selectVersion(vNum) {
+    function selectVersion(version) {
         isDiffMode = false;
-        activeVersion = globalVersions.find(v => v.version === vNum);
+        activeVersion = globalVersions.find(v => v.version === version);
         updateUrlParams();
         renderVersionsSidebar();
         renderActiveView();
@@ -317,6 +387,9 @@
         } else {
             renderYamlView();
         }
+        breadcrumbVersion.textContent = activeVersion
+            ? `${apiType} ${activeVersion.version}`
+            : apiType;
     }
 
     function updateToolbarState() {
@@ -343,8 +416,16 @@
         }
     }
 
+    function contentOf(v) {
+        return v && v.yaml_content != null ? v.yaml_content : '';
+    }
+
     function renderYamlView() {
         if (!activeVersion) return;
+        if (activeVersion.yaml_content == null) {
+            viewerContainer.innerHTML = `<div class="text-slate-400 italic">Version ${escapeHtml(activeVersion.version)} does not include this endpoint — a deliberate absence, nothing is served from it.</div>`;
+            return;
+        }
         const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         const lines = activeVersion.yaml_content.split('\n');
 
@@ -352,17 +433,17 @@
             const blameList = computeBlame(globalVersions, activeVersion.version);
             let html = `<div class="grid grid-cols-1 border border-slate-800 rounded-lg overflow-hidden bg-slate-950 font-mono text-xs select-text">`;
             for (let i = 0; i < lines.length; i++) {
-                const blame = blameList[i] || { version: 1, username: 'anonymous', date: activeVersion.created_at };
+                const blame = blameList[i] || { version: activeVersion.version, username: 'anonymous', date: activeVersion.updated_at || '' };
                 const uStr = blame.username.length > 12 ? blame.username.slice(0, 10) + '..' : blame.username;
-                const vStr = `v${blame.version}`;
-                const dateStr = blame.date.slice(0, 10);
-                
+                const vStr = blame.version;
+                const dateStr = (blame.date || '').slice(0, 10);
+
                 html += `
                     <div class="blame-line flex items-stretch hover:bg-slate-900 border-b border-slate-900/50">
-                        <div class="w-44 shrink-0 bg-slate-900 text-slate-400 px-3 py-0.5 border-r border-slate-800 text-[11px] flex items-center justify-between select-none">
-                            <span class="font-bold text-indigo-400 shrink-0 mr-1">${vStr}</span>
-                            <span class="truncate max-w-[70px]" title="${blame.username}">${uStr}</span>
-                            <span class="opacity-70 text-[10px] font-light shrink-0 ml-1">${dateStr}</span>
+                        <div class="w-48 shrink-0 bg-slate-900 text-slate-400 px-3 py-0.5 border-r border-slate-800 text-[11px] flex items-center justify-between select-none">
+                            <span class="font-bold text-indigo-400 shrink-0 mr-1">${esc(vStr)}</span>
+                            <span class="truncate max-w-[70px]" title="${esc(blame.username)}">${esc(uStr)}</span>
+                            <span class="opacity-70 text-[10px] font-light shrink-0 ml-1">${esc(dateStr)}</span>
                         </div>
                         <div class="w-12 shrink-0 bg-slate-900/40 text-slate-500 text-right pr-2.5 py-0.5 border-r border-slate-800 select-none">${i + 1}</div>
                         <div class="flex-grow pl-3 py-0.5 text-slate-200 overflow-x-auto whitespace-pre">${esc(lines[i])}</div>
@@ -390,20 +471,20 @@
     }
 
     function renderDiffView() {
-        const fromVNum = parseInt(diffFromSelect.value);
-        const toVNum = parseInt(diffToSelect.value);
+        const fromVersion = diffFromSelect.value;
+        const toVersion = diffToSelect.value;
 
-        const fromV = globalVersions.find(v => v.version === fromVNum);
-        const toV = globalVersions.find(v => v.version === toVNum);
+        const fromV = globalVersions.find(v => v.version === fromVersion);
+        const toV = globalVersions.find(v => v.version === toVersion);
 
         if (!fromV || !toV) return;
 
-        const diffLines = simpleDiff(fromV.yaml_content, toV.yaml_content);
+        const diffLines = simpleDiff(contentOf(fromV), contentOf(toV));
         const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
         let html = `<div class="border border-slate-800 rounded-lg overflow-hidden bg-slate-950 font-mono text-xs select-text">`;
         html += `<div class="bg-slate-900 px-4 py-2 border-b border-slate-800 text-slate-400 select-none">`;
-        html += `Comparing <span class="text-indigo-400 font-bold">v${fromVNum}</span> &rarr; <span class="text-indigo-400 font-bold">v${toVNum}</span>`;
+        html += `Comparing <span class="text-indigo-400 font-bold">${esc(fromVersion)}</span> &rarr; <span class="text-indigo-400 font-bold">${esc(toVersion)}</span>`;
         html += `</div>`;
         html += `<div class="p-4 overflow-x-auto">`;
 
@@ -421,11 +502,6 @@
         viewerContainer.innerHTML = html;
     }
 
-    // Tab buttons event listeners
-    editBtn.onclick = () => {
-        window.location.href = `/edit.html?service=${encodeURIComponent(serviceName)}&branch=${encodeURIComponent(branchName)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}&api_type=${encodeURIComponent(apiType)}`;
-    };
-
     viewYamlBtn.onclick = () => {
         isDiffMode = false;
         updateUrlParams();
@@ -436,7 +512,7 @@
         if (globalVersions.length < 2) return;
         isDiffMode = true;
         // set compare versions to standard values if they aren't configured
-        if (parseInt(diffFromSelect.value) === parseInt(diffToSelect.value)) {
+        if (diffFromSelect.value === diffToSelect.value) {
             diffFromSelect.value = globalVersions[0].version;
             diffToSelect.value = globalVersions[globalVersions.length - 1].version;
         }
@@ -459,15 +535,13 @@
     copyBtn.onclick = async () => {
         let textToCopy = "";
         if (isDiffMode) {
-            const fromVNum = parseInt(diffFromSelect.value);
-            const toVNum = parseInt(diffToSelect.value);
-            const fromV = globalVersions.find(v => v.version === fromVNum);
-            const toV = globalVersions.find(v => v.version === toVNum);
+            const fromV = globalVersions.find(v => v.version === diffFromSelect.value);
+            const toV = globalVersions.find(v => v.version === diffToSelect.value);
             if (fromV && toV) {
-                textToCopy = formatUnifiedDiff(fromV.yaml_content.split('\n'), toV.yaml_content.split('\n'), `${serviceName}.yaml`);
+                textToCopy = formatUnifiedDiff(contentOf(fromV).split('\n'), contentOf(toV).split('\n'), `${serviceName}.yaml`);
             }
         } else if (activeVersion) {
-            textToCopy = activeVersion.yaml_content;
+            textToCopy = contentOf(activeVersion);
         }
 
         if (textToCopy) {
@@ -493,17 +567,15 @@
         let filename = `${serviceName}.yaml`;
 
         if (isDiffMode) {
-            const fromVNum = parseInt(diffFromSelect.value);
-            const toVNum = parseInt(diffToSelect.value);
-            const fromV = globalVersions.find(v => v.version === fromVNum);
-            const toV = globalVersions.find(v => v.version === toVNum);
+            const fromV = globalVersions.find(v => v.version === diffFromSelect.value);
+            const toV = globalVersions.find(v => v.version === diffToSelect.value);
             if (fromV && toV) {
-                contentStr = formatUnifiedDiff(fromV.yaml_content.split('\n'), toV.yaml_content.split('\n'), `${serviceName}.yaml`);
-                filename = `${serviceName}_v${fromVNum}_to_v${toVNum}.patch`;
+                contentStr = formatUnifiedDiff(contentOf(fromV).split('\n'), contentOf(toV).split('\n'), `${serviceName}.yaml`);
+                filename = `${serviceName}_${fromV.version}_to_${toV.version}.patch`;
             }
         } else if (activeVersion) {
-            contentStr = activeVersion.yaml_content;
-            filename = `${serviceName}_v${activeVersion.version}.yaml`;
+            contentStr = contentOf(activeVersion);
+            filename = `${serviceName}_${activeVersion.version}.yaml`;
         }
 
         if (contentStr) {
@@ -519,26 +591,29 @@
         }
     };
 
-    // Blame algorithm helper
-    function computeBlame(versions, targetVersionNum) {
-        const sorted = [...versions].sort((a, b) => a.version - b.version);
-        const targetIdx = sorted.findIndex(v => v.version === targetVersionNum);
+    // Blame algorithm helper: walk the line up to the target version, carrying
+    // line attribution forward. Absent versions contribute an empty document,
+    // so a reintroduced endpoint is blamed on the version that brought it back.
+    function computeBlame(versions, targetVersion) {
+        const sorted = [...versions].sort((a, b) => compareSemver(a.version, b.version));
+        const targetIdx = sorted.findIndex(v => v.version === targetVersion);
         const history = sorted.slice(0, targetIdx + 1);
 
         if (history.length === 0) return [];
 
-        let currentLines = history[0].yaml_content.split('\n');
-        let blameList = currentLines.map(line => ({
+        let currentLines = contentOf(history[0]).split('\n');
+        let blameList = currentLines.map(() => ({
             version: history[0].version,
-            username: history[0].username || 'anonymous',
-            date: history[0].created_at
+            username: attribution(history[0]),
+            date: history[0].updated_at || ''
         }));
 
         for (let i = 1; i < history.length; i++) {
-            const nextLines = history[i].yaml_content.split('\n');
+            const nextContent = contentOf(history[i]);
+            const nextLines = nextContent.split('\n');
             const nextBlame = new Array(nextLines.length);
 
-            const diff = simpleDiff(currentLines.join('\n'), history[i].yaml_content);
+            const diff = simpleDiff(currentLines.join('\n'), nextContent);
 
             let oldIdx = 0;
             let newIdx = 0;
@@ -551,8 +626,8 @@
                 } else if (item.type === 'add') {
                     nextBlame[newIdx] = {
                         version: history[i].version,
-                        username: history[i].username || 'anonymous',
-                        date: history[i].created_at
+                        username: attribution(history[i]),
+                        date: history[i].updated_at || ''
                     };
                     newIdx++;
                 } else if (item.type === 'del') {
@@ -665,10 +740,9 @@
     function updateUrlParams() {
         const urlParams = new URLSearchParams();
         urlParams.set('service', serviceName);
-        urlParams.set('branch', branchName);
+        urlParams.set('api_type', apiType);
         urlParams.set('path', endpointPath);
         urlParams.set('method', endpointMethod);
-        urlParams.set('api_type', apiType);
 
         if (isDiffMode) {
             urlParams.set('compare_version', diffFromSelect.value);

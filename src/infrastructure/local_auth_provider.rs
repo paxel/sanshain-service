@@ -39,7 +39,6 @@ impl<R: SpecRepository + 'static> AuthProvider for LocalAuthProvider<R> {
 
         Ok(AuthenticatedUser {
             username: user.username,
-            is_admin: user.is_admin,
         })
     }
 
@@ -83,10 +82,10 @@ mod tests {
             .unwrap()
             .to_string();
 
-        repo.create_user("approved_user", &hash, false, true)
+        repo.create_user("approved_user", &hash, true)
             .await
             .unwrap();
-        repo.create_user("unapproved_user", &hash, false, false)
+        repo.create_user("unapproved_user", &hash, false)
             .await
             .unwrap();
     }
@@ -153,7 +152,7 @@ mod tests {
     #[tokio::test]
     async fn test_authenticate_hash_parse_error() {
         let repo = setup_db().await;
-        repo.create_user("badhash", "not-a-valid-argon2-hash", false, true)
+        repo.create_user("badhash", "not-a-valid-argon2-hash", true)
             .await
             .unwrap();
         let provider = LocalAuthProvider::new(repo);

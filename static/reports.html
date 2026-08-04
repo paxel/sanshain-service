@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="/images/sonne.png">
+    <link rel="icon" type="image/png" href="/images/favicon.png">
     <title>Sanshain - Reports</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/js/common.js"></script>
@@ -39,11 +39,11 @@
             <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
         <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-            <a href="/services.html" class="text-white hover:text-indigo-100 transition-colors">Services</a>
-            <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors">Producers</a>
+            <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
             <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
             <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
-            <a href="/audit.html" class="text-white hover:text-indigo-100 transition-colors">Audit</a>
+            <a id="nav-audit-link" href="/audit.html" class="hidden text-white hover:text-indigo-100 transition-colors">Audit</a>
             <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors">Observability</a>
             <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
@@ -67,13 +67,10 @@
                 </span>
                 System Reports
             </h2>
-            <select id="report-branch-select" onchange="onReportBranchChange()" class="rounded-lg border border-slate-300 text-sm text-slate-700 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="">Loading branches...</option>
-            </select>
         </div>
 
         <div id="reports-grid" class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="text-center py-10 text-slate-500 col-span-2">Select a branch to view available reports.</div>
+            <div class="text-center py-10 text-slate-500 col-span-2">Loading reports...</div>
         </div>
     </div>
 </main>
@@ -81,55 +78,8 @@
 <script>
     async function showReports() {
         showLoader();
-
         try {
-            await loadAllServiceBranches();
-            let protectedBranches = [];
-            try {
-                protectedBranches = await fetchJSON('/branches/protected');
-            } catch (e) {
-                console.warn('Could not load protected branches:', e);
-            }
-            await loadBranchesMetadata();
-
-            const branchSelect = document.getElementById('report-branch-select');
-            const allBranchNames = new Set();
-            for (const branches of Object.values(allServiceBranches)) {
-                for (const b of branches) allBranchNames.add(typeof b === 'string' ? b : b.name);
-            }
-
-            const sortedBranches = sortBranchNames([...allBranchNames], protectedBranches);
-
-            if (allBranchNames.size === 0) {
-                branchSelect.innerHTML = '<option value="">No branches found</option>';
-            } else {
-                const prev = branchSelect.value;
-                branchSelect.innerHTML = '';
-                for (const name of sortedBranches) {
-                    const opt = document.createElement('option');
-                    opt.value = name;
-                    opt.textContent = name;
-                    branchSelect.appendChild(opt);
-                }
-                
-                const params = new URLSearchParams(window.location.search);
-                const urlBranch = params.get('branch');
-                
-                if (urlBranch && allBranchNames.has(urlBranch)) {
-                    branchSelect.value = urlBranch;
-                } else if (allBranchNames.has(prev)) {
-                    branchSelect.value = prev;
-                } else if (allBranchNames.has('main')) {
-                    branchSelect.value = 'main';
-                }
-            }
-
-            const params = new URLSearchParams(window.location.search);
-            if (!params.get('branch') && branchSelect.value) {
-                history.replaceState({ branch: branchSelect.value }, '', `?branch=${encodeURIComponent(branchSelect.value)}`);
-            }
-
-            await loadReports();
+            loadReports();
             hideLoader();
         } catch (err) {
             console.error('Failed to show reports:', err);
@@ -141,15 +91,10 @@
         }
     }
 
-    async function loadReports() {
-        const branch = document.getElementById('report-branch-select').value;
+    // Reports cover the whole instance: every dependency is a Consumer's exact
+    // Pin on a Producer version, so there is no further axis to pick.
+    function loadReports() {
         const grid = document.getElementById('reports-grid');
-
-        if (!branch) {
-            grid.innerHTML = '<div class="text-center py-10 text-slate-500 col-span-2 italic">No branch selected.</div>';
-            return;
-        }
-
         grid.innerHTML = `
             <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
                 <div class="bg-indigo-100 text-indigo-700 w-12 h-12 rounded-xl flex items-center justify-center mb-4">
@@ -157,9 +102,9 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 2v-6m-8-2h8a2 2 0 012 2v9a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2h8z"></path>
                     </svg>
                 </div>
-                <h3 class="text-lg font-bold text-slate-800 mb-2">Service Isolation Report</h3>
+                <h3 class="text-lg font-bold text-slate-800 mb-2">Producer Isolation Report</h3>
                 <p class="text-sm text-slate-600 mb-6">Detailed overview of service-to-service communication, identifying which services "talk" to each other.</p>
-                <a href="/report-viewer.html?src=${encodeURIComponent('/report/isolation?branch=' + encodeURIComponent(branch))}&title=${encodeURIComponent('Service Isolation Report')}&branch=${encodeURIComponent(branch)}"
+                <a href="/report-viewer.html?src=${encodeURIComponent('/report/isolation')}&title=${encodeURIComponent('Service Isolation Report')}"
                    class="inline-flex items-center justify-center w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors">
                     View Isolation Report
                 </a>
@@ -172,35 +117,14 @@
                     </svg>
                 </div>
                 <h3 class="text-lg font-bold text-slate-800 mb-2">Full Dependency Report</h3>
-                <p class="text-sm text-slate-600 mb-6">Complete inventory of all provided and required endpoints across all services in this branch.</p>
-                <a href="/report-viewer.html?src=${encodeURIComponent('/report/markdown?branch=' + encodeURIComponent(branch))}&title=${encodeURIComponent('Full Dependency Report')}&branch=${encodeURIComponent(branch)}"
+                <p class="text-sm text-slate-600 mb-6">Complete inventory of all provided and required endpoints across all services, with each dependency's pinned version.</p>
+                <a href="/report-viewer.html?src=${encodeURIComponent('/report/markdown')}&title=${encodeURIComponent('Full Dependency Report')}"
                    class="inline-flex items-center justify-center w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors">
                     View Markdown Report
                 </a>
             </div>
         `;
     }
-
-    function onReportBranchChange() {
-        const branchSelect = document.getElementById('report-branch-select');
-        const branch = branchSelect.value;
-        if (branch) {
-            history.pushState({ branch }, '', `?branch=${encodeURIComponent(branch)}`);
-        } else {
-            history.pushState({}, '', window.location.pathname);
-        }
-        loadReports();
-    }
-
-    window.addEventListener('popstate', () => {
-        const params = new URLSearchParams(window.location.search);
-        const branch = params.get('branch');
-        const branchSelect = document.getElementById('report-branch-select');
-        if (branchSelect) {
-            branchSelect.value = branch || '';
-        }
-        loadReports();
-    });
 
     window.addEventListener('sanshain-update', () => {
         console.log('Live update received, refreshing reports...');

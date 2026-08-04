@@ -1,4 +1,5 @@
 use crate::domain::models::*;
+use crate::domain::permissions::Role;
 use crate::domain::ports::{AuthProvider, SpecRepository};
 use argon2::{
     Argon2,
@@ -33,6 +34,31 @@ pub fn generate_random_password() -> String {
     Alphanumeric.sample_string(&mut rand::rng(), 16)
 }
 
+/// Claim every configured root username that has no user row yet.
+///
+/// Root authority is a pure username match, so an unclaimed root name is a
+/// standing invitation: whoever registers it (or gets a directory shadow
+/// account under it) silently becomes superuser. Claiming it with a locked
+/// account (random password, no stored roles — root needs none) closes that
+/// on every instance, including 1.x upgrades whose databases predate the
+/// bootstrap admin.
+pub async fn claim_root_usernames(
+    repo: &impl SpecRepository,
+    root_users: &crate::domain::permissions::RootUsers,
+) -> Result<(), AppError> {
+    for username in root_users.usernames() {
+        if repo.find_user(username).await?.is_none() {
+            let hash = hash_password(&generate_random_password())?;
+            repo.create_user(username, &hash, true).await?;
+            tracing::info!(
+                "Claimed root username '{}' with a locked account (log in via SANSHAIN_ROOT_USERS credentials flow or reset the password)",
+                username
+            );
+        }
+    }
+    Ok(())
+}
+
 pub async fn ensure_initial_admin(repo: &impl SpecRepository) -> Result<(), AppError> {
     let count = repo.user_count().await?;
     if count == 0 {
@@ -41,7 +67,11 @@ pub async fn ensure_initial_admin(repo: &impl SpecRepository) -> Result<(), AppE
         let password =
             std::env::var("INITIAL_ADMIN_PASSWORD").unwrap_or_else(|_| generate_random_password());
         let hash = hash_password(&password)?;
-        repo.create_user(&username, &hash, true, true).await?;
+        let admin = repo.create_user(&username, &hash, true).await?;
+        // The flag is gone, so the bootstrap account's authority comes from an
+        // explicit grant. `SANSHAIN_ROOT_USERS` covers it as well by default,
+        // but the grant is what makes it visible in the UI as an ordinary role.
+        repo.grant_user_role(admin.id, Role::Admin.as_str()).await?;
         if repo.get_setting("auth_mode").await?.is_none() {
             repo.set_setting("auth_mode", "local").await?;
         }
@@ -145,7 +175,8 @@ pub async fn ensure_dev_user(repo: &impl SpecRepository) -> Result<User, AppErro
         return Ok(user);
     }
     let hash = hash_password("dev_user_internal")?;
-    let user = repo.create_user("dev_user", &hash, true, true).await?;
+    let user = repo.create_user("dev_user", &hash, true).await?;
+    repo.grant_user_role(user.id, Role::Admin.as_str()).await?;
     Ok(user)
 }
 
@@ -165,11 +196,17 @@ pub async fn logout(repo: &impl SpecRepository, token: &str) -> Result<(), AppEr
 #[instrument(skip_all)]
 pub async fn register_user(
     repo: &impl SpecRepository,
+    root_users: &crate::domain::permissions::RootUsers,
     username: &str,
     password: &str,
 ) -> Result<(), AppError> {
     if get_auth_mode(repo).await? != AuthMode::Local {
         return Err(AppError::Forbidden);
+    }
+    // Root usernames hold every permission by pure name match, so an
+    // unclaimed one must never be claimable through open registration.
+    if root_users.contains(username) {
+        return Err(AppError::Conflict("This username is reserved".to_string()));
     }
     if repo.find_user(username).await?.is_some() {
         return Err(AppError::Conflict("User already exists".to_string()));
@@ -180,8 +217,7 @@ pub async fn register_user(
         .await?
         .unwrap_or("false".to_string())
         == "true";
-    repo.create_user(username, &hash, false, auto_approve)
-        .await?;
+    repo.create_user(username, &hash, auto_approve).await?;
     Ok(())
 }
 
@@ -258,6 +294,23 @@ pub async fn set_ldap_config(
     let json = serde_json::to_string(config)
         .map_err(|e| AppError::Internal(format!("LDAP config serialize error: {}", e)))?;
     repo.set_setting("ldap_config", &json).await?;
+    // The admin-group setting is no longer consulted directly — a directory
+    // group grants roles through the group mapping. Carrying it over keeps an
+    // operator who configures it here from finding their directory
+    // administrators locked out.
+    crate::application::directory_roles::migrate_admin_group(repo, &config.admin_group).await?;
+    Ok(())
+}
+
+/// Bring a stored configuration's admin group into the group mapping.
+///
+/// Runs at startup so an instance upgrading from a release where `admin_group`
+/// was consulted directly keeps its directory-backed administrators, without
+/// anyone having to re-save the configuration first.
+pub async fn migrate_stored_admin_group(repo: &impl SpecRepository) -> Result<(), AppError> {
+    if let Some(config) = get_ldap_config(repo).await? {
+        crate::application::directory_roles::migrate_admin_group(repo, &config.admin_group).await?;
+    }
     Ok(())
 }
 
@@ -274,7 +327,9 @@ pub async fn login_with_provider(
     username: &str,
     password: &str,
 ) -> Result<Session, AppError> {
-    let auth_user = provider
+    // The provider's answer establishes identity; the username is all that is
+    // needed from it, since privileges are resolved separately.
+    let _authenticated = provider
         .authenticate(username, password)
         .await
         .map_err(|_| AppError::Unauthorized)?;
@@ -285,8 +340,9 @@ pub async fn login_with_provider(
         None => {
             // Create a stub user with a random password that can't be used for local login easily
             let hash = hash_password(&generate_random_password())?;
-            repo.create_user(username, &hash, auth_user.is_admin, true)
-                .await?
+            // A directory user's privileges come from their directory groups,
+            // resolved on every check. Nothing about them is captured here.
+            repo.create_user(username, &hash, true).await?
         }
     };
 
@@ -332,6 +388,9 @@ pub async fn list_api_tokens(
     Ok(repo.list_api_tokens(user_id).await?)
 }
 
+/// Revokes the token, returning whether one was found and owned by `user_id`
+/// so the caller can answer 404 instead of reporting a success that never
+/// happened.
 pub async fn revoke_api_token(
     repo: &impl SpecRepository,
     token_id: &str,
@@ -356,6 +415,11 @@ pub async fn validate_api_token(
 mod tests {
     use super::*;
     use crate::application::mock_repo::MockRepo;
+
+    /// A root set that reserves no username used by these tests.
+    fn no_root_users() -> crate::domain::permissions::RootUsers {
+        crate::domain::permissions::RootUsers::resolve(Some("__unused-root__"), None)
+    }
 
     #[tokio::test]
     async fn test_create_api_token_format_and_entropy() {
@@ -385,15 +449,21 @@ mod tests {
         let users = repo.list_users().await.unwrap();
         assert_eq!(users.len(), 1);
         assert_eq!(users[0].username, "root");
-        assert!(users[0].is_admin);
+        let roles = repo
+            .list_user_roles(users[0].id)
+            .await
+            .expect("roles readable");
+        assert_eq!(
+            roles,
+            vec!["admin".to_string()],
+            "the bootstrap account's authority is an explicit grant now"
+        );
     }
 
     #[tokio::test]
     async fn test_ensure_initial_admin_skips_when_users_exist() {
         let repo = MockRepo::new();
-        repo.create_user("existing", "hash", false, true)
-            .await
-            .unwrap();
+        repo.create_user("existing", "hash", true).await.unwrap();
         ensure_initial_admin(&repo).await.unwrap();
         let users = repo.list_users().await.unwrap();
         assert_eq!(users.len(), 1);
@@ -404,7 +474,7 @@ mod tests {
     async fn test_login_success() {
         let repo = MockRepo::new();
         let hash = hash_password("pass").unwrap();
-        repo.create_user("alice", &hash, false, true).await.unwrap();
+        repo.create_user("alice", &hash, true).await.unwrap();
         let (session, user) = login(&repo, "alice", "pass").await.unwrap();
         assert!(!session.token.is_empty());
         assert_eq!(user.username, "alice");
@@ -414,7 +484,7 @@ mod tests {
     async fn test_login_wrong_password() {
         let repo = MockRepo::new();
         let hash = hash_password("pass").unwrap();
-        repo.create_user("alice", &hash, false, true).await.unwrap();
+        repo.create_user("alice", &hash, true).await.unwrap();
         let err = login(&repo, "alice", "wrong").await.unwrap_err();
         assert!(matches!(err, AppError::Unauthorized));
     }
@@ -423,7 +493,7 @@ mod tests {
     async fn test_login_unapproved_user() {
         let repo = MockRepo::new();
         let hash = hash_password("pass").unwrap();
-        repo.create_user("bob", &hash, false, false).await.unwrap();
+        repo.create_user("bob", &hash, false).await.unwrap();
         let err = login(&repo, "bob", "pass").await.unwrap_err();
         assert!(matches!(err, AppError::Forbidden));
     }
@@ -432,17 +502,66 @@ mod tests {
     async fn test_register_user_success() {
         let repo = MockRepo::new();
         repo.set_setting("auth_mode", "local").await.unwrap();
-        register_user(&repo, "newuser", "pass123").await.unwrap();
+        register_user(&repo, &no_root_users(), "newuser", "pass123")
+            .await
+            .unwrap();
         let user = repo.find_user("newuser").await.unwrap().unwrap();
         assert_eq!(user.username, "newuser");
+    }
+
+    /// A root username holds every permission by pure name match, so an
+    /// unclaimed one must never be claimable through open registration.
+    #[tokio::test]
+    async fn register_rejects_a_reserved_root_username() {
+        let repo = MockRepo::new();
+        repo.set_setting("auth_mode", "local").await.unwrap();
+        let root_users = crate::domain::permissions::RootUsers::resolve(Some("ops-root"), None);
+        let err = register_user(&repo, &root_users, "ops-root", "pass123")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::Conflict(_)));
+        assert!(repo.find_user("ops-root").await.unwrap().is_none());
+    }
+
+    /// Startup claims unclaimed root names with locked accounts, and leaves
+    /// accounts that already exist alone.
+    #[tokio::test]
+    async fn claim_root_usernames_creates_locked_accounts_once() {
+        let repo = MockRepo::new();
+        let existing_hash = hash_password("kept").unwrap();
+        repo.create_user("alice", &existing_hash, true)
+            .await
+            .unwrap();
+        let root_users =
+            crate::domain::permissions::RootUsers::resolve(Some("alice, ops-root"), None);
+
+        claim_root_usernames(&repo, &root_users).await.unwrap();
+
+        let claimed = repo.find_user("ops-root").await.unwrap().unwrap();
+        assert!(claimed.approved);
+        let alice = repo.find_user("alice").await.unwrap().unwrap();
+        assert_eq!(
+            alice.password_hash, existing_hash,
+            "an already-claimed name must not be touched"
+        );
+
+        // Idempotent across restarts: the claimed account is not recreated.
+        let claimed_hash = claimed.password_hash.clone();
+        claim_root_usernames(&repo, &root_users).await.unwrap();
+        let claimed_again = repo.find_user("ops-root").await.unwrap().unwrap();
+        assert_eq!(claimed_again.password_hash, claimed_hash);
     }
 
     #[tokio::test]
     async fn test_register_user_duplicate() {
         let repo = MockRepo::new();
         repo.set_setting("auth_mode", "local").await.unwrap();
-        register_user(&repo, "dup", "pass").await.unwrap();
-        let err = register_user(&repo, "dup", "pass").await.unwrap_err();
+        register_user(&repo, &no_root_users(), "dup", "pass")
+            .await
+            .unwrap();
+        let err = register_user(&repo, &no_root_users(), "dup", "pass")
+            .await
+            .unwrap_err();
         assert!(matches!(err, AppError::Conflict(_)));
     }
 
@@ -450,7 +569,7 @@ mod tests {
     async fn test_change_password() {
         let repo = MockRepo::new();
         let hash = hash_password("old").unwrap();
-        let user = repo.create_user("u", &hash, false, true).await.unwrap();
+        let user = repo.create_user("u", &hash, true).await.unwrap();
         change_password(&repo, &user, None, "old", "new")
             .await
             .unwrap();

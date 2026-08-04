@@ -5,36 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [1.5.0] - 2026-07-04
-
-### Added
-- Initial preparation for version 1.5.0.
-- Configurable request body size limit: requests with a body larger than `MAX_SPEC_BODY_BYTES` are rejected with `413 Payload Too Large` before any spec parsing happens. Earlier releases silently enforced the web framework's built-in 2 MiB limit; it is now explicit, configurable, and defaults to 4 MiB — so spec uploads between 2 and 4 MiB that previously failed now succeed. Documented in `docs/configuration.md`; the client API contract (`api.yaml`) now lists the `413` response for `/provide*` and `/require-bundle`.
-- Real readiness probe: a new unauthenticated `GET /ready` endpoint runs a `SELECT 1` against the database and returns `200` when it is reachable or `503` when it is not, so orchestrators stop routing traffic to a pod with a broken database. Liveness (`GET /health`) stays database-independent. The Kubernetes readiness probe now targets `/ready`.
-- The no-panic policy is now machine-enforced: `unwrap()`, `expect()`, `panic!`, `todo!`, `unimplemented!`, and `dbg!` are denied by clippy in production code via the `[lints.clippy]` table in `Cargo.toml` (test code stays exempt through `clippy.toml`).
-- Breaking-change detection on protected branches now also covers AsyncAPI and gRPC/proto specs. Previously only OpenAPI updates were checked; incompatible AsyncAPI or proto changes (removed messages or payload properties, payload/field type changes, changed proto field numbers or `repeated` labels, changed rpc signatures) were accepted silently and could break consumers. Such updates are now rejected with `409 Conflict`, like their OpenAPI counterparts. Enum changes and AsyncAPI `required` changes are not analyzed. See `docs/api-lifecycle.md`.
-- Multi-producer AsyncAPI safety via **message-level channel contracts** (the properly designed replacement for the removed shared-contract mechanism). Because Kafka topic names are a global namespace, each *named* `publish` message (identified by its `name`, falling back to `title`) registers a contract keyed by `(branch, channel, message name)`, owned by the first service to publish it. The owner may widen its own message, but a breaking payload change is rejected with `409`; a *different* service publishing the same channel + message name is accepted only if its payload schema is identical, otherwise rejected `409` naming the owning service ("align the schema or rename your message"). Enforced on **all** branches (including feature branches, where general endpoint breaking changes are otherwise allowed) and `force` does not bypass it. Unnamed messages have no cross-service identity and are skipped — name your messages to make a topic multi-producer-safe. AsyncAPI provides also gain proper SemVer classification (new channels/messages/properties → minor, doc-only → patch, removals/incompatible changes → major); previously every AsyncAPI change bumped only the patch level. Contract rows for removed/stale branches are pruned by the periodic cleanup task. See `docs/api-lifecycle.md` §6 and `docs/user-guide.md`.
-
-### Removed
-- The legacy "shared contract" mechanism. Since contracts were scoped per service, its original cross-service multi-publisher conflict detection had long been inert; all it still did was reject breaking changes on **non-protected** branches (requiring `force: true`) for services already published on a protected branch — contradicting the documented lifecycle, which promises free iteration on feature branches. Now breaking changes on non-protected branches are always accepted, and protected branches remain the only compatibility gate. Consequences: the `force` flag is accepted but has no effect on non-protected branches (still rejected with `400` on protected ones); the `GET /admin/shared-contract` endpoint is gone; the `has_changes` field ("modified" badge) is gone from endpoint listings; the `shared_contracts` table is dropped by migration. Multi-producer conflict detection returns properly designed as message-level AsyncAPI channel contracts (see `ai/improvements.md` item #20).
-
-### Changed
-- Deprecated API elements may now be removed on protected branches without counting as a breaking change: endpoints whose previously published spec marked them deprecated (OpenAPI `deprecated: true` on the operation, AsyncAPI `deprecated`/`x-deprecated: true` on the operation, proto `option deprecated = true;` in the rpc) can be deleted, and deprecated schema properties / proto fields (`[deprecated = true]`) can be dropped. Previously *any* endpoint removal on a protected branch was rejected, with no deprecation-based escape hatch. Removing non-deprecated elements is still rejected — the error now says to deprecate them first.
-- The Kubernetes manifest now defaults to a single replica: the default SQLite backend uses a `ReadWriteOnce` PVC that only one pod can mount, and concurrent writers would corrupt the database file. Scaling above one replica now requires PostgreSQL — documented in `docs/deployment.md`.
-- `/provide*` parse-failure warnings now log a compact fingerprint of the submitted spec (byte length + short SHA-256 prefix) plus the parser error, instead of dumping the entire document. This keeps the in-memory (admin-viewable) log buffer from being flooded by large submissions; the parser error is still returned to the caller.
-
-### Fixed
-- Re-providing a spec that re-introduces a previously removed endpoint (same path + method) no longer fails with `500 Internal Server Error` (`duplicate key value violates unique constraint "endpoints_branch_id_api_type_path_method_key"`). Removed endpoints are soft-deleted internally, so their row still occupied the uniqueness slot; the re-introduction now revives that row instead of colliding with it. In earlier releases this surfaced whenever a branch that had once had an endpoint removed later received a spec re-adding it — most commonly after the branch was no longer protected, where the re-introduction guard does not apply. Fixed in both the SQLite and PostgreSQL backends.
-- Removed panic paths from the `/require`, `/require/asyncapi`, `/require/grpc`, and `/require-bundle` handlers: a malformed ETag can no longer abort the response, and unmatched OpenAPI method comparison no longer panics. Malformed ETags now degrade to serving the response without a cache validator instead of failing the request.
-- Removed the last production `expect()` calls: the OpenAPI path normalizer and proto splitter no longer have a regex panic path, and a failing OTLP exporter build at startup (`OTEL_ENABLED=true`) now exits with a clear error message instead of panicking.
-- The endpoint version-history view (`yaml.html`) no longer hangs on the "Loading…" screen forever when an endpoint has no version history. Previously the page fetched the (empty) history successfully and wrote "No version history found for this endpoint." into the viewer, but returned early without dismissing the loading overlay — so the message stayed hidden behind a spinner that never went away. The overlay is now dismissed on the empty-history path as well.
+## [2.1.0] - 2026-08-04
 
 ### Security
-- Newly created API tokens now carry 256 bits of CSPRNG entropy (earlier releases derived them from a UUIDv4, i.e. 122 bits), matching session tokens. Existing tokens keep working unchanged — storage stays SHA-256-at-rest and validation is format-agnostic. New tokens are 36 characters longer; clients that store them as opaque strings are unaffected.
-- API tokens are no longer accepted from a `?token=` query parameter — they must be supplied via the `Authorization: Bearer <token>` header. Query-string credentials leak through server/proxy logs, browser history, and referrer headers; header-only auth closes that exposure. Update any client that passed `?token=...` to send the header instead.
-- Dev mode (which disables authentication on public API endpoints) now requires an explicit production safety gate: it only activates when requested (`SANSHAIN_DEV_MODE=true` or the persisted admin setting) **and** `ALLOW_INSECURE_DEV_MODE=true` is set in the environment. A requested-but-ungated dev mode fails closed — authentication stays enforced and a clear `SECURITY:` error is logged at startup — so a stray env var or configuration drift can no longer silently expose a production instance. See `docs/administration.md`.
-- Excluded in-memory test doubles (`MockRepo`) from release builds behind a new `test-support` Cargo feature, so test-only code no longer ships in the production binary. Its lock handling was also made panic-free.
+- Publishing `stability: ga` now requires the `release_ga` permission (new `releaser` role; admins
+  and root hold it implicitly) — previously any authenticated token could release, and snapshots are
+  unaffected. **On upgrade, grant `releaser` to whatever pushes GA today — typically your CI user —
+  or releases fail with an instructive `403`.**
 
+### Added
+- `releaser`: a global role conferring exactly `release_ga`, grantable to users, native groups and
+  directory groups. Like `admin`, it is admin-guarded — only an admin (or root) may grant or revoke
+  it.
+- Refused release attempts are recorded: a real (non-dry-run) GA Provide without the permission
+  writes a `VERSION_REJECTED` audit entry and increments
+  `sanshain_version_rejected_total{reason="ga_requires_releaser"}`. Dry-runs get the same `403`
+  without the telemetry.
+- **One-click promote.** Snapshot entries on the producers page and the admin dashboard offer a
+  "Promote to GA" button to holders of `release_ga`
+  (`POST /admin/producers/{name}/versions/{api_type}/{version}/promote`). It releases the stored
+  content in place — same gate, attribution and audit trail as re-providing it as GA; promoting an
+  already-GA version is a harmless no-op.
 
 ---
 

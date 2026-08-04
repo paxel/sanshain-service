@@ -65,6 +65,13 @@ fn test_app_state(repo: PostgresSpecRepository, db_url: String) -> AppState {
         prometheus_handle,
         system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
         max_body_bytes: sanshain_service::DEFAULT_MAX_BODY_BYTES,
+        directory_roles: sanshain_service::application::directory_roles::DirectoryRoleCache::new(
+            std::time::Duration::from_secs(300),
+        ),
+        root_users: std::sync::Arc::new(sanshain_service::domain::permissions::RootUsers::resolve(
+            Some("root"),
+            None,
+        )),
     }
 }
 
@@ -113,8 +120,8 @@ paths:
 "#;
 
     let provide_payload = json!({
-        "servicename": "pg-service",
-        "branch": "main",
+        "producername": "pg-service",
+        "stability": "ga",
         "openapi_yaml": openapi_yaml
     });
 
@@ -139,7 +146,7 @@ paths:
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/require?clientname=pg-client&servicename=pg-service&branch=main&path=/test&method=GET")
+                .uri("/require?consumername=pg-client&producername=pg-service&version=1.0.0&path=/test&method=GET")
                 .body(Body::empty())
                 .unwrap(),
         )

@@ -19,6 +19,8 @@ static RE_OPTION_DEPRECATED: LazyLock<Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new(r"(?m)^\s*option\s+deprecated\s*=\s*true\s*;"));
 static RE_DEPRECATED_TRUE: LazyLock<Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new(r"deprecated\s*=\s*true"));
+static RE_SANSHAIN_VERSION: LazyLock<Result<Regex, regex::Error>> =
+    LazyLock::new(|| Regex::new(r"(?m)//\s*sanshain-version:\s*(\S+)"));
 
 struct ServiceBlock {
     name: String,
@@ -31,6 +33,46 @@ pub struct ProtoSpec {
     pub method: String,
     pub content: String,
     pub deprecated: bool,
+}
+
+/// Read the mandatory `// sanshain-version: MAJOR.MINOR.PATCH` marker out of a
+/// proto file. Proto has no standard version slot, so the marker is required
+/// and every failure mode is loud: no marker rejects the Provide with the
+/// expected syntax, and multiple markers with different values are ambiguous.
+/// The marker lives in the file-level content the splitter carries along, so
+/// it travels into the split files Consumers download.
+pub fn extract_sanshain_version(content: &str) -> Result<crate::domain::models::SemVer, String> {
+    let re = RE_SANSHAIN_VERSION
+        .as_ref()
+        .map_err(|e| format!("Failed to compile version regex: {}", e))?;
+
+    let mut values: Vec<&str> = re
+        .captures_iter(content)
+        .filter_map(|c| c.get(1).map(|m| m.as_str()))
+        .collect();
+    values.dedup();
+
+    match values.as_slice() {
+        [] => Err(
+            "proto file has no version marker — add a comment '// sanshain-version: MAJOR.MINOR.PATCH' (e.g. '// sanshain-version: 1.2.0')"
+                .to_string(),
+        ),
+        [single] => crate::domain::models::SemVer::parse_spec_version(single)
+            .map_err(|e| format!("sanshain-version marker: {}", e)),
+        many => {
+            let unique: std::collections::BTreeSet<&str> = many.iter().copied().collect();
+            if unique.len() == 1 {
+                crate::domain::models::SemVer::parse_spec_version(many[0])
+                    .map_err(|e| format!("sanshain-version marker: {}", e))
+            } else {
+                Err(format!(
+                    "proto file has {} conflicting sanshain-version markers ({}) — keep exactly one",
+                    unique.len(),
+                    unique.into_iter().collect::<Vec<_>>().join(", ")
+                ))
+            }
+        }
+    }
 }
 
 pub fn split_proto(content: &str) -> Result<Vec<ProtoSpec>, String> {
@@ -607,5 +649,47 @@ message Outer {
             err,
             "Field 'dropped' was removed from message 'Outer.Inner'"
         );
+    }
+
+    #[test]
+    fn test_extract_sanshain_version_reads_the_marker() {
+        let content = "syntax = \"proto3\";\n// sanshain-version: 1.2.0\npackage a.b;\n";
+        let version = extract_sanshain_version(content).unwrap();
+        assert_eq!(version.to_string(), "1.2.0");
+    }
+
+    #[test]
+    fn test_extract_sanshain_version_missing_marker_is_loud() {
+        let err = extract_sanshain_version("syntax = \"proto3\";\n").unwrap_err();
+        assert!(
+            err.contains("// sanshain-version: MAJOR.MINOR.PATCH"),
+            "error must show the expected syntax, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_extract_sanshain_version_conflicting_markers_are_ambiguous() {
+        let content = "// sanshain-version: 1.2.0\n// sanshain-version: 1.3.0\n";
+        let err = extract_sanshain_version(content).unwrap_err();
+        assert!(err.contains("conflicting"), "got: {}", err);
+        assert!(
+            err.contains("1.2.0") && err.contains("1.3.0"),
+            "got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_extract_sanshain_version_repeated_identical_markers_are_fine() {
+        let content = "// sanshain-version: 2.0.1\nmessage M {}\n// sanshain-version: 2.0.1\n";
+        let version = extract_sanshain_version(content).unwrap();
+        assert_eq!(version.to_string(), "2.0.1");
+    }
+
+    #[test]
+    fn test_extract_sanshain_version_rejects_non_semver() {
+        let err = extract_sanshain_version("// sanshain-version: v1.2.0\n").unwrap_err();
+        assert!(err.contains("drop the 'v' prefix"), "got: {}", err);
     }
 }

@@ -5,8 +5,8 @@ This guide covers the admin dashboard at `/admin.html` and administrative tasks.
 ### TL;DR
 - **Access**: Sign in at `/admin.html`. First-time login uses a random password from logs.
 - **Auth**: Configure **LDAP**, **Local Users**, or **Dev Mode** in the Authentication section.
-- **Protection**: Manage **Protected Branch Patterns** to prevent breaking changes on `main` or `release/*`.
-- **Cleanup**: Delete or reset history for services and clients in the management tabs.
+- **Versions**: Delete a version (the escape hatch from GA immutability — check the dependents first) and tune snapshot cleanup in the settings.
+- **Cleanup**: Delete Producers, Consumers and stale dependencies in the management tabs.
 - **Tokens**: Users create their own API tokens at `/account.html`.
 
 ---
@@ -17,7 +17,7 @@ Open `/admin.html` in your browser and sign in with an admin account. On a fresh
 
 ![Admin login screen](images/Screenshot_20260421_230832.png)
 
-After a successful login the dashboard loads with all management sections organized into tabs: **Observability**, **User Management**, **System Config**, and **Services & Clients**.
+After a successful login the dashboard loads with all management sections organized into tabs.
 
 ![Admin dashboard](images/Screenshot_20260421_230857.png)
 
@@ -32,7 +32,7 @@ The **Observability** tab provides real-time insights into the system's health:
 
 ## Developer Mode
 
-Developer Mode is configured via the unified **Authentication** section of the admin dashboard. Selecting **Dev Mode** allows public API endpoints (`/provide`, `/require`, `/report`) to be accessible without any authentication. This is useful for local development and quick testing, but should not be used in production.
+Developer Mode is configured via the unified **Authentication** section of the admin dashboard. Selecting **Dev Mode** allows public API endpoints (`/provide`, `/require`) to be accessible without any authentication. This is useful for local development and quick testing, but should not be used in production.
 
 ### Enabling Dev Mode (local only)
 
@@ -48,16 +48,35 @@ If Dev Mode is requested without the gate, the service **fails closed**: authent
 ALLOW_INSECURE_DEV_MODE=true SANSHAIN_DEV_MODE=true cargo run
 ```
 
-## Protected Branches
+## Version Administration
 
-Protected branches enforce **immutable endpoint paths**. Once an endpoint is published on a protected branch, its schema cannot change; consumers can rely on it being stable. To evolve an endpoint you must bump the version in the path (e.g. `/api/v1/users` → `/api/v2/users`).
+The unit of administration is the **version line**: the ordered set of versions one Producer has published for one API type. Versions manage themselves for the most part — GA versions are immutable and never age-culled, snapshots expire when unused — so administration is the exceptions.
 
-By default `main` and `master` are protected. You can add or remove patterns:
+### Deleting a Version
 
-- Type a pattern into the text field (e.g. `release/*`) and press **Add**.
-- Click the **×** button next to an existing pattern to remove it.
+Deleting a version is **the sole escape hatch from GA immutability** ([ADR-0003](adr/0003-versions-replace-branches.md)): it removes the version outright and frees its number for republishing. It is deliberately a heavy tool:
 
-On non-protected (feature) branches, endpoint definitions can be freely overwritten.
+- **Consumers pinned to the deleted version hard-fail** (`404`) on their next require — there is no fallback. The UI shows the pinned Consumers (the dependents) before the delete is confirmed; check that listing first and get the Consumers moved off the version where possible.
+- **Audited**: every delete-version writes an audit entry naming the Actor and the Consumers that were still pinned.
+- **Who may**: holders of the `manage_producers` permission on any Producer, and Maintainers on their own Producers.
+
+| Method   | Endpoint                                                        | Description                                                    |
+|----------|-----------------------------------------------------------------|----------------------------------------------------------------|
+| `GET`    | `/admin/producers/{name}/versions`                              | One Producer's version lines (optionally filter by `api_type`).|
+| `GET`    | `/admin/producers/{name}/versions/{api_type}/{version}/dependents` | The Consumers pinned to this version — what a delete would break. |
+| `DELETE` | `/admin/producers/{name}/versions/{api_type}/{version}`         | Delete the version. Audited; frees the number.                 |
+
+### Snapshot Cleanup
+
+Snapshots expire **use-based**: a snapshot that is neither provided nor required for `snapshot_max_age_days` is deleted by the background cleanup. Provide-age alone would delete snapshots that pinned Consumers still build against — under no-fallback that is a hard build break, so requiring a snapshot keeps it alive. GA versions are never age-culled.
+
+- **Setting**: `snapshot_max_age_days` (default `30`, `0` disables) — `GET`/`POST /admin/settings/snapshot-max-age`, requires `manage_settings`.
+- **Run now**: `POST /admin/cleanup/snapshots` triggers the expiry immediately.
+- The remaining lifetime of each snapshot is visible on the Producer's version line (`expires_at`).
+
+### Dependency Cleanup
+
+Recorded dependencies go stale when a Consumer stops requiring an endpoint. `dependency_max_age_days` (`GET`/`POST /admin/settings/dependency-max-age`) controls when unused dependencies are removed; `POST /admin/cleanup/dependencies` runs it immediately.
 
 ## Local User Management
 
@@ -100,10 +119,16 @@ The **Authentication** section on the admin dashboard lets you choose how users 
 | **Bind Password**  | Password for the service account.                                                          | *(stored encrypted, shown as `****`)*    |
 | **Base DN**        | Search base for user lookups.                                                              | `dc=example,dc=com`                     |
 | **User Filter**    | LDAP filter to find users. `{username}` is replaced with the login name.                   | `(uid={username})`                      |
-| **Admin Group DN** | Users who are members of this group get admin privileges. Leave empty to disable.          | `cn=admins,ou=groups,dc=example,dc=com` |
+| **Admin Group DN** | Members of this group get the `admin` role. Saved as a directory group in the group mapping, where you can attach further roles or add more groups. Leave empty to disable. | `cn=admins,ou=groups,dc=example,dc=com` |
 
 3. Click **Test Connection** to verify that Sanshain can reach the LDAP server and bind with the service account.
 4. Click **Save Authentication Settings** to apply.
+
+> **Using `ldaps://` with a private or corporate CA?** Mount the CA certificates
+> and set `EXTRA_CA_CERTS_DIR` to that directory — see
+> [Additional CA certificates](configuration.md#additional-ca-certificates).
+> Without it, **Test Connection** fails on certificate verification against a CA
+> the platform does not already trust.
 
 ### How LDAP Login Works
 
@@ -153,28 +178,115 @@ Available actions:
 - **Approve** — grant a pending user access to the service.
 - **Delete** — permanently remove a user and revoke all their sessions and API tokens.
 
-## Service Management
+## Roles and Groups
 
-The **Services** section lists all services that have provided at least one OpenAPI specification. Each entry shows the service name.
+Authorisation is expressed in **permissions** — the unit every check tests. **Roles** are fixed
+bundles of permissions, defined in the service rather than composed by an operator, so what a role
+confers cannot drift from what the code enforces.
 
-You can expand any service using the ▶ button to view its active branches. Each branch supports the following actions:
+| Role           | Confers                                                                      |
+|----------------|------------------------------------------------------------------------------|
+| `admin`        | Every permission. This is the role an existing administrator account holds.  |
+| `user_manager` | User administration and role/group administration, and nothing else.         |
+| `viewer`       | Read access to the audit log and observability.                              |
+| `maintainer`   | Producer administration (`manage_producers`) — **scoped**.                   |
+| `releaser`     | Publishing GA versions (`release_ga`) — **admin-guarded**.                   |
 
-- **Reset History** — prunes all old, inactive endpoint versions for the selected branch, renumbers the latest active version of each endpoint to `1`, and resets the branch's version counter. Existing endpoints and client dependencies are fully preserved, ensuring zero disruption for active clients.
-- **Delete** — removes the selected branch and all its associated endpoints.
+`maintainer` cannot be granted instance-wide: it is meaningless without the set of Producers it is
+over, so it is assigned as a scope rather than granted as a role.
 
-At the service level, you can perform:
+`releaser` and `admin` are **admin-guarded**: only an admin (or root) may grant or revoke them, or
+move them on or off a group. For `admin` that closes self-escalation; for `releaser` it keeps
+`manage_roles` from being a side door to release rights.
 
-- **Delete** — removes the service and **cascades** to all its branches, endpoints, and related client dependencies.
+### Releasing
 
-A confirmation dialog appears before executing any deletion or reset operation.
+Publishing with `stability: ga` — a fresh GA, a promotion of a snapshot, or even an idempotent GA
+re-provide — requires the `release_ga` permission; everything else answers `403` and shows up in the
+audit log as a `VERSION_REJECTED` entry with reason `ga_requires_releaser`. Snapshots stay open to
+every authenticated caller.
 
-For a detailed view of a service's branches and endpoints, use the [Service Overview](/service.html) page instead.
+Grant `releaser` to whatever performs your releases — typically the CI user whose token sets
+`sanshain.ga=true`. Admins and root hold the permission implicitly. Maintainers do **not**: a
+maintainer can delete a GA version of their Producer (remediation), but releasing is deliberately
+the pipeline's job.
 
-## Client Management
+Holders of the permission also get a **Promote to GA** button on snapshot entries (producers page
+and admin dashboard): it releases the stored snapshot in place, exactly as if its content were
+re-provided as GA — the original provider stays credited, the promoting account is named in the
+audit's `VERSION_PROMOTED` entry.
 
-The **Clients** section lists all clients that have registered at least one dependency via `/require`.
+### Groups
 
-- **Delete** — removes the client and all its recorded dependencies. A confirmation dialog appears before deletion.
+A **group** is a set of users that roles attach to. Groups carry a source, which records where their
+membership comes from:
+
+- **native** — Sanshain's own. Membership is yours to edit.
+- **ldap** — mirrors a directory group. Membership belongs to the directory and is not stored here;
+  only the roles you attach to it are. Membership is re-read from the directory through the configured
+  service account, cached briefly — see
+  [Directory group caching](configuration.md#directory-group-caching) — so a change in the directory
+  takes effect without the user signing in again.
+
+A native and a directory group may share a name without colliding — they are distinct entities, and
+the UI shows the origin.
+
+### Maintainers
+
+A **maintainer** is responsible for a set of Producers. It is an assignment rather than a role,
+because it means nothing without the Producers it is over — so it is never granted instance-wide.
+
+A user or a group can be assigned. Group assignment is what makes this scale: put a team's group on
+the Producers that team owns, and responsibility follows membership.
+
+A Producer-scoped action admits either the matching instance-wide permission **or** maintainership of
+that Producer. So an administrator can act on any Producer, while a maintainer can act on theirs and
+is refused on everybody else's. This covers Producer administration — deleting one of its versions
+(the GA escape hatch), or the Producer itself.
+
+### API Endpoints
+
+| Method   | Endpoint                                  | Description                                     |
+|----------|-------------------------------------------|-------------------------------------------------|
+| `GET`    | `/admin/roles`                            | The role catalogue and what each role confers.  |
+| `GET`    | `/admin/users/{id}/roles`                 | Roles granted directly to a user.               |
+| `POST`   | `/admin/users/{id}/roles`                 | Grant a role. Body: `{"role": "user_manager"}`. |
+| `DELETE` | `/admin/users/{id}/roles/{role}`          | Revoke a role.                                  |
+| `GET`    | `/admin/groups`                           | All groups with their origin, roles and members.|
+| `POST`   | `/admin/groups`                           | Create a native group. Body: `{"name": "..."}`. |
+| `PUT`    | `/admin/groups/{id}`                      | Rename it, replace its roles, or both.          |
+| `DELETE` | `/admin/groups/{id}`                      | Delete a group and its grants.                  |
+| `POST`   | `/admin/groups/{id}/members`              | Add a member. Body: `{"user_id": 3}`.           |
+| `DELETE` | `/admin/groups/{id}/members/{user_id}`    | Remove a member.                                |
+| `GET`    | `/admin/maintainers`                      | Every Producer with its maintainers, in one response. |
+| `GET`    | `/admin/producers/{name}/maintainers`     | Users and groups maintaining a Producer. Readable by that Producer's maintainers too. |
+| `POST`   | `/admin/producers/{name}/maintainers`     | Assign one. Body: `{"user_id": 3}` **or** `{"group_id": 1}`. |
+| `DELETE` | `/admin/producers/{name}/maintainers/users/{user_id}`   | Unassign a user.                  |
+| `DELETE` | `/admin/producers/{name}/maintainers/groups/{group_id}` | Unassign a group.                 |
+| `GET`    | `/admin/users/{id}/maintains`             | The Producers a user is responsible for.        |
+
+## Producer Management
+
+The **Producers** section lists all Producers that have provided at least one specification, with metadata and their full version lines — version, stability, endpoint count, and (for snapshots) the use-based expiry.
+
+Per version-line entry you can:
+
+- **View** its endpoints, the full provided document, and a diff between any two versions of the line.
+- **Delete** the version — see [Deleting a Version](#deleting-a-version); the dependents are shown before confirming.
+
+At the Producer level:
+
+- **Delete** — removes the Producer and **cascades** to all its version lines, endpoints, and related Consumer dependencies.
+
+A confirmation dialog appears before executing any deletion.
+
+For a detailed view of a Producer's version lines and endpoints, use the Producers page (`/producers.html`) instead.
+
+## Consumer Management
+
+The **Consumers** section lists all Consumers that have recorded at least one dependency via `/require`.
+
+- **Delete** — removes the Consumer and all its recorded dependencies. A confirmation dialog appears before deletion.
 
 ## Changing Your Password
 

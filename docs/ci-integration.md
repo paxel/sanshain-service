@@ -38,15 +38,24 @@ curl -H "Authorization: Bearer san_xxxxxxxxxxxx" \
 
 Store the token in your CI system's secret management (e.g. GitHub Actions secrets, Jenkins credentials, GitLab CI variables).
 
+## Stability from the Pipeline
+
+Every Provide declares a **stability** — and the pipeline is the natural place to decide it:
+
+- **Release-branch builds** (`main`, `master`, release branches) provide with `"stability": "ga"` — the version becomes immutable.
+- **Feature-branch builds** provide with `"stability": "snapshot"` — overwritable work-in-progress that expires when unused.
+
+Every build provides as `snapshot` unless the pipeline sets the ga switch (`SANSHAIN_GA=true`, `-Dsanshain.ga=true`, or `--ga` — see [How stability is decided](sanshain-yaml.md#how-stability-is-decided)); raw `curl` pipelines set the field themselves. The **version** is never a pipeline concern — it is read from the spec file (`info.version`, or the `// sanshain-version:` comment for proto).
+
 ## Dry-Run Mode (PR Validation)
 
 All three core endpoints (`/provide`, `/require`, `/require-bundle`) support a **`dry_run`** parameter. When set to `true`, the request runs full validation but **does not persist any data**:
 
-- `/provide` with `dry_run: true` — parses the OpenAPI YAML, splits endpoints, checks for conflicts on protected branches, but stores nothing.
-- `/require` with `dry_run=true` — looks up the endpoint (with fallback), but does not record a dependency.
+- `/provide` with `dry_run: true` — parses the spec, reads and validates the version, splits endpoints, and applies the version rules (GA immutability, semver honesty), but stores nothing.
+- `/require` with `dry_run=true` — resolves the endpoint at the pinned version, but does not record a dependency.
 - `/require-bundle` with `dry_run: true` — resolves all requested endpoints, but does not record any dependencies.
 
-This is designed for **PR validation pipelines**: test whether a feature branch's contracts are valid against the main branch before allowing a merge, without polluting the database with temporary data.
+This is designed for **PR validation pipelines**: catch a forgotten version bump or a semver lie before the merge, without polluting the database with temporary data.
 
 ### Example: Validate a Provider Spec
 
@@ -56,27 +65,24 @@ curl -f -X POST http://localhost:3000/provide \
   -H "Authorization: Bearer $SANSHAIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{
-    \"servicename\": \"UserService\",
-    \"branch\": \"main\",
+    \"producername\": \"UserService\",
+    \"stability\": \"ga\",
     \"openapi_yaml\": $(cat openapi.yaml | jq -Rs .),
     \"dry_run\": true
   }"
 ```
 
-If the spec would cause a conflict (e.g. a DTO change on a protected branch), the request returns `409 Conflict` with a descriptive error message — the CI job fails and the developer knows exactly which endpoint is problematic.
+If the Provide would be rejected by the version rules — the `info.version` is already GA with different content, or the changes are breaking without a major bump — the request returns `409 Conflict` with a `proposed_version`: the CI job fails and the developer knows exactly which version to set before merging.
 
 ### Example: Validate Client Dependencies
 
 ```bash
 # In the client's CI pipeline (e.g. on PR)
-curl -f "http://localhost:3000/require?clientname=WebApp&servicename=UserService&branch=main&path=/users&method=GET&dry_run=true" \
+curl -f "http://localhost:3000/require?consumername=WebApp&producername=UserService&version=2.1.0&path=/users&method=GET&dry_run=true" \
   -H "Authorization: Bearer $SANSHAIN_TOKEN"
 ```
 
-If the endpoint doesn't exist, the response returns `404` with a message like:
-```
-Endpoint not found: GET /users on service 'UserService' branch 'main'
-```
+If the pinned version does not exist, the response returns `404` (Unknown — a Pin configuration error); if the version exists but lacks the endpoint, `410` (Absent — deliberately not part of that version's API).
 
 ### Example: Validate a Bundle
 
@@ -85,9 +91,9 @@ curl -f -X POST http://localhost:3000/require-bundle \
   -H "Authorization: Bearer $SANSHAIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "clientname": "WebApp",
-    "servicename": "UserService",
-    "branch": "main",
+    "consumername": "WebApp",
+    "producername": "UserService",
+    "version": "2.1.0",
     "endpoints": [
       {"path": "/users", "method": "GET"},
       {"path": "/users/{id}", "method": "DELETE"}
@@ -96,76 +102,55 @@ curl -f -X POST http://localhost:3000/require-bundle \
   }'
 ```
 
-If some endpoints are missing, the response returns `404` with:
-```
-Missing endpoints on service 'UserService' branch 'main': DELETE /users/{id}
-```
+If some endpoints are missing from the pinned version, the response returns `410` naming the missing endpoints.
 
-## Optimistic Concurrency & Caching
+## Idempotency & Caching
 
-Sanshain provides features to optimize CI pipelines and prevent accidental overwrites when multiple developers or automated processes update the same service branch.
+Sanshain is designed so pipelines can provide and require unconditionally on every build.
 
-### 1. Content-Based Skipping (Caching)
+### 1. Content-Based No-Op
 
-The server returns a `content_hash` (SHA-256) for every successful `/provide` request. If you send a specification that is identical to the current one on the server, Sanshain will:
-1. Detect the identical hash.
-2. Skip the database update and version increment.
-3. Return the current version and hash with `202 Accepted`.
+Re-providing byte-identical content is a no-op regardless of stability or caller — the `changes` summary comes back all zero and nothing is stored. CI re-runs of the same commit never fight, and unconditional "provide on every build" causes no churn.
 
-This allows CI pipelines to unconditionally "provide" the spec without worrying about unnecessary database load or version inflation.
+### 2. Version Conflicts Are Self-Service
 
-### 2. Optimistic Concurrency Control
+There is no pull-merge-retry loop. If a Provide is rejected `409`, the body carries `proposed_version` — the next free number, bumped by what actually changed. The fix is always local: set the spec file's version to the proposal and republish. Two developers editing the same spec coordinate in git, as with any other file; the next publish after their merge converges the snapshot.
 
-Each service branch has a monotonic version number. When you receive a response from `/provide`, it includes the new `version`.
+### 3. ETag Caching on Requires
 
-To prevent overwriting concurrent changes, you can send a `base_version` in your next request. The server will only accept the update if its current version matches your `base_version`.
-
-```bash
-# Get current state (or after previous provide)
-# VERSION=5
-
-# Attempt update with base_version
-curl -X POST http://localhost:3000/provide \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"servicename\": \"UserService\",
-    \"branch\": \"main\",
-    \"openapi_yaml\": \"...\",
-    \"base_version\": $VERSION
-  }"
-```
-
-If another process updated the branch in the meantime (e.g. version is now 6), the server returns `409 Conflict`. Your pipeline should then fetch the latest version, merge changes, and retry.
+All require endpoints return an `ETag`; sending it back via `If-None-Match` yields `304 Not Modified` when the content is unchanged, letting pipelines skip redundant code generation. A GA Pin can never change content; a snapshot Pin can — the ETag detects exactly that.
 
 ## Typical CI Pipeline
 
 ### Provider Pipeline (service that publishes an API)
 
 ```
-PR opened → dry_run provide (validate) → merge → provide (store)
+PR opened → dry_run provide as ga (validate version rules) → merge → provide as ga (store)
+feature branch push → provide as snapshot (iterate freely)
 ```
 
-1. **On PR**: Run `/provide` with `dry_run: true` to validate the spec against the current main branch. If it fails, the PR is blocked.
-2. **On merge to main**: Run `/provide` without `dry_run` to actually store the spec.
+1. **On PR**: Run `/provide` with `dry_run: true` and `"stability": "ga"` to validate the spec and its version against the line. If the version needs a bump, the PR is blocked with the proposal.
+2. **On merge to a release branch**: Run `/provide` with `"stability": "ga"` to store the immutable version.
+3. **On feature branches** (optional): Provide with `"stability": "snapshot"` so opted-in consumers can pin work-in-progress.
 
 ### Consumer Pipeline (client that depends on an API)
 
 ```
-PR opened → dry_run require (validate) → merge → require (record + generate)
+PR opened → dry_run require (validate pins) → merge → require (record + generate)
 ```
 
-1. **On PR**: Run `/require` or `/require-bundle` with `dry_run: true` to verify all required endpoints exist. If any are missing, the PR is blocked with a descriptive error.
+1. **On PR**: Run `/require` or `/require-bundle` with `dry_run: true` to verify all pinned versions exist and contain the required endpoints. If not, the PR is blocked with a descriptive error.
 2. **On merge to main**: Run `/require` or `/require-bundle` without `dry_run` to record the dependency and generate client code from the returned YAML snippet.
 
 ## Descriptive Error Messages
 
 All error responses include actionable information in the response body:
 
-| Status                   | Example Message                                                                           |
-|--------------------------|-------------------------------------------------------------------------------------------|
-| `409 Conflict`           | `DTO changed for GET /users on protected branch 'main' of service 'UserService'`          |
-| `404 Not Found`          | `Endpoint not found: GET /users on service 'UserService' branch 'main'`                   |
-| `404 Not Found` (bundle) | `Missing endpoints on service 'UserService' branch 'main': GET /users, DELETE /users/{id}` |
+| Status                   | Meaning                                                                                        |
+|--------------------------|------------------------------------------------------------------------------------------------|
+| `409 Conflict`           | Rejected by the version rules; `proposed_version` names the next free version to publish as.   |
+| `404 Not Found`          | Unknown — the Producer or the pinned version does not exist. Fix the Pin.                      |
+| `410 Gone`               | Absent — the pinned version exists and deliberately lacks the endpoint(s); bundles name them.  |
 
 These messages are designed to be shown directly in CI logs so developers can quickly identify and fix contract issues.
 
@@ -189,8 +174,8 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.SANSHAIN_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d "{
-              \"servicename\": \"my-service\",
-              \"branch\": \"main\",
+              \"producername\": \"my-service\",
+              \"stability\": \"ga\",
               \"openapi_yaml\": $(cat openapi.yaml | jq -Rs .),
               \"dry_run\": true
             }"
@@ -231,5 +216,5 @@ sanshainToken=san_xxxxxxxxxxxx
 ## Related Pages
 
 - [User Guide](user-guide.md) — Day-to-day usage: providing specs, requiring endpoints, browsing the UI.
-- [Administration](administration.md) — Managing users, protected branches, and settings.
+- [Administration](administration.md) — Managing users, versions, and settings.
 - [Getting Started](getting-started.md) — Installation and first-time setup.

@@ -1,7 +1,15 @@
+//! The Provide and Require use-cases of the version-line model (ADR-0003).
+//!
+//! A Provide carries a complete spec whose version is read from the document
+//! itself; the caller declares its stability. A Require pins an exact version
+//! and either gets exactly that or fails immediately — no fallback, no
+//! waiting. All decisions live here; repositories persist what they are told.
+
 use crate::asyncapi;
 use crate::domain::models::*;
+use crate::domain::permissions::{Actor, Permission};
 use crate::domain::ports::{
-    RecordDependencyParams, RepositoryError, SpecRepository, UpdateEndpointParams,
+    NewAuditLog, RecordDependencyParams, SpecRepository, UpsertSpecVersion,
 };
 use crate::openapi;
 use sha2::{Digest, Sha256};
@@ -9,142 +17,40 @@ use std::collections::{HashMap, HashSet};
 
 use tracing::instrument;
 
+pub struct ProvideSpecParams<'a> {
+    pub producername: &'a str,
+    pub api_type: ApiType,
+    pub content: &'a str,
+    /// Declared by the caller: `snapshot` (overwritable) or `ga` (immutable).
+    pub stability: Stability,
+    pub dry_run: bool,
+    /// The resolved caller: the GA gate checks it for
+    /// [`Permission::ReleaseGa`], and its username is the single identity used
+    /// for audit attribution and the version's `provided_by` credit. `None`
+    /// (no authenticated Actor) can never release.
+    pub caller: Option<Actor>,
+    /// Compare-and-set for promote-by-copy (#28): when `Some`, the write only
+    /// lands if the stored entry still carries this content hash, so a
+    /// snapshot overwritten between read and release answers 409 instead of
+    /// silently going GA with stale bytes.
+    pub expected_prior_hash: Option<&'a str>,
+}
+
 pub struct RequireEndpointParams<'a> {
-    pub clientname: &'a str,
-    pub servicename: &'a str,
-    pub branch: &'a str,
+    pub consumername: &'a str,
+    pub producername: &'a str,
+    pub version: SemVer,
     pub api_type: ApiType,
     pub path: &'a str,
     pub method: &'a str,
-    pub timeout_secs: Option<u64>,
 }
 
 pub struct RequireBundleParams<'a> {
-    pub clientname: &'a str,
-    pub servicename: &'a str,
-    pub branch: &'a str,
+    pub consumername: &'a str,
+    pub producername: &'a str,
+    pub version: SemVer,
     pub api_type: ApiType,
     pub endpoints: &'a [(String, String)],
-    pub timeout_secs: Option<u64>,
-}
-
-#[instrument(skip_all)]
-pub async fn provide_spec(
-    repo: &impl SpecRepository,
-    servicename: &str,
-    branch: &str,
-    api_type: ApiType,
-    content: &str,
-    base_version: Option<String>,
-    force: bool,
-) -> Result<ProvideResponse, AppError> {
-    provide_spec_inner(
-        repo,
-        ProvideInternalParams {
-            servicename,
-            branch,
-            api_type,
-            content,
-            dry_run: false,
-            extra_tags: &[],
-            base_version,
-            force,
-            username: None,
-        },
-    )
-    .await
-}
-
-pub async fn provide_spec_dry_run(
-    repo: &impl SpecRepository,
-    servicename: &str,
-    branch: &str,
-    api_type: ApiType,
-    content: &str,
-    force: bool,
-) -> Result<ProvideResponse, AppError> {
-    provide_spec_inner(
-        repo,
-        ProvideInternalParams {
-            servicename,
-            branch,
-            api_type,
-            content,
-            dry_run: true,
-            extra_tags: &[],
-            base_version: None,
-            force,
-            username: None,
-        },
-    )
-    .await
-}
-
-/// Inputs describing the spec a service provides for a branch. Grouped so the
-/// public provide entry points stay within a sane argument count.
-pub struct ProvideSpecParams<'a> {
-    pub servicename: &'a str,
-    pub branch: &'a str,
-    pub api_type: ApiType,
-    pub content: &'a str,
-    pub base_version: Option<String>,
-    pub force: bool,
-}
-
-pub async fn provide_spec_with_tags(
-    repo: &impl SpecRepository,
-    params: ProvideSpecParams<'_>,
-    tags: &[String],
-) -> Result<ProvideResponse, AppError> {
-    provide_spec_inner(
-        repo,
-        ProvideInternalParams {
-            servicename: params.servicename,
-            branch: params.branch,
-            api_type: params.api_type,
-            content: params.content,
-            dry_run: false,
-            extra_tags: tags,
-            base_version: params.base_version,
-            force: params.force,
-            username: None,
-        },
-    )
-    .await
-}
-
-pub async fn provide_spec_with_actor(
-    repo: &impl SpecRepository,
-    params: ProvideSpecParams<'_>,
-    username: Option<&str>,
-) -> Result<ProvideResponse, AppError> {
-    provide_spec_inner(
-        repo,
-        ProvideInternalParams {
-            servicename: params.servicename,
-            branch: params.branch,
-            api_type: params.api_type,
-            content: params.content,
-            dry_run: false,
-            extra_tags: &[],
-            base_version: params.base_version,
-            force: params.force,
-            username,
-        },
-    )
-    .await
-}
-
-struct ProvideInternalParams<'a> {
-    pub servicename: &'a str,
-    pub branch: &'a str,
-    pub api_type: ApiType,
-    pub content: &'a str,
-    pub dry_run: bool,
-    pub extra_tags: &'a [String],
-    pub base_version: Option<String>,
-    pub force: bool,
-    pub username: Option<&'a str>,
 }
 
 /// A compact fingerprint of submitted spec content for diagnostics: its byte
@@ -159,18 +65,38 @@ fn spec_content_fingerprint(content: &str) -> String {
     format!("{} bytes, sha256:{}", content.len(), &hash[..16])
 }
 
+fn content_hash(content: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    format!("sha256:{}", hex::encode(hasher.finalize()))
+}
+
+fn now_iso() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+/// Read the Producer-declared version out of the spec document.
+fn extract_spec_version(api_type: ApiType, content: &str) -> Result<SemVer, AppError> {
+    match api_type {
+        ApiType::OpenApi | ApiType::AsyncApi => {
+            openapi::extract_info_version(content).map_err(AppError::BadRequest)
+        }
+        ApiType::Proto => {
+            crate::proto::extract_sanshain_version(content).map_err(AppError::BadRequest)
+        }
+    }
+}
+
 fn parse_spec_endpoints(
     api_type: ApiType,
     content: &str,
-    servicename: &str,
-    branch: &str,
+    producername: &str,
 ) -> Result<Vec<openapi::EndpointSpec>, AppError> {
     match api_type {
         ApiType::OpenApi => openapi::split_openapi(content).map_err(|e| {
             tracing::warn!(
-                "Failed to split OpenAPI for service '{}' branch '{}' ({}): {}",
-                servicename,
-                branch,
+                "Failed to split OpenAPI for service '{}' ({}): {}",
+                producername,
                 spec_content_fingerprint(content),
                 e
             );
@@ -179,9 +105,8 @@ fn parse_spec_endpoints(
         ApiType::AsyncApi => {
             let all_specs = crate::asyncapi::split_asyncapi(content).map_err(|e| {
                 tracing::warn!(
-                    "Failed to split AsyncAPI for service '{}' branch '{}' ({}): {}",
-                    servicename,
-                    branch,
+                    "Failed to split AsyncAPI for service '{}' ({}): {}",
+                    producername,
                     spec_content_fingerprint(content),
                     e
                 );
@@ -195,10 +120,9 @@ fn parse_spec_endpoints(
                     .map(|s| s.channel.as_str())
                     .collect();
                 tracing::warn!(
-                    "Skipping {} SUB operation(s) for service '{}' branch '{}': subscribe channels {:?} are not stored via /provide. Declare them as 'requires' in sanshain.yaml instead.",
+                    "Skipping {} SUB operation(s) for service '{}': subscribe channels {:?} are not stored via /provide. Declare them as 'requires' in sanshain.yaml instead.",
                     sub_count,
-                    servicename,
-                    branch,
+                    producername,
                     sub_channels
                 );
             }
@@ -217,9 +141,8 @@ fn parse_spec_endpoints(
         ApiType::Proto => Ok(crate::proto::split_proto(content)
             .map_err(|e| {
                 tracing::warn!(
-                    "Failed to split Proto for service '{}' branch '{}' ({}): {}",
-                    servicename,
-                    branch,
+                    "Failed to split Proto for service '{}' ({}): {}",
+                    producername,
                     spec_content_fingerprint(content),
                     e
                 );
@@ -237,300 +160,572 @@ fn parse_spec_endpoints(
     }
 }
 
-#[instrument(skip_all)]
-async fn provide_spec_inner(
+/// Promote a stored snapshot to GA without re-uploading (#28).
+///
+/// Definitionally "provide the stored content with `stability: ga`": the call
+/// funnels into [`provide_spec`], so the GA gate, promotion semantics,
+/// attribution, audit entries and rejection telemetry are all the same as for
+/// any release. An already-GA version is the idempotent no-op; an unknown
+/// producer or version is a 404.
+pub async fn promote_version(
     repo: &impl SpecRepository,
-    params: ProvideInternalParams<'_>,
+    producername: &str,
+    api_type: ApiType,
+    version: SemVer,
+    caller: Option<Actor>,
 ) -> Result<ProvideResponse, AppError> {
-    let ProvideInternalParams {
-        servicename,
-        branch,
+    let entry = crate::application::admin_service::find_version_entry(
+        repo,
+        producername,
+        api_type,
+        version,
+    )
+    .await?;
+    let content = repo
+        .get_spec_content(entry.id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Version not found".to_string()))?;
+    provide_spec(
+        repo,
+        ProvideSpecParams {
+            producername,
+            api_type,
+            content: &content,
+            stability: Stability::Ga,
+            dry_run: false,
+            caller,
+            // Release exactly what was read: if the snapshot is overwritten
+            // between this read and the write, the CAS refuses (409) instead
+            // of releasing stale bytes immutably.
+            expected_prior_hash: Some(&entry.content_hash),
+        },
+    )
+    .await
+}
+
+/// Whole-document backward-compatibility verdict for one API type.
+pub fn check_compatibility(api_type: ApiType, old: &str, new: &str) -> Result<(), String> {
+    match api_type {
+        ApiType::OpenApi => openapi::check_backward_compatibility(old, new),
+        ApiType::AsyncApi => asyncapi::check_backward_compatibility(old, new),
+        ApiType::Proto => crate::proto::check_backward_compatibility(old, new),
+    }
+}
+
+/// The smallest version at or above `candidate` that no entry of `line` uses.
+///
+/// Rejections propose a next version; proposing a number that is itself taken
+/// would send the Producer straight into the next rejection.
+fn propose_free(line: &[SpecVersionMeta], candidate: SemVer) -> SemVer {
+    let taken: HashSet<SemVer> = line.iter().map(|v| v.version).collect();
+    let mut proposal = candidate;
+    while taken.contains(&proposal) {
+        proposal = proposal.increment(Impact::Patch);
+    }
+    proposal
+}
+
+/// Classify the change between two documents for the bump proposal:
+/// breaking → major, additive → minor, shape-identical → patch.
+fn classify_change(
+    api_type: ApiType,
+    old_content: &str,
+    new_content: &str,
+    inserts: usize,
+) -> Impact {
+    if check_compatibility(api_type, old_content, new_content).is_err() {
+        return Impact::Major;
+    }
+    if api_type == ApiType::OpenApi {
+        // The OpenAPI analyzer distinguishes additive schema changes a pure
+        // endpoint diff cannot see.
+        return openapi::analyze_impact(old_content, new_content).max(if inserts > 0 {
+            Impact::Minor
+        } else {
+            Impact::Patch
+        });
+    }
+    if inserts > 0 {
+        Impact::Minor
+    } else {
+        Impact::Patch
+    }
+}
+
+/// The endpoint-set diff between what a version stored and what a Provide
+/// submits — the `changes` counts of the response.
+fn diff_endpoints(
+    old: &[EndpointRecord],
+    new: &[openapi::EndpointSpec],
+    api_type: ApiType,
+) -> ProvideChanges {
+    let mut old_map: HashMap<(String, String), &EndpointRecord> = old
+        .iter()
+        .map(|e| ((e.normalized_path.clone(), e.method.clone()), e))
+        .collect();
+    let mut inserts = 0;
+    let mut updates = 0;
+    for endpoint in new {
+        match old_map.remove(&(endpoint.normalized_path.clone(), endpoint.method.clone())) {
+            Some(existing) => {
+                if existing.yaml_content != endpoint.yaml_content
+                    || existing.path != endpoint.path
+                    || existing.deprecated != endpoint.deprecated
+                {
+                    updates += 1;
+                }
+            }
+            None => inserts += 1,
+        }
+    }
+    let deletes = old_map.len();
+    let _ = api_type;
+    ProvideChanges {
+        inserts,
+        updates,
+        deletes,
+    }
+}
+
+/// The GA entry the mislabel check compares against: the highest GA of the
+/// line strictly below the incoming version.
+fn ga_baseline(line: &[SpecVersionMeta], below: SemVer) -> Option<SpecVersionMeta> {
+    line.iter()
+        .filter(|v| v.stability == Stability::Ga && v.version < below)
+        .max_by_key(|v| v.version)
+        .cloned()
+}
+
+/// A version-rule rejection is self-service, but it is also a signal worth
+/// counting: the audit gets a `VERSION_REJECTED` entry and the Prometheus
+/// exposition a `sanshain_version_rejected_total` counter. Dry runs are
+/// previews and record neither. Best-effort — a failed audit write must not
+/// turn a clean 409 into a 500.
+async fn record_version_rejection(
+    repo: &impl SpecRepository,
+    dry_run: bool,
+    username: Option<&str>,
+    producername: &str,
+    version: SemVer,
+    reason: &'static str,
+    message: &str,
+) {
+    if dry_run {
+        return;
+    }
+    metrics::counter!(
+        "sanshain_version_rejected_total",
+        "reason" => reason,
+        "producer" => producername.to_string()
+    )
+    .increment(1);
+    let actor = username.unwrap_or("DevMode/Anonymous");
+    if let Err(e) = repo
+        .insert_audit_log(
+            actor,
+            NewAuditLog {
+                action: "VERSION_REJECTED",
+                details: message,
+                service: Some(producername),
+                version: Some(&version.to_string()),
+                action_type: Some("REJECT"),
+                diff: None,
+            },
+        )
+        .await
+    {
+        tracing::warn!(
+            service = producername,
+            "Could not record the version rejection in the audit log: {}",
+            e
+        );
+    }
+}
+
+#[instrument(skip_all)]
+pub async fn provide_spec(
+    repo: &impl SpecRepository,
+    params: ProvideSpecParams<'_>,
+) -> Result<ProvideResponse, AppError> {
+    let ProvideSpecParams {
+        producername,
         api_type,
         content,
+        stability,
         dry_run,
-        extra_tags,
-        base_version,
-        force,
-        username,
+        caller,
+        expected_prior_hash,
     } = params;
+    // One identity: authorization and audit attribution both come from the
+    // Actor, so they cannot drift apart.
+    let username: Option<&str> = caller.as_ref().map(|a| a.username.as_str());
 
-    tracing::debug!(
-        "Providing {:?} for service '{}' branch '{}' (dry_run: {}, base_version: {:?})",
-        api_type,
-        servicename,
-        branch,
-        dry_run,
-        base_version
-    );
+    let version = extract_spec_version(api_type, content)?;
+    let hash = content_hash(content);
+    let endpoints = parse_spec_endpoints(api_type, content, producername)?;
 
-    let content_hash = {
-        let mut hasher = Sha256::new();
-        hasher.update(content.as_bytes());
-        format!("sha256:{}", hex::encode(hasher.finalize()))
-    };
-
-    let endpoints = parse_spec_endpoints(api_type, content, servicename, branch)?;
-
-    tracing::debug!(
-        "Successfully split {:?} into {} endpoints for service '{}'",
-        api_type,
-        endpoints.len(),
-        servicename
-    );
-
-    let (sid, bid) = if dry_run {
-        match repo.find_service(servicename).await? {
-            Some(sid) => match repo.find_branch(sid, branch).await? {
-                Some(bid) => (sid, bid),
-                None => (sid, 0),
-            },
-            None => (0, 0),
+    // The GA gate (#27): releasing is a permission, snapshots are open to any
+    // authenticated caller. Checked after parsing, so the refusal names a real
+    // version and malformed documents keep their 400 — and before any write,
+    // so an unauthorized attempt cannot even create the service. All GA
+    // shapes are gated, including promotions and the idempotent no-op: a 202
+    // must never tell a misconfigured CI that its credentials can release.
+    if stability == Stability::Ga
+        && !caller
+            .as_ref()
+            .is_some_and(|a| a.has_permission(Permission::ReleaseGa))
+    {
+        let message = format!(
+            "publishing GA for '{}' requires the 'releaser' role — publish as a snapshot, or ask an administrator to grant the role",
+            producername
+        );
+        // Telemetry only for Producers that exist: the producer name becomes a
+        // Prometheus label and an audit row, and this refusal fires before
+        // `ensure_service` — without the check, any authenticated non-releaser
+        // could mint unbounded label cardinality out of made-up names.
+        if repo.find_service(producername).await?.is_some() {
+            record_version_rejection(
+                repo,
+                dry_run,
+                username,
+                producername,
+                version,
+                "ga_requires_releaser",
+                &message,
+            )
+            .await;
         }
-    } else {
-        let sid = repo.ensure_service(servicename).await?;
-        let bid = repo.ensure_branch(sid, branch).await?;
+        return Err(AppError::ForbiddenWithReason(message));
+    }
 
-        // Auto-tag based on API type
+    tracing::debug!(
+        "Providing {:?} {} for service '{}' as {} (dry_run: {})",
+        api_type,
+        version,
+        producername,
+        stability.as_str(),
+        dry_run
+    );
+
+    let sid = if dry_run {
+        repo.find_service(producername).await?.unwrap_or(0)
+    } else {
+        let sid = repo.ensure_service(producername).await?;
         let auto_tag = match api_type {
             ApiType::AsyncApi => Some("messaging".to_string()),
             ApiType::Proto => Some("grpc".to_string()),
             ApiType::OpenApi => None,
         };
-        let mut all_tags: Vec<String> = extra_tags.to_vec();
-        if let Some(tag) = auto_tag
-            && !all_tags.contains(&tag)
-        {
-            all_tags.push(tag);
+        if let Some(tag) = auto_tag {
+            repo.add_service_tags(sid, &[tag]).await?;
         }
-        if !all_tags.is_empty() {
-            repo.add_service_tags(sid, &all_tags).await?;
-        }
-
-        (sid, bid)
+        sid
     };
 
-    let (current_version, last_hash) = if sid != 0 && bid != 0 {
-        match repo.get_spec_version(sid, bid).await? {
-            Some((v, h)) => (v, h),
-            None => (SemVer::default(), String::new()),
-        }
+    let line: Vec<SpecVersionMeta> = if sid != 0 {
+        repo.list_spec_versions(sid)
+            .await?
+            .into_iter()
+            .filter(|v| v.api_type == api_type)
+            .collect()
     } else {
-        (SemVer::default(), String::new())
+        Vec::new()
     };
+    let existing = line.iter().find(|v| v.version == version).cloned();
 
-    if let Some(base_v_str) = base_version {
-        let base_v = base_v_str
-            .parse::<SemVer>()
-            .map_err(|e| AppError::BadRequest(format!("Invalid base_version: {}", e)))?;
-        if base_v != current_version {
-            return Err(AppError::Conflict(format!(
-                "Outdated spec version: your base version is {}, but current version is {}. Pull latest changes.",
-                base_v, current_version
-            )));
+    // Identical content is an idempotent no-op regardless of Actor: CI
+    // re-runs of the same commit must never fight. The one exception is a GA
+    // Provide for a same-content *snapshot* — that is a promotion, the normal
+    // release flow (the released content usually IS the last snapshot), and it
+    // must fall through to flip the stability in place.
+    if let Some(ref entry) = existing
+        && entry.content_hash == hash
+        && !(entry.stability == Stability::Snapshot && stability == Stability::Ga)
+    {
+        // The no-op still counts as "provided": a snapshot a CI re-provides
+        // every night is in active use and must not age out of the use-based
+        // expiry just because its content never changed.
+        if entry.stability == Stability::Snapshot {
+            repo.touch_spec_version_provided(entry.id, &now_iso())
+                .await?;
         }
-    }
-
-    let is_protected = repo.is_branch_protected(branch).await?;
-
-    if force && is_protected {
-        return Err(AppError::BadRequest(
-            "Force mode is not allowed on protected branches.".to_string(),
-        ));
-    }
-
-    let existing = repo.get_endpoints_for_branch(bid).await?;
-    let existing_yamls: Vec<String> = existing
-        .iter()
-        .filter(|e| e.api_type == ApiType::OpenApi)
-        .map(|e| e.yaml_content.clone())
-        .collect();
-
-    let old_full_yaml = if !existing_yamls.is_empty() {
-        Some(openapi::merge_endpoint_yamls(&existing_yamls).map_err(|e| {
-            AppError::Internal(format!(
-                "Failed to merge existing endpoints for impact analysis: {}",
-                e
-            ))
-        })?)
-    } else {
-        None
-    };
-
-    if let (Some(old_yaml), true) = (&old_full_yaml, is_protected && api_type == ApiType::OpenApi) {
-        if let Err(reason) = openapi::check_backward_compatibility(old_yaml, content) {
-            tracing::warn!(
-                "Rejected update for service '{}' branch '{}': breaking changes: {}",
-                servicename,
-                branch,
-                reason
-            );
-            return Err(AppError::BreakingChange(format!(
-                "Breaking changes detected on protected branch '{}' of service '{}': {}",
-                branch, servicename, reason
-            )));
-        }
-        tracing::info!(
-            "Spec update is backward-compatible for protected branch '{}'",
-            branch
-        );
-    }
-
-    let mut existing_map: HashMap<(ApiType, String, String), (String, String, bool)> = existing
-        .into_iter()
-        .map(|e| {
-            (
-                (e.api_type, e.normalized_path, e.method),
-                (e.path, e.yaml_content, e.deprecated),
-            )
-        })
-        .collect();
-
-    let mut changes = Vec::new();
-    let mut inserts = 0;
-    let mut updates = 0;
-    // Aggregated SemVer impact for AsyncAPI provides (OpenAPI uses the merged
-    // whole-spec `analyze_impact` below; proto keeps hash-based classification).
-    let mut async_impact = Impact::None;
-
-    for endpoint in endpoints {
-        let key = (
-            api_type,
-            endpoint.normalized_path.clone(),
-            endpoint.method.clone(),
-        );
-        if let Some((old_path, existing_yaml, _)) = existing_map.remove(&key) {
-            if existing_yaml != endpoint.yaml_content || old_path != endpoint.path {
-                // OpenAPI is covered by the merged whole-spec check above;
-                // AsyncAPI/proto content changes are checked per endpoint here.
-                if is_protected
-                    && api_type != ApiType::OpenApi
-                    && existing_yaml != endpoint.yaml_content
-                    && let Err(reason) =
-                        check_compatibility(api_type, &existing_yaml, &endpoint.yaml_content)
-                {
-                    tracing::warn!(
-                        "Rejected update for service '{}' branch '{}': breaking changes: {}",
-                        servicename,
-                        branch,
-                        reason
-                    );
-                    return Err(AppError::BreakingChange(format!(
-                        "Breaking changes detected on protected branch '{}' of service '{}': {}",
-                        branch, servicename, reason
-                    )));
-                }
-                if api_type == ApiType::AsyncApi {
-                    async_impact = async_impact.max(asyncapi::analyze_impact(
-                        &existing_yaml,
-                        &endpoint.yaml_content,
-                    ));
-                }
-                changes.push(SpecChange::Update {
-                    api_type,
-                    path: endpoint.path,
-                    normalized_path: endpoint.normalized_path,
-                    method: endpoint.method,
-                    yaml_content: endpoint.yaml_content,
-                    deprecated: endpoint.deprecated,
-                    external: false,
-                });
-                updates += 1;
-            }
-        } else {
-            if is_protected
-                && repo
-                    .is_endpoint_deleted(bid, api_type, &endpoint.path, &endpoint.method)
-                    .await?
-            {
-                return Err(AppError::Conflict(format!(
-                    "Re-introduction of deleted {:?} endpoint {} {} on protected branch '{}'",
-                    api_type, endpoint.method, endpoint.path, branch
-                )));
-            }
-            if api_type == ApiType::AsyncApi {
-                // A newly provided channel/operation is an additive change.
-                async_impact = async_impact.max(Impact::Minor);
-            }
-            changes.push(SpecChange::Insert {
-                api_type,
-                path: endpoint.path,
-                normalized_path: endpoint.normalized_path,
-                method: endpoint.method,
-                yaml_content: endpoint.yaml_content,
-                deprecated: endpoint.deprecated,
-                external: false,
-            });
-            inserts += 1;
-        }
-    }
-
-    let mut deletes = 0;
-    for ((old_api_type, _norm_path, method), (path, _, was_deprecated)) in existing_map {
-        if old_api_type != api_type {
-            continue;
-        }
-
-        if is_protected && !dry_run && !was_deprecated {
-            return Err(AppError::BreakingChange(format!(
-                "Removing non-deprecated endpoint {} {} is a breaking change on a protected branch; mark it deprecated first",
-                method, path
-            )));
-        }
-
-        if api_type == ApiType::AsyncApi {
-            // Removing a provided channel/operation is a breaking change.
-            async_impact = async_impact.max(Impact::Major);
-        }
-        changes.push(SpecChange::Delete {
-            api_type,
-            path,
-            method,
-            soft_delete: is_protected,
+        return Ok(ProvideResponse {
+            version,
+            stability: entry.stability,
+            content_hash: hash,
+            changes: ProvideChanges::default(),
+            promoted: false,
         });
-        deletes += 1;
     }
 
-    // Item #20: reconcile message-level channel contracts for AsyncAPI provides.
-    // Runs on both dry-run and real provides so cross-service conflicts are
-    // reported by dry-run too; writes are applied only after commit below.
-    // Placed after the endpoint delete loop so protected-branch removal
-    // rejections have already fired before any contract mutation is planned.
-    let contract_ops = if api_type == ApiType::AsyncApi {
-        plan_channel_message_contracts(repo, branch, sid, content).await?
+    match (&existing, stability) {
+        // GA permanently claims its number: different content under the same
+        // number is the forgot-to-bump mistake, caught at the door.
+        (Some(entry), _) if entry.stability == Stability::Ga => {
+            let old_content = repo.get_spec_content(entry.id).await?.unwrap_or_default();
+            let changes = diff_endpoints(
+                &repo.get_endpoints_for_version(entry.id).await?,
+                &endpoints,
+                api_type,
+            );
+            let impact = classify_change(api_type, &old_content, content, changes.inserts);
+            let proposed = propose_free(&line, version.increment(impact));
+            let message = if stability == Stability::Ga {
+                format!(
+                    "version {} of {} '{}' is GA and immutable, but the submitted content differs — did you forget to increment info's version? Publish as {} instead",
+                    version,
+                    api_type.as_str(),
+                    producername,
+                    proposed
+                )
+            } else {
+                format!(
+                    "version {} of {} '{}' is GA — a released number can never carry a snapshot again; bump your version to {}",
+                    version,
+                    api_type.as_str(),
+                    producername,
+                    proposed
+                )
+            };
+            let reason = if stability == Stability::Ga {
+                "immutable_ga"
+            } else {
+                "snapshot_on_ga"
+            };
+            record_version_rejection(
+                repo,
+                dry_run,
+                username,
+                producername,
+                version,
+                reason,
+                &message,
+            )
+            .await;
+            return Err(AppError::VersionConflict { message, proposed });
+        }
+        _ => {}
+    }
+
+    // Semver honesty, enforced on GA only: breaking without a major bump is a
+    // lie that detonates when a Consumer "safely" repins within the major.
+    // Snapshots are declared work-in-progress and are never compat-checked.
+    if stability == Stability::Ga
+        && let Some(baseline) = ga_baseline(&line, version)
+        && version.major <= baseline.version.major
+        && let Some(baseline_content) = repo.get_spec_content(baseline.id).await?
+        && let Err(reason) = check_compatibility(api_type, &baseline_content, content)
+    {
+        let proposed = propose_free(&line, SemVer::new(baseline.version.major + 1, 0, 0));
+        let message = format!(
+            "version {} of {} '{}' is breaking relative to GA {} but does not bump the major — publish as {} instead: {}",
+            version,
+            api_type.as_str(),
+            producername,
+            baseline.version,
+            proposed,
+            reason
+        );
+        record_version_rejection(
+            repo,
+            dry_run,
+            username,
+            producername,
+            version,
+            "breaking_without_major",
+            &message,
+        )
+        .await;
+        return Err(AppError::VersionConflict { message, proposed });
+    }
+
+    // `changes` counts are relative to what this exact version stored before
+    // (snapshot overwrite / promotion); a brand-new version reports its whole
+    // endpoint set as inserts.
+    let changes = match &existing {
+        Some(entry) => diff_endpoints(
+            &repo.get_endpoints_for_version(entry.id).await?,
+            &endpoints,
+            api_type,
+        ),
+        None => ProvideChanges {
+            inserts: endpoints.len(),
+            updates: 0,
+            deletes: 0,
+        },
+    };
+
+    // Item #20: message-level channel contracts, GA provides only. A snapshot
+    // claiming global topic ownership would let one developer's WIP block
+    // another Producer's release.
+    let contract_ops = if api_type == ApiType::AsyncApi && stability == Stability::Ga {
+        plan_channel_message_contracts(repo, sid, content).await?
     } else {
         Vec::new()
     };
 
+    let promoting = existing.as_ref().map(|e| e.stability) == Some(Stability::Snapshot)
+        && stability == Stability::Ga;
+
     if dry_run {
         return Ok(ProvideResponse {
-            version: current_version,
-            content_hash,
-            changes: ProvideChanges {
-                inserts,
-                updates,
-                deletes,
-            },
+            version,
+            stability,
+            content_hash: hash,
+            changes,
+            promoted: promoting,
         });
     }
 
-    if inserts == 0 && updates == 0 && deletes == 0 && content_hash == last_hash {
-        return Ok(ProvideResponse {
-            version: current_version,
-            content_hash,
-            changes: ProvideChanges {
-                inserts,
-                updates,
-                deletes,
-            },
-        });
+    let overwriting = existing.as_ref().map(|e| e.provided_by.clone());
+    // Attribution is the authenticated Actor — with one exception: promoting a
+    // snapshot with byte-identical content keeps the snapshot's provider, so
+    // the human who built it stays on the released version (the audit's
+    // VERSION_PROMOTED entry still names the promoting Actor). Different
+    // content means the promoter owns what they pushed.
+    let credited = if promoting && existing.as_ref().is_some_and(|e| e.content_hash == hash) {
+        existing
+            .as_ref()
+            .map(|e| e.provided_by.clone())
+            .unwrap_or_default()
+    } else {
+        username.unwrap_or("").to_string()
+    };
+    let record = UpsertSpecVersion {
+        service_id: sid,
+        api_type,
+        version,
+        stability,
+        content,
+        content_hash: &hash,
+        provided_by: &credited,
+        expected_prior_hash,
+        now_iso: &now_iso(),
+        endpoints: endpoints
+            .into_iter()
+            .map(|e| EndpointRecord {
+                id: None,
+                api_type,
+                path: e.path,
+                normalized_path: e.normalized_path,
+                method: e.method,
+                yaml_content: e.yaml_content,
+                deprecated: e.deprecated,
+            })
+            .collect(),
+    };
+    repo.upsert_spec_version(record).await.map_err(|e| {
+        // A CAS refusal deserves a remedy, not a bare "Conflict": the caller
+        // read a snapshot that has since been overwritten.
+        if matches!(e, crate::domain::ports::RepositoryError::Conflict)
+            && expected_prior_hash.is_some()
+        {
+            AppError::Conflict(
+                "the snapshot changed while releasing — reload and promote again".to_string(),
+            )
+        } else {
+            e.into()
+        }
+    })?;
+
+    apply_contract_ops(repo, contract_ops).await?;
+
+    // Promotion is a state change worth its own audit entry even when the
+    // content is byte-identical to the snapshot it releases.
+    if promoting && let Some(actor) = username {
+        let details = format!(
+            "Promoted {} {} of '{}' to GA — the number is permanently claimed",
+            api_type.as_str(),
+            version,
+            producername
+        );
+        if let Err(e) = repo
+            .insert_audit_log(
+                actor,
+                NewAuditLog {
+                    action: "VERSION_PROMOTED",
+                    details: &details,
+                    service: Some(producername),
+                    version: Some(&version.to_string()),
+                    action_type: Some("WRITE"),
+                    diff: None,
+                },
+            )
+            .await
+        {
+            tracing::warn!(
+                service = producername,
+                "Could not record the promotion in the audit log: {}",
+                e
+            );
+        }
     }
 
-    repo.apply_spec_changes(bid, changes, is_protected, username, Some(branch))
-        .await?;
+    // An overwrite by a different Actor is allowed (last writer wins) but
+    // never silent: the previous provider is named in the audit trail.
+    if let Some(previous) = overwriting
+        && !promoting
+        && let Some(actor) = username
+        && !previous.is_empty()
+        && previous != actor
+    {
+        let details = format!(
+            "Snapshot {} {} of '{}' overwritten by '{}' (previously provided by '{}')",
+            api_type.as_str(),
+            version,
+            producername,
+            actor,
+            previous
+        );
+        if let Err(e) = repo
+            .insert_audit_log(
+                actor,
+                NewAuditLog {
+                    action: "SNAPSHOT_OVERWRITTEN",
+                    details: &details,
+                    service: Some(producername),
+                    version: Some(&version.to_string()),
+                    action_type: Some("WRITE"),
+                    diff: None,
+                },
+            )
+            .await
+        {
+            tracing::warn!(
+                service = producername,
+                "Could not record the snapshot overwrite in the audit log: {}",
+                e
+            );
+        }
+    }
 
-    // Apply the planned channel-message-contract mutations after the endpoint
-    // changes commit (endpoints are the source of truth).
-    for op in contract_ops {
+    tracing::info!(
+        service = producername,
+        version = %version,
+        "Provided {:?} spec {} as {} (changes: +{} ~{} -{})",
+        api_type,
+        version,
+        stability.as_str(),
+        changes.inserts,
+        changes.updates,
+        changes.deletes
+    );
+
+    Ok(ProvideResponse {
+        version,
+        stability,
+        content_hash: hash,
+        changes,
+        promoted: promoting,
+    })
+}
+
+/// Apply planned channel-message-contract mutations.
+async fn apply_contract_ops(
+    repo: &impl SpecRepository,
+    ops: Vec<ContractOp>,
+) -> Result<(), AppError> {
+    for op in ops {
         match op {
             ContractOp::Upsert(contract) => {
                 repo.upsert_channel_message_contract(&contract).await?;
@@ -539,43 +734,14 @@ async fn provide_spec_inner(
                 channel,
                 message_name,
             } => {
-                repo.delete_channel_message_contract(branch, &channel, &message_name)
+                repo.delete_channel_message_contract(&channel, &message_name)
                     .await?;
             }
         }
     }
-
-    let impact = if api_type == ApiType::AsyncApi {
-        async_impact
-    } else if let Some(old_yaml) = old_full_yaml {
-        openapi::analyze_impact(&old_yaml, content)
-    } else if !last_hash.is_empty() {
-        if content_hash != last_hash {
-            Impact::Patch
-        } else {
-            Impact::None
-        }
-    } else {
-        Impact::None
-    };
-
-    let new_version = repo
-        .increment_spec_version(sid, bid, &content_hash, impact)
-        .await?;
-
-    Ok(ProvideResponse {
-        version: new_version,
-        content_hash,
-        changes: ProvideChanges {
-            inserts,
-            updates,
-            deletes,
-        },
-    })
+    Ok(())
 }
 
-/// A planned mutation of the message-level channel-contract store (item #20),
-/// computed during a provide and applied only after the endpoint changes commit.
 enum ContractOp {
     Upsert(ChannelMessageContract),
     Delete {
@@ -584,7 +750,7 @@ enum ContractOp {
     },
 }
 
-/// Plan the channel-message-contract changes for an AsyncAPI provide.
+/// Plan the channel-message-contract changes for a GA AsyncAPI provide.
 ///
 /// For every named PUB message in the submitted document:
 /// - no contract yet → insert, owned by this service;
@@ -593,16 +759,10 @@ enum ContractOp {
 /// - owned by a *different* live service → accepted only if the payload schema
 ///   is semantically identical, otherwise rejected `409` naming the owner.
 ///
-/// Messages this service currently owns on the branch but no longer provides
-/// are planned for deletion. Protected-branch removal of a non-deprecated
-/// message is already rejected by the per-endpoint compatibility check before
-/// this runs, so a delete reaching here is always permitted.
-///
-/// Enforced identically on all branches; `force` does not bypass it. Performs no
-/// writes — it only reads and returns the planned [`ContractOp`]s (or an error).
+/// Messages this service currently owns but no longer provides are planned for
+/// deletion. Performs no writes — it only reads and returns the planned ops.
 async fn plan_channel_message_contracts(
     repo: &impl SpecRepository,
-    branch: &str,
     service_id: i64,
     content: &str,
 ) -> Result<Vec<ContractOp>, AppError> {
@@ -615,7 +775,7 @@ async fn plan_channel_message_contracts(
         provided.insert((msg.channel.clone(), msg.message_name.clone()));
 
         let existing = repo
-            .get_channel_message_contract(branch, &msg.channel, &msg.message_name)
+            .get_channel_message_contract(&msg.channel, &msg.message_name)
             .await?;
 
         let owner_alive = match &existing {
@@ -627,13 +787,9 @@ async fn plan_channel_message_contracts(
         };
 
         match existing {
-            // Unowned (new) or orphaned by a deleted owner → this service owns it.
-            None => ops.push(ContractOp::Upsert(new_contract(msg, branch, service_id))),
-            Some(_) if !owner_alive => {
-                ops.push(ContractOp::Upsert(new_contract(msg, branch, service_id)))
-            }
+            None => ops.push(ContractOp::Upsert(new_contract(msg, service_id))),
+            Some(_) if !owner_alive => ops.push(ContractOp::Upsert(new_contract(msg, service_id))),
             Some(contract) if contract.owner_service_id == service_id => {
-                // The owner may widen its own message, but not break it.
                 if let Err(reason) =
                     asyncapi::check_payload_compatible(&contract.payload_yaml, &msg.payload_yaml)
                 {
@@ -642,11 +798,9 @@ async fn plan_channel_message_contracts(
                         msg.message_name, msg.channel, reason
                     )));
                 }
-                ops.push(ContractOp::Upsert(new_contract(msg, branch, service_id)));
+                ops.push(ContractOp::Upsert(new_contract(msg, service_id)));
             }
             Some(contract) => {
-                // A different live service owns this message: co-publishing is
-                // allowed only with a byte-for-byte identical payload schema.
                 if !asyncapi::payloads_equal(&contract.payload_yaml, &msg.payload_yaml) {
                     let owner = repo
                         .get_service_name_by_id(contract.owner_service_id)
@@ -657,13 +811,11 @@ async fn plan_channel_message_contracts(
                         msg.message_name, msg.channel, owner
                     )));
                 }
-                // Identical schema → accepted, ownership unchanged, no write.
             }
         }
     }
 
-    // Messages this service owns on the branch but no longer provides are dropped.
-    for contract in repo.list_channel_message_contracts(branch).await? {
+    for contract in repo.list_channel_message_contracts().await? {
         if contract.owner_service_id == service_id
             && !provided.contains(&(contract.channel.clone(), contract.message_name.clone()))
         {
@@ -677,13 +829,8 @@ async fn plan_channel_message_contracts(
     Ok(ops)
 }
 
-fn new_contract(
-    msg: &asyncapi::PubMessage,
-    branch: &str,
-    service_id: i64,
-) -> ChannelMessageContract {
+fn new_contract(msg: &asyncapi::PubMessage, service_id: i64) -> ChannelMessageContract {
     ChannelMessageContract {
-        branch_name: branch.to_string(),
         channel: msg.channel.clone(),
         message_name: msg.message_name.clone(),
         owner_service_id: service_id,
@@ -691,1112 +838,648 @@ fn new_contract(
     }
 }
 
-pub async fn get_endpoint_yaml(
+/// Resolve a Producer's version-line entry for a Pin, or fail the way the
+/// contract promises: `404` when the version does not exist in either
+/// stability. Never creates anything.
+async fn resolve_pin(
     repo: &impl SpecRepository,
-    servicename: &str,
-    branch: &str,
+    producername: &str,
     api_type: ApiType,
-    path: &str,
-    method: &str,
-) -> Result<String, AppError> {
-    let service_id = repo.ensure_service(servicename).await?;
-    let method_to_use = match api_type {
-        ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
-        ApiType::Proto => method.to_string(),
+    version: SemVer,
+) -> Result<(i64, SpecVersionMeta), AppError> {
+    let Some(service_id) = repo.find_service(producername).await? else {
+        return Err(AppError::NotFound(format!(
+            "Producer '{}' is unknown",
+            producername
+        )));
     };
-
-    let endpoint = find_endpoint_with_fallback(
-        repo,
-        service_id,
-        servicename,
-        branch,
-        api_type,
-        path,
-        &method_to_use,
-    )
-    .await?;
-    endpoint.map(|(_, yaml, _, _)| yaml).ok_or_else(|| {
-        AppError::NotFound(format!(
-            "Endpoint not found: {} {} (service: {}, branch: {})",
-            method_to_use, path, servicename, branch
-        ))
-    })
-}
-
-#[instrument(skip_all)]
-pub async fn list_service_endpoints(
-    repo: &impl SpecRepository,
-    servicename: &str,
-    branch: &str,
-) -> Result<Vec<EndpointRecord>, AppError> {
-    let service_id = repo.ensure_service(servicename).await?;
-    let branch_id = repo.ensure_branch(service_id, branch).await?;
-    Ok(repo.get_endpoints_for_branch(branch_id).await?)
-}
-
-pub async fn get_endpoint_version_history(
-    repo: &impl SpecRepository,
-    servicename: &str,
-    branch: &str,
-    api_type: ApiType,
-    path: &str,
-    method: &str,
-) -> Result<Vec<EndpointVersion>, AppError> {
-    let service_id = repo.ensure_service(servicename).await?;
-    let branch_id = repo.ensure_branch(service_id, branch).await?;
-    let method_to_use = match api_type {
-        ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
-        ApiType::Proto => method.to_string(),
-    };
-
-    let endpoint_id = repo
-        .get_endpoint_id(branch_id, api_type, path, &method_to_use)
+    let Some(entry) = repo
+        .find_spec_version(service_id, api_type, version)
         .await?
-        .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
-
-    Ok(repo.get_endpoint_versions(endpoint_id).await?)
+    else {
+        return Err(AppError::NotFound(format!(
+            "Producer '{}' has no {} version {} (in either stability) — a missing pinned version is a configuration error, nothing waits for it to appear",
+            producername,
+            api_type.as_str(),
+            version
+        )));
+    };
+    Ok((service_id, entry))
 }
 
-pub async fn get_audit_timeline(
-    repo: &impl SpecRepository,
-    limit: u32,
-) -> Result<Vec<EndpointVersion>, AppError> {
-    Ok(repo.get_global_endpoint_versions(limit).await?)
+fn method_for(api_type: ApiType, method: &str) -> String {
+    match api_type {
+        ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
+        ApiType::Proto => method.to_string(),
+    }
 }
 
 #[derive(Debug)]
 pub struct RequireResponse {
     pub yaml: String,
     pub deprecated: bool,
-    pub external: bool,
+    /// How this was resolved, surfaced to Consumers as `X-Sanshain-Resolution`.
+    pub state: ResolutionState,
+    /// The version that served the request — always the Pin.
+    pub version: SemVer,
+    /// The stability it was served from, surfaced as `X-Sanshain-Stability`.
+    pub stability: Stability,
 }
 
 pub async fn require_endpoint(
     repo: &impl SpecRepository,
-    notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     params: RequireEndpointParams<'_>,
 ) -> Result<RequireResponse, AppError> {
-    require_endpoint_inner(repo, notifier, params, false).await
+    require_endpoint_inner(repo, params, false).await
 }
 
 pub async fn require_endpoint_dry_run(
     repo: &impl SpecRepository,
-    notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     params: RequireEndpointParams<'_>,
 ) -> Result<RequireResponse, AppError> {
-    require_endpoint_inner(repo, notifier, params, true).await
+    require_endpoint_inner(repo, params, true).await
 }
 
-#[instrument(skip_all)]
 async fn require_endpoint_inner(
     repo: &impl SpecRepository,
-    mut notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     params: RequireEndpointParams<'_>,
     dry_run: bool,
 ) -> Result<RequireResponse, AppError> {
-    let client_id = if dry_run {
-        0
-    } else {
-        repo.ensure_client(params.clientname).await?
-    };
-    let service_id = if dry_run {
-        repo.find_service(params.servicename)
-            .await?
-            .ok_or_else(|| AppError::NotFound("Service not found".to_string()))?
-    } else {
-        repo.ensure_service(params.servicename).await?
+    let RequireEndpointParams {
+        consumername,
+        producername,
+        version,
+        api_type,
+        path,
+        method,
+    } = params;
+
+    let (_sid, entry) = resolve_pin(repo, producername, api_type, version).await?;
+    let method = method_for(api_type, method);
+
+    let Some((_, yaml, deprecated)) = repo
+        .find_endpoint(entry.id, api_type, path, &method)
+        .await?
+    else {
+        // The provided spec is complete, so absence is a deliberate choice of
+        // this version — a definitive no, distinct from an unknown version.
+        return Err(AppError::Gone(format!(
+            "{} version {} of '{}' does not include {} {}",
+            api_type.as_str(),
+            version,
+            producername,
+            method,
+            path
+        )));
     };
 
-    let method_to_use = match params.api_type {
-        ApiType::OpenApi | ApiType::AsyncApi => params.method.to_uppercase(),
-        ApiType::Proto => params.method.to_string(),
-    };
-
-    let deadline = params
-        .timeout_secs
-        .map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
-    let poll_interval = std::time::Duration::from_millis(500);
-
-    loop {
-        let endpoint = find_endpoint_with_fallback(
+    if !dry_run {
+        record_pins(
             repo,
-            service_id,
-            params.servicename,
-            params.branch,
-            params.api_type,
-            params.path,
-            &method_to_use,
+            consumername,
+            &entry,
+            &[(path.to_string(), method.clone())],
         )
         .await?;
-
-        if let Some((id, yaml, deprecated, external)) = endpoint {
-            if !dry_run {
-                repo.record_dependency(RecordDependencyParams {
-                    client_id,
-                    endpoint_id: Some(id),
-                    api_type: params.api_type,
-                    service_id,
-                    branch_name: params.branch,
-                    path: params.path,
-                    method: &method_to_use,
-                })
-                .await?;
-            }
-            return Ok(RequireResponse {
-                yaml,
-                deprecated,
-                external,
-            });
-        }
-
-        if let Some(dl) = deadline {
-            let now = std::time::Instant::now();
-            if now < dl {
-                let timeout = dl - now;
-                match notifier.as_mut() {
-                    Some(rx) => {
-                        tokio::select! { _ = tokio::time::sleep(timeout) => {}, _ = rx.recv() => {}, }
-                    }
-                    None => {
-                        tokio::time::sleep(poll_interval.min(timeout)).await;
-                    }
-                }
-                continue;
-            }
-        }
-
-        if !dry_run {
-            repo.record_dependency(RecordDependencyParams {
-                client_id,
-                endpoint_id: None,
-                api_type: params.api_type,
-                service_id,
-                branch_name: params.branch,
-                path: params.path,
-                method: &method_to_use,
-            })
-            .await?;
-        }
-        return Err(AppError::NotFound(format!(
-            "Endpoint not found: {} {} (service: {}, branch: {})",
-            method_to_use, params.path, params.servicename, params.branch
-        )));
     }
+
+    Ok(RequireResponse {
+        yaml,
+        deprecated,
+        state: ResolutionState::Served,
+        version,
+        stability: entry.stability,
+    })
 }
 
 pub async fn require_bundle(
     repo: &impl SpecRepository,
-    notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     params: RequireBundleParams<'_>,
 ) -> Result<RequireResponse, AppError> {
-    require_bundle_inner(repo, notifier, params, false).await
+    require_bundle_inner(repo, params, false).await
 }
 
 pub async fn require_bundle_dry_run(
     repo: &impl SpecRepository,
-    notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     params: RequireBundleParams<'_>,
 ) -> Result<RequireResponse, AppError> {
-    require_bundle_inner(repo, notifier, params, true).await
+    require_bundle_inner(repo, params, true).await
 }
 
-pub async fn update_endpoint_manual(
-    repo: &impl SpecRepository,
-    params: RequireEndpointParams<'_>,
-    api_type: ApiType,
-    yaml: String,
-    deprecated: bool,
-    external: bool,
-) -> Result<(), AppError> {
-    let service_id = repo
-        .find_service(params.servicename)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Service not found".to_string()))?;
-    let branch_id = repo
-        .find_branch(service_id, params.branch)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Branch not found".to_string()))?;
-
-    repo.update_endpoint(UpdateEndpointParams {
-        branch_id,
-        api_type,
-        path: params.path,
-        method: params.method,
-        yaml_content: &yaml,
-        deprecated,
-        external,
-    })
-    .await?;
-
-    Ok(())
-}
-
-#[instrument(skip_all)]
 async fn require_bundle_inner(
     repo: &impl SpecRepository,
-    mut notifier: Option<tokio::sync::broadcast::Receiver<()>>,
     params: RequireBundleParams<'_>,
     dry_run: bool,
 ) -> Result<RequireResponse, AppError> {
-    if params.endpoints.is_empty() {
-        return Err(AppError::BadRequest("No endpoints requested".to_string()));
+    let RequireBundleParams {
+        consumername,
+        producername,
+        version,
+        api_type,
+        endpoints,
+    } = params;
+
+    if endpoints.is_empty() {
+        return Err(AppError::BadRequest(
+            "A bundle needs at least one endpoint".to_string(),
+        ));
     }
-    let client_id = if dry_run {
-        0
-    } else {
-        repo.ensure_client(params.clientname).await?
-    };
-    let service_id = if dry_run {
-        repo.find_service(params.servicename)
-            .await?
-            .ok_or_else(|| AppError::NotFound("Service not found".to_string()))?
-    } else {
-        repo.ensure_service(params.servicename).await?
-    };
 
-    let deadline = params
-        .timeout_secs
-        .map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
-    let poll_interval = std::time::Duration::from_millis(500);
+    let (_sid, entry) = resolve_pin(repo, producername, api_type, version).await?;
 
-    loop {
-        let normalized_endpoints: Vec<(String, String)> = params
-            .endpoints
-            .iter()
-            .map(|(p, m)| {
-                (
-                    p.clone(),
-                    match params.api_type {
-                        ApiType::OpenApi | ApiType::AsyncApi => m.to_uppercase(),
-                        ApiType::Proto => m.to_string(),
-                    },
-                )
-            })
-            .collect();
+    let normalized: Vec<(String, String)> = endpoints
+        .iter()
+        .map(|(p, m)| (p.clone(), method_for(api_type, m)))
+        .collect();
 
-        // Sort endpoints deterministically so bundle output (and thus ETag) is
-        // independent of the request order.
-        let mut sorted_endpoints = normalized_endpoints.clone();
-        sorted_endpoints.sort();
-
-        let found_endpoints = find_endpoints_bulk_with_fallback(
-            repo,
-            service_id,
-            params.servicename,
-            params.branch,
-            params.api_type,
-            &normalized_endpoints,
-        )
+    let found = repo
+        .find_endpoints_bulk(entry.id, api_type, &normalized)
         .await?;
 
-        if found_endpoints.len() == params.endpoints.len() {
-            let mut yamls = Vec::new();
-            let mut bulk_params = Vec::new();
-            let mut any_deprecated = false;
-            let mut any_external = false;
-            for (path, method) in &sorted_endpoints {
-                let (id, yaml, deprecated, external) = found_endpoints
-                    .get(&(path.clone(), method.clone()))
-                    .ok_or_else(|| {
-                        AppError::Internal(format!(
-                            "endpoint unexpectedly missing: {} {}",
-                            method, path
-                        ))
-                    })?;
-                yamls.push(yaml.clone());
-                if *deprecated {
-                    any_deprecated = true;
-                }
-                if *external {
-                    any_external = true;
-                }
-                bulk_params.push(RecordDependencyParams {
-                    client_id,
-                    endpoint_id: Some(*id),
-                    api_type: params.api_type,
-                    service_id,
-                    branch_name: params.branch,
-                    path,
-                    method,
-                });
-            }
-            if !dry_run {
-                repo.record_dependencies_bulk(bulk_params).await?;
-            }
-            let merged_yaml = match params.api_type {
-                ApiType::OpenApi => {
-                    openapi::merge_endpoint_yamls(&yamls).map_err(AppError::Internal)?
-                }
-                _ => yamls.join("\n---\n"),
-            };
-            return Ok(RequireResponse {
-                yaml: merged_yaml,
-                deprecated: any_deprecated,
-                external: any_external,
-            });
-        }
-
-        if let Some(dl) = deadline {
-            let now = std::time::Instant::now();
-            if now < dl {
-                let timeout = dl - now;
-                match notifier.as_mut() {
-                    Some(rx) => {
-                        tokio::select! { _ = tokio::time::sleep(timeout) => {}, _ = rx.recv() => {}, }
-                    }
-                    None => {
-                        tokio::time::sleep(poll_interval.min(timeout)).await;
-                    }
-                }
-                continue;
-            }
-        }
-
-        let mut missing_list = Vec::new();
-        for (path, method) in params.endpoints {
-            let m_use = match params.api_type {
-                ApiType::OpenApi | ApiType::AsyncApi => method.to_uppercase(),
-                ApiType::Proto => method.to_string(),
-            };
-            if !found_endpoints.contains_key(&(path.clone(), m_use.clone())) {
-                missing_list.push(format!("missing {} {}", m_use, path));
-            }
-        }
-        return Err(AppError::NotFound(missing_list.join(", ")));
+    let missing: Vec<String> = normalized
+        .iter()
+        .filter(|(p, m)| !found.contains_key(&(p.clone(), m.clone())))
+        .map(|(p, m)| format!("{} {}", m, p))
+        .collect();
+    if !missing.is_empty() {
+        return Err(AppError::Gone(format!(
+            "{} version {} of '{}' does not include: {}",
+            api_type.as_str(),
+            version,
+            producername,
+            missing.join(", ")
+        )));
     }
+
+    let mut ordered: Vec<&(String, String)> = normalized.iter().collect();
+    ordered.sort();
+    let mut yamls = Vec::with_capacity(ordered.len());
+    let mut any_deprecated = false;
+    for key in ordered {
+        if let Some((_, yaml, deprecated)) = found.get(key) {
+            yamls.push(yaml.clone());
+            any_deprecated |= *deprecated;
+        }
+    }
+
+    let yaml = match api_type {
+        ApiType::OpenApi => openapi::merge_endpoint_yamls(&yamls).map_err(AppError::Internal)?,
+        _ => yamls.join("\n---\n"),
+    };
+
+    if !dry_run {
+        record_pins(repo, consumername, &entry, &normalized).await?;
+    }
+
+    Ok(RequireResponse {
+        yaml,
+        deprecated: any_deprecated,
+        state: ResolutionState::Served,
+        version,
+        stability: entry.stability,
+    })
 }
 
-async fn find_endpoint_with_fallback(
+/// Record the Consumer's Pins — only ever after a successful resolution
+/// (resolution never creates graph entities) — and touch the version's
+/// last-required time so use-based snapshot expiry counts the require.
+async fn record_pins(
     repo: &impl SpecRepository,
-    service_id: i64,
-    servicename: &str,
-    branch: &str,
+    consumername: &str,
+    entry: &SpecVersionMeta,
+    endpoints: &[(String, String)],
+) -> Result<(), AppError> {
+    let client_id = repo.ensure_client(consumername).await?;
+    let normalized: Vec<String> = endpoints
+        .iter()
+        .map(|(path, _)| openapi::lookup_path(entry.api_type, path))
+        .collect();
+    let deps: Vec<RecordDependencyParams> = endpoints
+        .iter()
+        .zip(normalized.iter())
+        .map(|((path, method), normalized_path)| RecordDependencyParams {
+            client_id,
+            spec_version_id: entry.id,
+            api_type: entry.api_type,
+            path,
+            normalized_path,
+            method,
+        })
+        .collect();
+    repo.record_dependencies_bulk(deps).await?;
+    repo.touch_spec_version_required(entry.id, &now_iso())
+        .await?;
+    Ok(())
+}
+
+/// An endpoint as shown in the UI: what was served and how that was decided.
+/// Always answers — the caller never has to infer a state from an error.
+#[derive(Debug, serde::Serialize)]
+pub struct EndpointView {
+    pub state: ResolutionState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<SemVer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stability: Option<Stability>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub yaml: Option<String>,
+    pub deprecated: bool,
+}
+
+pub async fn get_endpoint_yaml(
+    repo: &impl SpecRepository,
+    producername: &str,
+    version: SemVer,
     api_type: ApiType,
     path: &str,
-    method_to_use: &str,
-) -> Result<Option<(i64, String, bool, bool)>, RepositoryError> {
-    let endpoint = repo
-        .find_endpoint(service_id, branch, api_type, path, method_to_use)
-        .await?;
-    if endpoint.is_some() || repo.is_branch_protected(branch).await? {
-        return Ok(endpoint);
-    }
+    method: &str,
+) -> Result<EndpointView, AppError> {
+    let unknown = EndpointView {
+        state: ResolutionState::Unknown,
+        version: None,
+        stability: None,
+        yaml: None,
+        deprecated: false,
+    };
 
-    if let Ok(Some(sfb)) = repo.get_fallback_branch(servicename).await
-        && sfb != branch
-        && let Some(ep) = repo
-            .find_endpoint(service_id, &sfb, api_type, path, method_to_use)
-            .await?
+    let Some(service_id) = repo.find_service(producername).await? else {
+        return Ok(unknown);
+    };
+    let Some(entry) = repo
+        .find_spec_version(service_id, api_type, version)
+        .await?
+    else {
+        return Ok(unknown);
+    };
+
+    let method = method_for(api_type, method);
+    match repo
+        .find_endpoint(entry.id, api_type, path, &method)
+        .await?
     {
-        return Ok(Some(ep));
+        Some((_, yaml, deprecated)) => Ok(EndpointView {
+            state: ResolutionState::Served,
+            version: Some(version),
+            stability: Some(entry.stability),
+            yaml: Some(yaml),
+            deprecated,
+        }),
+        None => Ok(EndpointView {
+            state: ResolutionState::Absent,
+            version: Some(version),
+            stability: Some(entry.stability),
+            yaml: None,
+            deprecated: false,
+        }),
     }
-
-    let protected = repo.list_protected_branches().await?;
-    for pb in &protected {
-        if pb != branch
-            && let Some(ep) = repo
-                .find_endpoint(service_id, pb, api_type, path, method_to_use)
-                .await?
-        {
-            return Ok(Some(ep));
-        }
-    }
-    Ok(None)
 }
 
-async fn find_endpoints_bulk_with_fallback(
+/// The endpoints of one version-line entry. Read path: resolve, never create.
+#[instrument(skip_all)]
+pub async fn list_producer_endpoints(
     repo: &impl SpecRepository,
-    service_id: i64,
-    servicename: &str,
-    branch: &str,
+    producername: &str,
     api_type: ApiType,
-    endpoints: &[(String, String)],
-) -> Result<crate::domain::ports::EndpointMap, RepositoryError> {
-    let mut results = repo
-        .find_endpoints_bulk(service_id, branch, api_type, endpoints)
-        .await?;
-    let mut missing: Vec<(String, String)> = endpoints
-        .iter()
-        .filter(|e| !results.contains_key(&(e.0.clone(), e.1.clone())))
-        .cloned()
-        .collect();
-    if missing.is_empty() || repo.is_branch_protected(branch).await? {
-        return Ok(results);
-    }
-
-    if let Some(sfb) = repo
-        .get_fallback_branch(servicename)
-        .await
-        .ok()
-        .flatten()
-        .filter(|b| b != branch)
-    {
-        let fallback_results = repo
-            .find_endpoints_bulk(service_id, &sfb, api_type, &missing)
-            .await?;
-        for (key, val) in fallback_results {
-            results.insert(key.clone(), val);
-            missing.retain(|m| m.0 != key.0 || m.1 != key.1);
-        }
-    }
-
-    if missing.is_empty() {
-        return Ok(results);
-    }
-
-    let protected = repo.list_protected_branches().await?;
-    for pb in &protected {
-        if pb == branch {
-            continue;
-        }
-        let fallback_results = repo
-            .find_endpoints_bulk(service_id, pb, api_type, &missing)
-            .await?;
-        for (key, val) in fallback_results {
-            results.insert(key.clone(), val);
-            missing.retain(|m| m.0 != key.0 || m.1 != key.1);
-        }
-        if missing.is_empty() {
-            break;
-        }
-    }
-    Ok(results)
+    version: SemVer,
+) -> Result<Vec<EndpointRecord>, AppError> {
+    let Some(service_id) = repo.find_service(producername).await? else {
+        return Ok(Vec::new());
+    };
+    let Some(entry) = repo
+        .find_spec_version(service_id, api_type, version)
+        .await?
+    else {
+        return Ok(Vec::new());
+    };
+    Ok(repo.get_endpoints_for_version(entry.id).await?)
 }
 
-pub fn check_compatibility(
+/// The full provided document of one version-line entry — stored verbatim on
+/// provide, so this is exactly what the Producer submitted.
+pub async fn get_full_spec(
+    repo: &impl SpecRepository,
+    producername: &str,
     api_type: ApiType,
-    old_yaml: &str,
-    new_yaml: &str,
-) -> Result<(), String> {
-    match api_type {
-        ApiType::OpenApi => openapi::check_backward_compatibility(old_yaml, new_yaml),
-        ApiType::AsyncApi => crate::asyncapi::check_backward_compatibility(old_yaml, new_yaml),
-        ApiType::Proto => crate::proto::check_backward_compatibility(old_yaml, new_yaml),
+    version: SemVer,
+) -> Result<String, AppError> {
+    let (_sid, entry) = resolve_pin(repo, producername, api_type, version).await?;
+    repo.get_spec_content(entry.id).await?.ok_or_else(|| {
+        AppError::NotFound(format!(
+            "No stored document for {} version {} of '{}'",
+            api_type.as_str(),
+            version,
+            producername
+        ))
+    })
+}
+
+/// Every version-line entry of a Producer, newest-first within each API type.
+pub async fn list_versions(
+    repo: &impl SpecRepository,
+    producername: &str,
+) -> Result<Vec<SpecVersionMeta>, AppError> {
+    let Some(service_id) = repo.find_service(producername).await? else {
+        return Ok(Vec::new());
+    };
+    let mut versions = repo.list_spec_versions(service_id).await?;
+    versions.sort_by(|a, b| {
+        a.api_type
+            .as_str()
+            .cmp(b.api_type.as_str())
+            .then_with(|| b.version.cmp(&a.version))
+    });
+    Ok(versions)
+}
+
+/// Unified diff between two versions of a line, oldest side first. Snapshots
+/// participate as a single entry ("what's coming" vs the last GA).
+pub async fn diff_versions(
+    repo: &impl SpecRepository,
+    producername: &str,
+    api_type: ApiType,
+    from: SemVer,
+    to: SemVer,
+) -> Result<String, AppError> {
+    let (_sid, from_entry) = resolve_pin(repo, producername, api_type, from).await?;
+    let (_sid2, to_entry) = resolve_pin(repo, producername, api_type, to).await?;
+    let from_content = repo
+        .get_spec_content(from_entry.id)
+        .await?
+        .unwrap_or_default();
+    let to_content = repo
+        .get_spec_content(to_entry.id)
+        .await?
+        .unwrap_or_default();
+    Ok(similar::TextDiff::from_lines(&from_content, &to_content)
+        .unified_diff()
+        .context_radius(3)
+        .header(
+            &format!("{} {}", producername, from),
+            &format!("{} {}", producername, to),
+        )
+        .to_string())
+}
+
+/// One step of an endpoint's blame trail: the version that last changed it
+/// and the (unverified) Author attribution recorded with that Provide.
+#[derive(Debug, serde::Serialize)]
+pub struct EndpointHistoryEntry {
+    pub version: SemVer,
+    pub stability: Stability,
+    pub provided_by: String,
+    pub updated_at: String,
+    /// What this version stored for the endpoint; `None` when the version
+    /// does not include it (the endpoint was absent or had been removed).
+    pub yaml_content: Option<String>,
+    /// True when this version changed the endpoint relative to the previous
+    /// version of the line (including introducing or removing it).
+    pub changed: bool,
+}
+
+/// Walk a version line semantically and report, per version, whether it
+/// changed the endpoint — the "last changed in version X by Y" blame.
+pub async fn get_endpoint_history(
+    repo: &impl SpecRepository,
+    producername: &str,
+    api_type: ApiType,
+    path: &str,
+    method: &str,
+) -> Result<Vec<EndpointHistoryEntry>, AppError> {
+    let Some(service_id) = repo.find_service(producername).await? else {
+        return Err(AppError::NotFound("Producer not found".to_string()));
+    };
+    let mut line: Vec<SpecVersionMeta> = repo
+        .list_spec_versions(service_id)
+        .await?
+        .into_iter()
+        .filter(|v| v.api_type == api_type)
+        .collect();
+    if line.is_empty() {
+        return Err(AppError::NotFound("No versions".to_string()));
+    }
+    line.sort_by_key(|v| v.version);
+
+    let method = method_for(api_type, method);
+    let normalized = openapi::lookup_path(api_type, path);
+    let mut entries = Vec::with_capacity(line.len());
+    let mut previous: Option<String> = None;
+    for meta in line {
+        let yaml = repo
+            .get_endpoints_for_version(meta.id)
+            .await?
+            .into_iter()
+            .find(|e| e.normalized_path == normalized && e.method == method)
+            .map(|e| e.yaml_content);
+        let changed = yaml != previous;
+        previous = yaml.clone();
+        entries.push(EndpointHistoryEntry {
+            version: meta.version,
+            stability: meta.stability,
+            provided_by: meta.provided_by,
+            updated_at: meta.updated_at,
+            yaml_content: yaml,
+            changed,
+        });
+    }
+    Ok(entries)
+}
+
+/// The most recent Provides instance-wide — the dashboard timeline.
+#[derive(Debug, serde::Serialize)]
+pub struct TimelineEntry {
+    pub service: String,
+    pub api_type: ApiType,
+    pub version: SemVer,
+    pub stability: Stability,
+    pub provided_by: String,
+    pub updated_at: String,
+    pub endpoint_count: i64,
+}
+
+pub async fn get_provide_timeline(
+    repo: &impl SpecRepository,
+    limit: u32,
+) -> Result<Vec<TimelineEntry>, AppError> {
+    let mut all = repo.list_all_spec_versions().await?;
+    all.sort_by(|a, b| b.1.updated_at.cmp(&a.1.updated_at));
+    Ok(all
+        .into_iter()
+        .take(limit as usize)
+        .map(|(service, meta, endpoint_count)| TimelineEntry {
+            service,
+            api_type: meta.api_type,
+            version: meta.version,
+            stability: meta.stability,
+            provided_by: meta.provided_by,
+            updated_at: meta.updated_at,
+            endpoint_count,
+        })
+        .collect())
+}
+
+/// The free validator's verdict: exactly what a Provide of this document
+/// would see, minus persistence. Always a verdict, never an error — a
+/// validator that answers invalid input with HTTP errors makes every caller
+/// parse two shapes.
+#[derive(Debug, serde::Serialize)]
+pub struct ValidationReport {
+    pub valid: bool,
+    pub api_type: ApiType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<SemVer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint_count: Option<usize>,
+    /// The first entries of the split preview ("METHOD path"), so the caller
+    /// sees what Sanshain would store.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub endpoints: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// How many split entries the validator previews.
+const VALIDATE_PREVIEW_LIMIT: usize = 20;
+
+/// Validate a pasted document against the exact provide-side pipeline:
+/// version extraction (strict semver) and splitting. No producer context, no
+/// version-line rules — those need a Provide.
+pub fn validate_spec(api_type: ApiType, content: &str) -> ValidationReport {
+    let version_result = match api_type {
+        ApiType::OpenApi | ApiType::AsyncApi => openapi::extract_info_version(content),
+        ApiType::Proto => crate::proto::extract_sanshain_version(content),
+    };
+    let split_result = parse_spec_endpoints(api_type, content, "validator");
+
+    let (endpoint_count, endpoints) = match &split_result {
+        Ok(split) => (
+            Some(split.len()),
+            split
+                .iter()
+                .take(VALIDATE_PREVIEW_LIMIT)
+                .map(|e| format!("{} {}", e.method, e.path))
+                .collect(),
+        ),
+        Err(_) => (None, Vec::new()),
+    };
+
+    // The version error leads: it is the mistake people actually make, and
+    // the split preview still renders when only the version is wrong.
+    let error = match (&version_result, &split_result) {
+        (Err(e), _) => Some(e.clone()),
+        (_, Err(AppError::BadRequest(e))) => Some(e.clone()),
+        (_, Err(e)) => Some(e.to_string()),
+        _ => None,
+    };
+
+    ValidationReport {
+        valid: error.is_none(),
+        api_type,
+        version: version_result.ok(),
+        endpoint_count,
+        endpoints,
+        error,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::application::mock_repo::MockRepo;
 
-    // A parse failure logs a compact fingerprint, not the whole submitted spec,
-    // so a large submission cannot flood the in-memory (admin-viewable) log
-    // buffer. (Spec content is public by design; this is log hygiene, not secrecy.)
-    #[test]
-    fn parse_error_does_not_log_submitted_content() {
-        use std::io::Write;
-        use std::sync::{Arc, Mutex};
-        use tracing_subscriber::fmt::MakeWriter;
-
-        #[derive(Clone)]
-        struct BufMakeWriter(Arc<Mutex<Vec<u8>>>);
-        struct BufGuard(Arc<Mutex<Vec<u8>>>);
-        impl Write for BufGuard {
-            fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(data);
-                Ok(data.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        impl<'a> MakeWriter<'a> for BufMakeWriter {
-            type Writer = BufGuard;
-            fn make_writer(&'a self) -> Self::Writer {
-                BufGuard(self.0.clone())
-            }
-        }
-
-        let buf = Arc::new(Mutex::new(Vec::<u8>::new()));
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(BufMakeWriter(buf.clone()))
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-
-        let marker = "UNIQUE_CONTENT_MARKER_9f8e7d6c";
-        // Unclosed flow sequence -> guaranteed YAML/parse failure.
-        let bad_spec = format!("openapi: \"3.0.0\"\npaths: [unclosed\nmarker: {marker}\n");
-
-        tracing::subscriber::with_default(subscriber, || {
-            let result = parse_spec_endpoints(ApiType::OpenApi, &bad_spec, "billing", "main");
-            assert!(result.is_err(), "malformed spec should fail to parse");
-        });
-
-        let logged = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
-        assert!(
-            logged.contains("Failed to split OpenAPI"),
-            "expected a parse-failure warning to be logged, got: {logged:?}"
-        );
-        assert!(
-            !logged.contains(marker),
-            "parse-failure log dumped the full submitted spec: {logged:?}"
-        );
-    }
-
-    const SIMPLE_OPENAPI: &str = r#"openapi: "3.0.0"
-info:
-  title: Test
-  version: "1.0"
-paths:
-  /hello:
-    get:
-      summary: Hello
-      responses:
-        "200":
-          description: OK
-"#;
-
-    const UPDATED_OPENAPI: &str = r#"openapi: "3.0.0"
-info:
-  title: Test
-  version: "1.1"
-paths:
-  /hello:
-    get:
-      summary: Hello updated
-      responses:
-        "200":
-          description: OK
-  /world:
-    post:
-      summary: World
-      responses:
-        "201":
-          description: Created
-"#;
-
-    #[tokio::test]
-    async fn test_provide_spec_insert() {
-        let repo = MockRepo::new();
-        let resp = provide_spec(
-            &repo,
-            "svc",
-            "main",
-            ApiType::OpenApi,
-            SIMPLE_OPENAPI,
-            None,
-            false,
-        )
-        .await
-        .unwrap();
-        assert_eq!(resp.version, SemVer::new(1, 0, 0));
-        assert_eq!(resp.changes.inserts, 1);
-        assert_eq!(resp.changes.updates, 0);
-        assert_eq!(resp.changes.deletes, 0);
-    }
-
-    #[tokio::test]
-    async fn test_provide_spec_semver_increment() {
-        let repo = MockRepo::new();
-        // 1. Initial version
-        let r1 = provide_spec(
-            &repo,
-            "svc",
-            "main",
-            ApiType::OpenApi,
-            SIMPLE_OPENAPI,
-            None,
-            false,
-        )
-        .await
-        .unwrap();
-        assert_eq!(r1.version, SemVer::new(1, 0, 0));
-
-        // 2. Patch version (minor change like description)
-        let patch_spec = SIMPLE_OPENAPI.replace("summary: Hello", "summary: Hello Patch");
-        let r2 = provide_spec(
-            &repo,
-            "svc",
-            "main",
-            ApiType::OpenApi,
-            &patch_spec,
-            None,
-            false,
-        )
-        .await
-        .unwrap();
-        assert_eq!(r2.version, SemVer::new(1, 0, 1));
-
-        // 3. Minor version (addition)
-        let r3 = provide_spec(
-            &repo,
-            "svc",
-            "main",
-            ApiType::OpenApi,
-            UPDATED_OPENAPI,
-            None,
-            false,
-        )
-        .await
-        .unwrap();
-        assert_eq!(r3.version, SemVer::new(1, 1, 0));
-
-        // 4. Major version (breaking change)
-        let breaking_spec = SIMPLE_OPENAPI.replace("/hello:", "/hi:");
-        let _r4 = provide_spec(
-            &repo,
-            "svc",
-            "feat-breaking", // Use non-protected branch for breaking change
-            ApiType::OpenApi,
-            &breaking_spec,
-            None,
-            true, // force because it's breaking
-        )
-        .await
-        .unwrap();
-        // Since it's a new branch, it starts at 1.0.0?
-        // No, if it's a new branch, it should start at 1.0.0.
-
-        // Wait, if I want to test MAJOR increment, I should do it on the same branch.
-        // So I'll unprotect the branch first.
-        repo.remove_protected_branch("main").await.unwrap();
-        let r4 = provide_spec(
-            &repo,
-            "svc",
-            "main",
-            ApiType::OpenApi,
-            &breaking_spec,
-            None,
-            true,
-        )
-        .await
-        .unwrap();
-        assert_eq!(r4.version, SemVer::new(2, 0, 0));
-    }
-
-    #[tokio::test]
-    async fn test_provide_spec_no_change_skip() {
-        let repo = MockRepo::new();
-        let r1 = provide_spec(
-            &repo,
-            "svc",
-            "main",
-            ApiType::OpenApi,
-            SIMPLE_OPENAPI,
-            None,
-            false,
-        )
-        .await
-        .unwrap();
-        let r2 = provide_spec(
-            &repo,
-            "svc",
-            "main",
-            ApiType::OpenApi,
-            SIMPLE_OPENAPI,
-            None,
-            false,
-        )
-        .await
-        .unwrap();
-        assert_eq!(r1.version, r2.version);
-        assert_eq!(r2.changes.inserts, 0);
-        assert_eq!(r2.changes.updates, 0);
-        assert_eq!(r2.changes.deletes, 0);
-    }
-
-    #[tokio::test]
-    async fn test_list_endpoints_on_feature_branch() {
-        let repo = MockRepo::new();
-        // 1. Provide initial spec to main
-        provide_spec(
-            &repo,
-            "svc",
-            "main",
-            ApiType::OpenApi,
-            SIMPLE_OPENAPI,
-            None,
-            false,
-        )
-        .await
-        .unwrap();
-
-        // 2. Provide modified spec to a feature branch
-        provide_spec(
-            &repo,
-            "svc",
-            "feat",
-            ApiType::OpenApi,
-            UPDATED_OPENAPI,
-            None,
-            false,
-        )
-        .await
-        .unwrap();
-
-        // 3. List endpoints on the feature branch
-        let endpoints = list_service_endpoints(&repo, "svc", "feat").await.unwrap();
-        assert!(endpoints.iter().any(|e| e.path == "/hello"));
-        assert!(endpoints.iter().any(|e| e.path == "/world"));
-    }
-
-    // Feature branches accept breaking changes without `force`; protected
-    // branches remain the only compatibility gate.
-    #[tokio::test]
-    async fn test_breaking_change_allowed_on_feature_branch_without_force() {
-        let repo = MockRepo::new();
-        // Establish the spec on the protected branch first, so the service
-        // is not a "new service" special case.
-        provide_spec(
-            &repo,
-            "svc",
-            "main",
-            ApiType::OpenApi,
-            SIMPLE_OPENAPI,
-            None,
-            false,
-        )
-        .await
-        .unwrap();
-        provide_spec(
-            &repo,
-            "svc",
-            "feat",
-            ApiType::OpenApi,
-            SIMPLE_OPENAPI,
-            None,
-            false,
-        )
-        .await
-        .unwrap();
-
-        // Breaking change (removes the endpoint) on the feature branch: accepted.
-        let breaking = r#"
-openapi: 3.0.0
-info: { title: T, version: 2.0.0 }
-paths:
-  /renamed:
-    get:
-      responses:
-        '200': { description: OK }
-"#;
-        let resp = provide_spec(
-            &repo,
-            "svc",
-            "feat",
-            ApiType::OpenApi,
-            breaking,
-            None,
-            false,
-        )
-        .await
-        .unwrap();
-        assert_eq!(resp.changes.inserts, 1);
-        assert_eq!(resp.changes.deletes, 1);
-    }
-
-    #[tokio::test]
-    async fn test_provide_spec_dry_run() {
-        let repo = MockRepo::new();
-        let resp = provide_spec_dry_run(
-            &repo,
-            "svc",
-            "main",
-            ApiType::OpenApi,
-            SIMPLE_OPENAPI,
-            false,
-        )
-        .await
-        .unwrap();
-        assert_eq!(resp.changes.inserts, 1);
-        // Dry run should not persist
-        let services = repo.list_services().await.unwrap();
-        assert!(services.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_check_compatibility_openapi_pass() {
-        let result = check_compatibility(ApiType::OpenApi, SIMPLE_OPENAPI, SIMPLE_OPENAPI);
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_check_compatibility_asyncapi_detects_breaking_change() {
-        let old = r#"
-asyncapi: 2.6.0
-info: { title: T, version: 1.0.0 }
-channels:
-  user-created:
-    publish:
-      message:
-        payload:
-          type: object
-          properties:
-            id: { type: string }
-"#;
-        let new = old.replace("id: { type: string }", "id: { type: integer }");
-        assert_eq!(check_compatibility(ApiType::AsyncApi, old, old), Ok(()));
-        let err = check_compatibility(ApiType::AsyncApi, old, &new).unwrap_err();
-        assert!(
-            err.contains("changed type from 'string' to 'integer'"),
-            "{err}"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_check_compatibility_proto_detects_breaking_change() {
-        let old = r#"
-syntax = "proto3";
-message Req { string id = 1; }
-message Res { string name = 1; }
-service S { rpc Get (Req) returns (Res); }
-"#;
-        let new = old.replace("string id = 1;", "string id = 2;");
-        assert_eq!(check_compatibility(ApiType::Proto, old, old), Ok(()));
-        let err = check_compatibility(ApiType::Proto, old, &new).unwrap_err();
-        assert!(err.contains("changed number from 1 to 2"), "{err}");
-    }
-
-    #[test]
-    fn test_parse_spec_endpoints_openapi() {
-        let endpoints =
-            parse_spec_endpoints(ApiType::OpenApi, SIMPLE_OPENAPI, "svc", "main").unwrap();
-        assert_eq!(endpoints.len(), 1);
-        assert_eq!(endpoints[0].method, "GET");
-    }
-
-    #[test]
-    fn test_parse_spec_endpoints_invalid() {
-        let result = parse_spec_endpoints(ApiType::OpenApi, "not valid yaml {{", "svc", "main");
-        assert!(result.is_err());
-    }
-
-    // --- item #20: message-level channel contracts through the provide flow ---
-
-    /// AsyncAPI 2.x document publishing a single named message on `orders`,
-    /// with the payload properties spliced in.
-    fn asyncapi_pub(props: &str) -> String {
-        format!(
-            r#"asyncapi: 2.6.0
-info:
-  title: T
-  version: "1.0.0"
-channels:
-  orders:
-    publish:
-      message:
-        name: OrderPlaced
-        payload:
-          type: object
-          properties:
-{props}
-"#
-        )
-    }
-
-    async fn provide_async(
-        repo: &MockRepo,
-        service: &str,
-        branch: &str,
-        content: &str,
-    ) -> Result<ProvideResponse, AppError> {
-        provide_spec(
-            repo,
-            service,
-            branch,
-            ApiType::AsyncApi,
-            content,
-            None,
-            false,
-        )
-        .await
-    }
-
-    #[tokio::test]
-    async fn asyncapi_provide_registers_contract() {
-        let repo = MockRepo::new();
-        let a = repo.ensure_service("producer-a").await.unwrap();
-        provide_async(
-            &repo,
-            "producer-a",
-            "main",
-            &asyncapi_pub("            id: { type: string }"),
-        )
-        .await
-        .unwrap();
-
-        let contracts = repo.list_channel_message_contracts("main").await.unwrap();
-        assert_eq!(contracts.len(), 1);
-        assert_eq!(contracts[0].channel, "orders");
-        assert_eq!(contracts[0].message_name, "OrderPlaced");
-        assert_eq!(contracts[0].owner_service_id, a);
-    }
-
-    #[tokio::test]
-    async fn asyncapi_owner_may_widen_message_minor_bump() {
-        let repo = MockRepo::new();
-        repo.ensure_service("producer-a").await.unwrap();
-        let r1 = provide_async(
-            &repo,
-            "producer-a",
-            "feature",
-            &asyncapi_pub("            id: { type: string }"),
-        )
-        .await
-        .unwrap();
-        assert_eq!(r1.version, SemVer::new(1, 0, 0));
-
-        let r2 = provide_async(
-            &repo,
-            "producer-a",
-            "feature",
-            &asyncapi_pub("            id: { type: string }\n            name: { type: string }"),
-        )
-        .await
-        .unwrap();
-        // Additive change → minor bump; stored payload is updated.
-        assert_eq!(r2.version, SemVer::new(1, 1, 0));
-        let contracts = repo
-            .list_channel_message_contracts("feature")
-            .await
-            .unwrap();
-        assert!(contracts[0].payload_yaml.contains("name"));
-    }
-
-    #[tokio::test]
-    async fn asyncapi_owner_breaking_change_rejected_on_feature_branch() {
-        // Message contracts are enforced on all branches, including unprotected
-        // ones where endpoint-level breaking changes are otherwise allowed.
-        let repo = MockRepo::new();
-        repo.ensure_service("producer-a").await.unwrap();
-        provide_async(
-            &repo,
-            "producer-a",
-            "feature",
-            &asyncapi_pub("            id: { type: string }"),
-        )
-        .await
-        .unwrap();
-
-        let err = provide_async(
-            &repo,
-            "producer-a",
-            "feature",
-            &asyncapi_pub("            id: { type: integer }"),
-        )
-        .await
-        .unwrap_err();
-        assert!(matches!(err, AppError::BreakingChange(_)), "{err:?}");
-    }
-
-    #[tokio::test]
-    async fn asyncapi_second_producer_identical_schema_accepted() {
-        let repo = MockRepo::new();
-        let a = repo.ensure_service("producer-a").await.unwrap();
-        repo.ensure_service("producer-b").await.unwrap();
-        let doc = asyncapi_pub("            id: { type: string }");
-        provide_async(&repo, "producer-a", "main", &doc)
-            .await
-            .unwrap();
-        provide_async(&repo, "producer-b", "main", &doc)
-            .await
-            .unwrap();
-
-        // Ownership is unchanged and there is still exactly one contract row.
-        let contracts = repo.list_channel_message_contracts("main").await.unwrap();
-        assert_eq!(contracts.len(), 1);
-        assert_eq!(contracts[0].owner_service_id, a);
-    }
-
-    #[tokio::test]
-    async fn asyncapi_second_producer_divergent_schema_rejected_naming_owner() {
-        let repo = MockRepo::new();
-        repo.ensure_service("producer-a").await.unwrap();
-        repo.ensure_service("producer-b").await.unwrap();
-        provide_async(
-            &repo,
-            "producer-a",
-            "main",
-            &asyncapi_pub("            id: { type: string }"),
-        )
-        .await
-        .unwrap();
-
-        let err = provide_async(
-            &repo,
-            "producer-b",
-            "main",
-            &asyncapi_pub("            id: { type: integer }"),
-        )
-        .await
-        .unwrap_err();
-        match err {
-            AppError::Conflict(msg) => {
-                assert!(msg.contains("producer-a"), "{msg}");
-                assert!(msg.contains("OrderPlaced"), "{msg}");
-            }
-            other => panic!("expected Conflict, got {other:?}"),
+    fn meta(version: &str, stability: Stability) -> SpecVersionMeta {
+        SpecVersionMeta {
+            id: 1,
+            service_id: 1,
+            api_type: ApiType::OpenApi,
+            version: version.parse().unwrap(),
+            stability,
+            content_hash: "sha256:x".into(),
+            provided_by: "ci".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+            last_required_at: None,
         }
     }
 
-    #[tokio::test]
-    async fn asyncapi_owner_dropping_message_clears_contract() {
-        let repo = MockRepo::new();
-        repo.ensure_service("producer-a").await.unwrap();
-        provide_async(
-            &repo,
-            "producer-a",
-            "feature",
-            &asyncapi_pub("            id: { type: string }"),
-        )
-        .await
-        .unwrap();
+    #[test]
+    fn propose_free_skips_taken_numbers() {
+        let line = vec![
+            meta("1.2.0", Stability::Ga),
+            meta("1.3.0", Stability::Snapshot),
+        ];
         assert_eq!(
-            repo.list_channel_message_contracts("feature")
-                .await
-                .unwrap()
-                .len(),
-            1
+            propose_free(&line, "1.3.0".parse().unwrap()).to_string(),
+            "1.3.1"
         );
-
-        // A later provide without the message drops it (allowed on a feature
-        // branch); the contract row is cleared.
-        let empty = r#"asyncapi: 2.6.0
-info:
-  title: T
-  version: "1.0.0"
-channels:
-  status:
-    publish:
-      message:
-        name: Heartbeat
-        payload: { type: object }
-"#;
-        provide_async(&repo, "producer-a", "feature", empty)
-            .await
-            .unwrap();
-        let contracts = repo
-            .list_channel_message_contracts("feature")
-            .await
-            .unwrap();
-        assert_eq!(contracts.len(), 1);
-        assert_eq!(contracts[0].message_name, "Heartbeat");
+        assert_eq!(
+            propose_free(&line, "2.0.0".parse().unwrap()).to_string(),
+            "2.0.0"
+        );
     }
 
-    #[tokio::test]
-    async fn asyncapi_unnamed_message_registers_no_contract() {
-        let repo = MockRepo::new();
-        repo.ensure_service("producer-a").await.unwrap();
-        let unnamed = r#"asyncapi: 2.6.0
-info:
-  title: T
-  version: "1.0.0"
-channels:
-  orders:
-    publish:
-      message:
-        payload: { type: object }
-"#;
-        provide_async(&repo, "producer-a", "main", unnamed)
-            .await
-            .unwrap();
-        assert!(
-            repo.list_channel_message_contracts("main")
-                .await
-                .unwrap()
-                .is_empty()
+    #[test]
+    fn ga_baseline_is_highest_ga_strictly_below() {
+        let line = vec![
+            meta("1.0.0", Stability::Ga),
+            meta("1.2.0", Stability::Ga),
+            meta("1.3.0", Stability::Snapshot),
+            meta("2.0.0", Stability::Ga),
+        ];
+        let base = ga_baseline(&line, "1.4.0".parse().unwrap()).unwrap();
+        assert_eq!(base.version.to_string(), "1.2.0");
+        assert!(ga_baseline(&line, "1.0.0".parse().unwrap()).is_none());
+    }
+
+    #[test]
+    fn diff_endpoints_counts_all_three_kinds() {
+        let old = vec![
+            EndpointRecord {
+                id: None,
+                api_type: ApiType::OpenApi,
+                path: "/kept".into(),
+                normalized_path: "/kept".into(),
+                method: "GET".into(),
+                yaml_content: "a".into(),
+                deprecated: false,
+            },
+            EndpointRecord {
+                id: None,
+                api_type: ApiType::OpenApi,
+                path: "/gone".into(),
+                normalized_path: "/gone".into(),
+                method: "GET".into(),
+                yaml_content: "b".into(),
+                deprecated: false,
+            },
+        ];
+        let new = vec![
+            openapi::EndpointSpec {
+                path: "/kept".into(),
+                normalized_path: "/kept".into(),
+                method: "GET".into(),
+                yaml_content: "a-changed".into(),
+                deprecated: false,
+            },
+            openapi::EndpointSpec {
+                path: "/new".into(),
+                normalized_path: "/new".into(),
+                method: "GET".into(),
+                yaml_content: "c".into(),
+                deprecated: false,
+            },
+        ];
+        let changes = diff_endpoints(&old, &new, ApiType::OpenApi);
+        assert_eq!(changes.inserts, 1);
+        assert_eq!(changes.updates, 1);
+        assert_eq!(changes.deletes, 1);
+    }
+
+    #[test]
+    fn classify_change_flags_breaking_as_major() {
+        let old = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.0\npaths:\n  /a:\n    get:\n      responses:\n        '200':\n          description: OK\n";
+        let new = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.1\npaths: {}\n";
+        assert_eq!(
+            classify_change(ApiType::OpenApi, old, new, 0),
+            Impact::Major
         );
     }
 }

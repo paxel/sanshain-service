@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="/images/sonne.png">
+    <link rel="icon" type="image/png" href="/images/favicon.png">
     <title>Sanshain - Audit Timeline</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/js/common.js"></script>
@@ -62,11 +62,11 @@
             <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
         <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-            <a href="/services.html" class="text-white hover:text-indigo-100 transition-colors">Services</a>
-            <a href="/clients.html" class="text-white hover:text-indigo-100 transition-colors">Clients</a>
+            <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors">Producers</a>
+            <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
             <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
             <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
-            <a href="/audit.html" class="text-white font-bold underline underline-offset-4">Audit</a>
+            <a id="nav-audit-link" href="/audit.html" class="hidden text-white font-bold underline underline-offset-4">Audit</a>
             <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors">Observability</a>
             <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
@@ -110,15 +110,16 @@
                     <option value="READ">Read (Discovery)</option>
                     <option value="WRITE">Write (Changes)</option>
                     <option value="ADMIN">Admin (System)</option>
+                    <option value="REJECT">Rejected (Blocked)</option>
                 </select>
             </div>
             <div>
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Service (wildcard %)</label>
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Producer (wildcard %)</label>
                 <input type="text" id="filter-service" placeholder="e.g. auth-%" class="w-full rounded-lg border-slate-200 text-sm focus:ring-indigo-500 focus:border-indigo-500">
             </div>
             <div>
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Branch (wildcard %)</label>
-                <input type="text" id="filter-branch" placeholder="e.g. feat-%" class="w-full rounded-lg border-slate-200 text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Version (wildcard %)</label>
+                <input type="text" id="filter-version" placeholder="e.g. 1.2.%" class="w-full rounded-lg border-slate-200 text-sm focus:ring-indigo-500 focus:border-indigo-500">
             </div>
             <div class="flex gap-2">
                 <button type="submit" class="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors">Filter</button>

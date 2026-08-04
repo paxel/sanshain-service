@@ -27,9 +27,13 @@ pub struct LoginRequest {
 }
 
 #[derive(Serialize)]
+/// The result of a successful login.
+///
+/// Carries the session token only. What the caller may do is answered by
+/// `/auth/me`, which reports the permissions they actually hold — a single
+/// boolean here could not express a partial administrator.
 pub struct LoginResponse {
     pub token: String,
-    pub is_admin: bool,
 }
 
 #[derive(Serialize)]
@@ -57,32 +61,32 @@ pub async fn auth_login(
                 )
                 .await
                 {
-                    let user = state
+                    // The local record must exist by now — the provider login
+                    // creates one — and confirming it here keeps a session from
+                    // being handed out for a user nothing else can resolve.
+                    state
                         .repo
                         .find_user(&payload.username)
                         .await?
                         .ok_or(AppError::Internal("Shadow user missing".to_string()))?;
                     return Ok(Json(LoginResponse {
                         token: session.token,
-                        is_admin: user.is_admin,
                     }));
                 }
             }
             // Fallback to local login for root or if LDAP fails
-            let (session, user) =
+            let (session, _user) =
                 services::login(&state.repo, &payload.username, &payload.password).await?;
             Ok(Json(LoginResponse {
                 token: session.token,
-                is_admin: user.is_admin,
             }))
         }
         crate::domain::models::AuthMode::Local | crate::domain::models::AuthMode::Dev => {
-            let (session, user) =
+            let (session, _user) =
                 services::login(&state.repo, &payload.username, &payload.password).await?;
 
             Ok(Json(LoginResponse {
                 token: session.token,
-                is_admin: user.is_admin,
             }))
         }
     }
@@ -101,10 +105,50 @@ pub async fn auth_logout(
     Ok(StatusCode::OK)
 }
 
+/// The signed-in caller, with what they may do.
+///
+/// The UI gates on `permissions` rather than on role names, so it does not
+/// encode the role bundles a second time and cannot drift from what the server
+/// enforces. `roles` is reported for display only.
 pub async fn auth_me(
+    State(state): State<AppState>,
     axum::Extension(user): axum::Extension<User>,
+    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
 ) -> Result<impl IntoResponse, AppError> {
-    Ok(Json(user))
+    let (roles, permissions, is_root) = match &actor {
+        Some(axum::Extension(actor)) => (
+            actor
+                .roles
+                .iter()
+                .map(|r| r.as_str().to_string())
+                .collect::<Vec<_>>(),
+            crate::application::authz::permission_names(actor),
+            actor.is_root,
+        ),
+        None => (Vec::new(), Vec::new(), false),
+    };
+
+    // The Producers this caller maintains, so pages tied to one Producer (the
+    // endpoint editor) can admit a maintainer whose permission is scoped rather
+    // than global. Root is not expanded: it maintains everything, and the UI
+    // already knows that from `is_root`. Grants made to the caller's directory
+    // groups are included, matching what the server would actually allow.
+    let maintains = match &actor {
+        Some(axum::Extension(actor)) => {
+            crate::application::authz::maintained_producers_for_actor(&state.repo, actor).await?
+        }
+        None => crate::application::authz::maintained_producers(&state.repo, user.id).await?,
+    };
+
+    Ok(Json(serde_json::json!({
+        "id": user.id,
+        "username": user.username,
+        "approved": user.approved,
+        "roles": roles,
+        "permissions": permissions,
+        "is_root": is_root,
+        "maintains": maintains,
+    })))
 }
 
 #[derive(Deserialize)]
@@ -142,7 +186,7 @@ pub async fn auth_change_password(
                     action: "CHANGE_PASSWORD",
                     details: "Successfully changed user password",
                     service: None,
-                    branch: None,
+                    version: None,
                     action_type: Some("ADMIN"),
                     diff: None,
                 },
@@ -165,7 +209,13 @@ pub async fn auth_register(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    services::register_user(&state.repo, &payload.username, &payload.password).await?;
+    services::register_user(
+        &state.repo,
+        &state.root_users,
+        &payload.username,
+        &payload.password,
+    )
+    .await?;
     record_audit_log(
         &state.repo,
         None,
@@ -173,7 +223,7 @@ pub async fn auth_register(
             action: "REGISTER_USER",
             details: &format!("Registered user '{}'", payload.username),
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
@@ -237,9 +287,9 @@ pub async fn create_token(
         Some(&user),
         NewAuditLog {
             action: "CREATE_TOKEN",
-            details: &format!("Created API token '{}' with ID '{}'", payload.name, id),
+            details: "Created an API token",
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },
@@ -257,15 +307,17 @@ pub async fn revoke_token(
     axum::Extension(user): axum::Extension<User>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    services::revoke_api_token(&state.repo, &id, user.id).await?;
+    if !services::revoke_api_token(&state.repo, &id, user.id).await? {
+        return Err(AppError::NotFound("API token not found".to_string()));
+    }
     record_audit_log(
         &state.repo,
         Some(&user),
         NewAuditLog {
             action: "REVOKE_TOKEN",
-            details: &format!("Revoked API token with ID '{}'", id),
+            details: "Revoked an API token",
             service: None,
-            branch: None,
+            version: None,
             action_type: Some("ADMIN"),
             diff: None,
         },

@@ -2,6 +2,11 @@ use sanshain_service::application::auth_service;
 use sanshain_service::application::mock_repo::MockRepo;
 use sanshain_service::domain::models::*;
 
+/// A root set that reserves no username used by these tests.
+fn no_root_users() -> sanshain_service::domain::permissions::RootUsers {
+    sanshain_service::domain::permissions::RootUsers::resolve(Some("__unused-root__"), None)
+}
+
 // 1. get_auth_mode default is Disabled
 #[tokio::test]
 async fn auth_mode_default_disabled() {
@@ -143,7 +148,7 @@ async fn register_user_forbidden_when_disabled() {
     auth_service::set_auth_mode(&repo, &AuthMode::Disabled)
         .await
         .unwrap();
-    let res = auth_service::register_user(&repo, "u", "p").await;
+    let res = auth_service::register_user(&repo, &no_root_users(), "u", "p").await;
     assert!(matches!(res, Err(AppError::Forbidden)));
 }
 
@@ -157,7 +162,7 @@ async fn register_user_ok_when_enabled_autoapprove() {
     auth_service::set_auto_approve_users(&repo, true)
         .await
         .unwrap();
-    auth_service::register_user(&repo, "bob", "pw")
+    auth_service::register_user(&repo, &no_root_users(), "bob", "pw")
         .await
         .unwrap();
     let users = auth_service::list_users(&repo).await.unwrap();

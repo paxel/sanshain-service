@@ -1,11 +1,11 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
-use crate::domain::models::ApiType;
+use crate::domain::models::{ApiType, SemVer, Stability};
 use crate::domain::ports::{NewAuditLog, SpecRepository};
 use axum::{
     Json,
     extract::{
-        Query, State,
+        Path, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{HeaderMap, HeaderValue, StatusCode},
@@ -34,199 +34,285 @@ async fn record_audit_log(
         .map_err(|e| AppError::Internal(e.to_string()))
 }
 
+/// The 2.0 Provide payload. The version is *not* here — it lives in the spec
+/// document itself. `deny_unknown_fields` turns a 1.x-shaped request (`branch`,
+/// `base_version`, `force`, ...) into an immediate, named 422 instead of a
+/// silently ignored parameter.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProvideRequest {
-    pub servicename: String,
-    pub branch: String,
+    pub producername: String,
     pub openapi_yaml: String,
-    pub base_version: Option<String>,
+    /// Declared by the caller: `snapshot` (overwritable) or `ga` (immutable).
+    /// The branch→stability translation is Tooling's business; Sanshain only
+    /// ever hears the intent.
+    pub stability: Stability,
     #[serde(default)]
     pub dry_run: bool,
-    #[serde(default)]
-    pub force: bool,
 }
 
-pub async fn provide(
-    State(state): State<AppState>,
+struct ProvideCommon<'a> {
+    api_type: ApiType,
+    producername: &'a str,
+    content: &'a str,
+    stability: Stability,
+    dry_run: bool,
+}
+
+async fn provide_common(
+    state: &AppState,
     user: Option<axum::Extension<crate::domain::models::User>>,
-    Json(payload): Json<ProvideRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    let actor = if let Some(axum::Extension(ref u)) = user {
-        u.username.clone()
-    } else {
-        "DevMode/Anonymous".to_string()
-    };
-
-    let res = if payload.dry_run {
-        services::provide_spec_dry_run(
-            &state.repo,
-            &payload.servicename,
-            &payload.branch,
-            ApiType::OpenApi,
-            &payload.openapi_yaml,
-            payload.force,
-        )
-        .await?
-    } else {
-        services::provide_spec_with_actor(
-            &state.repo,
-            services::ProvideSpecParams {
-                servicename: &payload.servicename,
-                branch: &payload.branch,
-                api_type: ApiType::OpenApi,
-                content: &payload.openapi_yaml,
-                base_version: payload.base_version,
-                force: payload.force,
-            },
-            Some(&actor),
-        )
-        .await?
-    };
-
-    if !payload.dry_run {
-        let _ = state.spec_updated_tx.send(());
-        record_audit_log(
+    caller: Option<axum::Extension<crate::domain::permissions::Actor>>,
+    params: ProvideCommon<'_>,
+) -> Result<impl IntoResponse + use<>, AppError> {
+    let ProvideCommon {
+        api_type,
+        producername,
+        content,
+        stability,
+        dry_run,
+    } = params;
+    let res = services::provide_spec(
         &state.repo,
-        user,
-        NewAuditLog {
-            action: "PROVIDE_SPEC",
-            details: &format!(
-                "Uploaded OpenApi spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
-                payload.servicename, payload.branch, res.version,
-                res.changes.inserts, res.changes.updates, res.changes.deletes
-            ),
-            service: Some(&payload.servicename),
-            branch: Some(&payload.branch),
-            action_type: Some("WRITE"),
-            diff: None,
+        services::ProvideSpecParams {
+            producername,
+            api_type,
+            content,
+            stability,
+            dry_run,
+            caller: caller.map(|axum::Extension(a)| a),
+            expected_prior_hash: None,
         },
     )
-        .await?;
+    .await?;
+
+    if !dry_run {
+        // Skip both the broadcast and the audit entry for a no-op re-upload (no
+        // endpoint changes): nothing changed, so there is nothing for a listener
+        // to refetch and nothing worth recording. A same-content promotion is
+        // the exception — the endpoints are unchanged but the stability
+        // flipped, which listeners (and the graph) do care about. Its audit
+        // trail is the VERSION_PROMOTED entry the application layer writes.
+        if res.promoted || !res.changes.is_empty() {
+            let _ = state.spec_updated_tx.send(());
+        }
+        if !res.changes.is_empty() {
+            let version_str = res.version.to_string();
+            record_audit_log(
+                &state.repo,
+                user,
+                NewAuditLog {
+                    action: "PROVIDE_SPEC",
+                    details: &format!(
+                        "Provided {:?} spec {} for '{}' as {} (changes: +{}, ~{}, -{})",
+                        api_type,
+                        res.version,
+                        producername,
+                        res.stability.as_str(),
+                        res.changes.inserts,
+                        res.changes.updates,
+                        res.changes.deletes
+                    ),
+                    service: Some(producername),
+                    version: Some(&version_str),
+                    action_type: Some("WRITE"),
+                    diff: None,
+                },
+            )
+            .await?;
+        }
     }
 
     Ok((StatusCode::ACCEPTED, Json(res)))
 }
 
+pub async fn provide(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    caller: Option<axum::Extension<crate::domain::permissions::Actor>>,
+    Json(payload): Json<ProvideRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    provide_common(
+        &state,
+        user,
+        caller,
+        ProvideCommon {
+            api_type: ApiType::OpenApi,
+            producername: &payload.producername,
+            content: &payload.openapi_yaml,
+            stability: payload.stability,
+            dry_run: payload.dry_run,
+        },
+    )
+    .await
+}
+
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProvideAsyncApiRequest {
-    pub servicename: String,
-    pub branch: String,
+    pub producername: String,
     pub asyncapi_yaml: String,
-    pub base_version: Option<String>,
+    /// See `ProvideRequest::stability`.
+    pub stability: Stability,
     #[serde(default)]
-    pub force: bool,
+    pub dry_run: bool,
 }
 
 pub async fn provide_asyncapi(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    caller: Option<axum::Extension<crate::domain::permissions::Actor>>,
     Json(payload): Json<ProvideAsyncApiRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let actor = if let Some(axum::Extension(ref u)) = user {
-        u.username.clone()
-    } else {
-        "DevMode/Anonymous".to_string()
-    };
-
-    let res = services::provide_spec_with_actor(
-        &state.repo,
-        services::ProvideSpecParams {
-            servicename: &payload.servicename,
-            branch: &payload.branch,
-            api_type: ApiType::AsyncApi,
-            content: &payload.asyncapi_yaml,
-            base_version: payload.base_version,
-            force: payload.force,
-        },
-        Some(&actor),
-    )
-    .await?;
-    let _ = state.spec_updated_tx.send(());
-    record_audit_log(
-        &state.repo,
+    provide_common(
+        &state,
         user,
-        NewAuditLog {
-            action: "PROVIDE_SPEC",
-            details: &format!(
-            "Uploaded AsyncApi spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
-            payload.servicename, payload.branch, res.version,
-            res.changes.inserts, res.changes.updates, res.changes.deletes
-        ),
-            service: Some(&payload.servicename),
-            branch: Some(&payload.branch),
-            action_type: Some("WRITE"),
-            diff: None,
+        caller,
+        ProvideCommon {
+            api_type: ApiType::AsyncApi,
+            producername: &payload.producername,
+            content: &payload.asyncapi_yaml,
+            stability: payload.stability,
+            dry_run: payload.dry_run,
         },
     )
-    .await?;
-    Ok((StatusCode::ACCEPTED, Json(res)))
+    .await
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProvideProtoRequest {
-    pub servicename: String,
-    pub branch: String,
+    pub producername: String,
     pub proto_content: String,
-    pub base_version: Option<String>,
+    /// See `ProvideRequest::stability`.
+    pub stability: Stability,
     #[serde(default)]
-    pub force: bool,
+    pub dry_run: bool,
 }
 
 pub async fn provide_proto(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    caller: Option<axum::Extension<crate::domain::permissions::Actor>>,
     Json(payload): Json<ProvideProtoRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let actor = if let Some(axum::Extension(ref u)) = user {
-        u.username.clone()
-    } else {
-        "DevMode/Anonymous".to_string()
-    };
-
-    let res = services::provide_spec_with_actor(
-        &state.repo,
-        services::ProvideSpecParams {
-            servicename: &payload.servicename,
-            branch: &payload.branch,
-            api_type: ApiType::Proto,
-            content: &payload.proto_content,
-            base_version: payload.base_version,
-            force: payload.force,
-        },
-        Some(&actor),
-    )
-    .await?;
-    let _ = state.spec_updated_tx.send(());
-    record_audit_log(
-        &state.repo,
+    provide_common(
+        &state,
         user,
-        NewAuditLog {
-            action: "PROVIDE_SPEC",
-            details: &format!(
-            "Uploaded Proto spec for service '{}' on branch '{}' (version {}, changes: +{}, ~{}, -{})",
-            payload.servicename, payload.branch, res.version,
-            res.changes.inserts, res.changes.updates, res.changes.deletes
-        ),
-            service: Some(&payload.servicename),
-            branch: Some(&payload.branch),
-            action_type: Some("WRITE"),
-            diff: None,
+        caller,
+        ProvideCommon {
+            api_type: ApiType::Proto,
+            producername: &payload.producername,
+            content: &payload.proto_content,
+            stability: payload.stability,
+            dry_run: payload.dry_run,
         },
     )
-    .await?;
-    Ok((StatusCode::ACCEPTED, Json(res)))
+    .await
 }
 
+/// The 2.0 Require query: an exact Pin, nothing else. `deny_unknown_fields`
+/// turns 1.x parameters (`branch`, `timeout`, `pull_from_branch`, ...) into a
+/// named 400 (query-string errors answer 400; JSON body-shape errors 422).
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RequireQuery {
-    pub clientname: String,
-    pub servicename: String,
-    pub branch: String,
+    pub consumername: String,
+    pub producername: String,
+    /// The exact pinned version — no ranges, no "latest", no default.
+    pub version: SemVer,
     pub path: String,
     pub method: String,
-    pub timeout: Option<u64>,
     #[serde(default)]
     pub dry_run: bool,
+}
+
+/// Name how a require was answered: the resolution state, the version (always
+/// the Pin) and the stability it was actually served from, so a Consumer can
+/// see it is building against overwritable content without parsing the body.
+fn insert_resolution_headers(headers: &mut HeaderMap, res: &services::RequireResponse) {
+    headers.insert(
+        "X-Sanshain-Resolution",
+        HeaderValue::from_static(res.state.as_str()),
+    );
+    if let Ok(value) = HeaderValue::from_str(&res.version.to_string()) {
+        headers.insert("X-Sanshain-Version", value);
+    }
+    headers.insert(
+        "X-Sanshain-Stability",
+        HeaderValue::from_static(res.stability.as_str()),
+    );
+}
+
+fn require_response(
+    request_headers: &HeaderMap,
+    res: services::RequireResponse,
+) -> axum::response::Response {
+    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
+    let etag_value = HeaderValue::from_str(&etag).ok();
+    if let Some(ev) = &etag_value
+        && request_headers.get("if-none-match") == Some(ev)
+    {
+        return (StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response();
+    }
+
+    let mut headers = HeaderMap::new();
+    if let Some(ev) = etag_value {
+        headers.insert("ETag", ev);
+    }
+    if res.deprecated {
+        headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
+    }
+    insert_resolution_headers(&mut headers, &res);
+    (headers, res.yaml).into_response()
+}
+
+async fn require_common(
+    state: &AppState,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    query: RequireQuery,
+    api_type: ApiType,
+    request_headers: HeaderMap,
+) -> Result<axum::response::Response, AppError> {
+    let params = services::RequireEndpointParams {
+        consumername: &query.consumername,
+        producername: &query.producername,
+        version: query.version,
+        api_type,
+        path: &query.path,
+        method: &query.method,
+    };
+    let res = if query.dry_run {
+        services::require_endpoint_dry_run(&state.repo, params).await?
+    } else {
+        let res = services::require_endpoint(&state.repo, params).await?;
+        let version_str = query.version.to_string();
+        let _ = record_audit_log(
+            &state.repo,
+            user,
+            NewAuditLog {
+                action: "REQUIRE_SPEC",
+                details: &format!(
+                    "Consumer '{}' required {:?} {} {} of '{}' at version {} ({})",
+                    query.consumername,
+                    api_type,
+                    query.method,
+                    query.path,
+                    query.producername,
+                    query.version,
+                    res.stability.as_str()
+                ),
+                service: Some(&query.producername),
+                version: Some(&version_str),
+                action_type: Some("READ"),
+                diff: None,
+            },
+        )
+        .await;
+        res
+    };
+
+    Ok(require_response(&request_headers, res))
 }
 
 pub async fn require(
@@ -235,66 +321,7 @@ pub async fn require(
     Query(query): Query<RequireQuery>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
-    let params = services::RequireEndpointParams {
-        clientname: &query.clientname,
-        servicename: &query.servicename,
-        branch: &query.branch,
-        api_type: ApiType::OpenApi,
-        path: &query.path,
-        method: &query.method,
-        timeout_secs: query.timeout,
-    };
-    let res = if query.dry_run {
-        services::require_endpoint_dry_run(
-            &state.repo,
-            Some(state.spec_updated_tx.subscribe()),
-            params,
-        )
-        .await?
-    } else {
-        let res = services::require_endpoint(
-            &state.repo,
-            Some(state.spec_updated_tx.subscribe()),
-            params,
-        )
-        .await?;
-
-        let _ = record_audit_log(
-            &state.repo,
-            user,
-            NewAuditLog {
-                action: "REQUIRE_SPEC",
-                details: &format!(
-                    "Client '{}' requested OpenApi spec for service '{}' on branch '{}' ({} {})",
-                    query.clientname, query.servicename, query.branch, query.method, query.path
-                ),
-                service: Some(&query.servicename),
-                branch: Some(&query.branch),
-                action_type: Some("READ"),
-                diff: None,
-            },
-        )
-        .await;
-
-        res
-    };
-
-    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
-    let etag_value = HeaderValue::from_str(&etag).ok();
-    if let Some(ev) = &etag_value
-        && headers.get("if-none-match") == Some(ev)
-    {
-        return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
-    }
-
-    let mut headers = HeaderMap::new();
-    if let Some(ev) = etag_value {
-        headers.insert("ETag", ev);
-    }
-    if res.deprecated {
-        headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
-    }
-    Ok((headers, res.yaml).into_response())
+    require_common(&state, user, query, ApiType::OpenApi, headers).await
 }
 
 pub async fn require_asyncapi(
@@ -303,54 +330,7 @@ pub async fn require_asyncapi(
     Query(query): Query<RequireQuery>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::require_endpoint(
-        &state.repo,
-        Some(state.spec_updated_tx.subscribe()),
-        services::RequireEndpointParams {
-            clientname: &query.clientname,
-            servicename: &query.servicename,
-            branch: &query.branch,
-            api_type: ApiType::AsyncApi,
-            path: &query.path,
-            method: &query.method,
-            timeout_secs: query.timeout,
-        },
-    )
-    .await?;
-
-    let _ = record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "REQUIRE_SPEC",
-            details: &format!(
-                "Client '{}' requested AsyncApi spec for service '{}' on branch '{}' ({} {})",
-                query.clientname, query.servicename, query.branch, query.method, query.path
-            ),
-            service: Some(&query.servicename),
-            branch: Some(&query.branch),
-            action_type: Some("READ"),
-            diff: None,
-        },
-    )
-    .await;
-
-    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
-    let etag_value = HeaderValue::from_str(&etag).ok();
-    if let Some(ev) = &etag_value
-        && headers.get("if-none-match") == Some(ev)
-    {
-        return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
-    }
-
-    let mut headers = HeaderMap::new();
-    if let Some(ev) = etag_value {
-        headers.insert("ETag", ev);
-    }
-    if res.deprecated {
-        headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
-    }
-    Ok((headers, res.yaml).into_response())
+    require_common(&state, user, query, ApiType::AsyncApi, headers).await
 }
 
 pub async fn require_proto(
@@ -359,54 +339,7 @@ pub async fn require_proto(
     Query(query): Query<RequireQuery>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::require_endpoint(
-        &state.repo,
-        Some(state.spec_updated_tx.subscribe()),
-        services::RequireEndpointParams {
-            clientname: &query.clientname,
-            servicename: &query.servicename,
-            branch: &query.branch,
-            api_type: ApiType::Proto,
-            path: &query.path,
-            method: &query.method,
-            timeout_secs: query.timeout,
-        },
-    )
-    .await?;
-
-    let _ = record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "REQUIRE_SPEC",
-            details: &format!(
-                "Client '{}' requested Proto spec for service '{}' on branch '{}' ({} {})",
-                query.clientname, query.servicename, query.branch, query.method, query.path
-            ),
-            service: Some(&query.servicename),
-            branch: Some(&query.branch),
-            action_type: Some("READ"),
-            diff: None,
-        },
-    )
-    .await;
-
-    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
-    let etag_value = HeaderValue::from_str(&etag).ok();
-    if let Some(ev) = &etag_value
-        && headers.get("if-none-match") == Some(ev)
-    {
-        return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
-    }
-
-    let mut headers = HeaderMap::new();
-    if let Some(ev) = etag_value {
-        headers.insert("ETag", ev);
-    }
-    if res.deprecated {
-        headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
-    }
-    Ok((headers, res.yaml).into_response())
+    require_common(&state, user, query, ApiType::Proto, headers).await
 }
 
 #[derive(Deserialize)]
@@ -416,13 +349,16 @@ pub struct BundleEndpoint {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RequireBundleRequest {
-    pub clientname: String,
-    pub servicename: String,
-    pub branch: String,
+    pub consumername: String,
+    pub producername: String,
+    /// The exact pinned version — see `RequireQuery::version`.
+    pub version: SemVer,
     pub api_type: Option<ApiType>,
     pub endpoints: Vec<BundleEndpoint>,
-    pub timeout: Option<u64>,
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
 pub async fn require_bundle(
@@ -437,99 +373,65 @@ pub async fn require_bundle(
         .map(|e| (e.path, e.method))
         .collect();
 
-    let res = services::require_bundle(
-        &state.repo,
-        Some(state.spec_updated_tx.subscribe()),
-        services::RequireBundleParams {
-            clientname: &payload.clientname,
-            servicename: &payload.servicename,
-            branch: &payload.branch,
-            api_type: payload.api_type.unwrap_or(ApiType::OpenApi),
-            endpoints: &endpoints,
-            timeout_secs: payload.timeout,
-        },
-    )
-    .await?;
+    let params = services::RequireBundleParams {
+        consumername: &payload.consumername,
+        producername: &payload.producername,
+        version: payload.version,
+        api_type: payload.api_type.unwrap_or(ApiType::OpenApi),
+        endpoints: &endpoints,
+    };
+    let res = if payload.dry_run {
+        services::require_bundle_dry_run(&state.repo, params).await?
+    } else {
+        let res = services::require_bundle(&state.repo, params).await?;
+        let version_str = payload.version.to_string();
+        let _ = record_audit_log(
+            &state.repo,
+            user,
+            NewAuditLog {
+                action: "REQUIRE_SPEC",
+                details: &format!(
+                    "Consumer '{}' required a bundle of {} endpoints of '{}' at version {} ({})",
+                    payload.consumername,
+                    endpoints.len(),
+                    payload.producername,
+                    payload.version,
+                    res.stability.as_str()
+                ),
+                service: Some(&payload.producername),
+                version: Some(&version_str),
+                action_type: Some("READ"),
+                diff: None,
+            },
+        )
+        .await;
+        res
+    };
 
-    let _ = record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "REQUIRE_SPEC",
-            details: &format!(
-                "Client '{}' requested bundle for service '{}' on branch '{}' ({} endpoints)",
-                payload.clientname,
-                payload.servicename,
-                payload.branch,
-                endpoints.len()
-            ),
-            service: Some(&payload.servicename),
-            branch: Some(&payload.branch),
-            action_type: Some("READ"),
-            diff: None,
-        },
-    )
-    .await;
-
-    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
-    let etag_value = HeaderValue::from_str(&etag).ok();
-    if let Some(ev) = &etag_value
-        && headers.get("if-none-match") == Some(ev)
-    {
-        return Ok((StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response());
-    }
-
-    let mut headers = HeaderMap::new();
-    if let Some(ev) = etag_value {
-        headers.insert("ETag", ev);
-    }
-    if res.deprecated {
-        headers.insert("X-Sanshain-Deprecated", HeaderValue::from_static("true"));
-    }
-    Ok((headers, res.yaml).into_response())
+    Ok(require_response(&headers, res))
 }
 
-#[derive(Deserialize)]
-pub struct ReportQuery {
-    pub branch: String,
-}
-
-pub async fn report(
-    State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    Query(query): Query<ReportQuery>,
-) -> Result<impl IntoResponse, AppError> {
-    let res = services::generate_report(&state.repo, &query.branch).await?;
-    let _ = record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "REPORT",
-            details: &format!("Generated report for branch '{}'", query.branch),
-            service: None,
-            branch: Some(&query.branch),
-            action_type: Some("READ"),
-            diff: None,
-        },
-    )
-    .await;
+pub async fn report(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+    // Not audited: this JSON report is fetched to render the graph view in the
+    // UI, so auditing it would turn every graph view into an audit entry.
+    // Explicit report exports (markdown/isolation) are still audited below.
+    let res = services::generate_report(&state.repo).await?;
     Ok(Json(res))
 }
 
 pub async fn report_markdown(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
-    Query(query): Query<ReportQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::generate_report(&state.repo, &query.branch).await?;
+    let res = services::generate_report(&state.repo).await?;
     let _ = record_audit_log(
         &state.repo,
         user,
         NewAuditLog {
             action: "REPORT",
-            details: &format!("Generated Markdown report for branch '{}'", query.branch),
+            details: "Generated Markdown dependency report",
             service: None,
-            branch: Some(&query.branch),
+            version: None,
             action_type: Some("READ"),
             diff: None,
         },
@@ -547,17 +449,16 @@ pub async fn report_markdown(
 pub async fn report_isolation(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
-    Query(query): Query<ReportQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::generate_report(&state.repo, &query.branch).await?;
+    let res = services::generate_report(&state.repo).await?;
     let _ = record_audit_log(
         &state.repo,
         user,
         NewAuditLog {
             action: "REPORT",
-            details: &format!("Generated Isolation report for branch '{}'", query.branch),
+            details: "Generated Isolation report",
             service: None,
-            branch: Some(&query.branch),
+            version: None,
             action_type: Some("READ"),
             diff: None,
         },
@@ -567,54 +468,27 @@ pub async fn report_isolation(
 }
 
 #[derive(Deserialize)]
-pub struct MergedReportQuery {
-    pub branch: String,
-    pub target: String,
+pub struct ProducerVersionsQuery {
+    pub api_type: Option<ApiType>,
 }
 
-pub async fn report_merged(
+/// `GET /producers/{producername}/versions` — the version lines of one
+/// Producer: version, stability, content hash, timestamps, last provider,
+/// endpoint count, and (for snapshots) the use-based expiry. What both the UI
+/// views and "what can I upgrade to?" tooling read.
+pub async fn producer_versions(
     State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    Query(query): Query<MergedReportQuery>,
+    Path(producername): Path<String>,
+    Query(query): Query<ProducerVersionsQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::generate_merged_report(&state.repo, &query.branch, &query.target).await?;
-    let _ = record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "REPORT",
-            details: &format!(
-                "Generated merged report for branch '{}' -> '{}'",
-                query.branch, query.target
-            ),
-            service: None,
-            branch: Some(&query.branch),
-            action_type: Some("READ"),
-            diff: None,
-        },
-    )
-    .await;
-    Ok(Json(res))
-}
-
-pub async fn list_protected_branches_public(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_protected_branches(&state.repo).await?;
-    Ok(Json(res))
-}
-
-pub async fn list_branches_metadata(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_branches_with_metadata(&state.repo).await?;
-    Ok(Json(res))
+    let versions =
+        services::list_producer_versions(&state.repo, &producername, query.api_type).await?;
+    Ok(Json(versions))
 }
 
 #[derive(Deserialize)]
-pub struct VersionsQuery {
+pub struct EndpointHistoryQuery {
     pub service: String,
-    pub branch: String,
     pub api_type: Option<ApiType>,
     pub path: String,
     pub method: String,
@@ -622,12 +496,11 @@ pub struct VersionsQuery {
 
 pub async fn endpoint_versions(
     State(state): State<AppState>,
-    Query(query): Query<VersionsQuery>,
+    Query(query): Query<EndpointHistoryQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::get_endpoint_version_history(
+    let res = services::get_endpoint_history(
         &state.repo,
         &query.service,
-        &query.branch,
         query.api_type.unwrap_or(ApiType::OpenApi),
         &query.path,
         &query.method,
@@ -643,7 +516,7 @@ pub struct AuditTimelineQuery {
     pub to_date: Option<String>,
     pub action_type: Option<String>,
     pub service: Option<String>,
-    pub branch: Option<String>,
+    pub version: Option<String>,
 }
 
 pub async fn audit_timeline(
@@ -656,11 +529,25 @@ pub async fn audit_timeline(
         to_date: query.to_date,
         action_type: query.action_type,
         service_wildcard: query.service,
-        branch_wildcard: query.branch,
+        version_wildcard: query.version,
         limit,
     };
     let res = state.repo.get_audit_logs(filter).await?;
     Ok(Json(res))
+}
+
+/// The free, unauthenticated spec validator behind the landing page: runs
+/// exactly the provide-side pipeline (version extraction, splitting) with no
+/// persistence and no producer context. Always answers 200 with a verdict.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ValidateRequest {
+    pub api_type: ApiType,
+    pub content: String,
+}
+
+pub async fn validate(Json(payload): Json<ValidateRequest>) -> impl IntoResponse {
+    Json(services::validate_spec(payload.api_type, &payload.content))
 }
 
 pub async fn sse_updates(
