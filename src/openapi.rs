@@ -868,8 +868,29 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_info_version_rejects_loose_forms() {
-        for bad in ["1.0", "v2.0.0", "1.2.3.4", "one.two.three", "1.2.3+b7"] {
+    fn test_extract_info_version_accepts_short_and_v_prefixed_forms() {
+        for (input, canonical) in [
+            ("1.0", "1.0.0"),
+            ("2", "2.0.0"),
+            ("v2.0.0", "2.0.0"),
+            ("v1.2", "1.2.0"),
+        ] {
+            let yaml = format!(
+                "openapi: 3.0.3\ninfo:\n  version: \"{}\"\npaths: {{}}\n",
+                input
+            );
+            assert_eq!(
+                extract_info_version(&yaml).unwrap().to_string(),
+                canonical,
+                "'{}' normalizes with implicit zeroes",
+                input
+            );
+        }
+    }
+
+    #[test]
+    fn test_extract_info_version_rejects_malformed_forms() {
+        for bad in ["1.2.3.4", "one.two.three", "1.2.3+b7"] {
             let yaml = format!(
                 "openapi: 3.0.3\ninfo:\n  version: \"{}\"\npaths: {{}}\n",
                 bad

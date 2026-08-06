@@ -18,7 +18,7 @@ info:
     listed in `SANSHAIN_ROOT_USERS` holds every permission.
 
     See [Administration](docs/administration.md) for the concepts.
-  version: "2.1.0"
+  version: "2.2.0"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt

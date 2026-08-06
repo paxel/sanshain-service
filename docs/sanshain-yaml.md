@@ -108,7 +108,7 @@ Plugins should support both a single `provide` object and a `provides` list for 
 | `file`      | string | **yes**  | —                                | Path to the specification file.                                              |
 | `apiType`   | string | no       | `openapi`                        | Type of API: `openapi`, `asyncapi`, or `proto`.                              |
 
-The **version** of a Provide is read from the spec file itself and must be strict `MAJOR.MINOR.PATCH`:
+The **version** of a Provide is read from the spec file itself: `MAJOR[.MINOR[.PATCH]]`, optionally `v`-prefixed — omitted parts are zero and the stored form is always the full three-part version:
 
 - **OpenAPI / AsyncAPI**: the document's `info.version` field.
 - **Proto**: a mandatory `// sanshain-version: MAJOR.MINOR.PATCH` comment in the file (conventionally in the header). A missing, malformed or conflicting marker rejects the Provide.

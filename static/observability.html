@@ -420,7 +420,12 @@
         else if (filter === 'WARN') { debugs = []; infos = []; }
         else if (filter === 'ERROR') { debugs = []; infos = []; warnings = []; }
         const allLogs = [...errors, ...warnings, ...infos, ...debugs].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-        return allLogs.map(l => `[${l.timestamp.substring(11, 19)}] ${l.level.padEnd(5)} ${l.target}: ${l.message}`).join('\n');
+        // Same [service@version] context as the on-screen view: without it,
+        // exported provide/require lines name no producer at all.
+        return allLogs.map(l => {
+            const context = l.service ? `[${l.service}${l.version ? '@' + l.version : ''}] ` : '';
+            return `[${l.timestamp.substring(11, 19)}] ${l.level.padEnd(5)} ${l.target}: ${context}${l.message}`;
+        }).join('\n');
     }
 
     function copyLogs() {

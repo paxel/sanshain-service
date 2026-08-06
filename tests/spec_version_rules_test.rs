@@ -207,25 +207,14 @@ async fn provide_rejects_missing_or_loose_versions_with_guidance() {
         "got: {body}"
     );
 
-    // Loose two-part version.
-    let (status, body) = provide(&ctx, "vsvc", "snapshot", &spec_users_only("'1.0'")).await;
+    // Non-numeric version parts still get guidance naming the accepted shape.
+    let (status, body) = provide(&ctx, "vsvc", "snapshot", &spec_users_only("'1.beta'")).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(
         body["error"]
             .as_str()
             .unwrap()
-            .contains("MAJOR.MINOR.PATCH"),
-        "got: {body}"
-    );
-
-    // v-prefix.
-    let (status, body) = provide(&ctx, "vsvc", "snapshot", &spec_users_only("v2.0.0")).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(
-        body["error"]
-            .as_str()
-            .unwrap()
-            .contains("drop the 'v' prefix"),
+            .contains("MAJOR[.MINOR[.PATCH]]"),
         "got: {body}"
     );
 
@@ -240,6 +229,26 @@ async fn provide_rejects_missing_or_loose_versions_with_guidance() {
     // Nothing was stored by any of the rejections.
     let (status, _, _) = send(&ctx, "GET", "/producers/vsvc/versions", None, &[]).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn provide_accepts_v_prefixed_and_short_versions_with_implicit_zeroes() {
+    let ctx = setup().await;
+
+    // Short form: the omitted PATCH is zero, stored and answered canonically.
+    let (status, body) = provide(&ctx, "vlenient", "snapshot", &spec_users_only("'1.2'")).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
+    assert_eq!(body["version"], "1.2.0", "got: {body}");
+
+    // v-prefixed with only a MAJOR.
+    let (status, body) = provide(&ctx, "vlenient", "snapshot", &spec_users_only("v2")).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
+    assert_eq!(body["version"], "2.0.0", "got: {body}");
+
+    // Full three-part form with the v prefix.
+    let (status, body) = provide(&ctx, "vlenient", "snapshot", &spec_users_only("v3.1.4")).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
+    assert_eq!(body["version"], "3.1.4", "got: {body}");
 }
 
 #[tokio::test]

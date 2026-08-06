@@ -11,8 +11,10 @@ info:
 
     **The version lives in the spec file.** For OpenAPI and AsyncAPI it is read
     from `info.version`; for proto from a mandatory
-    `// sanshain-version: MAJOR.MINOR.PATCH` comment. It must be strict
-    three-part semver — no `v` prefix, no `-SNAPSHOT` or other suffixes.
+    `// sanshain-version: MAJOR.MINOR.PATCH` comment. Accepted spellings are
+    `MAJOR[.MINOR[.PATCH]]` with an optional leading `v` — omitted parts are
+    zero (`v2` → `2.0.0`) and the stored/answered form is always the full
+    three-part version. No `-SNAPSHOT` or other suffixes.
 
     **Stability** is declared on every Provide: `snapshot` (overwritable
     work-in-progress, expires when unused) or `ga` (immutable; the number is
@@ -28,7 +30,7 @@ info:
     **Only the canonical names** `producername` and `consumername` are
     accepted; the 1.x aliases `servicename` and `clientname` are rejected as
     unknown fields like every other branch-era leftover.
-  version: "2.1.0"
+  version: "2.2.0"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt
@@ -249,7 +251,10 @@ paths:
           in: query
           required: true
           schema: { type: string }
-          description: The exact pinned version (`MAJOR.MINOR.PATCH`). No ranges, no `latest`.
+          description: |
+            The exact pinned version (`MAJOR.MINOR.PATCH`). No ranges, no
+            `latest`. A leading `v` and omitted MINOR/PATCH are accepted and
+            normalized (`v1` → `1.0.0`).
         - name: path
           in: query
           required: true
@@ -480,7 +485,8 @@ paths:
       summary: Validate a specification without publishing anything
       description: |
         The free validator: runs exactly the provide-side pipeline — version
-        extraction (strict `MAJOR.MINOR.PATCH`) and endpoint splitting — with
+        extraction (`MAJOR[.MINOR[.PATCH]]`, optional `v` prefix) and endpoint
+        splitting — with
         no persistence and no producer context. **Unauthenticated** and
         stateless; bounded by the request body-size limit. Always answers
         `200` with a verdict, so callers parse one shape. "Valid here" means
@@ -671,7 +677,9 @@ components:
           description: Name of the Producer.
         version:
           type: string
-          description: The exact pinned version (`MAJOR.MINOR.PATCH`).
+          description: |
+            The exact pinned version (`MAJOR.MINOR.PATCH`). A leading `v` and
+            omitted MINOR/PATCH are accepted and normalized (`v1` → `1.0.0`).
         api_type:
           type: string
           enum: [openapi, asyncapi, proto]

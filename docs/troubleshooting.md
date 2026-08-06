@@ -62,7 +62,7 @@ PORT=3080 ./sanshain_service
 **Issue**: The service returns a 400 error when uploading a specification.
 **Solution**:
 - Ensure the YAML is valid.
-- Ensure the version is strict `MAJOR.MINOR.PATCH` — `info.version` for OpenAPI/AsyncAPI, exactly one `// sanshain-version:` comment for proto. No `v` prefix, no suffixes.
+- Ensure the version is `MAJOR[.MINOR[.PATCH]]` (optionally `v`-prefixed; omitted parts are zero) — `info.version` for OpenAPI/AsyncAPI, exactly one `// sanshain-version:` comment for proto. No suffixes such as `-SNAPSHOT`.
 - For OpenAPI: Ensure it's version 3.0 or 3.1.
 - For AsyncAPI: Ensure it's version 2.x or 3.x.
 - For gRPC: Ensure it's a valid `.proto` file.

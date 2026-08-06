@@ -163,20 +163,17 @@ impl SemVer {
         }
     }
 
-    /// Parse a Producer-declared spec version: strict `MAJOR.MINOR.PATCH`,
-    /// nothing else. The two rejections people will actually hit get specific
-    /// messages: a `v` prefix, and a `-SNAPSHOT` (or any suffix) — stability
-    /// is declared on the Provide, never encoded in the version string.
+    /// Parse a Producer-declared spec version: `MAJOR[.MINOR[.PATCH]]` with an
+    /// optional leading `v`; omitted parts are zero, so `v2` and `2.0` both
+    /// mean `2.0.0`. The rejection people will actually hit gets a specific
+    /// message: a `-SNAPSHOT` (or any suffix) — stability is declared on the
+    /// Provide, never encoded in the version string.
     pub fn parse_spec_version(raw: &str) -> Result<SemVer, String> {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
-            return Err("version is empty — expected MAJOR.MINOR.PATCH (e.g. 1.2.0)".to_string());
-        }
-        if trimmed.starts_with('v') || trimmed.starts_with('V') {
-            return Err(format!(
-                "invalid version '{}': drop the 'v' prefix — expected MAJOR.MINOR.PATCH (e.g. 1.2.0)",
-                trimmed
-            ));
+            return Err(
+                "version is empty — expected MAJOR[.MINOR[.PATCH]] (e.g. 1.2.0)".to_string(),
+            );
         }
         if trimmed.to_uppercase().contains("-SNAPSHOT") {
             return Err(format!(
@@ -190,13 +187,13 @@ impl SemVer {
         }
         if trimmed.contains('-') || trimmed.contains('+') {
             return Err(format!(
-                "invalid version '{}': pre-release suffixes and build metadata are not accepted — expected exactly MAJOR.MINOR.PATCH (e.g. 1.2.0)",
+                "invalid version '{}': pre-release suffixes and build metadata are not accepted — expected MAJOR[.MINOR[.PATCH]] (e.g. 1.2.0)",
                 trimmed
             ));
         }
         trimmed.parse::<SemVer>().map_err(|_| {
             format!(
-                "invalid version '{}': expected exactly MAJOR.MINOR.PATCH with numeric parts (e.g. 1.2.0)",
+                "invalid version '{}': expected MAJOR[.MINOR[.PATCH]] with numeric parts, optionally 'v'-prefixed (e.g. 1.2.0, v2.1, 2)",
                 trimmed
             )
         })
@@ -211,24 +208,27 @@ impl std::fmt::Display for SemVer {
 
 impl std::str::FromStr for SemVer {
     type Err = String;
+    /// Accepts `MAJOR[.MINOR[.PATCH]]` with an optional leading `v`/`V`;
+    /// omitted parts are zero (`v2` → `2.0.0`). The canonical form
+    /// ([`Display`](std::fmt::Display)) is always the full three-part
+    /// `MAJOR.MINOR.PATCH`, so lenient input never leaks into storage or
+    /// responses.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = s.split('.').collect();
-        if parts.len() != 3 {
+        let digits = s.strip_prefix(['v', 'V']).unwrap_or(s);
+        let parts: Vec<&str> = digits.split('.').collect();
+        if parts.is_empty() || parts.len() > 3 {
             return Err(format!("Invalid SemVer: {}", s));
         }
-        let major = parts[0]
-            .parse()
-            .map_err(|e| format!("Invalid major: {}", e))?;
-        let minor = parts[1]
-            .parse()
-            .map_err(|e| format!("Invalid minor: {}", e))?;
-        let patch = parts[2]
-            .parse()
-            .map_err(|e| format!("Invalid patch: {}", e))?;
+        let mut numbers = [0u32; 3];
+        for (slot, part) in numbers.iter_mut().zip(&parts) {
+            *slot = part
+                .parse()
+                .map_err(|e| format!("Invalid SemVer '{}': {}", s, e))?;
+        }
         Ok(SemVer {
-            major,
-            minor,
-            patch,
+            major: numbers[0],
+            minor: numbers[1],
+            patch: numbers[2],
         })
     }
 }
@@ -736,6 +736,57 @@ pub struct AuditLogFilter {
 mod tests {
     use super::*;
     use std::str::FromStr;
+
+    /// Lenient input, canonical storage: short and `v`-prefixed forms fill
+    /// omitted parts with zeroes and always display as full three-part.
+    #[test]
+    fn semver_accepts_short_and_v_prefixed_forms_with_implicit_zeroes() {
+        for (input, expected) in [
+            ("2", SemVer::new(2, 0, 0)),
+            ("1.2", SemVer::new(1, 2, 0)),
+            ("1.2.3", SemVer::new(1, 2, 3)),
+            ("v2", SemVer::new(2, 0, 0)),
+            ("v1.2", SemVer::new(1, 2, 0)),
+            ("V1.2.3", SemVer::new(1, 2, 3)),
+        ] {
+            let parsed = SemVer::from_str(input).unwrap_or_else(|e| panic!("{input}: {e}"));
+            assert_eq!(parsed, expected, "{input}");
+        }
+        assert_eq!(SemVer::from_str("v1.2").unwrap().to_string(), "1.2.0");
+    }
+
+    #[test]
+    fn semver_rejects_malformed_versions() {
+        for input in [
+            "",
+            "v",
+            "1.",
+            "1..2",
+            "1.2.3.4",
+            "one",
+            "v1.x",
+            "1.2.3-SNAPSHOT",
+        ] {
+            assert!(
+                SemVer::from_str(input).is_err(),
+                "'{input}' must be rejected"
+            );
+        }
+    }
+
+    /// The spec-version wrapper accepts the lenient forms and keeps its
+    /// specific guidance for suffixed versions.
+    #[test]
+    fn parse_spec_version_accepts_lenient_forms_and_keeps_suffix_guidance() {
+        assert_eq!(
+            SemVer::parse_spec_version(" v2.1 ").unwrap(),
+            SemVer::new(2, 1, 0)
+        );
+        let err = SemVer::parse_spec_version("1.2.0-SNAPSHOT").unwrap_err();
+        assert!(err.contains("stability"), "{err}");
+        let err = SemVer::parse_spec_version("1.2.beta").unwrap_err();
+        assert!(err.contains("MAJOR[.MINOR[.PATCH]]"), "{err}");
+    }
 
     #[test]
     fn provide_changes_is_empty_only_when_all_zero() {
