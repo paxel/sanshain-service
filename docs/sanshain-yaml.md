@@ -134,7 +134,7 @@ A list of service dependencies. Each entry results in a single `POST /require-bu
 | `outputDirectory` | string | **yes**  | —         | Directory where the merged specification file will be written.           |
 | `endpoints`       | list   | **yes**  | —         | List of endpoints/channels to require (see below).                       |
 
-The **Pin** is the whole contract: what your build downloads changes only when someone edits `version`. There is no fallback to another version and nothing waits for a version to appear — a Pin that does not exist on the server fails the require immediately (`404`).
+The **Pin** is the whole contract: what your build downloads changes only when someone edits `version`. A Pin that does not exist on the server fails the require with `404`.
 
 ### `endpoints` Entry
 

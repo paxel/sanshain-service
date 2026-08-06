@@ -50,9 +50,14 @@ PORT=3080 ./sanshain_service
 **Issue**: Your Provide was rejected — the version already exists as GA with different content, the changes are breaking without a major bump, or you sent a snapshot for a number that has gone GA.
 **Solution**: Every rejection is self-service. The response body carries `proposed_version` — the next free version, bumped by what actually changed. Set your spec's version (`info.version`, or the `// sanshain-version:` comment for proto) to it and republish. See [**API Lifecycle**](api-lifecycle.md) for the full rules.
 
+If you are sure you changed nothing, the difference is probably whitespace: content is compared
+byte-for-byte, so CRLF line endings from a Windows checkout make an identical spec count as
+different content (the 409 message says so when no endpoint content changed). Upload with LF —
+a `.gitattributes` rule (`*.yaml text eol=lf`) fixes this at the source.
+
 ### 404 on require: Unknown version
 **Issue**: `GET /require` returns 404 even though the Producer exists.
-**Solution**: The pinned `version` does not exist on the server in either stability — a Pin configuration error. There is no fallback and nothing waits. Check `GET /producers/{name}/versions` for what actually exists, and fix the Pin in your `sanshain.yaml`. Also check whether the version was a snapshot that expired unused, or was deleted by an admin.
+**Solution**: The pinned `version` does not exist on the server in either stability — a Pin configuration error. Check `GET /producers/{name}/versions` for what actually exists, and fix the Pin in your `sanshain.yaml`. Also check whether the version was a snapshot that expired unused, or was deleted by an admin.
 
 ### 410 on require: Endpoint absent
 **Issue**: `GET /require` returns 410.

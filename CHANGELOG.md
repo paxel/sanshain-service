@@ -15,6 +15,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Version rows on the producers page now offer "View spec": the full stored document opens in the
   viewer with the same version-history sidebar, diff and blame as the endpoint view — previously
   the UI only offered it as a file download.
+- When a GA re-provide differs only in bytes the splitter doesn't see (whitespace, line endings,
+  comments), the `409` now says so instead of only asking whether you forgot to bump — content
+  comparison is and stays byte-for-byte.
+
+### Changed
+- UI messages and docs no longer explain resolution by contrast with removed 1.x mechanics
+  ("fails immediately", "hard-fail", "no fallback and nothing waits"); they now state the
+  current behavior plainly (a missing Pin answers 404, a missing endpoint 410).
 
 ### Fixed
 - The observability page's log copy/download now includes the `[service@version]` context the

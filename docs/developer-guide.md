@@ -143,7 +143,7 @@ sequenceDiagram
     Handler-->>Consumer: YAML snippet, 404 or 410
 ```
 
-**No fallback, no waiting**: Resolution answers the exact Pin — GA preferred, the same-numbered snapshot as the only alternative — and fails in milliseconds otherwise. Exact pins are written by a human after the version exists, so nothing long-polls for a version to appear.
+**Exact resolution**: Resolution answers the exact Pin — GA preferred, the same-numbered snapshot as the only alternative — anything else is a `404`. Exact pins are written by a human after the version exists.
 
 **Dependency tracking**: Every *successful* `require` (unless `dry_run=true`) is recorded, building a dependency graph (Consumer A → Producer X endpoint at version) and counting as *use* for snapshot expiry. A failed require records nothing — resolution never creates graph entities.
 

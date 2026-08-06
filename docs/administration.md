@@ -56,7 +56,7 @@ The unit of administration is the **version line**: the ordered set of versions 
 
 Deleting a version is **the sole escape hatch from GA immutability** ([ADR-0003](adr/0003-versions-replace-branches.md)): it removes the version outright and frees its number for republishing. It is deliberately a heavy tool:
 
-- **Consumers pinned to the deleted version hard-fail** (`404`) on their next require — there is no fallback. The UI shows the pinned Consumers (the dependents) before the delete is confirmed; check that listing first and get the Consumers moved off the version where possible.
+- **Consumers pinned to the deleted version fail** (`404`) on their next require. The UI shows the pinned Consumers (the dependents) before the delete is confirmed; check that listing first and get the Consumers moved off the version where possible.
 - **Audited**: every delete-version writes an audit entry naming the Actor and the Consumers that were still pinned.
 - **Who may**: holders of the `manage_producers` permission on any Producer, and Maintainers on their own Producers.
 

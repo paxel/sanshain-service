@@ -50,7 +50,7 @@ Request the snippet for a single endpoint at a pinned version.
 - `dry_run`: Validate without recording a dependency.
 
 **Resolution** is immediate — GA preferred, else the same-numbered snapshot:
-- `404` **Unknown**: the producer or the pinned version does not exist. A configuration error; nothing waits for a version to appear.
+- `404` **Unknown**: the producer or the pinned version does not exist — a Pin configuration error.
 - `410` **Absent**: the pinned version exists and deliberately does not include this endpoint.
 
 Responses carry `X-Sanshain-Version` (the pin) and `X-Sanshain-Stability` (`ga` or `snapshot` — what actually answered).

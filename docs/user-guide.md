@@ -14,7 +14,7 @@ This guide covers day-to-day workflows for developers using Sanshain Service.
 - **Provide**: Upload a spec. Sanshain reads the version from the spec itself (`info.version`, or `// sanshain-version:` for proto) and splits it into per-endpoint snippets.
 - **Stability**: Declared on every Provide. `snapshot` = overwritable work-in-progress that expires when unused; `ga` = immutable, the number is permanently claimed.
 - **Require**: Request a snippet for a single endpoint at a pinned version and record the dependency.
-- **Pin**: A Consumer's exact version choice, written in its own configuration. No ranges, no `latest`, no fallback.
+- **Pin**: A Consumer's exact version choice, written in its own configuration. No ranges, no `latest`.
 - **Dry Run**: Validation-only mode for CI pipelines (`dry_run: true`).
 
 ## Build Tool Integration
@@ -53,7 +53,7 @@ full rules.
 
 ### Requiring an Endpoint
 1. Plugin calls `/require` for a specific path + method at the pinned version.
-2. Sanshain resolves immediately: GA preferred, else the same-numbered snapshot, else `404`. Nothing waits.
+2. Sanshain resolves the Pin: GA preferred, else the same-numbered snapshot, else `404`.
 3. Sanshain returns a minimal YAML/Proto containing only that operation and its models.
 4. Plugin generates client code from the returned snippet.
 

@@ -112,6 +112,16 @@ Sanshain is designed so pipelines can provide and require unconditionally on eve
 
 Re-providing byte-identical content is a no-op regardless of stability or caller — the `changes` summary comes back all zero and nothing is stored. CI re-runs of the same commit never fight, and unconditional "provide on every build" causes no churn.
 
+The comparison is **byte-for-byte**: whitespace, line endings and comments all count as content.
+Upload with LF line endings so the same spec hashes the same from every platform — the official
+client libraries normalize line endings before uploading, and for raw HTTP uploads a
+`.gitattributes` rule keeps Windows checkouts from churning:
+
+```gitattributes
+*.yaml text eol=lf
+*.proto text eol=lf
+```
+
 ### 2. Version Conflicts Are Self-Service
 
 There is no pull-merge-retry loop. If a Provide is rejected `409`, the body carries `proposed_version` — the next free number, bumped by what actually changed. The fix is always local: set the spec file's version to the proposal and republish. Two developers editing the same spec coordinate in git, as with any other file; the next publish after their merge converges the snapshot.

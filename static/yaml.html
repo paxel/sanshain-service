@@ -364,11 +364,11 @@
             const view = await res.json();
             const version = escapeHtml(queryVersion);
             if (view.state === 'absent') {
-                showMessage(`Version ${version} exists but does not include this endpoint, so it is deliberately not part of that version's API.`);
+                showMessage(`Version ${version} exists but does not include this endpoint — a Require for it answers 410.`);
                 return;
             }
             if (view.state === 'unknown' || !view.yaml) {
-                showMessage(`The ${escapeHtml(apiType)} line of this Producer has no version ${version} in either stability. A Consumer pinned to it would fail immediately.`);
+                showMessage(`The ${escapeHtml(apiType)} line of this Producer has no version ${version} in either stability — a Require pinned to it answers 404.`);
                 return;
             }
             globalVersions = [{
@@ -481,7 +481,7 @@
         if (activeVersion.yaml_content == null) {
             viewerContainer.innerHTML = isFullSpecMode
                 ? `<div class="text-slate-400 italic">The stored document for version ${escapeHtml(activeVersion.version)} could not be loaded.</div>`
-                : `<div class="text-slate-400 italic">Version ${escapeHtml(activeVersion.version)} does not include this endpoint — a deliberate absence, nothing is served from it.</div>`;
+                : `<div class="text-slate-400 italic">Version ${escapeHtml(activeVersion.version)} does not include this endpoint — a Require for it answers 410.</div>`;
             return;
         }
         const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

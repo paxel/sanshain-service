@@ -425,6 +425,25 @@ async fn ga_with_different_content_is_rejected_with_a_free_proposed_version() {
 }
 
 #[tokio::test]
+async fn ga_whitespace_only_difference_names_the_cosmetic_cause() {
+    let ctx = setup().await;
+    provide(&ctx, "svc", "ga", &spec_two_endpoints("1.0.0")).await;
+
+    // Same document with CRLF line endings: different bytes, identical
+    // endpoint content — the refusal must say the difference may be cosmetic.
+    let crlf = spec_two_endpoints("1.0.0").replace('\n', "\r\n");
+    let (status, body) = provide(&ctx, "svc", "ga", &crlf).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let message = body["error"].as_str().unwrap();
+    assert!(message.contains("byte-for-byte"), "got: {message}");
+
+    // A real content change keeps the plain forgot-to-bump diagnosis.
+    let (_, body) = provide(&ctx, "svc", "ga", &spec_two_endpoints_reworded("1.0.0")).await;
+    let message = body["error"].as_str().unwrap();
+    assert!(!message.contains("byte-for-byte"), "got: {message}");
+}
+
+#[tokio::test]
 async fn snapshot_for_a_ga_number_is_rejected_forever() {
     let ctx = setup().await;
     provide(&ctx, "svc", "ga", &spec_two_endpoints("1.0.0")).await;

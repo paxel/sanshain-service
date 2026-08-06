@@ -77,7 +77,7 @@ Removing an element from your API is always **two GA releases** within the line:
 Consumers pinned to older GA versions are unaffected — those versions are immutable and keep serving. Retirement of the *versions themselves* is a separate concern:
 
 - **Old GA versions** stay available forever by default. That is a feature: a Pin never rots out from under a Consumer.
-- **The escape hatch** is the audited **delete-version** admin action (admins, and Maintainers for their own Producers). It frees the number, and Consumers still pinned to it hard-fail (`404`) on their next require — the UI shows the pinned Consumers before confirming. See [Administration](administration.md#version-administration).
+- **The escape hatch** is the audited **delete-version** admin action (admins, and Maintainers for their own Producers). It frees the number, and Consumers still pinned to it fail (`404`) on their next require — the UI shows the pinned Consumers before confirming. See [Administration](administration.md#version-administration).
 
 ## 6. Multi-Producer Topics (AsyncAPI Message Contracts)
 

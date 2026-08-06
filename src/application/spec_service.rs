@@ -470,21 +470,35 @@ pub async fn provide_spec(
             );
             let impact = classify_change(api_type, &old_content, content, changes.inserts);
             let proposed = propose_free(&line, version.increment(impact));
+            // Bytes differ but no endpoint the splitter sees changed: the
+            // difference is almost certainly whitespace, line endings or
+            // comments — name that, or the refusal reads as gaslighting to a
+            // caller who changed nothing.
+            let cosmetic_hint = if changes.inserts == 0
+                && changes.updates == 0
+                && changes.deletes == 0
+            {
+                " (no endpoint content changed — the difference may be whitespace, line endings or comments; documents are compared byte-for-byte)"
+            } else {
+                ""
+            };
             let message = if stability == Stability::Ga {
                 format!(
-                    "version {} of {} '{}' is GA and immutable, but the submitted content differs — did you forget to increment info's version? Publish as {} instead",
+                    "version {} of {} '{}' is GA and immutable, but the submitted content differs — did you forget to increment info's version? Publish as {} instead{}",
                     version,
                     api_type.as_str(),
                     producername,
-                    proposed
+                    proposed,
+                    cosmetic_hint
                 )
             } else {
                 format!(
-                    "version {} of {} '{}' is GA — a released number can never carry a snapshot again; bump your version to {}",
+                    "version {} of {} '{}' is GA — a released number can never carry a snapshot again; bump your version to {}{}",
                     version,
                     api_type.as_str(),
                     producername,
-                    proposed
+                    proposed,
+                    cosmetic_hint
                 )
             };
             let reason = if stability == Stability::Ga {
