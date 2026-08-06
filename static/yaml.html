@@ -168,9 +168,11 @@
 </main>
 
 <script>
-    // The blame trail of one endpoint across its version line, oldest first.
-    // Entries whose yaml_content is null mark versions that do not include the
-    // endpoint (absent — a deliberate omission).
+    // The blame trail across a version line, oldest first. In endpoint mode an
+    // entry's yaml_content is one endpoint's snippet, and null marks versions
+    // that do not include the endpoint (absent — a deliberate omission). In
+    // full-spec mode it is the whole stored document, and null marks a version
+    // whose document could not be loaded.
     let globalVersions = [];
     let activeVersion = null;
     let isDiffMode = false;
@@ -204,24 +206,35 @@
     const downloadBtn = document.getElementById('download-btn');
     const viewerContainer = document.getElementById('viewer-container');
 
+    // Full-spec mode: no endpoint identity in the URL — the page shows the
+    // whole stored document of each version instead of one endpoint's snippet.
+    const isFullSpecMode = !endpointPath && !endpointMethod;
+
     // Populate Breadcrumbs & Title
-    if (serviceName && endpointPath && endpointMethod) {
+    if (serviceName && (isFullSpecMode || (endpointPath && endpointMethod))) {
         breadcrumbService.textContent = serviceName;
         breadcrumbVersion.textContent = queryVersion ? `${apiType} ${queryVersion}` : apiType;
-        endpointMethodEl.textContent = endpointMethod;
-        endpointPathEl.textContent = endpointPath;
         document.getElementById('back-link').href =
             `/producers.html?service=${encodeURIComponent(serviceName)}`;
-        // Method badge colors based on method
-        const colors = {
-            'GET': 'bg-green-100 text-green-800',
-            'POST': 'bg-blue-100 text-indigo-800',
-            'PUT': 'bg-amber-100 text-amber-800',
-            'DELETE': 'bg-red-100 text-red-800',
-            'PATCH': 'bg-purple-100 text-purple-800',
-        };
-        const mClass = colors[endpointMethod.toUpperCase()] || 'bg-slate-100 text-slate-800';
-        endpointMethodEl.className = `px-2.5 py-0.5 rounded text-sm font-semibold uppercase ${mClass}`;
+        if (isFullSpecMode) {
+            document.title = 'Sanshain - Full Spec Viewer';
+            endpointMethodEl.textContent = apiType;
+            endpointMethodEl.className = 'px-2.5 py-0.5 rounded text-sm font-semibold uppercase bg-purple-100 text-purple-700';
+            endpointPathEl.textContent = 'Full specification';
+        } else {
+            endpointMethodEl.textContent = endpointMethod;
+            endpointPathEl.textContent = endpointPath;
+            // Method badge colors based on method
+            const colors = {
+                'GET': 'bg-green-100 text-green-800',
+                'POST': 'bg-blue-100 text-indigo-800',
+                'PUT': 'bg-amber-100 text-amber-800',
+                'DELETE': 'bg-red-100 text-red-800',
+                'PATCH': 'bg-purple-100 text-purple-800',
+            };
+            const mClass = colors[endpointMethod.toUpperCase()] || 'bg-slate-100 text-slate-800';
+            endpointMethodEl.className = `px-2.5 py-0.5 rounded text-sm font-semibold uppercase ${mClass}`;
+        }
     } else {
         alert("Missing endpoint identity parameters.");
         window.location.href = "/producers.html";
@@ -230,7 +243,7 @@
     // Auth load
     checkDiscoveryAuth(async () => {
         await renderBanner();
-        await loadEndpointVersions();
+        await (isFullSpecMode ? loadFullSpecVersions() : loadEndpointVersions());
     });
 
     function attribution(v) {
@@ -255,36 +268,79 @@
 
             // Oldest first, semantically — the blame trail walks the line.
             globalVersions = [...versions].sort((a, b) => compareSemver(a.version, b.version));
-
-            // Populate selectors for diffing (all entries; an absent version
-            // diffs as an empty document, which shows the removal).
-            const optionsHtml = globalVersions.map(v =>
-                `<option value="${escapeHtml(v.version)}">${escapeHtml(v.version)} (${v.stability === 'ga' ? 'GA' : 'snapshot'})</option>`).join('');
-            diffFromSelect.innerHTML = optionsHtml;
-            diffToSelect.innerHTML = optionsHtml;
-
-            // Select default values: the queried version, else the newest
-            // version that carries the endpoint, else the newest entry.
-            const withContent = globalVersions.filter(v => v.yaml_content != null);
-            activeVersion =
-                (queryVersion && globalVersions.find(v => v.version === queryVersion))
-                || withContent[withContent.length - 1]
-                || globalVersions[globalVersions.length - 1];
-
-            if (queryCompareVersion) {
-                diffFromSelect.value = queryCompareVersion;
-                diffToSelect.value = activeVersion.version;
-                isDiffMode = true;
-            }
-
-            renderVersionsSidebar();
-            renderActiveView();
-            hideLoader();
+            presentVersions();
         } catch (e) {
             console.error(e);
             hideLoader();
             viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load versions: ${escapeHtml(e.message)}</div>`;
         }
+    }
+
+    // Full-spec mode data: the line's version metadata plus each version's
+    // stored document, fetched in parallel. The endpoint viewer's rendering
+    // (sidebar, diff, blame) then works on whole documents instead of snippets.
+    async function loadFullSpecVersions() {
+        try {
+            const res = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/versions?api_type=${encodeURIComponent(apiType)}`);
+            if (!res.ok) {
+                throw new Error(`Fetch error: ${res.status}`);
+            }
+            const allLines = await res.json();
+            const line = (allLines || []).filter(v => (v.api_type || 'openapi').toLowerCase() === apiType);
+            if (line.length === 0) {
+                hideLoader();
+                viewerContainer.innerHTML = `<div class="text-slate-400 italic">This Producer has no stored ${escapeHtml(apiType)} versions.</div>`;
+                return;
+            }
+            line.sort((a, b) => compareSemver(a.version, b.version));
+            const contents = await Promise.all(line.map(async (v) => {
+                const specRes = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/full-spec?api_type=${encodeURIComponent(apiType)}&version=${encodeURIComponent(v.version)}`);
+                return specRes.ok ? await specRes.text() : null;
+            }));
+            globalVersions = line.map((v, i) => ({
+                version: v.version,
+                stability: v.stability,
+                provided_by: v.provided_by,
+                updated_at: v.updated_at,
+                yaml_content: contents[i],
+                // A promotion keeps the content; only a new hash is a change.
+                changed: i === 0 || v.content_hash !== line[i - 1].content_hash,
+            }));
+            presentVersions();
+        } catch (e) {
+            console.error(e);
+            hideLoader();
+            viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load versions: ${escapeHtml(e.message)}</div>`;
+        }
+    }
+
+    // Shared tail of both loaders, once globalVersions is populated
+    // oldest-first: diff selectors, default selection, first render.
+    function presentVersions() {
+        // Populate selectors for diffing (all entries; an absent version
+        // diffs as an empty document, which shows the removal).
+        const optionsHtml = globalVersions.map(v =>
+            `<option value="${escapeHtml(v.version)}">${escapeHtml(v.version)} (${v.stability === 'ga' ? 'GA' : 'snapshot'})</option>`).join('');
+        diffFromSelect.innerHTML = optionsHtml;
+        diffToSelect.innerHTML = optionsHtml;
+
+        // Select default values: the queried version, else the newest
+        // version that carries content, else the newest entry.
+        const withContent = globalVersions.filter(v => v.yaml_content != null);
+        activeVersion =
+            (queryVersion && globalVersions.find(v => v.version === queryVersion))
+            || withContent[withContent.length - 1]
+            || globalVersions[globalVersions.length - 1];
+
+        if (queryCompareVersion) {
+            diffFromSelect.value = queryCompareVersion;
+            diffToSelect.value = activeVersion.version;
+            isDiffMode = true;
+        }
+
+        renderVersionsSidebar();
+        renderActiveView();
+        hideLoader();
     }
 
     // When the blame trail yields nothing, ask for the pinned version directly:
@@ -344,7 +400,7 @@
                 ? '<span class="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.5 rounded-full uppercase">changed</span>'
                 : '';
             const absentBadge = isAbsent
-                ? '<span class="text-[10px] bg-slate-100 text-slate-500 font-bold px-1.5 py-0.5 rounded-full uppercase">absent</span>'
+                ? `<span class="text-[10px] bg-slate-100 text-slate-500 font-bold px-1.5 py-0.5 rounded-full uppercase">${isFullSpecMode ? 'unavailable' : 'absent'}</span>`
                 : '';
             return `
                 <div data-version="${escapeHtml(v.version)}" class="version-card cursor-pointer border rounded-xl p-3.5 transition-all bg-white hover:border-indigo-300 ${isActive ? 'border-indigo-600 bg-indigo-50/20 ring-2 ring-indigo-600/10' : 'border-slate-200'} ${isAbsent ? 'opacity-60' : ''}">
@@ -423,7 +479,9 @@
     function renderYamlView() {
         if (!activeVersion) return;
         if (activeVersion.yaml_content == null) {
-            viewerContainer.innerHTML = `<div class="text-slate-400 italic">Version ${escapeHtml(activeVersion.version)} does not include this endpoint — a deliberate absence, nothing is served from it.</div>`;
+            viewerContainer.innerHTML = isFullSpecMode
+                ? `<div class="text-slate-400 italic">The stored document for version ${escapeHtml(activeVersion.version)} could not be loaded.</div>`
+                : `<div class="text-slate-400 italic">Version ${escapeHtml(activeVersion.version)} does not include this endpoint — a deliberate absence, nothing is served from it.</div>`;
             return;
         }
         const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -538,7 +596,8 @@
             const fromV = globalVersions.find(v => v.version === diffFromSelect.value);
             const toV = globalVersions.find(v => v.version === diffToSelect.value);
             if (fromV && toV) {
-                textToCopy = formatUnifiedDiff(contentOf(fromV).split('\n'), contentOf(toV).split('\n'), `${serviceName}.yaml`);
+                const fileExt = isFullSpecMode && apiType === 'proto' ? 'proto' : 'yaml';
+                textToCopy = formatUnifiedDiff(contentOf(fromV).split('\n'), contentOf(toV).split('\n'), `${serviceName}.${fileExt}`);
             }
         } else if (activeVersion) {
             textToCopy = contentOf(activeVersion);
@@ -563,19 +622,21 @@
 
     // Download / Export as file
     downloadBtn.onclick = () => {
+        // Endpoint snippets are always YAML; a full proto document is not.
+        const fileExt = isFullSpecMode && apiType === 'proto' ? 'proto' : 'yaml';
         let contentStr = "";
-        let filename = `${serviceName}.yaml`;
+        let filename = `${serviceName}.${fileExt}`;
 
         if (isDiffMode) {
             const fromV = globalVersions.find(v => v.version === diffFromSelect.value);
             const toV = globalVersions.find(v => v.version === diffToSelect.value);
             if (fromV && toV) {
-                contentStr = formatUnifiedDiff(contentOf(fromV).split('\n'), contentOf(toV).split('\n'), `${serviceName}.yaml`);
+                contentStr = formatUnifiedDiff(contentOf(fromV).split('\n'), contentOf(toV).split('\n'), `${serviceName}.${fileExt}`);
                 filename = `${serviceName}_${fromV.version}_to_${toV.version}.patch`;
             }
         } else if (activeVersion) {
             contentStr = contentOf(activeVersion);
-            filename = `${serviceName}_${activeVersion.version}.yaml`;
+            filename = `${serviceName}_${activeVersion.version}.${fileExt}`;
         }
 
         if (contentStr) {
@@ -741,8 +802,10 @@
         const urlParams = new URLSearchParams();
         urlParams.set('service', serviceName);
         urlParams.set('api_type', apiType);
-        urlParams.set('path', endpointPath);
-        urlParams.set('method', endpointMethod);
+        if (!isFullSpecMode) {
+            urlParams.set('path', endpointPath);
+            urlParams.set('method', endpointMethod);
+        }
 
         if (isDiffMode) {
             urlParams.set('compare_version', diffFromSelect.value);
@@ -767,7 +830,11 @@
 
     window.addEventListener('sanshain-update', () => {
         console.log('Live update received, refreshing versions...');
-        loadEndpointVersions();
+        if (isFullSpecMode) {
+            loadFullSpecVersions();
+        } else {
+            loadEndpointVersions();
+        }
     });
 </script>
 

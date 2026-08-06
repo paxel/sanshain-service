@@ -12,6 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   parameters — now accept an optional leading `v` and omitted MINOR/PATCH with implicit zeroes
   (`v2` → `2.0.0`); previously only exact `MAJOR.MINOR.PATCH` was accepted. Stored and answered
   versions stay canonical three-part.
+- Version rows on the producers page now offer "View spec": the full stored document opens in the
+  viewer with the same version-history sidebar, diff and blame as the endpoint view — previously
+  the UI only offered it as a file download.
 
 ### Fixed
 - The observability page's log copy/download now includes the `[service@version]` context the

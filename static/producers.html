@@ -384,7 +384,8 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button type="button" data-download class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-indigo-600">Full spec</button>
+                    <button type="button" data-view class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-indigo-600">View spec</button>
+                    <button type="button" data-download class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-indigo-600">Download</button>
                     ${isSnapshot && hasPermission(currentUser, 'release_ga')
                         ? '<button type="button" data-promote class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-green-50 text-green-700">Promote to GA</button>'
                         : ''}
@@ -397,6 +398,11 @@
         // Author is Consumer-supplied, unverified attribution — set as text,
         // never spliced into markup.
         card.querySelector('[data-provider]').textContent = `by ${provider}`;
+        card.querySelector('[data-view]').addEventListener('click', (e) => {
+            e.stopPropagation();
+            // No path/method params — yaml.html opens in full-spec mode.
+            window.location.href = `/yaml.html?service=${encodeURIComponent(serviceName)}&api_type=${encodeURIComponent(apiType)}&version=${encodeURIComponent(v.version)}`;
+        });
         card.querySelector('[data-download]').addEventListener('click', (e) => {
             e.stopPropagation();
             downloadFullApi(serviceName, apiType, v.version);
