@@ -53,6 +53,10 @@ pub struct ProvideRequest {
     /// becomes "trunk's current version". Orthogonal to stability.
     #[serde(default)]
     pub trunk: bool,
+    /// ADR-0005: marks this build as a sanshain-branch's (hotfix) — the
+    /// producer's member version within that branch. Exclusive with `trunk`.
+    #[serde(default)]
+    pub tag: Option<String>,
 }
 
 struct ProvideCommon<'a> {
@@ -62,6 +66,7 @@ struct ProvideCommon<'a> {
     stability: Stability,
     dry_run: bool,
     trunk: bool,
+    tag: Option<&'a str>,
 }
 
 async fn provide_common(
@@ -77,6 +82,7 @@ async fn provide_common(
         stability,
         dry_run,
         trunk,
+        tag,
     } = params;
     let res = services::provide_spec(
         &state.repo,
@@ -87,6 +93,7 @@ async fn provide_common(
             stability,
             dry_run,
             trunk,
+            tag,
             caller: caller.map(|axum::Extension(a)| a),
             expected_prior_hash: None,
         },
@@ -150,6 +157,7 @@ pub async fn provide(
             stability: payload.stability,
             dry_run: payload.dry_run,
             trunk: payload.trunk,
+            tag: payload.tag.as_deref(),
         },
     )
     .await
@@ -167,6 +175,9 @@ pub struct ProvideAsyncApiRequest {
     /// See `ProvideRequest::trunk`.
     #[serde(default)]
     pub trunk: bool,
+    /// See `ProvideRequest::tag`.
+    #[serde(default)]
+    pub tag: Option<String>,
 }
 
 pub async fn provide_asyncapi(
@@ -186,6 +197,7 @@ pub async fn provide_asyncapi(
             stability: payload.stability,
             dry_run: payload.dry_run,
             trunk: payload.trunk,
+            tag: payload.tag.as_deref(),
         },
     )
     .await
@@ -203,6 +215,9 @@ pub struct ProvideProtoRequest {
     /// See `ProvideRequest::trunk`.
     #[serde(default)]
     pub trunk: bool,
+    /// See `ProvideRequest::tag`.
+    #[serde(default)]
+    pub tag: Option<String>,
 }
 
 pub async fn provide_proto(
@@ -222,6 +237,7 @@ pub async fn provide_proto(
             stability: payload.stability,
             dry_run: payload.dry_run,
             trunk: payload.trunk,
+            tag: payload.tag.as_deref(),
         },
     )
     .await
@@ -244,6 +260,9 @@ pub struct RequireQuery {
     /// ADR-0004: record this pin in the append-only trunk store too.
     #[serde(default)]
     pub trunk: bool,
+    /// ADR-0005: the pin updates this sanshain-branch instead of trunk.
+    #[serde(default)]
+    pub tag: Option<String>,
 }
 
 /// Name how a require was answered: the resolution state, the version (always
@@ -301,6 +320,7 @@ async fn require_common(
         path: &query.path,
         method: &query.method,
         trunk: query.trunk,
+        tag: query.tag.as_deref(),
     };
     let res = if query.dry_run {
         services::require_endpoint_dry_run(&state.repo, params).await?
@@ -382,6 +402,9 @@ pub struct RequireBundleRequest {
     /// See `RequireQuery::trunk`.
     #[serde(default)]
     pub trunk: bool,
+    /// See `RequireQuery::tag`.
+    #[serde(default)]
+    pub tag: Option<String>,
 }
 
 pub async fn require_bundle(
@@ -403,6 +426,7 @@ pub async fn require_bundle(
         api_type: payload.api_type.unwrap_or(ApiType::OpenApi),
         endpoints: &endpoints,
         trunk: payload.trunk,
+        tag: payload.tag.as_deref(),
     };
     let res = if payload.dry_run {
         services::require_bundle_dry_run(&state.repo, params).await?

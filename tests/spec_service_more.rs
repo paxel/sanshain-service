@@ -64,6 +64,7 @@ fn provide_params<'a>(
         stability,
         dry_run,
         trunk: false,
+        tag: None,
         caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
         expected_prior_hash: None,
     }
@@ -128,6 +129,7 @@ async fn provide_persists_the_auto_tag() {
             stability: Stability::Snapshot,
             dry_run: false,
             trunk: false,
+            tag: None,
             caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
             expected_prior_hash: None,
         },
@@ -154,6 +156,7 @@ async fn require_bundle_with_no_endpoints_is_a_bad_request() {
         api_type: ApiType::OpenApi,
         endpoints: &[],
         trunk: false,
+        tag: None,
     };
     let res = spec_service::require_bundle_dry_run(&repo, params).await;
     match res {
@@ -191,6 +194,7 @@ async fn require_bundle_missing_endpoints_are_gone_and_listed() {
         api_type: ApiType::OpenApi,
         endpoints: &eps,
         trunk: false,
+        tag: None,
     };
     let res = spec_service::require_bundle_dry_run(&repo, params).await;
     match res {
@@ -216,6 +220,7 @@ async fn require_unknown_producer_or_version_is_not_found() {
         path: "/x",
         method: "get",
         trunk: false,
+        tag: None,
     };
     match spec_service::require_endpoint_dry_run(&repo, params).await {
         Err(AppError::NotFound(msg)) => assert!(msg.contains("unknown"), "{msg}"),
@@ -232,6 +237,7 @@ async fn require_unknown_producer_or_version_is_not_found() {
         path: "/x",
         method: "get",
         trunk: false,
+        tag: None,
     };
     match spec_service::require_endpoint_dry_run(&repo, params).await {
         Err(AppError::NotFound(msg)) => {
@@ -266,6 +272,7 @@ async fn require_absent_endpoint_of_an_existing_version_is_gone() {
         path: "/nope",
         method: "get",
         trunk: false,
+        tag: None,
     };
     match spec_service::require_endpoint(&repo, params).await {
         Err(AppError::Gone(msg)) => {
@@ -301,6 +308,7 @@ async fn successful_require_records_the_pin_and_touches_last_required() {
         path: "/x",
         method: "get",
         trunk: false,
+        tag: None,
     };
     let res = spec_service::require_endpoint(&repo, params).await.unwrap();
     assert_eq!(res.state, ResolutionState::Served);

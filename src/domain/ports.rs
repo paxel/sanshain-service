@@ -249,6 +249,26 @@ pub trait SpecRepository: Send + Sync {
         at: Option<&str>,
     ) -> impl Future<Output = Result<Vec<TrunkPinInfo>, RepositoryError>> + Send;
 
+    /// Record pins on a branch's graph, with exactly the append semantics of
+    /// [`SpecRepository::record_trunk_pins`] — the hotfix act (ADR-0005).
+    fn record_branch_pins(
+        &self,
+        branch_id: i64,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Mark the producer's member version within a branch (tag-flagged
+    /// Provide): a different version closes the open record and inserts; the
+    /// same version refreshes nothing (already current). Append-only.
+    fn record_branch_member_version(
+        &self,
+        branch_id: i64,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
     /// Delete snapshot entries that were neither provided nor required since
     /// the cutoff — GA entries are never age-culled. Returns how many died.
     fn delete_expired_snapshots(

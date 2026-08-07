@@ -112,6 +112,7 @@ async fn list_version_dependents_unknown_and_empty() {
             stability: Stability::Ga,
             dry_run: false,
             trunk: false,
+            tag: None,
             caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
             expected_prior_hash: None,
         },
@@ -144,6 +145,7 @@ async fn delete_version_returns_pinned_consumers() {
             stability: Stability::Ga,
             dry_run: false,
             trunk: false,
+            tag: None,
             caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
             expected_prior_hash: None,
         },
@@ -160,6 +162,7 @@ async fn delete_version_returns_pinned_consumers() {
             path: "/p",
             method: "GET",
             trunk: false,
+            tag: None,
         },
     )
     .await

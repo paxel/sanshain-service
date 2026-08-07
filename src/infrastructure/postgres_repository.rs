@@ -610,6 +610,117 @@ impl SpecRepository for PostgresSpecRepository {
             .collect()
     }
 
+    async fn record_branch_pins(
+        &self,
+        branch_id: i64,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> Result<(), RepositoryError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        for p in pins {
+            let key = "branch_id = $2 AND client_id = $3 AND service_id = $4 AND api_type = $5 AND normalized_path = $6 AND method = $7 AND valid_to IS NULL";
+            sqlx::query(&format!(
+                "UPDATE branch_dependencies SET valid_to = $1 WHERE {key} AND NOT (major = $8 AND minor = $9 AND patch = $10)"
+            ))
+            .bind(p.now_iso)
+            .bind(branch_id)
+            .bind(p.client_id)
+            .bind(p.service_id)
+            .bind(p.api_type.as_str())
+            .bind(p.normalized_path)
+            .bind(p.method)
+            .bind(p.version.major as i32)
+            .bind(p.version.minor as i32)
+            .bind(p.version.patch as i32)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            let refreshed = sqlx::query(&format!(
+                "UPDATE branch_dependencies SET last_required_at = $1 WHERE {key} AND major = $8 AND minor = $9 AND patch = $10"
+            ))
+            .bind(p.now_iso)
+            .bind(branch_id)
+            .bind(p.client_id)
+            .bind(p.service_id)
+            .bind(p.api_type.as_str())
+            .bind(p.normalized_path)
+            .bind(p.method)
+            .bind(p.version.major as i32)
+            .bind(p.version.minor as i32)
+            .bind(p.version.patch as i32)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            if refreshed.rows_affected() == 0 {
+                sqlx::query(
+                    "INSERT INTO branch_dependencies (branch_id, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+                )
+                .bind(branch_id)
+                .bind(p.client_id)
+                .bind(p.service_id)
+                .bind(p.api_type.as_str())
+                .bind(p.path)
+                .bind(p.normalized_path)
+                .bind(p.method)
+                .bind(p.version.major as i32)
+                .bind(p.version.minor as i32)
+                .bind(p.version.patch as i32)
+                .bind(p.now_iso)
+                .bind(p.now_iso)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            }
+        }
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn record_branch_member_version(
+        &self,
+        branch_id: i64,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "UPDATE branch_member_versions SET valid_to = $1 WHERE branch_id = $2 AND service_id = $3 AND api_type = $4 AND valid_to IS NULL AND NOT (major = $5 AND minor = $6 AND patch = $7)",
+        )
+        .bind(now_iso)
+        .bind(branch_id)
+        .bind(service_id)
+        .bind(api_type.as_str())
+        .bind(version.major as i32)
+        .bind(version.minor as i32)
+        .bind(version.patch as i32)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "INSERT INTO branch_member_versions (branch_id, service_id, api_type, major, minor, patch, valid_from) \
+             SELECT $1, $2, $3, $4, $5, $6, $7 \
+             WHERE NOT EXISTS (SELECT 1 FROM branch_member_versions WHERE branch_id = $1 AND service_id = $2 AND api_type = $3 AND valid_to IS NULL AND major = $4 AND minor = $5 AND patch = $6)",
+        )
+        .bind(branch_id)
+        .bind(service_id)
+        .bind(api_type.as_str())
+        .bind(version.major as i32)
+        .bind(version.minor as i32)
+        .bind(version.patch as i32)
+        .bind(now_iso)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
     async fn record_trunk_pins(
         &self,
         pins: Vec<RecordTrunkPinParams<'_>>,

@@ -109,6 +109,7 @@ async fn provide(repo: &SqliteSpecRepository, producer: &str, content: &str, sta
             stability,
             dry_run: false,
             trunk: false,
+            tag: None,
             caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
             expected_prior_hash: None,
         },
@@ -131,6 +132,7 @@ async fn pin_consumer(repo: &SqliteSpecRepository, consumer: &str, producer: &st
             path: "/hello",
             method: "GET",
             trunk: false,
+            tag: None,
         },
     )
     .await

@@ -613,6 +613,124 @@ impl SpecRepository for SqliteSpecRepository {
             .collect()
     }
 
+    async fn record_branch_pins(
+        &self,
+        branch_id: i64,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> Result<(), RepositoryError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        for p in pins {
+            let key = "branch_id = ? AND client_id = ? AND service_id = ? AND api_type = ? AND normalized_path = ? AND method = ? AND valid_to IS NULL";
+            sqlx::query(&format!(
+                "UPDATE branch_dependencies SET valid_to = ? WHERE {key} AND NOT (major = ? AND minor = ? AND patch = ?)"
+            ))
+            .bind(p.now_iso)
+            .bind(branch_id)
+            .bind(p.client_id)
+            .bind(p.service_id)
+            .bind(p.api_type.as_str())
+            .bind(p.normalized_path)
+            .bind(p.method)
+            .bind(p.version.major)
+            .bind(p.version.minor)
+            .bind(p.version.patch)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            let refreshed = sqlx::query(&format!(
+                "UPDATE branch_dependencies SET last_required_at = ? WHERE {key} AND major = ? AND minor = ? AND patch = ?"
+            ))
+            .bind(p.now_iso)
+            .bind(branch_id)
+            .bind(p.client_id)
+            .bind(p.service_id)
+            .bind(p.api_type.as_str())
+            .bind(p.normalized_path)
+            .bind(p.method)
+            .bind(p.version.major)
+            .bind(p.version.minor)
+            .bind(p.version.patch)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            if refreshed.rows_affected() == 0 {
+                sqlx::query(
+                    "INSERT INTO branch_dependencies (branch_id, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                )
+                .bind(branch_id)
+                .bind(p.client_id)
+                .bind(p.service_id)
+                .bind(p.api_type.as_str())
+                .bind(p.path)
+                .bind(p.normalized_path)
+                .bind(p.method)
+                .bind(p.version.major)
+                .bind(p.version.minor)
+                .bind(p.version.patch)
+                .bind(p.now_iso)
+                .bind(p.now_iso)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            }
+        }
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn record_branch_member_version(
+        &self,
+        branch_id: i64,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let key = "branch_id = ? AND service_id = ? AND api_type = ? AND valid_to IS NULL";
+        sqlx::query(&format!(
+            "UPDATE branch_member_versions SET valid_to = ? WHERE {key} AND NOT (major = ? AND minor = ? AND patch = ?)"
+        ))
+        .bind(now_iso)
+        .bind(branch_id)
+        .bind(service_id)
+        .bind(api_type.as_str())
+        .bind(version.major)
+        .bind(version.minor)
+        .bind(version.patch)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(&format!(
+            "INSERT INTO branch_member_versions (branch_id, service_id, api_type, major, minor, patch, valid_from) \
+             SELECT ?, ?, ?, ?, ?, ?, ? \
+             WHERE NOT EXISTS (SELECT 1 FROM branch_member_versions WHERE {key} AND major = ? AND minor = ? AND patch = ?)"
+        ))
+        .bind(branch_id)
+        .bind(service_id)
+        .bind(api_type.as_str())
+        .bind(version.major)
+        .bind(version.minor)
+        .bind(version.patch)
+        .bind(now_iso)
+        .bind(branch_id)
+        .bind(service_id)
+        .bind(api_type.as_str())
+        .bind(version.major)
+        .bind(version.minor)
+        .bind(version.patch)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
     async fn record_trunk_pins(
         &self,
         pins: Vec<RecordTrunkPinParams<'_>>,

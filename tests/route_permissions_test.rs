@@ -110,6 +110,7 @@ async fn provide_version(repo: &SqliteSpecRepository, producer: &str, version: &
             stability: Stability::Snapshot,
             dry_run: false,
             trunk: false,
+            tag: None,
             caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
             expected_prior_hash: None,
         },

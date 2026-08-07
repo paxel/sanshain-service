@@ -279,6 +279,14 @@ paths:
             recorded in the append-only trunk store that feeds the main graph
             (last write per endpoint wins). Omit when not using trunk/graph
             features.
+        - name: tag
+          in: query
+          required: false
+          schema: { type: string }
+          description: |
+            The pin updates the named sanshain-branch's graph instead of
+            trunk (release-branch hotfix). Mutually exclusive with `trunk`
+            (both → `400`); an unknown tag answers `404`.
       responses:
         "200":
           description: The endpoint snippet as YAML.
@@ -344,6 +352,11 @@ paths:
           required: false
           schema: { type: boolean, default: false }
           description: See `trunk` on `/require`.
+        - name: tag
+          in: query
+          required: false
+          schema: { type: string }
+          description: See `tag` on `/require`.
       responses:
         "200":
           description: The channel snippet as YAML.
@@ -402,6 +415,11 @@ paths:
           required: false
           schema: { type: boolean, default: false }
           description: See `trunk` on `/require`.
+        - name: tag
+          in: query
+          required: false
+          schema: { type: string }
+          description: See `tag` on `/require`.
       responses:
         "200":
           description: The .proto snippet.
@@ -613,6 +631,13 @@ components:
             opposed to e.g. a release-branch GA backport. Orthogonal to
             `stability`; no effect on version rules. Omit when not using
             trunk/graph features.
+        tag:
+          type: string
+          description: |
+            Marks this build as a sanshain-branch's (release-branch hotfix):
+            the producer's member version within that branch is updated.
+            Mutually exclusive with `trunk` (both → `400`); an unknown tag
+            answers `404` — a releaser must create the branch first.
 
     ProvideAsyncApiPayload:
       type: object
@@ -638,6 +663,9 @@ components:
           type: boolean
           default: false
           description: See `ProvidePayload.trunk`.
+        tag:
+          type: string
+          description: See `ProvidePayload.tag`.
 
     ProvideProtoPayload:
       type: object
@@ -663,6 +691,9 @@ components:
           type: boolean
           default: false
           description: See `ProvidePayload.trunk`.
+        tag:
+          type: string
+          description: See `ProvidePayload.tag`.
 
     ProvideResponse:
       type: object
@@ -736,6 +767,9 @@ components:
           type: boolean
           default: false
           description: See `trunk` on `/require`.
+        tag:
+          type: string
+          description: See `tag` on `/require`.
 
     ValidationReport:
       type: object

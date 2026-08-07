@@ -639,6 +639,27 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
+    async fn record_branch_pins(
+        &self,
+        branch_id: i64,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> Result<(), RepositoryError> {
+        self.inner.record_branch_pins(branch_id, pins).await
+    }
+
+    async fn record_branch_member_version(
+        &self,
+        branch_id: i64,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .record_branch_member_version(branch_id, service_id, api_type, version, now_iso)
+            .await
+    }
+
     async fn record_trunk_pins(
         &self,
         pins: Vec<RecordTrunkPinParams<'_>>,

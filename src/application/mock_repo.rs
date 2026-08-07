@@ -81,6 +81,8 @@ pub struct MockRepo {
     pub trunk_pins: Mutex<Vec<MockTrunkPin>>,
     pub branches: Mutex<Vec<BranchInfo>>,
     pub branch_pins: Mutex<Vec<(i64, MockTrunkPin)>>,
+    /// (branch_id, service_id, api_type, version, valid_from, valid_to)
+    pub branch_member_versions: Mutex<Vec<(i64, i64, ApiType, SemVer, String, Option<String>)>>,
     pub clients: Mutex<HashMap<String, i64>>,
     pub next_id: Mutex<i64>,
     pub users: Mutex<Vec<User>>,
@@ -116,6 +118,7 @@ impl MockRepo {
             trunk_pins: Mutex::new(Vec::new()),
             branches: Mutex::new(Vec::new()),
             branch_pins: Mutex::new(Vec::new()),
+            branch_member_versions: Mutex::new(Vec::new()),
             clients: Mutex::new(HashMap::new()),
             next_id: Mutex::new(1),
             users: Mutex::new(Vec::new()),
@@ -498,6 +501,83 @@ impl SpecRepository for MockRepo {
                 last_required_at: r.last_required_at.clone(),
             })
             .collect())
+    }
+
+    async fn record_branch_pins(
+        &self,
+        branch_id: i64,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> Result<(), RepositoryError> {
+        let mut rows = self
+            .branch_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        for p in pins {
+            let same_key = |r: &&mut (i64, MockTrunkPin)| {
+                r.0 == branch_id
+                    && r.1.client_id == p.client_id
+                    && r.1.service_id == p.service_id
+                    && r.1.api_type == p.api_type
+                    && r.1.normalized_path == p.normalized_path
+                    && r.1.method == p.method
+                    && r.1.valid_to.is_none()
+            };
+            if let Some(open) = rows.iter_mut().find(|r| same_key(&r)) {
+                if open.1.version == p.version {
+                    open.1.last_required_at = p.now_iso.to_string();
+                    continue;
+                }
+                open.1.valid_to = Some(p.now_iso.to_string());
+            }
+            rows.push((
+                branch_id,
+                MockTrunkPin {
+                    client_id: p.client_id,
+                    service_id: p.service_id,
+                    api_type: p.api_type,
+                    version: p.version,
+                    path: p.path.to_string(),
+                    normalized_path: p.normalized_path.to_string(),
+                    method: p.method.to_string(),
+                    valid_from: p.now_iso.to_string(),
+                    last_required_at: p.now_iso.to_string(),
+                    valid_to: None,
+                },
+            ));
+        }
+        Ok(())
+    }
+
+    async fn record_branch_member_version(
+        &self,
+        branch_id: i64,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut rows = self
+            .branch_member_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(open) = rows
+            .iter_mut()
+            .find(|r| r.0 == branch_id && r.1 == service_id && r.2 == api_type && r.5.is_none())
+        {
+            if open.3 == version {
+                return Ok(());
+            }
+            open.5 = Some(now_iso.to_string());
+        }
+        rows.push((
+            branch_id,
+            service_id,
+            api_type,
+            version,
+            now_iso.to_string(),
+            None,
+        ));
+        Ok(())
     }
 
     async fn record_trunk_pins(

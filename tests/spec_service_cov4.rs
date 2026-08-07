@@ -36,6 +36,7 @@ fn params<'a>(
         stability,
         dry_run: false,
         trunk: false,
+        tag: None,
         caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
         expected_prior_hash: None,
     }

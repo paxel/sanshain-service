@@ -31,6 +31,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   script) creates a named copy of the trunk graph — or another branch — at a chosen instant,
   including retroactively; `GET /admin/branches` lists them and
   `GET /admin/branches/{name}/graph[?at=…]` answers a branch's pin set.
+- Provides and requires accept an optional `tag=<branch>` (release-branch hotfixes): the call
+  updates that sanshain-branch's graph and member versions instead of trunk. `trunk` and `tag`
+  together answer `400`; an unknown tag answers an instructive `404` — no auto-create.
 
 ### Changed
 - UI messages and docs no longer explain resolution by contrast with removed 1.x mechanics

@@ -538,3 +538,122 @@ async fn retroactive_branch_equals_the_main_graph_as_it_was() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+// ---------------------------------------------------------------------------
+// #36 — tag on the wire: hotfix builds update their sanshain-branch
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn trunk_and_tag_together_are_rejected() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    send(&ctx, "POST", "/admin/branches", Some(json!({"name": "R"}))).await;
+
+    let (status, body) = provide_with(
+        &ctx,
+        "svc",
+        "snapshot",
+        &spec("1.0.0"),
+        &[("trunk", json!(true)), ("tag", json!("R"))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "got: {body}");
+    let msg = body["error"].as_str().unwrap();
+    assert!(msg.contains("trunk") && msg.contains("tag"), "got: {msg}");
+
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/require?consumername=c&producername=svc&version=1.0.0&path=/users&method=GET&trunk=true&tag=R",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "got: {body}");
+}
+
+#[tokio::test]
+async fn unknown_tag_is_an_instructive_404() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+
+    let (status, body) = provide_with(
+        &ctx,
+        "svc",
+        "snapshot",
+        &spec("1.0.0"),
+        &[("tag", json!("Release Mariboo"))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "got: {body}");
+    let msg = body["error"].as_str().unwrap();
+    assert!(msg.contains("releaser must create"), "got: {msg}");
+
+    let (status, _, _) = send(
+        &ctx,
+        "GET",
+        "/require?consumername=c&producername=svc&version=1.0.0&path=/users&method=GET&tag=Ghost",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn tagged_require_updates_only_its_branch() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.1.0"), &[]).await;
+    require_with(&ctx, "webapp", "svc", "1.0.0", "/users", "GET", true).await;
+    send(&ctx, "POST", "/admin/branches", Some(json!({"name": "R"}))).await;
+
+    // Hotfix: the branch pin moves to 1.1.0; trunk stays at 1.0.0.
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/require?consumername=webapp&producername=svc&version=1.1.0&path=/users&method=GET&tag=R",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+
+    let branch = branch_graph(&ctx, "R").await;
+    assert_eq!(branch.len(), 1, "got: {branch:?}");
+    assert_eq!(branch[0]["version"], "1.1.0");
+    let trunk = trunk_graph(&ctx).await;
+    assert_eq!(trunk[0]["version"], "1.0.0", "trunk must be untouched");
+
+    // The branch keeps its own history: close + insert.
+    let rows: Vec<(Option<String>,)> =
+        sqlx::query_as("SELECT valid_to FROM branch_dependencies ORDER BY id")
+            .fetch_all(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(rows.len(), 2, "got: {rows:?}");
+    assert!(rows[0].0.is_some() && rows[1].0.is_none(), "got: {rows:?}");
+}
+
+#[tokio::test]
+async fn tagged_provide_marks_the_member_version() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    send(&ctx, "POST", "/admin/branches", Some(json!({"name": "R"}))).await;
+
+    let (status, body) =
+        provide_with(&ctx, "svc", "ga", &spec("1.0.1"), &[("tag", json!("R"))]).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
+
+    let rows: Vec<(i64, i64, i64, Option<String>)> = sqlx::query_as(
+        "SELECT major, minor, patch, valid_to FROM branch_member_versions ORDER BY id",
+    )
+    .fetch_all(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 1, "got: {rows:?}");
+    assert_eq!((rows[0].0, rows[0].1, rows[0].2), (1, 0, 1));
+    assert!(rows[0].3.is_none());
+
+    // The trunk marker is NOT set by a tagged provide.
+    let versions = versions_of(&ctx, "svc").await;
+    let v101 = versions.iter().find(|v| v["version"] == "1.0.1").unwrap();
+    assert!(v101["trunk_provided_at"].is_null(), "got: {v101}");
+}

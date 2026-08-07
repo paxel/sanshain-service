@@ -102,6 +102,28 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, touch_spec_version_trunk(spec_version_id, now_iso))
     }
 
+    async fn record_branch_pins(
+        &self,
+        branch_id: i64,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, record_branch_pins(branch_id, pins))
+    }
+
+    async fn record_branch_member_version(
+        &self,
+        branch_id: i64,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            record_branch_member_version(branch_id, service_id, api_type, version, now_iso)
+        )
+    }
+
     async fn record_trunk_pins(
         &self,
         pins: Vec<RecordTrunkPinParams<'_>>,
