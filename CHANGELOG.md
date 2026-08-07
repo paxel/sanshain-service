@@ -41,8 +41,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   closes trunk pins and clears trunk markers not refreshed in time — they leave the main graph
   but stay as history — and the main graph highlights entries as stale (amber, ⚠) once they pass
   half the TTL, so forgotten producers and dead requires surface before they vanish.
-- Reports take a graph scope: `?scope=dev` (default, unchanged), `main` (trunk pins), or
-  `<branch>[@instant]` — so a release-scoped architecture or isolation report describes what
+- Reports take a graph scope: `?scope=dev` (default, unchanged), `main[@instant]` (trunk pins),
+  or `<branch>[@instant]` — so a release-scoped architecture or isolation report describes what
   production actually is. The reports page gained the matching selector.
 - The graph page draws sanshain-branches: pick one from the new branch selector. A pin whose
   version was deleted renders as a dangling reference (dotted orange, own legend entry) and heals
@@ -55,8 +55,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `…/timeline`), and releasers can "create branch here" — the retroactive release cut.
 - Reverse lookup: producer version rows show chips naming every sanshain-branch referencing that
   version (`GET /admin/producers/{name}/branch-memberships`). Graph exports (SVG/PNG/mermaid)
-  are stamped with their view, branch and instant; scoped reports carry a `Scope:` line. New
-  metrics: `sanshain_branch_updates_total{branch}` and a `sanshain_branches` gauge, with the
+  are stamped with their view, branch and instant; scoped reports carry a `Scope:` line.
+- New metrics: `sanshain_branch_updates_total{branch}` and a `sanshain_branches` gauge, with the
   branch count shown on the observability page.
 - Graph diffing (`GET /admin/graph/diff?left=…&right=…`, and a Compare panel on the graph page):
   a structured diff between any two graph selections — release vs release, release vs main, any
@@ -71,6 +71,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The observability page's log copy/download now includes the `[service@version]` context the
   on-screen view shows — previously the export dropped it, leaving provide lines without any
   reference to the producer they concern.
+- The max-age settings (snapshot, dependency, trunk) reject `days` above 36500 (~100 years) with
+  a `400`; previously any number was stored, and an absurd value could crash the cleanup task.
 
 ---
 

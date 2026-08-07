@@ -1206,3 +1206,145 @@ async fn graph_diff_names_added_removed_and_changed_pins() {
     let (status, _, _) = send(&ctx, "GET", "/admin/graph/diff?left=Ghost&right=main", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+// ---------------------------------------------------------------------------
+// Review fixes — reserved branch names, instant normalization, dangling pins
+// in the main view, and the shared report selector grammar
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn reserved_graph_names_cannot_name_a_branch() {
+    let ctx = setup().await;
+    for name in ["main", "dev"] {
+        let (status, _, body) = send(
+            &ctx,
+            "POST",
+            "/admin/branches",
+            Some(json!({ "name": name })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "got: {body}");
+        assert!(body.contains("reserved"), "got: {body}");
+    }
+
+    // Renaming an existing branch into a reserved name is refused the same way.
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({ "name": "rel-1" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "got: {body}");
+    let (status, _, body) = send(
+        &ctx,
+        "PUT",
+        "/admin/branches/rel-1",
+        Some(json!({ "new_name": "main" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "got: {body}");
+}
+
+#[tokio::test]
+async fn timeline_instants_normalize_offset_and_precision() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    assert_eq!(
+        require_with(&ctx, "web", "svc", "1.0.0", "/users", "GET", true).await,
+        StatusCode::OK
+    );
+
+    let (status, _, body) = send(&ctx, "GET", "/admin/trunk/graph", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let pins = as_json(&body);
+    let valid_from = pins[0]["valid_from"].as_str().unwrap().to_string();
+    assert!(valid_from.ends_with('Z'), "got: {valid_from}");
+
+    // The exact pin instant, expressed with a -02:00 offset and with
+    // millisecond precision: both name the same instant as the stored Z form,
+    // so both must select the pin (valid_from <= at).
+    let offset_form = chrono::DateTime::parse_from_rfc3339(&valid_from)
+        .unwrap()
+        .with_timezone(&chrono::FixedOffset::west_opt(2 * 3600).unwrap())
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, false);
+    let millis_form = format!("{}.000Z", valid_from.trim_end_matches('Z'));
+    for at in [offset_form.as_str(), millis_form.as_str()] {
+        let (status, _, body) =
+            send(&ctx, "GET", &format!("/admin/trunk/graph?at={at}"), None).await;
+        assert_eq!(status, StatusCode::OK, "at={at}: {body}");
+        let pins = as_json(&body);
+        assert_eq!(pins.as_array().unwrap().len(), 1, "at={at}: {pins}");
+        assert_eq!(pins[0]["version"], "1.0.0", "at={at}");
+    }
+
+    // A non-date instant is a 400, not a silently empty graph.
+    let (status, _, body) = send(&ctx, "GET", "/admin/trunk/graph?at=banana", None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "got: {body}");
+}
+
+#[tokio::test]
+async fn deleted_version_is_dangling_in_the_main_graph_too() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    assert_eq!(
+        require_with(&ctx, "web", "svc", "1.0.0", "/users", "GET", true).await,
+        StatusCode::OK
+    );
+
+    let (status, _, body) = send(
+        &ctx,
+        "DELETE",
+        "/admin/producers/svc/versions/openapi/1.0.0",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+
+    // The admin main-graph endpoint and the report's trunk graph both mark
+    // the pin dangling — a deleted version must look broken in every view.
+    let (status, _, body) = send(&ctx, "GET", "/admin/trunk/graph", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    assert_eq!(as_json(&body)[0]["dangling"], true, "got: {body}");
+    let report_pins = trunk_graph(&ctx).await;
+    assert_eq!(report_pins[0]["dangling"], true, "got: {report_pins:?}");
+}
+
+#[tokio::test]
+async fn report_scope_speaks_the_shared_selector_grammar() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    assert_eq!(
+        require_with(&ctx, "web", "svc", "1.0.0", "/users", "GET", true).await,
+        StatusCode::OK
+    );
+
+    // main@instant reads the trunk graph as it was — the same grammar the
+    // diff endpoint speaks, offsets normalized into the stored UTC form.
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/report?scope=main@2100-01-01T02:00:00%2B02:00",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let report = as_json(&body);
+    assert_eq!(report["scope_label"], "main@2100-01-01T00:00:00Z");
+    assert_eq!(report["dependency_graph"].as_array().unwrap().len(), 1);
+
+    // Before the pin existed: an empty graph, not an error.
+    let (status, _, body) =
+        send(&ctx, "GET", "/report?scope=main@2000-01-01T00:00:00Z", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    assert!(
+        as_json(&body)["dependency_graph"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+
+    // The dev scope has no timeline — refused, not misread as a branch name.
+    let (status, _, body) = send(&ctx, "GET", "/report?scope=dev@2100-01-01T00:00:00Z", None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "got: {body}");
+}

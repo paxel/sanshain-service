@@ -2,12 +2,50 @@
 //! of a source graph (trunk, or another branch) at a chosen instant — the
 //! release-cut act, retroactively repairable by picking a past date.
 
+use super::now_iso;
 use crate::domain::models::*;
 use crate::domain::ports::{NewAuditLog, RepositoryError, SpecRepository};
 use tracing::instrument;
 
-fn now_iso() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+/// Normalize a user-supplied RFC 3339 instant to the stored timestamp shape:
+/// UTC, second precision, `Z` suffix. Stored `valid_from`/`valid_to` stamps
+/// take part in lexicographic TEXT comparisons, so a query instant in any
+/// other offset or precision would compare wrongly instead of erroring.
+pub(crate) fn normalize_instant(field: &str, raw: &str) -> Result<String, AppError> {
+    Ok(chrono::DateTime::parse_from_rfc3339(raw)
+        .map_err(|e| AppError::BadRequest(format!("{field} is not an RFC 3339 instant: {e}")))?
+        .to_utc()
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+}
+
+/// Split a graph selector `name[@instant]`. The trailing `@<instant>` is only
+/// split off when it parses as a date, so branch names containing `@` keep
+/// working; the instant comes back normalized (see [`normalize_instant`]).
+pub(crate) fn split_selector(raw: &str) -> (&str, Option<String>) {
+    match raw.rsplit_once('@') {
+        Some((name, at)) => match normalize_instant("instant", at) {
+            Ok(normalized) => (name, Some(normalized)),
+            Err(_) => (raw, None),
+        },
+        None => (raw, None),
+    }
+}
+
+/// A branch named like a fixed graph selector ("main" is the trunk, "dev" the
+/// accumulated dev activity) would be shadowed in `/report?scope=` and the
+/// diff endpoint — creatable but unaddressable there, so refused up front.
+fn validate_branch_name(name: &str) -> Result<(), AppError> {
+    if name.is_empty() {
+        return Err(AppError::BadRequest(
+            "a sanshain-branch needs a non-empty name".to_string(),
+        ));
+    }
+    if name == "main" || name == "dev" {
+        return Err(AppError::BadRequest(format!(
+            "'{name}' is reserved for the built-in graph views and cannot name a sanshain-branch"
+        )));
+    }
+    Ok(())
 }
 
 pub struct CreateBranchParams<'a> {
@@ -27,16 +65,9 @@ pub async fn create_branch(
     params: CreateBranchParams<'_>,
 ) -> Result<BranchInfo, AppError> {
     let name = params.name.trim();
-    if name.is_empty() {
-        return Err(AppError::BadRequest(
-            "a sanshain-branch needs a non-empty name".to_string(),
-        ));
-    }
+    validate_branch_name(name)?;
     let as_of = match params.as_of {
-        Some(raw) => chrono::DateTime::parse_from_rfc3339(raw)
-            .map_err(|e| AppError::BadRequest(format!("as_of is not an RFC 3339 instant: {e}")))?
-            .to_utc()
-            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        Some(raw) => normalize_instant("as_of", raw)?,
         None => now_iso(),
     };
 
@@ -63,12 +94,22 @@ pub async fn create_branch(
             )),
             other => other.into(),
         })?;
-    match &source_branch {
+    let copied = match &source_branch {
         Some(src) => {
             repo.copy_branch_graph_to_branch(id, src.id, &as_of, &now)
-                .await?
+                .await
         }
-        None => repo.copy_trunk_graph_to_branch(id, &as_of, &now).await?,
+        None => repo.copy_trunk_graph_to_branch(id, &as_of, &now).await,
+    };
+    if let Err(e) = copied {
+        // The branch row is already committed; left behind it would hold the
+        // name as a plausible-looking empty release cut and 409 every retry.
+        if let Err(cleanup) = repo.delete_branch(id).await {
+            tracing::warn!(
+                "Could not remove sanshain-branch '{name}' after its graph copy failed: {cleanup}"
+            );
+        }
+        return Err(e.into());
     }
 
     let details = format!("Created sanshain-branch '{name}' from {source_label} as of {as_of}");
@@ -120,11 +161,7 @@ pub async fn rename_branch(
     actor: &str,
 ) -> Result<BranchInfo, AppError> {
     let new_name = new_name.trim();
-    if new_name.is_empty() {
-        return Err(AppError::BadRequest(
-            "a sanshain-branch needs a non-empty name".to_string(),
-        ));
-    }
+    validate_branch_name(new_name)?;
     let mut branch = repo
         .find_branch(name)
         .await?
@@ -197,20 +234,13 @@ pub async fn delete_branch(
     Ok(())
 }
 
-/// A branch's pin set — current, or as it was at `at`. Every pin is checked
-/// against the version store: a deleted version renders as a dangling
-/// reference (never silently dropped) and heals when re-provided.
-pub async fn get_branch_graph(
+/// Check every pin against the version store: a deleted version renders as a
+/// dangling reference (never silently dropped) and heals when re-provided.
+pub(crate) async fn mark_dangling(
     repo: &impl SpecRepository,
-    name: &str,
-    at: Option<&str>,
-) -> Result<Vec<TrunkPinInfo>, AppError> {
-    let branch = repo
-        .find_branch(name)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("no sanshain-branch '{name}'")))?;
-    let mut pins = repo.list_branch_pins(branch.id, at).await?;
-    for pin in &mut pins {
+    pins: &mut [TrunkPinInfo],
+) -> Result<(), AppError> {
+    for pin in pins.iter_mut() {
         pin.dangling = match repo.find_service(&pin.service).await? {
             Some(sid) => repo
                 .find_spec_version(sid, pin.api_type, pin.version)
@@ -219,22 +249,49 @@ pub async fn get_branch_graph(
             None => true,
         };
     }
+    Ok(())
+}
+
+/// A branch's pin set — current, or as it was at `at` — dangling references
+/// marked (see [`mark_dangling`]).
+pub async fn get_branch_graph(
+    repo: &impl SpecRepository,
+    name: &str,
+    at: Option<&str>,
+) -> Result<Vec<TrunkPinInfo>, AppError> {
+    let at = at.map(|a| normalize_instant("at", a)).transpose()?;
+    let branch = repo
+        .find_branch(name)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("no sanshain-branch '{name}'")))?;
+    let mut pins = repo.list_branch_pins(branch.id, at.as_deref()).await?;
+    mark_dangling(repo, &mut pins).await?;
     Ok(pins)
 }
 
-/// One side of a graph diff: `main[@instant]` or `<branch>[@instant]`.
-/// A trailing `@<instant>` is only split off when it parses as a date, so
-/// branch names containing `@` keep working.
+/// The main graph — current, or as it was at `at` — with dangling references
+/// marked exactly like a branch graph: a pin on a deleted version must look
+/// broken in every view, not only in branch view.
+pub async fn get_trunk_graph(
+    repo: &impl SpecRepository,
+    at: Option<&str>,
+) -> Result<Vec<TrunkPinInfo>, AppError> {
+    let at = at.map(|a| normalize_instant("at", a)).transpose()?;
+    let mut pins = match at.as_deref() {
+        Some(at) => repo.list_trunk_pins_at(at).await?,
+        None => repo.list_current_trunk_pins().await?,
+    };
+    mark_dangling(repo, &mut pins).await?;
+    Ok(pins)
+}
+
+/// One side of a graph diff: `main[@instant]` or `<branch>[@instant]`
+/// (see [`split_selector`] for the grammar).
 async fn resolve_graph_selection(
     repo: &impl SpecRepository,
     raw: &str,
 ) -> Result<Vec<TrunkPinInfo>, AppError> {
-    let (name, at) = match raw.rsplit_once('@') {
-        Some((name, at)) if chrono::DateTime::parse_from_rfc3339(at).is_ok() => {
-            (name, Some(at.to_string()))
-        }
-        _ => (raw, None),
-    };
+    let (name, at) = split_selector(raw);
     if name == "main" {
         return Ok(match at.as_deref() {
             Some(at) => repo.list_trunk_pins_at(at).await?,
@@ -353,4 +410,48 @@ pub async fn diff_graphs(
         pins_removed,
         pins_changed,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_selector_normalizes_instants_into_the_stored_form() {
+        assert_eq!(split_selector("main"), ("main", None));
+        assert_eq!(
+            split_selector("main@2026-01-01T02:00:00+02:00"),
+            ("main", Some("2026-01-01T00:00:00Z".to_string()))
+        );
+        assert_eq!(
+            split_selector("rel@2026-01-01T00:00:00.250Z"),
+            ("rel", Some("2026-01-01T00:00:00Z".to_string()))
+        );
+        // A trailing @part that is no date stays part of the name.
+        assert_eq!(
+            split_selector("release@candidate"),
+            ("release@candidate", None)
+        );
+    }
+
+    #[test]
+    fn normalize_instant_rejects_non_dates_and_names_the_field() {
+        let err = normalize_instant("at", "banana").unwrap_err();
+        match err {
+            AppError::BadRequest(msg) => assert!(msg.starts_with("at is not"), "got: {msg}"),
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+        assert_eq!(
+            normalize_instant("at", "2026-01-01T02:00:00+02:00").unwrap(),
+            "2026-01-01T00:00:00Z"
+        );
+    }
+
+    #[test]
+    fn reserved_and_empty_branch_names_are_refused() {
+        assert!(validate_branch_name("").is_err());
+        assert!(validate_branch_name("main").is_err());
+        assert!(validate_branch_name("dev").is_err());
+        assert!(validate_branch_name("rel-1").is_ok());
+    }
 }

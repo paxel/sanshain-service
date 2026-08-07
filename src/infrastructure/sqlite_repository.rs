@@ -82,6 +82,7 @@ fn hash_session_token(token: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
+use super::pin_rows::{PinRow, pin_row_to_info};
 use crate::domain::models::*;
 use crate::domain::ports::{
     EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
@@ -576,24 +577,12 @@ impl SpecRepository for SqliteSpecRepository {
         branch_id: i64,
         at: Option<&str>,
     ) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
-        type PinRow = (
-            String,
-            String,
-            String,
-            i64,
-            i64,
-            i64,
-            String,
-            String,
-            String,
-            String,
-        );
         let base = "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.method, t.valid_from, t.last_required_at \
              FROM branch_dependencies t \
              JOIN clients c ON c.id = t.client_id \
              JOIN services s ON s.id = t.service_id \
              WHERE t.branch_id = ?";
-        let rows: Vec<PinRow> = match at {
+        let rows: Vec<PinRow<i64>> = match at {
             Some(at) => {
                 sqlx::query_as(&format!(
                     "{base} AND t.valid_from <= ? AND (t.valid_to IS NULL OR t.valid_to > ?) ORDER BY c.name, s.name, t.path, t.method"
@@ -614,52 +603,11 @@ impl SpecRepository for SqliteSpecRepository {
             }
         }
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        rows.into_iter()
-            .map(
-                |(
-                    client,
-                    service,
-                    api_type,
-                    major,
-                    minor,
-                    patch,
-                    path,
-                    method,
-                    valid_from,
-                    last_required_at,
-                )| {
-                    Ok(TrunkPinInfo {
-                        client,
-                        service,
-                        api_type: api_type
-                            .parse()
-                            .map_err(|e: String| RepositoryError::Internal(e))?,
-                        version: SemVer::new(major as u32, minor as u32, patch as u32),
-                        path,
-                        method,
-                        valid_from,
-                        last_required_at,
-                        dangling: false,
-                    })
-                },
-            )
-            .collect()
+        rows.into_iter().map(pin_row_to_info).collect()
     }
 
     async fn list_trunk_pins_at(&self, at: &str) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
-        type PinRow = (
-            String,
-            String,
-            String,
-            i64,
-            i64,
-            i64,
-            String,
-            String,
-            String,
-            String,
-        );
-        let rows: Vec<PinRow> = sqlx::query_as(
+        let rows: Vec<PinRow<i64>> = sqlx::query_as(
             "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.method, t.valid_from, t.last_required_at \
              FROM trunk_dependencies t \
              JOIN clients c ON c.id = t.client_id \
@@ -672,36 +620,7 @@ impl SpecRepository for SqliteSpecRepository {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        rows.into_iter()
-            .map(
-                |(
-                    client,
-                    service,
-                    api_type,
-                    major,
-                    minor,
-                    patch,
-                    path,
-                    method,
-                    valid_from,
-                    last_required_at,
-                )| {
-                    Ok(TrunkPinInfo {
-                        client,
-                        service,
-                        api_type: api_type
-                            .parse()
-                            .map_err(|e: String| RepositoryError::Internal(e))?,
-                        version: SemVer::new(major as u32, minor as u32, patch as u32),
-                        path,
-                        method,
-                        valid_from,
-                        last_required_at,
-                        dangling: false,
-                    })
-                },
-            )
-            .collect()
+        rows.into_iter().map(pin_row_to_info).collect()
     }
 
     async fn list_graph_change_dates(
@@ -1034,19 +953,7 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn list_current_trunk_pins(&self) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
-        type PinRow = (
-            String,
-            String,
-            String,
-            i64,
-            i64,
-            i64,
-            String,
-            String,
-            String,
-            String,
-        );
-        let rows: Vec<PinRow> = sqlx::query_as(
+        let rows: Vec<PinRow<i64>> = sqlx::query_as(
             "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.method, t.valid_from, t.last_required_at \
              FROM trunk_dependencies t \
              JOIN clients c ON c.id = t.client_id \
@@ -1057,36 +964,7 @@ impl SpecRepository for SqliteSpecRepository {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        rows.into_iter()
-            .map(
-                |(
-                    client,
-                    service,
-                    api_type,
-                    major,
-                    minor,
-                    patch,
-                    path,
-                    method,
-                    valid_from,
-                    last_required_at,
-                )| {
-                    Ok(TrunkPinInfo {
-                        client,
-                        service,
-                        api_type: api_type
-                            .parse()
-                            .map_err(|e: String| RepositoryError::Internal(e))?,
-                        version: SemVer::new(major as u32, minor as u32, patch as u32),
-                        path,
-                        method,
-                        valid_from,
-                        last_required_at,
-                        dangling: false,
-                    })
-                },
-            )
-            .collect()
+        rows.into_iter().map(pin_row_to_info).collect()
     }
 
     async fn delete_expired_snapshots(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {

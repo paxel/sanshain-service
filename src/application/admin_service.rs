@@ -66,6 +66,24 @@ pub async fn find_version_entry(
         })
 }
 
+/// The Consumers pinned to a version plus the sanshain-branches referencing
+/// it. ADR-0005: release graphs are part of the informed-delete picture — a
+/// warning, never a block. Deleting anyway leaves them visibly dangling; a
+/// later re-provide heals them.
+async fn version_dependents(
+    repo: &impl SpecRepository,
+    entry: &SpecVersionMeta,
+) -> Result<Vec<String>, AppError> {
+    let mut dependents = repo.list_version_dependents(entry.id).await?;
+    for branch in repo
+        .list_branches_referencing(entry.service_id, entry.api_type, entry.version)
+        .await?
+    {
+        dependents.push(format!("sanshain-branch '{branch}'"));
+    }
+    Ok(dependents)
+}
+
 /// The Consumers currently pinned to a version — surfaced *before* a
 /// delete-version is confirmed, because deleting a depended-on version means
 /// those builds hard-fail. Visible, not hidden.
@@ -76,17 +94,7 @@ pub async fn list_version_dependents(
     version: SemVer,
 ) -> Result<Vec<String>, AppError> {
     let entry = find_version_entry(repo, producer, api_type, version).await?;
-    let mut dependents = repo.list_version_dependents(entry.id).await?;
-    // ADR-0005: release graphs referencing the version are part of the
-    // informed-delete picture — a warning, never a block. Deleting anyway
-    // leaves them visibly dangling; a later re-provide heals them.
-    for branch in repo
-        .list_branches_referencing(entry.service_id, api_type, version)
-        .await?
-    {
-        dependents.push(format!("sanshain-branch '{branch}'"));
-    }
-    Ok(dependents)
+    version_dependents(repo, &entry).await
 }
 
 /// The sole escape hatch from GA immutability (ADR-0003): delete the version
@@ -99,13 +107,7 @@ pub async fn delete_version(
     version: SemVer,
 ) -> Result<Vec<String>, AppError> {
     let entry = find_version_entry(repo, producer, api_type, version).await?;
-    let mut dependents = repo.list_version_dependents(entry.id).await?;
-    for branch in repo
-        .list_branches_referencing(entry.service_id, api_type, version)
-        .await?
-    {
-        dependents.push(format!("sanshain-branch '{branch}'"));
-    }
+    let dependents = version_dependents(repo, &entry).await?;
     repo.delete_spec_version(entry.id).await?;
     Ok(dependents)
 }
@@ -246,18 +248,34 @@ pub async fn list_consumer_endpoints(
     Ok(repo.list_consumer_endpoints(client_name).await?)
 }
 
+/// Upper bound for every *_max_age_days setting (~100 years): far beyond any
+/// real retention need, and small enough that the chrono duration math on the
+/// cleanup and report paths can never overflow (chrono panics on overflow).
+pub const MAX_AGE_DAYS_LIMIT: u64 = 36_500;
+
+fn validate_max_age_days(days: u64) -> Result<(), AppError> {
+    if days > MAX_AGE_DAYS_LIMIT {
+        return Err(AppError::BadRequest(format!(
+            "days must be at most {MAX_AGE_DAYS_LIMIT}"
+        )));
+    }
+    Ok(())
+}
+
 pub async fn get_snapshot_max_age_days(repo: &impl SpecRepository) -> Result<u64, AppError> {
     let val = repo
         .get_setting("snapshot_max_age_days")
         .await?
         .unwrap_or("30".to_string());
-    Ok(val.parse().unwrap_or(30))
+    // The clamp covers values stored before the setter validated.
+    Ok(val.parse().unwrap_or(30).min(MAX_AGE_DAYS_LIMIT))
 }
 
 pub async fn set_snapshot_max_age_days(
     repo: &impl SpecRepository,
     days: u64,
 ) -> Result<(), AppError> {
+    validate_max_age_days(days)?;
     repo.set_setting("snapshot_max_age_days", &days.to_string())
         .await?;
     Ok(())
@@ -280,13 +298,14 @@ pub async fn get_dependency_max_age_days(repo: &impl SpecRepository) -> Result<u
         .get_setting("dependency_max_age_days")
         .await?
         .unwrap_or("30".to_string());
-    Ok(val.parse().unwrap_or(30))
+    Ok(val.parse().unwrap_or(30).min(MAX_AGE_DAYS_LIMIT))
 }
 
 pub async fn set_dependency_max_age_days(
     repo: &impl SpecRepository,
     days: u64,
 ) -> Result<(), AppError> {
+    validate_max_age_days(days)?;
     repo.set_setting("dependency_max_age_days", &days.to_string())
         .await?;
     Ok(())
@@ -309,10 +328,11 @@ pub async fn get_trunk_max_age_days(repo: &impl SpecRepository) -> Result<u64, A
         .get_setting("trunk_max_age_days")
         .await?
         .unwrap_or("90".to_string());
-    Ok(val.parse().unwrap_or(90))
+    Ok(val.parse().unwrap_or(90).min(MAX_AGE_DAYS_LIMIT))
 }
 
 pub async fn set_trunk_max_age_days(repo: &impl SpecRepository, days: u64) -> Result<(), AppError> {
+    validate_max_age_days(days)?;
     repo.set_setting("trunk_max_age_days", &days.to_string())
         .await?;
     Ok(())
@@ -394,6 +414,35 @@ mod tests {
         repo.ensure_service("svc").await.unwrap();
         assert!(delete_producer(&repo, "svc").await.unwrap());
         assert!(!delete_producer(&repo, "svc").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn max_age_settings_reject_and_clamp_absurd_values() {
+        let repo = MockRepo::new();
+        for result in [
+            set_snapshot_max_age_days(&repo, MAX_AGE_DAYS_LIMIT + 1).await,
+            set_dependency_max_age_days(&repo, MAX_AGE_DAYS_LIMIT + 1).await,
+            set_trunk_max_age_days(&repo, MAX_AGE_DAYS_LIMIT + 1).await,
+        ] {
+            assert!(matches!(result, Err(AppError::BadRequest(_))));
+        }
+        set_trunk_max_age_days(&repo, MAX_AGE_DAYS_LIMIT)
+            .await
+            .unwrap();
+        assert_eq!(
+            get_trunk_max_age_days(&repo).await.unwrap(),
+            MAX_AGE_DAYS_LIMIT
+        );
+
+        // A value stored before the setter validated is clamped on read, so
+        // the chrono duration math on the report/cleanup paths cannot panic.
+        repo.set_setting("snapshot_max_age_days", "999999999999999")
+            .await
+            .unwrap();
+        assert_eq!(
+            get_snapshot_max_age_days(&repo).await.unwrap(),
+            MAX_AGE_DAYS_LIMIT
+        );
     }
 
     #[tokio::test]

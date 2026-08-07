@@ -227,50 +227,44 @@ function getFilteredReport(report) {
   let deps = [...(report.dependency_graph || [])];
   let missing = report.missing_endpoints;
 
+  // Pin-set views show the version line's stored stability, looked up from
+  // the report's detailed services (a dangling pin's line is gone → "ga").
+  const stabilityOf = (t) => {
+    const svc = (report.services_detailed || []).find((s) => s.name === t.service);
+    const v = svc
+      ? (svc.versions || []).find(
+          (x) =>
+            x.version === t.version &&
+            (x.api_type || "openapi").toLowerCase() === (t.api_type || "openapi").toLowerCase(),
+        )
+      : null;
+    return v ? v.stability : "ga";
+  };
+  const pinAsDep = (t) => ({
+    api_type: t.api_type,
+    client: t.client,
+    service: t.service,
+    version: t.version,
+    stability: stabilityOf(t),
+    path: t.path,
+    method: t.method,
+    deprecated: false,
+    last_required_at: t.last_required_at,
+    dangling: !!t.dangling,
+  });
+
   // Branch view (ADR-0005): the edges are the branch's pin set, dangling
-  // references included; overlays are dev-view data.
+  // references included; overlays are dev-view data. The circular/focus/
+  // protocol filters below apply to pin sets like to any other view.
   if (window.graphStreamView === "branch") {
-    deps = (window.graphTimelinePins || window.graphBranchPins || []).map((t) => ({
-      api_type: t.api_type,
-      client: t.client,
-      service: t.service,
-      version: t.version,
-      stability: "ga",
-      path: t.path,
-      method: t.method,
-      deprecated: false,
-      last_required_at: t.last_required_at,
-      dangling: !!t.dangling,
-    }));
+    deps = (window.graphTimelinePins || window.graphBranchPins || []).map(pinAsDep);
     missing = [];
-    return { ...report, dependency_graph: deps, missing_endpoints: missing };
   }
 
   // Main view (ADR-0004): the edges are the current trunk pin set, not the
   // accumulated dev activity; the missing-endpoints overlay is dev-view data.
   if (window.graphStreamView === "main") {
-    const stabilityOf = (t) => {
-      const svc = (report.services_detailed || []).find((s) => s.name === t.service);
-      const v = svc
-        ? (svc.versions || []).find(
-            (x) =>
-              x.version === t.version &&
-              (x.api_type || "openapi").toLowerCase() === (t.api_type || "openapi").toLowerCase(),
-          )
-        : null;
-      return v ? v.stability : "ga";
-    };
-    deps = (window.graphTimelinePins || report.trunk_graph || []).map((t) => ({
-      api_type: t.api_type,
-      client: t.client,
-      service: t.service,
-      version: t.version,
-      stability: stabilityOf(t),
-      path: t.path,
-      method: t.method,
-      deprecated: false,
-      last_required_at: t.last_required_at,
-    }));
+    deps = (window.graphTimelinePins || report.trunk_graph || []).map(pinAsDep);
     missing = [];
   }
 
@@ -1162,6 +1156,7 @@ function renderCustomGraph(report, svgElement, direction) {
     path.setAttribute("d", d);
     const isBidirectionalPubSub = pubsubBidirectional.has(key);
     const isMessagingRegister = messagingRegisterEdges.has(key);
+    const hFlags = edgeHighlightFlags.get(key);
     let edgeColor, edgeWidth, markerEnd;
     if (isCycle) {
       edgeColor = "#a855f7";
@@ -1179,7 +1174,17 @@ function renderCustomGraph(report, svgElement, direction) {
       edgeColor = "#94a3b8";
       edgeWidth = "2";
       markerEnd = "";
-    } else if (edgeHighlightFlags.get(key) && edgeHighlightFlags.get(key).conflict) {
+    } else if (hFlags && hFlags.dangling) {
+      // The pinned version no longer exists (deleted); heals on re-provide.
+      edgeColor = "#ea580c";
+      edgeWidth = "2";
+      markerEnd = "url(#arrow-orange)";
+    } else if (hFlags && hFlags.stale) {
+      // Main view: the pin was not refreshed since the staleness boundary.
+      edgeColor = "#f59e0b";
+      edgeWidth = "2";
+      markerEnd = "url(#arrow)";
+    } else if (hFlags && hFlags.conflict) {
       // Main view: the pin lags the producer's trunk version by a major.
       edgeColor = "#dc2626";
       edgeWidth = "3";
@@ -1202,22 +1207,18 @@ function renderCustomGraph(report, svgElement, direction) {
     else if (isBidirectionalPubSub) path.dataset.edgeType = "pubsub-bidir";
     else path.dataset.edgeType = "normal";
     // Independent highlight flags + base styling, so the Outdated /
-    // Snapshot-pinned toggles can restyle and restore without a redraw.
-    const hFlags = edgeHighlightFlags.get(key);
+    // Snapshot-pinned toggles can restyle and restore without a redraw. The
+    // stale/dangling colors live in edgeColor above, so baseStroke keeps them.
     path.dataset.outdated = hFlags && hFlags.outdated ? "1" : "0";
     path.dataset.snapshot = hFlags && hFlags.snapshot ? "1" : "0";
     path.dataset.conflict = hFlags && hFlags.conflict ? "1" : "0";
     path.dataset.stale = hFlags && hFlags.stale ? "1" : "0";
     if (hFlags && hFlags.stale) {
-      path.setAttribute("stroke", "#f59e0b");
       path.setAttribute("stroke-dasharray", "3 4");
-      path.dataset.baseStroke = "#f59e0b";
     }
     path.dataset.dangling = hFlags && hFlags.dangling ? "1" : "0";
     if (hFlags && hFlags.dangling) {
-      path.setAttribute("stroke", "#ea580c");
       path.setAttribute("stroke-dasharray", "2 5");
-      path.dataset.baseStroke = "#ea580c";
     }
     path.dataset.baseStroke = edgeColor;
     path.dataset.baseWidth = edgeWidth;

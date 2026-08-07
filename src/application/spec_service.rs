@@ -5,6 +5,7 @@
 //! and either gets exactly that or fails immediately — no fallback, no
 //! waiting. All decisions live here; repositories persist what they are told.
 
+use super::now_iso;
 use crate::asyncapi;
 use crate::domain::models::*;
 use crate::domain::permissions::{Actor, Permission};
@@ -92,10 +93,6 @@ fn content_hash(content: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
     format!("sha256:{}", hex::encode(hasher.finalize()))
-}
-
-fn now_iso() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
 /// Resolve the declared stream (ADR-0004/0005): `trunk` and `tag` are
@@ -451,22 +448,16 @@ pub async fn provide_spec(
             "publishing GA for '{}' requires the 'releaser' role — publish as a snapshot, or ask an administrator to grant the role",
             producername
         );
-        // Telemetry only for Producers that exist: the producer name becomes a
-        // Prometheus label and an audit row, and this refusal fires before
-        // `ensure_service` — without the check, any authenticated non-releaser
-        // could mint unbounded label cardinality out of made-up names.
-        if repo.find_service(producername).await?.is_some() {
-            record_version_rejection(
-                repo,
-                dry_run,
-                username,
-                producername,
-                version,
-                "ga_requires_releaser",
-                &message,
-            )
-            .await;
-        }
+        record_version_rejection(
+            repo,
+            dry_run,
+            username,
+            producername,
+            version,
+            "ga_requires_releaser",
+            &message,
+        )
+        .await;
         return Err(AppError::ForbiddenWithReason(message));
     }
 
@@ -714,48 +705,45 @@ pub async fn provide_spec(
             })
             .collect(),
     };
-    if let Err(e) = repo.upsert_spec_version(record).await {
+    let entry_id = match repo.upsert_spec_version(record).await {
+        Ok(id) => id,
         // A CAS refusal deserves a remedy, not a bare "Conflict" — and an
         // accurate one: the guard has three arms (row released concurrently,
         // row overwritten, row vanished), so re-read to say which happened.
-        if matches!(e, crate::domain::ports::RepositoryError::Conflict)
-            && expected_prior_hash.is_some()
-        {
-            // The refusal is already decided; the re-read only makes the
-            // message accurate. If it fails — most likely under exactly the
-            // write load that caused the conflict — degrade the message
-            // rather than escalate the 409 into a 500.
-            let message = match repo.find_spec_version(sid, api_type, version).await {
-                Ok(Some(entry)) if entry.stability == Stability::Ga => format!(
-                    "version {} was released concurrently — nothing left to do",
-                    version
-                ),
-                Ok(Some(_)) => {
-                    "the snapshot changed while releasing — reload and promote again".to_string()
-                }
-                Ok(None) => format!(
-                    "version {} was deleted while releasing — nothing left to promote",
-                    version
-                ),
-                Err(_) => "the version moved while releasing — reload and retry".to_string(),
-            };
-            return Err(AppError::Conflict(message));
+        Err(e) => {
+            if matches!(e, crate::domain::ports::RepositoryError::Conflict)
+                && expected_prior_hash.is_some()
+            {
+                // The refusal is already decided; the re-read only makes the
+                // message accurate. If it fails — most likely under exactly the
+                // write load that caused the conflict — degrade the message
+                // rather than escalate the 409 into a 500.
+                let message = match repo.find_spec_version(sid, api_type, version).await {
+                    Ok(Some(entry)) if entry.stability == Stability::Ga => format!(
+                        "version {} was released concurrently — nothing left to do",
+                        version
+                    ),
+                    Ok(Some(_)) => {
+                        "the snapshot changed while releasing — reload and promote again"
+                            .to_string()
+                    }
+                    Ok(None) => format!(
+                        "version {} was deleted while releasing — nothing left to promote",
+                        version
+                    ),
+                    Err(_) => "the version moved while releasing — reload and retry".to_string(),
+                };
+                return Err(AppError::Conflict(message));
+            }
+            return Err(e.into());
         }
-        return Err(e.into());
-    }
+    };
 
     apply_contract_ops(repo, contract_ops).await?;
 
     // The write landed; stamp the trunk marker on the (possibly fresh) entry.
-    // The upsert does not return the row id, so resolve it from the line.
-    if trunk
-        && let Some(entry) = repo
-            .list_spec_versions(sid)
-            .await?
-            .into_iter()
-            .find(|v| v.api_type == api_type && v.version == version)
-    {
-        repo.touch_spec_version_trunk(entry.id, &now_iso()).await?;
+    if trunk {
+        repo.touch_spec_version_trunk(entry_id, &now_iso()).await?;
     }
     // A tagged provide marks the member version within its branch (ADR-0005).
     if let Some(branch) = &tag_branch {

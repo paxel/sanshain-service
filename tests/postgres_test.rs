@@ -366,3 +366,55 @@ async fn test_postgres_trunk_pins_append_only() {
     assert_eq!(rows[0], (Some("2026-08-07T11:00:00Z".to_string()), 0));
     assert_eq!(rows[1], (None, 1));
 }
+
+#[tokio::test]
+async fn postgres_audit_stream_filter_is_bound() {
+    use sanshain_service::domain::models::AuditLogFilter;
+    use sanshain_service::domain::ports::{NewAuditLog, SpecRepository};
+
+    let postgres_container = Postgres::default().start().await.unwrap();
+    let host = postgres_container.get_host().await.unwrap();
+    let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
+    let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .unwrap();
+    let repo = PostgresSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+
+    for stream in [Some("trunk"), None] {
+        repo.insert_audit_log(
+            "tester",
+            NewAuditLog {
+                action: "TRUNK_PIN",
+                details: "d",
+                service: None,
+                version: None,
+                action_type: Some("WRITE"),
+                diff: None,
+                stream,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    // The stream predicate must bind its value; before the fix the query had
+    // one more placeholder than bound parameters and answered an error.
+    let logs = repo
+        .get_audit_logs(AuditLogFilter {
+            from_date: None,
+            to_date: None,
+            action_type: None,
+            service_wildcard: None,
+            version_wildcard: None,
+            stream: Some("trunk".to_string()),
+            limit: 10,
+        })
+        .await
+        .unwrap();
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].stream.as_deref(), Some("trunk"));
+}

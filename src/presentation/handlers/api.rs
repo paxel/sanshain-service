@@ -488,7 +488,7 @@ pub async fn report(
     // Not audited: this JSON report is fetched to render the graph view in the
     // UI, so auditing it would turn every graph view into an audit entry.
     // Explicit report exports (markdown/isolation) are still audited below.
-    let scope = services::ReportScope::parse(query.scope.as_deref());
+    let scope = services::ReportScope::parse(query.scope.as_deref())?;
     let res = services::generate_scoped_report(&state.repo, scope).await?;
     Ok(Json(res))
 }
@@ -498,7 +498,7 @@ pub async fn report_markdown(
     user: Option<axum::Extension<crate::domain::models::User>>,
     Query(query): Query<ReportQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let scope = services::ReportScope::parse(query.scope.as_deref());
+    let scope = services::ReportScope::parse(query.scope.as_deref())?;
     let res = services::generate_scoped_report(&state.repo, scope).await?;
     let _ = record_audit_log(
         &state.repo,
@@ -528,7 +528,7 @@ pub async fn report_isolation(
     user: Option<axum::Extension<crate::domain::models::User>>,
     Query(query): Query<ReportQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let scope = services::ReportScope::parse(query.scope.as_deref());
+    let scope = services::ReportScope::parse(query.scope.as_deref())?;
     let res = services::generate_scoped_report(&state.repo, scope).await?;
     let _ = record_audit_log(
         &state.repo,

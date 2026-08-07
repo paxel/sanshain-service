@@ -3,36 +3,34 @@ use crate::domain::ports::SpecRepository;
 use tracing::instrument;
 
 /// The graph a report describes (ADR-0005): the accumulated dev activity
-/// (default), the current trunk pin set, or a sanshain-branch — optionally at
-/// a past instant (`<branch>@<rfc3339>`).
+/// (default), the trunk pin set, or a sanshain-branch — main and branches
+/// optionally at a past instant (`main@<rfc3339>`, `<branch>@<rfc3339>`).
 pub enum ReportScope {
     Dev,
-    Main,
+    Main { at: Option<String> },
     Branch { name: String, at: Option<String> },
 }
 
 impl ReportScope {
-    /// `scope=dev|main|<branch>[@rfc3339]`. A trailing `@<instant>` is only
-    /// split off when it parses as a date, so branch names containing `@`
-    /// keep working.
-    pub fn parse(raw: Option<&str>) -> ReportScope {
-        match raw {
-            None | Some("dev") => ReportScope::Dev,
-            Some("main") => ReportScope::Main,
-            Some(other) => {
-                if let Some((name, at)) = other.rsplit_once('@')
-                    && chrono::DateTime::parse_from_rfc3339(at).is_ok()
-                {
-                    return ReportScope::Branch {
-                        name: name.to_string(),
-                        at: Some(at.to_string()),
-                    };
-                }
-                ReportScope::Branch {
-                    name: other.to_string(),
-                    at: None,
-                }
-            }
+    /// `scope=dev|main[@rfc3339]|<branch>[@rfc3339]` — the same selector
+    /// grammar the graph-diff endpoint speaks (see
+    /// [`super::branch_service::split_selector`]).
+    pub fn parse(raw: Option<&str>) -> Result<ReportScope, AppError> {
+        let Some(raw) = raw else {
+            return Ok(ReportScope::Dev);
+        };
+        match super::branch_service::split_selector(raw) {
+            ("dev", None) => Ok(ReportScope::Dev),
+            ("dev", Some(_)) => Err(AppError::BadRequest(
+                "the dev scope is accumulated activity and has no timeline — \
+                 read main or a sanshain-branch at an instant instead"
+                    .to_string(),
+            )),
+            ("main", at) => Ok(ReportScope::Main { at }),
+            (name, at) => Ok(ReportScope::Branch {
+                name: name.to_string(),
+                at,
+            }),
         }
     }
 }
@@ -44,14 +42,34 @@ async fn pins_as_dependency_graph(
     repo: &impl SpecRepository,
     pins: Vec<TrunkPinInfo>,
 ) -> Result<Vec<DependencyInfo>, AppError> {
+    // A pin set names the same (service, version) many times; resolve each
+    // service and version line once instead of once per pin.
+    let mut service_ids: std::collections::HashMap<String, Option<i64>> = Default::default();
+    let mut stabilities: std::collections::HashMap<(i64, ApiType, SemVer), Stability> =
+        Default::default();
     let mut graph = Vec::with_capacity(pins.len());
     for pin in pins {
-        let stability = match repo.find_service(&pin.service).await? {
-            Some(sid) => repo
-                .find_spec_version(sid, pin.api_type, pin.version)
-                .await?
-                .map(|v| v.stability)
-                .unwrap_or(Stability::Ga),
+        let sid = match service_ids.get(&pin.service) {
+            Some(cached) => *cached,
+            None => {
+                let looked_up = repo.find_service(&pin.service).await?;
+                service_ids.insert(pin.service.clone(), looked_up);
+                looked_up
+            }
+        };
+        let stability = match sid {
+            Some(sid) => match stabilities.get(&(sid, pin.api_type, pin.version)) {
+                Some(cached) => *cached,
+                None => {
+                    let looked_up = repo
+                        .find_spec_version(sid, pin.api_type, pin.version)
+                        .await?
+                        .map(|v| v.stability)
+                        .unwrap_or(Stability::Ga);
+                    stabilities.insert((sid, pin.api_type, pin.version), looked_up);
+                    looked_up
+                }
+            },
             None => Stability::Ga,
         };
         graph.push(DependencyInfo {
@@ -79,12 +97,18 @@ pub async fn generate_scoped_report(
     let mut report = generate_report(repo).await?;
     match scope {
         ReportScope::Dev => {}
-        ReportScope::Main => {
-            let pins = repo.list_current_trunk_pins().await?;
+        ReportScope::Main { at } => {
+            let pins = match at.as_deref() {
+                Some(at) => repo.list_trunk_pins_at(at).await?,
+                None => repo.list_current_trunk_pins().await?,
+            };
             report.dependency_graph = pins_as_dependency_graph(repo, pins).await?;
             report.missing_endpoints = Vec::new();
             report.unused_endpoints = Vec::new();
-            report.scope_label = Some("main".to_string());
+            report.scope_label = Some(match at {
+                Some(at) => format!("main@{at}"),
+                None => "main".to_string(),
+            });
         }
         ReportScope::Branch { name, at } => {
             let branch = repo
@@ -109,6 +133,9 @@ pub async fn generate_report(repo: &impl SpecRepository) -> Result<DependencyRep
     let mut report = repo.get_report().await?;
     report.service_tags = repo.get_all_service_tags().await?;
     report.trunk_graph = repo.list_current_trunk_pins().await?;
+    // A pin on a deleted version must look broken in the main view too, not
+    // only in branch view (ADR-0005: dangling, never silently healthy).
+    super::branch_service::mark_dangling(repo, &mut report.trunk_graph).await?;
     // The staleness boundary for the main graph (ADR-0004): trunk entries not
     // refreshed since half the TTL are highlighted as forgotten-in-progress.
     let ttl_days = super::admin_service::get_trunk_max_age_days(repo).await?;
@@ -225,6 +252,34 @@ mod tests {
             trunk_graph: vec![],
             trunk_stale_before: None,
             scope_label: None,
+        }
+    }
+
+    #[test]
+    fn report_scope_parse_speaks_the_shared_selector_grammar() {
+        assert!(matches!(
+            ReportScope::parse(None).unwrap(),
+            ReportScope::Dev
+        ));
+        assert!(matches!(
+            ReportScope::parse(Some("dev")).unwrap(),
+            ReportScope::Dev
+        ));
+        assert!(ReportScope::parse(Some("dev@2026-01-01T00:00:00Z")).is_err());
+        assert!(matches!(
+            ReportScope::parse(Some("main")).unwrap(),
+            ReportScope::Main { at: None }
+        ));
+        match ReportScope::parse(Some("main@2026-01-01T02:00:00+02:00")).unwrap() {
+            ReportScope::Main { at } => assert_eq!(at.as_deref(), Some("2026-01-01T00:00:00Z")),
+            _ => panic!("expected the main scope"),
+        }
+        match ReportScope::parse(Some("rel-1")).unwrap() {
+            ReportScope::Branch { name, at } => {
+                assert_eq!(name, "rel-1");
+                assert!(at.is_none());
+            }
+            _ => panic!("expected a branch scope"),
         }
     }
 

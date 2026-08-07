@@ -1250,7 +1250,7 @@ pub async fn set_trunk_max_age(
             details: &format!("Set trunk max age to {} days", payload.days),
             service: None,
             version: None,
-            action_type: Some("WRITE"),
+            action_type: Some("ADMIN"),
             diff: None,
             stream: None,
         },
@@ -1272,7 +1272,7 @@ pub async fn trigger_trunk_cleanup(
             details: &format!("Triggered trunk cleanup, closed {closed} stale trunk pins"),
             service: None,
             version: None,
-            action_type: Some("WRITE"),
+            action_type: Some("ADMIN"),
             diff: None,
             stream: None,
         },
@@ -1286,10 +1286,7 @@ pub async fn admin_trunk_graph(
     State(state): State<AppState>,
     Query(query): Query<BranchGraphQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let pins = match query.at.as_deref() {
-        Some(at) => state.repo.list_trunk_pins_at(at).await?,
-        None => state.repo.list_current_trunk_pins().await?,
-    };
+    let pins = services::get_trunk_graph(&state.repo, query.at.as_deref()).await?;
     Ok(Json(pins))
 }
 
