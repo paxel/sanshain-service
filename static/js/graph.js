@@ -81,10 +81,15 @@ function graphLatestGaMap(report) {
 // Outdated or Snapshot-pinned Pin? Map key -> { outdated, snapshot }.
 function graphEdgeFlags(report, latestGaMap, trunkVersionMap) {
   const flags = new Map();
+  const staleBefore = trunkVersionMap ? report.trunk_stale_before : null;
   (report.dependency_graph || []).forEach((d) => {
     const key = `${d.client}-->${d.service}`;
-    if (!flags.has(key)) flags.set(key, { outdated: false, snapshot: false, conflict: false });
+    if (!flags.has(key))
+      flags.set(key, { outdated: false, snapshot: false, conflict: false, stale: false });
     const f = flags.get(key);
+    // Main view: a pin not refreshed since half the trunk TTL is a
+    // forgotten thing — shown as such before the cleanup culls it.
+    if (staleBefore && d.last_required_at && d.last_required_at < staleBefore) f.stale = true;
     if (d.stability === "snapshot") f.snapshot = true;
     const typeKey = `${d.service}|${(d.api_type || "openapi").toLowerCase()}`;
     const latestGa = latestGaMap.get(typeKey);
@@ -233,6 +238,7 @@ function getFilteredReport(report) {
       path: t.path,
       method: t.method,
       deprecated: false,
+      last_required_at: t.last_required_at,
     }));
     missing = [];
   }
@@ -1042,6 +1048,12 @@ function renderCustomGraph(report, svgElement, direction) {
     path.dataset.outdated = hFlags && hFlags.outdated ? "1" : "0";
     path.dataset.snapshot = hFlags && hFlags.snapshot ? "1" : "0";
     path.dataset.conflict = hFlags && hFlags.conflict ? "1" : "0";
+    path.dataset.stale = hFlags && hFlags.stale ? "1" : "0";
+    if (hFlags && hFlags.stale) {
+      path.setAttribute("stroke", "#f59e0b");
+      path.setAttribute("stroke-dasharray", "3 4");
+      path.dataset.baseStroke = "#f59e0b";
+    }
     path.dataset.baseStroke = edgeColor;
     path.dataset.baseWidth = edgeWidth;
     if (isMissing || isBidirectionalPubSub || isMessagingRegister)
@@ -1218,15 +1230,23 @@ function renderCustomGraph(report, svgElement, direction) {
         trunkVersionMap.get(`${node}|asyncapi`) ||
         trunkVersionMap.get(`${node}|proto`);
       if (trunkV) {
+        const svcMeta = serviceMetaMap.get(node);
+        const staleBefore = report.trunk_stale_before;
+        const newestTrunkStamp = ((svcMeta && svcMeta.versions) || [])
+          .filter((v) => v.trunk_provided_at)
+          .map((v) => v.trunk_provided_at)
+          .sort()
+          .pop();
+        const isStale = staleBefore && newestTrunkStamp && newestTrunkStamp < staleBefore;
         const vText = document.createElementNS("http://www.w3.org/2000/svg", "text");
         vText.setAttribute("x", nd.x);
         vText.setAttribute("y", nd.y + nd.height / 2 - 7);
         vText.setAttribute("text-anchor", "middle");
-        vText.setAttribute("fill", textColor);
+        vText.setAttribute("fill", isStale ? "#f59e0b" : textColor);
         vText.setAttribute("font-size", "10");
         vText.setAttribute("font-family", "ui-monospace, monospace");
-        vText.setAttribute("opacity", "0.75");
-        vText.textContent = `v${trunkV}`;
+        vText.setAttribute("opacity", "0.9");
+        vText.textContent = isStale ? `⚠ v${trunkV}` : `v${trunkV}`;
         group.appendChild(vText);
       }
     }

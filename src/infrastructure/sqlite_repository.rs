@@ -613,6 +613,29 @@ impl SpecRepository for SqliteSpecRepository {
             .collect()
     }
 
+    async fn close_expired_trunk_data(
+        &self,
+        cutoff_iso: &str,
+        now_iso: &str,
+    ) -> Result<u64, RepositoryError> {
+        let closed = sqlx::query(
+            "UPDATE trunk_dependencies SET valid_to = ? WHERE valid_to IS NULL AND last_required_at < ?",
+        )
+        .bind(now_iso)
+        .bind(cutoff_iso)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "UPDATE spec_versions SET trunk_provided_at = NULL WHERE trunk_provided_at IS NOT NULL AND trunk_provided_at < ?",
+        )
+        .bind(cutoff_iso)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(closed.rows_affected())
+    }
+
     async fn rename_branch(&self, branch_id: i64, new_name: &str) -> Result<(), RepositoryError> {
         let res = sqlx::query("UPDATE sanshain_branches SET name = ? WHERE id = ?")
             .bind(new_name)
@@ -1268,6 +1291,7 @@ impl SpecRepository for SqliteSpecRepository {
 
         Ok(DependencyReport {
             trunk_graph: Vec::new(),
+            trunk_stale_before: None,
             unused_endpoints,
             missing_endpoints,
             dependency_graph,

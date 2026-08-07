@@ -807,3 +807,88 @@ async fn branch_delete_is_admin_gated_and_frees_the_name() {
             .unwrap();
     assert_eq!(audit[0].0, 1);
 }
+
+// ---------------------------------------------------------------------------
+// #35 — trunk TTL: stale trunk data is closed (never deleted)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn trunk_ttl_setting_defaults_to_90_and_roundtrips() {
+    let ctx = setup().await;
+    let (status, _, body) = send(&ctx, "GET", "/admin/settings/trunk-max-age", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    assert_eq!(as_json(&body)["days"], 90);
+
+    let (status, _, _) = send(
+        &ctx,
+        "POST",
+        "/admin/settings/trunk-max-age",
+        Some(json!({"days": 30})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, _, body) = send(&ctx, "GET", "/admin/settings/trunk-max-age", None).await;
+    assert_eq!(as_json(&body)["days"], 30);
+}
+
+#[tokio::test]
+async fn trunk_cleanup_closes_stale_rows_and_keeps_history() {
+    let ctx = setup().await;
+    provide_with(
+        &ctx,
+        "old-svc",
+        "snapshot",
+        &spec("1.0.0"),
+        &[("trunk", json!(true))],
+    )
+    .await;
+    provide_with(
+        &ctx,
+        "fresh-svc",
+        "snapshot",
+        &spec("1.0.0"),
+        &[("trunk", json!(true))],
+    )
+    .await;
+    require_with(&ctx, "webapp", "old-svc", "1.0.0", "/users", "GET", true).await;
+    require_with(&ctx, "webapp", "fresh-svc", "1.0.0", "/users", "GET", true).await;
+
+    // Age one producer's trunk data far past the TTL.
+    sqlx::query("UPDATE trunk_dependencies SET last_required_at = '2020-01-01T00:00:00Z' WHERE service_id = (SELECT id FROM services WHERE name = 'old-svc')")
+        .execute(&ctx.pool).await.unwrap();
+    sqlx::query("UPDATE spec_versions SET trunk_provided_at = '2020-01-01T00:00:00Z' WHERE service_id = (SELECT id FROM services WHERE name = 'old-svc')")
+        .execute(&ctx.pool).await.unwrap();
+
+    let (status, _, body) = send(&ctx, "POST", "/admin/cleanup/trunk", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+
+    // The stale pin left the current view — closed, not deleted.
+    let edges = trunk_graph(&ctx).await;
+    assert_eq!(edges.len(), 1, "got: {edges:?}");
+    assert_eq!(edges[0]["service"], "fresh-svc");
+    let rows: Vec<(Option<String>,)> = sqlx::query_as(
+        "SELECT valid_to FROM trunk_dependencies WHERE service_id = (SELECT id FROM services WHERE name = 'old-svc')",
+    )
+    .fetch_all(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 1, "history preserved: {rows:?}");
+    assert!(rows[0].0.is_some(), "row closed, not deleted: {rows:?}");
+
+    // The stale trunk marker is cleared; the fresh one survives.
+    let old = versions_of(&ctx, "old-svc").await;
+    assert!(old[0]["trunk_provided_at"].is_null(), "got: {}", old[0]);
+    let fresh = versions_of(&ctx, "fresh-svc").await;
+    assert!(
+        fresh[0]["trunk_provided_at"].is_string(),
+        "got: {}",
+        fresh[0]
+    );
+
+    // The report names the staleness boundary for the UI.
+    let (_, _, body) = send(&ctx, "GET", "/report", None).await;
+    assert!(
+        as_json(&body)["trunk_stale_before"].is_string(),
+        "got: {body}"
+    );
+}

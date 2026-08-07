@@ -503,6 +503,40 @@ impl SpecRepository for MockRepo {
             .collect())
     }
 
+    async fn close_expired_trunk_data(
+        &self,
+        cutoff_iso: &str,
+        now_iso: &str,
+    ) -> Result<u64, RepositoryError> {
+        let mut closed = 0;
+        for row in self
+            .trunk_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter_mut()
+        {
+            if row.valid_to.is_none() && row.last_required_at.as_str() < cutoff_iso {
+                row.valid_to = Some(now_iso.to_string());
+                closed += 1;
+            }
+        }
+        for entry in self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter_mut()
+        {
+            if entry
+                .trunk_provided_at
+                .as_deref()
+                .is_some_and(|t| t < cutoff_iso)
+            {
+                entry.trunk_provided_at = None;
+            }
+        }
+        Ok(closed)
+    }
+
     async fn rename_branch(&self, branch_id: i64, new_name: &str) -> Result<(), RepositoryError> {
         let mut branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
         if branches
@@ -955,6 +989,7 @@ impl SpecRepository for MockRepo {
 
         Ok(DependencyReport {
             trunk_graph: Vec::new(),
+            trunk_stale_before: None,
             unused_endpoints,
             missing_endpoints,
             dependency_graph,

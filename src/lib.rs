@@ -150,6 +150,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/cleanup/snapshots", post(admin::trigger_snapshot_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/settings/dependency-max-age", get(admin::get_dependency_max_age).post(admin::set_dependency_max_age).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/cleanup/dependencies", post(admin::trigger_dependency_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        .route("/admin/settings/trunk-max-age", get(admin::get_trunk_max_age).post(admin::set_trunk_max_age).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        .route("/admin/cleanup/trunk", post(admin::trigger_trunk_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/users", get(admin::admin_list_users).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
         .route("/admin/users/{id}/approve", post(admin::admin_approve_user).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
         .route("/admin/users/{id}", delete(admin::admin_delete_user_handler).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))

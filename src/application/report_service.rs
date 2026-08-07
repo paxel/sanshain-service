@@ -7,6 +7,14 @@ pub async fn generate_report(repo: &impl SpecRepository) -> Result<DependencyRep
     let mut report = repo.get_report().await?;
     report.service_tags = repo.get_all_service_tags().await?;
     report.trunk_graph = repo.list_current_trunk_pins().await?;
+    // The staleness boundary for the main graph (ADR-0004): trunk entries not
+    // refreshed since half the TTL are highlighted as forgotten-in-progress.
+    let ttl_days = super::admin_service::get_trunk_max_age_days(repo).await?;
+    if ttl_days > 0 {
+        let boundary = chrono::Utc::now() - chrono::Duration::hours(ttl_days as i64 * 12);
+        report.trunk_stale_before =
+            Some(boundary.to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+    }
     Ok(report)
 }
 
@@ -107,6 +115,7 @@ mod tests {
             missing_endpoints: vec![],
             unused_endpoints: vec![],
             trunk_graph: vec![],
+            trunk_stale_before: None,
         }
     }
 

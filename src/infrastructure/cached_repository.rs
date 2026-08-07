@@ -639,6 +639,24 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
+    async fn close_expired_trunk_data(
+        &self,
+        cutoff_iso: &str,
+        now_iso: &str,
+    ) -> Result<u64, RepositoryError> {
+        let closed = self
+            .inner
+            .close_expired_trunk_data(cutoff_iso, now_iso)
+            .await?;
+        // Trunk edges ride the report; markers ride version metas.
+        if !self.is_disabled() {
+            self.report_cache.invalidate_all();
+            self.spec_version_cache.invalidate_all();
+            self.services_cache.invalidate_all();
+        }
+        Ok(closed)
+    }
+
     async fn rename_branch(&self, branch_id: i64, new_name: &str) -> Result<(), RepositoryError> {
         self.inner.rename_branch(branch_id, new_name).await
     }

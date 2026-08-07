@@ -152,6 +152,22 @@
                 <div id="branches-list" class="space-y-2 text-sm"></div>
             </section>
 
+            <!-- Trunk TTL (ADR-0004) -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold text-slate-800">Trunk Data TTL</h2>
+                    <p class="text-sm text-slate-500 mt-1">Trunk pins and markers not refreshed within this window are closed out of the main graph (history is kept). Stale entries are highlighted in the main graph first. Set 0 to disable.</p>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <input type="number" id="trunk-max-age-days" min="0" value="90"
+                        class="w-24 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    <span class="text-sm text-slate-500">days</span>
+                    <button onclick="saveTrunkMaxAge()" class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors">Save</button>
+                    <button onclick="triggerTrunkCleanup()" class="px-3 py-1.5 bg-slate-600 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors">Run Cleanup</button>
+                    <span id="trunk-cleanup-result" class="text-sm text-slate-500"></span>
+                </div>
+            </section>
+
             <!-- Snapshot Cleanup -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="mb-4">
@@ -572,6 +588,7 @@
             loadDatabaseInfo();
             loadCacheConfig();
             loadBranches();
+            loadTrunkMaxAge();
             loadSnapshotMaxAge();
             loadDependencyMaxAge();
             loadServices();
@@ -647,6 +664,33 @@
         }
 
         // --- Snapshot Cleanup ---
+        // --- Trunk TTL (ADR-0004) ---
+        async function loadTrunkMaxAge() {
+            try {
+                const res = await apiCall('/admin/settings/trunk-max-age');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('trunk-max-age-days').value = data.days;
+                }
+            } catch (e) { console.warn('Could not load trunk max age:', e); }
+        }
+
+        async function saveTrunkMaxAge() {
+            const days = parseInt(document.getElementById('trunk-max-age-days').value, 10);
+            const res = await apiCall('/admin/settings/trunk-max-age', { method: 'POST', body: { days } });
+            document.getElementById('trunk-cleanup-result').textContent = res.ok ? 'Saved.' : 'Save failed.';
+        }
+
+        async function triggerTrunkCleanup() {
+            const res = await apiCall('/admin/cleanup/trunk', { method: 'POST' });
+            if (res.ok) {
+                const data = await res.json();
+                document.getElementById('trunk-cleanup-result').textContent = `Closed ${data.closed} stale trunk pins.`;
+            } else {
+                document.getElementById('trunk-cleanup-result').textContent = 'Cleanup failed.';
+            }
+        }
+
         // --- Sanshain-branches (ADR-0005) ---
         async function loadBranches() {
             const list = document.getElementById('branches-list');

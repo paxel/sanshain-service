@@ -37,6 +37,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Sanshain-branches can be renamed (repairing a botched name; membership and timeline survive)
   and deleted (freeing the name) — admin-only, audited, from the admin dashboard's new
   Sanshain-Branches section or `PUT`/`DELETE /admin/branches/{name}`.
+- Trunk data ages visibly: a configurable month-scale TTL (`trunk_max_age_days`, default 90)
+  closes trunk pins and clears trunk markers not refreshed in time — they leave the main graph
+  but stay as history — and the main graph highlights entries as stale (amber, ⚠) once they pass
+  half the TTL, so forgotten producers and dead requires surface before they vanish.
 
 ### Changed
 - UI messages and docs no longer explain resolution by contrast with removed 1.x mechanics

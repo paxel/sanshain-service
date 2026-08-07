@@ -1207,3 +1207,53 @@ pub async fn admin_delete_branch(
     services::delete_branch(&state.repo, &name, &actor).await?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+pub async fn get_trunk_max_age(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let res = services::get_trunk_max_age_days(&state.repo).await?;
+    Ok(Json(json!({ "days": res })))
+}
+
+pub async fn set_trunk_max_age(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Json(payload): Json<MaxAgeDaysPayload>,
+) -> Result<impl IntoResponse, AppError> {
+    services::set_trunk_max_age_days(&state.repo, payload.days).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "SETTINGS_CHANGED",
+            details: &format!("Set trunk max age to {} days", payload.days),
+            service: None,
+            version: None,
+            action_type: Some("WRITE"),
+            diff: None,
+        },
+    )
+    .await?;
+    Ok(Json(json!({ "days": payload.days })))
+}
+
+pub async fn trigger_trunk_cleanup(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+) -> Result<impl IntoResponse, AppError> {
+    let closed = services::cleanup_stale_trunk_data(&state.repo).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "TRUNK_CLEANUP",
+            details: &format!("Triggered trunk cleanup, closed {closed} stale trunk pins"),
+            service: None,
+            version: None,
+            action_type: Some("WRITE"),
+            diff: None,
+        },
+    )
+    .await?;
+    Ok(Json(json!({ "closed": closed })))
+}

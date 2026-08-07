@@ -574,6 +574,10 @@ pub struct DependencyReport {
     /// Populated by the application layer; empty in raw repository results.
     #[serde(default)]
     pub trunk_graph: Vec<TrunkPinInfo>,
+    /// Trunk entries not refreshed since this instant are stale (half the
+    /// trunk TTL). `None` when the TTL is disabled. Application-populated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trunk_stale_before: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]

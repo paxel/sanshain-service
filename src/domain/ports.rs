@@ -249,6 +249,16 @@ pub trait SpecRepository: Send + Sync {
         at: Option<&str>,
     ) -> impl Future<Output = Result<Vec<TrunkPinInfo>, RepositoryError>> + Send;
 
+    /// Trunk TTL cleanup (ADR-0004/0005): close open trunk pins not
+    /// re-required since the cutoff and clear stale trunk version markers.
+    /// Rows are closed, never deleted — history is the timeline. Returns how
+    /// many pins were closed.
+    fn close_expired_trunk_data(
+        &self,
+        cutoff_iso: &str,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
+
     /// Rename a branch — identity is the id, so membership, timeline and
     /// audit stamps survive. `Conflict` when the new name is already live.
     fn rename_branch(

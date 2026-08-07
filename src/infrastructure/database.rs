@@ -102,6 +102,14 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, touch_spec_version_trunk(spec_version_id, now_iso))
     }
 
+    async fn close_expired_trunk_data(
+        &self,
+        cutoff_iso: &str,
+        now_iso: &str,
+    ) -> Result<u64, RepositoryError> {
+        delegate!(self, close_expired_trunk_data(cutoff_iso, now_iso))
+    }
+
     async fn rename_branch(&self, branch_id: i64, new_name: &str) -> Result<(), RepositoryError> {
         delegate!(self, rename_branch(branch_id, new_name))
     }

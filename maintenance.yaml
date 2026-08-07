@@ -130,6 +130,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/cleanup/trunk:
+    post:
+      summary: "Create or run: cleanup/trunk"
+      description: |
+        Requires the `manage_settings` permission.
+
+        Runs the trunk TTL cleanup immediately (ADR-0004): open trunk pins not
+        re-required within `trunk_max_age_days` are *closed* (they leave the
+        main graph's current view; the rows stay as timeline history) and
+        stale trunk version markers are cleared. Answers `{"closed": n}`.
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/cleanup/snapshots:
     post:
       summary: "Create or run: cleanup/snapshots"
@@ -1401,6 +1426,46 @@ paths:
       summary: "Create or run: settings/dependency-max-age"
       description: |
         Requires the `manage_settings` permission.
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/settings/trunk-max-age:
+    get:
+      summary: "Read: settings/trunk-max-age"
+      description: |
+        Requires the `manage_settings` permission. The trunk TTL in days
+        (ADR-0004), default 90; 0 disables the cleanup.
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    post:
+      summary: "Create or run: settings/trunk-max-age"
+      description: |
+        Requires the `manage_settings` permission. Body: `{"days": n}`.
       responses:
         "200":
           description: Success.
