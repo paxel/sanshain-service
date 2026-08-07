@@ -49,6 +49,14 @@ pub struct ProvideRequest {
     pub stability: Stability,
     #[serde(default)]
     pub dry_run: bool,
+    /// ADR-0004: marks this build as the trunk stream's — the version entry
+    /// becomes "trunk's current version". Orthogonal to stability.
+    #[serde(default)]
+    pub trunk: bool,
+    /// ADR-0005: marks this build as a sanshain-branch's (hotfix) — the
+    /// producer's member version within that branch. Exclusive with `trunk`.
+    #[serde(default)]
+    pub tag: Option<String>,
 }
 
 struct ProvideCommon<'a> {
@@ -57,6 +65,8 @@ struct ProvideCommon<'a> {
     content: &'a str,
     stability: Stability,
     dry_run: bool,
+    trunk: bool,
+    tag: Option<&'a str>,
 }
 
 async fn provide_common(
@@ -71,6 +81,8 @@ async fn provide_common(
         content,
         stability,
         dry_run,
+        trunk,
+        tag,
     } = params;
     let res = services::provide_spec(
         &state.repo,
@@ -80,6 +92,8 @@ async fn provide_common(
             content,
             stability,
             dry_run,
+            trunk,
+            tag,
             caller: caller.map(|axum::Extension(a)| a),
             expected_prior_hash: None,
         },
@@ -98,6 +112,9 @@ async fn provide_common(
         }
         if !res.changes.is_empty() {
             let version_str = res.version.to_string();
+            // ADR-0005: the audit entry names the declared stream, so a
+            // release graph's history is one filtered query.
+            let stream = if trunk { Some("trunk") } else { tag };
             record_audit_log(
                 &state.repo,
                 user,
@@ -117,6 +134,7 @@ async fn provide_common(
                     version: Some(&version_str),
                     action_type: Some("WRITE"),
                     diff: None,
+                    stream,
                 },
             )
             .await?;
@@ -142,6 +160,8 @@ pub async fn provide(
             content: &payload.openapi_yaml,
             stability: payload.stability,
             dry_run: payload.dry_run,
+            trunk: payload.trunk,
+            tag: payload.tag.as_deref(),
         },
     )
     .await
@@ -156,6 +176,12 @@ pub struct ProvideAsyncApiRequest {
     pub stability: Stability,
     #[serde(default)]
     pub dry_run: bool,
+    /// See `ProvideRequest::trunk`.
+    #[serde(default)]
+    pub trunk: bool,
+    /// See `ProvideRequest::tag`.
+    #[serde(default)]
+    pub tag: Option<String>,
 }
 
 pub async fn provide_asyncapi(
@@ -174,6 +200,8 @@ pub async fn provide_asyncapi(
             content: &payload.asyncapi_yaml,
             stability: payload.stability,
             dry_run: payload.dry_run,
+            trunk: payload.trunk,
+            tag: payload.tag.as_deref(),
         },
     )
     .await
@@ -188,6 +216,12 @@ pub struct ProvideProtoRequest {
     pub stability: Stability,
     #[serde(default)]
     pub dry_run: bool,
+    /// See `ProvideRequest::trunk`.
+    #[serde(default)]
+    pub trunk: bool,
+    /// See `ProvideRequest::tag`.
+    #[serde(default)]
+    pub tag: Option<String>,
 }
 
 pub async fn provide_proto(
@@ -206,6 +240,8 @@ pub async fn provide_proto(
             content: &payload.proto_content,
             stability: payload.stability,
             dry_run: payload.dry_run,
+            trunk: payload.trunk,
+            tag: payload.tag.as_deref(),
         },
     )
     .await
@@ -225,6 +261,12 @@ pub struct RequireQuery {
     pub method: String,
     #[serde(default)]
     pub dry_run: bool,
+    /// ADR-0004: record this pin in the append-only trunk store too.
+    #[serde(default)]
+    pub trunk: bool,
+    /// ADR-0005: the pin updates this sanshain-branch instead of trunk.
+    #[serde(default)]
+    pub tag: Option<String>,
 }
 
 /// Name how a require was answered: the resolution state, the version (always
@@ -281,12 +323,19 @@ async fn require_common(
         api_type,
         path: &query.path,
         method: &query.method,
+        trunk: query.trunk,
+        tag: query.tag.as_deref(),
     };
     let res = if query.dry_run {
         services::require_endpoint_dry_run(&state.repo, params).await?
     } else {
         let res = services::require_endpoint(&state.repo, params).await?;
         let version_str = query.version.to_string();
+        let stream = if query.trunk {
+            Some("trunk")
+        } else {
+            query.tag.as_deref()
+        };
         let _ = record_audit_log(
             &state.repo,
             user,
@@ -306,6 +355,7 @@ async fn require_common(
                 version: Some(&version_str),
                 action_type: Some("READ"),
                 diff: None,
+                stream,
             },
         )
         .await;
@@ -359,6 +409,12 @@ pub struct RequireBundleRequest {
     pub endpoints: Vec<BundleEndpoint>,
     #[serde(default)]
     pub dry_run: bool,
+    /// See `RequireQuery::trunk`.
+    #[serde(default)]
+    pub trunk: bool,
+    /// See `RequireQuery::tag`.
+    #[serde(default)]
+    pub tag: Option<String>,
 }
 
 pub async fn require_bundle(
@@ -379,12 +435,19 @@ pub async fn require_bundle(
         version: payload.version,
         api_type: payload.api_type.unwrap_or(ApiType::OpenApi),
         endpoints: &endpoints,
+        trunk: payload.trunk,
+        tag: payload.tag.as_deref(),
     };
     let res = if payload.dry_run {
         services::require_bundle_dry_run(&state.repo, params).await?
     } else {
         let res = services::require_bundle(&state.repo, params).await?;
         let version_str = payload.version.to_string();
+        let stream = if payload.trunk {
+            Some("trunk")
+        } else {
+            payload.tag.as_deref()
+        };
         let _ = record_audit_log(
             &state.repo,
             user,
@@ -402,6 +465,7 @@ pub async fn require_bundle(
                 version: Some(&version_str),
                 action_type: Some("READ"),
                 diff: None,
+                stream,
             },
         )
         .await;
@@ -411,19 +475,31 @@ pub async fn require_bundle(
     Ok(require_response(&headers, res))
 }
 
-pub async fn report(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+#[derive(Deserialize)]
+pub struct ReportQuery {
+    /// `dev` (default), `main`, or `<branch>[@rfc3339]` (ADR-0005).
+    pub scope: Option<String>,
+}
+
+pub async fn report(
+    State(state): State<AppState>,
+    Query(query): Query<ReportQuery>,
+) -> Result<impl IntoResponse, AppError> {
     // Not audited: this JSON report is fetched to render the graph view in the
     // UI, so auditing it would turn every graph view into an audit entry.
     // Explicit report exports (markdown/isolation) are still audited below.
-    let res = services::generate_report(&state.repo).await?;
+    let scope = services::ReportScope::parse(query.scope.as_deref());
+    let res = services::generate_scoped_report(&state.repo, scope).await?;
     Ok(Json(res))
 }
 
 pub async fn report_markdown(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    Query(query): Query<ReportQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::generate_report(&state.repo).await?;
+    let scope = services::ReportScope::parse(query.scope.as_deref());
+    let res = services::generate_scoped_report(&state.repo, scope).await?;
     let _ = record_audit_log(
         &state.repo,
         user,
@@ -434,6 +510,7 @@ pub async fn report_markdown(
             version: None,
             action_type: Some("READ"),
             diff: None,
+            stream: None,
         },
     )
     .await;
@@ -449,8 +526,10 @@ pub async fn report_markdown(
 pub async fn report_isolation(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    Query(query): Query<ReportQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::generate_report(&state.repo).await?;
+    let scope = services::ReportScope::parse(query.scope.as_deref());
+    let res = services::generate_scoped_report(&state.repo, scope).await?;
     let _ = record_audit_log(
         &state.repo,
         user,
@@ -461,6 +540,7 @@ pub async fn report_isolation(
             version: None,
             action_type: Some("READ"),
             diff: None,
+            stream: None,
         },
     )
     .await;
@@ -517,6 +597,8 @@ pub struct AuditTimelineQuery {
     pub action_type: Option<String>,
     pub service: Option<String>,
     pub version: Option<String>,
+    /// Exact stream match (ADR-0005): `trunk` or a tag name.
+    pub stream: Option<String>,
 }
 
 pub async fn audit_timeline(
@@ -530,6 +612,7 @@ pub async fn audit_timeline(
         action_type: query.action_type,
         service_wildcard: query.service,
         version_wildcard: query.version,
+        stream: query.stream,
         limit,
     };
     let res = state.repo.get_audit_logs(filter).await?;

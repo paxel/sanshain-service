@@ -106,6 +106,8 @@ async fn app_with_seed() -> (axum::Router, SqliteSpecRepository, String) {
             content: DEMO_SPEC_1_0_0,
             stability: Stability::Ga,
             dry_run: false,
+            trunk: false,
+            tag: None,
             caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
             expected_prior_hash: None,
         },
@@ -748,6 +750,8 @@ async fn nuke_producers_and_consumers_require_exact_confirmation() {
             api_type: ApiType::OpenApi,
             path: "/hello",
             method: "GET",
+            trunk: false,
+            tag: None,
         },
     )
     .await
@@ -915,6 +919,8 @@ async fn report_markdown_and_isolation_render_the_seeded_producer() {
             api_type: ApiType::OpenApi,
             path: "/hello",
             method: "GET",
+            trunk: false,
+            tag: None,
         },
     )
     .await

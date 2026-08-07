@@ -75,7 +75,7 @@
                 <p class="text-sm text-slate-500 mt-1">Monitor system performance, logs, and manage debug tracing.</p>
             </div>
             <div class="flex items-center space-x-4">
-                <a href="/metrics" target="_blank" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1 rounded-lg transition-colors border border-slate-200">📊 Raw Metrics</a>
+                <span id="branch-count-stat" class="text-xs text-slate-500 mr-2"></span><a href="/metrics" target="_blank" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1 rounded-lg transition-colors border border-slate-200">📊 Raw Metrics</a>
                 <button onclick="loadObservability()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh All</button>
             </div>
         </div>
@@ -227,6 +227,7 @@
                 applyAdminState();
                 hideLoader();
                 loadObservability();
+                loadBranchCount();
             } else {
                 window.location.href = '/account.html';
             }
@@ -259,6 +260,19 @@
         loadDebugConfig();
         loadLogs();
         loadAuditLogs();
+    }
+
+    async function loadBranchCount() {
+        // ADR-0005: the branch count gauge, human-readable next to the raw
+        // metrics link (the per-branch update counter lives in /metrics).
+        try {
+            const res = await apiCall('/admin/branches');
+            if (res.ok) {
+                const branches = await res.json();
+                document.getElementById('branch-count-stat').textContent =
+                    `${branches.length} sanshain-branch${branches.length === 1 ? '' : 'es'}`;
+            }
+        } catch (_) { /* decorative */ }
     }
 
     async function loadStats() {

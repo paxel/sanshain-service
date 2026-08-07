@@ -136,6 +136,38 @@
                 </div>
             </section>
 
+            <!-- Sanshain-branches (ADR-0005) -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold text-slate-800">Sanshain-Branches</h2>
+                    <p class="text-sm text-slate-500 mt-1">Named release graphs. Releasers create them (here or from the release-cut script); rename repairs a botched name, delete is the EOL act — both admin-only and audited.</p>
+                </div>
+                <div class="flex items-center gap-2 mb-4">
+                    <input type="text" id="new-branch-name" placeholder="Branch name (e.g. Release Maribou)"
+                        class="flex-grow px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    <input type="datetime-local" id="new-branch-as-of" title="Optional: create retroactively off the trunk graph at this instant"
+                        class="px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    <button id="create-branch-btn" class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors">Create branch</button>
+                </div>
+                <div id="branches-list" class="space-y-2 text-sm"></div>
+            </section>
+
+            <!-- Trunk TTL (ADR-0004) -->
+            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold text-slate-800">Trunk Data TTL</h2>
+                    <p class="text-sm text-slate-500 mt-1">Trunk pins and markers not refreshed within this window are closed out of the main graph (history is kept). Stale entries are highlighted in the main graph first. Set 0 to disable.</p>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <input type="number" id="trunk-max-age-days" min="0" value="90"
+                        class="w-24 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    <span class="text-sm text-slate-500">days</span>
+                    <button onclick="saveTrunkMaxAge()" class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors">Save</button>
+                    <button onclick="triggerTrunkCleanup()" class="px-3 py-1.5 bg-slate-600 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors">Run Cleanup</button>
+                    <span id="trunk-cleanup-result" class="text-sm text-slate-500"></span>
+                </div>
+            </section>
+
             <!-- Snapshot Cleanup -->
             <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="mb-4">
@@ -297,7 +329,7 @@
                 <div class="flex items-center gap-2 mb-4">
                     <input id="new-group-name" type="text" placeholder="New group name"
                         class="flex-1 rounded-lg border-slate-200 text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                    <button onclick="createGroup()"
+                    <button id="create-group-btn" onclick="createGroup()"
                         class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium">Create</button>
                 </div>
                 <div id="groups-list" class="space-y-2"></div>
@@ -514,6 +546,7 @@
             hideLoader();
             document.getElementById('not-admin-screen').classList.add('hidden');
             document.getElementById('admin-dashboard').classList.remove('hidden');
+            document.getElementById('create-branch-btn').addEventListener('click', createBranch);
             loadAll();
         }
 
@@ -554,6 +587,8 @@
         async function loadAll() {
             loadDatabaseInfo();
             loadCacheConfig();
+            loadBranches();
+            loadTrunkMaxAge();
             loadSnapshotMaxAge();
             loadDependencyMaxAge();
             loadServices();
@@ -629,6 +664,113 @@
         }
 
         // --- Snapshot Cleanup ---
+        // --- Trunk TTL (ADR-0004) ---
+        async function loadTrunkMaxAge() {
+            try {
+                const res = await apiCall('/admin/settings/trunk-max-age');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('trunk-max-age-days').value = data.days;
+                }
+            } catch (e) { console.warn('Could not load trunk max age:', e); }
+        }
+
+        async function saveTrunkMaxAge() {
+            const days = parseInt(document.getElementById('trunk-max-age-days').value, 10);
+            const res = await apiCall('/admin/settings/trunk-max-age', { method: 'POST', body: { days } });
+            document.getElementById('trunk-cleanup-result').textContent = res.ok ? 'Saved.' : 'Save failed.';
+        }
+
+        async function triggerTrunkCleanup() {
+            const res = await apiCall('/admin/cleanup/trunk', { method: 'POST' });
+            if (res.ok) {
+                const data = await res.json();
+                document.getElementById('trunk-cleanup-result').textContent = `Closed ${data.closed} stale trunk pins.`;
+            } else {
+                document.getElementById('trunk-cleanup-result').textContent = 'Cleanup failed.';
+            }
+        }
+
+        // --- Sanshain-branches (ADR-0005) ---
+        async function loadBranches() {
+            const list = document.getElementById('branches-list');
+            try {
+                const res = await apiCall('/admin/branches');
+                if (!res.ok) {
+                    list.innerHTML = '<div class="text-slate-400 italic">Could not load branches.</div>';
+                    return;
+                }
+                const branches = await res.json();
+                if (branches.length === 0) {
+                    list.innerHTML = '<div class="text-slate-400 italic">No sanshain-branches yet.</div>';
+                    return;
+                }
+                list.innerHTML = '';
+                for (const b of branches) {
+                    const row = document.createElement('div');
+                    row.className = 'flex items-center justify-between gap-3 border border-slate-100 rounded-lg px-3 py-2';
+                    row.innerHTML = `
+                        <div class="min-w-0">
+                            <span class="font-semibold text-slate-800" data-branch-name></span>
+                            <span class="text-slate-400 text-xs ml-2">from <span data-branch-source></span> as of <span data-branch-asof></span> by <span data-branch-creator></span></span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button data-rename class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-indigo-600">Rename</button>
+                            <button data-delete class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-red-50 text-red-600">Delete</button>
+                        </div>`;
+                    row.querySelector('[data-branch-name]').textContent = b.name;
+                    row.querySelector('[data-branch-source]').textContent = b.source;
+                    row.querySelector('[data-branch-asof]').textContent = (b.as_of || '').slice(0, 16).replace('T', ' ');
+                    row.querySelector('[data-branch-creator]').textContent = b.created_by;
+                    row.querySelector('[data-rename]').addEventListener('click', () => renameBranch(b.name));
+                    row.querySelector('[data-delete]').addEventListener('click', () =>
+                        confirmDelete(`Delete sanshain-branch <strong>${escapeHtml(b.name)}</strong>? Its graph and timeline are removed and the name is freed.`, () => deleteBranch(b.name)));
+                    list.appendChild(row);
+                }
+            } catch (e) {
+                list.innerHTML = `<div class="text-red-500">Failed to load branches: ${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        async function createBranch() {
+            const name = document.getElementById('new-branch-name').value.trim();
+            if (!name) return;
+            const asOfRaw = document.getElementById('new-branch-as-of').value;
+            const body = { name };
+            if (asOfRaw) body.as_of = new Date(asOfRaw).toISOString();
+            const res = await apiCall('/admin/branches', { method: 'POST', body });
+            if (!res.ok) {
+                alert('Could not create the branch: ' + (await errorMessage(res)));
+                return;
+            }
+            document.getElementById('new-branch-name').value = '';
+            document.getElementById('new-branch-as-of').value = '';
+            loadBranches();
+        }
+
+        async function renameBranch(name) {
+            const newName = prompt(`Rename sanshain-branch '${name}' to:`, name);
+            if (!newName || newName === name) return;
+            const res = await apiCall(`/admin/branches/${encodeURIComponent(name)}`, {
+                method: 'PUT',
+                body: { new_name: newName },
+            });
+            if (!res.ok) {
+                alert('Could not rename: ' + (await errorMessage(res)));
+                return;
+            }
+            loadBranches();
+        }
+
+        async function deleteBranch(name) {
+            const res = await apiCall(`/admin/branches/${encodeURIComponent(name)}`, { method: 'DELETE' });
+            if (!res.ok) {
+                alert('Could not delete: ' + (await errorMessage(res)));
+                return;
+            }
+            loadBranches();
+        }
+
         async function loadSnapshotMaxAge() {
             try {
                 const res = await apiCall('/admin/settings/snapshot-max-age');
@@ -1278,7 +1420,7 @@
                 if (res.ok) dependents = await res.json();
             } catch (_) {}
             const warning = dependents.length > 0
-                ? `<br><br><span class="text-red-600 font-semibold">Consumers pinned to this version will fail (404):</span><br>${dependents.map(d => escapeHtml(d)).join(', ')}`
+                ? `<br><br><span class="text-red-600 font-semibold">Pinned Consumers (their requires fail with 404) and referencing sanshain-branches (left dangling):</span><br>${dependents.map(d => escapeHtml(d)).join(', ')}`
                 : '<br><br>No Consumers are pinned to this version.';
             confirmDelete(
                 `Delete ${escapeHtml(apiType)} version <strong>${escapeHtml(version)}</strong> of <strong>${escapeHtml(service)}</strong>?${warning}`,

@@ -339,6 +339,187 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 - Add or update a test that asserts the CSP header does not contain `'unsafe-inline'` after migration.
 - Manually load admin pages or run existing Playwright/UI tests if available.
 
+### 23. Trunk flag and main/dev graph views (ADR-0004, designed 2026-08-07)
+
+**Problem:** The dependency graph is the union of every pin any branch's build recorded recently,
+thinned by `dependency_max_age_days` — it cannot distinguish the trunk stream's pins from
+development churn, and edges flicker with CI activity. See
+[ADR-0004](../docs/adr/0004-trunk-flag-and-graph-views.md) for the settled design; implement it
+as specified there, no re-litigation of the decisions. Tracker spec: issue #30.
+
+**Impact:** The graph cannot be trusted as an architecture view; superseded pins linger until
+expiry, rarely-built services vanish and reappear.
+
+**Relevant areas:**
+
+- `src/infrastructure/migrations/{sqlite,postgres}/` — new migration
+- `src/domain/models.rs`, `src/domain/ports.rs` — trunk fields on version/dependency records
+- `src/infrastructure/*repository*.rs` — LWW upsert for trunk pins, both backends
+- `src/application/spec_service.rs` (provide/require paths), `report_service.rs` (graph payload)
+- `src/presentation/handlers/api.rs`, `api.yaml` — optional `trunk` on provide body, require
+  params, require-bundle body (optional field, non-breaking; absent = today's behavior exactly)
+- `src/presentation/handlers/admin.rs`, `maintenance.yaml` — `trunk_max_age_days` setting
+- `static/graph.html`, `static/js/graph.js` — view toggle, conflict + staleness highlighting
+- `docs/sanshain-yaml.md` (`sanshain.trunk`), `docs/user-guide.md` (graph views), `CHANGELOG.md`
+
+**Implementation instructions:**
+
+1. Migration: add `trunk_provided_at TEXT NULL` to `spec_versions` (set on every trunk provide of
+   that entry, NULL = never trunk-provided). New table `trunk_dependencies`, **append-only**
+   (ADR-0005 builds its timeline on this — never overwrite or hard-delete rows): columns for
+   client, service, api_type, normalized_path/path, method, the pinned **version by value** (not
+   a `spec_versions.id` FK), `valid_from`, and `valid_to NULL`-able. The current trunk pin per
+   (client, service, api_type, normalized_path, method) is the row with `valid_to IS NULL`; a new
+   trunk require closes that row (sets `valid_to`) and inserts the new one. TTL culling closes
+   rows the same way instead of deleting. Separate from `dependencies` so none of this disturbs
+   existing dev-graph semantics.
+2. Contract: optional boolean `trunk` (default false) on the provide JSON body, the require query
+   parameters, and the require-bundle JSON body. Document in `api.yaml`; absent flag must leave
+   every existing behavior byte-identical.
+3. Provide path: when `trunk=true` and not a dry-run, stamp `trunk_provided_at` on the written
+   version entry. No effect on version rules, stability, GA immutability, or the no-op check.
+4. Require path: when `trunk=true`, additionally record the trunk pin per step 1's append
+   semantics (close the open row if its pin differs, insert the new one; identical pin just
+   refreshes the open row's timestamp). The normal dependency recording still happens.
+5. Settings: `trunk_max_age_days` (default 90), stored like `dependency_max_age_days`, exposed
+   via the same settings surface in `maintenance.yaml`; the cleanup job *closes* trunk rows past
+   the TTL (sets `valid_to`, never deletes) and clears stale `trunk_provided_at` markers.
+6. Report: extend the graph payload with the trunk data (each producer's newest trunk-flagged
+   version; trunk edges with their pins and `last_required_at`). Keep the existing dev payload
+   unchanged.
+7. UI: main/dev toggle on the graph page. Main view: producers at trunk version, trunk edges;
+   highlight (a) major-lag conflicts (edge pin's major < producer trunk major), (b) stale entries
+   (timestamp older than a fraction — e.g. half — of `trunk_max_age_days`).
+8. Tests: repository LWW upsert (both backends), provide/require flag handling incl. dry-run,
+   TTL cleanup, report payload shape; contract checks for the new optional fields.
+9. Client libraries (separate repos, tickets exist): send `trunk` from `sanshain.yaml`
+   `sanshain.trunk=true` / CI variable.
+
+**Validation:**
+
+- Two trunk requires of the same (client, producer, endpoint) with different pins leave exactly
+  one *open* trunk row (the newer) and one closed one (the older, history preserved), while
+  `dependencies` keeps accumulating as today.
+- A provide/require without the flag produces bit-identical rows and responses to current 2.2.0.
+
+### 24. Sanshain-branches: named release graphs and the timeline (ADR-0005, designed 2026-08-07)
+
+**Problem:** The main graph (item 23) shows only current trunk truth. What a *release* consists
+of, which releases contain a given producer version, and what changed between two graphs is not
+answerable. See [ADR-0005](../docs/adr/0005-sanshain-branches-and-timeline.md) for the settled
+design; implement as specified there, no re-litigation. Depends on item 23 (append-only trunk
+storage is the timeline's substrate) — implement 23 first. Tracker spec: issue #30.
+
+**Impact:** Release/deployment truth, vulnerability impact lookup ("which releases pin
+`b@1.0.0`?"), and release diffing all remain impossible; the branch-cut workflow has no
+representation.
+
+**Relevant areas:**
+
+- `src/infrastructure/migrations/{sqlite,postgres}/` — branch tables
+- `src/domain/models.rs`, `src/domain/ports.rs`, `src/infrastructure/*repository*.rs`
+- `src/application/spec_service.rs` (tag on provide/require), new branch service functions
+- `src/presentation/handlers/api.rs`, `api.yaml` — optional `tag` on provide/require/
+  require-bundle, mutually exclusive with `trunk` (both → `400`)
+- `src/presentation/handlers/admin.rs`, `maintenance.yaml` — branch create/delete/list endpoints
+- `static/graph.html`, `static/js/graph.js` — graph selector, timeline slider, diff view
+- `docs/sanshain-yaml.md`, `docs/user-guide.md`, `docs/administration.md`, `CHANGELOG.md`
+
+**Implementation instructions:**
+
+1. Migration: `sanshain_branches` (id, unique live name, created_at, created_by, source, as-of
+   date). Branch membership/edges reuse the item-23 append-only row shape (version **by value**,
+   `valid_from`/`valid_to`) keyed by branch id — a branch has its own timeline exactly like trunk.
+2. Create: `POST /admin/branches` `{name, source?, as_of?}` — RouteGuard `release_ga`. Source
+   defaults to trunk, `as_of` to now; source may be another branch. Copies the source graph's
+   state at `as_of` (rows open at that instant) as the new branch's initial open rows. Duplicate
+   live name → `409`. Audited. The `maintenance.yaml` description must be complete enough that a
+   DevOps release-cut script can be written against it alone (all parameters, defaults, error
+   answers) — this endpoint's primary caller is automation, not the UI.
+3. Delete: `DELETE /admin/branches/{name}` — admin permission (higher bar than creation, per
+   ADR-0005). Frees the name. Audited.
+4. Wire: optional `tag=<name>` on provide, require, require-bundle. `tag` + `trunk` together →
+   `400`. Unknown tag → `404` with an instructive "a releaser must create it first" message.
+   Tagged calls append to the branch timeline with item-23 semantics (provide marks the member
+   version, require updates the pin).
+5. Lifecycle: extend the delete-version dependents listing (UI confirmation + the dependents
+   endpoint) with referencing branches. Dangling by-value references render highlighted in the
+   branch graph and heal automatically when the version is re-provided. No hard blocks.
+6. UI: graph-page selector (main / dev / each branch), timeline slider with change markers
+   (closed-row `valid_to` dates) for trunk and branches, date-pinned rendering, and a diff view
+   between any two (graph, date) selections. "Create branch here" from a timeline position, for
+   releasers.
+7. Report/API: expose branch listing and a branch's graph (current or at a date) for the UI; keep
+   existing report payloads unchanged.
+8. Tests: branch create from trunk-at-date (incl. retroactive after further trunk movement),
+   create from another branch, duplicate name 409, unknown tag 404, tag+trunk 400, tagged
+   require updates branch not trunk, delete-version warning includes branches, dangling reference
+   heals on re-provide, permissions (releaser create / admin delete), audit entries.
+9. Client libraries: extend the four trunk tickets — same mechanism sends `tag` from
+   configuration for release-branch pipelines.
+10. Rename: `PUT /admin/branches/{name}` `{new_name}` — admin permission, audited with old and
+    new name, duplicate live name → `409`. Branch identity is the internal id, so membership,
+    timeline and audit stamps survive a rename untouched.
+11. Audit: provide/require audit entries record the declared stream (trunk / tag name / none) in
+    a nullable column; branch create/delete/rename write their own audit entries; the audit page
+    gets a stream filter.
+12. Reports: `/report` (and the reports UI) accepts an optional scope — `dev` (default, byte-
+    identical behavior when absent), `main`, or `<branch>[@date]` — feeding report generation
+    from the selected graph state through the existing code path.
+13. Legend: view-aware — each graph view lists only markers it can draw (dev: today's set; main:
+    + stale, + major-lag; branch: + dangling reference; timeline: + change markers). "Missing"
+    stays applicable everywhere (snapshot overwrite or delete+republish can orphan any pin).
+14. Reverse lookup: version rows on the producers page show chips naming the sanshain-branches
+    that contain that version.
+15. Exports: graph PNG and report exports are stamped with view + branch name + date.
+16. Metrics: `sanshain_branch_updates_total{branch}` counter and a branch-count gauge; surface
+    on the observability page.
+
+**Validation:**
+
+- Create "R" off trunk at date D after trunk moved on: R equals the main graph as it was at D.
+- A hotfix tagged require changes R's edge and nothing in main/dev; R's timeline shows the change.
+- Deleting a version pinned by R warns naming R; re-providing the version heals R's reference.
+
+### 25. Graph symbol semantics: messaging badge, Broker node, outdated severity (decided 2026-08-07)
+
+Independent of items 23/24 — implementable immediately, frontend-only except the vendored asset.
+
+**Problem:** Every node touching an AsyncAPI dependency edge wears the 🛢️ messaging symbol:
+`static/js/graph.js` pushes a `messaging` tag onto every *client* of an asyncapi dependency
+(lines ~494-500) and links both edge ends to an injected virtual node named `KAFKA` (~507-530),
+although server-side only actual AsyncAPI providers carry the tag. The barrel emoji reads as
+"oil", and "KAFKA" asserts a broker Sanshain has no evidence for. Separately, the `outdated`
+edge flag (line ~69) is binary — one patch behind and three majors behind look identical.
+
+**Impact:** With one async producer and three consumers, all four nodes show the barrel; the
+architecture view misstates who provides messaging. Breaking-level pin lag is indistinguishable
+from trivial lag.
+
+**Relevant areas:** `static/js/graph.js`, `static/graph.html` (legend), `static/images/`
+(new vendored asset), `CHANGELOG.md`.
+
+**Implementation instructions:**
+
+1. Delete the client-tag derivation for `messaging`/`grpc` in `graph.js` (~494-505): node badges
+   come from server-side `service_tags` only, so only actual AsyncAPI providers are marked.
+   Async involvement of consumers stays visible as the edge's api-type.
+2. Rename the virtual `KAFKA` node to `BROKER` (constant, label, and any `service_tags` seeding).
+3. Replace the 🛢️ emoji (node symbols and legend) with the official AsyncAPI logo as a local
+   vendored SVG under `static/images/` (CSP forbids remote assets; do NOT use the Apache Kafka
+   logo — ASF trademark and a broker assumption we just removed).
+4. Split the `outdated` flag into two tiers against the line's latest GA: `outdated` (behind
+   within the same major) and `breaking-outdated` (major behind), distinct colors, separate
+   legend entries and highlight filters.
+5. Update the legend labels accordingly ("Missing dep."/"Missing svc." stay as-is).
+
+**Validation:**
+
+- Fixture with one AsyncAPI provider and three consumers of it: exactly one node carries the
+  AsyncAPI badge; the virtual node renders as `BROKER`.
+- A pin one patch behind latest GA renders `outdated`; a pin one major behind renders
+  `breaking-outdated`; both filters highlight independently.
+
 ## P1 — Data integrity and operational reliability
 
 ### 12. Make spec updates transactional — DONE (2.0.0)
