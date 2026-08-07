@@ -168,7 +168,7 @@
 
         <!-- Compare (ADR-0005): a structured diff between any two graph
              selections — release vs release, release vs main, any at a date. -->
-        <div class="flex flex-wrap items-center gap-2 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200">
+        <div id="graph-compare-row" class="flex flex-wrap items-center gap-2 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200">
             <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Compare</span>
             <select id="diff-left" class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white"></select>
             <input type="datetime-local" id="diff-left-at" class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white" title="Optional: left side at this instant">
@@ -686,8 +686,10 @@
             if (!svg.firstChild) return;
             content = getCustomGraphSVG(svg);
             // Stamp the scope into the document itself, not only the name.
+            // The stamp carries a user-chosen branch name into XML text, so it
+            // is escaped — an unescaped '&' alone already breaks the document.
             content = content.replace('</svg>',
-                `<text x="8" y="16" font-size="12" fill="#64748b" font-family="ui-monospace, monospace">Sanshain — ${graphScopeStamp()}</text></svg>`);
+                `<text x="8" y="16" font-size="12" fill="#64748b" font-family="ui-monospace, monospace">Sanshain — ${escapeHtml(graphScopeStamp())}</text></svg>`);
             filename = `dependency_graph_${graphScopeSlug()}.svg`;
             mime = 'image/svg+xml';
         } else {

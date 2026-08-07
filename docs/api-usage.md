@@ -31,6 +31,8 @@ Upload a specification under its declared version.
 - `stability`: `snapshot` (overwritable, expires when unused) or `ga` (immutable). **Required.**
 - `openapi_yaml` / `asyncapi_yaml` / `proto_content`: Spec content. The version is read from it — `info.version`, or a `// sanshain-version: MAJOR.MINOR.PATCH` comment for proto. `MAJOR[.MINOR[.PATCH]]` with an optional `v` prefix; omitted parts are zero, stored canonically as three-part. No suffixes.
 - `dry_run`: If `true`, validates and classifies without storing.
+- `trunk` (optional): `true` marks this as a trunk-stream build — the version entry is stamped as trunk's current version (main graph, ADR-0004). No effect on version rules or stability.
+- `tag` (optional): the sanshain-branch this build belongs to (release pipelines/hotfixes, ADR-0005). Mutually exclusive with `trunk`; an unknown tag answers `404` — no auto-create.
 
 **Response (202 Accepted):** Returns `version`, `stability`, `content_hash`, and a summary of `changes` (`inserts`/`updates`/`deletes`).
 
@@ -48,8 +50,9 @@ Request the snippet for a single endpoint at a pinned version.
 - `path`: Endpoint path or channel.
 - `method`: HTTP method or operation.
 - `dry_run`: Validate without recording a dependency.
+- `trunk` / `tag`: same stream markers as on provide — `trunk=true` maintains the main graph's pin set, `tag=<branch>` a sanshain-branch's. Never both.
 
-**Resolution** is immediate — GA preferred, else the same-numbered snapshot:
+**Resolution** is immediate — exactly the pinned version answers, whatever its declared stability:
 - `404` **Unknown**: the producer or the pinned version does not exist — a Pin configuration error.
 - `410` **Absent**: the pinned version exists and deliberately does not include this endpoint.
 
@@ -108,6 +111,9 @@ fields.
 
 ### Discovering Versions
 - `GET /producers/{producername}/versions` lists a Producer's version lines — version, stability, content hash, timestamps, endpoint count, and snapshot expiry. This is what "what can I upgrade to?" tooling reads.
+
+### Reports and Graph Scopes
+- `GET /report` returns the dependency report; `?scope=main[@instant]` or `?scope=<branch>[@instant]` replaces the graph with that pin set (`dev`, the default, is the accumulated activity). The same scope applies to `/report/markdown` and `/report/isolation`. See the [User Guide](user-guide.md#reports-reportshtml).
 
 ### Admin & Auth
 - **API Tokens**: Create tokens at `/account.html` for CI usage.

@@ -138,6 +138,31 @@ async fn provide_common(
                 },
             )
             .await?;
+        } else if let Some(tag) = tag {
+            // A no-op provide changes no endpoint, but a *tagged* one still
+            // marks the producer's member version in that release graph — a
+            // real mutation of the branch, and the one ADR-0005 wants findable
+            // by `stream`. (The trunk-marker refresh above stays unaudited on
+            // purpose: nightly trunk CI would write a row per producer per
+            // night for content nobody changed.)
+            let version_str = res.version.to_string();
+            record_audit_log(
+                &state.repo,
+                user,
+                NewAuditLog {
+                    action: "BRANCH_MEMBER_TAGGED",
+                    details: &format!(
+                        "Tagged {:?} {} of '{}' into sanshain-branch '{}'",
+                        api_type, res.version, producername, tag
+                    ),
+                    service: Some(producername),
+                    version: Some(&version_str),
+                    action_type: Some("WRITE"),
+                    diff: None,
+                    stream: Some(tag),
+                },
+            )
+            .await?;
         }
     }
 

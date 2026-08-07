@@ -508,7 +508,7 @@ pub async fn provide_spec(
         // The no-op still counts as "provided": a snapshot a CI re-provides
         // every night is in active use and must not age out of the use-based
         // expiry just because its content never changed.
-        if entry.stability == Stability::Snapshot {
+        if entry.stability == Stability::Snapshot && !dry_run {
             repo.touch_spec_version_provided(entry.id, &now_iso())
                 .await?;
         }

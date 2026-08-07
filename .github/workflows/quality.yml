@@ -68,10 +68,10 @@ jobs:
       - name: Security Audit
         run: cargo audit
       # Ratchet rule (see AGENTS.md): when coverage rises, raise --fail-under to
-      # (new value - 2) in the same PR. Never lower it. Floor set 2026-08-02 at
-      # 78.74% measured with --engine llvm.
+      # (new value - 2) in the same PR. Never lower it. Floor set 2026-08-07 at
+      # 78.96% measured with --engine llvm.
       - name: Coverage
-        run: cargo tarpaulin --out Xml --fail-under 76.74
+        run: cargo tarpaulin --out Xml --fail-under 76.96
   js-quality:
     runs-on: ubuntu-latest
     steps:

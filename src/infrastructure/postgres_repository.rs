@@ -830,6 +830,14 @@ impl SpecRepository for PostgresSpecRepository {
         version: SemVer,
         now_iso: &str,
     ) -> Result<(), RepositoryError> {
+        // Close-then-insert is one act: a failure between the two would leave
+        // the branch with no open member version at all, hiding the producer
+        // from the membership lookups until a later tagged provide repairs it.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query(
             "UPDATE branch_member_versions SET valid_to = $1 WHERE branch_id = $2 AND service_id = $3 AND api_type = $4 AND valid_to IS NULL AND NOT (major = $5 AND minor = $6 AND patch = $7)",
         )
@@ -840,7 +848,7 @@ impl SpecRepository for PostgresSpecRepository {
         .bind(version.major as i32)
         .bind(version.minor as i32)
         .bind(version.patch as i32)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query(
@@ -855,9 +863,12 @@ impl SpecRepository for PostgresSpecRepository {
         .bind(version.minor as i32)
         .bind(version.patch as i32)
         .bind(now_iso)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(())
     }
 

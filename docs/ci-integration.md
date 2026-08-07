@@ -47,6 +47,15 @@ Every Provide declares a **stability** — and the pipeline is the natural place
 
 Every build provides as `snapshot` unless the pipeline sets the ga switch (`SANSHAIN_GA=true`, `-Dsanshain.ga=true`, or `--ga` — see [How stability is decided](sanshain-yaml.md#how-stability-is-decided)); raw `curl` pipelines set the field themselves. The **version** is never a pipeline concern — it is read from the spec file (`info.version`, or the `// sanshain-version:` comment for proto).
 
+## Streams from the Pipeline
+
+Alongside stability, the pipeline declares the **stream** ([User Guide — Declaring the Stream](user-guide.md#declaring-the-stream)):
+
+- **Trunk CI** (the build of your default branch) adds `trunk: true` to provides and `trunk=true` to requires — this maintains the main graph. Nightly re-runs of an unchanged trunk build are wanted: they keep trunk data fresh instead of aging out.
+- **Release pipelines and hotfix builds** add `tag: "<sanshain-branch>"` — the calls update that release's graph instead of trunk. The branch must already exist (created by a releaser at cut time); an unknown tag fails the build with a `404`, which is the misconfiguration surfacing, not a nuisance.
+
+Streams never change what is served or any version rule — they only decide which graph records the call.
+
 ## Dry-Run Mode (PR Validation)
 
 All three core endpoints (`/provide`, `/require`, `/require-bundle`) support a **`dry_run`** parameter. When set to `true`, the request runs full validation but **does not persist any data**:

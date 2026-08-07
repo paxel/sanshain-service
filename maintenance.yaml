@@ -643,7 +643,9 @@ paths:
     get:
       summary: "Read: observability/audit-logs/export"
       description: |
-        Requires the `view_audit` permission.
+        Requires the `view_audit` permission. CSV of the most recent audit
+        entries, columns `id,timestamp,username,action,details,service,version,
+        action_type,stream` — every field except the bulky `diff` blob.
       responses:
         "200":
           description: Success.
@@ -945,8 +947,8 @@ paths:
           description: Created. The body is the branch record (see GET).
         "400":
           description: >-
-            Empty or reserved name (`main`, `dev`), or `as_of` is not an
-            RFC 3339 instant.
+            Empty or reserved name (`main`, `dev`, `trunk`), or `as_of` is not
+            an RFC 3339 instant.
           content:
             application/json:
               schema:

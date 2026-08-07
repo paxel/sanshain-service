@@ -31,18 +31,23 @@ pub(crate) fn split_selector(raw: &str) -> (&str, Option<String>) {
     }
 }
 
-/// A branch named like a fixed graph selector ("main" is the trunk, "dev" the
-/// accumulated dev activity) would be shadowed in `/report?scope=` and the
-/// diff endpoint — creatable but unaddressable there, so refused up front.
+/// Names the stream vocabulary already claims: `main` (the trunk graph) and
+/// `dev` (accumulated activity) are fixed graph selectors, and `trunk` is the
+/// stream sentinel a trunk-flagged build writes into the audit trail. A branch
+/// carrying one of these is creatable but ambiguous everywhere it is read —
+/// shadowed in `/report?scope=` and the diff endpoint, or indistinguishable
+/// from trunk CI in the audit stream filter — so it is refused up front.
+const RESERVED_BRANCH_NAMES: [&str; 3] = ["main", "dev", "trunk"];
+
 fn validate_branch_name(name: &str) -> Result<(), AppError> {
     if name.is_empty() {
         return Err(AppError::BadRequest(
             "a sanshain-branch needs a non-empty name".to_string(),
         ));
     }
-    if name == "main" || name == "dev" {
+    if RESERVED_BRANCH_NAMES.contains(&name) {
         return Err(AppError::BadRequest(format!(
-            "'{name}' is reserved for the built-in graph views and cannot name a sanshain-branch"
+            "'{name}' is reserved for the built-in graph views and streams, and cannot name a sanshain-branch"
         )));
     }
     Ok(())
@@ -450,8 +455,16 @@ mod tests {
     #[test]
     fn reserved_and_empty_branch_names_are_refused() {
         assert!(validate_branch_name("").is_err());
-        assert!(validate_branch_name("main").is_err());
-        assert!(validate_branch_name("dev").is_err());
+        // The graph selectors, and the stream sentinel a trunk build writes.
+        for reserved in RESERVED_BRANCH_NAMES {
+            assert!(
+                validate_branch_name(reserved).is_err(),
+                "'{reserved}' must be refused"
+            );
+        }
         assert!(validate_branch_name("rel-1").is_ok());
+        // Only the exact names are claimed — not anything containing them.
+        assert!(validate_branch_name("trunk-2").is_ok());
+        assert!(validate_branch_name("main-release").is_ok());
     }
 }

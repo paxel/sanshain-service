@@ -73,6 +73,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   reference to the producer they concern.
 - The max-age settings (snapshot, dependency, trunk) reject `days` above 36500 (~100 years) with
   a `400`; previously any number was stored, and an absurd value could crash the cleanup task.
+- A dry-run provide of unchanged content no longer refreshes the snapshot's use-based expiry —
+  previously a pipeline that only ever dry-ran kept its snapshots alive indefinitely.
 
 ---
 

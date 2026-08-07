@@ -843,6 +843,14 @@ impl SpecRepository for SqliteSpecRepository {
         version: SemVer,
         now_iso: &str,
     ) -> Result<(), RepositoryError> {
+        // Close-then-insert is one act: a failure between the two would leave
+        // the branch with no open member version at all, hiding the producer
+        // from the membership lookups until a later tagged provide repairs it.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let key = "branch_id = ? AND service_id = ? AND api_type = ? AND valid_to IS NULL";
         sqlx::query(&format!(
             "UPDATE branch_member_versions SET valid_to = ? WHERE {key} AND NOT (major = ? AND minor = ? AND patch = ?)"
@@ -854,7 +862,7 @@ impl SpecRepository for SqliteSpecRepository {
         .bind(version.major)
         .bind(version.minor)
         .bind(version.patch)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query(&format!(
@@ -875,9 +883,12 @@ impl SpecRepository for SqliteSpecRepository {
         .bind(version.major)
         .bind(version.minor)
         .bind(version.patch)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(())
     }
 

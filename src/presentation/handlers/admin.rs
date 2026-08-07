@@ -808,13 +808,13 @@ pub async fn export_audit_logs_csv(
 ) -> Result<impl IntoResponse, AppError> {
     let logs: Vec<AuditLogEntry> = state.repo.get_recent_audit_logs(1000).await?;
     let mut csv =
-        String::from("id,timestamp,username,action,details,service,version,action_type\n");
+        String::from("id,timestamp,username,action,details,service,version,action_type,stream\n");
     for log in logs {
         let esc_user = log.username.replace('"', "\"\"");
         let esc_action = log.action.replace('"', "\"\"");
         let esc_details = log.details.replace('"', "\"\"");
         csv.push_str(&format!(
-            "{},\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\"\n",
+            "{},\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\"\n",
             log.id,
             log.timestamp,
             esc_user,
@@ -822,7 +822,8 @@ pub async fn export_audit_logs_csv(
             esc_details,
             log.service.as_deref().unwrap_or(""),
             log.version.as_deref().unwrap_or(""),
-            log.action_type.as_deref().unwrap_or("")
+            log.action_type.as_deref().unwrap_or(""),
+            log.stream.as_deref().unwrap_or("")
         ));
     }
     let headers = [

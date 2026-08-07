@@ -78,6 +78,7 @@ export SANSHAIN_PASSWORD=$INITIAL_ADMIN_PASSWORD
 # Skip basic demo, go straight to complex ones
 ./scripts/demo2.sh
 ./scripts/demo_protocols.sh
+./scripts/demo_branches.sh
 
 echo "Applying service metadata for better graph visualization..."
 # config-service -> Infrastructure

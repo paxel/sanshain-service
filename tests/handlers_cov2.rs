@@ -526,7 +526,7 @@ async fn audit_log_listing_and_csv_export_carry_the_recorded_action() {
     let mut lines = csv.lines();
     assert_eq!(
         lines.next().unwrap(),
-        "id,timestamp,username,action,details,service,version,action_type"
+        "id,timestamp,username,action,details,service,version,action_type,stream"
     );
     assert!(
         csv.contains("\"CLEAR_CACHE\""),

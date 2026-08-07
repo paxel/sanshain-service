@@ -15,11 +15,11 @@ This guide covers the admin dashboard at `/admin.html` and administrative tasks.
 
 Open `/admin.html` in your browser and sign in with an admin account. On a fresh installation the only admin account is **root** — see [Getting Started](getting-started.md) for the initial password procedure.
 
-![Admin login screen](images/Screenshot_20260421_230832.png)
+![Admin login screen](images/login.png)
 
 After a successful login the dashboard loads with all management sections organized into tabs.
 
-![Admin dashboard](images/Screenshot_20260421_230857.png)
+![Admin dashboard](images/admin_overview.png)
 
 ## Observability
 
@@ -77,6 +77,22 @@ Snapshots expire **use-based**: a snapshot that is neither provided nor required
 ### Dependency Cleanup
 
 Recorded dependencies go stale when a Consumer stops requiring an endpoint. `dependency_max_age_days` (`GET`/`POST /admin/settings/dependency-max-age`) controls when unused dependencies are removed; `POST /admin/cleanup/dependencies` runs it immediately.
+
+### Trunk Cleanup
+
+Trunk data ages on its own month-scale TTL, independent of the much shorter dev expiry: trunk pins and trunk markers not refreshed within `trunk_max_age_days` (default `90`, `0` disables — `GET`/`POST /admin/settings/trunk-max-age`) are *closed*. They leave the current main graph but stay as history, so the timeline can still render past states. `POST /admin/cleanup/trunk` runs it immediately. The main graph highlights entries as stale (amber, ⚠) once they pass half the TTL — forgotten producers surface before they vanish.
+
+All max-age settings accept at most `36500` days (~100 years); larger values answer `400`.
+
+## Sanshain-Branch Management
+
+The **Sanshain-Branches** dashboard section manages release cuts ([ADR-0005](adr/0005-sanshain-branches-and-timeline.md)):
+
+- **Create** (`POST /admin/branches`, requires the `releaser` role) — a named copy of the main graph, or another branch, at a chosen instant; a past `as_of` repairs a forgotten cut retroactively. `main`, `dev` and `trunk` are reserved names (the built-in graph views, and the trunk stream sentinel).
+- **Rename** (`PUT /admin/branches/{name}`, admin) — repairs a botched name; membership, timeline and audit stamps survive. Pipelines still sending the old tag get an instructive `404` until reconfigured.
+- **Delete** (`DELETE /admin/branches/{name}`, admin) — the audited end-of-life act; frees the name.
+
+Deleting a *version* that branches reference leaves those pins visibly dangling (never silently dropped); the delete-version confirmation names the referencing branches alongside pinned Consumers, and a later re-provide of the number heals them.
 
 ## Local User Management
 
@@ -311,4 +327,4 @@ For detailed setup instructions, see [Getting Started — PostgreSQL](getting-st
 
 - **Account** (`/account.html`) — manage your own password and API tokens.
 
-  ![Account page with token management](images/Screenshot_20260421_230948.png)
+  ![Account page with token management](images/user_dashboard.png)

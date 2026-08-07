@@ -90,7 +90,13 @@ function graphLatestGaMap(report) {
 // Outdated or Snapshot-pinned Pin? Map key -> { outdated, snapshot }.
 function graphEdgeFlags(report, latestGaMap, trunkVersionMap) {
   const flags = new Map();
-  const staleBefore = trunkVersionMap ? report.trunk_stale_before : null;
+  // Staleness and major-lag are statements about *now*: both are measured
+  // against today's boundary and today's trunk versions. A reconstructed past
+  // graph must not be judged by them, or every historical edge reads as
+  // forgotten and conflicts appear against versions that did not yet exist.
+  const historical = !!window.graphTimelineAt;
+  const staleBefore = trunkVersionMap && !historical ? report.trunk_stale_before : null;
+  const conflictMap = historical ? null : trunkVersionMap;
   (report.dependency_graph || []).forEach((d) => {
     const key = `${d.client}-->${d.service}`;
     if (!flags.has(key))
@@ -108,8 +114,8 @@ function graphEdgeFlags(report, latestGaMap, trunkVersionMap) {
     if (latestGa && _graphCompareSemver(d.version, latestGa) < 0) f.outdated = true;
     // Main view: a pin a whole major behind the producer's trunk version is a
     // conflict, drawn loud (ADR-0004).
-    if (trunkVersionMap) {
-      const trunkV = trunkVersionMap.get(typeKey);
+    if (conflictMap) {
+      const trunkV = conflictMap.get(typeKey);
       if (trunkV && parseInt(d.version, 10) < parseInt(trunkV, 10)) f.conflict = true;
     }
   });

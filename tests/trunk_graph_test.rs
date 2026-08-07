@@ -1215,7 +1215,7 @@ async fn graph_diff_names_added_removed_and_changed_pins() {
 #[tokio::test]
 async fn reserved_graph_names_cannot_name_a_branch() {
     let ctx = setup().await;
-    for name in ["main", "dev"] {
+    for name in ["main", "dev", "trunk"] {
         let (status, _, body) = send(
             &ctx,
             "POST",
@@ -1347,4 +1347,118 @@ async fn report_scope_speaks_the_shared_selector_grammar() {
     // The dev scope has no timeline — refused, not misread as a branch name.
     let (status, _, body) = send(&ctx, "GET", "/report?scope=dev@2100-01-01T00:00:00Z", None).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "got: {body}");
+}
+
+// ---------------------------------------------------------------------------
+// Review fixes, round 2 — dry-run purity, tagged no-op auditing, CSV stream
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn dry_run_reprovide_does_not_refresh_snapshot_expiry() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+
+    // Backdate the entry so the assertion cannot pass by second-precision
+    // coincidence: a refresh would have to overwrite this exact stamp.
+    const BACKDATED: &str = "2020-01-01T00:00:00Z";
+    sqlx::query("UPDATE spec_versions SET updated_at = ?")
+        .bind(BACKDATED)
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
+
+    // A dry run of byte-identical content: validation only, nothing written.
+    let (status, _) = provide_with(
+        &ctx,
+        "svc",
+        "snapshot",
+        &spec("1.0.0"),
+        &[("dry_run", json!(true))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    let updated_at: String = sqlx::query_scalar("SELECT updated_at FROM spec_versions")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        updated_at, BACKDATED,
+        "a dry run must not extend the snapshot's use-based expiry"
+    );
+
+    // The real re-provide is what keeps a nightly-rebuilt snapshot alive.
+    let (status, _) = provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let updated_at: String = sqlx::query_scalar("SELECT updated_at FROM spec_versions")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    assert_ne!(
+        updated_at, BACKDATED,
+        "a real no-op re-provide must still count as provided"
+    );
+}
+
+#[tokio::test]
+async fn tagging_an_unchanged_version_onto_a_branch_is_audited() {
+    let ctx = setup().await;
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({ "name": "rel-1" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "got: {body}");
+
+    // Provide first without a tag, then tag the *identical* content: the
+    // second call changes no endpoint but does mutate the release graph.
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    let (status, _) = provide_with(
+        &ctx,
+        "svc",
+        "snapshot",
+        &spec("1.0.0"),
+        &[("tag", json!("rel-1"))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    // ADR-0005: "who changed rel-1, when?" is one filtered query.
+    let (status, _, body) = send(&ctx, "GET", "/api/audit/timeline?stream=rel-1", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let entries = as_json(&body);
+    let entries = entries.as_array().unwrap();
+    assert!(
+        entries
+            .iter()
+            .any(|e| e["action"] == "BRANCH_MEMBER_TAGGED" && e["service"] == "svc"),
+        "the tagged no-op must appear in the branch's stream: {entries:?}"
+    );
+}
+
+#[tokio::test]
+async fn audit_csv_export_carries_the_stream_column() {
+    let ctx = setup().await;
+    provide_with(
+        &ctx,
+        "svc",
+        "snapshot",
+        &spec("1.0.0"),
+        &[("trunk", json!(true))],
+    )
+    .await;
+
+    let (status, _, body) = send(&ctx, "GET", "/admin/observability/audit-logs/export", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let mut lines = body.lines();
+    assert_eq!(
+        lines.next().unwrap(),
+        "id,timestamp,username,action,details,service,version,action_type,stream"
+    );
+    assert!(
+        lines.any(|l| l.contains("PROVIDE_SPEC") && l.ends_with("\"trunk\"")),
+        "the trunk provide's stream must survive the export: {body}"
+    );
 }

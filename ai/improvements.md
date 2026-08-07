@@ -623,6 +623,79 @@ from trivial lag.
 - Unit-test config parsing for valid, missing, and invalid values.
 - Run `cargo test`.
 
+### 26. Enforce the one-open-record invariant on the pin stores (found 2026-08-07)
+
+**Problem:** `record_trunk_pins` and `record_branch_pins` refresh-or-insert with a
+check-then-insert inside a transaction, but nothing in the schema enforces "at most one open
+record per pin key". `idx_trunk_dependencies_open` is non-unique, and under Postgres READ
+COMMITTED two concurrent requires for the same pin each see `rows_affected == 0` on the refresh
+`UPDATE` (neither sees the other's uncommitted `INSERT`) and both insert.
+
+**Impact:** Duplicate open rows for one pin key: the main graph and reports draw the edge twice,
+and a later re-pin closes both rows at once, breaking the invariant every reader assumes. SQLite
+serializes writes so it does not reproduce — the two backends silently diverge.
+`record_branch_member_version` has the same check-then-insert shape (its
+`UPDATE`/`INSERT` pair was made transactional on 2026-08-07, which fixes the crash-between-writes
+half but not this one).
+
+**Relevant areas:**
+
+- `src/infrastructure/sqlite_repository.rs`, `src/infrastructure/postgres_repository.rs`
+  (`record_trunk_pins`, `record_branch_pins`, `record_branch_member_version`)
+- `src/infrastructure/migrations/{sqlite,postgres}/`
+
+**Implementation instructions:**
+
+1. Read the three writers first and derive the exact key column set from the `UPDATE` predicates
+   — the pin stores match on `normalized_path`, not `path`; the member store has no path at all.
+   The index must match the predicate exactly or it will not prevent the race.
+2. Write one migration per backend that (a) closes pre-existing duplicate open rows, keeping the
+   newest per key, then (b) creates a UNIQUE partial index on the open rows
+   (`... WHERE valid_to IS NULL`). Step (a) is not optional: the index creation fails on any
+   deployment that already accumulated duplicates.
+3. Convert the writers to rely on the constraint (upsert / `ON CONFLICT`) rather than the
+   check-then-insert, so the race is resolved by the database rather than by timing.
+4. Migrations are checksum-verified — expect `tests/migration_checksum_test.rs`,
+   `upgrade_test.rs` and `upgrade_test_postgres.rs` to need attention in the same change.
+
+**Validation:**
+
+- Postgres test issuing two concurrent identical trunk requires, asserting exactly one open row.
+- A migration test seeding duplicate open rows and asserting the migration collapses them.
+- Run `cargo test` (the Postgres suites need Docker).
+
+### 27. Diff graphs by the key the pin stores actually use (found 2026-08-07)
+
+**Problem:** `diff_graphs` keys pins by the raw `path`, while the pin stores match open records
+by `normalized_path`. A path whose parameter is respelled (`/users/{id}` → `/users/{userId}`)
+normalizes to the same stored record — one pin whose version moved — but the diff sees two
+different keys.
+
+**Impact:** `GET /admin/graph/diff` reports such a change as a removal plus an addition instead
+of a version change, so a release diff claims a dependency was dropped and a new one introduced.
+Misleading exactly where the feature is meant to be authoritative.
+
+**Relevant areas:**
+
+- `src/application/branch_service.rs` (`diff_graphs`, the `key` closure)
+- `src/domain/models.rs` (`TrunkPinInfo` — has no `normalized_path` field today)
+- the pin queries in both repositories
+
+**Implementation instructions:**
+
+1. Decide the seam: either select `normalized_path` in the pin queries and carry it on
+   `TrunkPinInfo` (skipped in serialization if it should not reach the wire), or normalize in
+   the application layer using the same function the write path uses. Prefer the former — two
+   normalizers will drift.
+2. Key `diff_graphs` by the normalized path; keep the raw `path` for display so the rendered
+   diff still shows what a human wrote.
+
+**Validation:**
+
+- Unit test: two pin sets differing only in parameter spelling and version produce one
+  `pins_changed` entry and no add/remove pair.
+- Run `cargo test`.
+
 ## P2 — Maintainability and quality
 
 ### 22. Observability audit panel shows only the last 30 rows, now shared with rejections
