@@ -221,3 +221,136 @@ pub async fn get_branch_graph(
     }
     Ok(pins)
 }
+
+/// One side of a graph diff: `main[@instant]` or `<branch>[@instant]`.
+/// A trailing `@<instant>` is only split off when it parses as a date, so
+/// branch names containing `@` keep working.
+async fn resolve_graph_selection(
+    repo: &impl SpecRepository,
+    raw: &str,
+) -> Result<Vec<TrunkPinInfo>, AppError> {
+    let (name, at) = match raw.rsplit_once('@') {
+        Some((name, at)) if chrono::DateTime::parse_from_rfc3339(at).is_ok() => {
+            (name, Some(at.to_string()))
+        }
+        _ => (raw, None),
+    };
+    if name == "main" {
+        return Ok(match at.as_deref() {
+            Some(at) => repo.list_trunk_pins_at(at).await?,
+            None => repo.list_current_trunk_pins().await?,
+        });
+    }
+    let branch = repo
+        .find_branch(name)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("no sanshain-branch '{name}'")))?;
+    Ok(repo.list_branch_pins(branch.id, at.as_deref()).await?)
+}
+
+/// One pin whose version differs between the two sides of a diff.
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct PinChange {
+    pub client: String,
+    pub service: String,
+    pub api_type: ApiType,
+    pub path: String,
+    pub method: String,
+    pub from: SemVer,
+    pub to: SemVer,
+}
+
+/// A structured diff between two graph selections (ADR-0005): what a release
+/// train changed, or what trunk changed since a cut — stated, not eyeballed.
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct GraphDiff {
+    pub left: String,
+    pub right: String,
+    pub services_added: Vec<String>,
+    pub services_removed: Vec<String>,
+    pub pins_added: Vec<TrunkPinInfo>,
+    pub pins_removed: Vec<TrunkPinInfo>,
+    pub pins_changed: Vec<PinChange>,
+}
+
+#[instrument(skip_all)]
+pub async fn diff_graphs(
+    repo: &impl SpecRepository,
+    left: &str,
+    right: &str,
+) -> Result<GraphDiff, AppError> {
+    let left_pins = resolve_graph_selection(repo, left).await?;
+    let right_pins = resolve_graph_selection(repo, right).await?;
+
+    let key = |p: &TrunkPinInfo| {
+        (
+            p.client.clone(),
+            p.service.clone(),
+            p.api_type,
+            p.path.clone(),
+            p.method.clone(),
+        )
+    };
+    let left_map: std::collections::HashMap<_, TrunkPinInfo> =
+        left_pins.into_iter().map(|p| (key(&p), p)).collect();
+    let right_map: std::collections::HashMap<_, TrunkPinInfo> =
+        right_pins.into_iter().map(|p| (key(&p), p)).collect();
+
+    let mut pins_added = Vec::new();
+    let mut pins_removed = Vec::new();
+    let mut pins_changed = Vec::new();
+    for (k, r) in &right_map {
+        match left_map.get(k) {
+            None => pins_added.push(r.clone()),
+            Some(l) if l.version != r.version => pins_changed.push(PinChange {
+                client: r.client.clone(),
+                service: r.service.clone(),
+                api_type: r.api_type,
+                path: r.path.clone(),
+                method: r.method.clone(),
+                from: l.version,
+                to: r.version,
+            }),
+            Some(_) => {}
+        }
+    }
+    for (k, l) in &left_map {
+        if !right_map.contains_key(k) {
+            pins_removed.push(l.clone());
+        }
+    }
+
+    let names =
+        |m: &std::collections::HashMap<(String, String, ApiType, String, String), TrunkPinInfo>| {
+            m.values()
+                .flat_map(|p| [p.client.clone(), p.service.clone()])
+                .collect::<std::collections::BTreeSet<String>>()
+        };
+    let left_names = names(&left_map);
+    let right_names = names(&right_map);
+    let services_added = right_names.difference(&left_names).cloned().collect();
+    let services_removed = left_names.difference(&right_names).cloned().collect();
+
+    let sort_pins = |v: &mut Vec<TrunkPinInfo>| {
+        v.sort_by(|a, b| {
+            (&a.client, &a.service, &a.path, &a.method)
+                .cmp(&(&b.client, &b.service, &b.path, &b.method))
+        })
+    };
+    sort_pins(&mut pins_added);
+    sort_pins(&mut pins_removed);
+    pins_changed.sort_by(|a, b| {
+        (&a.client, &a.service, &a.path, &a.method)
+            .cmp(&(&b.client, &b.service, &b.path, &b.method))
+    });
+
+    Ok(GraphDiff {
+        left: left.to_string(),
+        right: right.to_string(),
+        services_added,
+        services_removed,
+        pins_added,
+        pins_removed,
+        pins_changed,
+    })
+}

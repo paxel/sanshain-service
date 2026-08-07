@@ -728,6 +728,41 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/graph/diff:
+    get:
+      summary: "Read: graph/diff"
+      description: |
+        Structured diff between two graph selections (ADR-0005) — release vs
+        release, release vs main, one graph at two instants. `left`/`right`
+        are `main[@rfc3339]` or `<branch>[@rfc3339]`. Answers services
+        added/removed, pins added/removed, and per-pin version changes; all
+        arrays empty means no differences.
+      parameters:
+        - name: left
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: right
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The structured diff.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: A named branch does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/producers:
     get:
       summary: "Read: producers"

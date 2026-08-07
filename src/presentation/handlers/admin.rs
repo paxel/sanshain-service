@@ -1331,3 +1331,19 @@ pub async fn admin_producer_branch_memberships(
             .await?,
     ))
 }
+
+#[derive(Deserialize)]
+pub struct GraphDiffQuery {
+    /// `main[@instant]` or `<branch>[@instant]`.
+    pub left: String,
+    pub right: String,
+}
+
+pub async fn admin_graph_diff(
+    State(state): State<AppState>,
+    Query(query): Query<GraphDiffQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(
+        services::diff_graphs(&state.repo, &query.left, &query.right).await?,
+    ))
+}

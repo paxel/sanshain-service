@@ -1161,3 +1161,48 @@ async fn scoped_markdown_report_names_its_scope() {
         "unscoped report stays unchanged: {md}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// #43 — diff between any two (graph, date) selections
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn graph_diff_names_added_removed_and_changed_pins() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.1.0"), &[]).await;
+    require_with(&ctx, "webapp", "svc", "1.0.0", "/users", "GET", true).await;
+    send(&ctx, "POST", "/admin/branches", Some(json!({"name": "R"}))).await;
+    // Trunk moves on; the branch keeps 1.0.0.
+    require_with(&ctx, "webapp", "svc", "1.1.0", "/users", "GET", true).await;
+    // And trunk gains a second consumer the branch never saw.
+    require_with(&ctx, "mobile", "svc", "1.1.0", "/users", "GET", true).await;
+
+    let (status, _, body) = send(&ctx, "GET", "/admin/graph/diff?left=R&right=main", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let diff = as_json(&body);
+    assert_eq!(diff["left"], "R");
+    assert_eq!(diff["right"], "main");
+
+    let changed = diff["pins_changed"].as_array().unwrap();
+    assert_eq!(changed.len(), 1, "got: {changed:?}");
+    assert_eq!(changed[0]["client"], "webapp");
+    assert_eq!(changed[0]["from"], "1.0.0");
+    assert_eq!(changed[0]["to"], "1.1.0");
+
+    let added = diff["pins_added"].as_array().unwrap();
+    assert_eq!(added.len(), 1, "got: {added:?}");
+    assert_eq!(added[0]["client"], "mobile");
+    assert!(diff["pins_removed"].as_array().unwrap().is_empty());
+
+    // Same selection twice: explicitly no differences.
+    let (_, _, body) = send(&ctx, "GET", "/admin/graph/diff?left=main&right=main", None).await;
+    let diff = as_json(&body);
+    assert!(diff["pins_changed"].as_array().unwrap().is_empty());
+    assert!(diff["pins_added"].as_array().unwrap().is_empty());
+    assert!(diff["pins_removed"].as_array().unwrap().is_empty());
+
+    // Unknown branch → 404.
+    let (status, _, _) = send(&ctx, "GET", "/admin/graph/diff?left=Ghost&right=main", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

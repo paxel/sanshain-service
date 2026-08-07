@@ -439,6 +439,12 @@ test.describe('Main graph view (ADR-0004)', () => {
     await expect(page.locator('#graph-timeline-row')).toBeVisible();
     await page.click('#stream-dev');
     await expect(page.locator('#graph-timeline-row')).toBeHidden();
+
+    // The compare panel diffs any two selections; identical sides say so.
+    await page.selectOption('#diff-left', 'main');
+    await page.selectOption('#diff-right', 'main');
+    await page.click('button:has-text("Diff")');
+    await expect(page.locator('#graph-diff-output')).toContainText('No differences', { timeout: 10000 });
   });
 });
 

@@ -166,6 +166,20 @@
             </div>
         </div>
 
+        <!-- Compare (ADR-0005): a structured diff between any two graph
+             selections — release vs release, release vs main, any at a date. -->
+        <div class="flex flex-wrap items-center gap-2 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200">
+            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Compare</span>
+            <select id="diff-left" class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white"></select>
+            <input type="datetime-local" id="diff-left-at" class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white" title="Optional: left side at this instant">
+            <span class="text-slate-500 text-xs">→</span>
+            <select id="diff-right" class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white"></select>
+            <input type="datetime-local" id="diff-right-at" class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white" title="Optional: right side at this instant">
+            <button onclick="runGraphDiff()" class="px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Diff</button>
+            <button onclick="document.getElementById('graph-diff-output').innerHTML=''" class="px-2.5 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600">Clear</button>
+        </div>
+        <div id="graph-diff-output" class="mb-4 empty:mb-0"></div>
+
         <!-- Timeline (ADR-0005): reconstruct the main or a branch graph at any
              past instant; markers are the change dates of the append-only store. -->
         <div id="graph-timeline-row" class="hidden flex flex-wrap items-center gap-3 mb-4 p-3 bg-amber-50/50 rounded-xl border border-amber-200">
@@ -383,6 +397,20 @@
                         sel.appendChild(opt);
                     }
                     sel.value = current;
+                }
+                // The compare panel offers the same selections on both sides.
+                for (const id of ['diff-left', 'diff-right']) {
+                    const dsel = document.getElementById(id);
+                    if (!dsel) continue;
+                    const current = dsel.value;
+                    dsel.innerHTML = '<option value="main">main</option>';
+                    for (const b of branches) {
+                        const opt = document.createElement('option');
+                        opt.value = b.name;
+                        opt.textContent = b.name;
+                        dsel.appendChild(opt);
+                    }
+                    if (current) dsel.value = current;
                 }
             } catch (e) {
                 console.warn('Could not load branches:', e);
@@ -618,6 +646,38 @@
     function graphScopeSlug() {
         return graphScopeStamp().replace(/[^a-zA-Z0-9.@-]+/g, '_');
     }
+
+    // Compare two graph selections (ADR-0005) and render the structured diff.
+    async function runGraphDiff() {
+        const sel = (idSel, idAt) => {
+            let v = document.getElementById(idSel).value;
+            const at = document.getElementById(idAt).value;
+            if (at) v += `@${new Date(at).toISOString()}`;
+            return v;
+        };
+        const left = sel('diff-left', 'diff-left-at');
+        const right = sel('diff-right', 'diff-right-at');
+        const out = document.getElementById('graph-diff-output');
+        out.innerHTML = '<div class="text-sm text-slate-500 italic">Comparing…</div>';
+        const res = await apiCall(`/admin/graph/diff?left=${encodeURIComponent(left)}&right=${encodeURIComponent(right)}`);
+        if (!res.ok) {
+            out.innerHTML = `<div class="text-sm text-red-500">Diff failed: ${escapeHtml(await errorMessage(res))}</div>`;
+            return;
+        }
+        const diff = await res.json();
+        const rows = [];
+        for (const s of diff.services_added) rows.push(`<div class="text-green-700">+ service ${escapeHtml(s)}</div>`);
+        for (const s of diff.services_removed) rows.push(`<div class="text-red-700">− service ${escapeHtml(s)}</div>`);
+        for (const p of diff.pins_added) rows.push(`<div class="text-green-700">+ ${escapeHtml(p.client)} → ${escapeHtml(p.service)} ${escapeHtml(p.method)} ${escapeHtml(p.path)} @ ${escapeHtml(p.version)}</div>`);
+        for (const p of diff.pins_removed) rows.push(`<div class="text-red-700">− ${escapeHtml(p.client)} → ${escapeHtml(p.service)} ${escapeHtml(p.method)} ${escapeHtml(p.path)} @ ${escapeHtml(p.version)}</div>`);
+        for (const p of diff.pins_changed) rows.push(`<div class="text-amber-700">~ ${escapeHtml(p.client)} → ${escapeHtml(p.service)} ${escapeHtml(p.method)} ${escapeHtml(p.path)}: ${escapeHtml(p.from)} → ${escapeHtml(p.to)}</div>`);
+        out.innerHTML = `
+            <div class="bg-white border border-slate-200 rounded-xl p-4 text-sm font-mono">
+                <div class="text-xs text-slate-500 mb-2 font-sans">${escapeHtml(diff.left)} → ${escapeHtml(diff.right)}</div>
+                ${rows.length ? rows.join('') : '<div class="text-slate-500 italic font-sans">No differences.</div>'}
+            </div>`;
+    }
+    window.runGraphDiff = runGraphDiff;
 
     document.getElementById('graph-download').onclick = () => {
         let content, filename, mime;

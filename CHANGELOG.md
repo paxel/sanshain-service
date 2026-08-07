@@ -58,6 +58,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   are stamped with their view, branch and instant; scoped reports carry a `Scope:` line. New
   metrics: `sanshain_branch_updates_total{branch}` and a `sanshain_branches` gauge, with the
   branch count shown on the observability page.
+- Graph diffing (`GET /admin/graph/diff?left=…&right=…`, and a Compare panel on the graph page):
+  a structured diff between any two graph selections — release vs release, release vs main, any
+  at a past instant — naming added/removed services and added/removed/changed pins.
 
 ### Changed
 - UI messages and docs no longer explain resolution by contrast with removed 1.x mechanics

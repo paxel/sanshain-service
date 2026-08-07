@@ -339,7 +339,7 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 - Add or update a test that asserts the CSP header does not contain `'unsafe-inline'` after migration.
 - Manually load admin pages or run existing Playwright/UI tests if available.
 
-### 23. Trunk flag and main/dev graph views (ADR-0004, designed 2026-08-07)
+### 23. Trunk flag and main/dev graph views (ADR-0004, designed 2026-08-07) — DONE (2.2.0)
 
 **Problem:** The dependency graph is the union of every pin any branch's build recorded recently,
 thinned by `dependency_max_age_days` — it cannot distinguish the trunk stream's pins from
@@ -402,7 +402,7 @@ expiry, rarely-built services vanish and reappear.
   `dependencies` keeps accumulating as today.
 - A provide/require without the flag produces bit-identical rows and responses to current 2.2.0.
 
-### 24. Sanshain-branches: named release graphs and the timeline (ADR-0005, designed 2026-08-07)
+### 24. Sanshain-branches: named release graphs and the timeline (ADR-0005, designed 2026-08-07) — DONE (2.2.0)
 
 **Problem:** The main graph (item 23) shows only current trunk truth. What a *release* consists
 of, which releases contain a given producer version, and what changed between two graphs is not
