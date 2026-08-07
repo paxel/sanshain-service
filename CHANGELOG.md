@@ -41,6 +41,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   closes trunk pins and clears trunk markers not refreshed in time — they leave the main graph
   but stay as history — and the main graph highlights entries as stale (amber, ⚠) once they pass
   half the TTL, so forgotten producers and dead requires surface before they vanish.
+- Reports take a graph scope: `?scope=dev` (default, unchanged), `main` (trunk pins), or
+  `<branch>[@instant]` — so a release-scoped architecture or isolation report describes what
+  production actually is. The reports page gained the matching selector.
 
 ### Changed
 - UI messages and docs no longer explain resolution by contrast with removed 1.x mechanics

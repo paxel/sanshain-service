@@ -892,3 +892,57 @@ async fn trunk_cleanup_closes_stale_rows_and_keeps_history() {
         "got: {body}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// #39 — report scopes: dev (default), main, branch[@date]
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn report_scope_selects_the_graph() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.1.0"), &[]).await;
+    // Dev activity pins 1.0.0; trunk pins 1.1.0.
+    require_with(&ctx, "webapp", "svc", "1.0.0", "/users", "GET", false).await;
+    require_with(&ctx, "webapp", "svc", "1.1.0", "/users", "GET", true).await;
+    send(&ctx, "POST", "/admin/branches", Some(json!({"name": "R"}))).await;
+    // The branch moves on to 1.0.0 via a hotfix; main stays at 1.1.0.
+    send(
+        &ctx,
+        "GET",
+        "/require?consumername=webapp&producername=svc&version=1.0.0&path=/users&method=GET&tag=R",
+        None,
+    )
+    .await;
+
+    // Default scope: dev — the recorded dependency set (both pins).
+    let (_, _, body) = send(&ctx, "GET", "/report", None).await;
+    let dev = as_json(&body)["dependency_graph"].as_array().unwrap().len();
+    assert_eq!(dev, 2, "dev scope keeps accumulated pins");
+
+    // Main scope: the current trunk pin set.
+    let (status, _, body) = send(&ctx, "GET", "/report?scope=main", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let main = as_json(&body)["dependency_graph"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(main.len(), 1, "got: {main:?}");
+    assert_eq!(main[0]["version"], "1.1.0");
+
+    // Branch scope: the branch's current pins.
+    let (status, _, body) = send(&ctx, "GET", "/report?scope=R", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let branch = as_json(&body)["dependency_graph"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(branch.len(), 1, "got: {branch:?}");
+    assert_eq!(branch[0]["version"], "1.0.0");
+
+    // Unknown branch scope → 404; the markdown report is scoped too.
+    let (status, _, _) = send(&ctx, "GET", "/report?scope=Ghost", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (_, _, md) = send(&ctx, "GET", "/report/markdown?scope=main", None).await;
+    assert!(md.contains("1.1.0") && !md.contains("1.0.0"), "got: {md}");
+}

@@ -459,19 +459,31 @@ pub async fn require_bundle(
     Ok(require_response(&headers, res))
 }
 
-pub async fn report(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+#[derive(Deserialize)]
+pub struct ReportQuery {
+    /// `dev` (default), `main`, or `<branch>[@rfc3339]` (ADR-0005).
+    pub scope: Option<String>,
+}
+
+pub async fn report(
+    State(state): State<AppState>,
+    Query(query): Query<ReportQuery>,
+) -> Result<impl IntoResponse, AppError> {
     // Not audited: this JSON report is fetched to render the graph view in the
     // UI, so auditing it would turn every graph view into an audit entry.
     // Explicit report exports (markdown/isolation) are still audited below.
-    let res = services::generate_report(&state.repo).await?;
+    let scope = services::ReportScope::parse(query.scope.as_deref());
+    let res = services::generate_scoped_report(&state.repo, scope).await?;
     Ok(Json(res))
 }
 
 pub async fn report_markdown(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    Query(query): Query<ReportQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::generate_report(&state.repo).await?;
+    let scope = services::ReportScope::parse(query.scope.as_deref());
+    let res = services::generate_scoped_report(&state.repo, scope).await?;
     let _ = record_audit_log(
         &state.repo,
         user,
@@ -497,8 +509,10 @@ pub async fn report_markdown(
 pub async fn report_isolation(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    Query(query): Query<ReportQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::generate_report(&state.repo).await?;
+    let scope = services::ReportScope::parse(query.scope.as_deref());
+    let res = services::generate_scoped_report(&state.repo, scope).await?;
     let _ = record_audit_log(
         &state.repo,
         user,
