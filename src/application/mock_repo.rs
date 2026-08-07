@@ -73,6 +73,10 @@ pub struct MockDependency {
 /// Producer metadata as stored: (icon, domain).
 type ProducerMetadata = (Option<String>, Option<String>);
 
+/// A branch member version as stored:
+/// (branch_id, service_id, api_type, version, valid_from, valid_to).
+type BranchMemberVersion = (i64, i64, ApiType, SemVer, String, Option<String>);
+
 pub struct MockRepo {
     pub services: Mutex<HashMap<String, i64>>,
     pub producer_metadata: Mutex<HashMap<String, ProducerMetadata>>,
@@ -81,8 +85,7 @@ pub struct MockRepo {
     pub trunk_pins: Mutex<Vec<MockTrunkPin>>,
     pub branches: Mutex<Vec<BranchInfo>>,
     pub branch_pins: Mutex<Vec<(i64, MockTrunkPin)>>,
-    /// (branch_id, service_id, api_type, version, valid_from, valid_to)
-    pub branch_member_versions: Mutex<Vec<(i64, i64, ApiType, SemVer, String, Option<String>)>>,
+    pub branch_member_versions: Mutex<Vec<BranchMemberVersion>>,
     pub clients: Mutex<HashMap<String, i64>>,
     pub next_id: Mutex<i64>,
     pub users: Mutex<Vec<User>>,
@@ -728,7 +731,7 @@ impl SpecRepository for MockRepo {
                     && r.1.method == p.method
                     && r.1.valid_to.is_none()
             };
-            if let Some(open) = rows.iter_mut().find(|r| same_key(&r)) {
+            if let Some(open) = rows.iter_mut().find(|r| same_key(r)) {
                 if open.1.version == p.version {
                     open.1.last_required_at = p.now_iso.to_string();
                     continue;
@@ -803,7 +806,7 @@ impl SpecRepository for MockRepo {
                     && r.method == p.method
                     && r.valid_to.is_none()
             };
-            if let Some(open) = rows.iter_mut().find(|r| same_key(&r)) {
+            if let Some(open) = rows.iter_mut().find(|r| same_key(r)) {
                 if open.version == p.version {
                     open.last_required_at = p.now_iso.to_string();
                     continue;

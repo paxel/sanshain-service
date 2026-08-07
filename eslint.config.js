@@ -16,6 +16,7 @@ export default [
         renderBanner: "readonly",
         sanshainLogout: "readonly",
         friendlyError: "readonly",
+        errorMessage: "readonly",
         escapeHtml: "readonly",
         escapeAttr: "readonly",
         confirmDelete: "readonly",
