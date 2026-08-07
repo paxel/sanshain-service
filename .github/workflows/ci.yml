@@ -25,5 +25,11 @@ jobs:
       - name: Build
         run: cargo build --verbose
 
+      # Testcontainers tests pull this image on demand; concurrent in-test pulls
+      # are flaky ("bytes remaining on stream"), so fetch it once up front.
+      # Tag must match the testcontainers-modules default (see Cargo.toml).
+      - name: Pre-pull testcontainers images
+        run: for i in 1 2 3; do docker pull postgres:11-alpine && break || sleep 5; done
+
       - name: Run tests
         run: cargo test --verbose
