@@ -21,6 +21,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Provides accept an optional `trunk: true` flag (ADR-0004): the version entry is marked as
   trunk's current version — shown as a badge on the producers page — with no effect on version
   rules or stability. Absent flag, nothing changes.
+- Requires (and require-bundle) accept the same optional `trunk` flag: the pin is additionally
+  recorded in a new append-only trunk store where the last write per endpoint defines the current
+  trunk pin set, exposed as `trunk_graph` in the `/report` payload.
 
 ### Changed
 - UI messages and docs no longer explain resolution by contrast with removed 1.x mechanics

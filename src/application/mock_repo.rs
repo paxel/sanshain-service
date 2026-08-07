@@ -1,7 +1,7 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
-    UpsertSpecVersion,
+    EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
+    SpecRepository, UpsertSpecVersion,
 };
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
@@ -43,6 +43,21 @@ impl MockSpecVersion {
     }
 }
 
+/// One trunk pin record, mirroring a `trunk_dependencies` row (append-only).
+#[derive(Clone, Debug)]
+pub struct MockTrunkPin {
+    pub client_id: i64,
+    pub service_id: i64,
+    pub api_type: ApiType,
+    pub version: SemVer,
+    pub path: String,
+    pub normalized_path: String,
+    pub method: String,
+    pub valid_from: String,
+    pub last_required_at: String,
+    pub valid_to: Option<String>,
+}
+
 /// One recorded Pin, mirroring a `dependencies` row.
 #[derive(Clone, Debug)]
 pub struct MockDependency {
@@ -63,6 +78,7 @@ pub struct MockRepo {
     pub producer_metadata: Mutex<HashMap<String, ProducerMetadata>>,
     pub spec_versions: Mutex<Vec<MockSpecVersion>>,
     pub dependencies: Mutex<Vec<MockDependency>>,
+    pub trunk_pins: Mutex<Vec<MockTrunkPin>>,
     pub clients: Mutex<HashMap<String, i64>>,
     pub next_id: Mutex<i64>,
     pub users: Mutex<Vec<User>>,
@@ -95,6 +111,7 @@ impl MockRepo {
             producer_metadata: Mutex::new(HashMap::new()),
             spec_versions: Mutex::new(Vec::new()),
             dependencies: Mutex::new(Vec::new()),
+            trunk_pins: Mutex::new(Vec::new()),
             clients: Mutex::new(HashMap::new()),
             next_id: Mutex::new(1),
             users: Mutex::new(Vec::new()),
@@ -341,6 +358,77 @@ impl SpecRepository for MockRepo {
             entry.trunk_provided_at = Some(now_iso.to_string());
         }
         Ok(())
+    }
+
+    async fn record_trunk_pins(
+        &self,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> Result<(), RepositoryError> {
+        let mut rows = self
+            .trunk_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        for p in pins {
+            let same_key = |r: &&mut MockTrunkPin| {
+                r.client_id == p.client_id
+                    && r.service_id == p.service_id
+                    && r.api_type == p.api_type
+                    && r.normalized_path == p.normalized_path
+                    && r.method == p.method
+                    && r.valid_to.is_none()
+            };
+            if let Some(open) = rows.iter_mut().find(|r| same_key(&r)) {
+                if open.version == p.version {
+                    open.last_required_at = p.now_iso.to_string();
+                    continue;
+                }
+                open.valid_to = Some(p.now_iso.to_string());
+            }
+            rows.push(MockTrunkPin {
+                client_id: p.client_id,
+                service_id: p.service_id,
+                api_type: p.api_type,
+                version: p.version,
+                path: p.path.to_string(),
+                normalized_path: p.normalized_path.to_string(),
+                method: p.method.to_string(),
+                valid_from: p.now_iso.to_string(),
+                last_required_at: p.now_iso.to_string(),
+                valid_to: None,
+            });
+        }
+        Ok(())
+    }
+
+    async fn list_current_trunk_pins(&self) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        let rows = self
+            .trunk_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let clients = self.clients.lock().unwrap_or_else(PoisonError::into_inner);
+        let services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
+        Ok(rows
+            .iter()
+            .filter(|r| r.valid_to.is_none())
+            .map(|r| TrunkPinInfo {
+                client: clients
+                    .iter()
+                    .find(|(_, id)| **id == r.client_id)
+                    .map(|(name, _)| name.clone())
+                    .unwrap_or_default(),
+                service: services
+                    .iter()
+                    .find(|(_, id)| **id == r.service_id)
+                    .map(|(name, _)| name.clone())
+                    .unwrap_or_default(),
+                api_type: r.api_type,
+                version: r.version,
+                path: r.path.clone(),
+                method: r.method.clone(),
+                valid_from: r.valid_from.clone(),
+                last_required_at: r.last_required_at.clone(),
+            })
+            .collect())
     }
 
     async fn delete_expired_snapshots(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
@@ -616,6 +704,7 @@ impl SpecRepository for MockRepo {
         }
 
         Ok(DependencyReport {
+            trunk_graph: Vec::new(),
             unused_endpoints,
             missing_endpoints,
             dependency_graph,

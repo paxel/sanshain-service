@@ -5,8 +5,8 @@ use moka::future::Cache;
 
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
-    UpsertSpecVersion,
+    EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
+    SpecRepository, UpsertSpecVersion,
 };
 use crate::infrastructure::database::DatabaseRepo;
 
@@ -637,6 +637,22 @@ impl SpecRepository for CachedSpecRepository {
             self.report_cache.invalidate_all();
         }
         Ok(())
+    }
+
+    async fn record_trunk_pins(
+        &self,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> Result<(), RepositoryError> {
+        self.inner.record_trunk_pins(pins).await?;
+        // Trunk edges ride the report payload, so a pin change stales it.
+        if !self.is_disabled() {
+            self.report_cache.invalidate_all();
+        }
+        Ok(())
+    }
+
+    async fn list_current_trunk_pins(&self) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        self.inner.list_current_trunk_pins().await
     }
 
     async fn get_report(&self) -> Result<DependencyReport, RepositoryError> {

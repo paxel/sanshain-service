@@ -130,6 +130,7 @@ async fn pin_consumer(repo: &SqliteSpecRepository, consumer: &str, producer: &st
             api_type: ApiType::OpenApi,
             path: "/hello",
             method: "GET",
+            trunk: false,
         },
     )
     .await

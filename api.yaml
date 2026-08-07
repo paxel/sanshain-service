@@ -270,6 +270,15 @@ paths:
           required: false
           schema: { type: boolean, default: false }
           description: Resolve without recording the dependency.
+        - name: trunk
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: |
+            Marks this build as the trunk stream's: the pin is additionally
+            recorded in the append-only trunk store that feeds the main graph
+            (last write per endpoint wins). Omit when not using trunk/graph
+            features.
       responses:
         "200":
           description: The endpoint snippet as YAML.
@@ -330,6 +339,11 @@ paths:
           in: query
           required: false
           schema: { type: boolean, default: false }
+        - name: trunk
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: See `trunk` on `/require`.
       responses:
         "200":
           description: The channel snippet as YAML.
@@ -383,6 +397,11 @@ paths:
           in: query
           required: false
           schema: { type: boolean, default: false }
+        - name: trunk
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: See `trunk` on `/require`.
       responses:
         "200":
           description: The .proto snippet.
@@ -713,6 +732,10 @@ components:
         dry_run:
           type: boolean
           default: false
+        trunk:
+          type: boolean
+          default: false
+          description: See `trunk` on `/require`.
 
     ValidationReport:
       type: object

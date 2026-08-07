@@ -1,7 +1,7 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
-    UpsertSpecVersion,
+    EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
+    SpecRepository, UpsertSpecVersion,
 };
 use crate::infrastructure::postgres_repository::PostgresSpecRepository;
 use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
@@ -100,6 +100,17 @@ impl SpecRepository for DatabaseRepo {
         now_iso: &str,
     ) -> Result<(), RepositoryError> {
         delegate!(self, touch_spec_version_trunk(spec_version_id, now_iso))
+    }
+
+    async fn record_trunk_pins(
+        &self,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, record_trunk_pins(pins))
+    }
+
+    async fn list_current_trunk_pins(&self) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        delegate!(self, list_current_trunk_pins())
     }
 
     async fn delete_expired_snapshots(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {

@@ -6,6 +6,7 @@ use tracing::instrument;
 pub async fn generate_report(repo: &impl SpecRepository) -> Result<DependencyReport, AppError> {
     let mut report = repo.get_report().await?;
     report.service_tags = repo.get_all_service_tags().await?;
+    report.trunk_graph = repo.list_current_trunk_pins().await?;
     Ok(report)
 }
 
@@ -105,6 +106,7 @@ mod tests {
             service_tags: std::collections::HashMap::new(),
             missing_endpoints: vec![],
             unused_endpoints: vec![],
+            trunk_graph: vec![],
         }
     }
 

@@ -570,6 +570,10 @@ pub struct DependencyReport {
     pub dependency_graph: Vec<DependencyInfo>,
     #[serde(default)]
     pub service_tags: HashMap<String, Vec<String>>,
+    /// The current trunk pin set (ADR-0004) — the main graph's edges.
+    /// Populated by the application layer; empty in raw repository results.
+    #[serde(default)]
+    pub trunk_graph: Vec<TrunkPinInfo>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -592,6 +596,23 @@ pub struct MissingEndpointInfo {
     pub version: SemVer,
     pub path: String,
     pub method: String,
+}
+
+/// One current trunk pin (ADR-0004): the open record of the append-only trunk
+/// dependency store, joined to names. The version is by value — it may
+/// reference a deleted entry (dangling until re-provided).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TrunkPinInfo {
+    pub client: String,
+    pub service: String,
+    pub api_type: ApiType,
+    pub version: SemVer,
+    pub path: String,
+    pub method: String,
+    /// When this pin became the current one.
+    pub valid_from: String,
+    /// Refreshed by every identical trunk re-require.
+    pub last_required_at: String,
 }
 
 #[derive(Serialize, Clone, Debug)]

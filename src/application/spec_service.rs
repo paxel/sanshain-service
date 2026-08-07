@@ -9,7 +9,7 @@ use crate::asyncapi;
 use crate::domain::models::*;
 use crate::domain::permissions::{Actor, Permission};
 use crate::domain::ports::{
-    NewAuditLog, RecordDependencyParams, SpecRepository, UpsertSpecVersion,
+    NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, SpecRepository, UpsertSpecVersion,
 };
 use crate::openapi;
 use sha2::{Digest, Sha256};
@@ -47,6 +47,9 @@ pub struct RequireEndpointParams<'a> {
     pub api_type: ApiType,
     pub path: &'a str,
     pub method: &'a str,
+    /// ADR-0004: this build belongs to the trunk stream — the pin is also
+    /// recorded in the append-only trunk store (last-write-wins view).
+    pub trunk: bool,
 }
 
 pub struct RequireBundleParams<'a> {
@@ -55,6 +58,8 @@ pub struct RequireBundleParams<'a> {
     pub version: SemVer,
     pub api_type: ApiType,
     pub endpoints: &'a [(String, String)],
+    /// See [`RequireEndpointParams::trunk`].
+    pub trunk: bool,
 }
 
 /// A compact fingerprint of submitted spec content for diagnostics: its byte
@@ -951,6 +956,7 @@ async fn require_endpoint_inner(
         api_type,
         path,
         method,
+        trunk,
     } = params;
 
     let (_sid, entry) = resolve_pin(repo, producername, api_type, version).await?;
@@ -978,6 +984,7 @@ async fn require_endpoint_inner(
             consumername,
             &entry,
             &[(path.to_string(), method.clone())],
+            trunk,
         )
         .await?;
     }
@@ -1016,6 +1023,7 @@ async fn require_bundle_inner(
         version,
         api_type,
         endpoints,
+        trunk,
     } = params;
 
     if endpoints.is_empty() {
@@ -1067,7 +1075,7 @@ async fn require_bundle_inner(
     };
 
     if !dry_run {
-        record_pins(repo, consumername, &entry, &normalized).await?;
+        record_pins(repo, consumername, &entry, &normalized, trunk).await?;
     }
 
     Ok(RequireResponse {
@@ -1087,6 +1095,7 @@ async fn record_pins(
     consumername: &str,
     entry: &SpecVersionMeta,
     endpoints: &[(String, String)],
+    trunk: bool,
 ) -> Result<(), AppError> {
     let client_id = repo.ensure_client(consumername).await?;
     let normalized: Vec<String> = endpoints
@@ -1108,6 +1117,26 @@ async fn record_pins(
     repo.record_dependencies_bulk(deps).await?;
     repo.touch_spec_version_required(entry.id, &now_iso())
         .await?;
+    // A trunk build additionally maintains the append-only trunk pin set
+    // (ADR-0004) — recorded by version value, never by the entry's row id.
+    if trunk {
+        let now = now_iso();
+        let pins: Vec<RecordTrunkPinParams> = endpoints
+            .iter()
+            .zip(normalized.iter())
+            .map(|((path, method), normalized_path)| RecordTrunkPinParams {
+                client_id,
+                service_id: entry.service_id,
+                api_type: entry.api_type,
+                version: entry.version,
+                path,
+                normalized_path,
+                method,
+                now_iso: &now,
+            })
+            .collect();
+        repo.record_trunk_pins(pins).await?;
+    }
     Ok(())
 }
 

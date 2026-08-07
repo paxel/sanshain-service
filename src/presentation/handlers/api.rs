@@ -241,6 +241,9 @@ pub struct RequireQuery {
     pub method: String,
     #[serde(default)]
     pub dry_run: bool,
+    /// ADR-0004: record this pin in the append-only trunk store too.
+    #[serde(default)]
+    pub trunk: bool,
 }
 
 /// Name how a require was answered: the resolution state, the version (always
@@ -297,6 +300,7 @@ async fn require_common(
         api_type,
         path: &query.path,
         method: &query.method,
+        trunk: query.trunk,
     };
     let res = if query.dry_run {
         services::require_endpoint_dry_run(&state.repo, params).await?
@@ -375,6 +379,9 @@ pub struct RequireBundleRequest {
     pub endpoints: Vec<BundleEndpoint>,
     #[serde(default)]
     pub dry_run: bool,
+    /// See `RequireQuery::trunk`.
+    #[serde(default)]
+    pub trunk: bool,
 }
 
 pub async fn require_bundle(
@@ -395,6 +402,7 @@ pub async fn require_bundle(
         version: payload.version,
         api_type: payload.api_type.unwrap_or(ApiType::OpenApi),
         endpoints: &endpoints,
+        trunk: payload.trunk,
     };
     let res = if payload.dry_run {
         services::require_bundle_dry_run(&state.repo, params).await?

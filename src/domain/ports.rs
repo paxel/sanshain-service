@@ -60,6 +60,19 @@ pub struct RecordDependencyParams<'a> {
     pub method: &'a str,
 }
 
+/// One trunk pin to record (ADR-0004). The version is by value — the trunk
+/// store never references a `spec_versions` row id.
+pub struct RecordTrunkPinParams<'a> {
+    pub client_id: i64,
+    pub service_id: i64,
+    pub api_type: ApiType,
+    pub version: crate::domain::models::SemVer,
+    pub path: &'a str,
+    pub normalized_path: &'a str,
+    pub method: &'a str,
+    pub now_iso: &'a str,
+}
+
 pub type EndpointDetails = (i64, String, bool);
 pub type EndpointMap = HashMap<(String, String), EndpointDetails>;
 
@@ -170,6 +183,22 @@ pub trait SpecRepository: Send + Sync {
         spec_version_id: i64,
         now_iso: &str,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Record trunk pins, append-only (ADR-0004/0005): per pin key, a
+    /// different version closes the open record and inserts a new one; the
+    /// same version only refreshes the open record's `last_required_at`.
+    /// Nothing is ever overwritten or deleted — closed records are the
+    /// timeline.
+    fn record_trunk_pins(
+        &self,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// The current trunk pin set — one entry per open record, joined to
+    /// client/service names. The main graph's edges.
+    fn list_current_trunk_pins(
+        &self,
+    ) -> impl Future<Output = Result<Vec<TrunkPinInfo>, RepositoryError>> + Send;
 
     /// Delete snapshot entries that were neither provided nor required since
     /// the cutoff — GA entries are never age-culled. Returns how many died.

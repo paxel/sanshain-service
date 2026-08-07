@@ -83,8 +83,8 @@ fn hash_session_token(token: &str) -> String {
 
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
-    UpsertSpecVersion,
+    EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
+    SpecRepository, UpsertSpecVersion,
 };
 
 struct ApiTokenRow {
@@ -422,6 +422,132 @@ impl SpecRepository for SqliteSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(())
+    }
+
+    async fn record_trunk_pins(
+        &self,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> Result<(), RepositoryError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        for p in pins {
+            let key = "client_id = ? AND service_id = ? AND api_type = ? AND normalized_path = ? AND method = ? AND valid_to IS NULL";
+            // Append semantics: a different version closes the open record…
+            sqlx::query(&format!(
+                "UPDATE trunk_dependencies SET valid_to = ? WHERE {key} AND NOT (major = ? AND minor = ? AND patch = ?)"
+            ))
+            .bind(p.now_iso)
+            .bind(p.client_id)
+            .bind(p.service_id)
+            .bind(p.api_type.as_str())
+            .bind(p.normalized_path)
+            .bind(p.method)
+            .bind(p.version.major)
+            .bind(p.version.minor)
+            .bind(p.version.patch)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            // …the same version only refreshes the open record…
+            let refreshed = sqlx::query(&format!(
+                "UPDATE trunk_dependencies SET last_required_at = ? WHERE {key} AND major = ? AND minor = ? AND patch = ?"
+            ))
+            .bind(p.now_iso)
+            .bind(p.client_id)
+            .bind(p.service_id)
+            .bind(p.api_type.as_str())
+            .bind(p.normalized_path)
+            .bind(p.method)
+            .bind(p.version.major)
+            .bind(p.version.minor)
+            .bind(p.version.patch)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            // …and a new pin key or a closed record gets a fresh open one.
+            if refreshed.rows_affected() == 0 {
+                sqlx::query(
+                    "INSERT INTO trunk_dependencies (client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                )
+                .bind(p.client_id)
+                .bind(p.service_id)
+                .bind(p.api_type.as_str())
+                .bind(p.path)
+                .bind(p.normalized_path)
+                .bind(p.method)
+                .bind(p.version.major)
+                .bind(p.version.minor)
+                .bind(p.version.patch)
+                .bind(p.now_iso)
+                .bind(p.now_iso)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            }
+        }
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn list_current_trunk_pins(&self) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        type PinRow = (
+            String,
+            String,
+            String,
+            i64,
+            i64,
+            i64,
+            String,
+            String,
+            String,
+            String,
+        );
+        let rows: Vec<PinRow> = sqlx::query_as(
+            "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.method, t.valid_from, t.last_required_at \
+             FROM trunk_dependencies t \
+             JOIN clients c ON c.id = t.client_id \
+             JOIN services s ON s.id = t.service_id \
+             WHERE t.valid_to IS NULL \
+             ORDER BY c.name, s.name, t.path, t.method",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        rows.into_iter()
+            .map(
+                |(
+                    client,
+                    service,
+                    api_type,
+                    major,
+                    minor,
+                    patch,
+                    path,
+                    method,
+                    valid_from,
+                    last_required_at,
+                )| {
+                    Ok(TrunkPinInfo {
+                        client,
+                        service,
+                        api_type: api_type
+                            .parse()
+                            .map_err(|e: String| RepositoryError::Internal(e))?,
+                        version: SemVer::new(major as u32, minor as u32, patch as u32),
+                        path,
+                        method,
+                        valid_from,
+                        last_required_at,
+                    })
+                },
+            )
+            .collect()
     }
 
     async fn delete_expired_snapshots(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
@@ -801,6 +927,7 @@ impl SpecRepository for SqliteSpecRepository {
             .collect::<Result<Vec<_>, RepositoryError>>()?;
 
         Ok(DependencyReport {
+            trunk_graph: Vec::new(),
             unused_endpoints,
             missing_endpoints,
             dependency_graph,

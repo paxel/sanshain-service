@@ -749,6 +749,7 @@ async fn nuke_producers_and_consumers_require_exact_confirmation() {
             api_type: ApiType::OpenApi,
             path: "/hello",
             method: "GET",
+            trunk: false,
         },
     )
     .await
@@ -916,6 +917,7 @@ async fn report_markdown_and_isolation_render_the_seeded_producer() {
             api_type: ApiType::OpenApi,
             path: "/hello",
             method: "GET",
+            trunk: false,
         },
     )
     .await

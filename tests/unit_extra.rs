@@ -18,6 +18,7 @@ fn dep(client: &str, service: &str, api_type: ApiType, path: &str, method: &str)
 
 fn report_with(deps: Vec<DependencyInfo>) -> DependencyReport {
     DependencyReport {
+        trunk_graph: Vec::new(),
         dependency_graph: deps,
         service_tags: Default::default(),
         missing_endpoints: vec![],

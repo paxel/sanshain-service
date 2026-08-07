@@ -65,6 +65,7 @@ fn test_app_state(repo: SqliteSpecRepository) -> AppState {
 #[cfg(test)]
 struct TestContext {
     app: axum::Router,
+    pool: sqlx::SqlitePool,
     /// Session token of a fully privileged user, for both API and admin calls.
     token: String,
 }
@@ -92,6 +93,7 @@ async fn setup() -> TestContext {
     let app = create_app(test_app_state(repo));
     TestContext {
         app,
+        pool,
         token: session.token,
     }
 }
@@ -242,4 +244,145 @@ async fn trunk_dry_run_does_not_mark_but_noop_reprovide_refreshes() {
         "no-op trunk re-provide must stamp the marker, got: {}",
         versions[0]
     );
+}
+
+// ---------------------------------------------------------------------------
+// #32 — trunk require maintains the append-only trunk pin set
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+async fn require_with(
+    ctx: &TestContext,
+    consumer: &str,
+    producer: &str,
+    version: &str,
+    path: &str,
+    method: &str,
+    trunk: bool,
+) -> StatusCode {
+    let trunk_param = if trunk { "&trunk=true" } else { "" };
+    let uri = format!(
+        "/require?consumername={consumer}&producername={producer}&version={version}&path={path}&method={method}{trunk_param}"
+    );
+    let (status, _, _) = send(ctx, "GET", &uri, None).await;
+    status
+}
+
+/// The current trunk edges of the report payload.
+#[cfg(test)]
+async fn trunk_graph(ctx: &TestContext) -> Vec<Value> {
+    let (status, _, body) = send(ctx, "GET", "/report", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    as_json(&body)["trunk_graph"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+async fn trunk_dependency_rows(ctx: &TestContext) -> Vec<(Option<String>, i64, i64, i64)> {
+    sqlx::query_as::<_, (Option<String>, i64, i64, i64)>(
+        "SELECT valid_to, major, minor, patch FROM trunk_dependencies ORDER BY id",
+    )
+    .fetch_all(&ctx.pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn trunk_require_maintains_append_only_pin_set() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.1.0"), &[]).await;
+
+    let status = require_with(&ctx, "webapp", "svc", "1.0.0", "/users", "GET", true).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let edges = trunk_graph(&ctx).await;
+    assert_eq!(edges.len(), 1, "got: {edges:?}");
+    assert_eq!(edges[0]["client"], "webapp");
+    assert_eq!(edges[0]["service"], "svc");
+    assert_eq!(edges[0]["version"], "1.0.0");
+
+    // Re-pin to a newer version: the trunk graph shows only the newer pin…
+    let status = require_with(&ctx, "webapp", "svc", "1.1.0", "/users", "GET", true).await;
+    assert_eq!(status, StatusCode::OK);
+    let edges = trunk_graph(&ctx).await;
+    assert_eq!(edges.len(), 1, "got: {edges:?}");
+    assert_eq!(edges[0]["version"], "1.1.0");
+
+    // …while the storage keeps history: one closed record, one open.
+    let rows = trunk_dependency_rows(&ctx).await;
+    assert_eq!(rows.len(), 2, "append-only: close + insert, got {rows:?}");
+    assert!(rows[0].0.is_some(), "old pin must be closed: {rows:?}");
+    assert_eq!((rows[0].1, rows[0].2, rows[0].3), (1, 0, 0));
+    assert!(rows[1].0.is_none(), "new pin must be open: {rows:?}");
+    assert_eq!((rows[1].1, rows[1].2, rows[1].3), (1, 1, 0));
+}
+
+#[tokio::test]
+async fn identical_trunk_require_refreshes_the_open_record() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+
+    for _ in 0..2 {
+        let status = require_with(&ctx, "webapp", "svc", "1.0.0", "/users", "GET", true).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    let rows = trunk_dependency_rows(&ctx).await;
+    assert_eq!(rows.len(), 1, "identical re-pin must not append: {rows:?}");
+    assert!(
+        rows[0].0.is_none(),
+        "the single record stays open: {rows:?}"
+    );
+}
+
+#[tokio::test]
+async fn plain_require_and_dry_run_record_no_trunk_pin() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+
+    let status = require_with(&ctx, "webapp", "svc", "1.0.0", "/users", "GET", false).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = send(
+        &ctx,
+        "GET",
+        "/require?consumername=webapp&producername=svc&version=1.0.0&path=/users&method=GET&trunk=true&dry_run=true",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    assert!(trunk_dependency_rows(&ctx).await.is_empty());
+    // The normal dependency edge exists as before.
+    let (_, _, body) = send(&ctx, "GET", "/report", None).await;
+    let deps = as_json(&body)["dependency_graph"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(deps.len(), 1, "got: {deps:?}");
+}
+
+#[tokio::test]
+async fn trunk_require_bundle_records_pins_for_all_endpoints() {
+    let ctx = setup().await;
+    let two = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.0\npaths:\n  /users:\n    get:\n      responses:\n        '200':\n          description: OK\n  /orders:\n    get:\n      responses:\n        '200':\n          description: OK\n";
+    provide_with(&ctx, "svc", "snapshot", two, &[]).await;
+
+    let payload = json!({
+        "consumername": "webapp",
+        "producername": "svc",
+        "version": "1.0.0",
+        "trunk": true,
+        "endpoints": [
+            {"path": "/users", "method": "GET"},
+            {"path": "/orders", "method": "GET"}
+        ]
+    });
+    let (status, _, body) = send(&ctx, "POST", "/require-bundle", Some(payload)).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+
+    let edges = trunk_graph(&ctx).await;
+    assert_eq!(edges.len(), 2, "got: {edges:?}");
 }

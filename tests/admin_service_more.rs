@@ -159,6 +159,7 @@ async fn delete_version_returns_pinned_consumers() {
             api_type: ApiType::OpenApi,
             path: "/p",
             method: "GET",
+            trunk: false,
         },
     )
     .await
