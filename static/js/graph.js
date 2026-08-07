@@ -23,6 +23,27 @@ window.graphHighlightFilters = {
   outdated: false,
   snapshot: false,
 };
+// Which stream the graph shows (ADR-0004): 'dev' is the classic latest-activity
+// view; 'main' draws the trunk pin set and producers at their trunk version.
+window.graphStreamView = "dev";
+
+// Per (service, api_type): the newest trunk-marked version of the line —
+// what the main view labels producers with and checks conflicts against.
+function graphTrunkVersionMap(report) {
+  const map = new Map();
+  (report.services_detailed || []).forEach((svc) => {
+    (svc.versions || []).forEach((v) => {
+      if (!v.trunk_provided_at) return;
+      const key = `${svc.name}|${(v.api_type || "openapi").toLowerCase()}`;
+      const existing = map.get(key);
+      if (!existing || _graphCompareSemver(v.version, existing) > 0) {
+        map.set(key, v.version);
+      }
+    });
+  });
+  return map;
+}
+window.graphTrunkVersionMap = graphTrunkVersionMap;
 
 const GRAPH_OUTDATED_COLOR = "#f43f5e";
 const GRAPH_SNAPSHOT_COLOR = "#f59e0b";
@@ -58,15 +79,22 @@ function graphLatestGaMap(report) {
 
 // Per aggregated edge ("client-->service"): does any dependency on it carry an
 // Outdated or Snapshot-pinned Pin? Map key -> { outdated, snapshot }.
-function graphEdgeFlags(report, latestGaMap) {
+function graphEdgeFlags(report, latestGaMap, trunkVersionMap) {
   const flags = new Map();
   (report.dependency_graph || []).forEach((d) => {
     const key = `${d.client}-->${d.service}`;
-    if (!flags.has(key)) flags.set(key, { outdated: false, snapshot: false });
+    if (!flags.has(key)) flags.set(key, { outdated: false, snapshot: false, conflict: false });
     const f = flags.get(key);
     if (d.stability === "snapshot") f.snapshot = true;
-    const latestGa = latestGaMap.get(`${d.service}|${(d.api_type || "openapi").toLowerCase()}`);
+    const typeKey = `${d.service}|${(d.api_type || "openapi").toLowerCase()}`;
+    const latestGa = latestGaMap.get(typeKey);
     if (latestGa && _graphCompareSemver(d.version, latestGa) < 0) f.outdated = true;
+    // Main view: a pin a whole major behind the producer's trunk version is a
+    // conflict, drawn loud (ADR-0004).
+    if (trunkVersionMap) {
+      const trunkV = trunkVersionMap.get(typeKey);
+      if (trunkV && parseInt(d.version, 10) < parseInt(trunkV, 10)) f.conflict = true;
+    }
   });
   return flags;
 }
@@ -180,6 +208,34 @@ window.redrawGraph = redrawGraph;
 function getFilteredReport(report) {
   if (!report) return null;
   let deps = [...(report.dependency_graph || [])];
+  let missing = report.missing_endpoints;
+
+  // Main view (ADR-0004): the edges are the current trunk pin set, not the
+  // accumulated dev activity; the missing-endpoints overlay is dev-view data.
+  if (window.graphStreamView === "main") {
+    const stabilityOf = (t) => {
+      const svc = (report.services_detailed || []).find((s) => s.name === t.service);
+      const v = svc
+        ? (svc.versions || []).find(
+            (x) =>
+              x.version === t.version &&
+              (x.api_type || "openapi").toLowerCase() === (t.api_type || "openapi").toLowerCase(),
+          )
+        : null;
+      return v ? v.stability : "ga";
+    };
+    deps = (report.trunk_graph || []).map((t) => ({
+      api_type: t.api_type,
+      client: t.client,
+      service: t.service,
+      version: t.version,
+      stability: stabilityOf(t),
+      path: t.path,
+      method: t.method,
+      deprecated: false,
+    }));
+    missing = [];
+  }
 
   // 1. Circular dependencies filter
   if (window.graphRedrawMode === "circular") {
@@ -231,7 +287,7 @@ function getFilteredReport(report) {
     return true;
   });
 
-  return { ...report, dependency_graph: deps };
+  return { ...report, dependency_graph: deps, missing_endpoints: missing };
 }
 window.getFilteredReport = getFilteredReport;
 
@@ -249,6 +305,26 @@ function setGraphRedrawMode(mode) {
   redrawGraph();
 }
 window.setGraphRedrawMode = setGraphRedrawMode;
+
+// Switch between the dev and main stream views (ADR-0004). The legend is
+// view-aware: entries carrying data-stream-only show only in their view.
+function setStreamView(view) {
+  window.graphStreamView = view;
+  ["dev", "main"].forEach((v) => {
+    const btn = document.getElementById(`stream-${v}`);
+    if (btn) {
+      btn.className =
+        v === view
+          ? "px-3 py-1.5 bg-indigo-600 text-white font-medium"
+          : "px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium";
+    }
+  });
+  document.querySelectorAll("[data-stream-only]").forEach((el) => {
+    el.classList.toggle("hidden", el.dataset.streamOnly !== view);
+  });
+  redrawGraph();
+}
+window.setStreamView = setStreamView;
 
 function addFocusTag(name) {
   if (!name || !name.trim()) return;
@@ -463,9 +539,22 @@ function renderCustomGraph(report, svgElement, direction) {
   const serviceNodes = new Set(deps.map((d) => d.service));
   const cycleEdges = graphDetectCycles(adjMap);
 
-  // Outdated / Snapshot-pinned flags per aggregated edge.
+  // Outdated / Snapshot-pinned flags per aggregated edge — and in the main
+  // view, major-lag conflicts against the producer's trunk version.
+  const isMainView = window.graphStreamView === "main";
+  const trunkVersionMap = isMainView ? graphTrunkVersionMap(report) : null;
   const latestGaMap = graphLatestGaMap(report);
-  const edgeHighlightFlags = graphEdgeFlags(report, latestGaMap);
+  const edgeHighlightFlags = graphEdgeFlags(report, latestGaMap, trunkVersionMap);
+
+  // Main view: a trunk-provided producer belongs in the picture even before
+  // anyone pins it — its trunk version is a statement on its own.
+  if (isMainView && trunkVersionMap) {
+    for (const key of trunkVersionMap.keys()) {
+      const name = key.split("|")[0];
+      allNodes.add(name);
+      serviceNodes.add(name);
+    }
+  }
 
   // Detect bidirectional PUB/SUB edges (both directions between same pair)
   const pubsubBidirectional = new Set();
@@ -925,6 +1014,11 @@ function renderCustomGraph(report, svgElement, direction) {
       edgeColor = "#94a3b8";
       edgeWidth = "2";
       markerEnd = "";
+    } else if (edgeHighlightFlags.get(key) && edgeHighlightFlags.get(key).conflict) {
+      // Main view: the pin lags the producer's trunk version by a major.
+      edgeColor = "#dc2626";
+      edgeWidth = "3";
+      markerEnd = "url(#arrow-red)";
     } else {
       edgeColor = "#94a3b8";
       edgeWidth = "2";
@@ -947,6 +1041,7 @@ function renderCustomGraph(report, svgElement, direction) {
     const hFlags = edgeHighlightFlags.get(key);
     path.dataset.outdated = hFlags && hFlags.outdated ? "1" : "0";
     path.dataset.snapshot = hFlags && hFlags.snapshot ? "1" : "0";
+    path.dataset.conflict = hFlags && hFlags.conflict ? "1" : "0";
     path.dataset.baseStroke = edgeColor;
     path.dataset.baseWidth = edgeWidth;
     if (isMissing || isBidirectionalPubSub || isMessagingRegister)
@@ -1114,6 +1209,26 @@ function renderCustomGraph(report, svgElement, direction) {
       const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
       title.textContent = node;
       group.appendChild(title);
+    }
+
+    // Main view: label the producer with its trunk version.
+    if (isMainView && trunkVersionMap) {
+      const trunkV =
+        trunkVersionMap.get(`${node}|openapi`) ||
+        trunkVersionMap.get(`${node}|asyncapi`) ||
+        trunkVersionMap.get(`${node}|proto`);
+      if (trunkV) {
+        const vText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        vText.setAttribute("x", nd.x);
+        vText.setAttribute("y", nd.y + nd.height / 2 - 7);
+        vText.setAttribute("text-anchor", "middle");
+        vText.setAttribute("fill", textColor);
+        vText.setAttribute("font-size", "10");
+        vText.setAttribute("font-family", "ui-monospace, monospace");
+        vText.setAttribute("opacity", "0.75");
+        vText.textContent = `v${trunkV}`;
+        group.appendChild(vText);
+      }
     }
 
     mainG.appendChild(group);

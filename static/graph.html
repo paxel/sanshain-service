@@ -112,6 +112,12 @@
             </div>
 
             <div class="flex items-center gap-2 ml-auto">
+                <!-- Stream view (ADR-0004): Dev = latest recorded activity;
+                     Main = the trunk pin set, producers at trunk version. -->
+                <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
+                    <button id="stream-dev" class="px-3 py-1.5 bg-indigo-600 text-white font-medium" onclick="setStreamView('dev')" title="Latest recorded activity, snapshots included">Dev</button>
+                    <button id="stream-main" class="px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium" onclick="setStreamView('main')" title="The trunk stream: current trunk pins, producers at their trunk version">Main</button>
+                </div>
                 <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
                     <button id="graph-redraw-all" class="px-3 py-1.5 bg-indigo-600 text-white font-medium" onclick="setGraphRedrawMode('all')">All</button>
                     <button id="graph-redraw-circular" class="px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium" onclick="setGraphRedrawMode('circular')">Circular</button>
@@ -189,9 +195,13 @@
                         <span class="w-6 h-0.5 rounded shadow-sm" style="background:#a855f7"></span>
                         <span>Circular dep.</span>
                     </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:missing">
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:missing" data-stream-only="dev">
                         <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f97316;border-top:2px dashed #f97316"></span>
                         <span>Missing dep.</span>
+                    </div>
+                    <div class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:conflict" data-stream-only="main">
+                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#dc2626"></span>
+                        <span>Major conflict</span>
                     </div>
                     <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:outdated">
                         <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f43f5e"></span>
@@ -209,7 +219,7 @@
                         <span class="w-6" style="border-top:2px dashed #3b82f6"></span>
                         <span>Msg. register</span>
                     </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:missing">
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:missing" data-stream-only="dev">
                         <span class="w-4 text-center font-bold text-orange-600">!</span>
                         <span>Missing svc.</span>
                     </div>
@@ -604,7 +614,7 @@
                 edges.forEach((els, key) => {
                     const match = type === 'edge-type'
                         ? els.path.dataset.edgeType === value
-                        : els.path.dataset[value === 'outdated' ? 'outdated' : 'snapshot'] === '1';
+                        : els.path.dataset[value] === '1';
                     els.path.style.opacity = match ? '1' : '0.08';
                     els.path.style.transition = 'opacity 0.2s';
                     if (match) {

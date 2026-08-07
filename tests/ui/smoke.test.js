@@ -345,3 +345,65 @@ test.describe('Snapshot cleanup settings', () => {
     await expect(page.locator('button:has-text("Run Cleanup")').first()).toBeVisible();
   });
 });
+
+test.describe('Main graph view (ADR-0004)', () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+  const SERVICE = 'trunk-graph-svc';
+  const CONSUMER = 'trunk-graph-consumer';
+  const SPEC = [
+    'openapi: 3.0.3',
+    'info:',
+    '  title: Trunk Graph Fixture',
+    '  version: 1.0.0',
+    'paths:',
+    '  /hello:',
+    '    get:',
+    '      responses:',
+    "        '200':",
+    '          description: OK',
+  ].join('\n');
+
+  test.beforeAll(async ({ request }) => {
+    if (!adminPassword) {
+      throw new Error('INITIAL_ADMIN_PASSWORD environment variable is required for tests');
+    }
+    const login = await request.post('/auth/login', {
+      data: { username: 'root', password: adminPassword },
+    });
+    const { token } = await login.json();
+    await request.post('/provide', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { producername: SERVICE, stability: 'snapshot', openapi_yaml: SPEC, trunk: true },
+    });
+    await request.get(
+      `/require?consumername=${CONSUMER}&producername=${SERVICE}&version=1.0.0&path=/hello&method=GET&trunk=true`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+  });
+
+  test('the Main toggle shows the trunk pin set with the producer trunk version', async ({ page }) => {
+    await page.goto('/account.html');
+    await page.waitForSelector('#login-username', { state: 'visible' });
+    await page.fill('input[id="login-username"]', 'root');
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator('#account-dashboard')).toBeVisible({ timeout: 10000 });
+
+    await page.goto('/graph.html');
+    await expect(page.locator('#custom-graph')).toBeVisible({ timeout: 10000 });
+
+    await page.click('#stream-main');
+    // The trunk edge and both nodes are drawn, the producer carries its
+    // trunk version label, and the main-only legend entry appears.
+    await expect(page.locator('#custom-graph')).toContainText(SERVICE, { timeout: 10000 });
+    await expect(page.locator('#custom-graph')).toContainText(CONSUMER);
+    await expect(page.locator('#custom-graph')).toContainText('v1.0.0');
+    await expect(page.locator('[data-legend-highlight="edge-flag:conflict"]')).toBeVisible();
+    await expect(page.locator('[data-legend-highlight="edge-type:missing"]')).toBeHidden();
+
+    // Back to Dev: legend flips back.
+    await page.click('#stream-dev');
+    await expect(page.locator('[data-legend-highlight="edge-flag:conflict"]')).toBeHidden();
+    await expect(page.locator('[data-legend-highlight="edge-type:missing"]')).toBeVisible();
+  });
+});
