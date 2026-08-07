@@ -195,6 +195,7 @@ fn all_audit_logs_filter() -> sanshain_service::domain::models::AuditLogFilter {
         action_type: None,
         service_wildcard: None,
         version_wildcard: None,
+        stream: None,
         limit: 100,
     }
 }

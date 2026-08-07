@@ -769,6 +769,9 @@ pub struct AuditLogEntry {
     pub version: Option<String>,
     pub action_type: Option<String>,
     pub diff: Option<String>,
+    /// The declared stream (ADR-0005): `trunk`, a tag name, or `None`.
+    #[serde(default)]
+    pub stream: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -778,6 +781,9 @@ pub struct AuditLogFilter {
     pub action_type: Option<String>,
     pub service_wildcard: Option<String>,
     pub version_wildcard: Option<String>,
+    /// Exact stream match (ADR-0005): `trunk` or a tag name.
+    #[serde(default)]
+    pub stream: Option<String>,
     pub limit: u32,
 }
 

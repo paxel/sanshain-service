@@ -60,13 +60,14 @@ fn spec_version_from_row(row: SpecVersionRow) -> Result<SpecVersionMeta, Reposit
 }
 
 /// Row shape for audit-log queries (id, timestamp, username, action, details,
-/// service, version, action_type, diff).
+/// service, version, action_type, diff, stream).
 type AuditLogRow = (
     i64,
     String,
     String,
     String,
     String,
+    Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -2427,7 +2428,7 @@ impl SpecRepository for PostgresSpecRepository {
     ) -> Result<(), RepositoryError> {
         let timestamp = chrono::Utc::now().to_rfc3339();
         sqlx::query(
-            "INSERT INTO audit_logs (timestamp, username, action, details, service, version, action_type, diff) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            "INSERT INTO audit_logs (timestamp, username, action, details, service, version, action_type, diff, stream) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         )
         .bind(timestamp)
         .bind(username)
@@ -2437,6 +2438,7 @@ impl SpecRepository for PostgresSpecRepository {
         .bind(log.version)
         .bind(log.action_type)
         .bind(log.diff)
+        .bind(log.stream)
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -2449,7 +2451,7 @@ impl SpecRepository for PostgresSpecRepository {
         filter: AuditLogFilter,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
         let mut sql = String::from(
-            "SELECT id, timestamp, username, action, details, service, version, action_type, diff FROM audit_logs WHERE 1=1",
+            "SELECT id, timestamp, username, action, details, service, version, action_type, diff, stream FROM audit_logs WHERE 1=1",
         );
         let mut param_idx = 1;
 
@@ -2473,6 +2475,10 @@ impl SpecRepository for PostgresSpecRepository {
             sql.push_str(&format!(" AND version LIKE ${}", param_idx));
             param_idx += 1;
         }
+        if filter.stream.is_some() {
+            sql.push_str(&format!(" AND stream = ${}", param_idx));
+            param_idx += 1;
+        }
 
         sql.push_str(&format!(" ORDER BY id DESC LIMIT ${}", param_idx));
 
@@ -2484,6 +2490,7 @@ impl SpecRepository for PostgresSpecRepository {
                 String,
                 String,
                 String,
+                Option<String>,
                 Option<String>,
                 Option<String>,
                 Option<String>,
@@ -2526,6 +2533,7 @@ impl SpecRepository for PostgresSpecRepository {
                     version,
                     action_type,
                     diff,
+                    stream,
                 )| {
                     AuditLogEntry {
                         id,
@@ -2537,6 +2545,7 @@ impl SpecRepository for PostgresSpecRepository {
                         version,
                         action_type,
                         diff,
+                        stream,
                     }
                 },
             )
@@ -2548,7 +2557,7 @@ impl SpecRepository for PostgresSpecRepository {
         limit: u32,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
         let rows: Vec<AuditLogRow> = sqlx::query_as(
-            "SELECT id, timestamp, username, action, details, service, version, action_type, diff FROM audit_logs ORDER BY id DESC LIMIT $1"
+            "SELECT id, timestamp, username, action, details, service, version, action_type, diff, stream FROM audit_logs ORDER BY id DESC LIMIT $1"
         )
         .bind(limit as i64)
         .fetch_all(&self.pool)
@@ -2568,6 +2577,7 @@ impl SpecRepository for PostgresSpecRepository {
                     version,
                     action_type,
                     diff,
+                    stream,
                 )| {
                     AuditLogEntry {
                         id,
@@ -2579,6 +2589,7 @@ impl SpecRepository for PostgresSpecRepository {
                         version,
                         action_type,
                         diff,
+                        stream,
                     }
                 },
             )

@@ -48,6 +48,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   version was deleted renders as a dangling reference (dotted orange, own legend entry) and heals
   automatically when the number is re-provided; the delete-version confirmation now also names
   referencing sanshain-branches alongside pinned Consumers.
+- Provide/require audit entries record their declared stream (`trunk`, a branch tag, or none),
+  and the audit timeline filters by it — "who changed Release Maribou, when?" is one query.
 
 ### Changed
 - UI messages and docs no longer explain resolution by contrast with removed 1.x mechanics

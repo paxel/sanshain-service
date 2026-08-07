@@ -109,6 +109,9 @@ pub struct NewAuditLog<'a> {
     pub version: Option<&'a str>,
     pub action_type: Option<&'a str>,
     pub diff: Option<&'a str>,
+    /// The declared stream (ADR-0005): `trunk`, a sanshain-branch's tag
+    /// name, or `None` for calls outside the stream model.
+    pub stream: Option<&'a str>,
 }
 
 pub trait SpecRepository: Send + Sync {

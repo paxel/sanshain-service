@@ -82,6 +82,7 @@ pub async fn create_branch(
                 version: None,
                 action_type: Some("WRITE"),
                 diff: None,
+                stream: None,
             },
         )
         .await
@@ -145,6 +146,7 @@ pub async fn rename_branch(
                 version: None,
                 action_type: Some("WRITE"),
                 diff: None,
+                stream: None,
             },
         )
         .await
@@ -179,6 +181,7 @@ pub async fn delete_branch(
                 version: None,
                 action_type: Some("WRITE"),
                 diff: None,
+                stream: None,
             },
         )
         .await

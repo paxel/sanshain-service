@@ -1015,3 +1015,49 @@ async fn dangling_branch_reference_is_marked_and_heals_on_reprovide() {
     let graph = branch_graph(&ctx, "R").await;
     assert_eq!(graph[0]["dangling"], Value::Null, "got: {}", graph[0]);
 }
+
+// ---------------------------------------------------------------------------
+// #41 — audit stream stamping and filter
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn audit_entries_carry_their_stream_and_filter_by_it() {
+    let ctx = setup().await;
+    provide_with(
+        &ctx,
+        "svc",
+        "snapshot",
+        &spec("1.0.0"),
+        &[("trunk", json!(true))],
+    )
+    .await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.1.0"), &[]).await;
+    send(&ctx, "POST", "/admin/branches", Some(json!({"name": "R"}))).await;
+    provide_with(&ctx, "svc", "ga", &spec("1.0.1"), &[("tag", json!("R"))]).await;
+    require_with(&ctx, "webapp", "svc", "1.0.0", "/users", "GET", true).await;
+
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT action, stream FROM audit_logs WHERE action IN ('PROVIDE_SPEC', 'REQUIRE_SPEC') ORDER BY id",
+    )
+    .fetch_all(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 4, "got: {rows:?}");
+    assert_eq!(rows[0].1.as_deref(), Some("trunk"));
+    assert_eq!(rows[1].1, None, "plain provide carries no stream: {rows:?}");
+    assert_eq!(rows[2].1.as_deref(), Some("R"));
+    assert_eq!(rows[3].1.as_deref(), Some("trunk"));
+
+    // The timeline filters by stream.
+    let (status, _, body) = send(&ctx, "GET", "/api/audit/timeline?stream=R", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let entries = as_json(&body);
+    let actions: Vec<&str> = entries
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["action"].as_str().unwrap())
+        .collect();
+    assert_eq!(actions, vec!["PROVIDE_SPEC"], "got: {entries}");
+    assert_eq!(entries[0]["stream"], "R");
+}

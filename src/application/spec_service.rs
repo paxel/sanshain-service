@@ -375,6 +375,7 @@ async fn record_version_rejection(
                 version: Some(&version.to_string()),
                 action_type: Some("REJECT"),
                 diff: None,
+                stream: None,
             },
         )
         .await
@@ -741,6 +742,7 @@ pub async fn provide_spec(
                     version: Some(&version.to_string()),
                     action_type: Some("WRITE"),
                     diff: None,
+                    stream: None,
                 },
             )
             .await
@@ -779,6 +781,7 @@ pub async fn provide_spec(
                     version: Some(&version.to_string()),
                     action_type: Some("WRITE"),
                     diff: None,
+                    stream: None,
                 },
             )
             .await

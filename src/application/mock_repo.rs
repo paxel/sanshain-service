@@ -1866,6 +1866,7 @@ impl SpecRepository for MockRepo {
             version: log.version.map(|v| v.to_string()),
             action_type: log.action_type.map(|t| t.to_string()),
             diff: log.diff.map(|d| d.to_string()),
+            stream: log.stream.map(|s| s.to_string()),
         });
         Ok(())
     }

@@ -59,13 +59,14 @@ fn spec_version_from_row(row: SpecVersionRow) -> Result<SpecVersionMeta, Reposit
 }
 
 /// Row shape for audit-log queries (id, timestamp, username, action, details,
-/// service, version, action_type, diff).
+/// service, version, action_type, diff, stream).
 type AuditLogRow = (
     i64,
     String,
     String,
     String,
     String,
+    Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -2448,7 +2449,7 @@ impl SpecRepository for SqliteSpecRepository {
     ) -> Result<(), RepositoryError> {
         let timestamp = chrono::Utc::now().to_rfc3339();
         sqlx::query(
-            "INSERT INTO audit_logs (timestamp, username, action, details, service, version, action_type, diff) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO audit_logs (timestamp, username, action, details, service, version, action_type, diff, stream) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(timestamp)
         .bind(username)
@@ -2458,6 +2459,7 @@ impl SpecRepository for SqliteSpecRepository {
         .bind(log.version)
         .bind(log.action_type)
         .bind(log.diff)
+        .bind(log.stream)
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -2470,7 +2472,7 @@ impl SpecRepository for SqliteSpecRepository {
         filter: AuditLogFilter,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
         let mut sql = String::from(
-            "SELECT id, timestamp, username, action, details, service, version, action_type, diff FROM audit_logs WHERE 1=1",
+            "SELECT id, timestamp, username, action, details, service, version, action_type, diff, stream FROM audit_logs WHERE 1=1",
         );
 
         if filter.from_date.is_some() {
@@ -2488,6 +2490,9 @@ impl SpecRepository for SqliteSpecRepository {
         if filter.version_wildcard.is_some() {
             sql.push_str(" AND version LIKE ?");
         }
+        if filter.stream.is_some() {
+            sql.push_str(" AND stream = ?");
+        }
 
         sql.push_str(" ORDER BY id DESC LIMIT ?");
 
@@ -2499,6 +2504,7 @@ impl SpecRepository for SqliteSpecRepository {
                 String,
                 String,
                 String,
+                Option<String>,
                 Option<String>,
                 Option<String>,
                 Option<String>,
@@ -2521,6 +2527,9 @@ impl SpecRepository for SqliteSpecRepository {
         if let Some(ref val) = filter.version_wildcard {
             query = query.bind(val);
         }
+        if let Some(ref val) = filter.stream {
+            query = query.bind(val);
+        }
         query = query.bind(filter.limit);
 
         let rows = query
@@ -2541,6 +2550,7 @@ impl SpecRepository for SqliteSpecRepository {
                     version,
                     action_type,
                     diff,
+                    stream,
                 )| {
                     AuditLogEntry {
                         id,
@@ -2552,6 +2562,7 @@ impl SpecRepository for SqliteSpecRepository {
                         version,
                         action_type,
                         diff,
+                        stream,
                     }
                 },
             )
@@ -2563,7 +2574,7 @@ impl SpecRepository for SqliteSpecRepository {
         limit: u32,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
         let rows: Vec<AuditLogRow> = sqlx::query_as(
-            "SELECT id, timestamp, username, action, details, service, version, action_type, diff FROM audit_logs ORDER BY id DESC LIMIT ?"
+            "SELECT id, timestamp, username, action, details, service, version, action_type, diff, stream FROM audit_logs ORDER BY id DESC LIMIT ?"
         )
         .bind(limit)
         .fetch_all(&self.pool)
@@ -2583,6 +2594,7 @@ impl SpecRepository for SqliteSpecRepository {
                     version,
                     action_type,
                     diff,
+                    stream,
                 )| {
                     AuditLogEntry {
                         id,
@@ -2594,6 +2606,7 @@ impl SpecRepository for SqliteSpecRepository {
                         version,
                         action_type,
                         diff,
+                        stream,
                     }
                 },
             )

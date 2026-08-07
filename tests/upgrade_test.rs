@@ -10,6 +10,7 @@ const POST_2_0_MIGRATIONS: &[&str] = &[
     "20260807000001_trunk_dependencies.sql",
     "20260807000002_sanshain_branches.sql",
     "20260807000003_branch_member_versions.sql",
+    "20260807000004_audit_stream.sql",
 ];
 
 /// Apply every SQLite migration file older than the 2.0 rework, in order —

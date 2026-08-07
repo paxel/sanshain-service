@@ -112,6 +112,9 @@ async fn provide_common(
         }
         if !res.changes.is_empty() {
             let version_str = res.version.to_string();
+            // ADR-0005: the audit entry names the declared stream, so a
+            // release graph's history is one filtered query.
+            let stream = if trunk { Some("trunk") } else { tag };
             record_audit_log(
                 &state.repo,
                 user,
@@ -131,6 +134,7 @@ async fn provide_common(
                     version: Some(&version_str),
                     action_type: Some("WRITE"),
                     diff: None,
+                    stream,
                 },
             )
             .await?;
@@ -327,6 +331,11 @@ async fn require_common(
     } else {
         let res = services::require_endpoint(&state.repo, params).await?;
         let version_str = query.version.to_string();
+        let stream = if query.trunk {
+            Some("trunk")
+        } else {
+            query.tag.as_deref()
+        };
         let _ = record_audit_log(
             &state.repo,
             user,
@@ -346,6 +355,7 @@ async fn require_common(
                 version: Some(&version_str),
                 action_type: Some("READ"),
                 diff: None,
+                stream,
             },
         )
         .await;
@@ -433,6 +443,11 @@ pub async fn require_bundle(
     } else {
         let res = services::require_bundle(&state.repo, params).await?;
         let version_str = payload.version.to_string();
+        let stream = if payload.trunk {
+            Some("trunk")
+        } else {
+            payload.tag.as_deref()
+        };
         let _ = record_audit_log(
             &state.repo,
             user,
@@ -450,6 +465,7 @@ pub async fn require_bundle(
                 version: Some(&version_str),
                 action_type: Some("READ"),
                 diff: None,
+                stream,
             },
         )
         .await;
@@ -494,6 +510,7 @@ pub async fn report_markdown(
             version: None,
             action_type: Some("READ"),
             diff: None,
+            stream: None,
         },
     )
     .await;
@@ -523,6 +540,7 @@ pub async fn report_isolation(
             version: None,
             action_type: Some("READ"),
             diff: None,
+            stream: None,
         },
     )
     .await;
@@ -579,6 +597,8 @@ pub struct AuditTimelineQuery {
     pub action_type: Option<String>,
     pub service: Option<String>,
     pub version: Option<String>,
+    /// Exact stream match (ADR-0005): `trunk` or a tag name.
+    pub stream: Option<String>,
 }
 
 pub async fn audit_timeline(
@@ -592,6 +612,7 @@ pub async fn audit_timeline(
         action_type: query.action_type,
         service_wildcard: query.service,
         version_wildcard: query.version,
+        stream: query.stream,
         limit,
     };
     let res = state.repo.get_audit_logs(filter).await?;
