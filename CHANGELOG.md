@@ -50,6 +50,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   referencing sanshain-branches alongside pinned Consumers.
 - Provide/require audit entries record their declared stream (`trunk`, a branch tag, or none),
   and the audit timeline filters by it — "who changed Release Maribou, when?" is one query.
+- The graph page gained a timeline (ADR-0005): a slider over the change instants of the main
+  graph or a branch renders the graph as it was at that date (`GET /admin/trunk/graph?at=…`,
+  `…/timeline`), and releasers can "create branch here" — the retroactive release cut.
 
 ### Changed
 - UI messages and docs no longer explain resolution by contrast with removed 1.x mechanics

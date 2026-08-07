@@ -252,6 +252,20 @@ pub trait SpecRepository: Send + Sync {
         at: Option<&str>,
     ) -> impl Future<Output = Result<Vec<TrunkPinInfo>, RepositoryError>> + Send;
 
+    /// The trunk pin set as it was at `at` (rows current at that instant).
+    fn list_trunk_pins_at(
+        &self,
+        at: &str,
+    ) -> impl Future<Output = Result<Vec<TrunkPinInfo>, RepositoryError>> + Send;
+
+    /// The instants a graph changed — every open/close event of its pin
+    /// store, distinct and ascending. `None` = trunk; `Some` = a branch.
+    /// The timeline slider's markers (ADR-0005).
+    fn list_graph_change_dates(
+        &self,
+        branch_id: Option<i64>,
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
     /// Names of branches whose graph or member versions reference this
     /// (service, api_type, version) by value in an open record — surfaced in
     /// the delete-version warning (ADR-0005).

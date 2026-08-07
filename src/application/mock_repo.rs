@@ -504,6 +504,56 @@ impl SpecRepository for MockRepo {
             .collect())
     }
 
+    async fn list_trunk_pins_at(&self, at: &str) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        let rows = self
+            .trunk_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Ok(rows
+            .iter()
+            .filter(|r| {
+                r.valid_from.as_str() <= at && r.valid_to.as_deref().is_none_or(|to| to > at)
+            })
+            .map(|r| TrunkPinInfo {
+                client: self.client_name(r.client_id).unwrap_or_default(),
+                service: self.service_name(r.service_id).unwrap_or_default(),
+                api_type: r.api_type,
+                version: r.version,
+                path: r.path.clone(),
+                method: r.method.clone(),
+                valid_from: r.valid_from.clone(),
+                last_required_at: r.last_required_at.clone(),
+                dangling: false,
+            })
+            .collect())
+    }
+
+    async fn list_graph_change_dates(
+        &self,
+        branch_id: Option<i64>,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let mut dates: Vec<String> = match branch_id {
+            None => self
+                .trunk_pins
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .flat_map(|r| std::iter::once(r.valid_from.clone()).chain(r.valid_to.clone()))
+                .collect(),
+            Some(bid) => self
+                .branch_pins
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .filter(|(b, _)| *b == bid)
+                .flat_map(|(_, r)| std::iter::once(r.valid_from.clone()).chain(r.valid_to.clone()))
+                .collect(),
+        };
+        dates.sort();
+        dates.dedup();
+        Ok(dates)
+    }
+
     async fn list_branches_referencing(
         &self,
         service_id: i64,

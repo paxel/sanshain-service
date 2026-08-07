@@ -615,6 +615,89 @@ impl SpecRepository for SqliteSpecRepository {
             .collect()
     }
 
+    async fn list_trunk_pins_at(&self, at: &str) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        type PinRow = (
+            String,
+            String,
+            String,
+            i64,
+            i64,
+            i64,
+            String,
+            String,
+            String,
+            String,
+        );
+        let rows: Vec<PinRow> = sqlx::query_as(
+            "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.method, t.valid_from, t.last_required_at \
+             FROM trunk_dependencies t \
+             JOIN clients c ON c.id = t.client_id \
+             JOIN services s ON s.id = t.service_id \
+             WHERE t.valid_from <= ? AND (t.valid_to IS NULL OR t.valid_to > ?) \
+             ORDER BY c.name, s.name, t.path, t.method",
+        )
+        .bind(at)
+        .bind(at)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        rows.into_iter()
+            .map(
+                |(
+                    client,
+                    service,
+                    api_type,
+                    major,
+                    minor,
+                    patch,
+                    path,
+                    method,
+                    valid_from,
+                    last_required_at,
+                )| {
+                    Ok(TrunkPinInfo {
+                        client,
+                        service,
+                        api_type: api_type
+                            .parse()
+                            .map_err(|e: String| RepositoryError::Internal(e))?,
+                        version: SemVer::new(major as u32, minor as u32, patch as u32),
+                        path,
+                        method,
+                        valid_from,
+                        last_required_at,
+                        dangling: false,
+                    })
+                },
+            )
+            .collect()
+    }
+
+    async fn list_graph_change_dates(
+        &self,
+        branch_id: Option<i64>,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = match branch_id {
+            None => {
+                sqlx::query_as(
+                    "SELECT DISTINCT d FROM (SELECT valid_from AS d FROM trunk_dependencies UNION SELECT valid_to AS d FROM trunk_dependencies WHERE valid_to IS NOT NULL) ORDER BY d",
+                )
+                .fetch_all(&self.pool)
+                .await
+            }
+            Some(bid) => {
+                sqlx::query_as(
+                    "SELECT DISTINCT d FROM (SELECT valid_from AS d FROM branch_dependencies WHERE branch_id = ?1 UNION SELECT valid_to AS d FROM branch_dependencies WHERE branch_id = ?1 AND valid_to IS NOT NULL) ORDER BY d",
+                )
+                .bind(bid)
+                .fetch_all(&self.pool)
+                .await
+            }
+        }
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|(d,)| d).collect())
+    }
+
     async fn list_branches_referencing(
         &self,
         service_id: i64,

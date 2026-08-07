@@ -29,6 +29,12 @@ window.graphHighlightFilters = {
 window.graphStreamView = "dev";
 window.graphBranchName = null;
 window.graphBranchPins = [];
+// Timeline (ADR-0005): null = now; otherwise the selected instant, with the
+// fetched at-date pins overriding the live sets.
+window.graphTimelineAt = null;
+window.graphTimelinePins = null;
+window.graphTimelineDates = [];
+window.graphUserPermissions = [];
 
 // Per (service, api_type): the newest trunk-marked version of the line —
 // what the main view labels producers with and checks conflicts against.
@@ -224,7 +230,7 @@ function getFilteredReport(report) {
   // Branch view (ADR-0005): the edges are the branch's pin set, dangling
   // references included; overlays are dev-view data.
   if (window.graphStreamView === "branch") {
-    deps = (window.graphBranchPins || []).map((t) => ({
+    deps = (window.graphTimelinePins || window.graphBranchPins || []).map((t) => ({
       api_type: t.api_type,
       client: t.client,
       service: t.service,
@@ -254,7 +260,7 @@ function getFilteredReport(report) {
         : null;
       return v ? v.stability : "ga";
     };
-    deps = (report.trunk_graph || []).map((t) => ({
+    deps = (window.graphTimelinePins || report.trunk_graph || []).map((t) => ({
       api_type: t.api_type,
       client: t.client,
       service: t.service,
@@ -358,9 +364,110 @@ function setStreamView(view) {
   document.querySelectorAll("[data-stream-only]").forEach((el) => {
     el.classList.toggle("hidden", el.dataset.streamOnly !== view);
   });
+  window.graphTimelineAt = null;
+  window.graphTimelinePins = null;
+  initTimelineSlider();
+  refreshTimeline();
   redrawGraph();
 }
 window.setStreamView = setStreamView;
+
+// ── Timeline (ADR-0005) ──────────────────────────────────────────────
+// The slider indexes the graph's change dates; the last position is "now".
+
+async function refreshTimeline() {
+  const row = document.getElementById("graph-timeline-row");
+  if (!row) return;
+  const view = window.graphStreamView;
+  if (view === "dev") {
+    row.classList.add("hidden");
+    window.graphTimelineAt = null;
+    window.graphTimelinePins = null;
+    return;
+  }
+  const url =
+    view === "main"
+      ? "/admin/trunk/timeline"
+      : `/admin/branches/${encodeURIComponent(window.graphBranchName)}/timeline`;
+  try {
+    const res = await apiCall(url);
+    window.graphTimelineDates = res.ok ? await res.json() : [];
+  } catch (e) {
+    console.warn("Could not load the timeline:", e);
+    window.graphTimelineDates = [];
+  }
+  const slider = document.getElementById("graph-timeline-slider");
+  slider.max = String(window.graphTimelineDates.length);
+  slider.value = slider.max;
+  document.getElementById("graph-timeline-label").textContent = "now";
+  const createBtn = document.getElementById("graph-create-branch-here");
+  createBtn.classList.toggle("hidden", !window.graphUserPermissions.includes("release_ga"));
+  row.classList.remove("hidden");
+}
+
+async function setTimelinePosition(at) {
+  const slider = document.getElementById("graph-timeline-slider");
+  const label = document.getElementById("graph-timeline-label");
+  if (at === null) {
+    window.graphTimelineAt = null;
+    window.graphTimelinePins = null;
+    slider.value = slider.max;
+    label.textContent = "now";
+    redrawGraph();
+    return;
+  }
+  const view = window.graphStreamView;
+  const url =
+    view === "main"
+      ? `/admin/trunk/graph?at=${encodeURIComponent(at)}`
+      : `/admin/branches/${encodeURIComponent(window.graphBranchName)}/graph?at=${encodeURIComponent(at)}`;
+  try {
+    const res = await apiCall(url);
+    if (!res.ok) return;
+    window.graphTimelinePins = await res.json();
+    window.graphTimelineAt = at;
+    label.textContent = at.slice(0, 16).replace("T", " ");
+    redrawGraph();
+  } catch (e) {
+    console.warn("Could not load the graph at that instant:", e);
+  }
+}
+window.setTimelinePosition = setTimelinePosition;
+
+function initTimelineSlider() {
+  const slider = document.getElementById("graph-timeline-slider");
+  if (!slider || slider.dataset.wired) return;
+  slider.dataset.wired = "1";
+  slider.addEventListener("input", () => {
+    const idx = parseInt(slider.value, 10);
+    if (idx >= window.graphTimelineDates.length) {
+      setTimelinePosition(null);
+    } else {
+      setTimelinePosition(window.graphTimelineDates[idx]);
+    }
+  });
+}
+
+// "Create branch here": the retroactive cut, from the selected instant.
+async function createBranchHere() {
+  const at = window.graphTimelineAt;
+  const name = prompt(
+    at
+      ? `Create a sanshain-branch off the graph as of ${at}:`
+      : "Create a sanshain-branch off the current graph:",
+  );
+  if (!name) return;
+  const body = { name };
+  if (at) body.as_of = at;
+  if (window.graphStreamView === "branch") body.source = window.graphBranchName;
+  const res = await apiCall("/admin/branches", { method: "POST", body });
+  if (!res.ok) {
+    alert("Could not create the branch: " + (await errorMessage(res)));
+    return;
+  }
+  alert(`Sanshain-branch '${name}' created.`);
+}
+window.createBranchHere = createBranchHere;
 
 // Enter the branch view (ADR-0005): fetch the branch's pin set — dangling
 // references included — and draw it with the shared pipeline.

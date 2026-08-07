@@ -1061,3 +1061,53 @@ async fn audit_entries_carry_their_stream_and_filter_by_it() {
     assert_eq!(actions, vec!["PROVIDE_SPEC"], "got: {entries}");
     assert_eq!(entries[0]["stream"], "R");
 }
+
+// ---------------------------------------------------------------------------
+// #40 — timeline: the main graph at any date, with change markers
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn trunk_graph_is_reconstructable_at_a_date_with_change_markers() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.1.0"), &[]).await;
+
+    require_with(&ctx, "webapp", "svc", "1.0.0", "/users", "GET", true).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    let mid = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    require_with(&ctx, "webapp", "svc", "1.1.0", "/users", "GET", true).await;
+
+    // At `mid`, the main graph pinned 1.0.0; now it pins 1.1.0.
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        &format!("/admin/trunk/graph?at={}", mid.replace(':', "%3A")),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let at_mid = as_json(&body);
+    assert_eq!(at_mid.as_array().unwrap().len(), 1, "got: {at_mid}");
+    assert_eq!(at_mid[0]["version"], "1.0.0");
+    let (_, _, body) = send(&ctx, "GET", "/admin/trunk/graph", None).await;
+    assert_eq!(as_json(&body)[0]["version"], "1.1.0");
+
+    // The timeline lists the change instants (open + close events).
+    let (status, _, body) = send(&ctx, "GET", "/admin/trunk/timeline", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let dates = as_json(&body);
+    let dates = dates.as_array().unwrap();
+    assert!(dates.len() >= 2, "got: {dates:?}");
+    // Sorted ascending, RFC 3339.
+    let strs: Vec<&str> = dates.iter().map(|d| d.as_str().unwrap()).collect();
+    let mut sorted = strs.clone();
+    sorted.sort();
+    assert_eq!(strs, sorted);
+
+    // A branch has its own timeline endpoint.
+    send(&ctx, "POST", "/admin/branches", Some(json!({"name": "R"}))).await;
+    let (status, _, body) = send(&ctx, "GET", "/admin/branches/R/timeline", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    assert!(!as_json(&body).as_array().unwrap().is_empty());
+}

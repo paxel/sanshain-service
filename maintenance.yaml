@@ -90,6 +90,70 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/branches/{name}/timeline:
+    get:
+      summary: "Read: branches/name/timeline"
+      description: |
+        The instants this branch's graph changed (every open/close event of
+        its append-only pin store), distinct and ascending — the timeline
+        slider's markers (ADR-0005).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The change instants as a JSON array of RFC 3339 strings.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No sanshain-branch with this name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/trunk/graph:
+    get:
+      summary: "Read: trunk/graph"
+      description: |
+        The main graph's pin set — current, or as it was at the optional `at`
+        instant, reconstructed from the append-only trunk history (ADR-0005).
+      parameters:
+        - name: at
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The pin set as a JSON array.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/trunk/timeline:
+    get:
+      summary: "Read: trunk/timeline"
+      description: |
+        The instants the main graph changed, distinct and ascending — the
+        timeline slider's markers (ADR-0005).
+      responses:
+        "200":
+          description: The change instants as a JSON array of RFC 3339 strings.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/cache/clear:
     post:
       summary: "Create or run: cache/clear"

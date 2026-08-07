@@ -166,6 +166,16 @@
             </div>
         </div>
 
+        <!-- Timeline (ADR-0005): reconstruct the main or a branch graph at any
+             past instant; markers are the change dates of the append-only store. -->
+        <div id="graph-timeline-row" class="hidden flex flex-wrap items-center gap-3 mb-4 p-3 bg-amber-50/50 rounded-xl border border-amber-200">
+            <span class="text-[10px] font-bold text-amber-700 uppercase tracking-widest">Timeline</span>
+            <input type="range" id="graph-timeline-slider" min="0" max="0" value="0" step="1" class="flex-grow accent-amber-600">
+            <span id="graph-timeline-label" class="text-xs font-mono text-slate-600 min-w-[10rem] text-right">now</span>
+            <button id="graph-timeline-now" class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600" onclick="setTimelinePosition(null)">Now</button>
+            <button id="graph-create-branch-here" class="hidden px-2.5 py-1 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700" onclick="createBranchHere()">Create branch here</button>
+        </div>
+
         <div id="graph-cycle-warning" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center">
             <svg class="w-5 h-5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
@@ -345,6 +355,18 @@
                 report.services_detailed = servicesDetailed;
             } catch (e) {
                 console.warn('Could not load service details:', e);
+            }
+
+            // The caller's permissions gate the create-branch-here affordance
+            // (a usability affordance; the server's releaser gate decides).
+            try {
+                const me = await apiCall('/auth/me');
+                if (me.ok) {
+                    const data = await me.json();
+                    window.graphUserPermissions = data.permissions || [];
+                }
+            } catch (e) {
+                console.warn('Could not load permissions:', e);
             }
 
             // Branch selector (ADR-0005): every sanshain-branch is a view.

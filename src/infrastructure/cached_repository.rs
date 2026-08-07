@@ -639,6 +639,17 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
+    async fn list_trunk_pins_at(&self, at: &str) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        self.inner.list_trunk_pins_at(at).await
+    }
+
+    async fn list_graph_change_dates(
+        &self,
+        branch_id: Option<i64>,
+    ) -> Result<Vec<String>, RepositoryError> {
+        self.inner.list_graph_change_dates(branch_id).await
+    }
+
     async fn list_branches_referencing(
         &self,
         service_id: i64,

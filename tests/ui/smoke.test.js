@@ -430,6 +430,15 @@ test.describe('Main graph view (ADR-0004)', () => {
     await page.selectOption('#graph-branch-select', 'Smoke Graph Branch');
     await expect(page.locator('#custom-graph')).toContainText(SERVICE, { timeout: 10000 });
     await expect(page.locator('[data-legend-highlight="edge-flag:dangling"]')).toBeVisible();
+
+    // The timeline bar appears for branch (and main) views; root is a
+    // releaser, so the retroactive-cut affordance shows.
+    await expect(page.locator('#graph-timeline-row')).toBeVisible();
+    await expect(page.locator('#graph-create-branch-here')).toBeVisible();
+    await page.click('#stream-main');
+    await expect(page.locator('#graph-timeline-row')).toBeVisible();
+    await page.click('#stream-dev');
+    await expect(page.locator('#graph-timeline-row')).toBeHidden();
   });
 });
 

@@ -1278,3 +1278,37 @@ pub async fn trigger_trunk_cleanup(
     .await?;
     Ok(Json(json!({ "closed": closed })))
 }
+
+/// The main graph — current, or as it was at `at` (the timeline, ADR-0005).
+pub async fn admin_trunk_graph(
+    State(state): State<AppState>,
+    Query(query): Query<BranchGraphQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let pins = match query.at.as_deref() {
+        Some(at) => state.repo.list_trunk_pins_at(at).await?,
+        None => state.repo.list_current_trunk_pins().await?,
+    };
+    Ok(Json(pins))
+}
+
+/// The instants the main graph changed — the timeline slider's markers.
+pub async fn admin_trunk_timeline(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(state.repo.list_graph_change_dates(None).await?))
+}
+
+/// The instants a branch's graph changed.
+pub async fn admin_branch_timeline(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let branch = state
+        .repo
+        .find_branch(&name)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("no sanshain-branch '{name}'")))?;
+    Ok(Json(
+        state.repo.list_graph_change_dates(Some(branch.id)).await?,
+    ))
+}

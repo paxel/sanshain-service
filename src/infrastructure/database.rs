@@ -102,6 +102,17 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, touch_spec_version_trunk(spec_version_id, now_iso))
     }
 
+    async fn list_trunk_pins_at(&self, at: &str) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        delegate!(self, list_trunk_pins_at(at))
+    }
+
+    async fn list_graph_change_dates(
+        &self,
+        branch_id: Option<i64>,
+    ) -> Result<Vec<String>, RepositoryError> {
+        delegate!(self, list_graph_change_dates(branch_id))
+    }
+
     async fn list_branches_referencing(
         &self,
         service_id: i64,
