@@ -104,6 +104,90 @@ pub async fn list_branches(repo: &impl SpecRepository) -> Result<Vec<BranchInfo>
     Ok(repo.list_branches().await?)
 }
 
+/// Rename a branch — the repair for a botched name at creation (ADR-0005).
+/// Identity is the id: membership, timeline and audit stamps survive; a
+/// pipeline still sending the old tag name gets the instructive 404 until
+/// reconfigured, which is intended.
+#[instrument(skip_all)]
+pub async fn rename_branch(
+    repo: &impl SpecRepository,
+    name: &str,
+    new_name: &str,
+    actor: &str,
+) -> Result<BranchInfo, AppError> {
+    let new_name = new_name.trim();
+    if new_name.is_empty() {
+        return Err(AppError::BadRequest(
+            "a sanshain-branch needs a non-empty name".to_string(),
+        ));
+    }
+    let mut branch = repo
+        .find_branch(name)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("no sanshain-branch '{name}'")))?;
+    repo.rename_branch(branch.id, new_name)
+        .await
+        .map_err(|e| match e {
+            RepositoryError::Conflict => AppError::Conflict(format!(
+                "a sanshain-branch named '{new_name}' already exists"
+            )),
+            other => other.into(),
+        })?;
+
+    let details = format!("Renamed sanshain-branch '{name}' to '{new_name}'");
+    if let Err(e) = repo
+        .insert_audit_log(
+            actor,
+            NewAuditLog {
+                action: "BRANCH_RENAMED",
+                details: &details,
+                service: None,
+                version: None,
+                action_type: Some("WRITE"),
+                diff: None,
+            },
+        )
+        .await
+    {
+        tracing::warn!("Could not record the branch rename in the audit log: {e}");
+    }
+    branch.name = new_name.to_string();
+    Ok(branch)
+}
+
+/// Delete a branch — the deliberate, audited EOL act. Frees the name.
+#[instrument(skip_all)]
+pub async fn delete_branch(
+    repo: &impl SpecRepository,
+    name: &str,
+    actor: &str,
+) -> Result<(), AppError> {
+    let branch = repo
+        .find_branch(name)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("no sanshain-branch '{name}'")))?;
+    repo.delete_branch(branch.id).await?;
+
+    let details = format!("Deleted sanshain-branch '{name}' — the name is free again");
+    if let Err(e) = repo
+        .insert_audit_log(
+            actor,
+            NewAuditLog {
+                action: "BRANCH_DELETED",
+                details: &details,
+                service: None,
+                version: None,
+                action_type: Some("WRITE"),
+                diff: None,
+            },
+        )
+        .await
+    {
+        tracing::warn!("Could not record the branch deletion in the audit log: {e}");
+    }
+    Ok(())
+}
+
 /// A branch's pin set — current, or as it was at `at`.
 pub async fn get_branch_graph(
     repo: &impl SpecRepository,

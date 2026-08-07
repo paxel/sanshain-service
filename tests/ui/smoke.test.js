@@ -238,7 +238,7 @@ test.describe('Role, group and maintainer management', () => {
   test('a group can be created and given a role', async ({ page }) => {
     const name = 'ui-test-group';
     await page.fill('#new-group-name', name);
-    await page.click('button:has-text("Create")');
+    await page.click('#create-group-btn');
 
     const row = page.locator('#groups-list > div', { hasText: name });
     await expect(row).toBeVisible({ timeout: 10000 });
@@ -405,5 +405,40 @@ test.describe('Main graph view (ADR-0004)', () => {
     await page.click('#stream-dev');
     await expect(page.locator('[data-legend-highlight="edge-flag:conflict"]')).toBeHidden();
     await expect(page.locator('[data-legend-highlight="edge-type:missing"]')).toBeVisible();
+  });
+});
+
+test.describe('Sanshain-branches admin (ADR-0005)', () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+
+  test('a branch can be created, renamed and deleted from the dashboard', async ({ page }) => {
+    if (!adminPassword) {
+      throw new Error('INITIAL_ADMIN_PASSWORD environment variable is required for tests');
+    }
+    await page.goto('/account.html');
+    await page.waitForSelector('#login-username', { state: 'visible' });
+    await page.fill('input[id="login-username"]', 'root');
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator('#account-dashboard')).toBeVisible({ timeout: 10000 });
+
+    await page.goto('/admin.html');
+    await expect(page.locator('#branches-list')).toBeVisible({ timeout: 10000 });
+
+    await page.fill('#new-branch-name', 'Smoke Release');
+    await page.click('#create-branch-btn');
+    const row = page.locator('#branches-list div', { hasText: 'Smoke Release' }).first();
+    await expect(row).toBeVisible({ timeout: 10000 });
+
+    page.once('dialog', (dialog) => dialog.accept('Smoke Release LTS'));
+    await row.locator('button:has-text("Rename")').click();
+    const renamed = page.locator('#branches-list div', { hasText: 'Smoke Release LTS' }).first();
+    await expect(renamed).toBeVisible({ timeout: 10000 });
+
+    await renamed.locator('button:has-text("Delete")').click();
+    await expect(page.locator('#confirm-modal')).toBeVisible();
+    await expect(page.locator('#confirm-message')).toContainText('name is freed');
+    await page.click('#confirm-yes');
+    await expect(page.locator('#branches-list')).not.toContainText('Smoke Release LTS', { timeout: 10000 });
   });
 });

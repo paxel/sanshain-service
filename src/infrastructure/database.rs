@@ -102,6 +102,14 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, touch_spec_version_trunk(spec_version_id, now_iso))
     }
 
+    async fn rename_branch(&self, branch_id: i64, new_name: &str) -> Result<(), RepositoryError> {
+        delegate!(self, rename_branch(branch_id, new_name))
+    }
+
+    async fn delete_branch(&self, branch_id: i64) -> Result<(), RepositoryError> {
+        delegate!(self, delete_branch(branch_id))
+    }
+
     async fn record_branch_pins(
         &self,
         branch_id: i64,

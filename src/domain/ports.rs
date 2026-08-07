@@ -249,6 +249,20 @@ pub trait SpecRepository: Send + Sync {
         at: Option<&str>,
     ) -> impl Future<Output = Result<Vec<TrunkPinInfo>, RepositoryError>> + Send;
 
+    /// Rename a branch — identity is the id, so membership, timeline and
+    /// audit stamps survive. `Conflict` when the new name is already live.
+    fn rename_branch(
+        &self,
+        branch_id: i64,
+        new_name: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Delete a branch and (cascading) its graph rows; frees the name.
+    fn delete_branch(
+        &self,
+        branch_id: i64,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
     /// Record pins on a branch's graph, with exactly the append semantics of
     /// [`SpecRepository::record_trunk_pins`] — the hotfix act (ADR-0005).
     fn record_branch_pins(

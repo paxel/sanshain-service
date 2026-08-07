@@ -810,6 +810,88 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/branches/{name}:
+    put:
+      summary: "Write: branches/name"
+      description: |
+        Requires the `manage_producers` permission (admins) — deliberately a
+        higher bar than creation. Renames the branch: identity is the internal
+        id, so membership, timeline and audit stamps survive; a pipeline still
+        sending the old tag name gets the instructive `404` until its
+        configuration is updated (intended for a name wrong enough to rename).
+        Body: `{"new_name": "..."}`. Audited with old and new name.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Renamed; the body is the updated branch record.
+        "400":
+          description: Empty new name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but not an admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No sanshain-branch with this name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "409":
+          description: The new name is already taken by a live branch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    delete:
+      summary: "Write: branches/name"
+      description: |
+        Requires the `manage_producers` permission (admins). Deletes the
+        branch and its graph rows — the deliberate, audited EOL act — and
+        frees the name for reuse.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but not an admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No sanshain-branch with this name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/branches/{name}/graph:
     get:
       summary: "Read: branches/name/graph"

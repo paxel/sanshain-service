@@ -657,3 +657,153 @@ async fn tagged_provide_marks_the_member_version() {
     let v101 = versions.iter().find(|v| v["version"] == "1.0.1").unwrap();
     assert!(v101["trunk_provided_at"].is_null(), "got: {v101}");
 }
+
+// ---------------------------------------------------------------------------
+// #38 — sanshain-branch rename and delete (admin bar)
+// ---------------------------------------------------------------------------
+
+/// A user holding exactly the `releaser` role — may create branches but is
+/// below the admin bar for rename/delete.
+#[cfg(test)]
+async fn releaser_token(ctx: &TestContext) -> String {
+    let repo = SqliteSpecRepository::new(ctx.pool.clone());
+    let hash = services::hash_password("rel-pass").unwrap();
+    let user = repo.create_user("rel", &hash, true).await.unwrap();
+    repo.grant_user_role(user.id, "releaser").await.unwrap();
+    repo.create_session(user.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap()
+        .token
+}
+
+#[cfg(test)]
+async fn send_as(
+    ctx: &TestContext,
+    token: &str,
+    method: &str,
+    uri: &str,
+    body: Option<Value>,
+) -> (StatusCode, String) {
+    let builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("Authorization", format!("Bearer {token}"));
+    let request = match body {
+        Some(json) => builder
+            .header("Content-Type", "application/json")
+            .body(Body::from(serde_json::to_vec(&json).unwrap()))
+            .unwrap(),
+        None => builder.body(Body::empty()).unwrap(),
+    };
+    let response = ctx.app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (status, String::from_utf8_lossy(&bytes).to_string())
+}
+
+#[tokio::test]
+async fn branch_rename_is_admin_gated_and_identity_survives() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    require_with(&ctx, "webapp", "svc", "1.0.0", "/users", "GET", true).await;
+    send(&ctx, "POST", "/admin/branches", Some(json!({"name": "R"}))).await;
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "Other"})),
+    )
+    .await;
+
+    // A releaser may create, but not rename.
+    let rel = releaser_token(&ctx).await;
+    let (status, _) = send_as(
+        &ctx,
+        &rel,
+        "PUT",
+        "/admin/branches/R",
+        Some(json!({"new_name": "Maribou"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // Collision with a live name → 409; unknown branch → 404.
+    let (status, _, _) = send(
+        &ctx,
+        "PUT",
+        "/admin/branches/R",
+        Some(json!({"new_name": "Other"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, _, _) = send(
+        &ctx,
+        "PUT",
+        "/admin/branches/Ghost",
+        Some(json!({"new_name": "X"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // The admin renames; membership survives (id-based), old name 404s.
+    let (status, _, body) = send(
+        &ctx,
+        "PUT",
+        "/admin/branches/R",
+        Some(json!({"new_name": "Maribou"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let graph = branch_graph(&ctx, "Maribou").await;
+    assert_eq!(graph.len(), 1, "membership survives the rename: {graph:?}");
+    let (status, _, _) = send(&ctx, "GET", "/admin/branches/R/graph", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Audited with old and new name.
+    let audit: Vec<(String,)> =
+        sqlx::query_as("SELECT details FROM audit_logs WHERE action = 'BRANCH_RENAMED'")
+            .fetch_all(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(audit.len(), 1, "got: {audit:?}");
+    assert!(
+        audit[0].0.contains("'R'") && audit[0].0.contains("'Maribou'"),
+        "got: {}",
+        audit[0].0
+    );
+}
+
+#[tokio::test]
+async fn branch_delete_is_admin_gated_and_frees_the_name() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    require_with(&ctx, "webapp", "svc", "1.0.0", "/users", "GET", true).await;
+    send(&ctx, "POST", "/admin/branches", Some(json!({"name": "R"}))).await;
+
+    let rel = releaser_token(&ctx).await;
+    let (status, _) = send_as(&ctx, &rel, "DELETE", "/admin/branches/R", None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, _, _) = send(&ctx, "DELETE", "/admin/branches/R", None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _, _) = send(&ctx, "GET", "/admin/branches/R/graph", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // The branch's rows are gone with it, and the name is reusable.
+    let rows: Vec<(i64,)> = sqlx::query_as("SELECT COUNT(*) FROM branch_dependencies")
+        .fetch_all(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(rows[0].0, 0);
+    let (status, _, _) = send(&ctx, "POST", "/admin/branches", Some(json!({"name": "R"}))).await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let audit: Vec<(i64,)> =
+        sqlx::query_as("SELECT COUNT(*) FROM audit_logs WHERE action = 'BRANCH_DELETED'")
+            .fetch_all(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(audit[0].0, 1);
+}

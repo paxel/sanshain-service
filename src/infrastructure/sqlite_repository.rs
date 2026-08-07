@@ -613,6 +613,39 @@ impl SpecRepository for SqliteSpecRepository {
             .collect()
     }
 
+    async fn rename_branch(&self, branch_id: i64, new_name: &str) -> Result<(), RepositoryError> {
+        let res = sqlx::query("UPDATE sanshain_branches SET name = ? WHERE id = ?")
+            .bind(new_name)
+            .bind(branch_id)
+            .execute(&self.pool)
+            .await;
+        match res {
+            Ok(_) => Ok(()),
+            Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+                Err(RepositoryError::Conflict)
+            }
+            Err(e) => Err(RepositoryError::Internal(e.to_string())),
+        }
+    }
+
+    async fn delete_branch(&self, branch_id: i64) -> Result<(), RepositoryError> {
+        // The FK cascade needs sqlite's pragma; delete children explicitly so
+        // the behavior does not depend on connection settings.
+        for table in ["branch_dependencies", "branch_member_versions"] {
+            sqlx::query(&format!("DELETE FROM {table} WHERE branch_id = ?"))
+                .bind(branch_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        sqlx::query("DELETE FROM sanshain_branches WHERE id = ?")
+            .bind(branch_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
     async fn record_branch_pins(
         &self,
         branch_id: i64,

@@ -1176,3 +1176,34 @@ pub async fn admin_branch_graph(
     let pins = services::get_branch_graph(&state.repo, &name, query.at.as_deref()).await?;
     Ok(Json(pins))
 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenameBranchRequest {
+    pub new_name: String,
+}
+
+pub async fn admin_rename_branch(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Path(name): Path<String>,
+    Json(payload): Json<RenameBranchRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let actor = user
+        .map(|axum::Extension(u)| u.username)
+        .unwrap_or_default();
+    let branch = services::rename_branch(&state.repo, &name, &payload.new_name, &actor).await?;
+    Ok(Json(branch))
+}
+
+pub async fn admin_delete_branch(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let actor = user
+        .map(|axum::Extension(u)| u.username)
+        .unwrap_or_default();
+    services::delete_branch(&state.repo, &name, &actor).await?;
+    Ok(StatusCode::NO_CONTENT)
+}

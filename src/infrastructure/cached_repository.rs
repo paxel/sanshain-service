@@ -639,6 +639,14 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
+    async fn rename_branch(&self, branch_id: i64, new_name: &str) -> Result<(), RepositoryError> {
+        self.inner.rename_branch(branch_id, new_name).await
+    }
+
+    async fn delete_branch(&self, branch_id: i64) -> Result<(), RepositoryError> {
+        self.inner.delete_branch(branch_id).await
+    }
+
     async fn record_branch_pins(
         &self,
         branch_id: i64,

@@ -129,6 +129,10 @@ pub fn create_app(state: AppState) -> Router {
         // authenticated caller like the rest of the graph surface.
         .route("/admin/branches", get(admin::admin_list_branches).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/branches", post(admin::admin_create_branch).layer(require(state.clone(), RouteGuard::Global(Permission::ReleaseGa))))
+        // Rename and delete sit at the admin bar (ADR-0005), deliberately
+        // above creation: they rewrite/remove a record others reference.
+        .route("/admin/branches/{name}", put(admin::admin_rename_branch).layer(require(state.clone(), RouteGuard::Global(Permission::ManageProducers))))
+        .route("/admin/branches/{name}", delete(admin::admin_delete_branch).layer(require(state.clone(), RouteGuard::Global(Permission::ManageProducers))))
         .route("/admin/branches/{name}/graph", get(admin::admin_branch_graph).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers", get(admin::admin_list_consumers).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers/{name}", delete(admin::admin_delete_consumer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageConsumers))))

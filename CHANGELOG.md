@@ -34,6 +34,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Provides and requires accept an optional `tag=<branch>` (release-branch hotfixes): the call
   updates that sanshain-branch's graph and member versions instead of trunk. `trunk` and `tag`
   together answer `400`; an unknown tag answers an instructive `404` — no auto-create.
+- Sanshain-branches can be renamed (repairing a botched name; membership and timeline survive)
+  and deleted (freeing the name) — admin-only, audited, from the admin dashboard's new
+  Sanshain-Branches section or `PUT`/`DELETE /admin/branches/{name}`.
 
 ### Changed
 - UI messages and docs no longer explain resolution by contrast with removed 1.x mechanics

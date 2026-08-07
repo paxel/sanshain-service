@@ -503,6 +503,36 @@ impl SpecRepository for MockRepo {
             .collect())
     }
 
+    async fn rename_branch(&self, branch_id: i64, new_name: &str) -> Result<(), RepositoryError> {
+        let mut branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
+        if branches
+            .iter()
+            .any(|b| b.name == new_name && b.id != branch_id)
+        {
+            return Err(RepositoryError::Conflict);
+        }
+        if let Some(branch) = branches.iter_mut().find(|b| b.id == branch_id) {
+            branch.name = new_name.to_string();
+        }
+        Ok(())
+    }
+
+    async fn delete_branch(&self, branch_id: i64) -> Result<(), RepositoryError> {
+        self.branches
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|b| b.id != branch_id);
+        self.branch_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(b, _)| *b != branch_id);
+        self.branch_member_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|r| r.0 != branch_id);
+        Ok(())
+    }
+
     async fn record_branch_pins(
         &self,
         branch_id: i64,
