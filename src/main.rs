@@ -338,11 +338,6 @@ pub async fn main() {
                 Ok(n) => tracing::info!("Dependency cleanup: pruned {} stale dependencies", n),
                 Err(e) => tracing::warn!("Dependency cleanup failed: {:?}", e),
             }
-            match services::cleanup_stale_trunk_data(&cleanup_repo).await {
-                Ok(0) => {}
-                Ok(n) => tracing::info!("Trunk cleanup: closed {} stale trunk pins", n),
-                Err(e) => tracing::warn!("Trunk cleanup failed: {:?}", e),
-            }
 
             // Prune expired CSRF tokens
             {

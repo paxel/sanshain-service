@@ -59,14 +59,13 @@ fn spec_version_from_row(row: SpecVersionRow) -> Result<SpecVersionMeta, Reposit
 }
 
 /// Row shape for audit-log queries (id, timestamp, username, action, details,
-/// service, version, action_type, diff, stream).
+/// service, version, action_type, diff).
 type AuditLogRow = (
     i64,
     String,
     String,
     String,
     String,
-    Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -84,8 +83,8 @@ fn hash_session_token(token: &str) -> String {
 
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
-    SpecRepository, UpsertSpecVersion,
+    EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
+    UpsertSpecVersion,
 };
 
 struct ApiTokenRow {
@@ -423,639 +422,6 @@ impl SpecRepository for SqliteSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(())
-    }
-
-    async fn insert_branch(
-        &self,
-        name: &str,
-        created_at: &str,
-        created_by: &str,
-        source: &str,
-        as_of: &str,
-    ) -> Result<i64, RepositoryError> {
-        let res = sqlx::query(
-            "INSERT INTO sanshain_branches (name, created_at, created_by, source, as_of) VALUES (?, ?, ?, ?, ?)",
-        )
-        .bind(name)
-        .bind(created_at)
-        .bind(created_by)
-        .bind(source)
-        .bind(as_of)
-        .execute(&self.pool)
-        .await;
-        match res {
-            Ok(done) => Ok(done.last_insert_rowid()),
-            Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
-                Err(RepositoryError::Conflict)
-            }
-            Err(e) => Err(RepositoryError::Internal(e.to_string())),
-        }
-    }
-
-    async fn find_branch(&self, name: &str) -> Result<Option<BranchInfo>, RepositoryError> {
-        let row: Option<(i64, String, String, String, String, String)> = sqlx::query_as(
-            "SELECT id, name, created_at, created_by, source, as_of FROM sanshain_branches WHERE name = ?",
-        )
-        .bind(name)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(row.map(
-            |(id, name, created_at, created_by, source, as_of)| BranchInfo {
-                id,
-                name,
-                created_at,
-                created_by,
-                source,
-                as_of,
-            },
-        ))
-    }
-
-    async fn list_branches(&self) -> Result<Vec<BranchInfo>, RepositoryError> {
-        let rows: Vec<(i64, String, String, String, String, String)> = sqlx::query_as(
-            "SELECT id, name, created_at, created_by, source, as_of FROM sanshain_branches ORDER BY created_at DESC, id DESC",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(rows
-            .into_iter()
-            .map(
-                |(id, name, created_at, created_by, source, as_of)| BranchInfo {
-                    id,
-                    name,
-                    created_at,
-                    created_by,
-                    source,
-                    as_of,
-                },
-            )
-            .collect())
-    }
-
-    async fn copy_trunk_graph_to_branch(
-        &self,
-        branch_id: i64,
-        as_of: &str,
-        now_iso: &str,
-    ) -> Result<(), RepositoryError> {
-        sqlx::query(
-            "INSERT INTO branch_dependencies (branch_id, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
-             SELECT ?, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, ?, ? \
-             FROM trunk_dependencies WHERE valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)",
-        )
-        .bind(branch_id)
-        .bind(now_iso)
-        .bind(now_iso)
-        .bind(as_of)
-        .bind(as_of)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
-    }
-
-    async fn copy_branch_graph_to_branch(
-        &self,
-        target_branch_id: i64,
-        source_branch_id: i64,
-        as_of: &str,
-        now_iso: &str,
-    ) -> Result<(), RepositoryError> {
-        sqlx::query(
-            "INSERT INTO branch_dependencies (branch_id, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
-             SELECT ?, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, ?, ? \
-             FROM branch_dependencies WHERE branch_id = ? AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)",
-        )
-        .bind(target_branch_id)
-        .bind(now_iso)
-        .bind(now_iso)
-        .bind(source_branch_id)
-        .bind(as_of)
-        .bind(as_of)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
-    }
-
-    async fn list_branch_pins(
-        &self,
-        branch_id: i64,
-        at: Option<&str>,
-    ) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
-        type PinRow = (
-            String,
-            String,
-            String,
-            i64,
-            i64,
-            i64,
-            String,
-            String,
-            String,
-            String,
-        );
-        let base = "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.method, t.valid_from, t.last_required_at \
-             FROM branch_dependencies t \
-             JOIN clients c ON c.id = t.client_id \
-             JOIN services s ON s.id = t.service_id \
-             WHERE t.branch_id = ?";
-        let rows: Vec<PinRow> = match at {
-            Some(at) => {
-                sqlx::query_as(&format!(
-                    "{base} AND t.valid_from <= ? AND (t.valid_to IS NULL OR t.valid_to > ?) ORDER BY c.name, s.name, t.path, t.method"
-                ))
-                .bind(branch_id)
-                .bind(at)
-                .bind(at)
-                .fetch_all(&self.pool)
-                .await
-            }
-            None => {
-                sqlx::query_as(&format!(
-                    "{base} AND t.valid_to IS NULL ORDER BY c.name, s.name, t.path, t.method"
-                ))
-                .bind(branch_id)
-                .fetch_all(&self.pool)
-                .await
-            }
-        }
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        rows.into_iter()
-            .map(
-                |(
-                    client,
-                    service,
-                    api_type,
-                    major,
-                    minor,
-                    patch,
-                    path,
-                    method,
-                    valid_from,
-                    last_required_at,
-                )| {
-                    Ok(TrunkPinInfo {
-                        client,
-                        service,
-                        api_type: api_type
-                            .parse()
-                            .map_err(|e: String| RepositoryError::Internal(e))?,
-                        version: SemVer::new(major as u32, minor as u32, patch as u32),
-                        path,
-                        method,
-                        valid_from,
-                        last_required_at,
-                        dangling: false,
-                    })
-                },
-            )
-            .collect()
-    }
-
-    async fn list_trunk_pins_at(&self, at: &str) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
-        type PinRow = (
-            String,
-            String,
-            String,
-            i64,
-            i64,
-            i64,
-            String,
-            String,
-            String,
-            String,
-        );
-        let rows: Vec<PinRow> = sqlx::query_as(
-            "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.method, t.valid_from, t.last_required_at \
-             FROM trunk_dependencies t \
-             JOIN clients c ON c.id = t.client_id \
-             JOIN services s ON s.id = t.service_id \
-             WHERE t.valid_from <= ? AND (t.valid_to IS NULL OR t.valid_to > ?) \
-             ORDER BY c.name, s.name, t.path, t.method",
-        )
-        .bind(at)
-        .bind(at)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        rows.into_iter()
-            .map(
-                |(
-                    client,
-                    service,
-                    api_type,
-                    major,
-                    minor,
-                    patch,
-                    path,
-                    method,
-                    valid_from,
-                    last_required_at,
-                )| {
-                    Ok(TrunkPinInfo {
-                        client,
-                        service,
-                        api_type: api_type
-                            .parse()
-                            .map_err(|e: String| RepositoryError::Internal(e))?,
-                        version: SemVer::new(major as u32, minor as u32, patch as u32),
-                        path,
-                        method,
-                        valid_from,
-                        last_required_at,
-                        dangling: false,
-                    })
-                },
-            )
-            .collect()
-    }
-
-    async fn list_graph_change_dates(
-        &self,
-        branch_id: Option<i64>,
-    ) -> Result<Vec<String>, RepositoryError> {
-        let rows: Vec<(String,)> = match branch_id {
-            None => {
-                sqlx::query_as(
-                    "SELECT DISTINCT d FROM (SELECT valid_from AS d FROM trunk_dependencies UNION SELECT valid_to AS d FROM trunk_dependencies WHERE valid_to IS NOT NULL) ORDER BY d",
-                )
-                .fetch_all(&self.pool)
-                .await
-            }
-            Some(bid) => {
-                sqlx::query_as(
-                    "SELECT DISTINCT d FROM (SELECT valid_from AS d FROM branch_dependencies WHERE branch_id = ?1 UNION SELECT valid_to AS d FROM branch_dependencies WHERE branch_id = ?1 AND valid_to IS NOT NULL) ORDER BY d",
-                )
-                .bind(bid)
-                .fetch_all(&self.pool)
-                .await
-            }
-        }
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(rows.into_iter().map(|(d,)| d).collect())
-    }
-
-    async fn list_branch_memberships_for_service(
-        &self,
-        service_id: i64,
-    ) -> Result<Vec<BranchMembership>, RepositoryError> {
-        type Row = (String, i64, i64, i64, String);
-        let rows: Vec<Row> = sqlx::query_as(
-            "SELECT api_type, major, minor, patch, name FROM ( \
-                 SELECT d.api_type, d.major, d.minor, d.patch, b.name \
-                 FROM branch_dependencies d JOIN sanshain_branches b ON b.id = d.branch_id \
-                 WHERE d.service_id = ? AND d.valid_to IS NULL \
-                 UNION \
-                 SELECT m.api_type, m.major, m.minor, m.patch, b.name \
-                 FROM branch_member_versions m JOIN sanshain_branches b ON b.id = m.branch_id \
-                 WHERE m.service_id = ? AND m.valid_to IS NULL \
-             ) ORDER BY name, api_type, major, minor, patch",
-        )
-        .bind(service_id)
-        .bind(service_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        rows.into_iter()
-            .map(|(api_type, major, minor, patch, branch)| {
-                Ok(BranchMembership {
-                    api_type: api_type
-                        .parse()
-                        .map_err(|e: String| RepositoryError::Internal(e))?,
-                    version: SemVer::new(major as u32, minor as u32, patch as u32),
-                    branch,
-                })
-            })
-            .collect()
-    }
-
-    async fn list_branches_referencing(
-        &self,
-        service_id: i64,
-        api_type: ApiType,
-        version: SemVer,
-    ) -> Result<Vec<String>, RepositoryError> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT DISTINCT b.name FROM sanshain_branches b \
-             WHERE EXISTS (SELECT 1 FROM branch_dependencies d WHERE d.branch_id = b.id AND d.valid_to IS NULL \
-                           AND d.service_id = ?1 AND d.api_type = ?2 AND d.major = ?3 AND d.minor = ?4 AND d.patch = ?5) \
-                OR EXISTS (SELECT 1 FROM branch_member_versions m WHERE m.branch_id = b.id AND m.valid_to IS NULL \
-                           AND m.service_id = ?1 AND m.api_type = ?2 AND m.major = ?3 AND m.minor = ?4 AND m.patch = ?5) \
-             ORDER BY b.name",
-        )
-        .bind(service_id)
-        .bind(api_type.as_str())
-        .bind(version.major)
-        .bind(version.minor)
-        .bind(version.patch)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(rows.into_iter().map(|(n,)| n).collect())
-    }
-
-    async fn close_expired_trunk_data(
-        &self,
-        cutoff_iso: &str,
-        now_iso: &str,
-    ) -> Result<u64, RepositoryError> {
-        let closed = sqlx::query(
-            "UPDATE trunk_dependencies SET valid_to = ? WHERE valid_to IS NULL AND last_required_at < ?",
-        )
-        .bind(now_iso)
-        .bind(cutoff_iso)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        sqlx::query(
-            "UPDATE spec_versions SET trunk_provided_at = NULL WHERE trunk_provided_at IS NOT NULL AND trunk_provided_at < ?",
-        )
-        .bind(cutoff_iso)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(closed.rows_affected())
-    }
-
-    async fn rename_branch(&self, branch_id: i64, new_name: &str) -> Result<(), RepositoryError> {
-        let res = sqlx::query("UPDATE sanshain_branches SET name = ? WHERE id = ?")
-            .bind(new_name)
-            .bind(branch_id)
-            .execute(&self.pool)
-            .await;
-        match res {
-            Ok(_) => Ok(()),
-            Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
-                Err(RepositoryError::Conflict)
-            }
-            Err(e) => Err(RepositoryError::Internal(e.to_string())),
-        }
-    }
-
-    async fn delete_branch(&self, branch_id: i64) -> Result<(), RepositoryError> {
-        // The FK cascade needs sqlite's pragma; delete children explicitly so
-        // the behavior does not depend on connection settings.
-        for table in ["branch_dependencies", "branch_member_versions"] {
-            sqlx::query(&format!("DELETE FROM {table} WHERE branch_id = ?"))
-                .bind(branch_id)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        }
-        sqlx::query("DELETE FROM sanshain_branches WHERE id = ?")
-            .bind(branch_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
-    }
-
-    async fn record_branch_pins(
-        &self,
-        branch_id: i64,
-        pins: Vec<RecordTrunkPinParams<'_>>,
-    ) -> Result<(), RepositoryError> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        for p in pins {
-            let key = "branch_id = ? AND client_id = ? AND service_id = ? AND api_type = ? AND normalized_path = ? AND method = ? AND valid_to IS NULL";
-            sqlx::query(&format!(
-                "UPDATE branch_dependencies SET valid_to = ? WHERE {key} AND NOT (major = ? AND minor = ? AND patch = ?)"
-            ))
-            .bind(p.now_iso)
-            .bind(branch_id)
-            .bind(p.client_id)
-            .bind(p.service_id)
-            .bind(p.api_type.as_str())
-            .bind(p.normalized_path)
-            .bind(p.method)
-            .bind(p.version.major)
-            .bind(p.version.minor)
-            .bind(p.version.patch)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-            let refreshed = sqlx::query(&format!(
-                "UPDATE branch_dependencies SET last_required_at = ? WHERE {key} AND major = ? AND minor = ? AND patch = ?"
-            ))
-            .bind(p.now_iso)
-            .bind(branch_id)
-            .bind(p.client_id)
-            .bind(p.service_id)
-            .bind(p.api_type.as_str())
-            .bind(p.normalized_path)
-            .bind(p.method)
-            .bind(p.version.major)
-            .bind(p.version.minor)
-            .bind(p.version.patch)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-            if refreshed.rows_affected() == 0 {
-                sqlx::query(
-                    "INSERT INTO branch_dependencies (branch_id, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                )
-                .bind(branch_id)
-                .bind(p.client_id)
-                .bind(p.service_id)
-                .bind(p.api_type.as_str())
-                .bind(p.path)
-                .bind(p.normalized_path)
-                .bind(p.method)
-                .bind(p.version.major)
-                .bind(p.version.minor)
-                .bind(p.version.patch)
-                .bind(p.now_iso)
-                .bind(p.now_iso)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-            }
-        }
-        tx.commit()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
-    }
-
-    async fn record_branch_member_version(
-        &self,
-        branch_id: i64,
-        service_id: i64,
-        api_type: ApiType,
-        version: SemVer,
-        now_iso: &str,
-    ) -> Result<(), RepositoryError> {
-        let key = "branch_id = ? AND service_id = ? AND api_type = ? AND valid_to IS NULL";
-        sqlx::query(&format!(
-            "UPDATE branch_member_versions SET valid_to = ? WHERE {key} AND NOT (major = ? AND minor = ? AND patch = ?)"
-        ))
-        .bind(now_iso)
-        .bind(branch_id)
-        .bind(service_id)
-        .bind(api_type.as_str())
-        .bind(version.major)
-        .bind(version.minor)
-        .bind(version.patch)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        sqlx::query(&format!(
-            "INSERT INTO branch_member_versions (branch_id, service_id, api_type, major, minor, patch, valid_from) \
-             SELECT ?, ?, ?, ?, ?, ?, ? \
-             WHERE NOT EXISTS (SELECT 1 FROM branch_member_versions WHERE {key} AND major = ? AND minor = ? AND patch = ?)"
-        ))
-        .bind(branch_id)
-        .bind(service_id)
-        .bind(api_type.as_str())
-        .bind(version.major)
-        .bind(version.minor)
-        .bind(version.patch)
-        .bind(now_iso)
-        .bind(branch_id)
-        .bind(service_id)
-        .bind(api_type.as_str())
-        .bind(version.major)
-        .bind(version.minor)
-        .bind(version.patch)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
-    }
-
-    async fn record_trunk_pins(
-        &self,
-        pins: Vec<RecordTrunkPinParams<'_>>,
-    ) -> Result<(), RepositoryError> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        for p in pins {
-            let key = "client_id = ? AND service_id = ? AND api_type = ? AND normalized_path = ? AND method = ? AND valid_to IS NULL";
-            // Append semantics: a different version closes the open record…
-            sqlx::query(&format!(
-                "UPDATE trunk_dependencies SET valid_to = ? WHERE {key} AND NOT (major = ? AND minor = ? AND patch = ?)"
-            ))
-            .bind(p.now_iso)
-            .bind(p.client_id)
-            .bind(p.service_id)
-            .bind(p.api_type.as_str())
-            .bind(p.normalized_path)
-            .bind(p.method)
-            .bind(p.version.major)
-            .bind(p.version.minor)
-            .bind(p.version.patch)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-            // …the same version only refreshes the open record…
-            let refreshed = sqlx::query(&format!(
-                "UPDATE trunk_dependencies SET last_required_at = ? WHERE {key} AND major = ? AND minor = ? AND patch = ?"
-            ))
-            .bind(p.now_iso)
-            .bind(p.client_id)
-            .bind(p.service_id)
-            .bind(p.api_type.as_str())
-            .bind(p.normalized_path)
-            .bind(p.method)
-            .bind(p.version.major)
-            .bind(p.version.minor)
-            .bind(p.version.patch)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-            // …and a new pin key or a closed record gets a fresh open one.
-            if refreshed.rows_affected() == 0 {
-                sqlx::query(
-                    "INSERT INTO trunk_dependencies (client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                )
-                .bind(p.client_id)
-                .bind(p.service_id)
-                .bind(p.api_type.as_str())
-                .bind(p.path)
-                .bind(p.normalized_path)
-                .bind(p.method)
-                .bind(p.version.major)
-                .bind(p.version.minor)
-                .bind(p.version.patch)
-                .bind(p.now_iso)
-                .bind(p.now_iso)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-            }
-        }
-        tx.commit()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
-    }
-
-    async fn list_current_trunk_pins(&self) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
-        type PinRow = (
-            String,
-            String,
-            String,
-            i64,
-            i64,
-            i64,
-            String,
-            String,
-            String,
-            String,
-        );
-        let rows: Vec<PinRow> = sqlx::query_as(
-            "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.method, t.valid_from, t.last_required_at \
-             FROM trunk_dependencies t \
-             JOIN clients c ON c.id = t.client_id \
-             JOIN services s ON s.id = t.service_id \
-             WHERE t.valid_to IS NULL \
-             ORDER BY c.name, s.name, t.path, t.method",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        rows.into_iter()
-            .map(
-                |(
-                    client,
-                    service,
-                    api_type,
-                    major,
-                    minor,
-                    patch,
-                    path,
-                    method,
-                    valid_from,
-                    last_required_at,
-                )| {
-                    Ok(TrunkPinInfo {
-                        client,
-                        service,
-                        api_type: api_type
-                            .parse()
-                            .map_err(|e: String| RepositoryError::Internal(e))?,
-                        version: SemVer::new(major as u32, minor as u32, patch as u32),
-                        path,
-                        method,
-                        valid_from,
-                        last_required_at,
-                        dangling: false,
-                    })
-                },
-            )
-            .collect()
     }
 
     async fn delete_expired_snapshots(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
@@ -1435,9 +801,6 @@ impl SpecRepository for SqliteSpecRepository {
             .collect::<Result<Vec<_>, RepositoryError>>()?;
 
         Ok(DependencyReport {
-            trunk_graph: Vec::new(),
-            trunk_stale_before: None,
-            scope_label: None,
             unused_endpoints,
             missing_endpoints,
             dependency_graph,
@@ -2567,7 +1930,7 @@ impl SpecRepository for SqliteSpecRepository {
     ) -> Result<(), RepositoryError> {
         let timestamp = chrono::Utc::now().to_rfc3339();
         sqlx::query(
-            "INSERT INTO audit_logs (timestamp, username, action, details, service, version, action_type, diff, stream) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO audit_logs (timestamp, username, action, details, service, version, action_type, diff) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(timestamp)
         .bind(username)
@@ -2577,7 +1940,6 @@ impl SpecRepository for SqliteSpecRepository {
         .bind(log.version)
         .bind(log.action_type)
         .bind(log.diff)
-        .bind(log.stream)
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -2590,7 +1952,7 @@ impl SpecRepository for SqliteSpecRepository {
         filter: AuditLogFilter,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
         let mut sql = String::from(
-            "SELECT id, timestamp, username, action, details, service, version, action_type, diff, stream FROM audit_logs WHERE 1=1",
+            "SELECT id, timestamp, username, action, details, service, version, action_type, diff FROM audit_logs WHERE 1=1",
         );
 
         if filter.from_date.is_some() {
@@ -2608,9 +1970,6 @@ impl SpecRepository for SqliteSpecRepository {
         if filter.version_wildcard.is_some() {
             sql.push_str(" AND version LIKE ?");
         }
-        if filter.stream.is_some() {
-            sql.push_str(" AND stream = ?");
-        }
 
         sql.push_str(" ORDER BY id DESC LIMIT ?");
 
@@ -2622,7 +1981,6 @@ impl SpecRepository for SqliteSpecRepository {
                 String,
                 String,
                 String,
-                Option<String>,
                 Option<String>,
                 Option<String>,
                 Option<String>,
@@ -2645,9 +2003,6 @@ impl SpecRepository for SqliteSpecRepository {
         if let Some(ref val) = filter.version_wildcard {
             query = query.bind(val);
         }
-        if let Some(ref val) = filter.stream {
-            query = query.bind(val);
-        }
         query = query.bind(filter.limit);
 
         let rows = query
@@ -2668,7 +2023,6 @@ impl SpecRepository for SqliteSpecRepository {
                     version,
                     action_type,
                     diff,
-                    stream,
                 )| {
                     AuditLogEntry {
                         id,
@@ -2680,7 +2034,6 @@ impl SpecRepository for SqliteSpecRepository {
                         version,
                         action_type,
                         diff,
-                        stream,
                     }
                 },
             )
@@ -2692,7 +2045,7 @@ impl SpecRepository for SqliteSpecRepository {
         limit: u32,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
         let rows: Vec<AuditLogRow> = sqlx::query_as(
-            "SELECT id, timestamp, username, action, details, service, version, action_type, diff, stream FROM audit_logs ORDER BY id DESC LIMIT ?"
+            "SELECT id, timestamp, username, action, details, service, version, action_type, diff FROM audit_logs ORDER BY id DESC LIMIT ?"
         )
         .bind(limit)
         .fetch_all(&self.pool)
@@ -2712,7 +2065,6 @@ impl SpecRepository for SqliteSpecRepository {
                     version,
                     action_type,
                     diff,
-                    stream,
                 )| {
                     AuditLogEntry {
                         id,
@@ -2724,7 +2076,6 @@ impl SpecRepository for SqliteSpecRepository {
                         version,
                         action_type,
                         diff,
-                        stream,
                     }
                 },
             )

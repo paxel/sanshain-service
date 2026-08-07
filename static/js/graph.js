@@ -23,36 +23,6 @@ window.graphHighlightFilters = {
   outdated: false,
   snapshot: false,
 };
-// Which stream the graph shows (ADR-0004/0005): 'dev' is the classic
-// latest-activity view; 'main' draws the trunk pin set; 'branch' draws one
-// sanshain-branch's graph (window.graphBranchName / window.graphBranchPins).
-window.graphStreamView = "dev";
-window.graphBranchName = null;
-window.graphBranchPins = [];
-// Timeline (ADR-0005): null = now; otherwise the selected instant, with the
-// fetched at-date pins overriding the live sets.
-window.graphTimelineAt = null;
-window.graphTimelinePins = null;
-window.graphTimelineDates = [];
-window.graphUserPermissions = [];
-
-// Per (service, api_type): the newest trunk-marked version of the line —
-// what the main view labels producers with and checks conflicts against.
-function graphTrunkVersionMap(report) {
-  const map = new Map();
-  (report.services_detailed || []).forEach((svc) => {
-    (svc.versions || []).forEach((v) => {
-      if (!v.trunk_provided_at) return;
-      const key = `${svc.name}|${(v.api_type || "openapi").toLowerCase()}`;
-      const existing = map.get(key);
-      if (!existing || _graphCompareSemver(v.version, existing) > 0) {
-        map.set(key, v.version);
-      }
-    });
-  });
-  return map;
-}
-window.graphTrunkVersionMap = graphTrunkVersionMap;
 
 const GRAPH_OUTDATED_COLOR = "#f43f5e";
 const GRAPH_SNAPSHOT_COLOR = "#f59e0b";
@@ -88,30 +58,15 @@ function graphLatestGaMap(report) {
 
 // Per aggregated edge ("client-->service"): does any dependency on it carry an
 // Outdated or Snapshot-pinned Pin? Map key -> { outdated, snapshot }.
-function graphEdgeFlags(report, latestGaMap, trunkVersionMap) {
+function graphEdgeFlags(report, latestGaMap) {
   const flags = new Map();
-  const staleBefore = trunkVersionMap ? report.trunk_stale_before : null;
   (report.dependency_graph || []).forEach((d) => {
     const key = `${d.client}-->${d.service}`;
-    if (!flags.has(key))
-      flags.set(key, { outdated: false, snapshot: false, conflict: false, stale: false });
+    if (!flags.has(key)) flags.set(key, { outdated: false, snapshot: false });
     const f = flags.get(key);
-    // Main view: a pin not refreshed since half the trunk TTL is a
-    // forgotten thing — shown as such before the cleanup culls it.
-    if (staleBefore && d.last_required_at && d.last_required_at < staleBefore) f.stale = true;
-    // Branch view: the pinned version no longer exists (deleted) — dangling
-    // until the number is re-provided.
-    if (d.dangling) f.dangling = true;
     if (d.stability === "snapshot") f.snapshot = true;
-    const typeKey = `${d.service}|${(d.api_type || "openapi").toLowerCase()}`;
-    const latestGa = latestGaMap.get(typeKey);
+    const latestGa = latestGaMap.get(`${d.service}|${(d.api_type || "openapi").toLowerCase()}`);
     if (latestGa && _graphCompareSemver(d.version, latestGa) < 0) f.outdated = true;
-    // Main view: a pin a whole major behind the producer's trunk version is a
-    // conflict, drawn loud (ADR-0004).
-    if (trunkVersionMap) {
-      const trunkV = trunkVersionMap.get(typeKey);
-      if (trunkV && parseInt(d.version, 10) < parseInt(trunkV, 10)) f.conflict = true;
-    }
   });
   return flags;
 }
@@ -225,54 +180,6 @@ window.redrawGraph = redrawGraph;
 function getFilteredReport(report) {
   if (!report) return null;
   let deps = [...(report.dependency_graph || [])];
-  let missing = report.missing_endpoints;
-
-  // Branch view (ADR-0005): the edges are the branch's pin set, dangling
-  // references included; overlays are dev-view data.
-  if (window.graphStreamView === "branch") {
-    deps = (window.graphTimelinePins || window.graphBranchPins || []).map((t) => ({
-      api_type: t.api_type,
-      client: t.client,
-      service: t.service,
-      version: t.version,
-      stability: "ga",
-      path: t.path,
-      method: t.method,
-      deprecated: false,
-      last_required_at: t.last_required_at,
-      dangling: !!t.dangling,
-    }));
-    missing = [];
-    return { ...report, dependency_graph: deps, missing_endpoints: missing };
-  }
-
-  // Main view (ADR-0004): the edges are the current trunk pin set, not the
-  // accumulated dev activity; the missing-endpoints overlay is dev-view data.
-  if (window.graphStreamView === "main") {
-    const stabilityOf = (t) => {
-      const svc = (report.services_detailed || []).find((s) => s.name === t.service);
-      const v = svc
-        ? (svc.versions || []).find(
-            (x) =>
-              x.version === t.version &&
-              (x.api_type || "openapi").toLowerCase() === (t.api_type || "openapi").toLowerCase(),
-          )
-        : null;
-      return v ? v.stability : "ga";
-    };
-    deps = (window.graphTimelinePins || report.trunk_graph || []).map((t) => ({
-      api_type: t.api_type,
-      client: t.client,
-      service: t.service,
-      version: t.version,
-      stability: stabilityOf(t),
-      path: t.path,
-      method: t.method,
-      deprecated: false,
-      last_required_at: t.last_required_at,
-    }));
-    missing = [];
-  }
 
   // 1. Circular dependencies filter
   if (window.graphRedrawMode === "circular") {
@@ -324,7 +231,7 @@ function getFilteredReport(report) {
     return true;
   });
 
-  return { ...report, dependency_graph: deps, missing_endpoints: missing };
+  return { ...report, dependency_graph: deps };
 }
 window.getFilteredReport = getFilteredReport;
 
@@ -342,154 +249,6 @@ function setGraphRedrawMode(mode) {
   redrawGraph();
 }
 window.setGraphRedrawMode = setGraphRedrawMode;
-
-// Switch between the dev and main stream views (ADR-0004). The legend is
-// view-aware: entries carrying data-stream-only show only in their view.
-function setStreamView(view) {
-  window.graphStreamView = view;
-  if (view !== "branch") {
-    window.graphBranchName = null;
-    const sel = document.getElementById("graph-branch-select");
-    if (sel) sel.value = "";
-  }
-  ["dev", "main"].forEach((v) => {
-    const btn = document.getElementById(`stream-${v}`);
-    if (btn) {
-      btn.className =
-        v === view
-          ? "px-3 py-1.5 bg-indigo-600 text-white font-medium"
-          : "px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium";
-    }
-  });
-  document.querySelectorAll("[data-stream-only]").forEach((el) => {
-    el.classList.toggle("hidden", el.dataset.streamOnly !== view);
-  });
-  window.graphTimelineAt = null;
-  window.graphTimelinePins = null;
-  initTimelineSlider();
-  refreshTimeline();
-  redrawGraph();
-}
-window.setStreamView = setStreamView;
-
-// ── Timeline (ADR-0005) ──────────────────────────────────────────────
-// The slider indexes the graph's change dates; the last position is "now".
-
-async function refreshTimeline() {
-  const row = document.getElementById("graph-timeline-row");
-  if (!row) return;
-  const view = window.graphStreamView;
-  if (view === "dev") {
-    row.classList.add("hidden");
-    window.graphTimelineAt = null;
-    window.graphTimelinePins = null;
-    return;
-  }
-  const url =
-    view === "main"
-      ? "/admin/trunk/timeline"
-      : `/admin/branches/${encodeURIComponent(window.graphBranchName)}/timeline`;
-  try {
-    const res = await apiCall(url);
-    window.graphTimelineDates = res.ok ? await res.json() : [];
-  } catch (e) {
-    console.warn("Could not load the timeline:", e);
-    window.graphTimelineDates = [];
-  }
-  const slider = document.getElementById("graph-timeline-slider");
-  slider.max = String(window.graphTimelineDates.length);
-  slider.value = slider.max;
-  document.getElementById("graph-timeline-label").textContent = "now";
-  const createBtn = document.getElementById("graph-create-branch-here");
-  createBtn.classList.toggle("hidden", !window.graphUserPermissions.includes("release_ga"));
-  row.classList.remove("hidden");
-}
-
-async function setTimelinePosition(at) {
-  const slider = document.getElementById("graph-timeline-slider");
-  const label = document.getElementById("graph-timeline-label");
-  if (at === null) {
-    window.graphTimelineAt = null;
-    window.graphTimelinePins = null;
-    slider.value = slider.max;
-    label.textContent = "now";
-    redrawGraph();
-    return;
-  }
-  const view = window.graphStreamView;
-  const url =
-    view === "main"
-      ? `/admin/trunk/graph?at=${encodeURIComponent(at)}`
-      : `/admin/branches/${encodeURIComponent(window.graphBranchName)}/graph?at=${encodeURIComponent(at)}`;
-  try {
-    const res = await apiCall(url);
-    if (!res.ok) return;
-    window.graphTimelinePins = await res.json();
-    window.graphTimelineAt = at;
-    label.textContent = at.slice(0, 16).replace("T", " ");
-    redrawGraph();
-  } catch (e) {
-    console.warn("Could not load the graph at that instant:", e);
-  }
-}
-window.setTimelinePosition = setTimelinePosition;
-
-function initTimelineSlider() {
-  const slider = document.getElementById("graph-timeline-slider");
-  if (!slider || slider.dataset.wired) return;
-  slider.dataset.wired = "1";
-  slider.addEventListener("input", () => {
-    const idx = parseInt(slider.value, 10);
-    if (idx >= window.graphTimelineDates.length) {
-      setTimelinePosition(null);
-    } else {
-      setTimelinePosition(window.graphTimelineDates[idx]);
-    }
-  });
-}
-
-// "Create branch here": the retroactive cut, from the selected instant.
-async function createBranchHere() {
-  const at = window.graphTimelineAt;
-  const name = prompt(
-    at
-      ? `Create a sanshain-branch off the graph as of ${at}:`
-      : "Create a sanshain-branch off the current graph:",
-  );
-  if (!name) return;
-  const body = { name };
-  if (at) body.as_of = at;
-  if (window.graphStreamView === "branch") body.source = window.graphBranchName;
-  const res = await apiCall("/admin/branches", { method: "POST", body });
-  if (!res.ok) {
-    alert("Could not create the branch: " + (await errorMessage(res)));
-    return;
-  }
-  alert(`Sanshain-branch '${name}' created.`);
-}
-window.createBranchHere = createBranchHere;
-
-// Enter the branch view (ADR-0005): fetch the branch's pin set — dangling
-// references included — and draw it with the shared pipeline.
-async function selectBranchView(name) {
-  if (!name) {
-    setStreamView("dev");
-    return;
-  }
-  try {
-    const res = await apiCall(`/admin/branches/${encodeURIComponent(name)}/graph`);
-    if (!res.ok) {
-      console.warn(`Could not load branch '${name}' (HTTP ${res.status})`);
-      return;
-    }
-    window.graphBranchPins = await res.json();
-    window.graphBranchName = name;
-    setStreamView("branch");
-  } catch (e) {
-    console.warn("Could not load the branch graph:", e);
-  }
-}
-window.selectBranchView = selectBranchView;
 
 function addFocusTag(name) {
   if (!name || !name.trim()) return;
@@ -704,22 +463,9 @@ function renderCustomGraph(report, svgElement, direction) {
   const serviceNodes = new Set(deps.map((d) => d.service));
   const cycleEdges = graphDetectCycles(adjMap);
 
-  // Outdated / Snapshot-pinned flags per aggregated edge — and in the main
-  // view, major-lag conflicts against the producer's trunk version.
-  const isMainView = window.graphStreamView === "main";
-  const trunkVersionMap = isMainView ? graphTrunkVersionMap(report) : null;
+  // Outdated / Snapshot-pinned flags per aggregated edge.
   const latestGaMap = graphLatestGaMap(report);
-  const edgeHighlightFlags = graphEdgeFlags(report, latestGaMap, trunkVersionMap);
-
-  // Main view: a trunk-provided producer belongs in the picture even before
-  // anyone pins it — its trunk version is a statement on its own.
-  if (isMainView && trunkVersionMap) {
-    for (const key of trunkVersionMap.keys()) {
-      const name = key.split("|")[0];
-      allNodes.add(name);
-      serviceNodes.add(name);
-    }
-  }
+  const edgeHighlightFlags = graphEdgeFlags(report, latestGaMap);
 
   // Detect bidirectional PUB/SUB edges (both directions between same pair)
   const pubsubBidirectional = new Set();
@@ -1179,11 +925,6 @@ function renderCustomGraph(report, svgElement, direction) {
       edgeColor = "#94a3b8";
       edgeWidth = "2";
       markerEnd = "";
-    } else if (edgeHighlightFlags.get(key) && edgeHighlightFlags.get(key).conflict) {
-      // Main view: the pin lags the producer's trunk version by a major.
-      edgeColor = "#dc2626";
-      edgeWidth = "3";
-      markerEnd = "url(#arrow-red)";
     } else {
       edgeColor = "#94a3b8";
       edgeWidth = "2";
@@ -1206,19 +947,6 @@ function renderCustomGraph(report, svgElement, direction) {
     const hFlags = edgeHighlightFlags.get(key);
     path.dataset.outdated = hFlags && hFlags.outdated ? "1" : "0";
     path.dataset.snapshot = hFlags && hFlags.snapshot ? "1" : "0";
-    path.dataset.conflict = hFlags && hFlags.conflict ? "1" : "0";
-    path.dataset.stale = hFlags && hFlags.stale ? "1" : "0";
-    if (hFlags && hFlags.stale) {
-      path.setAttribute("stroke", "#f59e0b");
-      path.setAttribute("stroke-dasharray", "3 4");
-      path.dataset.baseStroke = "#f59e0b";
-    }
-    path.dataset.dangling = hFlags && hFlags.dangling ? "1" : "0";
-    if (hFlags && hFlags.dangling) {
-      path.setAttribute("stroke", "#ea580c");
-      path.setAttribute("stroke-dasharray", "2 5");
-      path.dataset.baseStroke = "#ea580c";
-    }
     path.dataset.baseStroke = edgeColor;
     path.dataset.baseWidth = edgeWidth;
     if (isMissing || isBidirectionalPubSub || isMessagingRegister)
@@ -1386,34 +1114,6 @@ function renderCustomGraph(report, svgElement, direction) {
       const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
       title.textContent = node;
       group.appendChild(title);
-    }
-
-    // Main view: label the producer with its trunk version.
-    if (isMainView && trunkVersionMap) {
-      const trunkV =
-        trunkVersionMap.get(`${node}|openapi`) ||
-        trunkVersionMap.get(`${node}|asyncapi`) ||
-        trunkVersionMap.get(`${node}|proto`);
-      if (trunkV) {
-        const svcMeta = serviceMetaMap.get(node);
-        const staleBefore = report.trunk_stale_before;
-        const newestTrunkStamp = ((svcMeta && svcMeta.versions) || [])
-          .filter((v) => v.trunk_provided_at)
-          .map((v) => v.trunk_provided_at)
-          .sort()
-          .pop();
-        const isStale = staleBefore && newestTrunkStamp && newestTrunkStamp < staleBefore;
-        const vText = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        vText.setAttribute("x", nd.x);
-        vText.setAttribute("y", nd.y + nd.height / 2 - 7);
-        vText.setAttribute("text-anchor", "middle");
-        vText.setAttribute("fill", isStale ? "#f59e0b" : textColor);
-        vText.setAttribute("font-size", "10");
-        vText.setAttribute("font-family", "ui-monospace, monospace");
-        vText.setAttribute("opacity", "0.9");
-        vText.textContent = isStale ? `⚠ v${trunkV}` : `v${trunkV}`;
-        group.appendChild(vText);
-      }
     }
 
     mainG.appendChild(group);
@@ -1747,22 +1447,10 @@ function exportToPng(currentGraphMode) {
   if (!svg) return;
   if (currentGraphMode === "custom" && !svg.firstChild) return;
 
-  // Exports carry their scope (ADR-0005): view, branch and instant.
-  const view = window.graphStreamView || "dev";
-  let stamp = view === "branch" ? `branch ${window.graphBranchName}` : view;
-  if (window.graphTimelineAt) stamp += ` @ ${window.graphTimelineAt}`;
-  const filename = `dependency_graph_${stamp.replace(/[^a-zA-Z0-9.@-]+/g, "_")}.png`;
+  const filename = "dependency_graph.png";
 
   // Clone the SVG to avoid modifying the live one
   const svgClone = svg.cloneNode(true);
-  const stampText = document.createElementNS("http://www.w3.org/2000/svg", "text");
-  stampText.setAttribute("x", "8");
-  stampText.setAttribute("y", "16");
-  stampText.setAttribute("font-size", "12");
-  stampText.setAttribute("fill", "#64748b");
-  stampText.setAttribute("font-family", "ui-monospace, monospace");
-  stampText.textContent = `Sanshain — ${stamp}`;
-  svgClone.appendChild(stampText);
   if (!svgClone.getAttribute("xmlns")) {
     svgClone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   }

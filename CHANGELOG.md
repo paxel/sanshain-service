@@ -21,46 +21,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Provides accept an optional `trunk: true` flag (ADR-0004): the version entry is marked as
   trunk's current version — shown as a badge on the producers page — with no effect on version
   rules or stability. Absent flag, nothing changes.
-- Requires (and require-bundle) accept the same optional `trunk` flag: the pin is additionally
-  recorded in a new append-only trunk store where the last write per endpoint defines the current
-  trunk pin set, exposed as `trunk_graph` in the `/report` payload.
-- The graph page gained a Main/Dev toggle (ADR-0004): the main view draws producers at their
-  trunk version with the current trunk pins as edges, highlights major-lag conflicts, and the
-  legend shows only markers the active view can draw.
-- Sanshain-branches (ADR-0005): `POST /admin/branches` (releaser-gated, built for the release-cut
-  script) creates a named copy of the trunk graph — or another branch — at a chosen instant,
-  including retroactively; `GET /admin/branches` lists them and
-  `GET /admin/branches/{name}/graph[?at=…]` answers a branch's pin set.
-- Provides and requires accept an optional `tag=<branch>` (release-branch hotfixes): the call
-  updates that sanshain-branch's graph and member versions instead of trunk. `trunk` and `tag`
-  together answer `400`; an unknown tag answers an instructive `404` — no auto-create.
-- Sanshain-branches can be renamed (repairing a botched name; membership and timeline survive)
-  and deleted (freeing the name) — admin-only, audited, from the admin dashboard's new
-  Sanshain-Branches section or `PUT`/`DELETE /admin/branches/{name}`.
-- Trunk data ages visibly: a configurable month-scale TTL (`trunk_max_age_days`, default 90)
-  closes trunk pins and clears trunk markers not refreshed in time — they leave the main graph
-  but stay as history — and the main graph highlights entries as stale (amber, ⚠) once they pass
-  half the TTL, so forgotten producers and dead requires surface before they vanish.
-- Reports take a graph scope: `?scope=dev` (default, unchanged), `main` (trunk pins), or
-  `<branch>[@instant]` — so a release-scoped architecture or isolation report describes what
-  production actually is. The reports page gained the matching selector.
-- The graph page draws sanshain-branches: pick one from the new branch selector. A pin whose
-  version was deleted renders as a dangling reference (dotted orange, own legend entry) and heals
-  automatically when the number is re-provided; the delete-version confirmation now also names
-  referencing sanshain-branches alongside pinned Consumers.
-- Provide/require audit entries record their declared stream (`trunk`, a branch tag, or none),
-  and the audit timeline filters by it — "who changed Release Maribou, when?" is one query.
-- The graph page gained a timeline (ADR-0005): a slider over the change instants of the main
-  graph or a branch renders the graph as it was at that date (`GET /admin/trunk/graph?at=…`,
-  `…/timeline`), and releasers can "create branch here" — the retroactive release cut.
-- Reverse lookup: producer version rows show chips naming every sanshain-branch referencing that
-  version (`GET /admin/producers/{name}/branch-memberships`). Graph exports (SVG/PNG/mermaid)
-  are stamped with their view, branch and instant; scoped reports carry a `Scope:` line. New
-  metrics: `sanshain_branch_updates_total{branch}` and a `sanshain_branches` gauge, with the
-  branch count shown on the observability page.
-- Graph diffing (`GET /admin/graph/diff?left=…&right=…`, and a Compare panel on the graph page):
-  a structured diff between any two graph selections — release vs release, release vs main, any
-  at a past instant — naming added/removed services and added/removed/changed pins.
 
 ### Changed
 - UI messages and docs no longer explain resolution by contrast with removed 1.x mechanics

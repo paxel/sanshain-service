@@ -9,7 +9,7 @@ use crate::asyncapi;
 use crate::domain::models::*;
 use crate::domain::permissions::{Actor, Permission};
 use crate::domain::ports::{
-    NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, SpecRepository, UpsertSpecVersion,
+    NewAuditLog, RecordDependencyParams, SpecRepository, UpsertSpecVersion,
 };
 use crate::openapi;
 use sha2::{Digest, Sha256};
@@ -28,10 +28,6 @@ pub struct ProvideSpecParams<'a> {
     /// (including the idempotent no-op) refreshes the entry's
     /// `trunk_provided_at` marker. No effect on version rules or stability.
     pub trunk: bool,
-    /// ADR-0005: this build belongs to the named sanshain-branch — a real
-    /// provide marks the producer's member version within it. Mutually
-    /// exclusive with `trunk`.
-    pub tag: Option<&'a str>,
     /// The resolved caller: the GA gate checks it for
     /// [`Permission::ReleaseGa`], and its username is the single identity used
     /// for audit attribution and the version's `provided_by` credit. `None`
@@ -51,12 +47,6 @@ pub struct RequireEndpointParams<'a> {
     pub api_type: ApiType,
     pub path: &'a str,
     pub method: &'a str,
-    /// ADR-0004: this build belongs to the trunk stream — the pin is also
-    /// recorded in the append-only trunk store (last-write-wins view).
-    pub trunk: bool,
-    /// ADR-0005: the pin updates the named sanshain-branch's graph instead.
-    /// Mutually exclusive with `trunk`.
-    pub tag: Option<&'a str>,
 }
 
 pub struct RequireBundleParams<'a> {
@@ -65,10 +55,6 @@ pub struct RequireBundleParams<'a> {
     pub version: SemVer,
     pub api_type: ApiType,
     pub endpoints: &'a [(String, String)],
-    /// See [`RequireEndpointParams::trunk`].
-    pub trunk: bool,
-    /// See [`RequireEndpointParams::tag`].
-    pub tag: Option<&'a str>,
 }
 
 /// A compact fingerprint of submitted spec content for diagnostics: its byte
@@ -91,30 +77,6 @@ fn content_hash(content: &str) -> String {
 
 fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-}
-
-/// Resolve the declared stream (ADR-0004/0005): `trunk` and `tag` are
-/// mutually exclusive, and a tag must name an existing sanshain-branch —
-/// no auto-create, so a typo'd pipeline cannot mint a half-empty release
-/// graph. Applies to dry-runs too: a misconfigured pipeline must hear it.
-async fn resolve_stream(
-    repo: &impl SpecRepository,
-    trunk: bool,
-    tag: Option<&str>,
-) -> Result<Option<BranchInfo>, AppError> {
-    if trunk && tag.is_some() {
-        return Err(AppError::BadRequest(
-            "`trunk` and `tag` are mutually exclusive — a build belongs to the trunk stream or to a named sanshain-branch, never both".to_string(),
-        ));
-    }
-    match tag {
-        Some(name) => Ok(Some(repo.find_branch(name).await?.ok_or_else(|| {
-            AppError::NotFound(format!(
-                "no sanshain-branch '{name}' — a releaser must create it first"
-            ))
-        })?)),
-        None => Ok(None),
-    }
 }
 
 /// Read the Producer-declared version out of the spec document.
@@ -237,7 +199,6 @@ pub async fn promote_version(
             dry_run: false,
             // A promotion is a stability flip, not a stream declaration.
             trunk: false,
-            tag: None,
             caller,
             // Release exactly what was read: if the snapshot is overwritten
             // between this read and the write, the CAS refuses (409) instead
@@ -375,7 +336,6 @@ async fn record_version_rejection(
                 version: Some(&version.to_string()),
                 action_type: Some("REJECT"),
                 diff: None,
-                stream: None,
             },
         )
         .await
@@ -400,14 +360,12 @@ pub async fn provide_spec(
         stability,
         dry_run,
         trunk,
-        tag,
         caller,
         expected_prior_hash,
     } = params;
     // One identity: authorization and audit attribution both come from the
     // Actor, so they cannot drift apart.
     let username: Option<&str> = caller.as_ref().map(|a| a.username.as_str());
-    let tag_branch = resolve_stream(repo, trunk, tag).await?;
 
     let version = extract_spec_version(api_type, content)?;
     let hash = content_hash(content);
@@ -503,14 +461,6 @@ pub async fn provide_spec(
         // marker fresh for the trunk TTL.
         if trunk && !dry_run {
             repo.touch_spec_version_trunk(entry.id, &now_iso()).await?;
-        }
-        // Likewise a no-op tagged re-provide still marks the member version.
-        if let Some(branch) = &tag_branch
-            && !dry_run
-        {
-            repo.record_branch_member_version(branch.id, sid, api_type, version, &now_iso())
-                .await?;
-            count_branch_update(&branch.name);
         }
         return Ok(ProvideResponse {
             version,
@@ -718,12 +668,6 @@ pub async fn provide_spec(
     {
         repo.touch_spec_version_trunk(entry.id, &now_iso()).await?;
     }
-    // A tagged provide marks the member version within its branch (ADR-0005).
-    if let Some(branch) = &tag_branch {
-        repo.record_branch_member_version(branch.id, sid, api_type, version, &now_iso())
-            .await?;
-        count_branch_update(&branch.name);
-    }
 
     // Promotion is a state change worth its own audit entry even when the
     // content is byte-identical to the snapshot it releases.
@@ -744,7 +688,6 @@ pub async fn provide_spec(
                     version: Some(&version.to_string()),
                     action_type: Some("WRITE"),
                     diff: None,
-                    stream: None,
                 },
             )
             .await
@@ -783,7 +726,6 @@ pub async fn provide_spec(
                     version: Some(&version.to_string()),
                     action_type: Some("WRITE"),
                     diff: None,
-                    stream: None,
                 },
             )
             .await
@@ -1009,10 +951,7 @@ async fn require_endpoint_inner(
         api_type,
         path,
         method,
-        trunk,
-        tag,
     } = params;
-    let tag_branch = resolve_stream(repo, trunk, tag).await?;
 
     let (_sid, entry) = resolve_pin(repo, producername, api_type, version).await?;
     let method = method_for(api_type, method);
@@ -1039,13 +978,8 @@ async fn require_endpoint_inner(
             consumername,
             &entry,
             &[(path.to_string(), method.clone())],
-            trunk,
-            tag_branch.as_ref().map(|b| b.id),
         )
         .await?;
-        if let Some(branch) = &tag_branch {
-            count_branch_update(&branch.name);
-        }
     }
 
     Ok(RequireResponse {
@@ -1082,10 +1016,7 @@ async fn require_bundle_inner(
         version,
         api_type,
         endpoints,
-        trunk,
-        tag,
     } = params;
-    let tag_branch = resolve_stream(repo, trunk, tag).await?;
 
     if endpoints.is_empty() {
         return Err(AppError::BadRequest(
@@ -1136,18 +1067,7 @@ async fn require_bundle_inner(
     };
 
     if !dry_run {
-        record_pins(
-            repo,
-            consumername,
-            &entry,
-            &normalized,
-            trunk,
-            tag_branch.as_ref().map(|b| b.id),
-        )
-        .await?;
-        if let Some(branch) = &tag_branch {
-            count_branch_update(&branch.name);
-        }
+        record_pins(repo, consumername, &entry, &normalized).await?;
     }
 
     Ok(RequireResponse {
@@ -1167,8 +1087,6 @@ async fn record_pins(
     consumername: &str,
     entry: &SpecVersionMeta,
     endpoints: &[(String, String)],
-    trunk: bool,
-    tag_branch_id: Option<i64>,
 ) -> Result<(), AppError> {
     let client_id = repo.ensure_client(consumername).await?;
     let normalized: Vec<String> = endpoints
@@ -1190,37 +1108,7 @@ async fn record_pins(
     repo.record_dependencies_bulk(deps).await?;
     repo.touch_spec_version_required(entry.id, &now_iso())
         .await?;
-    // A trunk build additionally maintains the append-only trunk pin set
-    // (ADR-0004); a tagged build updates its branch's graph instead
-    // (ADR-0005) — both recorded by version value, never by row id.
-    if trunk || tag_branch_id.is_some() {
-        let now = now_iso();
-        let pins: Vec<RecordTrunkPinParams> = endpoints
-            .iter()
-            .zip(normalized.iter())
-            .map(|((path, method), normalized_path)| RecordTrunkPinParams {
-                client_id,
-                service_id: entry.service_id,
-                api_type: entry.api_type,
-                version: entry.version,
-                path,
-                normalized_path,
-                method,
-                now_iso: &now,
-            })
-            .collect();
-        match tag_branch_id {
-            Some(branch_id) => repo.record_branch_pins(branch_id, pins).await?,
-            None => repo.record_trunk_pins(pins).await?,
-        }
-    }
     Ok(())
-}
-
-/// One branch update happened (tagged provide or require) — the counter the
-/// observability surface graphs per branch.
-fn count_branch_update(branch: &str) {
-    metrics::counter!("sanshain_branch_updates_total", "branch" => branch.to_string()).increment(1);
 }
 
 /// An endpoint as shown in the UI: what was served and how that was decided.

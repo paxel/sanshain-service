@@ -270,7 +270,6 @@ fn log<'a>(
         version,
         action_type,
         diff: None,
-        stream: None,
     }
 }
 
@@ -304,7 +303,6 @@ async fn audit_log_filters_and_recent_listing() {
             action_type: action_type.map(String::from),
             service_wildcard: service.map(String::from),
             version_wildcard: version.map(String::from),
-            stream: None,
             limit: 10,
         }
     };

@@ -8,7 +8,6 @@ async function loadTimeline() {
     const type = document.getElementById("filter-type").value;
     const service = document.getElementById("filter-service").value.trim();
     const version = document.getElementById("filter-version").value.trim();
-    const stream = document.getElementById("filter-stream").value.trim();
 
     let url = "/api/audit/timeline?limit=100";
     if (from) url += `&from_date=${from}`;
@@ -16,7 +15,6 @@ async function loadTimeline() {
     if (type) url += `&action_type=${type}`;
     if (service) url += `&service=${encodeURIComponent(service)}`;
     if (version) url += `&version=${encodeURIComponent(version)}`;
-    if (stream) url += `&stream=${encodeURIComponent(stream)}`;
 
     const res = await apiCall(url);
     if (!res.ok) {

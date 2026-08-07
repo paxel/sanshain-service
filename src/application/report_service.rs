@@ -2,130 +2,16 @@ use crate::domain::models::*;
 use crate::domain::ports::SpecRepository;
 use tracing::instrument;
 
-/// The graph a report describes (ADR-0005): the accumulated dev activity
-/// (default), the current trunk pin set, or a sanshain-branch — optionally at
-/// a past instant (`<branch>@<rfc3339>`).
-pub enum ReportScope {
-    Dev,
-    Main,
-    Branch { name: String, at: Option<String> },
-}
-
-impl ReportScope {
-    /// `scope=dev|main|<branch>[@rfc3339]`. A trailing `@<instant>` is only
-    /// split off when it parses as a date, so branch names containing `@`
-    /// keep working.
-    pub fn parse(raw: Option<&str>) -> ReportScope {
-        match raw {
-            None | Some("dev") => ReportScope::Dev,
-            Some("main") => ReportScope::Main,
-            Some(other) => {
-                if let Some((name, at)) = other.rsplit_once('@')
-                    && chrono::DateTime::parse_from_rfc3339(at).is_ok()
-                {
-                    return ReportScope::Branch {
-                        name: name.to_string(),
-                        at: Some(at.to_string()),
-                    };
-                }
-                ReportScope::Branch {
-                    name: other.to_string(),
-                    at: None,
-                }
-            }
-        }
-    }
-}
-
-/// Project a pin set into the dependency-graph shape reports render. The
-/// stability is looked up from the stored version line; a dangling pin
-/// (deleted version) reports as GA — reports state pins, not resolutions.
-async fn pins_as_dependency_graph(
-    repo: &impl SpecRepository,
-    pins: Vec<TrunkPinInfo>,
-) -> Result<Vec<DependencyInfo>, AppError> {
-    let mut graph = Vec::with_capacity(pins.len());
-    for pin in pins {
-        let stability = match repo.find_service(&pin.service).await? {
-            Some(sid) => repo
-                .find_spec_version(sid, pin.api_type, pin.version)
-                .await?
-                .map(|v| v.stability)
-                .unwrap_or(Stability::Ga),
-            None => Stability::Ga,
-        };
-        graph.push(DependencyInfo {
-            api_type: pin.api_type,
-            client: pin.client,
-            service: pin.service,
-            version: pin.version,
-            stability,
-            path: pin.path,
-            method: pin.method,
-            deprecated: false,
-        });
-    }
-    Ok(graph)
-}
-
-/// A report of the selected graph. Dev is byte-identical to the unscoped
-/// report; main and branch scopes replace the dependency graph with the
-/// scope's pin set (the dev-only overlays are emptied — they describe
-/// recorded activity, not a pin set).
-pub async fn generate_scoped_report(
-    repo: &impl SpecRepository,
-    scope: ReportScope,
-) -> Result<DependencyReport, AppError> {
-    let mut report = generate_report(repo).await?;
-    match scope {
-        ReportScope::Dev => {}
-        ReportScope::Main => {
-            let pins = repo.list_current_trunk_pins().await?;
-            report.dependency_graph = pins_as_dependency_graph(repo, pins).await?;
-            report.missing_endpoints = Vec::new();
-            report.unused_endpoints = Vec::new();
-            report.scope_label = Some("main".to_string());
-        }
-        ReportScope::Branch { name, at } => {
-            let branch = repo
-                .find_branch(&name)
-                .await?
-                .ok_or_else(|| AppError::NotFound(format!("no sanshain-branch '{name}'")))?;
-            let pins = repo.list_branch_pins(branch.id, at.as_deref()).await?;
-            report.dependency_graph = pins_as_dependency_graph(repo, pins).await?;
-            report.missing_endpoints = Vec::new();
-            report.unused_endpoints = Vec::new();
-            report.scope_label = Some(match at {
-                Some(at) => format!("{name}@{at}"),
-                None => name,
-            });
-        }
-    }
-    Ok(report)
-}
-
 #[instrument(skip_all)]
 pub async fn generate_report(repo: &impl SpecRepository) -> Result<DependencyReport, AppError> {
     let mut report = repo.get_report().await?;
     report.service_tags = repo.get_all_service_tags().await?;
-    report.trunk_graph = repo.list_current_trunk_pins().await?;
-    // The staleness boundary for the main graph (ADR-0004): trunk entries not
-    // refreshed since half the TTL are highlighted as forgotten-in-progress.
-    let ttl_days = super::admin_service::get_trunk_max_age_days(repo).await?;
-    if ttl_days > 0 {
-        let boundary = chrono::Utc::now() - chrono::Duration::hours(ttl_days as i64 * 12);
-        report.trunk_stale_before =
-            Some(boundary.to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
-    }
     Ok(report)
 }
 
 pub fn render_report_markdown(report: &DependencyReport) -> String {
     let mut md = String::new();
     md.push_str("# Sanshain Dependency Report\n\n");
-    if let Some(scope) = &report.scope_label {
-        md.push_str(&format!("Scope: {scope}\n\n"));
-    }
 
     md.push_str("| Consumer | Producer | Type | Version | Stability | Path | Method |\n");
     md.push_str("| --- | --- | --- | --- | --- | --- | --- |\n");
@@ -151,9 +37,6 @@ pub fn render_isolation_report(report: &DependencyReport) -> String {
 
     let mut md = String::new();
     md.push_str("# Service Isolation Report\n\n");
-    if let Some(scope) = &report.scope_label {
-        md.push_str(&format!("Scope: {scope}\n\n"));
-    }
 
     if report.dependency_graph.is_empty() {
         md.push_str("No dependencies found.\n");
@@ -222,9 +105,6 @@ mod tests {
             service_tags: std::collections::HashMap::new(),
             missing_endpoints: vec![],
             unused_endpoints: vec![],
-            trunk_graph: vec![],
-            trunk_stale_before: None,
-            scope_label: None,
         }
     }
 

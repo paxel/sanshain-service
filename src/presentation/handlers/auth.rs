@@ -189,7 +189,6 @@ pub async fn auth_change_password(
                     version: None,
                     action_type: Some("ADMIN"),
                     diff: None,
-                    stream: None,
                 },
             )
             .await?;
@@ -227,7 +226,6 @@ pub async fn auth_register(
             version: None,
             action_type: Some("ADMIN"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -294,7 +292,6 @@ pub async fn create_token(
             version: None,
             action_type: Some("ADMIN"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -323,7 +320,6 @@ pub async fn revoke_token(
             version: None,
             action_type: Some("ADMIN"),
             diff: None,
-            stream: None,
         },
     )
     .await?;

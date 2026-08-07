@@ -76,17 +76,7 @@ pub async fn list_version_dependents(
     version: SemVer,
 ) -> Result<Vec<String>, AppError> {
     let entry = find_version_entry(repo, producer, api_type, version).await?;
-    let mut dependents = repo.list_version_dependents(entry.id).await?;
-    // ADR-0005: release graphs referencing the version are part of the
-    // informed-delete picture — a warning, never a block. Deleting anyway
-    // leaves them visibly dangling; a later re-provide heals them.
-    for branch in repo
-        .list_branches_referencing(entry.service_id, api_type, version)
-        .await?
-    {
-        dependents.push(format!("sanshain-branch '{branch}'"));
-    }
-    Ok(dependents)
+    Ok(repo.list_version_dependents(entry.id).await?)
 }
 
 /// The sole escape hatch from GA immutability (ADR-0003): delete the version
@@ -99,13 +89,7 @@ pub async fn delete_version(
     version: SemVer,
 ) -> Result<Vec<String>, AppError> {
     let entry = find_version_entry(repo, producer, api_type, version).await?;
-    let mut dependents = repo.list_version_dependents(entry.id).await?;
-    for branch in repo
-        .list_branches_referencing(entry.service_id, api_type, version)
-        .await?
-    {
-        dependents.push(format!("sanshain-branch '{branch}'"));
-    }
+    let dependents = repo.list_version_dependents(entry.id).await?;
     repo.delete_spec_version(entry.id).await?;
     Ok(dependents)
 }
@@ -300,37 +284,6 @@ pub async fn cleanup_stale_dependencies(repo: &impl SpecRepository) -> Result<u6
     }
     let cutoff = Utc::now() - chrono::Duration::days(days as i64);
     Ok(repo.delete_stale_dependencies(&cutoff.to_rfc3339()).await?)
-}
-
-/// Trunk TTL (ADR-0004): month-scale, independent of the much shorter dev
-/// expiry. 0 disables the cleanup.
-pub async fn get_trunk_max_age_days(repo: &impl SpecRepository) -> Result<u64, AppError> {
-    let val = repo
-        .get_setting("trunk_max_age_days")
-        .await?
-        .unwrap_or("90".to_string());
-    Ok(val.parse().unwrap_or(90))
-}
-
-pub async fn set_trunk_max_age_days(repo: &impl SpecRepository, days: u64) -> Result<(), AppError> {
-    repo.set_setting("trunk_max_age_days", &days.to_string())
-        .await?;
-    Ok(())
-}
-
-/// Close trunk pins and clear trunk markers not refreshed within the TTL —
-/// they leave the *current* view; the closed rows stay as history (ADR-0005).
-#[instrument(skip_all)]
-pub async fn cleanup_stale_trunk_data(repo: &impl SpecRepository) -> Result<u64, AppError> {
-    let days = get_trunk_max_age_days(repo).await?;
-    if days == 0 {
-        return Ok(0);
-    }
-    let now = Utc::now();
-    let cutoff = (now - chrono::Duration::days(days as i64))
-        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    let now = now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    Ok(repo.close_expired_trunk_data(&cutoff, &now).await?)
 }
 
 pub async fn get_user_favorites(

@@ -570,19 +570,6 @@ pub struct DependencyReport {
     pub dependency_graph: Vec<DependencyInfo>,
     #[serde(default)]
     pub service_tags: HashMap<String, Vec<String>>,
-    /// The current trunk pin set (ADR-0004) — the main graph's edges.
-    /// Populated by the application layer; empty in raw repository results.
-    #[serde(default)]
-    pub trunk_graph: Vec<TrunkPinInfo>,
-    /// Trunk entries not refreshed since this instant are stale (half the
-    /// trunk TTL). `None` when the TTL is disabled. Application-populated.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trunk_stale_before: Option<String>,
-    /// The graph scope this report describes (`main`, `<branch>[@date]`);
-    /// `None` for the classic dev report. Stamped into exports so a scoped
-    /// document cannot masquerade as the whole picture.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope_label: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -605,52 +592,6 @@ pub struct MissingEndpointInfo {
     pub version: SemVer,
     pub path: String,
     pub method: String,
-}
-
-/// A sanshain-branch (ADR-0005): a named graph created by a releaser as a
-/// copy of a source graph at a chosen instant, updated by tagged builds.
-/// Identity is the id; the unique-among-live name is a rename-safe label.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct BranchInfo {
-    pub id: i64,
-    pub name: String,
-    pub created_at: String,
-    pub created_by: String,
-    /// Provenance: `trunk`, or the source branch's then-current name.
-    pub source: String,
-    /// The instant of the source graph the branch was born from.
-    pub as_of: String,
-}
-
-/// One reverse-lookup row (ADR-0005): a version of a producer that a
-/// sanshain-branch currently references (pin or member version, by value).
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct BranchMembership {
-    pub api_type: ApiType,
-    pub version: SemVer,
-    pub branch: String,
-}
-
-/// One current trunk pin (ADR-0004): the open record of the append-only trunk
-/// dependency store, joined to names. The version is by value — it may
-/// reference a deleted entry (dangling until re-provided).
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct TrunkPinInfo {
-    pub client: String,
-    pub service: String,
-    pub api_type: ApiType,
-    pub version: SemVer,
-    pub path: String,
-    pub method: String,
-    /// When this pin became the current one.
-    pub valid_from: String,
-    /// Refreshed by every identical trunk re-require.
-    pub last_required_at: String,
-    /// The pinned version no longer exists (deleted entry) — a visibly
-    /// dangling by-value reference that heals when the number is re-provided.
-    /// Computed on read; serialized only when true.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub dangling: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -783,9 +724,6 @@ pub struct AuditLogEntry {
     pub version: Option<String>,
     pub action_type: Option<String>,
     pub diff: Option<String>,
-    /// The declared stream (ADR-0005): `trunk`, a tag name, or `None`.
-    #[serde(default)]
-    pub stream: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -795,9 +733,6 @@ pub struct AuditLogFilter {
     pub action_type: Option<String>,
     pub service_wildcard: Option<String>,
     pub version_wildcard: Option<String>,
-    /// Exact stream match (ADR-0005): `trunk` or a tag name.
-    #[serde(default)]
-    pub stream: Option<String>,
     pub limit: u32,
 }
 

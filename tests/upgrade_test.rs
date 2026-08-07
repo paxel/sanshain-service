@@ -5,13 +5,7 @@ const MIGRATIONS_DIR: &str = "src/infrastructure/migrations/sqlite";
 const V2_MIGRATION: &str = "20260801000000_versions_replace_branches.sql";
 /// Migrations newer than the 2.0 rework — never part of the pre-2.0 schema
 /// this test reconstructs. Every new migration must be added here consciously.
-const POST_2_0_MIGRATIONS: &[&str] = &[
-    "20260807000000_trunk_provided_marker.sql",
-    "20260807000001_trunk_dependencies.sql",
-    "20260807000002_sanshain_branches.sql",
-    "20260807000003_branch_member_versions.sql",
-    "20260807000004_audit_stream.sql",
-];
+const POST_2_0_MIGRATIONS: &[&str] = &["20260807000000_trunk_provided_marker.sql"];
 
 /// Apply every SQLite migration file older than the 2.0 rework, in order —
 /// the full 1.x-era schema a live instance would be on before upgrading.

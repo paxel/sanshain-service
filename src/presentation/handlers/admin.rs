@@ -233,7 +233,6 @@ pub async fn admin_delete_producer(
                 version: None,
                 action_type: Some("WRITE"),
                 diff: None,
-                stream: None,
             },
         )
         .await?;
@@ -327,7 +326,6 @@ pub async fn admin_delete_version(
             version: Some(&version_str),
             action_type: Some("WRITE"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -352,7 +350,6 @@ pub async fn admin_delete_consumer(
                 version: None,
                 action_type: Some("WRITE"),
                 diff: None,
-                stream: None,
             },
         )
         .await?;
@@ -390,7 +387,6 @@ pub async fn set_auto_approve_users(
             version: None,
             action_type: Some("ADMIN"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -457,7 +453,6 @@ pub async fn set_auth_config(
             version: None,
             action_type: Some("ADMIN"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -501,7 +496,6 @@ pub async fn set_snapshot_max_age(
             version: None,
             action_type: Some("ADMIN"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -526,7 +520,6 @@ pub async fn trigger_snapshot_cleanup(
             version: None,
             action_type: Some("ADMIN"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -561,7 +554,6 @@ pub async fn set_dependency_max_age(
             version: None,
             action_type: Some("ADMIN"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -586,7 +578,6 @@ pub async fn trigger_dependency_cleanup(
             version: None,
             action_type: Some("ADMIN"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -641,7 +632,6 @@ pub async fn admin_approve_user(
                 version: None,
                 action_type: Some("ADMIN"),
                 diff: None,
-                stream: None,
             },
         )
         .await?;
@@ -677,7 +667,6 @@ pub async fn admin_delete_user_handler(
                 version: None,
                 action_type: Some("ADMIN"),
                 diff: None,
-                stream: None,
             },
         )
         .await?;
@@ -712,7 +701,6 @@ pub async fn admin_nuke_producers(
             version: None,
             action_type: Some("ADMIN"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -739,7 +727,6 @@ pub async fn admin_nuke_consumers(
             version: None,
             action_type: Some("ADMIN"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -766,7 +753,6 @@ pub async fn admin_nuke_users(
             version: None,
             action_type: Some("ADMIN"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -794,7 +780,6 @@ pub async fn admin_nuke_database(
             version: None,
             action_type: Some("ADMIN"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -865,7 +850,6 @@ pub async fn admin_update_producer_metadata(
             version: None,
             action_type: Some("WRITE"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -984,7 +968,6 @@ pub async fn set_debug_config(
             version: None,
             action_type: Some("ADMIN"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -1104,7 +1087,6 @@ pub async fn set_cache_config(
             version: None,
             action_type: Some("ADMIN"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -1127,7 +1109,6 @@ pub async fn clear_cache(
             version: None,
             action_type: Some("ADMIN"),
             diff: None,
-            stream: None,
         },
     )
     .await?;
@@ -1139,211 +1120,4 @@ pub async fn get_observability_audit_logs(
 ) -> Result<impl IntoResponse, AppError> {
     let logs: Vec<AuditLogEntry> = state.repo.get_recent_audit_logs(30).await?;
     Ok(Json(logs))
-}
-
-// ── Sanshain-branches (ADR-0005) ─────────────────────────────────────────
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CreateBranchRequest {
-    pub name: String,
-    /// An existing branch's name; trunk when omitted.
-    pub source: Option<String>,
-    /// RFC 3339 instant; now when omitted (retroactive creation).
-    pub as_of: Option<String>,
-}
-
-pub async fn admin_create_branch(
-    State(state): State<AppState>,
-    caller: Option<axum::Extension<crate::domain::permissions::Actor>>,
-    Json(payload): Json<CreateBranchRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    let created_by = caller
-        .as_ref()
-        .map(|axum::Extension(a)| a.username.clone())
-        .unwrap_or_default();
-    let branch = services::create_branch(
-        &state.repo,
-        services::CreateBranchParams {
-            name: &payload.name,
-            source: payload.source.as_deref(),
-            as_of: payload.as_of.as_deref(),
-            created_by: &created_by,
-        },
-    )
-    .await?;
-    Ok((StatusCode::CREATED, Json(branch)))
-}
-
-pub async fn admin_list_branches(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
-    Ok(Json(services::list_branches(&state.repo).await?))
-}
-
-#[derive(Deserialize)]
-pub struct BranchGraphQuery {
-    /// Render the branch's graph as it was at this RFC 3339 instant.
-    pub at: Option<String>,
-}
-
-pub async fn admin_branch_graph(
-    State(state): State<AppState>,
-    Path(name): Path<String>,
-    Query(query): Query<BranchGraphQuery>,
-) -> Result<impl IntoResponse, AppError> {
-    let pins = services::get_branch_graph(&state.repo, &name, query.at.as_deref()).await?;
-    Ok(Json(pins))
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RenameBranchRequest {
-    pub new_name: String,
-}
-
-pub async fn admin_rename_branch(
-    State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    Path(name): Path<String>,
-    Json(payload): Json<RenameBranchRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    let actor = user
-        .map(|axum::Extension(u)| u.username)
-        .unwrap_or_default();
-    let branch = services::rename_branch(&state.repo, &name, &payload.new_name, &actor).await?;
-    Ok(Json(branch))
-}
-
-pub async fn admin_delete_branch(
-    State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    Path(name): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
-    let actor = user
-        .map(|axum::Extension(u)| u.username)
-        .unwrap_or_default();
-    services::delete_branch(&state.repo, &name, &actor).await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
-pub async fn get_trunk_max_age(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
-    let res = services::get_trunk_max_age_days(&state.repo).await?;
-    Ok(Json(json!({ "days": res })))
-}
-
-pub async fn set_trunk_max_age(
-    State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    Json(payload): Json<MaxAgeDaysPayload>,
-) -> Result<impl IntoResponse, AppError> {
-    services::set_trunk_max_age_days(&state.repo, payload.days).await?;
-    record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "SETTINGS_CHANGED",
-            details: &format!("Set trunk max age to {} days", payload.days),
-            service: None,
-            version: None,
-            action_type: Some("WRITE"),
-            diff: None,
-            stream: None,
-        },
-    )
-    .await?;
-    Ok(Json(json!({ "days": payload.days })))
-}
-
-pub async fn trigger_trunk_cleanup(
-    State(state): State<AppState>,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-) -> Result<impl IntoResponse, AppError> {
-    let closed = services::cleanup_stale_trunk_data(&state.repo).await?;
-    record_audit_log(
-        &state.repo,
-        user,
-        NewAuditLog {
-            action: "TRUNK_CLEANUP",
-            details: &format!("Triggered trunk cleanup, closed {closed} stale trunk pins"),
-            service: None,
-            version: None,
-            action_type: Some("WRITE"),
-            diff: None,
-            stream: None,
-        },
-    )
-    .await?;
-    Ok(Json(json!({ "closed": closed })))
-}
-
-/// The main graph — current, or as it was at `at` (the timeline, ADR-0005).
-pub async fn admin_trunk_graph(
-    State(state): State<AppState>,
-    Query(query): Query<BranchGraphQuery>,
-) -> Result<impl IntoResponse, AppError> {
-    let pins = match query.at.as_deref() {
-        Some(at) => state.repo.list_trunk_pins_at(at).await?,
-        None => state.repo.list_current_trunk_pins().await?,
-    };
-    Ok(Json(pins))
-}
-
-/// The instants the main graph changed — the timeline slider's markers.
-pub async fn admin_trunk_timeline(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
-    Ok(Json(state.repo.list_graph_change_dates(None).await?))
-}
-
-/// The instants a branch's graph changed.
-pub async fn admin_branch_timeline(
-    State(state): State<AppState>,
-    Path(name): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
-    let branch = state
-        .repo
-        .find_branch(&name)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("no sanshain-branch '{name}'")))?;
-    Ok(Json(
-        state.repo.list_graph_change_dates(Some(branch.id)).await?,
-    ))
-}
-
-/// Reverse lookup (ADR-0005): which sanshain-branches reference each of this
-/// producer's versions — the "which releases pin b@1.0.0?" answer.
-pub async fn admin_producer_branch_memberships(
-    State(state): State<AppState>,
-    Path(name): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
-    let service_id = state
-        .repo
-        .find_service(&name)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Producer '{name}' not found")))?;
-    Ok(Json(
-        state
-            .repo
-            .list_branch_memberships_for_service(service_id)
-            .await?,
-    ))
-}
-
-#[derive(Deserialize)]
-pub struct GraphDiffQuery {
-    /// `main[@instant]` or `<branch>[@instant]`.
-    pub left: String,
-    pub right: String,
-}
-
-pub async fn admin_graph_diff(
-    State(state): State<AppState>,
-    Query(query): Query<GraphDiffQuery>,
-) -> Result<impl IntoResponse, AppError> {
-    Ok(Json(
-        services::diff_graphs(&state.repo, &query.left, &query.right).await?,
-    ))
 }

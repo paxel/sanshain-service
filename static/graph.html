@@ -112,15 +112,6 @@
             </div>
 
             <div class="flex items-center gap-2 ml-auto">
-                <!-- Stream view (ADR-0004): Dev = latest recorded activity;
-                     Main = the trunk pin set, producers at trunk version. -->
-                <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
-                    <button id="stream-dev" class="px-3 py-1.5 bg-indigo-600 text-white font-medium" onclick="setStreamView('dev')" title="Latest recorded activity, snapshots included">Dev</button>
-                    <button id="stream-main" class="px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium" onclick="setStreamView('main')" title="The trunk stream: current trunk pins, producers at their trunk version">Main</button>
-                </div>
-                <select id="graph-branch-select" class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white shadow-sm text-slate-600" title="Show a sanshain-branch's graph" onchange="selectBranchView(this.value)">
-                    <option value="">Branch…</option>
-                </select>
                 <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
                     <button id="graph-redraw-all" class="px-3 py-1.5 bg-indigo-600 text-white font-medium" onclick="setGraphRedrawMode('all')">All</button>
                     <button id="graph-redraw-circular" class="px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium" onclick="setGraphRedrawMode('circular')">Circular</button>
@@ -166,30 +157,6 @@
             </div>
         </div>
 
-        <!-- Compare (ADR-0005): a structured diff between any two graph
-             selections — release vs release, release vs main, any at a date. -->
-        <div class="flex flex-wrap items-center gap-2 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200">
-            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Compare</span>
-            <select id="diff-left" class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white"></select>
-            <input type="datetime-local" id="diff-left-at" class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white" title="Optional: left side at this instant">
-            <span class="text-slate-500 text-xs">→</span>
-            <select id="diff-right" class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white"></select>
-            <input type="datetime-local" id="diff-right-at" class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white" title="Optional: right side at this instant">
-            <button onclick="runGraphDiff()" class="px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Diff</button>
-            <button onclick="document.getElementById('graph-diff-output').innerHTML=''" class="px-2.5 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600">Clear</button>
-        </div>
-        <div id="graph-diff-output" class="mb-4 empty:mb-0"></div>
-
-        <!-- Timeline (ADR-0005): reconstruct the main or a branch graph at any
-             past instant; markers are the change dates of the append-only store. -->
-        <div id="graph-timeline-row" class="hidden flex flex-wrap items-center gap-3 mb-4 p-3 bg-amber-50/50 rounded-xl border border-amber-200">
-            <span class="text-[10px] font-bold text-amber-700 uppercase tracking-widest">Timeline</span>
-            <input type="range" id="graph-timeline-slider" min="0" max="0" value="0" step="1" class="flex-grow accent-amber-600">
-            <span id="graph-timeline-label" class="text-xs font-mono text-slate-600 min-w-[10rem] text-right">now</span>
-            <button id="graph-timeline-now" class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600" onclick="setTimelinePosition(null)">Now</button>
-            <button id="graph-create-branch-here" class="hidden px-2.5 py-1 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700" onclick="createBranchHere()">Create branch here</button>
-        </div>
-
         <div id="graph-cycle-warning" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center">
             <svg class="w-5 h-5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
@@ -222,21 +189,9 @@
                         <span class="w-6 h-0.5 rounded shadow-sm" style="background:#a855f7"></span>
                         <span>Circular dep.</span>
                     </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:missing" data-stream-only="dev">
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:missing">
                         <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f97316;border-top:2px dashed #f97316"></span>
                         <span>Missing dep.</span>
-                    </div>
-                    <div class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:conflict" data-stream-only="main">
-                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#dc2626"></span>
-                        <span>Major conflict</span>
-                    </div>
-                    <div class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:stale" data-stream-only="main">
-                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f59e0b;border-top:2px dashed #f59e0b"></span>
-                        <span>Stale (forgotten)</span>
-                    </div>
-                    <div class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:dangling" data-stream-only="branch">
-                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#ea580c;border-top:2px dotted #ea580c"></span>
-                        <span>Dangling version</span>
                     </div>
                     <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:outdated">
                         <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f43f5e"></span>
@@ -254,7 +209,7 @@
                         <span class="w-6" style="border-top:2px dashed #3b82f6"></span>
                         <span>Msg. register</span>
                     </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:missing" data-stream-only="dev">
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:missing">
                         <span class="w-4 text-center font-bold text-orange-600">!</span>
                         <span>Missing svc.</span>
                     </div>
@@ -369,51 +324,6 @@
                 report.services_detailed = servicesDetailed;
             } catch (e) {
                 console.warn('Could not load service details:', e);
-            }
-
-            // The caller's permissions gate the create-branch-here affordance
-            // (a usability affordance; the server's releaser gate decides).
-            try {
-                const me = await apiCall('/auth/me');
-                if (me.ok) {
-                    const data = await me.json();
-                    window.graphUserPermissions = data.permissions || [];
-                }
-            } catch (e) {
-                console.warn('Could not load permissions:', e);
-            }
-
-            // Branch selector (ADR-0005): every sanshain-branch is a view.
-            try {
-                const branches = await fetchJSON('/admin/branches');
-                const sel = document.getElementById('graph-branch-select');
-                if (sel) {
-                    const current = sel.value;
-                    sel.innerHTML = '<option value="">Branch…</option>';
-                    for (const b of branches) {
-                        const opt = document.createElement('option');
-                        opt.value = b.name;
-                        opt.textContent = b.name;
-                        sel.appendChild(opt);
-                    }
-                    sel.value = current;
-                }
-                // The compare panel offers the same selections on both sides.
-                for (const id of ['diff-left', 'diff-right']) {
-                    const dsel = document.getElementById(id);
-                    if (!dsel) continue;
-                    const current = dsel.value;
-                    dsel.innerHTML = '<option value="main">main</option>';
-                    for (const b of branches) {
-                        const opt = document.createElement('option');
-                        opt.value = b.name;
-                        opt.textContent = b.name;
-                        dsel.appendChild(opt);
-                    }
-                    if (current) dsel.value = current;
-                }
-            } catch (e) {
-                console.warn('Could not load branches:', e);
             }
 
             lastGraphReport = report;
@@ -634,66 +544,18 @@
         });
     };
 
-    // Exports carry their scope (ADR-0005): view, branch and instant — a
-    // screenshot of a release graph must not masquerade as current truth.
-    function graphScopeStamp() {
-        const view = window.graphStreamView || 'dev';
-        let stamp = view === 'branch' ? `branch ${window.graphBranchName}` : view;
-        if (window.graphTimelineAt) stamp += ` @ ${window.graphTimelineAt}`;
-        return stamp;
-    }
-
-    function graphScopeSlug() {
-        return graphScopeStamp().replace(/[^a-zA-Z0-9.@-]+/g, '_');
-    }
-
-    // Compare two graph selections (ADR-0005) and render the structured diff.
-    async function runGraphDiff() {
-        const sel = (idSel, idAt) => {
-            let v = document.getElementById(idSel).value;
-            const at = document.getElementById(idAt).value;
-            if (at) v += `@${new Date(at).toISOString()}`;
-            return v;
-        };
-        const left = sel('diff-left', 'diff-left-at');
-        const right = sel('diff-right', 'diff-right-at');
-        const out = document.getElementById('graph-diff-output');
-        out.innerHTML = '<div class="text-sm text-slate-500 italic">Comparing…</div>';
-        const res = await apiCall(`/admin/graph/diff?left=${encodeURIComponent(left)}&right=${encodeURIComponent(right)}`);
-        if (!res.ok) {
-            out.innerHTML = `<div class="text-sm text-red-500">Diff failed: ${escapeHtml(await errorMessage(res))}</div>`;
-            return;
-        }
-        const diff = await res.json();
-        const rows = [];
-        for (const s of diff.services_added) rows.push(`<div class="text-green-700">+ service ${escapeHtml(s)}</div>`);
-        for (const s of diff.services_removed) rows.push(`<div class="text-red-700">− service ${escapeHtml(s)}</div>`);
-        for (const p of diff.pins_added) rows.push(`<div class="text-green-700">+ ${escapeHtml(p.client)} → ${escapeHtml(p.service)} ${escapeHtml(p.method)} ${escapeHtml(p.path)} @ ${escapeHtml(p.version)}</div>`);
-        for (const p of diff.pins_removed) rows.push(`<div class="text-red-700">− ${escapeHtml(p.client)} → ${escapeHtml(p.service)} ${escapeHtml(p.method)} ${escapeHtml(p.path)} @ ${escapeHtml(p.version)}</div>`);
-        for (const p of diff.pins_changed) rows.push(`<div class="text-amber-700">~ ${escapeHtml(p.client)} → ${escapeHtml(p.service)} ${escapeHtml(p.method)} ${escapeHtml(p.path)}: ${escapeHtml(p.from)} → ${escapeHtml(p.to)}</div>`);
-        out.innerHTML = `
-            <div class="bg-white border border-slate-200 rounded-xl p-4 text-sm font-mono">
-                <div class="text-xs text-slate-500 mb-2 font-sans">${escapeHtml(diff.left)} → ${escapeHtml(diff.right)}</div>
-                ${rows.length ? rows.join('') : '<div class="text-slate-500 italic font-sans">No differences.</div>'}
-            </div>`;
-    }
-    window.runGraphDiff = runGraphDiff;
-
     document.getElementById('graph-download').onclick = () => {
         let content, filename, mime;
         if (currentGraphMode === 'custom') {
             const svg = document.getElementById('custom-graph');
             if (!svg.firstChild) return;
             content = getCustomGraphSVG(svg);
-            // Stamp the scope into the document itself, not only the name.
-            content = content.replace('</svg>',
-                `<text x="8" y="16" font-size="12" fill="#64748b" font-family="ui-monospace, monospace">Sanshain — ${graphScopeStamp()}</text></svg>`);
-            filename = `dependency_graph_${graphScopeSlug()}.svg`;
+            filename = 'dependency_graph.svg';
             mime = 'image/svg+xml';
         } else {
             if (!lastMermaidCode) return;
             content = lastMermaidCode;
-            filename = `dependency_graph_${graphScopeSlug()}.mmd`;
+            filename = 'dependency_graph.mmd';
             mime = 'text/plain';
         }
         const blob = new Blob([content], { type: mime });
@@ -742,7 +604,7 @@
                 edges.forEach((els, key) => {
                     const match = type === 'edge-type'
                         ? els.path.dataset.edgeType === value
-                        : els.path.dataset[value] === '1';
+                        : els.path.dataset[value === 'outdated' ? 'outdated' : 'snapshot'] === '1';
                     els.path.style.opacity = match ? '1' : '0.08';
                     els.path.style.transition = 'opacity 0.2s';
                     if (match) {
