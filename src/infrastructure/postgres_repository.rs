@@ -604,10 +604,36 @@ impl SpecRepository for PostgresSpecRepository {
                         method,
                         valid_from,
                         last_required_at,
+                        dangling: false,
                     })
                 },
             )
             .collect()
+    }
+
+    async fn list_branches_referencing(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT b.name FROM sanshain_branches b \
+             WHERE EXISTS (SELECT 1 FROM branch_dependencies d WHERE d.branch_id = b.id AND d.valid_to IS NULL \
+                           AND d.service_id = $1 AND d.api_type = $2 AND d.major = $3 AND d.minor = $4 AND d.patch = $5) \
+                OR EXISTS (SELECT 1 FROM branch_member_versions m WHERE m.branch_id = b.id AND m.valid_to IS NULL \
+                           AND m.service_id = $1 AND m.api_type = $2 AND m.major = $3 AND m.minor = $4 AND m.patch = $5) \
+             ORDER BY b.name",
+        )
+        .bind(service_id)
+        .bind(api_type.as_str())
+        .bind(version.major as i32)
+        .bind(version.minor as i32)
+        .bind(version.patch as i32)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|(n,)| n).collect())
     }
 
     async fn close_expired_trunk_data(
@@ -888,6 +914,7 @@ impl SpecRepository for PostgresSpecRepository {
                         method,
                         valid_from,
                         last_required_at,
+                        dangling: false,
                     })
                 },
             )

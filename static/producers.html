@@ -464,7 +464,7 @@
         }
         const base = `Delete ${escapeHtml(apiType)} version <strong>${escapeHtml(version)}</strong> of <strong>${escapeHtml(serviceName)}</strong>?`;
         const warning = dependents.length > 0
-            ? `<br><br><span class="text-red-600 font-semibold">Consumers pinned to this version will fail (404):</span><br>${dependents.map(d => escapeHtml(d)).join(', ')}`
+            ? `<br><br><span class="text-red-600 font-semibold">Pinned Consumers (their requires fail with 404) and referencing sanshain-branches (left dangling):</span><br>${dependents.map(d => escapeHtml(d)).join(', ')}`
             : '<br><br>No Consumers are pinned to this version.';
         confirmDelete(base + warning, async () => {
             try {

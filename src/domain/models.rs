@@ -632,6 +632,11 @@ pub struct TrunkPinInfo {
     pub valid_from: String,
     /// Refreshed by every identical trunk re-require.
     pub last_required_at: String,
+    /// The pinned version no longer exists (deleted entry) — a visibly
+    /// dangling by-value reference that heals when the number is re-provided.
+    /// Computed on read; serialized only when true.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dangling: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]

@@ -406,6 +406,31 @@ test.describe('Main graph view (ADR-0004)', () => {
     await expect(page.locator('[data-legend-highlight="edge-flag:conflict"]')).toBeHidden();
     await expect(page.locator('[data-legend-highlight="edge-type:missing"]')).toBeVisible();
   });
+
+  test('a sanshain-branch can be selected as a graph view', async ({ page, request }) => {
+    // Cut a branch off the current trunk graph, then draw it.
+    const login = await request.post('/auth/login', {
+      data: { username: 'root', password: adminPassword },
+    });
+    const { token } = await login.json();
+    await request.post('/admin/branches', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Smoke Graph Branch' },
+    });
+
+    await page.goto('/account.html');
+    await page.waitForSelector('#login-username', { state: 'visible' });
+    await page.fill('input[id="login-username"]', 'root');
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator('#account-dashboard')).toBeVisible({ timeout: 10000 });
+
+    await page.goto('/graph.html');
+    await expect(page.locator('#custom-graph')).toBeVisible({ timeout: 10000 });
+    await page.selectOption('#graph-branch-select', 'Smoke Graph Branch');
+    await expect(page.locator('#custom-graph')).toContainText(SERVICE, { timeout: 10000 });
+    await expect(page.locator('[data-legend-highlight="edge-flag:dangling"]')).toBeVisible();
+  });
 });
 
 test.describe('Sanshain-branches admin (ADR-0005)', () => {

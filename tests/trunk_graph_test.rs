@@ -946,3 +946,72 @@ async fn report_scope_selects_the_graph() {
     let (_, _, md) = send(&ctx, "GET", "/report/markdown?scope=main", None).await;
     assert!(md.contains("1.1.0") && !md.contains("1.0.0"), "got: {md}");
 }
+
+// ---------------------------------------------------------------------------
+// #37 — dangling branch references and delete-version warnings
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn delete_version_warning_names_referencing_branches() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    require_with(&ctx, "webapp", "svc", "1.0.0", "/users", "GET", true).await;
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "Maribou"})),
+    )
+    .await;
+
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/admin/producers/svc/versions/openapi/1.0.0/dependents",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let dependents = as_json(&body);
+    let names: Vec<&str> = dependents
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d.as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"webapp"), "got: {names:?}");
+    assert!(
+        names.iter().any(|n| n.contains("Maribou")),
+        "branch reference must be named: {names:?}"
+    );
+}
+
+#[tokio::test]
+async fn dangling_branch_reference_is_marked_and_heals_on_reprovide() {
+    let ctx = setup().await;
+    let doc = spec("1.0.0");
+    provide_with(&ctx, "svc", "snapshot", &doc, &[]).await;
+    require_with(&ctx, "webapp", "svc", "1.0.0", "/users", "GET", true).await;
+    send(&ctx, "POST", "/admin/branches", Some(json!({"name": "R"}))).await;
+
+    let graph = branch_graph(&ctx, "R").await;
+    assert_eq!(graph[0]["dangling"], Value::Null, "got: {}", graph[0]);
+
+    // Delete the version: the branch keeps the reference, visibly dangling.
+    let (status, _, _) = send(
+        &ctx,
+        "DELETE",
+        "/admin/producers/svc/versions/openapi/1.0.0",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let graph = branch_graph(&ctx, "R").await;
+    assert_eq!(graph.len(), 1, "reference survives: {graph:?}");
+    assert_eq!(graph[0]["dangling"], true, "got: {}", graph[0]);
+
+    // Re-providing the number heals the reference automatically.
+    provide_with(&ctx, "svc", "snapshot", &doc, &[]).await;
+    let graph = branch_graph(&ctx, "R").await;
+    assert_eq!(graph[0]["dangling"], Value::Null, "got: {}", graph[0]);
+}

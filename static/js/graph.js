@@ -23,9 +23,12 @@ window.graphHighlightFilters = {
   outdated: false,
   snapshot: false,
 };
-// Which stream the graph shows (ADR-0004): 'dev' is the classic latest-activity
-// view; 'main' draws the trunk pin set and producers at their trunk version.
+// Which stream the graph shows (ADR-0004/0005): 'dev' is the classic
+// latest-activity view; 'main' draws the trunk pin set; 'branch' draws one
+// sanshain-branch's graph (window.graphBranchName / window.graphBranchPins).
 window.graphStreamView = "dev";
+window.graphBranchName = null;
+window.graphBranchPins = [];
 
 // Per (service, api_type): the newest trunk-marked version of the line —
 // what the main view labels producers with and checks conflicts against.
@@ -90,6 +93,9 @@ function graphEdgeFlags(report, latestGaMap, trunkVersionMap) {
     // Main view: a pin not refreshed since half the trunk TTL is a
     // forgotten thing — shown as such before the cleanup culls it.
     if (staleBefore && d.last_required_at && d.last_required_at < staleBefore) f.stale = true;
+    // Branch view: the pinned version no longer exists (deleted) — dangling
+    // until the number is re-provided.
+    if (d.dangling) f.dangling = true;
     if (d.stability === "snapshot") f.snapshot = true;
     const typeKey = `${d.service}|${(d.api_type || "openapi").toLowerCase()}`;
     const latestGa = latestGaMap.get(typeKey);
@@ -215,6 +221,25 @@ function getFilteredReport(report) {
   let deps = [...(report.dependency_graph || [])];
   let missing = report.missing_endpoints;
 
+  // Branch view (ADR-0005): the edges are the branch's pin set, dangling
+  // references included; overlays are dev-view data.
+  if (window.graphStreamView === "branch") {
+    deps = (window.graphBranchPins || []).map((t) => ({
+      api_type: t.api_type,
+      client: t.client,
+      service: t.service,
+      version: t.version,
+      stability: "ga",
+      path: t.path,
+      method: t.method,
+      deprecated: false,
+      last_required_at: t.last_required_at,
+      dangling: !!t.dangling,
+    }));
+    missing = [];
+    return { ...report, dependency_graph: deps, missing_endpoints: missing };
+  }
+
   // Main view (ADR-0004): the edges are the current trunk pin set, not the
   // accumulated dev activity; the missing-endpoints overlay is dev-view data.
   if (window.graphStreamView === "main") {
@@ -316,6 +341,11 @@ window.setGraphRedrawMode = setGraphRedrawMode;
 // view-aware: entries carrying data-stream-only show only in their view.
 function setStreamView(view) {
   window.graphStreamView = view;
+  if (view !== "branch") {
+    window.graphBranchName = null;
+    const sel = document.getElementById("graph-branch-select");
+    if (sel) sel.value = "";
+  }
   ["dev", "main"].forEach((v) => {
     const btn = document.getElementById(`stream-${v}`);
     if (btn) {
@@ -331,6 +361,28 @@ function setStreamView(view) {
   redrawGraph();
 }
 window.setStreamView = setStreamView;
+
+// Enter the branch view (ADR-0005): fetch the branch's pin set — dangling
+// references included — and draw it with the shared pipeline.
+async function selectBranchView(name) {
+  if (!name) {
+    setStreamView("dev");
+    return;
+  }
+  try {
+    const res = await apiCall(`/admin/branches/${encodeURIComponent(name)}/graph`);
+    if (!res.ok) {
+      console.warn(`Could not load branch '${name}' (HTTP ${res.status})`);
+      return;
+    }
+    window.graphBranchPins = await res.json();
+    window.graphBranchName = name;
+    setStreamView("branch");
+  } catch (e) {
+    console.warn("Could not load the branch graph:", e);
+  }
+}
+window.selectBranchView = selectBranchView;
 
 function addFocusTag(name) {
   if (!name || !name.trim()) return;
@@ -1053,6 +1105,12 @@ function renderCustomGraph(report, svgElement, direction) {
       path.setAttribute("stroke", "#f59e0b");
       path.setAttribute("stroke-dasharray", "3 4");
       path.dataset.baseStroke = "#f59e0b";
+    }
+    path.dataset.dangling = hFlags && hFlags.dangling ? "1" : "0";
+    if (hFlags && hFlags.dangling) {
+      path.setAttribute("stroke", "#ea580c");
+      path.setAttribute("stroke-dasharray", "2 5");
+      path.dataset.baseStroke = "#ea580c";
     }
     path.dataset.baseStroke = edgeColor;
     path.dataset.baseWidth = edgeWidth;

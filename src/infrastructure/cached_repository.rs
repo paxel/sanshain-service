@@ -639,6 +639,17 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
+    async fn list_branches_referencing(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+    ) -> Result<Vec<String>, RepositoryError> {
+        self.inner
+            .list_branches_referencing(service_id, api_type, version)
+            .await
+    }
+
     async fn close_expired_trunk_data(
         &self,
         cutoff_iso: &str,

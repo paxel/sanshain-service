@@ -188,7 +188,9 @@ pub async fn delete_branch(
     Ok(())
 }
 
-/// A branch's pin set — current, or as it was at `at`.
+/// A branch's pin set — current, or as it was at `at`. Every pin is checked
+/// against the version store: a deleted version renders as a dangling
+/// reference (never silently dropped) and heals when re-provided.
 pub async fn get_branch_graph(
     repo: &impl SpecRepository,
     name: &str,
@@ -198,5 +200,15 @@ pub async fn get_branch_graph(
         .find_branch(name)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("no sanshain-branch '{name}'")))?;
-    Ok(repo.list_branch_pins(branch.id, at).await?)
+    let mut pins = repo.list_branch_pins(branch.id, at).await?;
+    for pin in &mut pins {
+        pin.dangling = match repo.find_service(&pin.service).await? {
+            Some(sid) => repo
+                .find_spec_version(sid, pin.api_type, pin.version)
+                .await?
+                .is_none(),
+            None => true,
+        };
+    }
+    Ok(pins)
 }

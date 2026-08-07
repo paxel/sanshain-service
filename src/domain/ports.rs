@@ -249,6 +249,16 @@ pub trait SpecRepository: Send + Sync {
         at: Option<&str>,
     ) -> impl Future<Output = Result<Vec<TrunkPinInfo>, RepositoryError>> + Send;
 
+    /// Names of branches whose graph or member versions reference this
+    /// (service, api_type, version) by value in an open record — surfaced in
+    /// the delete-version warning (ADR-0005).
+    fn list_branches_referencing(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
     /// Trunk TTL cleanup (ADR-0004/0005): close open trunk pins not
     /// re-required since the cutoff and clear stale trunk version markers.
     /// Rows are closed, never deleted — history is the timeline. Returns how

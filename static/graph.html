@@ -118,6 +118,9 @@
                     <button id="stream-dev" class="px-3 py-1.5 bg-indigo-600 text-white font-medium" onclick="setStreamView('dev')" title="Latest recorded activity, snapshots included">Dev</button>
                     <button id="stream-main" class="px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium" onclick="setStreamView('main')" title="The trunk stream: current trunk pins, producers at their trunk version">Main</button>
                 </div>
+                <select id="graph-branch-select" class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white shadow-sm text-slate-600" title="Show a sanshain-branch's graph" onchange="selectBranchView(this.value)">
+                    <option value="">Branch…</option>
+                </select>
                 <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
                     <button id="graph-redraw-all" class="px-3 py-1.5 bg-indigo-600 text-white font-medium" onclick="setGraphRedrawMode('all')">All</button>
                     <button id="graph-redraw-circular" class="px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium" onclick="setGraphRedrawMode('circular')">Circular</button>
@@ -206,6 +209,10 @@
                     <div class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:stale" data-stream-only="main">
                         <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f59e0b;border-top:2px dashed #f59e0b"></span>
                         <span>Stale (forgotten)</span>
+                    </div>
+                    <div class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:dangling" data-stream-only="branch">
+                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#ea580c;border-top:2px dotted #ea580c"></span>
+                        <span>Dangling version</span>
                     </div>
                     <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:outdated">
                         <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f43f5e"></span>
@@ -338,6 +345,25 @@
                 report.services_detailed = servicesDetailed;
             } catch (e) {
                 console.warn('Could not load service details:', e);
+            }
+
+            // Branch selector (ADR-0005): every sanshain-branch is a view.
+            try {
+                const branches = await fetchJSON('/admin/branches');
+                const sel = document.getElementById('graph-branch-select');
+                if (sel) {
+                    const current = sel.value;
+                    sel.innerHTML = '<option value="">Branch…</option>';
+                    for (const b of branches) {
+                        const opt = document.createElement('option');
+                        opt.value = b.name;
+                        opt.textContent = b.name;
+                        sel.appendChild(opt);
+                    }
+                    sel.value = current;
+                }
+            } catch (e) {
+                console.warn('Could not load branches:', e);
             }
 
             lastGraphReport = report;

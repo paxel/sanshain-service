@@ -76,7 +76,17 @@ pub async fn list_version_dependents(
     version: SemVer,
 ) -> Result<Vec<String>, AppError> {
     let entry = find_version_entry(repo, producer, api_type, version).await?;
-    Ok(repo.list_version_dependents(entry.id).await?)
+    let mut dependents = repo.list_version_dependents(entry.id).await?;
+    // ADR-0005: release graphs referencing the version are part of the
+    // informed-delete picture — a warning, never a block. Deleting anyway
+    // leaves them visibly dangling; a later re-provide heals them.
+    for branch in repo
+        .list_branches_referencing(entry.service_id, api_type, version)
+        .await?
+    {
+        dependents.push(format!("sanshain-branch '{branch}'"));
+    }
+    Ok(dependents)
 }
 
 /// The sole escape hatch from GA immutability (ADR-0003): delete the version
@@ -89,7 +99,13 @@ pub async fn delete_version(
     version: SemVer,
 ) -> Result<Vec<String>, AppError> {
     let entry = find_version_entry(repo, producer, api_type, version).await?;
-    let dependents = repo.list_version_dependents(entry.id).await?;
+    let mut dependents = repo.list_version_dependents(entry.id).await?;
+    for branch in repo
+        .list_branches_referencing(entry.service_id, api_type, version)
+        .await?
+    {
+        dependents.push(format!("sanshain-branch '{branch}'"));
+    }
     repo.delete_spec_version(entry.id).await?;
     Ok(dependents)
 }

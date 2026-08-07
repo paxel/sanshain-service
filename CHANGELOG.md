@@ -44,6 +44,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Reports take a graph scope: `?scope=dev` (default, unchanged), `main` (trunk pins), or
   `<branch>[@instant]` — so a release-scoped architecture or isolation report describes what
   production actually is. The reports page gained the matching selector.
+- The graph page draws sanshain-branches: pick one from the new branch selector. A pin whose
+  version was deleted renders as a dangling reference (dotted orange, own legend entry) and heals
+  automatically when the number is re-provided; the delete-version confirmation now also names
+  referencing sanshain-branches alongside pinned Consumers.
 
 ### Changed
 - UI messages and docs no longer explain resolution by contrast with removed 1.x mechanics

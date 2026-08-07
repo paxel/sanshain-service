@@ -499,8 +499,47 @@ impl SpecRepository for MockRepo {
                 method: r.method.clone(),
                 valid_from: r.valid_from.clone(),
                 last_required_at: r.last_required_at.clone(),
+                dangling: false,
             })
             .collect())
+    }
+
+    async fn list_branches_referencing(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
+        let pins = self
+            .branch_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let members = self
+            .branch_member_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut names: Vec<String> = branches
+            .iter()
+            .filter(|b| {
+                pins.iter().any(|(bid, r)| {
+                    *bid == b.id
+                        && r.valid_to.is_none()
+                        && r.service_id == service_id
+                        && r.api_type == api_type
+                        && r.version == version
+                }) || members.iter().any(|m| {
+                    m.0 == b.id
+                        && m.5.is_none()
+                        && m.1 == service_id
+                        && m.2 == api_type
+                        && m.3 == version
+                })
+            })
+            .map(|b| b.name.clone())
+            .collect();
+        names.sort();
+        Ok(names)
     }
 
     async fn close_expired_trunk_data(
@@ -711,6 +750,7 @@ impl SpecRepository for MockRepo {
                 method: r.method.clone(),
                 valid_from: r.valid_from.clone(),
                 last_required_at: r.last_required_at.clone(),
+                dangling: false,
             })
             .collect())
     }

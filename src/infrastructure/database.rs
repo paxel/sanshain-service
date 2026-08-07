@@ -102,6 +102,18 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, touch_spec_version_trunk(spec_version_id, now_iso))
     }
 
+    async fn list_branches_referencing(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+    ) -> Result<Vec<String>, RepositoryError> {
+        delegate!(
+            self,
+            list_branches_referencing(service_id, api_type, version)
+        )
+    }
+
     async fn close_expired_trunk_data(
         &self,
         cutoff_iso: &str,
