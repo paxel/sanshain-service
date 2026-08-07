@@ -1111,3 +1111,53 @@ async fn trunk_graph_is_reconstructable_at_a_date_with_change_markers() {
     assert_eq!(status, StatusCode::OK, "got: {body}");
     assert!(!as_json(&body).as_array().unwrap().is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// #42 — reverse lookup and scoped-export stamping
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn producer_branch_memberships_answer_the_reverse_lookup() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    require_with(&ctx, "webapp", "svc", "1.0.0", "/users", "GET", true).await;
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "Maribou"})),
+    )
+    .await;
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "Nightjar"})),
+    )
+    .await;
+
+    let (status, _, body) =
+        send(&ctx, "GET", "/admin/producers/svc/branch-memberships", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let memberships = as_json(&body);
+    let rows = memberships.as_array().unwrap();
+    assert_eq!(rows.len(), 2, "got: {rows:?}");
+    let branches: Vec<&str> = rows.iter().map(|m| m["branch"].as_str().unwrap()).collect();
+    assert!(branches.contains(&"Maribou") && branches.contains(&"Nightjar"));
+    assert_eq!(rows[0]["version"], "1.0.0");
+}
+
+#[tokio::test]
+async fn scoped_markdown_report_names_its_scope() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    require_with(&ctx, "webapp", "svc", "1.0.0", "/users", "GET", true).await;
+
+    let (_, _, md) = send(&ctx, "GET", "/report/markdown?scope=main", None).await;
+    assert!(md.contains("Scope: main"), "got: {md}");
+    let (_, _, md) = send(&ctx, "GET", "/report/markdown", None).await;
+    assert!(
+        !md.contains("Scope:"),
+        "unscoped report stays unchanged: {md}"
+    );
+}

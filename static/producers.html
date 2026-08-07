@@ -112,6 +112,8 @@
     // The signed-in caller, for gating affordances (the Promote button).
     // Hiding is a usability affordance; the server's GA gate is the boundary.
     let currentUser = null;
+    // version-key -> sanshain-branch names referencing it (reverse lookup).
+    let branchMembershipMap = new Map();
 
     async function loadServices() {
         showLoader();
@@ -257,6 +259,18 @@
             list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(err.message)}</div>`;
             return;
         }
+
+        // Reverse lookup (ADR-0005): which sanshain-branches reference each
+        // version. Optional decoration — the listing renders without it.
+        branchMembershipMap = new Map();
+        try {
+            const memberships = await fetchJSON(`/admin/producers/${encodeURIComponent(serviceName)}/branch-memberships`);
+            for (const m of memberships) {
+                const key = `${(m.api_type || 'openapi').toLowerCase()}|${m.version}`;
+                if (!branchMembershipMap.has(key)) branchMembershipMap.set(key, []);
+                branchMembershipMap.get(key).push(m.branch);
+            }
+        } catch (_) { /* chips are optional */ }
         list.innerHTML = '';
 
         if (!versions || versions.length === 0) {
@@ -375,6 +389,7 @@
                             <h3 class="font-semibold text-slate-800 font-mono">${escapeHtml(v.version)}</h3>
                             ${stabilityBadge(v.stability)}
                             ${v.trunk_provided_at ? `<span class="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter" title="Trunk CI last provided this version ${escapeHtml(v.trunk_provided_at)}">trunk</span>` : ''}
+                            ${(branchMembershipMap.get(`${apiType}|${v.version}`) || []).map(b => `<span class="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-bold tracking-tighter" title="Referenced by sanshain-branch ${escapeHtml(b)}">${escapeHtml(b)}</span>`).join('')}
                             ${expiryBadge}
                         </div>
                         <p class="text-xs text-slate-400 mt-0.5">

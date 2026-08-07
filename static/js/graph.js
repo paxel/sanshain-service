@@ -1747,10 +1747,22 @@ function exportToPng(currentGraphMode) {
   if (!svg) return;
   if (currentGraphMode === "custom" && !svg.firstChild) return;
 
-  const filename = "dependency_graph.png";
+  // Exports carry their scope (ADR-0005): view, branch and instant.
+  const view = window.graphStreamView || "dev";
+  let stamp = view === "branch" ? `branch ${window.graphBranchName}` : view;
+  if (window.graphTimelineAt) stamp += ` @ ${window.graphTimelineAt}`;
+  const filename = `dependency_graph_${stamp.replace(/[^a-zA-Z0-9.@-]+/g, "_")}.png`;
 
   // Clone the SVG to avoid modifying the live one
   const svgClone = svg.cloneNode(true);
+  const stampText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  stampText.setAttribute("x", "8");
+  stampText.setAttribute("y", "16");
+  stampText.setAttribute("font-size", "12");
+  stampText.setAttribute("fill", "#64748b");
+  stampText.setAttribute("font-family", "ui-monospace, monospace");
+  stampText.textContent = `Sanshain — ${stamp}`;
+  svgClone.appendChild(stampText);
   if (!svgClone.getAttribute("xmlns")) {
     svgClone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   }

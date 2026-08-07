@@ -796,6 +796,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/branch-memberships:
+    get:
+      summary: "Read: producers/name/branch-memberships"
+      description: |
+        Reverse lookup (ADR-0005): every (api_type, version, branch) this
+        producer is currently referenced by across all sanshain-branches —
+        "which releases pin b@1.0.0?" answered where you're already looking.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The memberships as a JSON array.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: Producer not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/producers/{name}/diff:
     get:
       summary: "Read: producers/name/diff"

@@ -20,6 +20,7 @@ fn empty_report(deps: Vec<DependencyInfo>) -> DependencyReport {
     DependencyReport {
         trunk_graph: Vec::new(),
         trunk_stale_before: None,
+        scope_label: None,
         dependency_graph: deps,
         service_tags: Default::default(),
         missing_endpoints: vec![],

@@ -554,6 +554,52 @@ impl SpecRepository for MockRepo {
         Ok(dates)
     }
 
+    async fn list_branch_memberships_for_service(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<BranchMembership>, RepositoryError> {
+        let branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
+        let pins = self
+            .branch_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let members = self
+            .branch_member_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let name_of = |id: i64| {
+            branches
+                .iter()
+                .find(|b| b.id == id)
+                .map(|b| b.name.clone())
+                .unwrap_or_default()
+        };
+        let mut rows: Vec<BranchMembership> = pins
+            .iter()
+            .filter(|(_, r)| r.service_id == service_id && r.valid_to.is_none())
+            .map(|(bid, r)| BranchMembership {
+                api_type: r.api_type,
+                version: r.version,
+                branch: name_of(*bid),
+            })
+            .chain(
+                members
+                    .iter()
+                    .filter(|m| m.1 == service_id && m.5.is_none())
+                    .map(|m| BranchMembership {
+                        api_type: m.2,
+                        version: m.3,
+                        branch: name_of(m.0),
+                    }),
+            )
+            .collect();
+        rows.sort_by(|a, b| a.branch.cmp(&b.branch).then(a.version.cmp(&b.version)));
+        rows.dedup_by(|a, b| {
+            a.branch == b.branch && a.api_type == b.api_type && a.version == b.version
+        });
+        Ok(rows)
+    }
+
     async fn list_branches_referencing(
         &self,
         service_id: i64,
@@ -1080,6 +1126,7 @@ impl SpecRepository for MockRepo {
         Ok(DependencyReport {
             trunk_graph: Vec::new(),
             trunk_stale_before: None,
+            scope_label: None,
             unused_endpoints,
             missing_endpoints,
             dependency_graph,

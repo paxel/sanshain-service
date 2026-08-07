@@ -650,6 +650,15 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.list_graph_change_dates(branch_id).await
     }
 
+    async fn list_branch_memberships_for_service(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<BranchMembership>, RepositoryError> {
+        self.inner
+            .list_branch_memberships_for_service(service_id)
+            .await
+    }
+
     async fn list_branches_referencing(
         &self,
         service_id: i64,

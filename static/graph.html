@@ -606,18 +606,34 @@
         });
     };
 
+    // Exports carry their scope (ADR-0005): view, branch and instant — a
+    // screenshot of a release graph must not masquerade as current truth.
+    function graphScopeStamp() {
+        const view = window.graphStreamView || 'dev';
+        let stamp = view === 'branch' ? `branch ${window.graphBranchName}` : view;
+        if (window.graphTimelineAt) stamp += ` @ ${window.graphTimelineAt}`;
+        return stamp;
+    }
+
+    function graphScopeSlug() {
+        return graphScopeStamp().replace(/[^a-zA-Z0-9.@-]+/g, '_');
+    }
+
     document.getElementById('graph-download').onclick = () => {
         let content, filename, mime;
         if (currentGraphMode === 'custom') {
             const svg = document.getElementById('custom-graph');
             if (!svg.firstChild) return;
             content = getCustomGraphSVG(svg);
-            filename = 'dependency_graph.svg';
+            // Stamp the scope into the document itself, not only the name.
+            content = content.replace('</svg>',
+                `<text x="8" y="16" font-size="12" fill="#64748b" font-family="ui-monospace, monospace">Sanshain — ${graphScopeStamp()}</text></svg>`);
+            filename = `dependency_graph_${graphScopeSlug()}.svg`;
             mime = 'image/svg+xml';
         } else {
             if (!lastMermaidCode) return;
             content = lastMermaidCode;
-            filename = 'dependency_graph.mmd';
+            filename = `dependency_graph_${graphScopeSlug()}.mmd`;
             mime = 'text/plain';
         }
         const blob = new Blob([content], { type: mime });

@@ -266,6 +266,13 @@ pub trait SpecRepository: Send + Sync {
         branch_id: Option<i64>,
     ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
+    /// Reverse lookup (ADR-0005): every (api_type, version, branch) a
+    /// producer is referenced by across all branches' open records.
+    fn list_branch_memberships_for_service(
+        &self,
+        service_id: i64,
+    ) -> impl Future<Output = Result<Vec<BranchMembership>, RepositoryError>> + Send;
+
     /// Names of branches whose graph or member versions reference this
     /// (service, api_type, version) by value in an open record — surfaced in
     /// the delete-version warning (ADR-0005).

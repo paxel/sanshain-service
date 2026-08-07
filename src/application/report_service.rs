@@ -84,6 +84,7 @@ pub async fn generate_scoped_report(
             report.dependency_graph = pins_as_dependency_graph(repo, pins).await?;
             report.missing_endpoints = Vec::new();
             report.unused_endpoints = Vec::new();
+            report.scope_label = Some("main".to_string());
         }
         ReportScope::Branch { name, at } => {
             let branch = repo
@@ -94,6 +95,10 @@ pub async fn generate_scoped_report(
             report.dependency_graph = pins_as_dependency_graph(repo, pins).await?;
             report.missing_endpoints = Vec::new();
             report.unused_endpoints = Vec::new();
+            report.scope_label = Some(match at {
+                Some(at) => format!("{name}@{at}"),
+                None => name,
+            });
         }
     }
     Ok(report)
@@ -118,6 +123,9 @@ pub async fn generate_report(repo: &impl SpecRepository) -> Result<DependencyRep
 pub fn render_report_markdown(report: &DependencyReport) -> String {
     let mut md = String::new();
     md.push_str("# Sanshain Dependency Report\n\n");
+    if let Some(scope) = &report.scope_label {
+        md.push_str(&format!("Scope: {scope}\n\n"));
+    }
 
     md.push_str("| Consumer | Producer | Type | Version | Stability | Path | Method |\n");
     md.push_str("| --- | --- | --- | --- | --- | --- | --- |\n");
@@ -143,6 +151,9 @@ pub fn render_isolation_report(report: &DependencyReport) -> String {
 
     let mut md = String::new();
     md.push_str("# Service Isolation Report\n\n");
+    if let Some(scope) = &report.scope_label {
+        md.push_str(&format!("Scope: {scope}\n\n"));
+    }
 
     if report.dependency_graph.is_empty() {
         md.push_str("No dependencies found.\n");
@@ -213,6 +224,7 @@ mod tests {
             unused_endpoints: vec![],
             trunk_graph: vec![],
             trunk_stale_before: None,
+            scope_label: None,
         }
     }
 

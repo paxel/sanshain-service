@@ -578,6 +578,11 @@ pub struct DependencyReport {
     /// trunk TTL). `None` when the TTL is disabled. Application-populated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trunk_stale_before: Option<String>,
+    /// The graph scope this report describes (`main`, `<branch>[@date]`);
+    /// `None` for the classic dev report. Stamped into exports so a scoped
+    /// document cannot masquerade as the whole picture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_label: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -615,6 +620,15 @@ pub struct BranchInfo {
     pub source: String,
     /// The instant of the source graph the branch was born from.
     pub as_of: String,
+}
+
+/// One reverse-lookup row (ADR-0005): a version of a producer that a
+/// sanshain-branch currently references (pin or member version, by value).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct BranchMembership {
+    pub api_type: ApiType,
+    pub version: SemVer,
+    pub branch: String,
 }
 
 /// One current trunk pin (ADR-0004): the open record of the append-only trunk

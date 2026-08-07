@@ -698,6 +698,40 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows.into_iter().map(|(d,)| d).collect())
     }
 
+    async fn list_branch_memberships_for_service(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<BranchMembership>, RepositoryError> {
+        type Row = (String, i64, i64, i64, String);
+        let rows: Vec<Row> = sqlx::query_as(
+            "SELECT api_type, major, minor, patch, name FROM ( \
+                 SELECT d.api_type, d.major, d.minor, d.patch, b.name \
+                 FROM branch_dependencies d JOIN sanshain_branches b ON b.id = d.branch_id \
+                 WHERE d.service_id = ? AND d.valid_to IS NULL \
+                 UNION \
+                 SELECT m.api_type, m.major, m.minor, m.patch, b.name \
+                 FROM branch_member_versions m JOIN sanshain_branches b ON b.id = m.branch_id \
+                 WHERE m.service_id = ? AND m.valid_to IS NULL \
+             ) ORDER BY name, api_type, major, minor, patch",
+        )
+        .bind(service_id)
+        .bind(service_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        rows.into_iter()
+            .map(|(api_type, major, minor, patch, branch)| {
+                Ok(BranchMembership {
+                    api_type: api_type
+                        .parse()
+                        .map_err(|e: String| RepositoryError::Internal(e))?,
+                    version: SemVer::new(major as u32, minor as u32, patch as u32),
+                    branch,
+                })
+            })
+            .collect()
+    }
+
     async fn list_branches_referencing(
         &self,
         service_id: i64,
@@ -1403,6 +1437,7 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(DependencyReport {
             trunk_graph: Vec::new(),
             trunk_stale_before: None,
+            scope_label: None,
             unused_endpoints,
             missing_endpoints,
             dependency_graph,

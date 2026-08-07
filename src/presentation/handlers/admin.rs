@@ -1312,3 +1312,22 @@ pub async fn admin_branch_timeline(
         state.repo.list_graph_change_dates(Some(branch.id)).await?,
     ))
 }
+
+/// Reverse lookup (ADR-0005): which sanshain-branches reference each of this
+/// producer's versions — the "which releases pin b@1.0.0?" answer.
+pub async fn admin_producer_branch_memberships(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let service_id = state
+        .repo
+        .find_service(&name)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Producer '{name}' not found")))?;
+    Ok(Json(
+        state
+            .repo
+            .list_branch_memberships_for_service(service_id)
+            .await?,
+    ))
+}

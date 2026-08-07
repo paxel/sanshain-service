@@ -113,6 +113,13 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, list_graph_change_dates(branch_id))
     }
 
+    async fn list_branch_memberships_for_service(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<BranchMembership>, RepositoryError> {
+        delegate!(self, list_branch_memberships_for_service(service_id))
+    }
+
     async fn list_branches_referencing(
         &self,
         service_id: i64,

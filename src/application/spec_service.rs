@@ -510,6 +510,7 @@ pub async fn provide_spec(
         {
             repo.record_branch_member_version(branch.id, sid, api_type, version, &now_iso())
                 .await?;
+            count_branch_update(&branch.name);
         }
         return Ok(ProvideResponse {
             version,
@@ -721,6 +722,7 @@ pub async fn provide_spec(
     if let Some(branch) = &tag_branch {
         repo.record_branch_member_version(branch.id, sid, api_type, version, &now_iso())
             .await?;
+        count_branch_update(&branch.name);
     }
 
     // Promotion is a state change worth its own audit entry even when the
@@ -1041,6 +1043,9 @@ async fn require_endpoint_inner(
             tag_branch.as_ref().map(|b| b.id),
         )
         .await?;
+        if let Some(branch) = &tag_branch {
+            count_branch_update(&branch.name);
+        }
     }
 
     Ok(RequireResponse {
@@ -1140,6 +1145,9 @@ async fn require_bundle_inner(
             tag_branch.as_ref().map(|b| b.id),
         )
         .await?;
+        if let Some(branch) = &tag_branch {
+            count_branch_update(&branch.name);
+        }
     }
 
     Ok(RequireResponse {
@@ -1207,6 +1215,12 @@ async fn record_pins(
         }
     }
     Ok(())
+}
+
+/// One branch update happened (tagged provide or require) — the counter the
+/// observability surface graphs per branch.
+fn count_branch_update(branch: &str) {
+    metrics::counter!("sanshain_branch_updates_total", "branch" => branch.to_string()).increment(1);
 }
 
 /// An endpoint as shown in the UI: what was served and how that was decided.

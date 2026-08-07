@@ -124,6 +124,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/producers/{name}/endpoints", get(admin::admin_list_producer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/full-spec", get(admin::admin_get_full_spec).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/diff", get(admin::admin_diff_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/producers/{name}/branch-memberships", get(admin::admin_producer_branch_memberships).layer(require(state.clone(), RouteGuard::Authenticated)))
         // Sanshain-branches (ADR-0005): creation is release work (the cut
         // script's endpoint) — releaser-guarded; reading is open to any
         // authenticated caller like the rest of the graph surface.

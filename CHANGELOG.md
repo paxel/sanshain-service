@@ -53,6 +53,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The graph page gained a timeline (ADR-0005): a slider over the change instants of the main
   graph or a branch renders the graph as it was at that date (`GET /admin/trunk/graph?at=…`,
   `…/timeline`), and releasers can "create branch here" — the retroactive release cut.
+- Reverse lookup: producer version rows show chips naming every sanshain-branch referencing that
+  version (`GET /admin/producers/{name}/branch-memberships`). Graph exports (SVG/PNG/mermaid)
+  are stamped with their view, branch and instant; scoped reports carry a `Scope:` line. New
+  metrics: `sanshain_branch_updates_total{branch}` and a `sanshain_branches` gauge, with the
+  branch count shown on the observability page.
 
 ### Changed
 - UI messages and docs no longer explain resolution by contrast with removed 1.x mechanics

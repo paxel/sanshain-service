@@ -90,6 +90,9 @@ pub async fn create_branch(
         tracing::warn!("Could not record the branch creation in the audit log: {e}");
     }
 
+    if let Ok(branches) = repo.list_branches().await {
+        metrics::gauge!("sanshain_branches").set(branches.len() as f64);
+    }
     Ok(BranchInfo {
         id,
         name: name.to_string(),
@@ -187,6 +190,9 @@ pub async fn delete_branch(
         .await
     {
         tracing::warn!("Could not record the branch deletion in the audit log: {e}");
+    }
+    if let Ok(branches) = repo.list_branches().await {
+        metrics::gauge!("sanshain_branches").set(branches.len() as f64);
     }
     Ok(())
 }
