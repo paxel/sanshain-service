@@ -22,8 +22,8 @@ async fn dry_run(
             dry_run: true,
             trunk: false,
             tag: None,
-            caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
-            expected_prior_hash: None,
+            caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
+            require_prior_content_match: false,
         },
     )
     .await
@@ -397,8 +397,8 @@ channels:
                 dry_run: false,
                 trunk: false,
                 tag: None,
-                caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
-                expected_prior_hash: None,
+                caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
+                require_prior_content_match: false,
             },
         )
         .await

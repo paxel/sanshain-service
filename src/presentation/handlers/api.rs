@@ -95,7 +95,7 @@ async fn provide_common(
             trunk,
             tag,
             caller: caller.map(|axum::Extension(a)| a),
-            expected_prior_hash: None,
+            require_prior_content_match: false,
         },
     )
     .await?;

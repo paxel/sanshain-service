@@ -114,7 +114,7 @@ async fn list_version_dependents_unknown_and_empty() {
             trunk: false,
             tag: None,
             caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
-            expected_prior_hash: None,
+            require_prior_content_match: false,
         },
     )
     .await
@@ -147,7 +147,7 @@ async fn delete_version_returns_pinned_consumers() {
             trunk: false,
             tag: None,
             caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
-            expected_prior_hash: None,
+            require_prior_content_match: false,
         },
     )
     .await

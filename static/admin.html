@@ -1370,6 +1370,12 @@
             }
             btn.textContent = '▼';
             container.classList.remove('hidden');
+            await renderVersions(container, serviceName);
+        }
+
+        // Fetch-and-render for one Producer's versions panel, callable
+        // directly (post-promote refresh) without driving the toggle button.
+        async function renderVersions(container, serviceName) {
             container.innerHTML = '<p class="text-xs text-slate-500">Loading...</p>';
             try {
                 const res = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/versions`);
@@ -1438,13 +1444,10 @@
         // only supplies the page's refresh (re-render the open versions panel
         // so the badge flips).
         function promoteVersionRow(btn, service, apiType, version) {
-            const row = btn.closest('.bg-slate-50');
+            const container = btn.closest('.bg-slate-50')?.querySelector('.versions-container');
             promoteVersion(service, apiType, version, async () => {
-                const toggle = row ? row.querySelector('button') : null;
-                if (toggle) {
-                    toggle.textContent = '▶';
-                    row.querySelector('.versions-container').classList.add('hidden');
-                    toggleVersions(toggle, service);
+                if (container) {
+                    await renderVersions(container, service);
                 }
             });
         }

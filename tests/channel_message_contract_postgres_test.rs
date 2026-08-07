@@ -150,8 +150,8 @@ async fn postgres_contracts_registered_on_ga_provides_only() {
             dry_run: false,
             trunk: false,
             tag: None,
-            caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
-            expected_prior_hash: None,
+            caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
+            require_prior_content_match: false,
         },
     )
     .await
@@ -178,7 +178,7 @@ async fn postgres_contracts_registered_on_ga_provides_only() {
             trunk: false,
             tag: None,
             caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
-            expected_prior_hash: None,
+            require_prior_content_match: false,
         },
     )
     .await

@@ -229,7 +229,14 @@ pub async fn approve_user(repo: &impl SpecRepository, user_id: i64) -> Result<bo
     Ok(repo.approve_user(user_id).await?)
 }
 
-pub async fn admin_delete_user(repo: &impl SpecRepository, user_id: i64) -> Result<bool, AppError> {
+pub async fn admin_delete_user(
+    repo: &impl SpecRepository,
+    root_users: &crate::domain::permissions::RootUsers,
+    actor: Option<&crate::domain::permissions::Actor>,
+    user_id: i64,
+) -> Result<bool, AppError> {
+    crate::application::authz::require_admin_to_delete_user(repo, root_users, actor, user_id)
+        .await?;
     Ok(repo.delete_user(user_id).await?)
 }
 

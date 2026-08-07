@@ -171,41 +171,73 @@ impl SpecRepository for PostgresSpecRepository {
         // Insert-or-overwrite keeps the row's identity and `created_at` on an
         // overwrite/promotion; only the content, stability, attribution and
         // `updated_at` move.
-        let upsert = sqlx::query(
-            r#"
-            INSERT INTO spec_versions
-              (service_id, api_type, major, minor, patch, stability, content, content_hash, provided_by, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            ON CONFLICT(service_id, api_type, major, minor, patch) DO UPDATE SET
-                stability = EXCLUDED.stability,
-                content = EXCLUDED.content,
-                content_hash = EXCLUDED.content_hash,
-                provided_by = EXCLUDED.provided_by,
-                updated_at = EXCLUDED.updated_at
-            WHERE spec_versions.stability != 'ga'
-              AND ($12::text IS NULL OR spec_versions.content_hash = $12)
-            "#,
-        )
-        .bind(params.service_id)
-        .bind(params.api_type.as_str())
-        .bind(params.version.major as i32)
-        .bind(params.version.minor as i32)
-        .bind(params.version.patch as i32)
-        .bind(params.stability.as_str())
-        .bind(params.content)
-        .bind(params.content_hash)
-        .bind(params.provided_by)
-        .bind(params.now_iso)
-        .bind(params.now_iso)
-        .bind(params.expected_prior_hash)
+        //
+        // A compare-and-set caller never inserts: the row it read must still
+        // exist and carry the expected hash, so it gets a plain conditional
+        // UPDATE. The UPDATE re-checks its predicate on the current row version
+        // after locking it, so a concurrently-committed delete or release makes
+        // it match zero rows — an INSERT-arm EXISTS guard would evaluate on the
+        // statement snapshot while ON CONFLICT arbitrates on the live index,
+        // letting a racing DELETE resurrect the version as a fresh GA row.
+        let upsert = if let Some(expected) = params.expected_prior_hash {
+            sqlx::query(
+                r#"
+                UPDATE spec_versions SET
+                    stability = $6,
+                    content = $7,
+                    content_hash = $8,
+                    provided_by = $9,
+                    updated_at = $10
+                 WHERE service_id = $1 AND api_type = $2 AND major = $3 AND minor = $4 AND patch = $5
+                   AND stability != 'ga'
+                   AND content_hash = $11
+                "#,
+            )
+            .bind(params.service_id)
+            .bind(params.api_type.as_str())
+            .bind(params.version.major as i32)
+            .bind(params.version.minor as i32)
+            .bind(params.version.patch as i32)
+            .bind(params.stability.as_str())
+            .bind(params.content)
+            .bind(params.content_hash)
+            .bind(params.provided_by)
+            .bind(params.now_iso)
+            .bind(expected)
+        } else {
+            sqlx::query(
+                r#"
+                INSERT INTO spec_versions
+                  (service_id, api_type, major, minor, patch, stability, content, content_hash, provided_by, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                ON CONFLICT(service_id, api_type, major, minor, patch) DO UPDATE SET
+                    stability = EXCLUDED.stability,
+                    content = EXCLUDED.content,
+                    content_hash = EXCLUDED.content_hash,
+                    provided_by = EXCLUDED.provided_by,
+                    updated_at = EXCLUDED.updated_at
+                WHERE spec_versions.stability != 'ga'
+                "#,
+            )
+            .bind(params.service_id)
+            .bind(params.api_type.as_str())
+            .bind(params.version.major as i32)
+            .bind(params.version.minor as i32)
+            .bind(params.version.patch as i32)
+            .bind(params.stability.as_str())
+            .bind(params.content)
+            .bind(params.content_hash)
+            .bind(params.provided_by)
+            .bind(params.now_iso)
+            .bind(params.now_iso)
+        }
         .execute(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        // The upsert's WHERE guard is the last line of defense against two
-        // racing writers: nothing was written if a GA row landed between the
-        // application layer's immutability check and this statement, or if a
-        // compare-and-set hash (`expected_prior_hash`) no longer matches —
-        // surface either as a conflict instead of writing over the newer row.
+        // Zero rows written means the guard refused — the last line of defense
+        // against racing writers: for a CAS caller the row vanished, was
+        // released, or no longer carries the expected hash; for a plain provide
+        // a GA row is immutable even against a racing writer.
         if upsert.rows_affected() == 0 {
             return Err(RepositoryError::Conflict);
         }

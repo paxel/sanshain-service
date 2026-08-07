@@ -65,8 +65,12 @@ fn provide_params<'a>(
         dry_run,
         trunk: false,
         tag: None,
-        caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
-        expected_prior_hash: None,
+        caller: Some(if stability == Stability::Ga {
+            sanshain_service::domain::permissions::Actor::test_releaser()
+        } else {
+            sanshain_service::domain::permissions::Actor::test_caller()
+        }),
+        require_prior_content_match: false,
     }
 }
 
@@ -130,8 +134,8 @@ async fn provide_persists_the_auto_tag() {
             dry_run: false,
             trunk: false,
             tag: None,
-            caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
-            expected_prior_hash: None,
+            caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
+            require_prior_content_match: false,
         },
     )
     .await
@@ -610,27 +614,71 @@ async fn a_promotion_is_not_audited_as_a_snapshot_overwrite() {
 #[tokio::test]
 async fn a_promote_with_a_stale_content_hash_conflicts() {
     let repo = MockRepo::new();
-    let content = one_endpoint("1.0.0");
-    let mut params = provide_params(
+    let read_content = one_endpoint("1.0.0");
+    let params = provide_params(
         "svc",
         ApiType::OpenApi,
-        &content,
+        &read_content,
         Stability::Snapshot,
         false,
     );
-    params.caller =
-        Some(sanshain_service::domain::permissions::Actor::test_releaser_named("alice"));
     spec_service::provide_spec(&repo, params).await.unwrap();
 
-    // The releaser read the snapshot, then someone overwrote it: releasing
-    // with the pre-overwrite hash must refuse.
-    let mut params = provide_params("svc", ApiType::OpenApi, &content, Stability::Ga, false);
-    params.expected_prior_hash = Some("sha256:stale");
+    // The releaser read the snapshot, then someone overwrote it with other
+    // content under the same version number...
+    let overwritten = openapi(
+        "1.0.0",
+        "  /y:\n    get:\n      responses:\n        '200':\n          description: OK\n",
+    );
+    let params = provide_params(
+        "svc",
+        ApiType::OpenApi,
+        &overwritten,
+        Stability::Snapshot,
+        false,
+    );
+    spec_service::provide_spec(&repo, params).await.unwrap();
+
+    // ...so releasing the earlier read must refuse.
+    let mut params = provide_params("svc", ApiType::OpenApi, &read_content, Stability::Ga, false);
+    params.require_prior_content_match = true;
     let err = spec_service::provide_spec(&repo, params).await.unwrap_err();
-    assert!(matches!(err, AppError::Conflict(_)), "{err:?}");
+    match &err {
+        AppError::Conflict(msg) => assert!(
+            msg.contains("snapshot changed"),
+            "the message names what actually happened: {msg}"
+        ),
+        other => panic!("expected Conflict, got {other:?}"),
+    }
 
     let stability = repo.spec_versions.lock().unwrap()[0].stability;
     assert_eq!(stability, Stability::Snapshot, "nothing was released");
+}
+
+/// The CAS's third arm: a version deleted between read and release must not
+/// be resurrected — and the message says so.
+#[tokio::test]
+async fn a_promote_of_a_vanished_version_conflicts_with_the_right_message() {
+    let repo = MockRepo::new();
+    // The service exists but the version does not (deleted after the read).
+    repo.ensure_service("svc").await.unwrap();
+    let content = one_endpoint("1.0.0");
+    // The row is gone, so the CAS must refuse no matter what content the
+    // caller read before the delete.
+    let mut params = provide_params("svc", ApiType::OpenApi, &content, Stability::Ga, false);
+    params.require_prior_content_match = true;
+    let err = spec_service::provide_spec(&repo, params).await.unwrap_err();
+    match &err {
+        AppError::Conflict(msg) => assert!(
+            msg.contains("deleted while releasing"),
+            "the message names the vanished row: {msg}"
+        ),
+        other => panic!("expected Conflict, got {other:?}"),
+    }
+    assert!(
+        repo.spec_versions.lock().unwrap().is_empty(),
+        "nothing was resurrected"
+    );
 }
 
 /// An ordinary provide reports `promoted: false`.

@@ -654,6 +654,7 @@ pub async fn admin_approve_user(
 pub async fn admin_delete_user_handler(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
     let target_username = if let Ok(users) = services::list_users(&state.repo).await {
@@ -666,7 +667,8 @@ pub async fn admin_delete_user_handler(
         format!("User ID {}", id)
     };
 
-    if services::admin_delete_user(&state.repo, id).await? {
+    let actor = actor.map(|axum::Extension(a)| a);
+    if services::admin_delete_user(&state.repo, &state.root_users, actor.as_ref(), id).await? {
         record_audit_log(
             &state.repo,
             user,

@@ -228,6 +228,20 @@ pub struct Actor {
 }
 
 impl Actor {
+    /// A role-less Actor — the default fixture for snapshot provides, so a
+    /// test caller only carries `releaser` when the call actually needs it
+    /// and a gate that accidentally widens fails the suite.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn test_caller() -> Self {
+        Actor {
+            user_id: 0,
+            username: "test-caller".to_string(),
+            is_root: false,
+            roles: Vec::new(),
+            directory_groups: Vec::new(),
+        }
+    }
+
     /// An Actor holding exactly the `releaser` role — a fixture for tests
     /// that publish GA through the application seam.
     #[cfg(any(test, feature = "test-support"))]

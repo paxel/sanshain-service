@@ -160,6 +160,151 @@ paths:
     assert!(String::from_utf8_lossy(&body).contains("Postgres Test API"));
 }
 
+/// The compare-and-set contract of the upsert, driven against the real
+/// Postgres statement: the SQLite twin's module tests cannot vouch for this
+/// copy of the guard.
+#[tokio::test]
+async fn test_postgres_upsert_compare_and_set_contract() {
+    use sanshain_service::domain::models::{ApiType, EndpointRecord, Stability};
+    use sanshain_service::domain::ports::{RepositoryError, SpecRepository, UpsertSpecVersion};
+
+    let postgres_container = Postgres::default().start().await.unwrap();
+    let host = postgres_container.get_host().await.unwrap();
+    let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
+    let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .unwrap();
+    let repo = PostgresSpecRepository::new(pool);
+    repo.run_migrations()
+        .await
+        .expect("Failed to run PostgreSQL migrations");
+
+    fn endpoint(marker: &str) -> EndpointRecord {
+        EndpointRecord {
+            id: None,
+            api_type: ApiType::OpenApi,
+            path: format!("/{marker}"),
+            normalized_path: format!("/{marker}"),
+            method: "GET".to_string(),
+            yaml_content: marker.to_string(),
+            deprecated: false,
+        }
+    }
+
+    let sid = repo.ensure_service("cas-svc").await.unwrap();
+    let version: sanshain_service::domain::models::SemVer = "1.0.0".parse().unwrap();
+
+    // Seed the snapshot an ordinary provide would store.
+    repo.upsert_spec_version(UpsertSpecVersion {
+        service_id: sid,
+        api_type: ApiType::OpenApi,
+        version,
+        stability: Stability::Snapshot,
+        content: "snapshot content",
+        content_hash: "sha256:snapshot",
+        provided_by: "alice",
+        expected_prior_hash: None,
+        now_iso: "2026-01-01T00:00:00Z",
+        endpoints: vec![endpoint("a")],
+    })
+    .await
+    .expect("seeding the snapshot lands");
+
+    // A stale expected hash means the row moved since the caller read it.
+    let err = repo
+        .upsert_spec_version(UpsertSpecVersion {
+            service_id: sid,
+            api_type: ApiType::OpenApi,
+            version,
+            stability: Stability::Ga,
+            content: "stale content",
+            content_hash: "sha256:stale-read",
+            provided_by: "releaser",
+            expected_prior_hash: Some("sha256:stale"),
+            now_iso: "2026-01-02T00:00:00Z",
+            endpoints: vec![endpoint("b")],
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(err, RepositoryError::Conflict));
+    let meta = repo
+        .find_spec_version(sid, ApiType::OpenApi, version)
+        .await
+        .unwrap()
+        .expect("the row is untouched");
+    assert_eq!(meta.stability, Stability::Snapshot, "nothing was released");
+    assert_eq!(meta.content_hash, "sha256:snapshot");
+
+    // The matching hash releases in place, keeping the row's identity.
+    repo.upsert_spec_version(UpsertSpecVersion {
+        service_id: sid,
+        api_type: ApiType::OpenApi,
+        version,
+        stability: Stability::Ga,
+        content: "snapshot content",
+        content_hash: "sha256:snapshot",
+        provided_by: "releaser",
+        expected_prior_hash: Some("sha256:snapshot"),
+        now_iso: "2026-01-03T00:00:00Z",
+        endpoints: vec![endpoint("a")],
+    })
+    .await
+    .expect("matching hash lands");
+    let meta = repo
+        .find_spec_version(sid, ApiType::OpenApi, version)
+        .await
+        .unwrap()
+        .expect("the released row");
+    assert_eq!(meta.stability, Stability::Ga);
+
+    // Once GA, the row is immutable even against a plain overwrite.
+    let err = repo
+        .upsert_spec_version(UpsertSpecVersion {
+            service_id: sid,
+            api_type: ApiType::OpenApi,
+            version,
+            stability: Stability::Snapshot,
+            content: "other",
+            content_hash: "sha256:other",
+            provided_by: "racer",
+            expected_prior_hash: None,
+            now_iso: "2026-01-04T00:00:00Z",
+            endpoints: vec![endpoint("c")],
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(err, RepositoryError::Conflict));
+
+    // A CAS caller whose row vanished must not resurrect it as a fresh GA.
+    let gone: sanshain_service::domain::models::SemVer = "2.0.0".parse().unwrap();
+    let err = repo
+        .upsert_spec_version(UpsertSpecVersion {
+            service_id: sid,
+            api_type: ApiType::OpenApi,
+            version: gone,
+            stability: Stability::Ga,
+            content: "content",
+            content_hash: "sha256:x",
+            provided_by: "releaser",
+            expected_prior_hash: Some("sha256:x"),
+            now_iso: "2026-01-05T00:00:00Z",
+            endpoints: vec![endpoint("d")],
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(err, RepositoryError::Conflict));
+    assert!(
+        repo.find_spec_version(sid, ApiType::OpenApi, gone)
+            .await
+            .unwrap()
+            .is_none(),
+        "nothing was resurrected"
+    );
+}
+
 /// ADR-0004: trunk pins are append-only on PostgreSQL exactly as on SQLite —
 /// a re-pin closes the open record and inserts, an identical re-pin only
 /// refreshes, and the current view is the open rows.

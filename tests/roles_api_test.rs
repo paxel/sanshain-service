@@ -126,6 +126,29 @@ async fn fixture() -> Fixture {
     }
 }
 
+/// A seeded `user_manager` — the standard counterpart to the fixture's admin
+/// for guard tests. Returns `(user_id, session_token)`.
+#[cfg(test)]
+async fn user_manager(f: &Fixture) -> (i64, String) {
+    let hash = services::hash_password("um-pass").expect("hash");
+    let um = f
+        .repo
+        .create_user("um", &hash, true)
+        .await
+        .expect("user manager");
+    f.repo
+        .grant_user_role(um.id, "user_manager")
+        .await
+        .expect("grant user_manager");
+    let token = f
+        .repo
+        .create_session(um.id, "2099-12-31T23:59:59")
+        .await
+        .expect("session")
+        .token;
+    (um.id, token)
+}
+
 #[cfg(test)]
 async fn call(
     app: &axum::Router,
@@ -671,22 +694,7 @@ async fn role_administration_is_recorded_in_the_audit_log() {
 #[tokio::test]
 async fn granting_releaser_requires_an_admin() {
     let f = fixture().await;
-    let hash = services::hash_password("um-pass").expect("hash");
-    let um = f
-        .repo
-        .create_user("um", &hash, true)
-        .await
-        .expect("user manager");
-    f.repo
-        .grant_user_role(um.id, "user_manager")
-        .await
-        .expect("grant user_manager");
-    let um_token = f
-        .repo
-        .create_session(um.id, "2099-12-31T23:59:59")
-        .await
-        .expect("session")
-        .token;
+    let (_um_id, um_token) = user_manager(&f).await;
 
     let (status, _) = call(
         &f.app,
@@ -742,22 +750,7 @@ async fn granting_releaser_requires_an_admin() {
 #[tokio::test]
 async fn putting_releaser_on_a_group_requires_an_admin() {
     let f = fixture().await;
-    let hash = services::hash_password("um-pass").expect("hash");
-    let um = f
-        .repo
-        .create_user("um", &hash, true)
-        .await
-        .expect("user manager");
-    f.repo
-        .grant_user_role(um.id, "user_manager")
-        .await
-        .expect("grant user_manager");
-    let um_token = f
-        .repo
-        .create_session(um.id, "2099-12-31T23:59:59")
-        .await
-        .expect("session")
-        .token;
+    let (_um_id, um_token) = user_manager(&f).await;
 
     let (status, group) = call(
         &f.app,
@@ -799,22 +792,7 @@ async fn putting_releaser_on_a_group_requires_an_admin() {
 #[tokio::test]
 async fn joining_a_releaser_group_requires_an_admin() {
     let f = fixture().await;
-    let hash = services::hash_password("um-pass").expect("hash");
-    let um = f
-        .repo
-        .create_user("um", &hash, true)
-        .await
-        .expect("user manager");
-    f.repo
-        .grant_user_role(um.id, "user_manager")
-        .await
-        .expect("grant user_manager");
-    let um_token = f
-        .repo
-        .create_session(um.id, "2099-12-31T23:59:59")
-        .await
-        .expect("session")
-        .token;
+    let (um_id, um_token) = user_manager(&f).await;
 
     let (status, group) = call(
         &f.app,
@@ -845,7 +823,7 @@ async fn joining_a_releaser_group_requires_an_admin() {
         &format!("/admin/groups/{}/members", group_id),
         Some(&um_token),
         true,
-        Some(serde_json::json!({ "user_id": um.id })),
+        Some(serde_json::json!({ "user_id": um_id })),
     )
     .await;
     assert_eq!(
@@ -879,6 +857,32 @@ async fn joining_a_releaser_group_requires_an_admin() {
         StatusCode::FORBIDDEN,
         "stripping release rights is guarded in both directions"
     );
+
+    // Nor can they delete the whole group — the bulk form of the same strip.
+    let (status, _) = call(
+        &f.app,
+        "DELETE",
+        &format!("/admin/groups/{}", group_id),
+        Some(&um_token),
+        true,
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "deleting a releaser group strips guarded roles from every member"
+    );
+    let (status, _) = call(
+        &f.app,
+        "DELETE",
+        &format!("/admin/groups/{}", group_id),
+        Some(&f.admin_token),
+        true,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "an admin may");
 }
 
 // --- Maintainer scope ---

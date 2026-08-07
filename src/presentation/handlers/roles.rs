@@ -197,9 +197,11 @@ pub async fn update_group(
 pub async fn delete_group(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
+    actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
     Path(group_id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
-    if !authz::delete_group(&state.repo, group_id).await? {
+    let actor = actor.map(|axum::Extension(a)| a);
+    if !authz::delete_group(&state.repo, actor.as_ref(), group_id).await? {
         return Err(AppError::NotFound(format!("Group {} not found", group_id)));
     }
     record(
