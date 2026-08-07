@@ -1462,3 +1462,183 @@ async fn audit_csv_export_carries_the_stream_column() {
         "the trunk provide's stream must survive the export: {body}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Review fixes, round 3 — selector errors, participant deletes, CSV escaping
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_date_typo_on_a_built_in_selector_reports_the_date() {
+    let ctx = setup().await;
+    // 'main' is reserved, so this cannot be a branch name — the answer must
+    // name the malformed instant, not send the caller hunting for a branch.
+    let (status, _, body) = send(&ctx, "GET", "/report?scope=main@2026-13-45", None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "got: {body}");
+    assert!(body.contains("instant"), "got: {body}");
+
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/admin/graph/diff?left=main@nonsense&right=main",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "got: {body}");
+
+    // An unknown *branch* still reports the branch, not a date.
+    let (status, _, body) = send(&ctx, "GET", "/report?scope=ghost@candidate", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "got: {body}");
+    assert!(body.contains("ghost@candidate"), "got: {body}");
+}
+
+#[tokio::test]
+async fn deleting_a_participant_names_the_release_graphs_it_touches() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    assert_eq!(
+        require_with(&ctx, "web", "svc", "1.0.0", "/users", "GET", true).await,
+        StatusCode::OK
+    );
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({ "name": "rel-1" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "got: {body}");
+
+    // Deleting the consumer takes its edges out of the release graph — the
+    // response and the audit entry both name what was affected.
+    let (status, _, body) = send(&ctx, "DELETE", "/admin/consumers/web", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let res = as_json(&body);
+    assert_eq!(res["deleted"], "web");
+    assert_eq!(
+        res["branches"].as_array().unwrap(),
+        &vec![json!("rel-1")],
+        "got: {body}"
+    );
+
+    let (status, _, body) = send(&ctx, "GET", "/api/audit/timeline", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let entries = as_json(&body);
+    let deletion = entries
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["action"] == "DELETE_CLIENT")
+        .expect("the deletion must be audited");
+    assert!(
+        deletion["details"].as_str().unwrap().contains("rel-1"),
+        "the audit entry must name the affected release graph: {deletion}"
+    );
+}
+
+#[tokio::test]
+async fn audit_csv_escapes_quotes_in_the_stream_column() {
+    let ctx = setup().await;
+    // Branch names are not charset-restricted, so a quote is reachable.
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({ "name": "he\"llo" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "got: {body}");
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    let (status, _) = provide_with(
+        &ctx,
+        "svc",
+        "snapshot",
+        &spec("1.0.0"),
+        &[("tag", json!("he\"llo"))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    let (status, _, body) = send(&ctx, "GET", "/admin/observability/audit-logs/export", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    assert!(
+        body.contains("\"he\"\"llo\""),
+        "the stream column must double its quotes like its siblings: {body}"
+    );
+    // Every row keeps the same column count — an unescaped quote would shift it.
+    for line in body.lines() {
+        assert_eq!(
+            line.matches('"').count() % 2,
+            0,
+            "unbalanced quotes in row: {line}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn sqlite_enforces_the_declared_cascades() {
+    // sqlx turns foreign keys on for SQLite by default, so the declared
+    // ON DELETE CASCADE really fires and a participant delete takes its pin
+    // rows with it — the behavior ai/improvements.md #26 Problem B is about.
+    // Pinned here because it is invisible in the code and easy to assume away.
+    let ctx = setup().await;
+    let fk: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    assert_eq!(
+        require_with(&ctx, "web", "svc", "1.0.0", "/users", "GET", true).await,
+        StatusCode::OK
+    );
+    let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM trunk_dependencies")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(before, 1);
+
+    let (status, _, body) = send(&ctx, "DELETE", "/admin/consumers/web", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM trunk_dependencies")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    println!("PRAGMA foreign_keys = {fk}; trunk_dependencies before={before} after={after}");
+    assert_eq!(
+        after, 0,
+        "expected the declared cascade to remove the pin row"
+    );
+}
+
+#[tokio::test]
+async fn a_tag_only_producer_still_counts_as_a_branch_reference() {
+    let ctx = setup().await;
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({ "name": "rel-1" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "got: {body}");
+
+    // A hotfix Provide tagged into the branch, with nothing pinning it yet:
+    // the producer's only presence is the member-version row.
+    let (status, _) = provide_with(
+        &ctx,
+        "svc",
+        "snapshot",
+        &spec("1.0.0"),
+        &[("tag", json!("rel-1"))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    let (status, _, body) = send(&ctx, "DELETE", "/admin/producers/svc", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    assert_eq!(
+        as_json(&body)["branches"].as_array().unwrap(),
+        &vec![json!("rel-1")],
+        "a tag-only producer is still a release-graph reference: {body}"
+    );
+}

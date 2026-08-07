@@ -75,6 +75,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   a `400`; previously any number was stored, and an absurd value could crash the cleanup task.
 - A dry-run provide of unchanged content no longer refreshes the snapshot's use-based expiry —
   previously a pipeline that only ever dry-ran kept its snapshots alive indefinitely.
+- Deleting a Producer or Consumer now answers with the sanshain-branches whose recorded graph
+  referenced it, and names them in the audit entry; previously the deletion returned an empty
+  body and the affected release graphs changed silently.
 
 ---
 

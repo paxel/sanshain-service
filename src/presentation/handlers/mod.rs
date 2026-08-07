@@ -4,6 +4,10 @@ pub mod auth;
 pub mod pages;
 pub mod roles;
 
+/// Stand-in actor when no authenticated user is attached (dev mode). Provenance
+/// must never read as blank — every audited path uses this same sentinel.
+pub(super) const DEV_MODE_ACTOR: &str = "DevMode/Anonymous";
+
 /// Record an audit entry attributed to the request's caller.
 ///
 /// Shared by the handler modules so "who acted" is resolved one way everywhere:
@@ -16,7 +20,7 @@ pub(super) async fn record_audit_log(
     let actor = if let Some(axum::Extension(u)) = user {
         u.username.clone()
     } else {
-        "DevMode/Anonymous".to_string()
+        DEV_MODE_ACTOR.to_string()
     };
     repo.insert_audit_log(&actor, log)
         .await

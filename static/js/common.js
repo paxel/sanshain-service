@@ -492,14 +492,31 @@ async function apiCall(url, options = {}) {
 }
 
 // --- HTML / attribute escaping ---
+// Quotes are escaped too: the value is routinely interpolated into a quoted
+// attribute (title="…", value="…"), and textContent→innerHTML alone leaves `"`
+// intact, which lets a crafted name close the attribute and add its own.
+// Harmless in text position — a browser renders &quot; as ".
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
-  return div.innerHTML;
+  return div.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+// For a JS string literal that itself sits inside a quoted HTML attribute —
+// `onclick="fn('${escapeAttr(x)}')"`. The browser HTML-decodes the attribute
+// before parsing the JS, so both layers must be escaped, innermost first:
+// without the HTML pass a value containing `"` closes the attribute and can
+// add its own handler. Producer, role and branch names are all caller-chosen
+// and unrestricted, so they reach here hostile. For a plain attribute value
+// with no JS around it, use escapeHtml — it leaves no backslashes behind.
 function escapeAttr(str) {
-  return str.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  return String(str)
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 // --- Confirm modal ---

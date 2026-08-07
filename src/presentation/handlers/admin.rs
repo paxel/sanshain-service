@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::str::FromStr;
 
-use super::record_audit_log;
+use super::{DEV_MODE_ACTOR, record_audit_log};
 
 pub async fn admin_list_producers(
     State(state): State<AppState>,
@@ -221,6 +221,13 @@ pub async fn admin_delete_producer(
     user: Option<axum::Extension<crate::domain::models::User>>,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
+    // Read the affected release graphs *before* the delete cascades them away.
+    let branches = services::list_participant_branch_references(
+        &state.repo,
+        &name,
+        services::ParticipantRole::Producer,
+    )
+    .await?;
     if services::delete_producer(&state.repo, &name).await? {
         let _ = state.spec_updated_tx.send(());
         record_audit_log(
@@ -228,7 +235,7 @@ pub async fn admin_delete_producer(
             user,
             NewAuditLog {
                 action: "DELETE_SERVICE",
-                details: &format!("Deleted service '{}'", name),
+                details: &format!("Deleted service '{}'{}", name, branch_loss_note(&branches)),
                 service: Some(&name),
                 version: None,
                 action_type: Some("WRITE"),
@@ -237,10 +244,22 @@ pub async fn admin_delete_producer(
             },
         )
         .await?;
-        Ok(StatusCode::OK)
+        Ok(Json(json!({ "deleted": name, "branches": branches })))
     } else {
         Err(AppError::NotFound(format!("Service not found: {}", name)))
     }
+}
+
+/// Names the release graphs a participant delete takes edges out of, for the
+/// audit entry — empty when none, so the common case reads unchanged.
+fn branch_loss_note(branches: &[String]) -> String {
+    if branches.is_empty() {
+        return String::new();
+    }
+    format!(
+        " — removing its edges from sanshain-branch(es): {}",
+        branches.join(", ")
+    )
 }
 
 /// The sole escape hatch from GA immutability (ADR-0003). The UI calls the
@@ -341,13 +360,20 @@ pub async fn admin_delete_consumer(
     user: Option<axum::Extension<crate::domain::models::User>>,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
+    // Read the affected release graphs *before* the delete cascades them away.
+    let branches = services::list_participant_branch_references(
+        &state.repo,
+        &name,
+        services::ParticipantRole::Consumer,
+    )
+    .await?;
     if services::delete_consumer(&state.repo, &name).await? {
         record_audit_log(
             &state.repo,
             user,
             NewAuditLog {
                 action: "DELETE_CLIENT",
-                details: &format!("Deleted client '{}'", name),
+                details: &format!("Deleted client '{}'{}", name, branch_loss_note(&branches)),
                 service: None,
                 version: None,
                 action_type: Some("WRITE"),
@@ -356,7 +382,7 @@ pub async fn admin_delete_consumer(
             },
         )
         .await?;
-        Ok(StatusCode::OK)
+        Ok(Json(json!({ "deleted": name, "branches": branches })))
     } else {
         Err(AppError::NotFound(format!("Client not found: {}", name)))
     }
@@ -813,6 +839,7 @@ pub async fn export_audit_logs_csv(
         let esc_user = log.username.replace('"', "\"\"");
         let esc_action = log.action.replace('"', "\"\"");
         let esc_details = log.details.replace('"', "\"\"");
+        let esc_stream = log.stream.as_deref().unwrap_or("").replace('"', "\"\"");
         csv.push_str(&format!(
             "{},\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\"\n",
             log.id,
@@ -823,7 +850,7 @@ pub async fn export_audit_logs_csv(
             log.service.as_deref().unwrap_or(""),
             log.version.as_deref().unwrap_or(""),
             log.action_type.as_deref().unwrap_or(""),
-            log.stream.as_deref().unwrap_or("")
+            esc_stream
         ));
     }
     let headers = [
@@ -1164,7 +1191,7 @@ pub async fn admin_create_branch(
     let created_by = caller
         .as_ref()
         .map(|axum::Extension(a)| a.username.clone())
-        .unwrap_or_default();
+        .unwrap_or_else(|| DEV_MODE_ACTOR.to_string());
     let branch = services::create_branch(
         &state.repo,
         services::CreateBranchParams {
@@ -1213,7 +1240,7 @@ pub async fn admin_rename_branch(
 ) -> Result<impl IntoResponse, AppError> {
     let actor = user
         .map(|axum::Extension(u)| u.username)
-        .unwrap_or_default();
+        .unwrap_or_else(|| DEV_MODE_ACTOR.to_string());
     let branch = services::rename_branch(&state.repo, &name, &payload.new_name, &actor).await?;
     Ok(Json(branch))
 }
@@ -1225,7 +1252,7 @@ pub async fn admin_delete_branch(
 ) -> Result<impl IntoResponse, AppError> {
     let actor = user
         .map(|axum::Extension(u)| u.username)
-        .unwrap_or_default();
+        .unwrap_or_else(|| DEV_MODE_ACTOR.to_string());
     services::delete_branch(&state.repo, &name, &actor).await?;
     Ok(StatusCode::NO_CONTENT)
 }

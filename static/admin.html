@@ -922,7 +922,7 @@
             const held = user.roles || [];
             const options = grantableRoles()
                 .filter(r => !held.includes(r.role))
-                .map(r => `<option value="${escapeAttr(r.role)}" title="${escapeAttr(roleTitle(r.role))}">${escapeHtml(r.role)}</option>`)
+                .map(r => `<option value="${escapeHtml(r.role)}" title="${escapeHtml(roleTitle(r.role))}">${escapeHtml(r.role)}</option>`)
                 .join('');
             const grant = options
                 ? `<select id="grant-role-${user.id}" class="text-xs rounded border-slate-200">
@@ -1008,7 +1008,7 @@
                         .join(' ');
                     const addable = grantableRoles()
                         .filter(r => !(g.roles || []).includes(r.role))
-                        .map(r => `<option value="${escapeAttr(r.role)}" title="${escapeAttr(roleTitle(r.role))}">${escapeHtml(r.role)}</option>`)
+                        .map(r => `<option value="${escapeHtml(r.role)}" title="${escapeHtml(roleTitle(r.role))}">${escapeHtml(r.role)}</option>`)
                         .join('');
                     const memberIds = g.member_ids || [];
                     const members = directory
@@ -1038,7 +1038,7 @@
                                     <option value="">add role…</option>${addable}
                                 </select>
                                 <button onclick="addGroupRole(${g.id})" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>` : ''}
-                                ${directory ? '' : `<button onclick="confirmDelete('Delete group <strong>${escapeHtml(g.name)}</strong>?', () => deleteGroup(${g.id}))" class="text-red-500 hover:text-red-700 text-sm">Delete</button>`}
+                                ${directory ? '' : `<button onclick="confirmDelete('Delete group <strong>${escapeAttr(g.name)}</strong>?', () => deleteGroup(${g.id}))" class="text-red-500 hover:text-red-700 text-sm">Delete</button>`}
                             </div>
                         </div>
                         <div class="mt-1 space-x-2">${roles || '<span class="text-xs text-slate-400 italic">no roles attached</span>'}</div>
@@ -1147,7 +1147,7 @@
                 const data = await res.json();
                 const producers = data.producers || [];
                 picker.innerHTML = producers
-                    .map(p => `<option value="${escapeAttr(p.producer)}">${escapeHtml(p.producer)}</option>`)
+                    .map(p => `<option value="${escapeHtml(p.producer)}">${escapeHtml(p.producer)}</option>`)
                     .join('');
 
                 const rows = producers
@@ -1229,7 +1229,7 @@
                         <div class="flex items-center space-x-2">
                             ${roleControls(u)}
                             ${!u.approved ? `<button onclick="approveUser(${u.id})" class="text-green-600 hover:text-green-800 text-sm">Approve</button>` : ''}
-                            ${!(u.roles || []).includes('admin') ? `<button onclick="confirmDelete('Delete user <strong>${escapeHtml(u.username)}</strong>?', () => deleteUser(${u.id}))" class="text-red-500 hover:text-red-700 text-sm">Delete</button>` : ''}
+                            ${!(u.roles || []).includes('admin') ? `<button onclick="confirmDelete('Delete user <strong>${escapeAttr(u.username)}</strong>?', () => deleteUser(${u.id}))" class="text-red-500 hover:text-red-700 text-sm">Delete</button>` : ''}
                         </div>
                     </div>
                 `).join('');
@@ -1351,7 +1351,7 @@
                         <div class="flex items-center space-x-3">
                             <button onclick="openMetadataModal('${escapeAttr(svc)}', '${escapeAttr(svcObj.icon || '')}', '${escapeAttr(svcObj.domain || '')}')"
                                 class="text-indigo-600 hover:text-indigo-800 text-sm">Metadata</button>
-                            <button onclick="confirmDelete('Delete service <strong>${escapeHtml(svc)}</strong> and all its data?', () => deleteService('${escapeAttr(svc)}'))"
+                            <button onclick="confirmDelete('Delete service <strong>${escapeAttr(svc)}</strong> and all its data?', () => deleteService('${escapeAttr(svc)}'))"
                                 class="text-red-500 hover:text-red-700 text-sm">Delete</button>
                         </div>
                     </div>
@@ -1484,7 +1484,7 @@
             list.innerHTML = clients.map(c => `
                 <div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
                     <span class="font-medium text-slate-800">${escapeHtml(c)}</span>
-                    <button onclick="confirmDelete('Delete client <strong>${escapeHtml(c)}</strong> and all its dependencies?', () => deleteClient('${escapeAttr(c)}'))"
+                    <button onclick="confirmDelete('Delete client <strong>${escapeAttr(c)}</strong> and all its dependencies?', () => deleteClient('${escapeAttr(c)}'))"
                         class="text-red-500 hover:text-red-700 text-sm">Delete</button>
                 </div>
             `).join('');

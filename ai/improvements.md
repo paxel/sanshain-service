@@ -623,15 +623,41 @@ from trivial lag.
 - Unit-test config parsing for valid, missing, and invalid values.
 - Run `cargo test`.
 
-### 26. Enforce the one-open-record invariant on the pin stores (found 2026-08-07)
+### 26. Make the pin stores hold the invariants they claim (found 2026-08-07)
 
-**Problem:** `record_trunk_pins` and `record_branch_pins` refresh-or-insert with a
+**Problem B — the append-only claim is not enforced against participant deletes.**
+`trunk_dependencies`, `branch_dependencies` and `branch_member_versions` declare
+`client_id`/`service_id` as `ON DELETE CASCADE` (sqlx enables `PRAGMA foreign_keys`, Postgres
+enforces natively), so deleting a Consumer or Producer physically removes their rows from every
+recorded graph — including the *closed* rows the timeline reconstructs from. The migration
+comment states the opposite ("the same append-only shape … closed records are the timeline").
+
+**Impact B:** Retiring a decommissioned service silently rewrites what past release cuts
+recorded: "Release Maribou" loses those edges and its timeline changes retroactively. This is the
+one thing the by-value version design exists to prevent — a deleted *version* leaves a visible
+dangling reference, but a deleted *participant* leaves nothing at all.
+
+**Note:** dropping the cascade alone fixes nothing. Every pin query inner-joins `clients`/
+`services` by id, so an orphaned row is invisible to readers either way, and `ON DELETE RESTRICT`
+would instead block a legitimate admin delete. The real options are (a) denormalize the
+participant *names* into the pin rows so history stands on its own, or (b) soft-delete
+participants and teach the joins to include tombstones. Both are migration + backfill + a rewrite
+of every pin query on both backends — which is why this sits with Problem A: same tables, same
+writers, one migration slot rather than two.
+
+**Interim mitigation shipped 2026-08-07:** `admin_delete_producer`/`admin_delete_consumer` now
+answer `{"deleted", "branches"}` and name the affected release graphs in the audit entry
+(`list_participant_branch_references`), mirroring the delete-version warning. The admin is told;
+the history is still lost.
+
+**Problem A — no constraint enforces one open record per pin key.**
+`record_trunk_pins` and `record_branch_pins` refresh-or-insert with a
 check-then-insert inside a transaction, but nothing in the schema enforces "at most one open
 record per pin key". `idx_trunk_dependencies_open` is non-unique, and under Postgres READ
 COMMITTED two concurrent requires for the same pin each see `rows_affected == 0` on the refresh
 `UPDATE` (neither sees the other's uncommitted `INSERT`) and both insert.
 
-**Impact:** Duplicate open rows for one pin key: the main graph and reports draw the edge twice,
+**Impact A:** Duplicate open rows for one pin key: the main graph and reports draw the edge twice,
 and a later re-pin closes both rows at once, breaking the invariant every reader assumes. SQLite
 serializes writes so it does not reproduce — the two backends silently diverge.
 `record_branch_member_version` has the same check-then-insert shape (its
@@ -663,6 +689,73 @@ half but not this one).
 - Postgres test issuing two concurrent identical trunk requires, asserting exactly one open row.
 - A migration test seeding duplicate open rows and asserting the migration collapses them.
 - Run `cargo test` (the Postgres suites need Docker).
+
+### 28. Release-graph correctness gaps found in review (found 2026-08-08)
+
+Independent defects sharing one theme: a scoped or reconstructed view still mixes in
+present-tense or unfiltered data. Each is small; they are grouped because they are found and
+verified together, not because they must ship together.
+
+1. **Scoped reports carry today's trunk graph.** `generate_scoped_report`
+   (`report_service.rs:93`) replaces only `dependency_graph`; `trunk_graph` and
+   `trunk_stale_before` still come from `generate_report`'s present-tense fill. So
+   `GET /report?scope=main@<past>` is stamped with a historical `scope_label` while carrying
+   today's trunk edges — the masquerade `scope_label` exists to prevent. Fix: for a non-dev
+   scope, either fill `trunk_graph` at the same instant or empty it, as the dev-only overlays
+   already are.
+2. **Main view injects unfiltered producer nodes.** `renderCustomGraph` (`graph.js:724`) adds a
+   node per `trunkVersionMap` key, built from the unfiltered `report.services_detailed` *after*
+   `getFilteredReport` narrowed the edges. A focus tag, Circular mode, or an unchecked protocol
+   filter still draws every trunk-provided producer as an isolated node, so the filters look
+   broken. Fix: intersect the injected nodes with the filtered edge set.
+3. **Dangling/stale dash patterns are overwritten.** `graph.js:1239` unconditionally resets
+   `stroke-dasharray` to `6 3` for missing/pubsub/messaging edges, after the stale (`3 4`) and
+   dangling (`2 5`) patterns were set; the colour chain lets pubsub win too. A dangling AsyncAPI
+   PUB/SUB pin renders identically to a healthy one. Fix: fold dangling/stale into the same
+   decision chain that already resolves colour (the 2026-08-07 fix did this for colour only).
+4. **`list_graph_change_dates` ignores member versions.** Both backends scan only
+   `*_dependencies`, so a branch whose hotfix was a tagged Provide with no tagged require has an
+   empty timeline — no slider marker for a change that happened. Fix: union
+   `branch_member_versions` valid_from/valid_to.
+5. **Bundle entries colliding after normalization are dropped from the pin store.**
+   `record_pins` (`spec_service.rs:1223`) sends one param per raw endpoint, but the store keys on
+   `normalized_path`; the second of two colliding entries hits the refresh branch and vanishes,
+   while `record_dependencies_bulk` keeps both — dev and main graphs then disagree. Fix:
+   deduplicate by normalized key before recording, or make the collision an explicit rejection.
+6. **Timeline slider races itself.** `graph.js:444` binds `input` (not `change`) and fires the
+   async `setTimelinePosition()` unsequenced, so on a slow link the last response to land wins
+   and the graph can settle on an instant the user scrubbed past. Fix: sequence with a request
+   token, or bind `change`.
+7. **`runGraphDiff` has no 401 path.** `graph.html:662` awaits `apiCall` unguarded; `apiCall`
+   throws on 401 and `graph.html` defines no `onSessionExpired`, so an expired session leaves the
+   panel stuck on "Comparing…". `selectBranchView` (`graph.js:481`) only `console.warn`s, leaving
+   the select showing a branch the view never switched to.
+8. **SQLite `delete_branch` is not transactional.** `sqlite_repository.rs:748` issues the child
+   deletes and the branch delete as separate statements; a failure between them leaves a branch
+   whose graph is gone but whose name is still held. Postgres relies on the declared cascade and
+   is atomic — the backends diverge.
+
+**Validation:** each item needs its own regression test; items 1, 4, 5 and 8 are backend and
+belong in `tests/trunk_graph_test.rs`, items 2, 3, 6 and 7 in the Playwright suite.
+
+### 29. Audit stream identifies a branch by name, not id (found 2026-08-08)
+
+**Problem:** every tagged build stamps `audit_logs.stream` with the branch *name*
+(`provide_common`/`require_common`), while `rename_branch`'s doc states "identity is the id:
+membership, timeline and audit stamps survive". Membership and timeline do — they key on
+`branch_id`. Audit stamps do not.
+
+**Impact:** after renaming `rel-1` → `release-maribou`, `/api/audit/timeline?stream=release-maribou`
+returns nothing from before the rename; the history is reachable only under a name that no longer
+exists. Worse, `delete_branch` frees the name, so a new branch reusing it inherits the deleted
+branch's audit stream and "who changed Release Maribou?" merges two different release cuts.
+
+**Note — needs a decision before implementation.** The options are not equivalent:
+(a) stamp `branch_id` and resolve names at read time — correct, but the audit filter is a
+user-typed name and historical rows would need backfilling; (b) rewrite `stream` on rename —
+cheap, but it *edits existing audit rows*, which is a deliberate integrity decision nobody should
+take unilaterally, and it does not fix name reuse after delete; (c) refuse to free a name on
+delete. Ask before implementing.
 
 ### 27. Diff graphs by the key the pin stores actually use (found 2026-08-07)
 

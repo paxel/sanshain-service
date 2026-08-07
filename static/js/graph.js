@@ -361,8 +361,11 @@ function setStreamView(view) {
           : "px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium";
     }
   });
+  // Space-separated: a marker can belong to more than one view — a dangling
+  // pin is drawn in both the main and the branch graph.
   document.querySelectorAll("[data-stream-only]").forEach((el) => {
-    el.classList.toggle("hidden", el.dataset.streamOnly !== view);
+    const views = el.dataset.streamOnly.split(/\s+/);
+    el.classList.toggle("hidden", !views.includes(view));
   });
   window.graphTimelineAt = null;
   window.graphTimelinePins = null;
@@ -707,7 +710,12 @@ function renderCustomGraph(report, svgElement, direction) {
   // Outdated / Snapshot-pinned flags per aggregated edge — and in the main
   // view, major-lag conflicts against the producer's trunk version.
   const isMainView = window.graphStreamView === "main";
-  const trunkVersionMap = isMainView ? graphTrunkVersionMap(report) : null;
+  // Today's trunk versions describe today. On a reconstructed past graph they
+  // would inject producers that were not yet trunk-marked and label the rest
+  // with versions they did not carry then — so the whole map stays out, which
+  // also disables the staleness and major-lag judgments downstream.
+  const trunkVersionMap =
+    isMainView && !window.graphTimelineAt ? graphTrunkVersionMap(report) : null;
   const latestGaMap = graphLatestGaMap(report);
   const edgeHighlightFlags = graphEdgeFlags(report, latestGaMap, trunkVersionMap);
 

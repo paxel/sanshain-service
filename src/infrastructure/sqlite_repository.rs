@@ -1450,6 +1450,13 @@ impl SpecRepository for SqliteSpecRepository {
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // Release cuts are instance data too: without this the branch list and
+        // the graph selector survive a factory reset as empty shells whose
+        // names stay claimed. Their pin rows go with the participants.
+        sqlx::query("DELETE FROM sanshain_branches")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM channel_message_contracts")
             .execute(&mut *tx)
             .await

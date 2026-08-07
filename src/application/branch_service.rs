@@ -21,13 +21,19 @@ pub(crate) fn normalize_instant(field: &str, raw: &str) -> Result<String, AppErr
 /// Split a graph selector `name[@instant]`. The trailing `@<instant>` is only
 /// split off when it parses as a date, so branch names containing `@` keep
 /// working; the instant comes back normalized (see [`normalize_instant`]).
-pub(crate) fn split_selector(raw: &str) -> (&str, Option<String>) {
+///
+/// The one case where a failed parse is an error rather than a name: the
+/// prefix is a built-in selector, which can never be a branch name (they are
+/// reserved), so `main@2026-13-45` is a date typo — saying "no sanshain-branch
+/// 'main@2026-13-45'" would answer the wrong question.
+pub(crate) fn split_selector(raw: &str) -> Result<(&str, Option<String>), AppError> {
     match raw.rsplit_once('@') {
-        Some((name, at)) => match normalize_instant("instant", at) {
-            Ok(normalized) => (name, Some(normalized)),
-            Err(_) => (raw, None),
+        Some((name, at)) => match normalize_instant("the selector's instant", at) {
+            Ok(normalized) => Ok((name, Some(normalized))),
+            Err(e) if RESERVED_BRANCH_NAMES.contains(&name) => Err(e),
+            Err(_) => Ok((raw, None)),
         },
-        None => (raw, None),
+        None => Ok((raw, None)),
     }
 }
 
@@ -241,16 +247,38 @@ pub async fn delete_branch(
 
 /// Check every pin against the version store: a deleted version renders as a
 /// dangling reference (never silently dropped) and heals when re-provided.
+///
+/// Memoized per pin key rather than one sweep of the version store: this runs
+/// on every graph read, and the lookups below are cached, so repeat keys cost
+/// nothing while a full `list_all_spec_versions` scan (unbounded, with a
+/// per-row endpoint count) would be paid in full every time.
 pub(crate) async fn mark_dangling(
     repo: &impl SpecRepository,
     pins: &mut [TrunkPinInfo],
 ) -> Result<(), AppError> {
+    let mut service_ids: std::collections::HashMap<String, Option<i64>> = Default::default();
+    let mut seen: std::collections::HashMap<(i64, ApiType, SemVer), bool> = Default::default();
     for pin in pins.iter_mut() {
-        pin.dangling = match repo.find_service(&pin.service).await? {
-            Some(sid) => repo
-                .find_spec_version(sid, pin.api_type, pin.version)
-                .await?
-                .is_none(),
+        let sid = match service_ids.get(&pin.service) {
+            Some(cached) => *cached,
+            None => {
+                let looked_up = repo.find_service(&pin.service).await?;
+                service_ids.insert(pin.service.clone(), looked_up);
+                looked_up
+            }
+        };
+        pin.dangling = match sid {
+            Some(sid) => match seen.get(&(sid, pin.api_type, pin.version)) {
+                Some(cached) => *cached,
+                None => {
+                    let missing = repo
+                        .find_spec_version(sid, pin.api_type, pin.version)
+                        .await?
+                        .is_none();
+                    seen.insert((sid, pin.api_type, pin.version), missing);
+                    missing
+                }
+            },
             None => true,
         };
     }
@@ -296,7 +324,7 @@ async fn resolve_graph_selection(
     repo: &impl SpecRepository,
     raw: &str,
 ) -> Result<Vec<TrunkPinInfo>, AppError> {
-    let (name, at) = split_selector(raw);
+    let (name, at) = split_selector(raw)?;
     if name == "main" {
         return Ok(match at.as_deref() {
             Some(at) => repo.list_trunk_pins_at(at).await?,
@@ -382,10 +410,14 @@ pub async fn diff_graphs(
         }
     }
 
+    // Producers only: the field says "services", the UI renders it as
+    // "+ service X", and a name is unique per table — folding Consumers in
+    // would both mislabel them and let a same-named Consumer already on the
+    // left mask a genuinely added Producer.
     let names =
         |m: &std::collections::HashMap<(String, String, ApiType, String, String), TrunkPinInfo>| {
             m.values()
-                .flat_map(|p| [p.client.clone(), p.service.clone()])
+                .map(|p| p.service.clone())
                 .collect::<std::collections::BTreeSet<String>>()
         };
     let left_names = names(&left_map);
@@ -423,19 +455,39 @@ mod tests {
 
     #[test]
     fn split_selector_normalizes_instants_into_the_stored_form() {
-        assert_eq!(split_selector("main"), ("main", None));
+        assert_eq!(split_selector("main").unwrap(), ("main", None));
         assert_eq!(
-            split_selector("main@2026-01-01T02:00:00+02:00"),
+            split_selector("main@2026-01-01T02:00:00+02:00").unwrap(),
             ("main", Some("2026-01-01T00:00:00Z".to_string()))
         );
         assert_eq!(
-            split_selector("rel@2026-01-01T00:00:00.250Z"),
+            split_selector("rel@2026-01-01T00:00:00.250Z").unwrap(),
             ("rel", Some("2026-01-01T00:00:00Z".to_string()))
         );
         // A trailing @part that is no date stays part of the name.
         assert_eq!(
-            split_selector("release@candidate"),
+            split_selector("release@candidate").unwrap(),
             ("release@candidate", None)
+        );
+    }
+
+    #[test]
+    fn a_bad_instant_on_a_built_in_selector_is_a_date_error() {
+        // 'main' and 'dev' are reserved, so they can never be branch names —
+        // a failed instant there is a typo, and must say so rather than send
+        // the caller looking for a branch called 'main@2026-13-45'.
+        for raw in ["main@2026-13-45", "dev@yesterday", "trunk@nope"] {
+            match split_selector(raw) {
+                Err(AppError::BadRequest(msg)) => {
+                    assert!(msg.contains("instant"), "{raw} got: {msg}")
+                }
+                other => panic!("{raw} expected a date error, got {other:?}"),
+            }
+        }
+        // A real branch name may still carry an '@' with junk behind it.
+        assert_eq!(
+            split_selector("rel@candidate").unwrap(),
+            ("rel@candidate", None)
         );
     }
 

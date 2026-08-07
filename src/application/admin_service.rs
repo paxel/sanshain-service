@@ -30,6 +30,60 @@ pub async fn nuke_database(
     Ok(())
 }
 
+/// The sanshain-branches whose recorded graph still references this
+/// participant (as Consumer or Producer). Surfaced before deleting it, for
+/// the same reason [`list_version_dependents`] names branches before a
+/// version delete — except the stakes are higher here: the participant's rows
+/// cascade out of every branch graph, so those release cuts lose the edges
+/// retroactively rather than showing them as dangling. Removing that
+/// asymmetry is `ai/improvements.md` #26; until then, say it out loud.
+///
+/// Composed from the branch listing rather than a dedicated query: release
+/// cuts are few and this runs only on the interactive delete path.
+pub async fn list_participant_branch_references(
+    repo: &impl SpecRepository,
+    name: &str,
+    role: ParticipantRole,
+) -> Result<Vec<String>, AppError> {
+    // A Producer can be present in a release cut through a tagged Provide
+    // alone — a hotfix recorded as a member version before anything pins it —
+    // so the pin scan is not the whole picture for that role.
+    let member_branches = match role {
+        ParticipantRole::Producer => match repo.find_service(name).await? {
+            Some(sid) => repo
+                .list_branch_memberships_for_service(sid)
+                .await?
+                .into_iter()
+                .map(|m| m.branch)
+                .collect(),
+            None => Vec::new(),
+        },
+        ParticipantRole::Consumer => Vec::new(),
+    };
+
+    let mut referencing = Vec::new();
+    for branch in repo.list_branches().await? {
+        let pins = repo.list_branch_pins(branch.id, None).await?;
+        let touched = pins.iter().any(|p| match role {
+            ParticipantRole::Consumer => p.client == name,
+            ParticipantRole::Producer => p.service == name,
+        }) || member_branches.contains(&branch.name);
+        if touched {
+            referencing.push(branch.name);
+        }
+    }
+    Ok(referencing)
+}
+
+/// Which side of an edge a delete removes. Names are unique per table, not
+/// across them — one service commonly appears as both — so matching either
+/// column would report release graphs that lose nothing.
+#[derive(Clone, Copy)]
+pub enum ParticipantRole {
+    Consumer,
+    Producer,
+}
+
 pub async fn delete_producer(repo: &impl SpecRepository, name: &str) -> Result<bool, AppError> {
     Ok(repo.delete_producer(name).await?)
 }

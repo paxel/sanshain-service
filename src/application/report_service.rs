@@ -19,7 +19,7 @@ impl ReportScope {
         let Some(raw) = raw else {
             return Ok(ReportScope::Dev);
         };
-        match super::branch_service::split_selector(raw) {
+        match super::branch_service::split_selector(raw)? {
             ("dev", None) => Ok(ReportScope::Dev),
             ("dev", Some(_)) => Err(AppError::BadRequest(
                 "the dev scope is accumulated activity and has no timeline — \
