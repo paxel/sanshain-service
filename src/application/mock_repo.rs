@@ -79,6 +79,8 @@ pub struct MockRepo {
     pub spec_versions: Mutex<Vec<MockSpecVersion>>,
     pub dependencies: Mutex<Vec<MockDependency>>,
     pub trunk_pins: Mutex<Vec<MockTrunkPin>>,
+    pub branches: Mutex<Vec<BranchInfo>>,
+    pub branch_pins: Mutex<Vec<(i64, MockTrunkPin)>>,
     pub clients: Mutex<HashMap<String, i64>>,
     pub next_id: Mutex<i64>,
     pub users: Mutex<Vec<User>>,
@@ -112,6 +114,8 @@ impl MockRepo {
             spec_versions: Mutex::new(Vec::new()),
             dependencies: Mutex::new(Vec::new()),
             trunk_pins: Mutex::new(Vec::new()),
+            branches: Mutex::new(Vec::new()),
+            branch_pins: Mutex::new(Vec::new()),
             clients: Mutex::new(HashMap::new()),
             next_id: Mutex::new(1),
             users: Mutex::new(Vec::new()),
@@ -358,6 +362,142 @@ impl SpecRepository for MockRepo {
             entry.trunk_provided_at = Some(now_iso.to_string());
         }
         Ok(())
+    }
+
+    async fn insert_branch(
+        &self,
+        name: &str,
+        created_at: &str,
+        created_by: &str,
+        source: &str,
+        as_of: &str,
+    ) -> Result<i64, RepositoryError> {
+        let mut branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
+        if branches.iter().any(|b| b.name == name) {
+            return Err(RepositoryError::Conflict);
+        }
+        let id = self.next_id();
+        branches.push(BranchInfo {
+            id,
+            name: name.to_string(),
+            created_at: created_at.to_string(),
+            created_by: created_by.to_string(),
+            source: source.to_string(),
+            as_of: as_of.to_string(),
+        });
+        Ok(id)
+    }
+
+    async fn find_branch(&self, name: &str) -> Result<Option<BranchInfo>, RepositoryError> {
+        Ok(self
+            .branches
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|b| b.name == name)
+            .cloned())
+    }
+
+    async fn list_branches(&self) -> Result<Vec<BranchInfo>, RepositoryError> {
+        let mut branches = self
+            .branches
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        branches.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(b.id.cmp(&a.id)));
+        Ok(branches)
+    }
+
+    async fn copy_trunk_graph_to_branch(
+        &self,
+        branch_id: i64,
+        as_of: &str,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let source: Vec<MockTrunkPin> = self
+            .trunk_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|r| {
+                r.valid_from.as_str() <= as_of && r.valid_to.as_deref().is_none_or(|to| to > as_of)
+            })
+            .cloned()
+            .collect();
+        let mut pins = self
+            .branch_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        for mut row in source {
+            row.valid_from = now_iso.to_string();
+            row.last_required_at = now_iso.to_string();
+            row.valid_to = None;
+            pins.push((branch_id, row));
+        }
+        Ok(())
+    }
+
+    async fn copy_branch_graph_to_branch(
+        &self,
+        target_branch_id: i64,
+        source_branch_id: i64,
+        as_of: &str,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut pins = self
+            .branch_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let source: Vec<MockTrunkPin> = pins
+            .iter()
+            .filter(|(b, r)| {
+                *b == source_branch_id
+                    && r.valid_from.as_str() <= as_of
+                    && r.valid_to.as_deref().is_none_or(|to| to > as_of)
+            })
+            .map(|(_, r)| r.clone())
+            .collect();
+        for mut row in source {
+            row.valid_from = now_iso.to_string();
+            row.last_required_at = now_iso.to_string();
+            row.valid_to = None;
+            pins.push((target_branch_id, row));
+        }
+        Ok(())
+    }
+
+    async fn list_branch_pins(
+        &self,
+        branch_id: i64,
+        at: Option<&str>,
+    ) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        let pins = self
+            .branch_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Ok(pins
+            .iter()
+            .filter(|(b, r)| {
+                *b == branch_id
+                    && match at {
+                        Some(at) => {
+                            r.valid_from.as_str() <= at
+                                && r.valid_to.as_deref().is_none_or(|to| to > at)
+                        }
+                        None => r.valid_to.is_none(),
+                    }
+            })
+            .map(|(_, r)| TrunkPinInfo {
+                client: self.client_name(r.client_id).unwrap_or_default(),
+                service: self.service_name(r.service_id).unwrap_or_default(),
+                api_type: r.api_type,
+                version: r.version,
+                path: r.path.clone(),
+                method: r.method.clone(),
+                valid_from: r.valid_from.clone(),
+                last_required_at: r.last_required_at.clone(),
+            })
+            .collect())
     }
 
     async fn record_trunk_pins(

@@ -735,6 +735,116 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/branches:
+    get:
+      summary: "Read: branches"
+      description: |
+        Every sanshain-branch (ADR-0005), newest first: `id`, `name`,
+        `created_at`, `created_by`, `source` (`trunk` or the source branch's
+        then-current name) and `as_of` (the instant of the source graph the
+        branch was born from).
+      responses:
+        "200":
+          description: The branch listing as a JSON array.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    post:
+      summary: "Write: branches"
+      description: |
+        Requires the `release_ga` permission (the `releaser` role; admins and
+        root hold it implicitly) — creating a named release graph is release
+        work, and this endpoint's primary caller is the **DevOps release-cut
+        script**, which needs nothing beyond this description:
+
+        Creates a **sanshain-branch**: a named copy of a source graph at a
+        chosen instant, from then on updated by `tag`-flagged hotfix builds.
+
+        Body (JSON):
+        - `name` (string, required): unique among existing branches; free
+          text ("Release Maribou"). Duplicate → `409`.
+        - `source` (string, optional): the name of an existing branch to copy
+          from. **Omitted → the trunk graph.** Unknown name → `404`, nothing
+          is created.
+        - `as_of` (string, optional): RFC 3339 instant of the source graph to
+          copy. **Omitted → now.** A past instant creates the branch
+          *retroactively* — trunk-at-that-date is reconstructed from the
+          append-only history, so a forgotten release day is repairable.
+          Malformed → `400`.
+
+        The call is not idempotent: repeating it answers `409`. Creation is
+        audited (`BRANCH_CREATED`, naming the caller, source and instant).
+      responses:
+        "201":
+          description: Created. The body is the branch record (see GET).
+        "400":
+          description: Empty name, or `as_of` is not an RFC 3339 instant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without the `release_ga` permission.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: The `source` branch does not exist. Nothing was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "409":
+          description: A branch with this name already exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/branches/{name}/graph:
+    get:
+      summary: "Read: branches/name/graph"
+      description: |
+        The branch's pin set — its graph edges, each `{client, service,
+        api_type, version, path, method, valid_from, last_required_at}` with
+        the version **by value** (a deleted spec version renders as a dangling
+        reference and heals when the number is re-provided). Optional `at`
+        (RFC 3339) answers the branch's graph as it was at that instant.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: at
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The pin set as a JSON array.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No sanshain-branch with this name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/producers/{name}/endpoints:
     get:
       summary: "Read: producers/name/endpoints"

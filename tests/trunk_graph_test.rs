@@ -386,3 +386,155 @@ async fn trunk_require_bundle_records_pins_for_all_endpoints() {
     let edges = trunk_graph(&ctx).await;
     assert_eq!(edges.len(), 2, "got: {edges:?}");
 }
+
+// ---------------------------------------------------------------------------
+// #34 — sanshain-branches: create and read, incl. retroactive at-date
+// ---------------------------------------------------------------------------
+
+/// A second, unprivileged user (no roles at all) with a real session.
+#[cfg(test)]
+async fn unprivileged_token(ctx: &TestContext) -> String {
+    let repo = SqliteSpecRepository::new(ctx.pool.clone());
+    let hash = services::hash_password("dev-pass").unwrap();
+    let user = repo.create_user("dev", &hash, true).await.unwrap();
+    repo.create_session(user.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap()
+        .token
+}
+
+#[cfg(test)]
+async fn branch_graph(ctx: &TestContext, name: &str) -> Vec<Value> {
+    let encoded = name.replace(' ', "%20");
+    let (status, _, body) = send(
+        ctx,
+        "GET",
+        &format!("/admin/branches/{encoded}/graph"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    as_json(&body).as_array().unwrap().clone()
+}
+
+#[tokio::test]
+async fn branch_creation_is_releaser_gated_and_names_are_unique() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    require_with(&ctx, "webapp", "svc", "1.0.0", "/users", "GET", true).await;
+
+    // An unprivileged user may not create branches.
+    let dev_token = unprivileged_token(&ctx).await;
+    let request = Request::builder()
+        .method("POST")
+        .uri("/admin/branches")
+        .header("Authorization", format!("Bearer {dev_token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({"name": "Release Maribou"})).unwrap(),
+        ))
+        .unwrap();
+    let response = ctx.app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    // The admin (implicit releaser) creates it; a duplicate name answers 409.
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "Release Maribou"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "got: {body}");
+    let created = as_json(&body);
+    assert_eq!(created["name"], "Release Maribou");
+    assert_eq!(created["source"], "trunk");
+
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "Release Maribou"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "got: {body}");
+
+    // The listing names it, and its graph carries the copied trunk pin.
+    let (status, _, body) = send(&ctx, "GET", "/admin/branches", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let listing = as_json(&body);
+    let names: Vec<&str> = listing
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, vec!["Release Maribou"]);
+
+    let graph = branch_graph(&ctx, "Release Maribou").await;
+    assert_eq!(graph.len(), 1, "got: {graph:?}");
+    assert_eq!(graph[0]["client"], "webapp");
+    assert_eq!(graph[0]["version"], "1.0.0");
+}
+
+#[tokio::test]
+async fn retroactive_branch_equals_the_main_graph_as_it_was() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.1.0"), &[]).await;
+
+    require_with(&ctx, "webapp", "svc", "1.0.0", "/users", "GET", true).await;
+    // Give the cut date its own second, then move trunk on.
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    let cut = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    require_with(&ctx, "webapp", "svc", "1.1.0", "/users", "GET", true).await;
+
+    // Retroactive: the branch equals the main graph as it was at the cut.
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "Maribou", "as_of": cut})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "got: {body}");
+    let graph = branch_graph(&ctx, "Maribou").await;
+    assert_eq!(graph.len(), 1, "got: {graph:?}");
+    assert_eq!(graph[0]["version"], "1.0.0");
+
+    // A branch off the current state sees the newer pin; branching off an
+    // existing branch copies that branch's graph.
+    let (status, _, _) = send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "Nightjar"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(branch_graph(&ctx, "Nightjar").await[0]["version"], "1.1.0");
+
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "Maribou-LTS", "source": "Maribou"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "got: {body}");
+    assert_eq!(
+        branch_graph(&ctx, "Maribou-LTS").await[0]["version"],
+        "1.0.0"
+    );
+
+    // An unknown source answers 404.
+    let (status, _, _) = send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "Broken", "source": "Ghost"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

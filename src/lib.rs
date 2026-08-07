@@ -124,6 +124,12 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/producers/{name}/endpoints", get(admin::admin_list_producer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/full-spec", get(admin::admin_get_full_spec).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/diff", get(admin::admin_diff_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
+        // Sanshain-branches (ADR-0005): creation is release work (the cut
+        // script's endpoint) — releaser-guarded; reading is open to any
+        // authenticated caller like the rest of the graph surface.
+        .route("/admin/branches", get(admin::admin_list_branches).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/branches", post(admin::admin_create_branch).layer(require(state.clone(), RouteGuard::Global(Permission::ReleaseGa))))
+        .route("/admin/branches/{name}/graph", get(admin::admin_branch_graph).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers", get(admin::admin_list_consumers).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers/{name}", delete(admin::admin_delete_consumer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageConsumers))))
         .route("/admin/consumers/{name}/endpoints", get(admin::admin_list_consumer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))

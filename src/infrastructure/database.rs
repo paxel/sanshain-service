@@ -113,6 +113,58 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, list_current_trunk_pins())
     }
 
+    async fn insert_branch(
+        &self,
+        name: &str,
+        created_at: &str,
+        created_by: &str,
+        source: &str,
+        as_of: &str,
+    ) -> Result<i64, RepositoryError> {
+        delegate!(
+            self,
+            insert_branch(name, created_at, created_by, source, as_of)
+        )
+    }
+
+    async fn find_branch(&self, name: &str) -> Result<Option<BranchInfo>, RepositoryError> {
+        delegate!(self, find_branch(name))
+    }
+
+    async fn list_branches(&self) -> Result<Vec<BranchInfo>, RepositoryError> {
+        delegate!(self, list_branches())
+    }
+
+    async fn copy_trunk_graph_to_branch(
+        &self,
+        branch_id: i64,
+        as_of: &str,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, copy_trunk_graph_to_branch(branch_id, as_of, now_iso))
+    }
+
+    async fn copy_branch_graph_to_branch(
+        &self,
+        target_branch_id: i64,
+        source_branch_id: i64,
+        as_of: &str,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            copy_branch_graph_to_branch(target_branch_id, source_branch_id, as_of, now_iso)
+        )
+    }
+
+    async fn list_branch_pins(
+        &self,
+        branch_id: i64,
+        at: Option<&str>,
+    ) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        delegate!(self, list_branch_pins(branch_id, at))
+    }
+
     async fn delete_expired_snapshots(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
         delegate!(self, delete_expired_snapshots(cutoff_iso))
     }

@@ -655,6 +655,58 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.list_current_trunk_pins().await
     }
 
+    async fn insert_branch(
+        &self,
+        name: &str,
+        created_at: &str,
+        created_by: &str,
+        source: &str,
+        as_of: &str,
+    ) -> Result<i64, RepositoryError> {
+        self.inner
+            .insert_branch(name, created_at, created_by, source, as_of)
+            .await
+    }
+
+    async fn find_branch(&self, name: &str) -> Result<Option<BranchInfo>, RepositoryError> {
+        self.inner.find_branch(name).await
+    }
+
+    async fn list_branches(&self) -> Result<Vec<BranchInfo>, RepositoryError> {
+        self.inner.list_branches().await
+    }
+
+    async fn copy_trunk_graph_to_branch(
+        &self,
+        branch_id: i64,
+        as_of: &str,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .copy_trunk_graph_to_branch(branch_id, as_of, now_iso)
+            .await
+    }
+
+    async fn copy_branch_graph_to_branch(
+        &self,
+        target_branch_id: i64,
+        source_branch_id: i64,
+        as_of: &str,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .copy_branch_graph_to_branch(target_branch_id, source_branch_id, as_of, now_iso)
+            .await
+    }
+
+    async fn list_branch_pins(
+        &self,
+        branch_id: i64,
+        at: Option<&str>,
+    ) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        self.inner.list_branch_pins(branch_id, at).await
+    }
+
     async fn get_report(&self) -> Result<DependencyReport, RepositoryError> {
         let sentinel = "_all_".to_string();
         if !self.is_disabled()

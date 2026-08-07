@@ -598,6 +598,21 @@ pub struct MissingEndpointInfo {
     pub method: String,
 }
 
+/// A sanshain-branch (ADR-0005): a named graph created by a releaser as a
+/// copy of a source graph at a chosen instant, updated by tagged builds.
+/// Identity is the id; the unique-among-live name is a rename-safe label.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct BranchInfo {
+    pub id: i64,
+    pub name: String,
+    pub created_at: String,
+    pub created_by: String,
+    /// Provenance: `trunk`, or the source branch's then-current name.
+    pub source: String,
+    /// The instant of the source graph the branch was born from.
+    pub as_of: String,
+}
+
 /// One current trunk pin (ADR-0004): the open record of the append-only trunk
 /// dependency store, joined to names. The version is by value — it may
 /// reference a deleted entry (dangling until re-provided).

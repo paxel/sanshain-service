@@ -424,6 +424,195 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(())
     }
 
+    async fn insert_branch(
+        &self,
+        name: &str,
+        created_at: &str,
+        created_by: &str,
+        source: &str,
+        as_of: &str,
+    ) -> Result<i64, RepositoryError> {
+        let res = sqlx::query(
+            "INSERT INTO sanshain_branches (name, created_at, created_by, source, as_of) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(name)
+        .bind(created_at)
+        .bind(created_by)
+        .bind(source)
+        .bind(as_of)
+        .execute(&self.pool)
+        .await;
+        match res {
+            Ok(done) => Ok(done.last_insert_rowid()),
+            Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+                Err(RepositoryError::Conflict)
+            }
+            Err(e) => Err(RepositoryError::Internal(e.to_string())),
+        }
+    }
+
+    async fn find_branch(&self, name: &str) -> Result<Option<BranchInfo>, RepositoryError> {
+        let row: Option<(i64, String, String, String, String, String)> = sqlx::query_as(
+            "SELECT id, name, created_at, created_by, source, as_of FROM sanshain_branches WHERE name = ?",
+        )
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.map(
+            |(id, name, created_at, created_by, source, as_of)| BranchInfo {
+                id,
+                name,
+                created_at,
+                created_by,
+                source,
+                as_of,
+            },
+        ))
+    }
+
+    async fn list_branches(&self) -> Result<Vec<BranchInfo>, RepositoryError> {
+        let rows: Vec<(i64, String, String, String, String, String)> = sqlx::query_as(
+            "SELECT id, name, created_at, created_by, source, as_of FROM sanshain_branches ORDER BY created_at DESC, id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, name, created_at, created_by, source, as_of)| BranchInfo {
+                    id,
+                    name,
+                    created_at,
+                    created_by,
+                    source,
+                    as_of,
+                },
+            )
+            .collect())
+    }
+
+    async fn copy_trunk_graph_to_branch(
+        &self,
+        branch_id: i64,
+        as_of: &str,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT INTO branch_dependencies (branch_id, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
+             SELECT ?, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, ?, ? \
+             FROM trunk_dependencies WHERE valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)",
+        )
+        .bind(branch_id)
+        .bind(now_iso)
+        .bind(now_iso)
+        .bind(as_of)
+        .bind(as_of)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn copy_branch_graph_to_branch(
+        &self,
+        target_branch_id: i64,
+        source_branch_id: i64,
+        as_of: &str,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT INTO branch_dependencies (branch_id, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
+             SELECT ?, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, ?, ? \
+             FROM branch_dependencies WHERE branch_id = ? AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)",
+        )
+        .bind(target_branch_id)
+        .bind(now_iso)
+        .bind(now_iso)
+        .bind(source_branch_id)
+        .bind(as_of)
+        .bind(as_of)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn list_branch_pins(
+        &self,
+        branch_id: i64,
+        at: Option<&str>,
+    ) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        type PinRow = (
+            String,
+            String,
+            String,
+            i64,
+            i64,
+            i64,
+            String,
+            String,
+            String,
+            String,
+        );
+        let base = "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.method, t.valid_from, t.last_required_at \
+             FROM branch_dependencies t \
+             JOIN clients c ON c.id = t.client_id \
+             JOIN services s ON s.id = t.service_id \
+             WHERE t.branch_id = ?";
+        let rows: Vec<PinRow> = match at {
+            Some(at) => {
+                sqlx::query_as(&format!(
+                    "{base} AND t.valid_from <= ? AND (t.valid_to IS NULL OR t.valid_to > ?) ORDER BY c.name, s.name, t.path, t.method"
+                ))
+                .bind(branch_id)
+                .bind(at)
+                .bind(at)
+                .fetch_all(&self.pool)
+                .await
+            }
+            None => {
+                sqlx::query_as(&format!(
+                    "{base} AND t.valid_to IS NULL ORDER BY c.name, s.name, t.path, t.method"
+                ))
+                .bind(branch_id)
+                .fetch_all(&self.pool)
+                .await
+            }
+        }
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        rows.into_iter()
+            .map(
+                |(
+                    client,
+                    service,
+                    api_type,
+                    major,
+                    minor,
+                    patch,
+                    path,
+                    method,
+                    valid_from,
+                    last_required_at,
+                )| {
+                    Ok(TrunkPinInfo {
+                        client,
+                        service,
+                        api_type: api_type
+                            .parse()
+                            .map_err(|e: String| RepositoryError::Internal(e))?,
+                        version: SemVer::new(major as u32, minor as u32, patch as u32),
+                        path,
+                        method,
+                        valid_from,
+                        last_required_at,
+                    })
+                },
+            )
+            .collect()
+    }
+
     async fn record_trunk_pins(
         &self,
         pins: Vec<RecordTrunkPinParams<'_>>,

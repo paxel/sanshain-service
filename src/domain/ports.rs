@@ -200,6 +200,55 @@ pub trait SpecRepository: Send + Sync {
         &self,
     ) -> impl Future<Output = Result<Vec<TrunkPinInfo>, RepositoryError>> + Send;
 
+    /// Create a sanshain-branch record (ADR-0005). `Conflict` when the name
+    /// is already taken by a live branch.
+    fn insert_branch(
+        &self,
+        name: &str,
+        created_at: &str,
+        created_by: &str,
+        source: &str,
+        as_of: &str,
+    ) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
+
+    fn find_branch(
+        &self,
+        name: &str,
+    ) -> impl Future<Output = Result<Option<BranchInfo>, RepositoryError>> + Send;
+
+    fn list_branches(
+        &self,
+    ) -> impl Future<Output = Result<Vec<BranchInfo>, RepositoryError>> + Send;
+
+    /// Copy the trunk graph as it was at `as_of` into the branch as its
+    /// initial open rows (`valid_from = now_iso`). A row was current at
+    /// `as_of` iff `valid_from <= as_of` and (`valid_to` is NULL or
+    /// `valid_to > as_of`).
+    fn copy_trunk_graph_to_branch(
+        &self,
+        branch_id: i64,
+        as_of: &str,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Same as [`SpecRepository::copy_trunk_graph_to_branch`], sourcing from
+    /// another branch's graph at `as_of`.
+    fn copy_branch_graph_to_branch(
+        &self,
+        target_branch_id: i64,
+        source_branch_id: i64,
+        as_of: &str,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// A branch's pin set: the rows current at `at`, or the open rows when
+    /// `at` is `None`.
+    fn list_branch_pins(
+        &self,
+        branch_id: i64,
+        at: Option<&str>,
+    ) -> impl Future<Output = Result<Vec<TrunkPinInfo>, RepositoryError>> + Send;
+
     /// Delete snapshot entries that were neither provided nor required since
     /// the cutoff — GA entries are never age-culled. Returns how many died.
     fn delete_expired_snapshots(

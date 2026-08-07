@@ -24,6 +24,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Requires (and require-bundle) accept the same optional `trunk` flag: the pin is additionally
   recorded in a new append-only trunk store where the last write per endpoint defines the current
   trunk pin set, exposed as `trunk_graph` in the `/report` payload.
+- The graph page gained a Main/Dev toggle (ADR-0004): the main view draws producers at their
+  trunk version with the current trunk pins as edges, highlights major-lag conflicts, and the
+  legend shows only markers the active view can draw.
+- Sanshain-branches (ADR-0005): `POST /admin/branches` (releaser-gated, built for the release-cut
+  script) creates a named copy of the trunk graph — or another branch — at a chosen instant,
+  including retroactively; `GET /admin/branches` lists them and
+  `GET /admin/branches/{name}/graph[?at=…]` answers a branch's pin set.
 
 ### Changed
 - UI messages and docs no longer explain resolution by contrast with removed 1.x mechanics

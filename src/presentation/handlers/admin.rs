@@ -1121,3 +1121,58 @@ pub async fn get_observability_audit_logs(
     let logs: Vec<AuditLogEntry> = state.repo.get_recent_audit_logs(30).await?;
     Ok(Json(logs))
 }
+
+// ── Sanshain-branches (ADR-0005) ─────────────────────────────────────────
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateBranchRequest {
+    pub name: String,
+    /// An existing branch's name; trunk when omitted.
+    pub source: Option<String>,
+    /// RFC 3339 instant; now when omitted (retroactive creation).
+    pub as_of: Option<String>,
+}
+
+pub async fn admin_create_branch(
+    State(state): State<AppState>,
+    caller: Option<axum::Extension<crate::domain::permissions::Actor>>,
+    Json(payload): Json<CreateBranchRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let created_by = caller
+        .as_ref()
+        .map(|axum::Extension(a)| a.username.clone())
+        .unwrap_or_default();
+    let branch = services::create_branch(
+        &state.repo,
+        services::CreateBranchParams {
+            name: &payload.name,
+            source: payload.source.as_deref(),
+            as_of: payload.as_of.as_deref(),
+            created_by: &created_by,
+        },
+    )
+    .await?;
+    Ok((StatusCode::CREATED, Json(branch)))
+}
+
+pub async fn admin_list_branches(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(services::list_branches(&state.repo).await?))
+}
+
+#[derive(Deserialize)]
+pub struct BranchGraphQuery {
+    /// Render the branch's graph as it was at this RFC 3339 instant.
+    pub at: Option<String>,
+}
+
+pub async fn admin_branch_graph(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Query(query): Query<BranchGraphQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let pins = services::get_branch_graph(&state.repo, &name, query.at.as_deref()).await?;
+    Ok(Json(pins))
+}
