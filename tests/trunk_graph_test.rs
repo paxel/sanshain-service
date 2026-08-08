@@ -1660,3 +1660,37 @@ async fn a_scoped_report_carries_no_present_tense_trunk_block() {
         assert_eq!(report["dependency_graph"].as_array().unwrap().len(), 1);
     }
 }
+
+#[tokio::test]
+async fn a_tag_provide_alone_puts_a_marker_on_the_branch_timeline() {
+    let ctx = setup().await;
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({ "name": "rel-1" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "got: {body}");
+
+    // A hotfix tagged into the branch, with no tagged require alongside it:
+    // the branch moved, so the slider must offer that instant.
+    let (status, _) = provide_with(
+        &ctx,
+        "svc",
+        "snapshot",
+        &spec("1.0.0"),
+        &[("tag", json!("rel-1"))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    let (status, _, body) = send(&ctx, "GET", "/admin/branches/rel-1/timeline", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let marks = as_json(&body);
+    assert_eq!(
+        marks.as_array().unwrap().len(),
+        1,
+        "the member-version change must be a timeline marker: {body}"
+    );
+}

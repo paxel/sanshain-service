@@ -637,7 +637,15 @@ impl SpecRepository for SqliteSpecRepository {
             }
             Some(bid) => {
                 sqlx::query_as(
-                    "SELECT DISTINCT d FROM (SELECT valid_from AS d FROM branch_dependencies WHERE branch_id = ?1 UNION SELECT valid_to AS d FROM branch_dependencies WHERE branch_id = ?1 AND valid_to IS NOT NULL) ORDER BY d",
+                    // Member versions count as graph changes too: a hotfix
+                    // tag-provided with no accompanying tagged require moves
+                    // the branch without touching branch_dependencies, and the
+                    // slider must still offer that instant.
+                    "SELECT DISTINCT d FROM (\
+                       SELECT valid_from AS d FROM branch_dependencies WHERE branch_id = ?1 \
+                       UNION SELECT valid_to AS d FROM branch_dependencies WHERE branch_id = ?1 AND valid_to IS NOT NULL \
+                       UNION SELECT valid_from AS d FROM branch_member_versions WHERE branch_id = ?1 \
+                       UNION SELECT valid_to AS d FROM branch_member_versions WHERE branch_id = ?1 AND valid_to IS NOT NULL) ORDER BY d",
                 )
                 .bind(bid)
                 .fetch_all(&self.pool)
