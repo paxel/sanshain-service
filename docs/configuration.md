@@ -31,6 +31,11 @@ Sanshain Service can be configured using environment variables.
 | `RUST_LOG`                     | `sanshain_service=info,tower_http=info`   | Log level filter (e.g., `sanshain_service=debug,tower_http=debug` for verbose output).                    |
 | `EXTRA_CA_CERTS_DIR`           | *unset*                                   | Directory of additional CA certificates to trust for outbound TLS. See below.                             |
 
+Invalid values are refused at startup rather than silently replaced by the default: a numeric
+setting that is not a number, or a fixed-vocabulary setting (`LOG_FORMAT`, `OTEL_ENABLED`) with an
+unrecognised value, makes the service exit with a message naming the variable. A typo should not
+leave you running with settings you did not choose.
+
 ## Root users
 
 `SANSHAIN_ROOT_USERS` names the accounts that hold every permission, including permissions added by
