@@ -1492,7 +1492,7 @@ async fn a_date_typo_on_a_built_in_selector_reports_the_date() {
 }
 
 #[tokio::test]
-async fn deleting_a_participant_names_the_release_graphs_it_touches() {
+async fn a_release_graph_blocks_deleting_its_participants() {
     let ctx = setup().await;
     provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
     assert_eq!(
@@ -1508,31 +1508,21 @@ async fn deleting_a_participant_names_the_release_graphs_it_touches() {
     .await;
     assert_eq!(status, StatusCode::CREATED, "got: {body}");
 
-    // Deleting the consumer takes its edges out of the release graph — the
-    // response and the audit entry both name what was affected.
+    // Both sides of a recorded edge are protected, and the refusal names the
+    // release cut so the admin knows what to retire first.
+    for target in ["consumers/web", "producers/svc"] {
+        let (status, _, body) = send(&ctx, "DELETE", &format!("/admin/{target}"), None).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{target} got: {body}");
+        assert!(body.contains("rel-1"), "{target} got: {body}");
+    }
+
+    // Trunk presence alone does not block: with the branch gone the same
+    // delete succeeds, even though the trunk pin still references it.
+    let (status, _, body) = send(&ctx, "DELETE", "/admin/branches/rel-1", None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "got: {body}");
     let (status, _, body) = send(&ctx, "DELETE", "/admin/consumers/web", None).await;
     assert_eq!(status, StatusCode::OK, "got: {body}");
-    let res = as_json(&body);
-    assert_eq!(res["deleted"], "web");
-    assert_eq!(
-        res["branches"].as_array().unwrap(),
-        &vec![json!("rel-1")],
-        "got: {body}"
-    );
-
-    let (status, _, body) = send(&ctx, "GET", "/api/audit/timeline", None).await;
-    assert_eq!(status, StatusCode::OK, "got: {body}");
-    let entries = as_json(&body);
-    let deletion = entries
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|e| e["action"] == "DELETE_CLIENT")
-        .expect("the deletion must be audited");
-    assert!(
-        deletion["details"].as_str().unwrap().contains("rel-1"),
-        "the audit entry must name the affected release graph: {deletion}"
-    );
+    assert_eq!(as_json(&body)["deleted"], "web");
 }
 
 #[tokio::test]
@@ -1634,13 +1624,10 @@ async fn a_tag_only_producer_still_counts_as_a_branch_reference() {
     .await;
     assert_eq!(status, StatusCode::ACCEPTED);
 
+    // Presence via the member-version row alone must still block the delete.
     let (status, _, body) = send(&ctx, "DELETE", "/admin/producers/svc", None).await;
-    assert_eq!(status, StatusCode::OK, "got: {body}");
-    assert_eq!(
-        as_json(&body)["branches"].as_array().unwrap(),
-        &vec![json!("rel-1")],
-        "a tag-only producer is still a release-graph reference: {body}"
-    );
+    assert_eq!(status, StatusCode::CONFLICT, "got: {body}");
+    assert!(body.contains("rel-1"), "got: {body}");
 }
 
 #[tokio::test]

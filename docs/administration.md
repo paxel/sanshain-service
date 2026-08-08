@@ -94,6 +94,8 @@ The **Sanshain-Branches** dashboard section manages release cuts ([ADR-0005](adr
 
 Deleting a *version* that branches reference leaves those pins visibly dangling (never silently dropped); the delete-version confirmation names the referencing branches alongside pinned Consumers, and a later re-provide of the number heals them.
 
+Deleting a *Producer or Consumer* is refused with `409` while any sanshain-branch's recorded graph still references it — the participant's rows would cascade out of release cuts that already happened, rewriting them retroactively. The message names the branches to retire first. Trunk presence does not block the delete: trunk is the living stream and ages out on its own TTL.
+
 ## Local User Management
 
 Sanshain supports local user accounts with the following settings in the **User Management** tab:

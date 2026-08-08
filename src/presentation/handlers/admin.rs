@@ -221,13 +221,6 @@ pub async fn admin_delete_producer(
     user: Option<axum::Extension<crate::domain::models::User>>,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Read the affected release graphs *before* the delete cascades them away.
-    let branches = services::list_participant_branch_references(
-        &state.repo,
-        &name,
-        services::ParticipantRole::Producer,
-    )
-    .await?;
     if services::delete_producer(&state.repo, &name).await? {
         let _ = state.spec_updated_tx.send(());
         record_audit_log(
@@ -235,7 +228,7 @@ pub async fn admin_delete_producer(
             user,
             NewAuditLog {
                 action: "DELETE_SERVICE",
-                details: &format!("Deleted service '{}'{}", name, branch_loss_note(&branches)),
+                details: &format!("Deleted service '{}'", name),
                 service: Some(&name),
                 version: None,
                 action_type: Some("WRITE"),
@@ -244,22 +237,10 @@ pub async fn admin_delete_producer(
             },
         )
         .await?;
-        Ok(Json(json!({ "deleted": name, "branches": branches })))
+        Ok(Json(json!({ "deleted": name })))
     } else {
         Err(AppError::NotFound(format!("Service not found: {}", name)))
     }
-}
-
-/// Names the release graphs a participant delete takes edges out of, for the
-/// audit entry — empty when none, so the common case reads unchanged.
-fn branch_loss_note(branches: &[String]) -> String {
-    if branches.is_empty() {
-        return String::new();
-    }
-    format!(
-        " — removing its edges from sanshain-branch(es): {}",
-        branches.join(", ")
-    )
 }
 
 /// The sole escape hatch from GA immutability (ADR-0003). The UI calls the
@@ -360,20 +341,13 @@ pub async fn admin_delete_consumer(
     user: Option<axum::Extension<crate::domain::models::User>>,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Read the affected release graphs *before* the delete cascades them away.
-    let branches = services::list_participant_branch_references(
-        &state.repo,
-        &name,
-        services::ParticipantRole::Consumer,
-    )
-    .await?;
     if services::delete_consumer(&state.repo, &name).await? {
         record_audit_log(
             &state.repo,
             user,
             NewAuditLog {
                 action: "DELETE_CLIENT",
-                details: &format!("Deleted client '{}'{}", name, branch_loss_note(&branches)),
+                details: &format!("Deleted client '{}'", name),
                 service: None,
                 version: None,
                 action_type: Some("WRITE"),
@@ -382,7 +356,7 @@ pub async fn admin_delete_consumer(
             },
         )
         .await?;
-        Ok(Json(json!({ "deleted": name, "branches": branches })))
+        Ok(Json(json!({ "deleted": name })))
     } else {
         Err(AppError::NotFound(format!("Client not found: {}", name)))
     }

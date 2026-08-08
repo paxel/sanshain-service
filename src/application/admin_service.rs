@@ -84,11 +84,41 @@ pub enum ParticipantRole {
     Producer,
 }
 
+/// A participant's rows cascade out of every graph that references them, and
+/// a sanshain-branch is a frozen record — losing edges from a recorded release
+/// cut would rewrite history retroactively. So the delete is refused while any
+/// branch still references the participant, naming them so the admin knows
+/// what to retire first.
+///
+/// Trunk presence deliberately does *not* block: trunk is the living stream,
+/// it already churns and ages out on its TTL, and with trunk CI in use almost
+/// every participant appears there — blocking on it would make retiring a
+/// decommissioned service impossible. The trunk timeline does lose that
+/// participant's closed rows; see `ai/improvements.md` #26.
+async fn refuse_if_a_release_graph_needs_it(
+    repo: &impl SpecRepository,
+    name: &str,
+    role: ParticipantRole,
+) -> Result<(), AppError> {
+    let branches = list_participant_branch_references(repo, name, role).await?;
+    if branches.is_empty() {
+        return Ok(());
+    }
+    Err(AppError::Conflict(format!(
+        "'{name}' is part of the recorded graph of sanshain-branch(es) {} — \
+         deleting it would remove those edges from release cuts that already \
+         happened. Delete the branch(es) first if the record is no longer needed.",
+        branches.join(", ")
+    )))
+}
+
 pub async fn delete_producer(repo: &impl SpecRepository, name: &str) -> Result<bool, AppError> {
+    refuse_if_a_release_graph_needs_it(repo, name, ParticipantRole::Producer).await?;
     Ok(repo.delete_producer(name).await?)
 }
 
 pub async fn delete_consumer(repo: &impl SpecRepository, name: &str) -> Result<bool, AppError> {
+    refuse_if_a_release_graph_needs_it(repo, name, ParticipantRole::Consumer).await?;
     Ok(repo.delete_consumer(name).await?)
 }
 

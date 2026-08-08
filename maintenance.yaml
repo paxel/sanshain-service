@@ -269,9 +269,11 @@ paths:
       description: |
         Requires the `manage_consumers` permission.
 
-        Answers `{"deleted": name, "branches": [...]}`. `branches` names the
-        sanshain-branches whose recorded graph referenced the Consumer: their
-        edges go with it, so those release cuts change retroactively.
+        Answers `{"deleted": name}`. Refused with `409` while any
+        sanshain-branch's recorded graph still references the Consumer — a
+        release cut is a frozen record, and the delete would remove its edges
+        retroactively. The message names the branches to retire first. Trunk
+        presence does not block.
       parameters:
         - name: name
           in: path
@@ -828,9 +830,11 @@ paths:
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
 
-        Answers `{"deleted": name, "branches": [...]}`. `branches` names the
-        sanshain-branches whose recorded graph referenced the Producer: their
-        edges go with it, so those release cuts change retroactively.
+        Answers `{"deleted": name}`. Refused with `409` while any
+        sanshain-branch's recorded graph still references the Producer — a
+        release cut is a frozen record, and the delete would remove its edges
+        retroactively. The message names the branches to retire first. Trunk
+        presence does not block.
       parameters:
         - name: name
           in: path
