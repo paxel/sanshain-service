@@ -1642,3 +1642,34 @@ async fn a_tag_only_producer_still_counts_as_a_branch_reference() {
         "a tag-only producer is still a release-graph reference: {body}"
     );
 }
+
+#[tokio::test]
+async fn a_scoped_report_carries_no_present_tense_trunk_block() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    assert_eq!(
+        require_with(&ctx, "web", "svc", "1.0.0", "/users", "GET", true).await,
+        StatusCode::OK
+    );
+
+    // The dev scope is the live view and keeps the trunk block.
+    let (status, _, body) = send(&ctx, "GET", "/report", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let dev = as_json(&body);
+    assert_eq!(dev["trunk_graph"].as_array().unwrap().len(), 1);
+    assert!(dev["trunk_stale_before"].is_string());
+
+    // A scoped report must not ship today's trunk edges beside a past label.
+    for scope in ["main", "main@2100-01-01T00:00:00Z"] {
+        let (status, _, body) = send(&ctx, "GET", &format!("/report?scope={scope}"), None).await;
+        assert_eq!(status, StatusCode::OK, "{scope} got: {body}");
+        let report = as_json(&body);
+        assert!(
+            report["trunk_graph"].as_array().unwrap().is_empty(),
+            "{scope} must not carry a trunk graph: {body}"
+        );
+        assert!(report["trunk_stale_before"].is_null(), "{scope}: {body}");
+        // The scope's own edges are still there.
+        assert_eq!(report["dependency_graph"].as_array().unwrap().len(), 1);
+    }
+}

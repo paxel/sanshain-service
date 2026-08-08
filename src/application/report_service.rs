@@ -95,6 +95,15 @@ pub async fn generate_scoped_report(
     scope: ReportScope,
 ) -> Result<DependencyReport, AppError> {
     let mut report = generate_report(repo).await?;
+    // Outside the dev scope the trunk block is present-tense data that would
+    // contradict the scope stamped beside it: `main@<past>` would carry the
+    // edges trunk has *today*, which is exactly the masquerade `scope_label`
+    // exists to prevent. Emptied like the other dev-only overlays; a caller
+    // that wants live trunk asks for the dev scope.
+    if !matches!(scope, ReportScope::Dev) {
+        report.trunk_graph = Vec::new();
+        report.trunk_stale_before = None;
+    }
     match scope {
         ReportScope::Dev => {}
         ReportScope::Main { at } => {
