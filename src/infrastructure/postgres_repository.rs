@@ -804,8 +804,13 @@ impl SpecRepository for PostgresSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             if refreshed.rows_affected() == 0 {
                 sqlx::query(
+                    // See record_trunk_pins: the unique partial index settles
+                    // the concurrent first-insert race.
                     "INSERT INTO branch_dependencies (branch_id, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) \
+                     ON CONFLICT (branch_id, client_id, service_id, api_type, normalized_path, method) \
+                     WHERE valid_to IS NULL \
+                     DO UPDATE SET last_required_at = EXCLUDED.last_required_at",
                 )
                 .bind(branch_id)
                 .bind(p.client_id)
@@ -925,9 +930,15 @@ impl SpecRepository for PostgresSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             // …and a new pin key or a closed record gets a fresh open one.
             if refreshed.rows_affected() == 0 {
+                // The unique partial index decides the race: a concurrent
+                // transaction that inserted this key first wins, and this one
+                // refreshes its row instead of erroring or duplicating it.
                 sqlx::query(
                     "INSERT INTO trunk_dependencies (client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) \
+                     ON CONFLICT (client_id, service_id, api_type, normalized_path, method) \
+                     WHERE valid_to IS NULL \
+                     DO UPDATE SET last_required_at = EXCLUDED.last_required_at",
                 )
                 .bind(p.client_id)
                 .bind(p.service_id)

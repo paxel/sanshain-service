@@ -1766,3 +1766,36 @@ async fn a_respelled_path_diffs_as_a_version_change_not_a_swap() {
         "a respelling is not a dropped dependency: {body}"
     );
 }
+
+#[tokio::test]
+async fn the_schema_enforces_one_open_row_per_pin_key() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    assert_eq!(
+        require_with(&ctx, "web", "svc", "1.0.0", "/users", "GET", true).await,
+        StatusCode::OK
+    );
+    let rows = trunk_dependency_rows(&ctx).await;
+    assert_eq!(rows.len(), 1, "got: {rows:?}");
+
+    // The writers' check-then-insert is no longer the only thing keeping the
+    // invariant: a second open row for the same key is rejected by the schema,
+    // which is what makes the Postgres race unreachable rather than unlikely.
+    let dup = sqlx::query(
+        "INSERT INTO trunk_dependencies \
+         (client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
+         SELECT client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at \
+         FROM trunk_dependencies WHERE valid_to IS NULL",
+    )
+    .execute(&ctx.pool)
+    .await;
+    assert!(dup.is_err(), "a duplicate open row must be rejected");
+
+    // A *closed* duplicate is still allowed — that is the timeline.
+    assert_eq!(
+        require_with(&ctx, "web", "svc", "1.0.0", "/users", "GET", true).await,
+        StatusCode::OK
+    );
+    let rows = trunk_dependency_rows(&ctx).await;
+    assert_eq!(rows.len(), 1, "an identical re-require refreshes: {rows:?}");
+}

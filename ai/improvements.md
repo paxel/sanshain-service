@@ -650,7 +650,9 @@ answer `{"deleted", "branches"}` and name the affected release graphs in the aud
 (`list_participant_branch_references`), mirroring the delete-version warning. The admin is told;
 the history is still lost.
 
-**Problem A — no constraint enforces one open record per pin key.**
+**Problem A — DONE (2026-08-08).** A UNIQUE partial index now enforces one open record per
+pin key on all three tables, and the writers insert with `ON CONFLICT … DO UPDATE` so the loser
+of a race refreshes the winner's row. Original text:
 `record_trunk_pins` and `record_branch_pins` refresh-or-insert with a
 check-then-insert inside a transaction, but nothing in the schema enforces "at most one open
 record per pin key". `idx_trunk_dependencies_open` is non-unique, and under Postgres READ
