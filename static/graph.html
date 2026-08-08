@@ -134,7 +134,8 @@
                      line's latest GA) and Snapshot-pinned (Pin served from a
                      Snapshot). Display states, never resolution inputs. -->
                 <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
-                    <button id="highlight-outdated" class="px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('outdated')" title="Highlight dependencies whose Pin is semantically below the latest GA of the line">Outdated</button>
+                    <button id="highlight-outdated" class="px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('outdated')" title="Highlight dependencies whose Pin is below the latest GA of the line within the same major">Outdated</button>
+                    <button id="highlight-breaking-outdated" class="px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('breakingOutdated')" title="Highlight dependencies whose Pin is a whole major behind the latest GA of the line">Major behind</button>
                     <button id="highlight-snapshot" class="px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('snapshot')" title="Highlight dependencies served from a Snapshot (building against overwritable content)">Snapshot-pinned</button>
                 </div>
                 <button id="graph-direction-toggle"
@@ -242,6 +243,10 @@
                         <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f43f5e"></span>
                         <span>Outdated Pin</span>
                     </div>
+                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:breakingOutdated">
+                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#be123c"></span>
+                        <span>Major behind</span>
+                    </div>
                     <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:snapshot">
                         <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f59e0b"></span>
                         <span>Snapshot-pinned</span>
@@ -262,8 +267,8 @@
                         <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">Producer Tags</p>
                         <div class="space-y-2">
                             <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:tag-messaging">
-                                <span class="w-4 text-center text-[10px]">🛢️</span>
-                                <span>Kafka</span>
+                                <span class="w-4 text-center text-[10px]">✉</span>
+                                <span>Messaging</span>
                             </div>
                             <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:tag-grpc">
                                 <span class="w-4 text-center text-[10px]">⛓️</span>
@@ -806,6 +811,7 @@
 
         const highlights = [];
         if (window.graphHighlightFilters.outdated) highlights.push('outdated');
+        if (window.graphHighlightFilters.breakingOutdated) highlights.push('breakingOutdated');
         if (window.graphHighlightFilters.snapshot) highlights.push('snapshot');
 
         const params = new URLSearchParams();
@@ -858,6 +864,7 @@
         const highlightSet = new Set((params.get('highlight') || '').split(',').filter(Boolean));
         window.graphHighlightFilters = {
             outdated: highlightSet.has('outdated'),
+            breakingOutdated: highlightSet.has('breakingOutdated'),
             snapshot: highlightSet.has('snapshot'),
         };
         updateHighlightButtons();

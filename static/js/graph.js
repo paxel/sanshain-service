@@ -17,10 +17,13 @@ window.graphProtocolFilters = {
   proto: true,
 };
 // Independent display-state highlights (never resolution inputs):
-// outdated = Pin semantically below the line's latest GA;
+// outdated = Pin below the line's latest GA within the same major;
+// breakingOutdated = Pin a whole major behind it — the same binary "outdated"
+//   before, which made one patch behind and three majors behind look identical;
 // snapshot = Pin currently served from a Snapshot.
 window.graphHighlightFilters = {
   outdated: false,
+  breakingOutdated: false,
   snapshot: false,
 };
 // Which stream the graph shows (ADR-0004/0005): 'dev' is the classic
@@ -56,6 +59,8 @@ window.graphTrunkVersionMap = graphTrunkVersionMap;
 
 const GRAPH_OUTDATED_COLOR = "#f43f5e";
 const GRAPH_SNAPSHOT_COLOR = "#f59e0b";
+// A major behind is a different kind of problem, so it gets its own colour.
+const GRAPH_BREAKING_OUTDATED_COLOR = "#be123c";
 
 function _graphCompareSemver(a, b) {
   const pa = String(a)
@@ -100,7 +105,13 @@ function graphEdgeFlags(report, latestGaMap, trunkVersionMap) {
   (report.dependency_graph || []).forEach((d) => {
     const key = `${d.client}-->${d.service}`;
     if (!flags.has(key))
-      flags.set(key, { outdated: false, snapshot: false, conflict: false, stale: false });
+      flags.set(key, {
+        outdated: false,
+        breakingOutdated: false,
+        snapshot: false,
+        conflict: false,
+        stale: false,
+      });
     const f = flags.get(key);
     // Main view: a pin not refreshed since half the trunk TTL is a
     // forgotten thing — shown as such before the cleanup culls it.
@@ -111,7 +122,12 @@ function graphEdgeFlags(report, latestGaMap, trunkVersionMap) {
     if (d.stability === "snapshot") f.snapshot = true;
     const typeKey = `${d.service}|${(d.api_type || "openapi").toLowerCase()}`;
     const latestGa = latestGaMap.get(typeKey);
-    if (latestGa && _graphCompareSemver(d.version, latestGa) < 0) f.outdated = true;
+    if (latestGa && _graphCompareSemver(d.version, latestGa) < 0) {
+      // Two tiers: behind within the same major is an upgrade waiting to
+      // happen; a whole major behind means the contract moved underneath.
+      if (parseInt(d.version, 10) < parseInt(latestGa, 10)) f.breakingOutdated = true;
+      else f.outdated = true;
+    }
     // Main view: a pin a whole major behind the producer's trunk version is a
     // conflict, drawn loud (ADR-0004).
     if (conflictMap) {
@@ -127,6 +143,7 @@ window.graphEdgeFlags = graphEdgeFlags;
 function updateHighlightButtons() {
   const styles = [
     ["highlight-outdated", "outdated", "bg-rose-500 text-white"],
+    ["highlight-breaking-outdated", "breakingOutdated", "bg-rose-800 text-white"],
     ["highlight-snapshot", "snapshot", "bg-amber-500 text-white"],
   ];
   for (const [id, filter, activeClasses] of styles) {
@@ -162,8 +179,8 @@ function applyGraphHighlights() {
   const edges = window._graphEdgeElements;
   if (!nodes || !edges) return;
 
-  const { outdated, snapshot } = window.graphHighlightFilters;
-  if (!outdated && !snapshot) {
+  const { outdated, breakingOutdated, snapshot } = window.graphHighlightFilters;
+  if (!outdated && !breakingOutdated && !snapshot) {
     edges.forEach((els) => {
       els.path.style.opacity = "1";
       els.path.setAttribute("stroke", els.path.dataset.baseStroke);
@@ -178,10 +195,16 @@ function applyGraphHighlights() {
   const litNodes = new Set();
   edges.forEach((els, key) => {
     const isOutdated = outdated && els.path.dataset.outdated === "1";
+    const isBreaking = breakingOutdated && els.path.dataset.breakingOutdated === "1";
     const isSnapshot = snapshot && els.path.dataset.snapshot === "1";
-    if (isOutdated || isSnapshot) {
+    if (isOutdated || isBreaking || isSnapshot) {
       els.path.style.opacity = "1";
-      els.path.setAttribute("stroke", isOutdated ? GRAPH_OUTDATED_COLOR : GRAPH_SNAPSHOT_COLOR);
+      const lit = isBreaking
+        ? GRAPH_BREAKING_OUTDATED_COLOR
+        : isOutdated
+          ? GRAPH_OUTDATED_COLOR
+          : GRAPH_SNAPSHOT_COLOR;
+      els.path.setAttribute("stroke", lit);
       els.path.setAttribute("stroke-width", "3");
       const [from, to] = key.split("-->");
       litNodes.add(from);
@@ -782,23 +805,17 @@ function renderCustomGraph(report, svgElement, direction) {
     }
   }
 
-  // Derive client tags from dependency api_type (clients don't have service_tags)
+  // Node badges come from the server's service_tags only. Deriving them from a
+  // dependency's api_type marked every *consumer* of an async API as a
+  // messaging provider too, so one producer and three consumers all wore the
+  // badge and the view misstated who provides messaging. A consumer's async
+  // involvement stays visible as the edge's api-type.
   if (!report.service_tags) report.service_tags = {};
-  deps.forEach((d) => {
-    const type = (d.api_type || "").toLowerCase();
-    if (type === "asyncapi") {
-      if (!report.service_tags[d.client]) report.service_tags[d.client] = [];
-      if (!report.service_tags[d.client].includes("messaging"))
-        report.service_tags[d.client].push("messaging");
-    } else if (type === "proto") {
-      if (!report.service_tags[d.client]) report.service_tags[d.client] = [];
-      if (!report.service_tags[d.client].includes("grpc"))
-        report.service_tags[d.client].push("grpc");
-    }
-  });
 
-  // Inject virtual KAFKA node if any asyncapi dependency exists
-  const KAFKA_NODE = "KAFKA";
+  // A virtual node standing for "these services talk over a broker". Named
+  // BROKER, not KAFKA: Sanshain has no evidence of which broker, and asserting
+  // a product in an architecture view is a claim it cannot support.
+  const BROKER_NODE = "BROKER";
   const messagingRegisterEdges = new Set();
   const asyncClients = new Set();
   deps.forEach((d) => {
@@ -808,16 +825,16 @@ function renderCustomGraph(report, svgElement, direction) {
     }
   });
   if (asyncClients.size > 0) {
-    allNodes.add(KAFKA_NODE);
-    serviceNodes.add(KAFKA_NODE);
+    allNodes.add(BROKER_NODE);
+    serviceNodes.add(BROKER_NODE);
     // Ensure service_tags includes messaging tag for the virtual node
     if (!report.service_tags) report.service_tags = {};
-    report.service_tags[KAFKA_NODE] = ["messaging"];
-    // Link all async-involved services to KAFKA
+    report.service_tags[BROKER_NODE] = ["messaging"];
+    // Link all async-involved services to the broker node
     for (const svc of asyncClients) {
       if (!adjMap.has(svc)) adjMap.set(svc, []);
-      if (!adjMap.get(svc).includes(KAFKA_NODE)) adjMap.get(svc).push(KAFKA_NODE);
-      const key = `${svc}-->${KAFKA_NODE}`;
+      if (!adjMap.get(svc).includes(BROKER_NODE)) adjMap.get(svc).push(BROKER_NODE);
+      const key = `${svc}-->${BROKER_NODE}`;
       if (!edgeLabels.has(key)) edgeLabels.set(key, []);
       edgeLabels.get(key).push({ method: "PUB/SUB", path: "register", api_type: "AsyncAPI" });
       // Mark these edges as messaging-register (grey dashed, no arrows)
@@ -1268,6 +1285,7 @@ function renderCustomGraph(report, svgElement, direction) {
     // Snapshot-pinned toggles can restyle and restore without a redraw. The
     // stale/dangling colors live in edgeColor above, so baseStroke keeps them.
     path.dataset.outdated = hFlags && hFlags.outdated ? "1" : "0";
+    path.dataset.breakingOutdated = hFlags && hFlags.breakingOutdated ? "1" : "0";
     path.dataset.snapshot = hFlags && hFlags.snapshot ? "1" : "0";
     path.dataset.conflict = hFlags && hFlags.conflict ? "1" : "0";
     path.dataset.stale = hFlags && hFlags.stale ? "1" : "0";
@@ -1359,7 +1377,10 @@ function renderCustomGraph(report, svgElement, direction) {
     }
 
     const trSymbols = [];
-    if (hasTag("messaging")) trSymbols.push({ type: "text", text: "🛢️" });
+    // A neutral envelope-over-wire glyph rather than the barrel emoji, which
+    // read as "oil". Deliberately not a vendor logo: the node no longer claims
+    // a specific broker, and a trademarked mark would contradict that.
+    if (hasTag("messaging")) trSymbols.push({ type: "text", text: "✉" });
     if (hasTag("grpc")) trSymbols.push({ type: "text", text: "⛓️" });
 
     trSymbols.forEach((s, i) => {
