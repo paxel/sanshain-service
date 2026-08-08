@@ -1157,10 +1157,23 @@ pub async fn clear_cache(
     Ok(Json(json!({ "cleared": true })))
 }
 
+#[derive(Deserialize)]
+pub struct ObservabilityAuditQuery {
+    /// How many entries to return. The panel asks for more than it shows so a
+    /// burst of rejections cannot push every real change out of the window.
+    pub limit: Option<u32>,
+}
+
+/// Upper bound for the observability panel: this is a glance, not the audit
+/// timeline, and an unbounded limit would let one page pull the whole table.
+const OBSERVABILITY_AUDIT_MAX: u32 = 200;
+
 pub async fn get_observability_audit_logs(
     State(state): State<AppState>,
+    Query(query): Query<ObservabilityAuditQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let logs: Vec<AuditLogEntry> = state.repo.get_recent_audit_logs(30).await?;
+    let limit = query.limit.unwrap_or(100).clamp(1, OBSERVABILITY_AUDIT_MAX);
+    let logs: Vec<AuditLogEntry> = state.repo.get_recent_audit_logs(limit).await?;
     Ok(Json(logs))
 }
 

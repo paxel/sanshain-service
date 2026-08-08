@@ -629,7 +629,14 @@ paths:
     get:
       summary: "Read: observability/audit-logs"
       description: |
-        Requires the `view_audit` permission.
+        Requires the `view_audit` permission. The most recent audit entries for
+        the observability panel; optional `limit` (default 100, capped at 200).
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
       responses:
         "200":
           description: Success.

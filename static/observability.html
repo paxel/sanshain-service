@@ -175,6 +175,11 @@
                 <div>
                     <h3 class="text-sm font-semibold text-slate-800 uppercase tracking-tight">Database Audit Log</h3>
                     <p class="text-xs text-slate-500 mt-1">Last 30 database mutating operations, admin settings changes, and rejected provides. Use the <a href="/audit.html" class="text-indigo-600 hover:text-indigo-800">Audit timeline</a> to filter or look further back.</p>
+                    <label class="mt-2 flex items-center gap-2 text-xs text-slate-600">
+                        <input type="checkbox" id="audit-hide-rejections" onchange="loadAuditLogs()" class="rounded border-slate-300">
+                        <span>Hide rejected provides</span>
+                        <span id="audit-rejection-note" class="text-slate-400 italic"></span>
+                    </label>
                 </div>
                 <div>
                     <button onclick="exportAuditLogs()" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition-colors border border-indigo-700 shadow-sm flex items-center gap-1">
@@ -491,9 +496,15 @@
         loadAuditLogs();
     }, 5000);
 
+    // Fetch well past what is shown: rejections share this table, so a CI job
+    // retrying a breaking change used to push every real change out of a fixed
+    // 30-row window. Hiding them client-side then still leaves changes to see.
+    const AUDIT_PANEL_FETCH = 100;
+    const AUDIT_PANEL_SHOW = 30;
+
     async function loadAuditLogs() {
         try {
-            const res = await apiCall('/admin/observability/audit-logs');
+            const res = await apiCall(`/admin/observability/audit-logs?limit=${AUDIT_PANEL_FETCH}`);
             if (res.ok) {
                 const logs = await res.json();
                 renderAuditLogs(logs);
@@ -506,12 +517,23 @@
 
     function renderAuditLogs(logs) {
         const body = document.getElementById('audit-log-body');
-        if (!logs || logs.length === 0) {
+        const hideRejections = document.getElementById('audit-hide-rejections')?.checked;
+        const all = logs || [];
+        const rejections = all.filter(l => l.action_type === 'REJECT').length;
+        const shown = (hideRejections ? all.filter(l => l.action_type !== 'REJECT') : all)
+            .slice(0, AUDIT_PANEL_SHOW);
+        const note = document.getElementById('audit-rejection-note');
+        if (note) {
+            note.textContent = rejections
+                ? `${rejections} rejection${rejections === 1 ? '' : 's'} in the last ${AUDIT_PANEL_FETCH} entries`
+                : '';
+        }
+        if (shown.length === 0) {
             body.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-400 italic">No audit logs found.</td></tr>';
             return;
         }
 
-        body.innerHTML = logs.map(log => {
+        body.innerHTML = shown.map(log => {
             let actionBadgeColor = 'bg-slate-100 text-slate-700';
             if (log.action === 'NUKE_DATABASE') {
                 actionBadgeColor = 'bg-red-100 text-red-700';
