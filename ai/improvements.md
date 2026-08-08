@@ -481,7 +481,12 @@ representation.
 - A hotfix tagged require changes R's edge and nothing in main/dev; R's timeline shows the change.
 - Deleting a version pinned by R warns naming R; re-providing the version heals R's reference.
 
-### 25. Graph symbol semantics: messaging badge, Broker node, outdated severity (decided 2026-08-07)
+### 25. Graph symbol semantics: messaging badge, Broker node, outdated severity — DONE (2026-08-08)
+
+Step 3 landed as a neutral authored glyph rather than the official AsyncAPI logo: vendoring a
+third-party mark is a licensing decision, and the BROKER rename deliberately stops the graph
+asserting a vendor. Drop the official SVG into `static/images/` and swap the glyph if wanted.
+Original text:
 
 Independent of items 23/24 — implementable immediately, frontend-only except the vendored asset.
 

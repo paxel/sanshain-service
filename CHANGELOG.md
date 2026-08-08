@@ -63,6 +63,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   at a past instant — naming added/removed services and added/removed/changed pins.
 
 ### Changed
+- The dependency graph's messaging badge now marks only actual AsyncAPI providers, not every
+  consumer of one, and the virtual broker node is named `BROKER` rather than asserting Kafka.
+- Outdated pins are split into two tiers with their own colours and toggles — behind within the
+  same major, and a whole major behind; previously one patch behind and three majors behind
+  looked identical.
 - A spec whose paths differ only in a path-parameter name (`/users/{id}` and `/users/{userId}`),
   a trailing slash, or doubled separators is now refused with `400` naming both — OpenAPI forbids
   them as identical and nothing downstream can tell them apart; previously both were stored and a
