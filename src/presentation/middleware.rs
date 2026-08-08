@@ -364,6 +364,10 @@ impl<'a> tracing::field::Visit for LogVisitor<'a> {
 }
 
 pub struct LogCaptureLayer {
+    /// Entries kept per level. `LOG_BUFFER_SIZE` configures this; it used to be
+    /// hardcoded to 100 here while `main` sized the buffers from the setting,
+    /// so the documented knob moved the allocation and nothing else.
+    pub max_size: usize,
     pub error_buffer: Arc<std::sync::Mutex<VecDeque<LogEntry>>>,
     pub warn_buffer: Arc<std::sync::Mutex<VecDeque<LogEntry>>>,
     pub info_buffer: Arc<std::sync::Mutex<VecDeque<LogEntry>>>,
@@ -421,15 +425,18 @@ where
             version,
         };
 
-        let (buf_to_use, max_size) = match *level {
-            tracing::Level::ERROR => (&self.error_buffer, 100),
-            tracing::Level::WARN => (&self.warn_buffer, 100),
-            tracing::Level::INFO => (&self.info_buffer, 100),
-            _ => (&self.debug_buffer, 100),
+        let buf_to_use = match *level {
+            tracing::Level::ERROR => &self.error_buffer,
+            tracing::Level::WARN => &self.warn_buffer,
+            tracing::Level::INFO => &self.info_buffer,
+            _ => &self.debug_buffer,
         };
 
         let mut buf = buf_to_use.lock().unwrap_or_else(|e| e.into_inner());
-        if buf.len() >= max_size {
+        // A zero-sized buffer would make the admin log view permanently empty
+        // and is far more likely a typo than an intent, so one entry is kept.
+        let max_size = self.max_size.max(1);
+        while buf.len() >= max_size {
             buf.pop_front();
         }
         buf.push_back(entry);
@@ -497,8 +504,15 @@ mod tests {
     use tracing_subscriber::layer::SubscriberExt;
 
     fn test_layer() -> (LogCaptureLayer, Arc<std::sync::Mutex<VecDeque<LogEntry>>>) {
+        test_layer_sized(100)
+    }
+
+    fn test_layer_sized(
+        max_size: usize,
+    ) -> (LogCaptureLayer, Arc<std::sync::Mutex<VecDeque<LogEntry>>>) {
         let info_buffer = Arc::new(std::sync::Mutex::new(VecDeque::new()));
         let layer = LogCaptureLayer {
+            max_size,
             error_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
             warn_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
             info_buffer: info_buffer.clone(),
@@ -544,5 +558,40 @@ mod tests {
         assert_eq!(entry.message, "no context here");
         assert_eq!(entry.service, None);
         assert_eq!(entry.version, None);
+    }
+
+    // LOG_BUFFER_SIZE is documented as the retention knob; before this it only
+    // sized the initial allocation while the trim stayed at a hardcoded 100.
+    #[test]
+    fn keeps_at_most_the_configured_number_of_entries() {
+        let (layer, info_buffer) = test_layer_sized(3);
+        let subscriber = tracing_subscriber::registry().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            for i in 0..10 {
+                tracing::info!("entry {}", i);
+            }
+        });
+
+        let buf = info_buffer.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(buf.len(), 3, "buffer must hold exactly the configured size");
+        // The newest survive; the oldest are evicted.
+        assert_eq!(buf[0].message, "entry 7");
+        assert_eq!(buf[2].message, "entry 9");
+    }
+
+    // A zero is far more likely a typo than a request for a permanently empty
+    // admin log view, so one entry is still kept.
+    #[test]
+    fn a_zero_size_still_keeps_one_entry() {
+        let (layer, info_buffer) = test_layer_sized(0);
+        let subscriber = tracing_subscriber::registry().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!("first");
+            tracing::info!("second");
+        });
+
+        let buf = info_buffer.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(buf.len(), 1);
+        assert_eq!(buf[0].message, "second");
     }
 }

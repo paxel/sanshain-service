@@ -77,6 +77,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   current behavior plainly (a missing Pin answers 404, a missing endpoint 410).
 
 ### Fixed
+- `LOG_BUFFER_SIZE` now actually bounds how many log messages are kept per level; previously it
+  only sized the initial allocation while the retention stayed fixed at 100.
 - The observability page's log copy/download now includes the `[service@version]` context the
   on-screen view shows — previously the export dropped it, leaving provide lines without any
   reference to the producer they concern.

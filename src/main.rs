@@ -41,6 +41,7 @@ pub async fn main() {
     )));
 
     let capture_layer = LogCaptureLayer {
+        max_size: log_buffer_size,
         error_buffer: error_buffer.clone(),
         warn_buffer: warn_buffer.clone(),
         info_buffer: info_buffer.clone(),
