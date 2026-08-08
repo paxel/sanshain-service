@@ -1222,9 +1222,19 @@ async fn record_pins(
     // (ADR-0005) — both recorded by version value, never by row id.
     if trunk || tag_branch_id.is_some() {
         let now = now_iso();
+        // The pin store keys on `(normalized_path, method)`, so two bundle
+        // entries that differ only in a path-parameter name are one pin. Left
+        // in, the second would hit the store's refresh branch and vanish while
+        // the dev graph kept both — the two views would then disagree about
+        // the same require call. Collapsed here instead, keeping the first
+        // spelling for display.
+        let mut seen: HashSet<(&str, &str)> = HashSet::new();
         let pins: Vec<RecordTrunkPinParams> = endpoints
             .iter()
             .zip(normalized.iter())
+            .filter(|((_, method), normalized_path)| {
+                seen.insert((normalized_path.as_str(), method.as_str()))
+            })
             .map(|((path, method), normalized_path)| RecordTrunkPinParams {
                 client_id,
                 service_id: entry.service_id,

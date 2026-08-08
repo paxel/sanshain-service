@@ -1694,3 +1694,34 @@ async fn a_tag_provide_alone_puts_a_marker_on_the_branch_timeline() {
         "the member-version change must be a timeline marker: {body}"
     );
 }
+
+#[tokio::test]
+async fn bundle_endpoints_colliding_after_normalization_are_one_pin() {
+    let ctx = setup().await;
+    // Two paths that differ only in the parameter's name: the splitter keeps
+    // them apart, the pin store normalizes them to one key.
+    let two = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.0\npaths:\n  /users/{id}:\n    get:\n      responses:\n        '200':\n          description: OK\n  /users/{userId}:\n    get:\n      responses:\n        '200':\n          description: OK\n";
+    provide_with(&ctx, "svc", "snapshot", two, &[]).await;
+
+    let payload = json!({
+        "consumername": "webapp",
+        "producername": "svc",
+        "version": "1.0.0",
+        "trunk": true,
+        "endpoints": [
+            {"path": "/users/{id}", "method": "GET"},
+            {"path": "/users/{userId}", "method": "GET"}
+        ]
+    });
+    let (status, _, body) = send(&ctx, "POST", "/require-bundle", Some(payload)).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+
+    // Exactly one open pin row, and no row was closed on the way in: the
+    // second entry must be collapsed, not recorded and then superseded.
+    let rows = trunk_dependency_rows(&ctx).await;
+    assert_eq!(rows.len(), 1, "got: {rows:?}");
+    assert!(
+        rows[0].0.is_none(),
+        "the single pin must stay open: {rows:?}"
+    );
+}
