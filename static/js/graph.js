@@ -1171,7 +1171,11 @@ function renderCustomGraph(report, svgElement, direction) {
     const isBidirectionalPubSub = pubsubBidirectional.has(key);
     const isMessagingRegister = messagingRegisterEdges.has(key);
     const hFlags = edgeHighlightFlags.get(key);
+    // One decision for colour, width and dash together: they were previously
+    // set in separate passes, and the later pass overwrote the dash the
+    // stale/dangling branches had just chosen.
     let edgeColor, edgeWidth, markerEnd;
+    let dashArray = null;
     if (isCycle) {
       edgeColor = "#a855f7";
       edgeWidth = "3";
@@ -1179,25 +1183,34 @@ function renderCustomGraph(report, svgElement, direction) {
     } else if (isMissing) {
       edgeColor = "#f97316";
       edgeWidth = "2";
+      dashArray = "6 3";
       markerEnd = "url(#arrow-orange)";
-    } else if (isMessagingRegister) {
-      edgeColor = "#3b82f6";
-      edgeWidth = "1.5";
-      markerEnd = "";
-    } else if (isBidirectionalPubSub) {
-      edgeColor = "#94a3b8";
-      edgeWidth = "2";
-      markerEnd = "";
     } else if (hFlags && hFlags.dangling) {
       // The pinned version no longer exists (deleted); heals on re-provide.
+      // Ranked above the messaging shapes below: those describe how an edge is
+      // wired, this says the edge points at nothing. ADR-0005's "never
+      // silently healthy" fails if a dangling AsyncAPI pin can be drawn as an
+      // ordinary pub/sub link.
       edgeColor = "#ea580c";
       edgeWidth = "2";
+      dashArray = "2 5";
       markerEnd = "url(#arrow-orange)";
     } else if (hFlags && hFlags.stale) {
       // Main view: the pin was not refreshed since the staleness boundary.
       edgeColor = "#f59e0b";
       edgeWidth = "2";
+      dashArray = "3 4";
       markerEnd = "url(#arrow)";
+    } else if (isMessagingRegister) {
+      edgeColor = "#3b82f6";
+      edgeWidth = "1.5";
+      dashArray = "6 3";
+      markerEnd = "";
+    } else if (isBidirectionalPubSub) {
+      edgeColor = "#94a3b8";
+      edgeWidth = "2";
+      dashArray = "6 3";
+      markerEnd = "";
     } else if (hFlags && hFlags.conflict) {
       // Main view: the pin lags the producer's trunk version by a major.
       edgeColor = "#dc2626";
@@ -1227,17 +1240,10 @@ function renderCustomGraph(report, svgElement, direction) {
     path.dataset.snapshot = hFlags && hFlags.snapshot ? "1" : "0";
     path.dataset.conflict = hFlags && hFlags.conflict ? "1" : "0";
     path.dataset.stale = hFlags && hFlags.stale ? "1" : "0";
-    if (hFlags && hFlags.stale) {
-      path.setAttribute("stroke-dasharray", "3 4");
-    }
     path.dataset.dangling = hFlags && hFlags.dangling ? "1" : "0";
-    if (hFlags && hFlags.dangling) {
-      path.setAttribute("stroke-dasharray", "2 5");
-    }
     path.dataset.baseStroke = edgeColor;
     path.dataset.baseWidth = edgeWidth;
-    if (isMissing || isBidirectionalPubSub || isMessagingRegister)
-      path.setAttribute("stroke-dasharray", "6 3");
+    if (dashArray) path.setAttribute("stroke-dasharray", dashArray);
     mainG.appendChild(path);
 
     edgeElements.set(key, { path, hitArea });
