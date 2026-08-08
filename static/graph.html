@@ -278,6 +278,12 @@
 </main>
 
 <script>
+    // apiCall throws on 401 after clearing the session; without this hook the
+    // page swallows it and leaves whatever was mid-flight looking stuck.
+    function onSessionExpired() {
+        window.location.href = '/account.html';
+    }
+
     let lastGraphReport = null;
     let lastMermaidCode = '';
     let currentGraphMode = 'custom';
@@ -659,7 +665,15 @@
         const right = sel('diff-right', 'diff-right-at');
         const out = document.getElementById('graph-diff-output');
         out.innerHTML = '<div class="text-sm text-slate-500 italic">Comparing…</div>';
-        const res = await apiCall(`/admin/graph/diff?left=${encodeURIComponent(left)}&right=${encodeURIComponent(right)}`);
+        let res;
+        try {
+            res = await apiCall(`/admin/graph/diff?left=${encodeURIComponent(left)}&right=${encodeURIComponent(right)}`);
+        } catch (e) {
+            // A thrown call (expired session, network) must not leave the panel
+            // reading "Comparing…" forever.
+            out.innerHTML = `<div class="text-sm text-red-500">Diff failed: ${escapeHtml(e.message || String(e))}</div>`;
+            return;
+        }
         if (!res.ok) {
             out.innerHTML = `<div class="text-sm text-red-500">Diff failed: ${escapeHtml(await errorMessage(res))}</div>`;
             return;

@@ -492,15 +492,27 @@ async function selectBranchView(name) {
   try {
     const res = await apiCall(`/admin/branches/${encodeURIComponent(name)}/graph`);
     if (!res.ok) {
-      console.warn(`Could not load branch '${name}' (HTTP ${res.status})`);
+      failBranchSelection(name, `HTTP ${res.status}`);
       return;
     }
     window.graphBranchPins = await res.json();
     window.graphBranchName = name;
     setStreamView("branch");
   } catch (e) {
-    console.warn("Could not load the branch graph:", e);
+    failBranchSelection(name, e.message || String(e));
   }
+}
+
+/// The select must not keep showing a branch the view never switched to — put
+/// it back where the graph actually is, and say why out loud rather than only
+/// in the console.
+function failBranchSelection(name, reason) {
+  const sel = document.getElementById("graph-branch-select");
+  if (sel) sel.value = window.graphBranchName || "";
+  console.warn(`Could not load branch '${name}': ${reason}`);
+  // Visible, like a failed branch creation in this file: the user chose this
+  // branch, so a silent console line is not an answer.
+  alert(`Could not load sanshain-branch '${name}': ${reason}`);
 }
 window.selectBranchView = selectBranchView;
 
