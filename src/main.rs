@@ -344,6 +344,14 @@ pub async fn main() {
                 Ok(n) => tracing::info!("Trunk cleanup: closed {} stale trunk pins", n),
                 Err(e) => tracing::warn!("Trunk cleanup failed: {:?}", e),
             }
+            match services::cleanup_expired_credentials(&cleanup_repo).await {
+                Ok(0) => {}
+                Ok(n) => tracing::info!(
+                    "Credential cleanup: removed {} expired sessions and API tokens",
+                    n
+                ),
+                Err(e) => tracing::warn!("Credential cleanup failed: {:?}", e),
+            }
 
             // Prune expired CSRF tokens
             {

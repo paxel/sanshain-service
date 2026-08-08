@@ -1860,3 +1860,32 @@ async fn renaming_a_branch_keeps_its_audit_history_findable() {
     // Trunk is not a branch and keeps matching by label.
     assert_eq!(audit_count_for(&ctx, "trunk").await, 0);
 }
+
+#[tokio::test]
+async fn expired_sessions_and_tokens_are_reclaimed() {
+    let ctx = setup().await;
+    // A session that has already lapsed, alongside the live one from setup.
+    sqlx::query("INSERT INTO sessions (user_id, token, expires_at) SELECT user_id, 'stale-token', '2000-01-01T00:00:00Z' FROM sessions LIMIT 1")
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
+    let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(before, 2);
+
+    let repo = SqliteSpecRepository::new(ctx.pool.clone());
+    let removed = services::cleanup_expired_credentials(&repo).await.unwrap();
+    assert_eq!(removed, 1, "only the lapsed credential goes");
+
+    let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(after, 1);
+
+    // The surviving session is still the usable one.
+    let (status, _, body) = send(&ctx, "GET", "/admin/branches", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+}

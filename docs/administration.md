@@ -78,6 +78,12 @@ Snapshots expire **use-based**: a snapshot that is neither provided nor required
 
 Recorded dependencies go stale when a Consumer stops requiring an endpoint. `dependency_max_age_days` (`GET`/`POST /admin/settings/dependency-max-age`) controls when unused dependencies are removed; `POST /admin/cleanup/dependencies` runs it immediately.
 
+### Credential Cleanup
+
+Expired sessions and API tokens are removed by the same background pass. Validation already
+refuses them, so this reclaims storage rather than changing who can sign in — without it the
+credential tables keep a row for every login the service ever issued.
+
 ### Trunk Cleanup
 
 Trunk data ages on its own month-scale TTL, independent of the much shorter dev expiry: trunk pins and trunk markers not refreshed within `trunk_max_age_days` (default `90`, `0` disables — `GET`/`POST /admin/settings/trunk-max-age`) are *closed*. They leave the current main graph but stay as history, so the timeline can still render past states. `POST /admin/cleanup/trunk` runs it immediately. The main graph highlights entries as stale (amber, ⚠) once they pass half the TTL — forgotten producers surface before they vanish.

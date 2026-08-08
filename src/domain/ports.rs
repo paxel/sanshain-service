@@ -540,6 +540,15 @@ pub trait SpecRepository: Send + Sync {
         token: &str,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
+    /// Remove sessions and API tokens whose `expires_at` has passed. Validation
+    /// already refuses them, so this reclaims storage and keeps the credential
+    /// tables from being an ever-growing record of every login. Returns how
+    /// many rows went.
+    fn delete_expired_credentials(
+        &self,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
+
     /// Get a setting value by key.
     fn get_setting(
         &self,

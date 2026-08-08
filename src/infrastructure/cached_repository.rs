@@ -999,6 +999,10 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.validate_session(token).await
     }
 
+    async fn delete_expired_credentials(&self, now_iso: &str) -> Result<u64, RepositoryError> {
+        self.inner.delete_expired_credentials(now_iso).await
+    }
+
     async fn delete_session(&self, token: &str) -> Result<(), RepositoryError> {
         self.inner.delete_session(token).await
     }

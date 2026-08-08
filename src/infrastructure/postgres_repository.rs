@@ -1879,6 +1879,19 @@ impl SpecRepository for PostgresSpecRepository {
         ))
     }
 
+    async fn delete_expired_credentials(&self, now_iso: &str) -> Result<u64, RepositoryError> {
+        let mut removed = 0u64;
+        for table in ["sessions", "api_tokens"] {
+            let res = sqlx::query(&format!("DELETE FROM {table} WHERE expires_at < $1"))
+                .bind(now_iso)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            removed += res.rows_affected();
+        }
+        Ok(removed)
+    }
+
     async fn delete_session(&self, token: &str) -> Result<(), RepositoryError> {
         sqlx::query("DELETE FROM sessions WHERE token = $1")
             .bind(hash_session_token(token))

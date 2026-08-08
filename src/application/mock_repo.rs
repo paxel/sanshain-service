@@ -1492,6 +1492,13 @@ impl SpecRepository for MockRepo {
         Ok(None)
     }
 
+    async fn delete_expired_credentials(&self, now_iso: &str) -> Result<u64, RepositoryError> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+        let before = sessions.len();
+        sessions.retain(|s| s.expires_at.as_str() >= now_iso);
+        Ok((before - sessions.len()) as u64)
+    }
+
     async fn delete_session(&self, token: &str) -> Result<(), RepositoryError> {
         let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
         sessions.retain(|s| s.token != token);

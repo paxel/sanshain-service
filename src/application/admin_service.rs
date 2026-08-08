@@ -422,6 +422,15 @@ pub async fn set_trunk_max_age_days(repo: &impl SpecRepository, days: u64) -> Re
     Ok(())
 }
 
+/// Expired sessions and API tokens are already refused by validation, so this
+/// reclaims storage rather than changing who can log in. Without it the
+/// credential tables grow forever — a record of every login the service ever
+/// issued, kept indefinitely for no operational purpose.
+#[instrument(skip_all)]
+pub async fn cleanup_expired_credentials(repo: &impl SpecRepository) -> Result<u64, AppError> {
+    Ok(repo.delete_expired_credentials(&super::now_iso()).await?)
+}
+
 /// Close trunk pins and clear trunk markers not refreshed within the TTL —
 /// they leave the *current* view; the closed rows stay as history (ADR-0005).
 #[instrument(skip_all)]

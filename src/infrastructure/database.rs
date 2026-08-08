@@ -422,6 +422,10 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, validate_session(token))
     }
 
+    async fn delete_expired_credentials(&self, now_iso: &str) -> Result<u64, RepositoryError> {
+        delegate!(self, delete_expired_credentials(now_iso))
+    }
+
     async fn delete_session(&self, token: &str) -> Result<(), RepositoryError> {
         delegate!(self, delete_session(token))
     }
