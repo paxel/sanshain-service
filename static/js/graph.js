@@ -149,9 +149,10 @@ function updateHighlightButtons() {
   for (const [id, filter, activeClasses] of styles) {
     const btn = document.getElementById(id);
     if (!btn) continue;
+    // nowrap: three toggles with multi-word labels otherwise wrap mid-label.
     btn.className = window.graphHighlightFilters[filter]
-      ? `px-2.5 py-1.5 ${activeClasses} font-medium`
-      : "px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium";
+      ? `px-2.5 py-1.5 whitespace-nowrap ${activeClasses} font-medium`
+      : "px-2.5 py-1.5 whitespace-nowrap bg-white text-slate-600 hover:bg-slate-50 font-medium";
   }
 }
 window.updateHighlightButtons = updateHighlightButtons;

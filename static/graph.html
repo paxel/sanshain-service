@@ -134,9 +134,9 @@
                      line's latest GA) and Snapshot-pinned (Pin served from a
                      Snapshot). Display states, never resolution inputs. -->
                 <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
-                    <button id="highlight-outdated" class="px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('outdated')" title="Highlight dependencies whose Pin is below the latest GA of the line within the same major">Outdated</button>
-                    <button id="highlight-breaking-outdated" class="px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('breakingOutdated')" title="Highlight dependencies whose Pin is a whole major behind the latest GA of the line">Major behind</button>
-                    <button id="highlight-snapshot" class="px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('snapshot')" title="Highlight dependencies served from a Snapshot (building against overwritable content)">Snapshot-pinned</button>
+                    <button id="highlight-outdated" class="px-2.5 py-1.5 whitespace-nowrap bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('outdated')" title="Highlight dependencies whose Pin is below the latest GA of the line within the same major">Outdated</button>
+                    <button id="highlight-breaking-outdated" class="px-2.5 py-1.5 whitespace-nowrap bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('breakingOutdated')" title="Highlight dependencies whose Pin is a whole major behind the latest GA of the line">Major behind</button>
+                    <button id="highlight-snapshot" class="px-2.5 py-1.5 whitespace-nowrap bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('snapshot')" title="Highlight dependencies served from a Snapshot (building against overwritable content)">Snapshot-pinned</button>
                 </div>
                 <button id="graph-direction-toggle"
                         class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
