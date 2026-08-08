@@ -556,7 +556,7 @@ from trivial lag.
 - Add a repository test with an injected failure after some writes and assert no partial state persists.
 - Run tests for both SQLite and Postgres adapters if available.
 
-### 13. Fix log buffer sizing to honor `LOG_BUFFER_SIZE`
+### 13. Fix log buffer sizing to honor `LOG_BUFFER_SIZE` — DONE (2026-08-08)
 
 **Problem:** `main.rs` reads `LOG_BUFFER_SIZE` and initializes buffers with that capacity, but `LogCaptureLayer::on_event()` uses a hard-coded `max_size` of `100` for every level.
 
@@ -579,7 +579,7 @@ from trivial lag.
 - Unit-test the layer with a small buffer size and assert old entries are evicted at that size.
 - Run `cargo test`.
 
-### 14. Add cleanup for expired sessions and API tokens
+### 14. Add cleanup for expired sessions and API tokens — DONE (2026-08-08)
 
 **Problem:** There is periodic cleanup for stale branches, dependencies, and in-memory CSRF tokens, but expired sessions/API tokens can remain in persistent storage unless repository validation deletes them elsewhere.
 
@@ -605,7 +605,7 @@ from trivial lag.
 - Integration test proving expired token/session is rejected.
 - Run `cargo test`.
 
-### 15. Improve startup configuration validation
+### 15. Improve startup configuration validation — DONE (2026-08-08)
 
 **Problem:** Several environment values are parsed with fallbacks. Invalid values silently become defaults in some cases, while invalid database/bind values fail loudly.
 
@@ -804,7 +804,7 @@ Misleading exactly where the feature is meant to be authoritative.
 
 ## P2 — Maintainability and quality
 
-### 22. Observability audit panel shows only the last 30 rows, now shared with rejections
+### 22. Observability audit panel shows only the last 30 rows, now shared with rejections — DONE (2026-08-08)
 
 > **2.0 note (ADR-0003):** protected branches and the Branch filter no longer exist; refusals are
 > now 409s from the version rules. The crowding concern stands, but re-check what is audited today
