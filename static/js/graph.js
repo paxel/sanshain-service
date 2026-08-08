@@ -720,8 +720,17 @@ function renderCustomGraph(report, svgElement, direction) {
   const edgeHighlightFlags = graphEdgeFlags(report, latestGaMap, trunkVersionMap);
 
   // Main view: a trunk-provided producer belongs in the picture even before
-  // anyone pins it — its trunk version is a statement on its own.
-  if (isMainView && trunkVersionMap) {
+  // anyone pins it — its trunk version is a statement on its own. But this map
+  // is built from the *unfiltered* report, so injecting it while the user has
+  // narrowed the view puts every trunk producer back on screen as an isolated
+  // node and makes the filters look broken. With a filter active the graph
+  // shows what the filter selected, nothing more.
+  const filtersNarrowing =
+    (window.graphFocusTags && window.graphFocusTags.length > 0) ||
+    window.graphRedrawMode === "circular" ||
+    (window.graphProtocolFilters &&
+      Object.values(window.graphProtocolFilters).some((enabled) => !enabled));
+  if (isMainView && trunkVersionMap && !filtersNarrowing) {
     for (const key of trunkVersionMap.keys()) {
       const name = key.split("|")[0];
       allNodes.add(name);
