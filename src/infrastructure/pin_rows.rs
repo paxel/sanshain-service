@@ -4,8 +4,8 @@
 use crate::domain::models::{SemVer, TrunkPinInfo};
 use crate::domain::ports::RepositoryError;
 
-/// `(client, service, api_type, major, minor, patch, path, method,
-/// valid_from, last_required_at)` — generic over the integer width because
+/// `(client, service, api_type, major, minor, patch, path, normalized_path,
+/// method, valid_from, last_required_at)` — generic over the integer width because
 /// SQLite decodes INTEGER as `i64` while Postgres decodes INT4 as `i32`.
 pub(crate) type PinRow<I> = (
     String,
@@ -14,6 +14,7 @@ pub(crate) type PinRow<I> = (
     I,
     I,
     I,
+    String,
     String,
     String,
     String,
@@ -33,6 +34,7 @@ pub(crate) fn pin_row_to_info<I: Into<i64>>(
         minor,
         patch,
         path,
+        normalized_path,
         method,
         valid_from,
         last_required_at,
@@ -44,6 +46,7 @@ pub(crate) fn pin_row_to_info<I: Into<i64>>(
         api_type: api_type.parse().map_err(RepositoryError::Internal)?,
         version: SemVer::new(major as u32, minor as u32, patch as u32),
         path,
+        normalized_path,
         method,
         valid_from,
         last_required_at,

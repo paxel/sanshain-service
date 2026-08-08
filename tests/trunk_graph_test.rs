@@ -1721,3 +1721,48 @@ async fn a_spec_with_two_spellings_of_one_endpoint_is_refused() {
     let (status, _) = provide_with(&ctx, "svc3", "snapshot", fine, &[]).await;
     assert_eq!(status, StatusCode::ACCEPTED);
 }
+
+#[tokio::test]
+async fn a_respelled_path_diffs_as_a_version_change_not_a_swap() {
+    let ctx = setup().await;
+    // Each version is valid on its own; only the parameter's name differs
+    // between them, so the pin store sees one endpoint moving version.
+    let v1 = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.0\npaths:\n  /users/{id}:\n    get:\n      responses:\n        '200':\n          description: OK\n";
+    let v2 = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 2.0.0\npaths:\n  /users/{userId}:\n    get:\n      responses:\n        '200':\n          description: OK\n";
+    provide_with(&ctx, "svc", "snapshot", v1, &[]).await;
+    assert_eq!(
+        require_with(&ctx, "web", "svc", "1.0.0", "/users/{id}", "GET", true).await,
+        StatusCode::OK
+    );
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({ "name": "rel-1" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "got: {body}");
+
+    provide_with(&ctx, "svc", "snapshot", v2, &[]).await;
+    assert_eq!(
+        require_with(&ctx, "web", "svc", "2.0.0", "/users/{userId}", "GET", true).await,
+        StatusCode::OK
+    );
+
+    let (status, _, body) =
+        send(&ctx, "GET", "/admin/graph/diff?left=rel-1&right=main", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let diff = as_json(&body);
+    let changed = diff["pins_changed"].as_array().unwrap();
+    assert_eq!(changed.len(), 1, "one pin moved version: {body}");
+    assert_eq!(changed[0]["from"], "1.0.0");
+    assert_eq!(changed[0]["to"], "2.0.0");
+    assert!(
+        diff["pins_added"].as_array().unwrap().is_empty(),
+        "a respelling is not a new dependency: {body}"
+    );
+    assert!(
+        diff["pins_removed"].as_array().unwrap().is_empty(),
+        "a respelling is not a dropped dependency: {body}"
+    );
+}

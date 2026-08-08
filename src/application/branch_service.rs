@@ -372,12 +372,18 @@ pub async fn diff_graphs(
     let left_pins = resolve_graph_selection(repo, left).await?;
     let right_pins = resolve_graph_selection(repo, right).await?;
 
+    // Keyed on the normalized path, because that is what the pin stores match
+    // on: a pin refreshed after its raw path was respelled across versions
+    // keeps the old spelling, so keying on `path` would report one moved pin
+    // as a removal plus an addition — the wrong answer in the endpoint release
+    // engineers read to see what a train changed. The raw path still travels
+    // on the pin for display.
     let key = |p: &TrunkPinInfo| {
         (
             p.client.clone(),
             p.service.clone(),
             p.api_type,
-            p.path.clone(),
+            p.normalized_path.clone(),
             p.method.clone(),
         )
     };

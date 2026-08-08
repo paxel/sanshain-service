@@ -577,7 +577,7 @@ impl SpecRepository for SqliteSpecRepository {
         branch_id: i64,
         at: Option<&str>,
     ) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
-        let base = "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.method, t.valid_from, t.last_required_at \
+        let base = "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
              FROM branch_dependencies t \
              JOIN clients c ON c.id = t.client_id \
              JOIN services s ON s.id = t.service_id \
@@ -608,7 +608,7 @@ impl SpecRepository for SqliteSpecRepository {
 
     async fn list_trunk_pins_at(&self, at: &str) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
         let rows: Vec<PinRow<i64>> = sqlx::query_as(
-            "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.method, t.valid_from, t.last_required_at \
+            "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
              FROM trunk_dependencies t \
              JOIN clients c ON c.id = t.client_id \
              JOIN services s ON s.id = t.service_id \
@@ -984,7 +984,7 @@ impl SpecRepository for SqliteSpecRepository {
 
     async fn list_current_trunk_pins(&self) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
         let rows: Vec<PinRow<i64>> = sqlx::query_as(
-            "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.method, t.valid_from, t.last_required_at \
+            "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
              FROM trunk_dependencies t \
              JOIN clients c ON c.id = t.client_id \
              JOIN services s ON s.id = t.service_id \

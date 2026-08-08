@@ -641,6 +641,12 @@ pub struct TrunkPinInfo {
     pub api_type: ApiType,
     pub version: SemVer,
     pub path: String,
+    /// The path with parameter names blanked and separators collapsed — the
+    /// key the pin stores actually match on. Two spellings of one endpoint are
+    /// one pin, so anything comparing pin sets must compare this, not `path`.
+    /// Internal: never serialized, the wire keeps the human spelling.
+    #[serde(skip)]
+    pub normalized_path: String,
     pub method: String,
     /// When this pin became the current one.
     pub valid_from: String,
