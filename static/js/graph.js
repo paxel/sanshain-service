@@ -412,6 +412,7 @@ async function setTimelinePosition(at) {
   const slider = document.getElementById("graph-timeline-slider");
   const label = document.getElementById("graph-timeline-label");
   if (at === null) {
+    window._graphTimelineToken = (window._graphTimelineToken || 0) + 1;
     window.graphTimelineAt = null;
     window.graphTimelinePins = null;
     slider.value = slider.max;
@@ -424,12 +425,21 @@ async function setTimelinePosition(at) {
     view === "main"
       ? `/admin/trunk/graph?at=${encodeURIComponent(at)}`
       : `/admin/branches/${encodeURIComponent(window.graphBranchName)}/graph?at=${encodeURIComponent(at)}`;
+  // Dragging the slider fires one request per instant it crosses, and they can
+  // land out of order — on a slow link an earlier response arriving last would
+  // leave the graph on an instant the user already scrubbed past. Only the
+  // newest request may apply its result.
+  const token = (window._graphTimelineToken || 0) + 1;
+  window._graphTimelineToken = token;
+  // The label tracks the handle immediately; the graph follows when it loads.
+  label.textContent = at.slice(0, 16).replace("T", " ");
   try {
     const res = await apiCall(url);
-    if (!res.ok) return;
-    window.graphTimelinePins = await res.json();
+    if (!res.ok || token !== window._graphTimelineToken) return;
+    const pins = await res.json();
+    if (token !== window._graphTimelineToken) return;
+    window.graphTimelinePins = pins;
     window.graphTimelineAt = at;
-    label.textContent = at.slice(0, 16).replace("T", " ");
     redrawGraph();
   } catch (e) {
     console.warn("Could not load the graph at that instant:", e);
