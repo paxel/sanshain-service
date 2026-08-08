@@ -89,7 +89,7 @@ All max-age settings accept at most `36500` days (~100 years); larger values ans
 The **Sanshain-Branches** dashboard section manages release cuts ([ADR-0005](adr/0005-sanshain-branches-and-timeline.md)):
 
 - **Create** (`POST /admin/branches`, requires the `releaser` role) — a named copy of the main graph, or another branch, at a chosen instant; a past `as_of` repairs a forgotten cut retroactively. `main`, `dev` and `trunk` are reserved names (the built-in graph views, and the trunk stream sentinel).
-- **Rename** (`PUT /admin/branches/{name}`, admin) — repairs a botched name; membership, timeline and audit stamps survive. Pipelines still sending the old tag get an instructive `404` until reconfigured.
+- **Rename** (`PUT /admin/branches/{name}`, admin) — repairs a botched name; membership, timeline and audit stamps survive, because all three key on the branch's id rather than its label. Pipelines still sending the old tag get an instructive `404` until reconfigured.
 - **Delete** (`DELETE /admin/branches/{name}`, admin) — the audited end-of-life act; frees the name.
 
 Deleting a *version* that branches reference leaves those pins visibly dangling (never silently dropped); the delete-version confirmation names the referencing branches alongside pinned Consumers, and a later re-provide of the number heals them.

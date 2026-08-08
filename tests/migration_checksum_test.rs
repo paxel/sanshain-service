@@ -154,6 +154,10 @@ const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
         "20260808000000_unique_open_pin_rows.sql",
         "d15448d715996ef3bbfc466854ccaefdb9ad564ead750243a126a8d0eb2a4d6b",
     ),
+    (
+        "20260808000001_audit_branch_id.sql",
+        "d17908ea076c6e7ce9a5949ad7919b6b597ea465a17529efca266182a38ba96f",
+    ),
 ];
 
 const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
@@ -260,6 +264,10 @@ const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
     (
         "20260808000000_unique_open_pin_rows.sql",
         "d15448d715996ef3bbfc466854ccaefdb9ad564ead750243a126a8d0eb2a4d6b",
+    ),
+    (
+        "20260808000001_audit_branch_id.sql",
+        "d17908ea076c6e7ce9a5949ad7919b6b597ea465a17529efca266182a38ba96f",
     ),
 ];
 

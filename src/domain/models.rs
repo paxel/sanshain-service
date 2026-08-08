@@ -801,9 +801,15 @@ pub struct AuditLogFilter {
     pub action_type: Option<String>,
     pub service_wildcard: Option<String>,
     pub version_wildcard: Option<String>,
-    /// Exact stream match (ADR-0005): `trunk` or a tag name.
+    /// Exact stream match (ADR-0005): `trunk` or a branch name. A branch name
+    /// is resolved to its id before the query, so a renamed branch is found
+    /// under its current name; an unresolvable name falls back to matching the
+    /// recorded label, which is how a deleted branch stays reachable.
     #[serde(default)]
     pub stream: Option<String>,
+    /// Set by the application layer when `stream` resolved to a live branch.
+    #[serde(skip)]
+    pub branch_id: Option<i64>,
     pub limit: u32,
 }
 

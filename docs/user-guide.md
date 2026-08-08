@@ -152,7 +152,7 @@ Architecture, isolation and dependency reports take a **graph scope**: `dev` (de
 - **Administrators only.** The page and the data behind it are restricted, and
   the Audit link is hidden from the navigation for everyone else.
 - Global log of all spec updates and administrative actions, with a side-by-side diff viewer for every change.
-- Filters by date range, action type, service/version wildcards — and by **stream**, so "who changed release-maribou, when?" is one query:
+- Filters by date range, action type, service/version wildcards — and by **stream**, so "who changed release-maribou, when?" is one query. A branch is tracked by identity, not by its label, so renaming it keeps its history findable under the new name:
 
 ![Audit filters including the stream filter](images/audit_filters_crop.png)
 

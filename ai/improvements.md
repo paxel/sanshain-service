@@ -740,7 +740,13 @@ verified together, not because they must ship together.
 **Validation:** each item needs its own regression test; items 1, 4, 5 and 8 are backend and
 belong in `tests/trunk_graph_test.rs`, items 2, 3, 6 and 7 in the Playwright suite.
 
-### 29. Audit stream identifies a branch by name, not id (found 2026-08-08)
+### 29. Audit stream identifies a branch by name, not id — DONE (2026-08-08)
+
+Resolved by adding `audit_logs.branch_id` (no foreign key, so an audit row outlives the branch it
+names), stamping it on tagged provides/requires, and resolving the `?stream=` name to an id at
+read time. `stream` remains the label the row was written with, and stays the only marker for
+`trunk`, which is not a branch. A name that resolves to no live branch still matches by label, so
+a deleted branch's history remains reachable under its old name. Original text:
 
 **Problem:** every tagged build stamps `audit_logs.stream` with the branch *name*
 (`provide_common`/`require_common`), while `rename_branch`'s doc states "identity is the id:

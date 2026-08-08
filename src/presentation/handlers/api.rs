@@ -69,6 +69,22 @@ struct ProvideCommon<'a> {
     tag: Option<&'a str>,
 }
 
+/// The id behind a `tag`, for the audit row's branch identity. The stream was
+/// already validated upstream, so a miss here means the branch vanished between
+/// the write and this lookup — the row then keeps only its recorded label.
+async fn audit_branch_id(state: &AppState, tag: Option<&str>) -> Option<i64> {
+    match tag {
+        Some(tag) => state
+            .repo
+            .find_branch(tag)
+            .await
+            .ok()
+            .flatten()
+            .map(|b| b.id),
+        None => None,
+    }
+}
+
 async fn provide_common(
     state: &AppState,
     user: Option<axum::Extension<crate::domain::models::User>>,
@@ -115,6 +131,7 @@ async fn provide_common(
             // ADR-0005: the audit entry names the declared stream, so a
             // release graph's history is one filtered query.
             let stream = if trunk { Some("trunk") } else { tag };
+            let branch_id = audit_branch_id(state, tag).await;
             record_audit_log(
                 &state.repo,
                 user,
@@ -135,6 +152,7 @@ async fn provide_common(
                     action_type: Some("WRITE"),
                     diff: None,
                     stream,
+                    branch_id,
                 },
             )
             .await?;
@@ -160,6 +178,7 @@ async fn provide_common(
                     action_type: Some("WRITE"),
                     diff: None,
                     stream: Some(tag),
+                    branch_id: audit_branch_id(state, Some(tag)).await,
                 },
             )
             .await?;
@@ -361,6 +380,7 @@ async fn require_common(
         } else {
             query.tag.as_deref()
         };
+        let branch_id = audit_branch_id(state, query.tag.as_deref()).await;
         let _ = record_audit_log(
             &state.repo,
             user,
@@ -381,6 +401,7 @@ async fn require_common(
                 action_type: Some("READ"),
                 diff: None,
                 stream,
+                branch_id,
             },
         )
         .await;
@@ -473,6 +494,7 @@ pub async fn require_bundle(
         } else {
             payload.tag.as_deref()
         };
+        let branch_id = audit_branch_id(&state, payload.tag.as_deref()).await;
         let _ = record_audit_log(
             &state.repo,
             user,
@@ -491,6 +513,7 @@ pub async fn require_bundle(
                 action_type: Some("READ"),
                 diff: None,
                 stream,
+                branch_id,
             },
         )
         .await;
@@ -536,6 +559,7 @@ pub async fn report_markdown(
             action_type: Some("READ"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await;
@@ -566,6 +590,7 @@ pub async fn report_isolation(
             action_type: Some("READ"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await;
@@ -631,6 +656,18 @@ pub async fn audit_timeline(
     Query(query): Query<AuditTimelineQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let limit = query.limit.unwrap_or(50);
+    // Resolve a branch name to its identity so a renamed branch answers under
+    // its current name; 'trunk' and unknown names keep matching the label.
+    let branch_id = match query.stream.as_deref() {
+        Some(name) if name != "trunk" => state
+            .repo
+            .find_branch(name)
+            .await
+            .ok()
+            .flatten()
+            .map(|b| b.id),
+        _ => None,
+    };
     let filter = crate::domain::models::AuditLogFilter {
         from_date: query.from_date,
         to_date: query.to_date,
@@ -638,6 +675,7 @@ pub async fn audit_timeline(
         service_wildcard: query.service,
         version_wildcard: query.version,
         stream: query.stream,
+        branch_id,
         limit,
     };
     let res = state.repo.get_audit_logs(filter).await?;

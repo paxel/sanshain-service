@@ -427,6 +427,7 @@ async fn record_version_rejection(
                 action_type: Some("REJECT"),
                 diff: None,
                 stream: None,
+                branch_id: None,
             },
         )
         .await
@@ -806,6 +807,7 @@ pub async fn provide_spec(
                     action_type: Some("WRITE"),
                     diff: None,
                     stream: None,
+                    branch_id: None,
                 },
             )
             .await
@@ -845,6 +847,7 @@ pub async fn provide_spec(
                     action_type: Some("WRITE"),
                     diff: None,
                     stream: None,
+                    branch_id: None,
                 },
             )
             .await

@@ -36,6 +36,7 @@ async fn record(
             action_type: Some("ADMIN"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await

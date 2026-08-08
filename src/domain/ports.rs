@@ -110,8 +110,14 @@ pub struct NewAuditLog<'a> {
     pub action_type: Option<&'a str>,
     pub diff: Option<&'a str>,
     /// The declared stream (ADR-0005): `trunk`, a sanshain-branch's tag
-    /// name, or `None` for calls outside the stream model.
+    /// name, or `None` for calls outside the stream model. The *label* the
+    /// call was made with — see `branch_id` for the identity.
     pub stream: Option<&'a str>,
+    /// The sanshain-branch this entry belongs to, when the stream names one.
+    /// Identity, so a rename does not orphan the row and a reused name does
+    /// not absorb a dead branch's history. `None` for `trunk` and for calls
+    /// outside the stream model.
+    pub branch_id: Option<i64>,
 }
 
 pub trait SpecRepository: Send + Sync {

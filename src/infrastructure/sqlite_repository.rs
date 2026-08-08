@@ -2524,7 +2524,7 @@ impl SpecRepository for SqliteSpecRepository {
     ) -> Result<(), RepositoryError> {
         let timestamp = chrono::Utc::now().to_rfc3339();
         sqlx::query(
-            "INSERT INTO audit_logs (timestamp, username, action, details, service, version, action_type, diff, stream) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO audit_logs (timestamp, username, action, details, service, version, action_type, diff, stream, branch_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(timestamp)
         .bind(username)
@@ -2535,6 +2535,7 @@ impl SpecRepository for SqliteSpecRepository {
         .bind(log.action_type)
         .bind(log.diff)
         .bind(log.stream)
+        .bind(log.branch_id)
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -2565,7 +2566,12 @@ impl SpecRepository for SqliteSpecRepository {
         if filter.version_wildcard.is_some() {
             sql.push_str(" AND version LIKE ?");
         }
-        if filter.stream.is_some() {
+        // Identity first: a resolved branch matches by id, so a rename does
+        // not orphan its history. Only an unresolvable name falls back to the
+        // recorded label — which is how a deleted branch stays reachable.
+        if filter.branch_id.is_some() {
+            sql.push_str(" AND branch_id = ?");
+        } else if filter.stream.is_some() {
             sql.push_str(" AND stream = ?");
         }
 
@@ -2602,7 +2608,9 @@ impl SpecRepository for SqliteSpecRepository {
         if let Some(ref val) = filter.version_wildcard {
             query = query.bind(val);
         }
-        if let Some(ref val) = filter.stream {
+        if let Some(val) = filter.branch_id {
+            query = query.bind(val);
+        } else if let Some(ref val) = filter.stream {
             query = query.bind(val);
         }
         query = query.bind(filter.limit);

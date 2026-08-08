@@ -1799,3 +1799,64 @@ async fn the_schema_enforces_one_open_row_per_pin_key() {
     let rows = trunk_dependency_rows(&ctx).await;
     assert_eq!(rows.len(), 1, "an identical re-require refreshes: {rows:?}");
 }
+
+#[cfg(test)]
+async fn audit_count_for(ctx: &TestContext, stream: &str) -> usize {
+    let (status, _, body) = send(
+        ctx,
+        "GET",
+        &format!("/api/audit/timeline?stream={stream}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    as_json(&body).as_array().unwrap().len()
+}
+
+#[tokio::test]
+async fn renaming_a_branch_keeps_its_audit_history_findable() {
+    let ctx = setup().await;
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({ "name": "rel-1" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "got: {body}");
+
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    let (status, _) = provide_with(
+        &ctx,
+        "svc",
+        "snapshot",
+        &spec("1.0.0"),
+        &[("tag", json!("rel-1"))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    assert_eq!(
+        audit_count_for(&ctx, "rel-1").await,
+        1,
+        "recorded under its name"
+    );
+
+    // ADR-0005: identity is the id, so the history follows the rename.
+    let (status, _, body) = send(
+        &ctx,
+        "PUT",
+        "/admin/branches/rel-1",
+        Some(json!({ "new_name": "release-maribou" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    assert_eq!(
+        audit_count_for(&ctx, "release-maribou").await,
+        1,
+        "the branch's history must answer under its current name"
+    );
+
+    // Trunk is not a branch and keeps matching by label.
+    assert_eq!(audit_count_for(&ctx, "trunk").await, 0);
+}

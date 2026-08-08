@@ -234,6 +234,7 @@ pub async fn admin_delete_producer(
                 action_type: Some("WRITE"),
                 diff: None,
                 stream: None,
+                branch_id: None,
             },
         )
         .await?;
@@ -328,6 +329,7 @@ pub async fn admin_delete_version(
             action_type: Some("WRITE"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;
@@ -353,6 +355,7 @@ pub async fn admin_delete_consumer(
                 action_type: Some("WRITE"),
                 diff: None,
                 stream: None,
+                branch_id: None,
             },
         )
         .await?;
@@ -391,6 +394,7 @@ pub async fn set_auto_approve_users(
             action_type: Some("ADMIN"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;
@@ -458,6 +462,7 @@ pub async fn set_auth_config(
             action_type: Some("ADMIN"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;
@@ -502,6 +507,7 @@ pub async fn set_snapshot_max_age(
             action_type: Some("ADMIN"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;
@@ -527,6 +533,7 @@ pub async fn trigger_snapshot_cleanup(
             action_type: Some("ADMIN"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;
@@ -562,6 +569,7 @@ pub async fn set_dependency_max_age(
             action_type: Some("ADMIN"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;
@@ -587,6 +595,7 @@ pub async fn trigger_dependency_cleanup(
             action_type: Some("ADMIN"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;
@@ -642,6 +651,7 @@ pub async fn admin_approve_user(
                 action_type: Some("ADMIN"),
                 diff: None,
                 stream: None,
+                branch_id: None,
             },
         )
         .await?;
@@ -680,6 +690,7 @@ pub async fn admin_delete_user_handler(
                 action_type: Some("ADMIN"),
                 diff: None,
                 stream: None,
+                branch_id: None,
             },
         )
         .await?;
@@ -715,6 +726,7 @@ pub async fn admin_nuke_producers(
             action_type: Some("ADMIN"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;
@@ -742,6 +754,7 @@ pub async fn admin_nuke_consumers(
             action_type: Some("ADMIN"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;
@@ -769,6 +782,7 @@ pub async fn admin_nuke_users(
             action_type: Some("ADMIN"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;
@@ -797,6 +811,7 @@ pub async fn admin_nuke_database(
             action_type: Some("ADMIN"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;
@@ -870,6 +885,7 @@ pub async fn admin_update_producer_metadata(
             action_type: Some("WRITE"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;
@@ -989,6 +1005,7 @@ pub async fn set_debug_config(
             action_type: Some("ADMIN"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;
@@ -1109,6 +1126,7 @@ pub async fn set_cache_config(
             action_type: Some("ADMIN"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;
@@ -1132,6 +1150,7 @@ pub async fn clear_cache(
             action_type: Some("ADMIN"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;
@@ -1255,6 +1274,7 @@ pub async fn set_trunk_max_age(
             action_type: Some("ADMIN"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;
@@ -1277,6 +1297,7 @@ pub async fn trigger_trunk_cleanup(
             action_type: Some("ADMIN"),
             diff: None,
             stream: None,
+            branch_id: None,
         },
     )
     .await?;

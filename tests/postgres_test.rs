@@ -395,6 +395,7 @@ async fn postgres_audit_stream_filter_is_bound() {
                 action_type: Some("WRITE"),
                 diff: None,
                 stream,
+                branch_id: None,
             },
         )
         .await
@@ -411,6 +412,7 @@ async fn postgres_audit_stream_filter_is_bound() {
             service_wildcard: None,
             version_wildcard: None,
             stream: Some("trunk".to_string()),
+            branch_id: None,
             limit: 10,
         })
         .await

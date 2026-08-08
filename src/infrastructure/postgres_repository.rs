@@ -2491,7 +2491,7 @@ impl SpecRepository for PostgresSpecRepository {
     ) -> Result<(), RepositoryError> {
         let timestamp = chrono::Utc::now().to_rfc3339();
         sqlx::query(
-            "INSERT INTO audit_logs (timestamp, username, action, details, service, version, action_type, diff, stream) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+            "INSERT INTO audit_logs (timestamp, username, action, details, service, version, action_type, diff, stream, branch_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(timestamp)
         .bind(username)
@@ -2502,6 +2502,7 @@ impl SpecRepository for PostgresSpecRepository {
         .bind(log.action_type)
         .bind(log.diff)
         .bind(log.stream)
+        .bind(log.branch_id)
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -2538,7 +2539,13 @@ impl SpecRepository for PostgresSpecRepository {
             sql.push_str(&format!(" AND version LIKE ${}", param_idx));
             param_idx += 1;
         }
-        if filter.stream.is_some() {
+        // Identity first: a resolved branch matches by id, so a rename does
+        // not orphan its history. Only an unresolvable name falls back to the
+        // recorded label — which is how a deleted branch stays reachable.
+        if filter.branch_id.is_some() {
+            sql.push_str(&format!(" AND branch_id = ${}", param_idx));
+            param_idx += 1;
+        } else if filter.stream.is_some() {
             sql.push_str(&format!(" AND stream = ${}", param_idx));
             param_idx += 1;
         }
@@ -2576,7 +2583,9 @@ impl SpecRepository for PostgresSpecRepository {
         if let Some(ref val) = filter.version_wildcard {
             query = query.bind(val);
         }
-        if let Some(ref val) = filter.stream {
+        if let Some(val) = filter.branch_id {
+            query = query.bind(val);
+        } else if let Some(ref val) = filter.stream {
             query = query.bind(val);
         }
         query = query.bind(filter.limit as i64);
