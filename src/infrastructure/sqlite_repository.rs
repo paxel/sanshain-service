@@ -747,17 +747,28 @@ impl SpecRepository for SqliteSpecRepository {
 
     async fn delete_branch(&self, branch_id: i64) -> Result<(), RepositoryError> {
         // The FK cascade needs sqlite's pragma; delete children explicitly so
-        // the behavior does not depend on connection settings.
+        // the behavior does not depend on connection settings. One transaction,
+        // because a failure between the children and the branch row would free
+        // a branch's graph while leaving the branch — and its name — behind.
+        // Postgres gets the same atomicity from the declared cascade.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         for table in ["branch_dependencies", "branch_member_versions"] {
             sqlx::query(&format!("DELETE FROM {table} WHERE branch_id = ?"))
                 .bind(branch_id)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         }
         sqlx::query("DELETE FROM sanshain_branches WHERE id = ?")
             .bind(branch_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        tx.commit()
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(())
