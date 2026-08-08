@@ -1696,32 +1696,28 @@ async fn a_tag_provide_alone_puts_a_marker_on_the_branch_timeline() {
 }
 
 #[tokio::test]
-async fn bundle_endpoints_colliding_after_normalization_are_one_pin() {
+async fn a_spec_with_two_spellings_of_one_endpoint_is_refused() {
     let ctx = setup().await;
-    // Two paths that differ only in the parameter's name: the splitter keeps
-    // them apart, the pin store normalizes them to one key.
-    let two = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.0\npaths:\n  /users/{id}:\n    get:\n      responses:\n        '200':\n          description: OK\n  /users/{userId}:\n    get:\n      responses:\n        '200':\n          description: OK\n";
-    provide_with(&ctx, "svc", "snapshot", two, &[]).await;
+    // OpenAPI forbids templated paths that differ only in the parameter name:
+    // they are the same endpoint, and no Consumer could say which it pinned.
+    let ambiguous = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.0\npaths:\n  /users/{id}:\n    get:\n      responses:\n        '200':\n          description: OK\n  /users/{userId}:\n    get:\n      responses:\n        '200':\n          description: OK\n";
+    let (status, body) = provide_with(&ctx, "svc", "snapshot", ambiguous, &[]).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "got: {body}");
+    let msg = body["error"].as_str().unwrap_or_default();
+    assert!(msg.contains("/users/{id}"), "got: {msg}");
+    assert!(msg.contains("/users/{userId}"), "got: {msg}");
 
-    let payload = json!({
-        "consumername": "webapp",
-        "producername": "svc",
-        "version": "1.0.0",
-        "trunk": true,
-        "endpoints": [
-            {"path": "/users/{id}", "method": "GET"},
-            {"path": "/users/{userId}", "method": "GET"}
-        ]
-    });
-    let (status, _, body) = send(&ctx, "POST", "/require-bundle", Some(payload)).await;
-    assert_eq!(status, StatusCode::OK, "got: {body}");
+    // Nothing was stored — the producer does not exist.
+    let (status, _, _) = send(&ctx, "GET", "/admin/producers/svc/versions", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 
-    // Exactly one open pin row, and no row was closed on the way in: the
-    // second entry must be collapsed, not recorded and then superseded.
-    let rows = trunk_dependency_rows(&ctx).await;
-    assert_eq!(rows.len(), 1, "got: {rows:?}");
-    assert!(
-        rows[0].0.is_none(),
-        "the single pin must stay open: {rows:?}"
-    );
+    // A trailing slash is the same collision.
+    let slashy = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.0\npaths:\n  /users:\n    get:\n      responses:\n        '200':\n          description: OK\n  /users/:\n    get:\n      responses:\n        '200':\n          description: OK\n";
+    let (status, _) = provide_with(&ctx, "svc2", "snapshot", slashy, &[]).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // Distinct endpoints are unaffected.
+    let fine = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.0\npaths:\n  /users/{id}:\n    get:\n      responses:\n        '200':\n          description: OK\n  /orders/{id}:\n    get:\n      responses:\n        '200':\n          description: OK\n";
+    let (status, _) = provide_with(&ctx, "svc3", "snapshot", fine, &[]).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
 }

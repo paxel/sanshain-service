@@ -90,8 +90,10 @@ paths:
                 $ref: "#/components/schemas/ProvideResponse"
         "400":
           description: |
-            Invalid request — malformed spec YAML, or a missing/non-semver
-            `info.version`.
+            Invalid request — malformed spec YAML, a missing/non-semver
+            `info.version`, or two paths that are the same endpoint after
+            normalization (differing only in a path-parameter name, a trailing
+            slash, or doubled separators).
           content:
             application/json:
               schema:

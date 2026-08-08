@@ -63,6 +63,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   at a past instant — naming added/removed services and added/removed/changed pins.
 
 ### Changed
+- A spec whose paths differ only in a path-parameter name (`/users/{id}` and `/users/{userId}`),
+  a trailing slash, or doubled separators is now refused with `400` naming both — OpenAPI forbids
+  them as identical and nothing downstream can tell them apart; previously both were stored and a
+  Consumer pinning one of them got an arbitrary answer.
 - UI messages and docs no longer explain resolution by contrast with removed 1.x mechanics
   ("fails immediately", "hard-fail", "no fallback and nothing waits"); they now state the
   current behavior plainly (a missing Pin answers 404, a missing endpoint 410).

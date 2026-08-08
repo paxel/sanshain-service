@@ -131,7 +131,41 @@ fn extract_spec_version(api_type: ApiType, content: &str) -> Result<SemVer, AppE
     }
 }
 
+/// Two operations whose paths differ only in a parameter's name — or in a
+/// trailing slash, or doubled separators — are the *same* endpoint: OpenAPI
+/// forbids them outright ("templated paths with the same hierarchy but
+/// different templated names MUST NOT exist"), and nothing downstream could
+/// act on the difference. A Consumer pinning "/users/{id}" cannot say which of
+/// the two it meant, and the dev and main graphs would count the edge
+/// differently. Refused at publish, where the spec can still be fixed.
+fn reject_colliding_endpoints(endpoints: &[openapi::EndpointSpec]) -> Result<(), AppError> {
+    let mut seen: HashMap<(&str, &str), &str> = HashMap::new();
+    for e in endpoints {
+        if let Some(first) = seen.insert((&e.normalized_path, &e.method), &e.path)
+            && first != e.path
+        {
+            return Err(AppError::BadRequest(format!(
+                "'{}' and '{}' are the same {} endpoint — they differ only in a \
+                 path-parameter name or separator, so nothing can tell them apart. \
+                 Give them distinct paths, or publish only one.",
+                first, e.path, e.method
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn parse_spec_endpoints(
+    api_type: ApiType,
+    content: &str,
+    producername: &str,
+) -> Result<Vec<openapi::EndpointSpec>, AppError> {
+    let endpoints = parse_spec_endpoints_inner(api_type, content, producername)?;
+    reject_colliding_endpoints(&endpoints)?;
+    Ok(endpoints)
+}
+
+fn parse_spec_endpoints_inner(
     api_type: ApiType,
     content: &str,
     producername: &str,
