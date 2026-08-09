@@ -880,7 +880,7 @@ the intended place to investigate refusals in depth.
 
 - Run all integration tests plus `cargo test`.
 
-### 18. Add an architecture boundary check
+### 18. Add an architecture boundary check — DONE (2026-08-09)
 
 **Problem:** The project relies on humans and guidelines to maintain DDD boundaries. A future change can accidentally import infrastructure types into domain/application code.
 

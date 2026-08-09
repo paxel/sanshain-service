@@ -17,6 +17,8 @@ specifications (OpenAPI, AsyncAPI, gRPC/Proto). **Producers** "provide" their fu
 ## Architecture (DDD Hexagonal/Onion)
 Strict layering — maintain these boundaries when adding or changing code:
 1. **Domain** (`src/domain/`): models (`models.rs`), port traits (`ports.rs`). **No framework deps** (no Axum, no SQLx).
+   Enforced by `tests/architecture_boundaries_test.rs`, which fails the build when Domain or
+   Application references a framework or an adapter — add a port instead of an import.
 2. **Application** (`src/application/`): use-case/business logic (`services.rs`). Depends only on Domain.
 3. **Infrastructure** (`src/infrastructure/`): port implementations — SQLx repositories, LDAP, telemetry, cache. Depends on Domain.
 4. **Presentation** (`src/presentation/`, wired in `src/main.rs`/`src/lib.rs`): thin Axum handlers and middleware. Delegate business logic to Application; do not put logic here.
