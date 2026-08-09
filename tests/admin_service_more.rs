@@ -1,5 +1,6 @@
 use sanshain_service::application::admin_service as admin;
 use sanshain_service::application::mock_repo::MockRepo;
+use sanshain_service::application::require_service;
 use sanshain_service::domain::models::{ApiType, AppError};
 use sanshain_service::domain::ports::SpecRepository;
 
@@ -128,9 +129,8 @@ async fn list_version_dependents_unknown_and_empty() {
 // 11. delete_version frees the number and names the pinned Consumers
 #[tokio::test]
 async fn delete_version_returns_pinned_consumers() {
-    use sanshain_service::application::spec_service::{
-        self, ProvideSpecParams, RequireEndpointParams,
-    };
+    use sanshain_service::application::require_service::RequireEndpointParams;
+    use sanshain_service::application::spec_service::{self, ProvideSpecParams};
     use sanshain_service::domain::models::Stability;
 
     let repo = MockRepo::new();
@@ -152,7 +152,7 @@ async fn delete_version_returns_pinned_consumers() {
     )
     .await
     .unwrap();
-    spec_service::require_endpoint(
+    require_service::require_endpoint(
         &repo,
         RequireEndpointParams {
             consumername: "pinned-consumer",

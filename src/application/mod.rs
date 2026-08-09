@@ -10,7 +10,9 @@ pub mod authz;
 pub mod branch_service;
 pub mod directory_roles;
 pub mod report_service;
+pub mod require_service;
 pub mod spec_service;
+pub mod version_rules;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod mock_repo;

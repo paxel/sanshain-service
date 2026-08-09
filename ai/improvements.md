@@ -829,7 +829,13 @@ the intended place to investigate refusals in depth.
 
 **Options:** raise the limit, paginate, or add an action-type filter to the panel.
 
-### 16. Split large service modules into focused use cases
+### 16. Split large service modules into focused use cases — PARTIALLY DONE (2026-08-09)
+
+Extracted so far: `version_rules.rs` (the ADR-0003 version rules as pure functions — no repository,
+no I/O) and `require_service.rs` (the Require use case and its params). `spec_service.rs` went from
+1711 to ~1295 lines and now holds the Provide flow plus the read/query functions. Splitting Provide
+out is the remaining step; it is the most entangled part (contract planning, audit, stream
+resolution) and deserves its own pass. Original text:
 
 **Problem:** `src/application/spec_service.rs` is large and mixes provide, require, bundle, compatibility, versioning, tests, and shared-contract logic.
 

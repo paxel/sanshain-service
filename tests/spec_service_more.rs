@@ -3,6 +3,7 @@
 //! resolution, blame history and the provide timeline.
 
 use sanshain_service::application::mock_repo::MockRepo;
+use sanshain_service::application::require_service;
 use sanshain_service::application::spec_service;
 use sanshain_service::domain::models::*;
 use sanshain_service::domain::ports::SpecRepository;
@@ -153,7 +154,7 @@ async fn provide_persists_the_auto_tag() {
 #[tokio::test]
 async fn require_bundle_with_no_endpoints_is_a_bad_request() {
     let repo = MockRepo::new();
-    let params = spec_service::RequireBundleParams {
+    let params = require_service::RequireBundleParams {
         consumername: "cli",
         producername: "svc",
         version: SemVer::new(1, 0, 0),
@@ -162,7 +163,7 @@ async fn require_bundle_with_no_endpoints_is_a_bad_request() {
         trunk: false,
         tag: None,
     };
-    let res = spec_service::require_bundle_dry_run(&repo, params).await;
+    let res = require_service::require_bundle_dry_run(&repo, params).await;
     match res {
         Err(AppError::BadRequest(msg)) => {
             assert_eq!(msg, "A bundle needs at least one endpoint")
@@ -191,7 +192,7 @@ async fn require_bundle_missing_endpoints_are_gone_and_listed() {
         ("/x".to_string(), "GET".to_string()),
         ("/y".to_string(), "POST".to_string()),
     ];
-    let params = spec_service::RequireBundleParams {
+    let params = require_service::RequireBundleParams {
         consumername: "cli",
         producername: "svc",
         version: SemVer::new(1, 0, 0),
@@ -200,7 +201,7 @@ async fn require_bundle_missing_endpoints_are_gone_and_listed() {
         trunk: false,
         tag: None,
     };
-    let res = spec_service::require_bundle_dry_run(&repo, params).await;
+    let res = require_service::require_bundle_dry_run(&repo, params).await;
     match res {
         Err(AppError::Gone(msg)) => {
             assert!(msg.contains("POST /y"), "missing endpoints listed: {msg}");
@@ -216,7 +217,7 @@ async fn require_bundle_missing_endpoints_are_gone_and_listed() {
 #[tokio::test]
 async fn require_unknown_producer_or_version_is_not_found() {
     let repo = MockRepo::new();
-    let params = spec_service::RequireEndpointParams {
+    let params = require_service::RequireEndpointParams {
         consumername: "cli",
         producername: "ghost",
         version: SemVer::new(1, 0, 0),
@@ -226,14 +227,14 @@ async fn require_unknown_producer_or_version_is_not_found() {
         trunk: false,
         tag: None,
     };
-    match spec_service::require_endpoint_dry_run(&repo, params).await {
+    match require_service::require_endpoint_dry_run(&repo, params).await {
         Err(AppError::NotFound(msg)) => assert!(msg.contains("unknown"), "{msg}"),
         other => panic!("expected NotFound, got {:?}", other),
     }
 
     // Producer exists, the pinned version does not: still 404, immediately.
     let _ = repo.ensure_service("svc").await.unwrap();
-    let params = spec_service::RequireEndpointParams {
+    let params = require_service::RequireEndpointParams {
         consumername: "cli",
         producername: "svc",
         version: SemVer::new(9, 9, 9),
@@ -243,7 +244,7 @@ async fn require_unknown_producer_or_version_is_not_found() {
         trunk: false,
         tag: None,
     };
-    match spec_service::require_endpoint_dry_run(&repo, params).await {
+    match require_service::require_endpoint_dry_run(&repo, params).await {
         Err(AppError::NotFound(msg)) => {
             assert!(msg.contains("9.9.9"), "{msg}");
             assert!(msg.contains("configuration error"), "{msg}");
@@ -268,7 +269,7 @@ async fn require_absent_endpoint_of_an_existing_version_is_gone() {
     .await
     .unwrap();
 
-    let params = spec_service::RequireEndpointParams {
+    let params = require_service::RequireEndpointParams {
         consumername: "cli",
         producername: "svc",
         version: SemVer::new(1, 0, 0),
@@ -278,7 +279,7 @@ async fn require_absent_endpoint_of_an_existing_version_is_gone() {
         trunk: false,
         tag: None,
     };
-    match spec_service::require_endpoint(&repo, params).await {
+    match require_service::require_endpoint(&repo, params).await {
         Err(AppError::Gone(msg)) => {
             assert!(msg.contains("does not include GET /nope"), "{msg}")
         }
@@ -304,7 +305,7 @@ async fn successful_require_records_the_pin_and_touches_last_required() {
     .await
     .unwrap();
 
-    let params = spec_service::RequireEndpointParams {
+    let params = require_service::RequireEndpointParams {
         consumername: "cli",
         producername: "svc",
         version: SemVer::new(1, 0, 0),
@@ -314,7 +315,9 @@ async fn successful_require_records_the_pin_and_touches_last_required() {
         trunk: false,
         tag: None,
     };
-    let res = spec_service::require_endpoint(&repo, params).await.unwrap();
+    let res = require_service::require_endpoint(&repo, params)
+        .await
+        .unwrap();
     assert_eq!(res.state, ResolutionState::Served);
     assert_eq!(res.version, SemVer::new(1, 0, 0));
     assert_eq!(res.stability, Stability::Snapshot);
