@@ -650,12 +650,22 @@ participants and teach the joins to include tombstones. Both are migration + bac
 of every pin query on both backends — which is why this sits with Problem A: same tables, same
 writers, one migration slot rather than two.
 
-**Interim mitigation shipped 2026-08-07:** `admin_delete_producer`/`admin_delete_consumer` now
+**Decision 2026-08-08 (supersedes the Note above for the branch case):** deleting a Producer or
+Consumer that a sanshain-branch's recorded graph still references is **refused with a 409** naming
+the branches, enforced in the application layer. This is a hard block, which the Note above and
+ADR-0005's "warnings, not hard blocks" argued against — the owner chose it deliberately: a release
+cut is a frozen record, and a warning the admin clicks through still rewrites it. Trunk presence
+does **not** block, so Problem B's impact survives for the trunk timeline, which is why this item
+stays open.
+
+**Superseded mitigation (2026-08-07):** `admin_delete_producer`/`admin_delete_consumer` now
 answer `{"deleted", "branches"}` and name the affected release graphs in the audit entry
 (`list_participant_branch_references`), mirroring the delete-version warning. The admin is told;
 the history is still lost.
 
-**Problem A — DONE (2026-08-08).** A UNIQUE partial index now enforces one open record per
+**Problem A — DONE (2026-08-08; migration-collapse test added 2026-08-10).** The concurrent-writes
+Postgres test from the Validation list is still missing — the race is now prevented by the
+constraint rather than demonstrated, which is weaker evidence than the item asked for. A UNIQUE partial index now enforces one open record per
 pin key on all three tables, and the writers insert with `ON CONFLICT … DO UPDATE` so the loser
 of a race refreshes the winner's row. Original text:
 `record_trunk_pins` and `record_branch_pins` refresh-or-insert with a

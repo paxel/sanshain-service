@@ -65,7 +65,6 @@ pub(crate) fn classify_change(
 pub(crate) fn diff_endpoints(
     old: &[EndpointRecord],
     new: &[openapi::EndpointSpec],
-    api_type: ApiType,
 ) -> ProvideChanges {
     let mut old_map: HashMap<(String, String), &EndpointRecord> = old
         .iter()
@@ -87,7 +86,6 @@ pub(crate) fn diff_endpoints(
         }
     }
     let deletes = old_map.len();
-    let _ = api_type;
     ProvideChanges {
         inserts,
         updates,

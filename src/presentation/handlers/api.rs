@@ -554,12 +554,8 @@ pub async fn report_markdown(
         NewAuditLog {
             action: "REPORT",
             details: "Generated Markdown dependency report",
-            service: None,
-            version: None,
             action_type: Some("READ"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await;
@@ -585,12 +581,8 @@ pub async fn report_isolation(
         NewAuditLog {
             action: "REPORT",
             details: "Generated Isolation report",
-            service: None,
-            version: None,
             action_type: Some("READ"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await;

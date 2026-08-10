@@ -1875,9 +1875,38 @@ async fn expired_sessions_and_tokens_are_reclaimed() {
         .unwrap();
     assert_eq!(before, 2);
 
+    // The API-token half of the same cleanup: #14 asks for both, and a test
+    // that only covers sessions would pass while tokens accumulated forever.
+    sqlx::query(
+        "INSERT INTO api_tokens (id, user_id, name, token_hash, created_at, expires_at) \
+         SELECT 'stale-id', user_id, 'stale', 'stale-hash', '2000-01-01T00:00:00Z', '2000-01-02T00:00:00Z' \
+         FROM sessions LIMIT 1",
+    )
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO api_tokens (id, user_id, name, token_hash, created_at, expires_at) \
+         SELECT 'live-id', user_id, 'live', 'live-hash', '2000-01-01T00:00:00Z', '2099-01-01T00:00:00Z' \
+         FROM sessions LIMIT 1",
+    )
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+
     let repo = SqliteSpecRepository::new(ctx.pool.clone());
     let removed = services::cleanup_expired_credentials(&repo).await.unwrap();
-    assert_eq!(removed, 1, "only the lapsed credential goes");
+    assert_eq!(removed, 2, "the lapsed session and the lapsed token go");
+
+    let tokens: Vec<String> = sqlx::query_scalar("SELECT id FROM api_tokens ORDER BY id")
+        .fetch_all(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        tokens,
+        vec!["live-id".to_string()],
+        "the live token survives"
+    );
 
     let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
         .fetch_one(&ctx.pool)

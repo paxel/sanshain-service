@@ -185,12 +185,8 @@ pub async fn auth_change_password(
                 NewAuditLog {
                     action: "CHANGE_PASSWORD",
                     details: "Successfully changed user password",
-                    service: None,
-                    version: None,
                     action_type: Some("ADMIN"),
-                    diff: None,
-                    stream: None,
-                    branch_id: None,
+                    ..Default::default()
                 },
             )
             .await?;
@@ -224,12 +220,8 @@ pub async fn auth_register(
         NewAuditLog {
             action: "REGISTER_USER",
             details: &format!("Registered user '{}'", payload.username),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -292,12 +284,8 @@ pub async fn create_token(
         NewAuditLog {
             action: "CREATE_TOKEN",
             details: "Created an API token",
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -322,12 +310,8 @@ pub async fn revoke_token(
         NewAuditLog {
             action: "REVOKE_TOKEN",
             details: "Revoked an API token",
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;

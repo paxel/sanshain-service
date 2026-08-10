@@ -264,3 +264,76 @@ async fn test_sqlite_migration_upgrade_1_0_1() {
         .execute(&pool).await.unwrap();
     // Both inserts succeed — different service_id means no conflict
 }
+
+/// #26A's migration closes pre-existing duplicate open rows before creating the
+/// UNIQUE index — `CREATE UNIQUE INDEX` fails outright if any remain. That step
+/// is untestable through the app (the constraint now prevents duplicates), so
+/// it is exercised here against the pre-#26A schema.
+#[tokio::test]
+async fn the_unique_index_migration_collapses_pre_existing_duplicates() {
+    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+    apply_pre_2_0_schema(&pool).await;
+    for name in [
+        V2_MIGRATION,
+        "20260807000000_trunk_provided_marker.sql",
+        "20260807000001_trunk_dependencies.sql",
+        "20260807000002_sanshain_branches.sql",
+        "20260807000003_branch_member_versions.sql",
+        "20260807000004_audit_stream.sql",
+    ] {
+        let sql = std::fs::read_to_string(format!("{MIGRATIONS_DIR}/{name}")).unwrap();
+        sqlx::raw_sql(&sql).execute(&pool).await.unwrap();
+    }
+
+    sqlx::query("INSERT INTO clients (name) VALUES ('web')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO services (name) VALUES ('svc')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    // Two open rows for one pin key — the state the old check-then-insert could
+    // reach on Postgres, and which the new index would refuse to be created over.
+    for stamp in ["2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z"] {
+        sqlx::query(
+            "INSERT INTO trunk_dependencies \
+             (client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
+             VALUES (1, 1, 'openapi', '/users', '/users', 'GET', 1, 0, 0, ?, ?)",
+        )
+        .bind(stamp)
+        .bind(stamp)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let sql = std::fs::read_to_string(format!(
+        "{MIGRATIONS_DIR}/20260808000000_unique_open_pin_rows.sql"
+    ))
+    .unwrap();
+    sqlx::raw_sql(&sql)
+        .execute(&pool)
+        .await
+        .expect("the migration must collapse duplicates before creating the unique index");
+
+    let open: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM trunk_dependencies WHERE valid_to IS NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(open, 1, "exactly one open row survives per pin key");
+    // The newest is the one kept; the older is closed, not deleted — the rows
+    // are the timeline.
+    let kept: String =
+        sqlx::query_scalar("SELECT valid_from FROM trunk_dependencies WHERE valid_to IS NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(kept, "2026-01-02T00:00:00Z");
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM trunk_dependencies")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(total, 2, "the collapsed duplicate is closed, not deleted");
+}

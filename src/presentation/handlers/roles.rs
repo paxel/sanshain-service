@@ -31,12 +31,8 @@ async fn record(
         NewAuditLog {
             action,
             details,
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await

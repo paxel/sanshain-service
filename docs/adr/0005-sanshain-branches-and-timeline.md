@@ -65,6 +65,11 @@ bar than creation) frees its name.
   such a rebuild is the producer's reproducibility, not Sanshain's promise.
 - The delete-version confirmation lists referencing sanshain-branches alongside pinned Consumers.
   **Warnings, not hard blocks**: EOL cleanup must not become a strict ordering problem.
+  **Amended 2026-08-08:** deleting a *Producer or Consumer* referenced by a branch's recorded
+  graph is the one hard block (`409` naming the branches). A deleted version stays visible as a
+  dangling reference and heals on re-provide, so a warning suffices; a deleted participant
+  cascades its rows out of the branch entirely, so a warning the admin clicks through silently
+  rewrites a release cut that already happened. Trunk presence does not block.
 - Snapshot use-based expiry is untouched. A release pinning a snapshot is a smell the graph
   shows; it is not a reason to keep snapshots alive forever.
 

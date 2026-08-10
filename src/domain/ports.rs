@@ -102,6 +102,11 @@ pub struct UpsertSpecVersion<'a> {
 
 /// Content of a new audit-log entry — everything except the acting username,
 /// which the caller resolves from the request context.
+///
+/// `Default` so a call site names only the fields it means: two optional
+/// fields added here previously forced `None` into every one of ~40 existing
+/// constructions, which is a lot of churn for no meaning.
+#[derive(Default)]
 pub struct NewAuditLog<'a> {
     pub action: &'a str,
     pub details: &'a str,

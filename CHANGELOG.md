@@ -77,6 +77,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   current behavior plainly (a missing Pin answers 404, a missing endpoint 410).
 
 ### Fixed
+- The observability page's audit panel no longer loses real changes to a burst of rejected
+  provides: it reads a wider window and offers a "Hide rejected provides" toggle.
 - `LOG_BUFFER_SIZE` now actually bounds how many log messages are kept per level; previously it
   only sized the initial allocation while the retention stayed fixed at 100.
 - The observability page's log copy/download now includes the `[service@version]` context the
@@ -87,8 +89,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A dry-run provide of unchanged content no longer refreshes the snapshot's use-based expiry —
   previously a pipeline that only ever dry-ran kept its snapshots alive indefinitely.
 - Deleting a Producer or Consumer is refused with `409` while a sanshain-branch's recorded graph
-  still references it, naming the branches to retire first; previously the deletion succeeded and
-  silently removed those edges from release cuts that had already happened.
+  still references it, naming the branches to retire first.
 
 ---
 

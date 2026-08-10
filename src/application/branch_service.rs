@@ -130,12 +130,8 @@ pub async fn create_branch(
             NewAuditLog {
                 action: "BRANCH_CREATED",
                 details: &details,
-                service: None,
-                version: None,
                 action_type: Some("WRITE"),
-                diff: None,
-                stream: None,
-                branch_id: None,
+                ..Default::default()
             },
         )
         .await
@@ -194,12 +190,8 @@ pub async fn rename_branch(
             NewAuditLog {
                 action: "BRANCH_RENAMED",
                 details: &details,
-                service: None,
-                version: None,
                 action_type: Some("WRITE"),
-                diff: None,
-                stream: None,
-                branch_id: None,
+                ..Default::default()
             },
         )
         .await
@@ -230,12 +222,8 @@ pub async fn delete_branch(
             NewAuditLog {
                 action: "BRANCH_DELETED",
                 details: &details,
-                service: None,
-                version: None,
                 action_type: Some("WRITE"),
-                diff: None,
-                stream: None,
-                branch_id: None,
+                ..Default::default()
             },
         )
         .await

@@ -457,11 +457,8 @@ pub async fn provide_spec(
         // number is the forgot-to-bump mistake, caught at the door.
         (Some(entry), _) if entry.stability == Stability::Ga => {
             let old_content = repo.get_spec_content(entry.id).await?.unwrap_or_default();
-            let changes = diff_endpoints(
-                &repo.get_endpoints_for_version(entry.id).await?,
-                &endpoints,
-                api_type,
-            );
+            let changes =
+                diff_endpoints(&repo.get_endpoints_for_version(entry.id).await?, &endpoints);
             let impact = classify_change(api_type, &old_content, content, changes.inserts);
             let proposed = propose_free(&line, version.increment(impact));
             // Bytes differ but no endpoint the splitter sees changed: the
@@ -551,11 +548,7 @@ pub async fn provide_spec(
     // (snapshot overwrite / promotion); a brand-new version reports its whole
     // endpoint set as inserts.
     let changes = match &existing {
-        Some(entry) => diff_endpoints(
-            &repo.get_endpoints_for_version(entry.id).await?,
-            &endpoints,
-            api_type,
-        ),
+        Some(entry) => diff_endpoints(&repo.get_endpoints_for_version(entry.id).await?, &endpoints),
         None => ProvideChanges {
             inserts: endpoints.len(),
             updates: 0,
@@ -1277,7 +1270,7 @@ mod tests {
                 deprecated: false,
             },
         ];
-        let changes = diff_endpoints(&old, &new, ApiType::OpenApi);
+        let changes = diff_endpoints(&old, &new);
         assert_eq!(changes.inserts, 1);
         assert_eq!(changes.updates, 1);
         assert_eq!(changes.deletes, 1);

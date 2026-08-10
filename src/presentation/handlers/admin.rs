@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::str::FromStr;
 
-use super::{DEV_MODE_ACTOR, record_audit_log};
+use super::{DEV_MODE_ACTOR, actor_or_dev_mode, record_audit_log};
 
 pub async fn admin_list_producers(
     State(state): State<AppState>,
@@ -350,12 +350,8 @@ pub async fn admin_delete_consumer(
             NewAuditLog {
                 action: "DELETE_CLIENT",
                 details: &format!("Deleted client '{}'", name),
-                service: None,
-                version: None,
                 action_type: Some("WRITE"),
-                diff: None,
-                stream: None,
-                branch_id: None,
+                ..Default::default()
             },
         )
         .await?;
@@ -389,12 +385,8 @@ pub async fn set_auto_approve_users(
         NewAuditLog {
             action: "SET_AUTO_APPROVE",
             details: &format!("Set auto-approve-users to {}", payload.enabled),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -457,12 +449,8 @@ pub async fn set_auth_config(
                 "Updated auth mode to '{}' and LDAP configurations",
                 payload.auth_mode
             ),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -502,12 +490,8 @@ pub async fn set_snapshot_max_age(
         NewAuditLog {
             action: "SET_SNAPSHOT_MAX_AGE",
             details: &format!("Set snapshot max age to {} days", payload.days),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -528,12 +512,8 @@ pub async fn trigger_snapshot_cleanup(
                 "Manually triggered snapshot cleanup, removed {} snapshots",
                 deleted
             ),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -564,12 +544,8 @@ pub async fn set_dependency_max_age(
         NewAuditLog {
             action: "UPDATE_SETTINGS",
             details: &format!("Set dependency max age to {} days", payload.days),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -590,12 +566,8 @@ pub async fn trigger_dependency_cleanup(
                 "Triggered dependency cleanup, deleted {} stale dependencies",
                 res
             ),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -646,12 +618,8 @@ pub async fn admin_approve_user(
             NewAuditLog {
                 action: "APPROVE_USER",
                 details: &format!("Approved user '{}'", target_username),
-                service: None,
-                version: None,
                 action_type: Some("ADMIN"),
-                diff: None,
-                stream: None,
-                branch_id: None,
+                ..Default::default()
             },
         )
         .await?;
@@ -685,12 +653,8 @@ pub async fn admin_delete_user_handler(
             NewAuditLog {
                 action: "DELETE_USER",
                 details: &format!("Deleted user '{}'", target_username),
-                service: None,
-                version: None,
                 action_type: Some("ADMIN"),
-                diff: None,
-                stream: None,
-                branch_id: None,
+                ..Default::default()
             },
         )
         .await?;
@@ -721,12 +685,8 @@ pub async fn admin_nuke_producers(
         NewAuditLog {
             action: "NUKE_DATABASE",
             details: &format!("Nuked all services, deleted {} services", res),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -749,12 +709,8 @@ pub async fn admin_nuke_consumers(
         NewAuditLog {
             action: "NUKE_DATABASE",
             details: &format!("Nuked all clients, deleted {} clients", res),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -777,12 +733,8 @@ pub async fn admin_nuke_users(
         NewAuditLog {
             action: "NUKE_DATABASE",
             details: &format!("Nuked all non-admin users, deleted {} users", res),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -806,12 +758,8 @@ pub async fn admin_nuke_database(
         NewAuditLog {
             action: "NUKE_DATABASE",
             details: "Nuked complete database (Full reset)",
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -1000,12 +948,8 @@ pub async fn set_debug_config(
                 "Updated debug config: business_logic_debug={}, admin_user_debug={}",
                 config.business_logic_debug, config.admin_user_debug
             ),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -1121,12 +1065,8 @@ pub async fn set_cache_config(
         NewAuditLog {
             action: "UPDATE_SETTINGS",
             details: &format!("Updated cache memory limit to {} MB", payload.memory_mb),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -1145,12 +1085,8 @@ pub async fn clear_cache(
         NewAuditLog {
             action: "CLEAR_CACHE",
             details: "Cleared spec caches",
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -1244,9 +1180,7 @@ pub async fn admin_rename_branch(
     Path(name): Path<String>,
     Json(payload): Json<RenameBranchRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let actor = user
-        .map(|axum::Extension(u)| u.username)
-        .unwrap_or_else(|| DEV_MODE_ACTOR.to_string());
+    let actor = actor_or_dev_mode(user.as_ref());
     let branch = services::rename_branch(&state.repo, &name, &payload.new_name, &actor).await?;
     Ok(Json(branch))
 }
@@ -1256,9 +1190,7 @@ pub async fn admin_delete_branch(
     user: Option<axum::Extension<crate::domain::models::User>>,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    let actor = user
-        .map(|axum::Extension(u)| u.username)
-        .unwrap_or_else(|| DEV_MODE_ACTOR.to_string());
+    let actor = actor_or_dev_mode(user.as_ref());
     services::delete_branch(&state.repo, &name, &actor).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1282,12 +1214,8 @@ pub async fn set_trunk_max_age(
         NewAuditLog {
             action: "SETTINGS_CHANGED",
             details: &format!("Set trunk max age to {} days", payload.days),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -1305,12 +1233,8 @@ pub async fn trigger_trunk_cleanup(
         NewAuditLog {
             action: "TRUNK_CLEANUP",
             details: &format!("Triggered trunk cleanup, closed {closed} stale trunk pins"),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
