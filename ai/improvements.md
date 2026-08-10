@@ -710,8 +710,10 @@ half but not this one).
 ### 28. Release-graph correctness gaps found in review — DONE (2026-08-10)
 
 All eight sub-items shipped 2026-08-08/09; the Validation debt was paid 2026-08-10: backend items
-1/4/5 have integration tests, frontend items 2/3/6/7 have Playwright regressions (each proven to
-fail with its fix reverted). Known remainder: 28.8's atomicity itself is untestable without fault
+1/4/5 have integration tests, frontend items 2/3/6/7 have Playwright regressions (the two most
+vacuity-prone — filter narrowing and response ordering — proven to fail with their fix reverted;
+the dangling-dash and redirect tests assert concrete attributes/navigation and were not
+revert-proven). Known remainder: 28.8's atomicity itself is untestable without fault
 injection — the transaction is the fix, and the branch-delete behaviour is covered. Original text:
 
 Independent defects sharing one theme: a scoped or reconstructed view still mixes in
