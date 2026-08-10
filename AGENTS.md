@@ -11,7 +11,7 @@ specifications (OpenAPI, AsyncAPI, gRPC/Proto). **Producers** "provide" their fu
 - **Templates**: [Askama](https://github.com/djc/askama).
 - **Caching**: [Moka](https://github.com/moka-rs/moka).
 - **Auth**: Argon2, session tokens, optional LDAP/AD.
-- **Frontend**: Vanilla JS/CSS + HTMX for admin fragments.
+- **Frontend**: Vanilla JS + [Tailwind CSS](https://tailwindcss.com/) (built to `static/css/app.css` via `npm run build:css`; committed, since prod serves `static/` directly). HTMX for admin fragments.
 - **Task runner**: [just](https://github.com/casey/just) (`justfile`) — `npm run` scripts wrap the same commands.
 
 ## Architecture (DDD Hexagonal/Onion)

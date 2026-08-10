@@ -80,6 +80,9 @@ jobs:
       - run: npm ci
       - run: npx eslint static/js/
       - run: npx prettier --check static/js/
+      # The Tailwind CSS is a committed artifact (prod serves static/ directly);
+      # fail if it drifts from source.
+      - run: npm run build:css && git diff --exit-code static/css/app.css
   ui-quality:
     runs-on: ubuntu-latest
     steps:
