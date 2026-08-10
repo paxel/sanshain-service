@@ -297,7 +297,7 @@ async fn record_version_rejection(
         "producer" => producername.to_string()
     )
     .increment(1);
-    let actor = username.unwrap_or("DevMode/Anonymous");
+    let actor = username.unwrap_or(crate::domain::models::DEV_MODE_ACTOR);
     if let Err(e) = repo
         .insert_audit_log(
             actor,
@@ -307,9 +307,7 @@ async fn record_version_rejection(
                 service: Some(producername),
                 version: Some(&version.to_string()),
                 action_type: Some("REJECT"),
-                diff: None,
-                stream: None,
-                branch_id: None,
+                ..Default::default()
             },
         )
         .await
@@ -680,9 +678,7 @@ pub async fn provide_spec(
                     service: Some(producername),
                     version: Some(&version.to_string()),
                     action_type: Some("WRITE"),
-                    diff: None,
-                    stream: None,
-                    branch_id: None,
+                    ..Default::default()
                 },
             )
             .await
@@ -720,9 +716,7 @@ pub async fn provide_spec(
                     service: Some(producername),
                     version: Some(&version.to_string()),
                     action_type: Some("WRITE"),
-                    diff: None,
-                    stream: None,
-                    branch_id: None,
+                    ..Default::default()
                 },
             )
             .await

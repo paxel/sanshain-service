@@ -707,7 +707,12 @@ half but not this one).
 - A migration test seeding duplicate open rows and asserting the migration collapses them.
 - Run `cargo test` (the Postgres suites need Docker).
 
-### 28. Release-graph correctness gaps found in review (found 2026-08-08)
+### 28. Release-graph correctness gaps found in review — DONE (2026-08-10)
+
+All eight sub-items shipped 2026-08-08/09; the Validation debt was paid 2026-08-10: backend items
+1/4/5 have integration tests, frontend items 2/3/6/7 have Playwright regressions (each proven to
+fail with its fix reverted). Known remainder: 28.8's atomicity itself is untestable without fault
+injection — the transaction is the fix, and the branch-delete behaviour is covered. Original text:
 
 Independent defects sharing one theme: a scoped or reconstructed view still mixes in
 present-tense or unfiltered data. Each is small; they are grouped because they are found and

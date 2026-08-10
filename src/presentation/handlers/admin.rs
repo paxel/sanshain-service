@@ -230,11 +230,8 @@ pub async fn admin_delete_producer(
                 action: "DELETE_SERVICE",
                 details: &format!("Deleted service '{}'", name),
                 service: Some(&name),
-                version: None,
                 action_type: Some("WRITE"),
-                diff: None,
-                stream: None,
-                branch_id: None,
+                ..Default::default()
             },
         )
         .await?;
@@ -327,9 +324,7 @@ pub async fn admin_delete_version(
             service: Some(&name),
             version: Some(&version_str),
             action_type: Some("WRITE"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -829,11 +824,8 @@ pub async fn admin_update_producer_metadata(
             action: "UPDATE_SERVICE_METADATA",
             details: &format!("Updated metadata for service '{}'", payload.name),
             service: Some(&payload.name),
-            version: None,
             action_type: Some("WRITE"),
-            diff: None,
-            stream: None,
-            branch_id: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -1180,7 +1172,7 @@ pub async fn admin_rename_branch(
     Path(name): Path<String>,
     Json(payload): Json<RenameBranchRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let actor = actor_or_dev_mode(user.as_ref());
+    let actor = actor_or_dev_mode(user.as_deref());
     let branch = services::rename_branch(&state.repo, &name, &payload.new_name, &actor).await?;
     Ok(Json(branch))
 }
@@ -1190,7 +1182,7 @@ pub async fn admin_delete_branch(
     user: Option<axum::Extension<crate::domain::models::User>>,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    let actor = actor_or_dev_mode(user.as_ref());
+    let actor = actor_or_dev_mode(user.as_deref());
     services::delete_branch(&state.repo, &name, &actor).await?;
     Ok(StatusCode::NO_CONTENT)
 }

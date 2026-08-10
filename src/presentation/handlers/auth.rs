@@ -5,20 +5,7 @@ use crate::domain::ports::{NewAuditLog, SpecRepository};
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 
-async fn record_audit_log(
-    repo: &impl crate::domain::ports::SpecRepository,
-    user: Option<&User>,
-    log: NewAuditLog<'_>,
-) -> Result<(), AppError> {
-    let actor = if let Some(u) = user {
-        u.username.clone()
-    } else {
-        "DevMode/Anonymous".to_string()
-    };
-    repo.insert_audit_log(&actor, log)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))
-}
+use super::record_audit_log_for as record_audit_log;
 
 #[derive(Deserialize)]
 pub struct LoginRequest {

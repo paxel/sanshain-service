@@ -11,6 +11,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+// `cfg(test)` is always true in this crate; the attribute marks the helpers as
+// test code so clippy's `allow-*-in-tests` exemptions apply to them.
+
 /// Tokens that mean "a framework or adapter leaked into this layer". Matched
 /// as whole words against code, never comments — a doc comment explaining the
 /// rule ("no Axum here") must not trip the rule it explains.

@@ -775,6 +775,11 @@ pub struct CacheStats {
     pub hit_rate_percent: f64,
 }
 
+/// Stand-in actor when a write happens with no authenticated user attached
+/// (dev mode). Part of the domain because every layer that records an audit
+/// row must use the same sentinel — provenance must never read as blank.
+pub const DEV_MODE_ACTOR: &str = "DevMode/Anonymous";
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AuditLogEntry {
     pub id: i64,

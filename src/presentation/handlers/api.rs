@@ -19,20 +19,7 @@ use sha2::{Digest, Sha256};
 use std::convert::Infallible;
 use tokio_stream::Stream;
 
-async fn record_audit_log(
-    repo: &impl crate::domain::ports::SpecRepository,
-    user: Option<axum::Extension<crate::domain::models::User>>,
-    log: crate::domain::ports::NewAuditLog<'_>,
-) -> Result<(), AppError> {
-    let actor = if let Some(axum::Extension(u)) = user {
-        u.username.clone()
-    } else {
-        "DevMode/Anonymous".to_string()
-    };
-    repo.insert_audit_log(&actor, log)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))
-}
+use super::record_audit_log;
 
 /// The 2.0 Provide payload. The version is *not* here — it lives in the spec
 /// document itself. `deny_unknown_fields` turns a 1.x-shaped request (`branch`,

@@ -550,3 +550,138 @@ test.describe("Escaping", () => {
     expect(handlers.title).toBe('x" onmouseover="steal()');
   });
 });
+
+test.describe("Release-graph regressions (ai/improvements.md #28)", () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+  const LONER = "reg28-loner-svc"; // trunk-provided, never pinned
+  const PINNED = "reg28-pinned-svc"; // pinned by the consumer
+  const DOOMED = "reg28-doomed-svc"; // its version gets deleted -> dangling
+  const CONSUMER = "reg28-consumer";
+  const spec = (title) =>
+    [
+      "openapi: 3.0.3",
+      "info:",
+      `  title: ${title}`,
+      "  version: 1.0.0",
+      "paths:",
+      "  /thing:",
+      "    get:",
+      "      responses:",
+      "        '200':",
+      "          description: OK",
+    ].join("\n");
+
+  test.beforeAll(async ({ request }) => {
+    if (!adminPassword) {
+      throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
+    }
+    const login = await request.post("/auth/login", {
+      data: { username: "root", password: adminPassword },
+    });
+    const { token } = await login.json();
+    const auth = { Authorization: `Bearer ${token}` };
+    for (const name of [LONER, PINNED, DOOMED]) {
+      await request.post("/provide", {
+        headers: auth,
+        data: { producername: name, stability: "snapshot", openapi_yaml: spec(name), trunk: true },
+      });
+    }
+    for (const name of [PINNED, DOOMED]) {
+      await request.get(
+        `/require?consumername=${CONSUMER}&producername=${name}&version=1.0.0&path=/thing&method=GET&trunk=true`,
+        { headers: auth },
+      );
+    }
+    // The doomed version disappears out from under its pin.
+    const del = await request.delete(`/admin/producers/${DOOMED}/versions/openapi/1.0.0`, {
+      headers: auth,
+    });
+    if (!del.ok()) throw new Error(`delete-version failed: ${del.status()}`);
+  });
+
+  async function loginAndOpenMainView(page) {
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await page.goto("/graph.html");
+    await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
+    await page.click("#stream-main");
+    await expect(page.locator("#custom-graph")).toContainText(PINNED, { timeout: 10000 });
+  }
+
+  // #28.2: with a narrowing filter active, the main view must not re-inject
+  // every trunk-provided producer as an isolated node.
+  test("a focus filter hides unrelated trunk producers in the main view", async ({ page }) => {
+    await loginAndOpenMainView(page);
+    // Unfiltered: the never-pinned producer is injected on purpose.
+    await expect(page.locator("#custom-graph")).toContainText(LONER);
+
+    await page.fill("#graph-service-filter", PINNED);
+    await page.press("#graph-service-filter", "Enter");
+    await expect(page.locator("#custom-graph")).toContainText(PINNED);
+    await expect(page.locator("#custom-graph")).not.toContainText(LONER, { timeout: 10000 });
+  });
+
+  // #28.3: a dangling pin keeps its own colour and dash — the messaging/
+  // missing styling pass used to overwrite the dasharray afterwards.
+  test("a dangling pin renders dotted orange in the main view", async ({ page }) => {
+    await loginAndOpenMainView(page);
+    const dangling = page.locator('#custom-graph path.graph-edge[data-dangling="1"]');
+    await expect(dangling).toHaveCount(1, { timeout: 10000 });
+    await expect(dangling).toHaveAttribute("stroke-dasharray", "2 5");
+    await expect(dangling).toHaveAttribute("stroke", "#ea580c");
+  });
+
+  // #28.6: only the newest timeline request may apply; a slower, older
+  // response landing last must not win. Deterministic replay of the race via
+  // a stubbed apiCall — no timing dependence.
+  test("a stale timeline response cannot overwrite a newer one", async ({ page }) => {
+    await loginAndOpenMainView(page);
+    const result = await page.evaluate(async () => {
+      const originalApi = window.apiCall;
+      const originalRedraw = window.redrawGraph;
+      window.redrawGraph = () => {};
+      const resolvers = {};
+      window.apiCall = (url) =>
+        new Promise((resolve) => {
+          const key = url.includes("T01") ? "older" : "newer";
+          resolvers[key] = () => resolve({ ok: true, json: async () => [{ marker: key }] });
+        });
+      try {
+        const older = window.setTimelinePosition("2026-01-01T01:00:00Z");
+        const newer = window.setTimelinePosition("2026-01-01T02:00:00Z");
+        resolvers.newer();
+        await newer;
+        resolvers.older(); // the stale response lands last…
+        await older;
+        return {
+          at: window.graphTimelineAt,
+          marker: window.graphTimelinePins?.[0]?.marker ?? null,
+        };
+      } finally {
+        window.apiCall = originalApi;
+        window.redrawGraph = originalRedraw;
+        window.graphTimelineAt = null;
+        window.graphTimelinePins = null;
+      }
+    });
+    // …and must not win.
+    expect(result.at).toBe("2026-01-01T02:00:00Z");
+    expect(result.marker).toBe("newer");
+  });
+
+  // #28.7: an expired session mid-action redirects like every other admin
+  // page, instead of leaving the Compare panel stuck on "Comparing…".
+  test("an expired session during a graph diff redirects to sign-in", async ({ page }) => {
+    await loginAndOpenMainView(page);
+    await page.evaluate(() => {
+      localStorage.setItem("sanshain_token", "expired-garbage");
+      document.cookie = "sanshain_token=expired-garbage;path=/";
+    });
+    await page.click('button:has-text("Diff")');
+    await page.waitForURL("**/account.html", { timeout: 10000 });
+  });
+});
