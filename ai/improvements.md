@@ -821,7 +821,7 @@ cheap, but it *edits existing audit rows*, which is a deliberate integrity decis
 take unilaterally, and it does not fix name reuse after delete; (c) refuse to free a name on
 delete. Ask before implementing.
 
-### 27. Diff graphs by the key the pin stores actually use (found 2026-08-07)
+### 27. Diff graphs by the key the pin stores actually use — DONE (2026-08-07)
 
 **Problem:** `diff_graphs` keys pins by the raw `path`, while the pin stores match open records
 by `normalized_path`. A path whose parameter is respelled (`/users/{id}` → `/users/{userId}`)
