@@ -662,7 +662,14 @@ from trivial lag.
 - Unit-test config parsing for valid, missing, and invalid values.
 - Run `cargo test`.
 
-### 26. Make the pin stores hold the invariants they claim (found 2026-08-07)
+### 26. Make the pin stores hold the invariants they claim — DONE (Problem A 2026-08-08, Problem B 2026-08-10)
+
+**Problem B — DONE (2026-08-10).** Pin rows now denormalize the participant name (client_name/
+service_name) and the client/service foreign keys dropped their cascade, so a Producer/Consumer
+delete no longer erases history — the row survives by value, exactly like a deleted version
+dangles rather than vanishing. A participant delete closes its open trunk pins (leaves the current
+main graph, keeps the closed rows as timeline). Branches keep the 409 refusal for their frozen
+open state; their closed rows now survive the same way. Original text:
 
 **Problem B — the append-only claim is not enforced against participant deletes.**
 `trunk_dependencies`, `branch_dependencies` and `branch_member_versions` declare

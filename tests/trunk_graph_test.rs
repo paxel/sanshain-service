@@ -1565,39 +1565,82 @@ async fn audit_csv_escapes_quotes_in_the_stream_column() {
 }
 
 #[tokio::test]
-async fn sqlite_enforces_the_declared_cascades() {
-    // sqlx turns foreign keys on for SQLite by default, so the declared
-    // ON DELETE CASCADE really fires and a participant delete takes its pin
-    // rows with it — the behavior ai/improvements.md #26 Problem B is about.
-    // Pinned here because it is invisible in the code and easy to assume away.
+async fn a_deleted_participant_leaves_the_main_graph_but_keeps_its_timeline() {
+    // ai/improvements.md #26 Problem B: the participant's pin rows used to
+    // cascade away on delete, erasing the timeline. Now they are denormalized
+    // by value — the delete closes the open pin (so the participant leaves the
+    // *current* main graph) but every row survives, so a past-instant query
+    // still reconstructs the era when the participant was active.
     let ctx = setup().await;
-    let fk: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
-        .fetch_one(&ctx.pool)
-        .await
-        .unwrap();
-
     provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
     assert_eq!(
         require_with(&ctx, "web", "svc", "1.0.0", "/users", "GET", true).await,
         StatusCode::OK
     );
-    let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM trunk_dependencies")
-        .fetch_one(&ctx.pool)
+
+    // Backdate the pin so its live interval has real width — otherwise the
+    // delete closes it in the same second it was created and no instant falls
+    // strictly inside (second-precision stamps).
+    sqlx::query("UPDATE trunk_dependencies SET valid_from = '2020-01-01T00:00:00Z'")
+        .execute(&ctx.pool)
         .await
         .unwrap();
-    assert_eq!(before, 1);
 
     let (status, _, body) = send(&ctx, "DELETE", "/admin/consumers/web", None).await;
     assert_eq!(status, StatusCode::OK, "got: {body}");
-    let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM trunk_dependencies")
+
+    // The row survives (history), now closed.
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM trunk_dependencies")
         .fetch_one(&ctx.pool)
         .await
         .unwrap();
-    println!("PRAGMA foreign_keys = {fk}; trunk_dependencies before={before} after={after}");
-    assert_eq!(
-        after, 0,
-        "expected the declared cascade to remove the pin row"
+    assert_eq!(total, 1, "the pin row must survive the participant delete");
+    let open: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM trunk_dependencies WHERE valid_to IS NULL")
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(open, 0, "the delete must close the open pin");
+    // The denormalized name is what makes the surviving row readable.
+    let name: String = sqlx::query_scalar("SELECT client_name FROM trunk_dependencies LIMIT 1")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(name, "web");
+
+    // Current main graph: the deleted consumer is gone.
+    let (status, _, body) = send(&ctx, "GET", "/admin/trunk/graph", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    assert!(
+        as_json(&body).as_array().unwrap().is_empty(),
+        "the deleted consumer must leave the current graph: {body}"
     );
+
+    // Timeline at an instant strictly inside the live interval: still there.
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        &format!(
+            "/admin/trunk/graph?at={}",
+            urlencoding("2020-06-01T00:00:00Z")
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let past = as_json(&body);
+    assert_eq!(
+        past.as_array().unwrap().len(),
+        1,
+        "history preserved: {body}"
+    );
+    assert_eq!(past[0]["client"], "web");
+    assert_eq!(past[0]["service"], "svc");
+}
+
+#[cfg(test)]
+fn urlencoding(s: &str) -> String {
+    s.replace(':', "%3A").replace('+', "%2B")
 }
 
 #[tokio::test]

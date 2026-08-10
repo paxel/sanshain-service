@@ -534,8 +534,8 @@ impl SpecRepository for PostgresSpecRepository {
         now_iso: &str,
     ) -> Result<(), RepositoryError> {
         sqlx::query(
-            "INSERT INTO branch_dependencies (branch_id, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
-             SELECT $1, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, $2, $3 \
+            "INSERT INTO branch_dependencies (branch_id, client_id, client_name, service_id, service_name, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
+             SELECT $1, client_id, client_name, service_id, service_name, api_type, path, normalized_path, method, major, minor, patch, $2, $3 \
              FROM trunk_dependencies WHERE valid_from <= $4 AND (valid_to IS NULL OR valid_to > $4)",
         )
         .bind(branch_id)
@@ -556,8 +556,8 @@ impl SpecRepository for PostgresSpecRepository {
         now_iso: &str,
     ) -> Result<(), RepositoryError> {
         sqlx::query(
-            "INSERT INTO branch_dependencies (branch_id, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
-             SELECT $1, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, $2, $3 \
+            "INSERT INTO branch_dependencies (branch_id, client_id, client_name, service_id, service_name, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
+             SELECT $1, client_id, client_name, service_id, service_name, api_type, path, normalized_path, method, major, minor, patch, $2, $3 \
              FROM branch_dependencies WHERE branch_id = $4 AND valid_from <= $5 AND (valid_to IS NULL OR valid_to > $5)",
         )
         .bind(target_branch_id)
@@ -576,15 +576,13 @@ impl SpecRepository for PostgresSpecRepository {
         branch_id: i64,
         at: Option<&str>,
     ) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
-        let base = "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
+        let base = "SELECT t.client_name, t.service_name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
              FROM branch_dependencies t \
-             JOIN clients c ON c.id = t.client_id \
-             JOIN services s ON s.id = t.service_id \
              WHERE t.branch_id = $1";
         let rows: Vec<PinRow<i32>> = match at {
             Some(at) => {
                 sqlx::query_as(&format!(
-                    "{base} AND t.valid_from <= $2 AND (t.valid_to IS NULL OR t.valid_to > $2) ORDER BY c.name, s.name, t.path, t.method"
+                    "{base} AND t.valid_from <= $2 AND (t.valid_to IS NULL OR t.valid_to > $2) ORDER BY t.client_name, t.service_name, t.path, t.method"
                 ))
                 .bind(branch_id)
                 .bind(at)
@@ -593,7 +591,7 @@ impl SpecRepository for PostgresSpecRepository {
             }
             None => {
                 sqlx::query_as(&format!(
-                    "{base} AND t.valid_to IS NULL ORDER BY c.name, s.name, t.path, t.method"
+                    "{base} AND t.valid_to IS NULL ORDER BY t.client_name, t.service_name, t.path, t.method"
                 ))
                 .bind(branch_id)
                 .fetch_all(&self.pool)
@@ -606,12 +604,10 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn list_trunk_pins_at(&self, at: &str) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
         let rows: Vec<PinRow<i32>> = sqlx::query_as(
-            "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
+            "SELECT t.client_name, t.service_name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
              FROM trunk_dependencies t \
-             JOIN clients c ON c.id = t.client_id \
-             JOIN services s ON s.id = t.service_id \
              WHERE t.valid_from <= $1 AND (t.valid_to IS NULL OR t.valid_to > $1) \
-             ORDER BY c.name, s.name, t.path, t.method",
+             ORDER BY t.client_name, t.service_name, t.path, t.method",
         )
         .bind(at)
         .fetch_all(&self.pool)
@@ -806,8 +802,9 @@ impl SpecRepository for PostgresSpecRepository {
                 sqlx::query(
                     // See record_trunk_pins: the unique partial index settles
                     // the concurrent first-insert race.
-                    "INSERT INTO branch_dependencies (branch_id, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) \
+                    // client_name/service_name denormalized by value (#26B).
+                    "INSERT INTO branch_dependencies (branch_id, client_id, client_name, service_id, service_name, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
+                     VALUES ($1, $2, (SELECT name FROM clients WHERE id = $2), $3, (SELECT name FROM services WHERE id = $3), $4, $5, $6, $7, $8, $9, $10, $11, $12) \
                      ON CONFLICT (branch_id, client_id, service_id, api_type, normalized_path, method) \
                      WHERE valid_to IS NULL \
                      DO UPDATE SET last_required_at = EXCLUDED.last_required_at",
@@ -865,8 +862,8 @@ impl SpecRepository for PostgresSpecRepository {
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query(
-            "INSERT INTO branch_member_versions (branch_id, service_id, api_type, major, minor, patch, valid_from) \
-             SELECT $1, $2, $3, $4, $5, $6, $7 \
+            "INSERT INTO branch_member_versions (branch_id, service_id, service_name, api_type, major, minor, patch, valid_from) \
+             SELECT $1, $2, (SELECT name FROM services WHERE id = $2), $3, $4, $5, $6, $7 \
              WHERE NOT EXISTS (SELECT 1 FROM branch_member_versions WHERE branch_id = $1 AND service_id = $2 AND api_type = $3 AND valid_to IS NULL AND major = $4 AND minor = $5 AND patch = $6)",
         )
         .bind(branch_id)
@@ -934,8 +931,10 @@ impl SpecRepository for PostgresSpecRepository {
                 // transaction that inserted this key first wins, and this one
                 // refreshes its row instead of erroring or duplicating it.
                 sqlx::query(
-                    "INSERT INTO trunk_dependencies (client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) \
+                    // client_name/service_name denormalized by value (#26B); a
+                    // reused placeholder fills each from its id, no extra bind.
+                    "INSERT INTO trunk_dependencies (client_id, client_name, service_id, service_name, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
+                     VALUES ($1, (SELECT name FROM clients WHERE id = $1), $2, (SELECT name FROM services WHERE id = $2), $3, $4, $5, $6, $7, $8, $9, $10, $11) \
                      ON CONFLICT (client_id, service_id, api_type, normalized_path, method) \
                      WHERE valid_to IS NULL \
                      DO UPDATE SET last_required_at = EXCLUDED.last_required_at",
@@ -964,12 +963,10 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn list_current_trunk_pins(&self) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
         let rows: Vec<PinRow<i32>> = sqlx::query_as(
-            "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
+            "SELECT t.client_name, t.service_name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
              FROM trunk_dependencies t \
-             JOIN clients c ON c.id = t.client_id \
-             JOIN services s ON s.id = t.service_id \
              WHERE t.valid_to IS NULL \
-             ORDER BY c.name, s.name, t.path, t.method",
+             ORDER BY t.client_name, t.service_name, t.path, t.method",
         )
         .fetch_all(&self.pool)
         .await
@@ -1548,6 +1545,17 @@ impl SpecRepository for PostgresSpecRepository {
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // #26B: close this producer's open trunk pins so it leaves the current
+        // main graph while its closed history survives (denormalized names, no
+        // longer cascaded away). The stamp matches now_iso()'s shape.
+        sqlx::query(
+            "UPDATE trunk_dependencies SET valid_to = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') \
+             WHERE service_id = $1 AND valid_to IS NULL",
+        )
+        .bind(service_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM services WHERE id = $1")
             .bind(service_id)
             .execute(&mut *tx)
@@ -1578,6 +1586,17 @@ impl SpecRepository for PostgresSpecRepository {
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        // #26B: close this consumer's open trunk pins; closed rows stay as
+        // timeline history (denormalized names, no longer cascaded away).
+        sqlx::query(
+            "UPDATE trunk_dependencies SET valid_to = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') \
+             WHERE client_id = $1 AND valid_to IS NULL",
+        )
+        .bind(client_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         sqlx::query("DELETE FROM clients WHERE id = $1")
             .bind(client_id)

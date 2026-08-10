@@ -89,7 +89,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A dry-run provide of unchanged content no longer refreshes the snapshot's use-based expiry —
   previously a pipeline that only ever dry-ran kept its snapshots alive indefinitely.
 - Deleting a Producer or Consumer is refused with `409` while a sanshain-branch's recorded graph
-  still references it, naming the branches to retire first.
+  still references it, naming the branches to retire first. Its trunk history is preserved: the
+  pin rows store the participant name by value, so a delete closes the participant's open trunk
+  pins (it leaves the current main graph) but the timeline still reconstructs the era it was
+  active, instead of the rows being erased.
 
 ---
 

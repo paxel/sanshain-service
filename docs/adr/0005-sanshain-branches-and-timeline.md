@@ -70,6 +70,10 @@ bar than creation) frees its name.
   dangling reference and heals on re-provide, so a warning suffices; a deleted participant
   cascades its rows out of the branch entirely, so a warning the admin clicks through silently
   rewrites a release cut that already happened. Trunk presence does not block.
+  **Amended 2026-08-10 (#26B):** pin rows now store the participant name by value and no longer
+  cascade on a participant delete, so history survives the delete outright. A participant delete
+  closes its open *trunk* pins (it leaves the current main graph; its closed rows stay as timeline
+  history). The branch `409` above still stands, so a branch's frozen open state is never altered.
 - Snapshot use-based expiry is untouched. A release pinning a snapshot is a smell the graph
   shows; it is not a reason to keep snapshots alive forever.
 

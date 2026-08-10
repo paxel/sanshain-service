@@ -533,8 +533,8 @@ impl SpecRepository for SqliteSpecRepository {
         now_iso: &str,
     ) -> Result<(), RepositoryError> {
         sqlx::query(
-            "INSERT INTO branch_dependencies (branch_id, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
-             SELECT ?, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, ?, ? \
+            "INSERT INTO branch_dependencies (branch_id, client_id, client_name, service_id, service_name, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
+             SELECT ?, client_id, client_name, service_id, service_name, api_type, path, normalized_path, method, major, minor, patch, ?, ? \
              FROM trunk_dependencies WHERE valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)",
         )
         .bind(branch_id)
@@ -556,8 +556,8 @@ impl SpecRepository for SqliteSpecRepository {
         now_iso: &str,
     ) -> Result<(), RepositoryError> {
         sqlx::query(
-            "INSERT INTO branch_dependencies (branch_id, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
-             SELECT ?, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, ?, ? \
+            "INSERT INTO branch_dependencies (branch_id, client_id, client_name, service_id, service_name, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
+             SELECT ?, client_id, client_name, service_id, service_name, api_type, path, normalized_path, method, major, minor, patch, ?, ? \
              FROM branch_dependencies WHERE branch_id = ? AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)",
         )
         .bind(target_branch_id)
@@ -577,15 +577,13 @@ impl SpecRepository for SqliteSpecRepository {
         branch_id: i64,
         at: Option<&str>,
     ) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
-        let base = "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
+        let base = "SELECT t.client_name, t.service_name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
              FROM branch_dependencies t \
-             JOIN clients c ON c.id = t.client_id \
-             JOIN services s ON s.id = t.service_id \
              WHERE t.branch_id = ?";
         let rows: Vec<PinRow<i64>> = match at {
             Some(at) => {
                 sqlx::query_as(&format!(
-                    "{base} AND t.valid_from <= ? AND (t.valid_to IS NULL OR t.valid_to > ?) ORDER BY c.name, s.name, t.path, t.method"
+                    "{base} AND t.valid_from <= ? AND (t.valid_to IS NULL OR t.valid_to > ?) ORDER BY t.client_name, t.service_name, t.path, t.method"
                 ))
                 .bind(branch_id)
                 .bind(at)
@@ -595,7 +593,7 @@ impl SpecRepository for SqliteSpecRepository {
             }
             None => {
                 sqlx::query_as(&format!(
-                    "{base} AND t.valid_to IS NULL ORDER BY c.name, s.name, t.path, t.method"
+                    "{base} AND t.valid_to IS NULL ORDER BY t.client_name, t.service_name, t.path, t.method"
                 ))
                 .bind(branch_id)
                 .fetch_all(&self.pool)
@@ -608,12 +606,10 @@ impl SpecRepository for SqliteSpecRepository {
 
     async fn list_trunk_pins_at(&self, at: &str) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
         let rows: Vec<PinRow<i64>> = sqlx::query_as(
-            "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
+            "SELECT t.client_name, t.service_name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
              FROM trunk_dependencies t \
-             JOIN clients c ON c.id = t.client_id \
-             JOIN services s ON s.id = t.service_id \
              WHERE t.valid_from <= ? AND (t.valid_to IS NULL OR t.valid_to > ?) \
-             ORDER BY c.name, s.name, t.path, t.method",
+             ORDER BY t.client_name, t.service_name, t.path, t.method",
         )
         .bind(at)
         .bind(at)
@@ -830,14 +826,17 @@ impl SpecRepository for SqliteSpecRepository {
                 sqlx::query(
                     // See record_trunk_pins: the unique partial index settles
                     // the concurrent first-insert race.
-                    "INSERT INTO branch_dependencies (branch_id, client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+                    // client_name/service_name denormalized by value (#26B).
+                    "INSERT INTO branch_dependencies (branch_id, client_id, client_name, service_id, service_name, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
+                     VALUES (?, ?, (SELECT name FROM clients WHERE id = ?), ?, (SELECT name FROM services WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?) \
                      ON CONFLICT (branch_id, client_id, service_id, api_type, normalized_path, method) \
                      WHERE valid_to IS NULL \
                      DO UPDATE SET last_required_at = excluded.last_required_at",
                 )
                 .bind(branch_id)
                 .bind(p.client_id)
+                .bind(p.client_id)
+                .bind(p.service_id)
                 .bind(p.service_id)
                 .bind(p.api_type.as_str())
                 .bind(p.path)
@@ -890,11 +889,12 @@ impl SpecRepository for SqliteSpecRepository {
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query(&format!(
-            "INSERT INTO branch_member_versions (branch_id, service_id, api_type, major, minor, patch, valid_from) \
-             SELECT ?, ?, ?, ?, ?, ?, ? \
+            "INSERT INTO branch_member_versions (branch_id, service_id, service_name, api_type, major, minor, patch, valid_from) \
+             SELECT ?, ?, (SELECT name FROM services WHERE id = ?), ?, ?, ?, ?, ? \
              WHERE NOT EXISTS (SELECT 1 FROM branch_member_versions WHERE {key} AND major = ? AND minor = ? AND patch = ?)"
         ))
         .bind(branch_id)
+        .bind(service_id)
         .bind(service_id)
         .bind(api_type.as_str())
         .bind(version.major)
@@ -965,13 +965,19 @@ impl SpecRepository for SqliteSpecRepository {
                     // The unique partial index decides the race: a concurrent
                     // writer that inserted this key first wins, and this one
                     // refreshes its row instead of duplicating it.
-                    "INSERT INTO trunk_dependencies (client_id, service_id, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+                    // client_name/service_name are denormalized by value (#26B)
+                    // so a later participant delete cannot erase this history —
+                    // filled from the id at insert, which is why the id is bound
+                    // twice.
+                    "INSERT INTO trunk_dependencies (client_id, client_name, service_id, service_name, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
+                     VALUES (?, (SELECT name FROM clients WHERE id = ?), ?, (SELECT name FROM services WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?) \
                      ON CONFLICT (client_id, service_id, api_type, normalized_path, method) \
                      WHERE valid_to IS NULL \
                      DO UPDATE SET last_required_at = excluded.last_required_at",
                 )
                 .bind(p.client_id)
+                .bind(p.client_id)
+                .bind(p.service_id)
                 .bind(p.service_id)
                 .bind(p.api_type.as_str())
                 .bind(p.path)
@@ -995,12 +1001,10 @@ impl SpecRepository for SqliteSpecRepository {
 
     async fn list_current_trunk_pins(&self) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
         let rows: Vec<PinRow<i64>> = sqlx::query_as(
-            "SELECT c.name, s.name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
+            "SELECT t.client_name, t.service_name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
              FROM trunk_dependencies t \
-             JOIN clients c ON c.id = t.client_id \
-             JOIN services s ON s.id = t.service_id \
              WHERE t.valid_to IS NULL \
-             ORDER BY c.name, s.name, t.path, t.method",
+             ORDER BY t.client_name, t.service_name, t.path, t.method",
         )
         .fetch_all(&self.pool)
         .await
@@ -1581,6 +1585,18 @@ impl SpecRepository for SqliteSpecRepository {
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // #26B: the trunk pins are append-only history and no longer cascade;
+        // close this producer's open ones so it leaves the *current* main graph
+        // while its closed rows (denormalized names) stay as the timeline. The
+        // stamp matches now_iso()'s shape so the lexicographic comparisons hold.
+        sqlx::query(
+            "UPDATE trunk_dependencies SET valid_to = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') \
+             WHERE service_id = ? AND valid_to IS NULL",
+        )
+        .bind(service_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM services WHERE id = ?")
             .bind(service_id)
             .execute(&mut *tx)
@@ -1611,6 +1627,18 @@ impl SpecRepository for SqliteSpecRepository {
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        // #26B: close this consumer's open trunk pins so it leaves the current
+        // main graph; the closed rows stay as timeline history (denormalized
+        // names, no longer cascaded away).
+        sqlx::query(
+            "UPDATE trunk_dependencies SET valid_to = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') \
+             WHERE client_id = ? AND valid_to IS NULL",
+        )
+        .bind(client_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         sqlx::query("DELETE FROM clients WHERE id = ?")
             .bind(client_id)
