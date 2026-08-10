@@ -1961,3 +1961,126 @@ async fn expired_sessions_and_tokens_are_reclaimed() {
     let (status, _, body) = send(&ctx, "GET", "/admin/branches", None).await;
     assert_eq!(status, StatusCode::OK, "got: {body}");
 }
+
+#[tokio::test]
+async fn deleting_a_producer_keeps_its_trunk_timeline() {
+    // The producer side of #26B: delete_producer must close the producer's open
+    // trunk pins (leave the current graph) while the rows survive as history.
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    assert_eq!(
+        require_with(&ctx, "web", "svc", "1.0.0", "/users", "GET", true).await,
+        StatusCode::OK
+    );
+    sqlx::query("UPDATE trunk_dependencies SET valid_from = '2020-01-01T00:00:00Z'")
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
+
+    let (status, _, body) = send(&ctx, "DELETE", "/admin/producers/svc", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+
+    let (total, open): (i64, i64) = (
+        sqlx::query_scalar("SELECT COUNT(*) FROM trunk_dependencies")
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap(),
+        sqlx::query_scalar("SELECT COUNT(*) FROM trunk_dependencies WHERE valid_to IS NULL")
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap(),
+    );
+    assert_eq!(total, 1, "the pin row survives the producer delete");
+    assert_eq!(open, 0, "the producer's open pin is closed");
+    let sname: String = sqlx::query_scalar("SELECT service_name FROM trunk_dependencies LIMIT 1")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(sname, "svc", "the denormalized producer name is preserved");
+
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        &format!(
+            "/admin/trunk/graph?at={}",
+            urlencoding("2020-06-01T00:00:00Z")
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    assert_eq!(
+        as_json(&body).as_array().unwrap().len(),
+        1,
+        "history: {body}"
+    );
+}
+
+#[tokio::test]
+async fn a_branch_pin_survives_deleting_a_participant_it_no_longer_references() {
+    // The branch side of #26B: branch_dependencies also denormalizes names and
+    // no longer cascades. The 409 refusal guards a branch's *open* references,
+    // so to reach a deletable state we retire the branch's open pin first (the
+    // participant keeps only closed branch history), then the delete succeeds
+    // and that closed history survives instead of cascading away.
+    let ctx = setup().await;
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({ "name": "rel-1" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "got: {body}");
+
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    assert_eq!(
+        require_with(&ctx, "web", "svc", "1.0.0", "/users", "GET", false).await,
+        StatusCode::OK
+    );
+    // Tag the require into the branch so it holds an open branch pin.
+    let uri =
+        "/require?consumername=web&producername=svc&version=1.0.0&path=/users&method=GET&tag=rel-1";
+    let (status, _, _) = send(&ctx, "GET", uri, None).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let branch_rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM branch_dependencies")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(branch_rows, 1);
+
+    // While the branch's open pin references it, the delete is refused.
+    let (status, _, _) = send(&ctx, "DELETE", "/admin/consumers/web", None).await;
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "open branch ref blocks the delete"
+    );
+
+    // Close the branch's open pin by deleting the branch's live view is not an
+    // option (that removes the row); instead close it directly to model a
+    // participant left only in branch history, then delete.
+    sqlx::query(
+        "UPDATE branch_dependencies SET valid_to = '2026-01-01T00:00:00Z' WHERE valid_to IS NULL",
+    )
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+    let (status, _, body) = send(&ctx, "DELETE", "/admin/consumers/web", None).await;
+    assert_eq!(status, StatusCode::OK, "no open ref now: {body}");
+
+    // The closed branch row survived with its denormalized name.
+    let (rows, cname): (i64, String) = (
+        sqlx::query_scalar("SELECT COUNT(*) FROM branch_dependencies")
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap(),
+        sqlx::query_scalar("SELECT client_name FROM branch_dependencies LIMIT 1")
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap(),
+    );
+    assert_eq!(rows, 1, "the closed branch row survives the delete");
+    assert_eq!(cname, "web", "its participant name is preserved by value");
+}
