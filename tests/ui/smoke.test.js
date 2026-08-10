@@ -629,7 +629,12 @@ test.describe("Release-graph regressions (ai/improvements.md #28)", () => {
   // missing styling pass used to overwrite the dasharray afterwards.
   test("a dangling pin renders dotted orange in the main view", async ({ page }) => {
     await loginAndOpenMainView(page);
-    const dangling = page.locator('#custom-graph path.graph-edge[data-dangling="1"]');
+    // Scope to this test's own edge (CONSUMER -> DOOMED) rather than counting
+    // danglings across the whole shared-server graph — another suite's dangling
+    // pin must not be able to fail this one.
+    const dangling = page.locator(
+      `#custom-graph path.graph-edge[data-dangling="1"][data-from="${CONSUMER}"][data-to="${DOOMED}"]`,
+    );
     await expect(dangling).toHaveCount(1, { timeout: 10000 });
     await expect(dangling).toHaveAttribute("stroke-dasharray", "2 5");
     await expect(dangling).toHaveAttribute("stroke", "#ea580c");

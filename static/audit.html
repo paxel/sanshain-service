@@ -148,16 +148,6 @@
 </footer>
 
 <script src="/js/audit.js"></script>
-<script>
-    function initAudit() {
-        checkDiscoveryAuth(() => loadTimeline());
-    }
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initAudit);
-    } else {
-        initAudit();
-    }
-    window.addEventListener('sanshain-update', () => loadTimeline());
-</script>
+<script src="/js/pages/audit.js"></script>
 </body>
 </html>

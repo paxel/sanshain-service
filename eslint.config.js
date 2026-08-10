@@ -3,7 +3,7 @@ import eslintConfigPrettier from "eslint-config-prettier";
 
 export default [
   {
-    files: ["static/js/*.js"],
+    files: ["static/js/*.js", "static/js/pages/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "script",
@@ -12,6 +12,8 @@ export default [
         // External libraries loaded via <script> tags
         dagre: "readonly",
         Diff2Html: "readonly",
+        mermaid: "readonly",
+        marked: "readonly",
         // Cross-file globals (common.js exports used by other files)
         renderBanner: "readonly",
         sanshainLogout: "readonly",
@@ -32,6 +34,32 @@ export default [
         renderPaginatedYaml: "readonly",
         checkDiscoveryAuth: "readonly",
         closeModal: "readonly",
+        // Cross-file page globals surfaced when inline <script> blocks were
+        // extracted to static/js/pages/ (ai/improvements.md #11). Each is
+        // defined in another script loaded on the same page; runtime scope is
+        // unchanged from when the code was inline.
+        allServices: "readonly",
+        canSeeAdminDashboard: "readonly",
+        compareSemver: "readonly",
+        csrfToken: "readonly",
+        exportToPng: "readonly",
+        fetchCsrfToken: "readonly",
+        fetchJSON: "readonly",
+        graphEdgeFlags: "readonly",
+        graphLatestGaMap: "readonly",
+        hasPermission: "readonly",
+        loadTimeline: "readonly",
+        loadUserFavorites: "readonly",
+        producerHasAnyEndpoints: "readonly",
+        promoteVersion: "readonly",
+        redrawGraph: "readonly",
+        renderFocusTags: "readonly",
+        renderUnifiedDiffHtml: "readonly",
+        sanshainToken: "readonly",
+        simpleDiff: "readonly",
+        stabilityBadge: "readonly",
+        toggleFavorite: "readonly",
+        updateHighlightButtons: "readonly",
         // graph.js globals
         lastGraphReport: "writable",
         currentGraphMode: "writable",
