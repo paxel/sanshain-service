@@ -101,4 +101,19 @@ test("the public landing page data-action handlers resolve", async ({ page }) =>
     [],
   );
   expect(inline, `landing still has inline handlers:\n${inline.join("\n")}`).toEqual([]);
+
+  // The landing page (and /dashboard) switched CSS delivery from the Tailwind
+  // play-CDN to the committed static app.css; nothing else asserts they are
+  // styled. Confirm a Tailwind utility actually applied — text-4xl is ~36px,
+  // well above the browser-default h2 (~24px) — so a missing class in the
+  // build (e.g. templates dropped from the content globs) can't ship an
+  // unstyled front door.
+  const h2FontSize = await page
+    .locator("h2.text-4xl")
+    .first()
+    .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(
+    h2FontSize,
+    "landing h2 should render at Tailwind text-4xl size — app.css did not apply",
+  ).toBeGreaterThan(30);
 });

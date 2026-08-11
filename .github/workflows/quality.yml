@@ -126,7 +126,7 @@ jobs:
             echo "Service failed to start"
             exit 1
           fi
-          npx playwright test tests/ui/smoke.test.js
+          npx playwright test tests/ui/smoke.test.js tests/ui/no_console_errors.test.js tests/ui/de_inlined.test.js
         env:
           INITIAL_ADMIN_PASSWORD: root_password
       - name: Upload Playwright report on failure
