@@ -1311,6 +1311,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/retire/{api_type}:
+    post:
+      summary: "Create or run: producers/name/retire/api_type"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the
+        Producer named in the path.
+
+        The Producer no longer provides this API family (its sanshain.yaml
+        dropped it). Retires the capability without deleting history (#7): clears
+        the `messaging`/`grpc` auto-tag, closes the family's open trunk pins (it
+        leaves the current main graph, its closed rows stay as timeline history),
+        and releases any AsyncAPI channel-message contracts it owned so another
+        Producer may claim them. Version lines are kept and existing Consumer
+        pins still resolve. Answers `{"tag_cleared", "trunk_pins_closed",
+        "contracts_released"}`.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api_type
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No such Producer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/producers/{name}/versions/{api_type}/{version}:
     delete:
       summary: "Delete: producers/name/versions/api_type/version"

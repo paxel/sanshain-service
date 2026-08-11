@@ -2418,6 +2418,35 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(())
     }
 
+    async fn remove_service_tag(&self, service_id: i64, tag: &str) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM service_tags WHERE service_id = $1 AND tag = $2")
+            .bind(service_id)
+            .bind(tag)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn close_trunk_pins_for_service_api(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        now_iso: &str,
+    ) -> Result<u64, RepositoryError> {
+        let res = sqlx::query(
+            "UPDATE trunk_dependencies SET valid_to = $1 \
+             WHERE service_id = $2 AND api_type = $3 AND valid_to IS NULL",
+        )
+        .bind(now_iso)
+        .bind(service_id)
+        .bind(api_type.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(res.rows_affected())
+    }
+
     async fn get_all_service_tags(&self) -> Result<HashMap<String, Vec<String>>, RepositoryError> {
         let rows: Vec<(String, String)> = sqlx::query_as(
             "SELECT s.name, st.tag FROM service_tags st JOIN services s ON s.id = st.service_id ORDER BY s.name, st.tag"

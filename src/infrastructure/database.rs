@@ -618,6 +618,22 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, add_service_tags(service_id, tags))
     }
 
+    async fn remove_service_tag(&self, service_id: i64, tag: &str) -> Result<(), RepositoryError> {
+        delegate!(self, remove_service_tag(service_id, tag))
+    }
+
+    async fn close_trunk_pins_for_service_api(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        now_iso: &str,
+    ) -> Result<u64, RepositoryError> {
+        delegate!(
+            self,
+            close_trunk_pins_for_service_api(service_id, api_type, now_iso)
+        )
+    }
+
     async fn get_all_service_tags(&self) -> Result<HashMap<String, Vec<String>>, RepositoryError> {
         delegate!(self, get_all_service_tags())
     }

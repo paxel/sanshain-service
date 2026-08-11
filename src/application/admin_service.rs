@@ -112,6 +112,69 @@ async fn refuse_if_a_release_graph_needs_it(
     )))
 }
 
+/// What retiring a protocol family did, for the response and the audit trail.
+#[derive(serde::Serialize, Debug, Default)]
+pub struct RetiredProtocol {
+    /// The capability tag cleared, if the family had one (messaging/grpc).
+    pub tag_cleared: Option<String>,
+    /// Open trunk pins closed — they leave the current main graph but stay as
+    /// history (#26B), so the timeline still shows the era it provided.
+    pub trunk_pins_closed: u64,
+    /// Channel-message contracts released (AsyncAPI) so another Producer may
+    /// claim them.
+    pub contracts_released: usize,
+}
+
+/// #7: a Producer declares it no longer provides an API family. Retiring the
+/// capability — not deleting the history: the auto-tag is cleared, the family's
+/// open trunk pins are closed (it leaves the current main graph), and its
+/// AsyncAPI channel-message contracts are released so another Producer may
+/// claim them. Version lines are kept and existing Consumer pins still resolve;
+/// the graph simply stops presenting a service as an active provider of
+/// something it no longer offers.
+#[instrument(skip_all)]
+pub async fn retire_protocol_family(
+    repo: &impl SpecRepository,
+    producer: &str,
+    api_type: ApiType,
+) -> Result<RetiredProtocol, AppError> {
+    let service_id = repo
+        .find_service(producer)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Producer '{producer}' not found")))?;
+
+    let mut result = RetiredProtocol::default();
+
+    // The auto-tag the matching provide added (OpenAPI has none).
+    let tag = match api_type {
+        ApiType::AsyncApi => Some("messaging"),
+        ApiType::Proto => Some("grpc"),
+        ApiType::OpenApi => None,
+    };
+    if let Some(tag) = tag {
+        repo.remove_service_tag(service_id, tag).await?;
+        result.tag_cleared = Some(tag.to_string());
+    }
+
+    result.trunk_pins_closed = repo
+        .close_trunk_pins_for_service_api(service_id, api_type, &super::now_iso())
+        .await?;
+
+    // AsyncAPI contracts this Producer owns are released — no other family has
+    // channel contracts, so this is a no-op for OpenAPI/Proto.
+    if api_type == ApiType::AsyncApi {
+        for contract in repo.list_channel_message_contracts().await? {
+            if contract.owner_service_id == service_id {
+                repo.delete_channel_message_contract(&contract.channel, &contract.message_name)
+                    .await?;
+                result.contracts_released += 1;
+            }
+        }
+    }
+
+    Ok(result)
+}
+
 pub async fn delete_producer(repo: &impl SpecRepository, name: &str) -> Result<bool, AppError> {
     refuse_if_a_release_graph_needs_it(repo, name, ParticipantRole::Producer).await?;
     Ok(repo.delete_producer(name).await?)

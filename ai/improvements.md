@@ -156,7 +156,15 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 
 ## P1 — Correctness and missing feature gaps
 
-### 7. Make protocol removal explicit and clear stale Kafka/gRPC/OpenAPI markers
+### 7. Make protocol removal explicit and clear stale Kafka/gRPC/OpenAPI markers — DONE (2026-08-11)
+
+Retire is an explicit act, not inference from absence (a stateless API cannot tell a dropped
+protocol from a pipeline that merely stopped running). `POST /admin/producers/{name}/retire/{api_type}`
+retires the capability while keeping history: it clears the `messaging`/`grpc` auto-tag, closes the
+family's open trunk pins (they leave the current main graph, closed rows stay as timeline history
+via #26B), and releases the Producer's AsyncAPI channel-message contracts so another may claim them.
+Version lines and existing Consumer pins are untouched. The client plugin sends this when its
+`sanshain.yaml` drops a family. Original text:
 
 > **2.0 note (ADR-0003):** the instructions below are written against the branch model
 > (service/branch sync, protected-branch rules, shared contracts) and are obsolete as written.

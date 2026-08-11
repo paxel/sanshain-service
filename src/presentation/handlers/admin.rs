@@ -288,6 +288,33 @@ pub async fn admin_promote_version(
     Ok((StatusCode::ACCEPTED, Json(res)))
 }
 
+/// #7: retire a protocol family for a Producer — it no longer provides it. The
+/// client sends this when its sanshain.yaml drops a family; the capability is
+/// retired (tag cleared, trunk pins closed, AsyncAPI contracts released) while
+/// version history and existing pins are kept.
+pub async fn admin_retire_protocol(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Path((name, api_type)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let api_type = ApiType::from_str(&api_type).map_err(AppError::BadRequest)?;
+    let result = services::retire_protocol_family(&state.repo, &name, api_type).await?;
+    let _ = state.spec_updated_tx.send(());
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "RETIRE_PROTOCOL",
+            details: &format!("Retired {} for producer '{}'", api_type.as_str(), name),
+            service: Some(&name),
+            action_type: Some("WRITE"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(Json(result))
+}
+
 pub async fn admin_delete_version(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,

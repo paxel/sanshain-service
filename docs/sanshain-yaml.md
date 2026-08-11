@@ -107,6 +107,17 @@ Plugins should support both a single `provide` object and a `provides` list for 
 |-------------|--------|----------|----------------------------------|------------------------------------------------------------------------------|
 | `file`      | string | **yes**  | —                                | Path to the specification file.                                              |
 | `apiType`   | string | no       | `openapi`                        | Type of API: `openapi`, `asyncapi`, or `proto`.                              |
+| `retired`   | bool   | no       | `false`                          | The project no longer provides this family. See **Retiring a protocol** below.|
+
+#### Retiring a protocol
+
+Sanshain cannot tell a dropped protocol from a pipeline that merely stopped running, so removing a
+`provide` entry does nothing on its own — the service keeps its old capability tag, graph edges and
+contracts. To actually retire a family, keep the entry and set `retired: true` (or drop it and
+declare the removal another way the plugin supports). The plugin turns that into
+`POST /admin/producers/{name}/retire/{apiType}`, which clears the `messaging`/`grpc` tag, removes
+the family from the current dependency graph, and releases its AsyncAPI channel-message contracts —
+**without** deleting version history or breaking Consumers still pinned to the old versions.
 
 The **version** of a Provide is read from the spec file itself: `MAJOR[.MINOR[.PATCH]]`, optionally `v`-prefixed — omitted parts are zero and the stored form is always the full three-part version:
 

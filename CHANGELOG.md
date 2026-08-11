@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.2.0] - 2026-08-06
 
 ### Added
+- A Producer can retire an API family it no longer provides —
+  `POST /admin/producers/{name}/retire/{api_type}`: clears the messaging/grpc capability tag,
+  drops the family from the current main graph (keeping its timeline history), and releases its
+  AsyncAPI channel-message contracts for another Producer to claim, without deleting version
+  history or breaking existing pins. Meant for the client plugin to call when a service's
+  `sanshain.yaml` drops a protocol.
 - Version strings — `info.version`, the proto `// sanshain-version:` marker, and pinned `version`
   parameters — now accept an optional leading `v` and omitted MINOR/PATCH with implicit zeroes
   (`v2` → `2.0.0`); previously only exact `MAJOR.MINOR.PATCH` was accepted. Stored and answered

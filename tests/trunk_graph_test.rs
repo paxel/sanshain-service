@@ -2084,3 +2084,110 @@ async fn a_branch_pin_survives_deleting_a_participant_it_no_longer_references() 
     assert_eq!(rows, 1, "the closed branch row survives the delete");
     assert_eq!(cname, "web", "its participant name is preserved by value");
 }
+
+#[tokio::test]
+async fn retiring_a_protocol_family_sheds_the_capability_but_keeps_history() {
+    // ai/improvements.md #7: a producer that no longer provides AsyncAPI can
+    // retire it — the messaging tag goes, its trunk pins leave the current
+    // graph (history kept), its channel contract is released — while the
+    // version line stays and consumers can still require the old version.
+    let ctx = setup().await;
+    let async_spec = "asyncapi: '2.6.0'\n\
+info:\n  title: Notifier\n  version: 1.0.0\n\
+channels:\n  user/signup:\n    publish:\n      message:\n        name: UserSignedUp\n        payload:\n          type: object\n          properties:\n            id: { type: string }\n";
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/provide/asyncapi",
+        Some(json!({
+            "producername": "notifier",
+            "asyncapi_yaml": async_spec,
+            "stability": "ga",
+            "trunk": true
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
+
+    // Give it an open async trunk pin. Inserted directly: AsyncAPI PUB require
+    // resolution has keying quirks orthogonal to what #7 does, and retire
+    // closes by (service_id, api_type), so the row's exact path is immaterial.
+    sqlx::query("INSERT OR IGNORE INTO clients (name) VALUES ('web')")
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO trunk_dependencies \
+         (client_id, client_name, service_id, service_name, api_type, path, normalized_path, method, major, minor, patch, valid_from, last_required_at) \
+         SELECT (SELECT id FROM clients WHERE name = 'web'), 'web', s.id, 'notifier', 'asyncapi', 'user/signup', 'user/signup', 'PUB', 1, 0, 0, '2020-01-01T00:00:00Z', '2020-01-01T00:00:00Z' \
+         FROM services s WHERE s.name = 'notifier'",
+    )
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+
+    // Preconditions: the messaging tag, a trunk pin, and a channel contract.
+    let tags_before: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM service_tags WHERE tag = 'messaging'")
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(tags_before, 1, "the provide auto-tagged messaging");
+    let contracts_before: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM channel_message_contracts")
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(contracts_before, 1, "GA registered a channel contract");
+
+    // Retire.
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/producers/notifier/retire/asyncapi",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let res = as_json(&body);
+    assert_eq!(res["tag_cleared"], "messaging");
+    assert_eq!(res["trunk_pins_closed"], 1);
+    assert_eq!(res["contracts_released"], 1);
+
+    // Capability shed: tag gone, contract released, trunk pin left the graph.
+    let tags_after: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM service_tags WHERE tag = 'messaging'")
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(tags_after, 0, "the messaging tag is cleared");
+    let contracts_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channel_message_contracts")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(contracts_after, 0, "the channel contract is released");
+    let open: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM trunk_dependencies WHERE valid_to IS NULL")
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(open, 0, "the trunk pin left the current graph");
+
+    // History kept: the closed pin survives, and a consumer can still require
+    // the old version (the version line was not deleted).
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM trunk_dependencies")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(total, 1, "the closed pin stays as history");
+    // The version line was not deleted — retire keeps history, so the entry an
+    // existing Consumer pins is still there to resolve.
+    let versions: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM spec_versions sv JOIN services s ON s.id = sv.service_id \
+         WHERE s.name = 'notifier' AND sv.api_type = 'asyncapi'",
+    )
+    .fetch_one(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(versions, 1, "the retired family's version line is kept");
+}

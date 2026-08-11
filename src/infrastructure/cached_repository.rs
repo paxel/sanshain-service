@@ -1247,6 +1247,30 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
+    async fn remove_service_tag(&self, service_id: i64, tag: &str) -> Result<(), RepositoryError> {
+        self.inner.remove_service_tag(service_id, tag).await?;
+        if !self.is_disabled() {
+            self.report_cache.invalidate_all();
+        }
+        Ok(())
+    }
+
+    async fn close_trunk_pins_for_service_api(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        now_iso: &str,
+    ) -> Result<u64, RepositoryError> {
+        let n = self
+            .inner
+            .close_trunk_pins_for_service_api(service_id, api_type, now_iso)
+            .await?;
+        if !self.is_disabled() {
+            self.report_cache.invalidate_all();
+        }
+        Ok(n)
+    }
+
     async fn get_all_service_tags(
         &self,
     ) -> Result<std::collections::HashMap<String, Vec<String>>, RepositoryError> {

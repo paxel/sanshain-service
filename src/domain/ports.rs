@@ -797,6 +797,25 @@ pub trait SpecRepository: Send + Sync {
         &self,
     ) -> impl Future<Output = Result<HashMap<String, Vec<String>>, RepositoryError>> + Send;
 
+    /// Remove one capability tag from a service — the retire-protocol act (#7):
+    /// a Producer that no longer provides a family sheds its `messaging`/`grpc`
+    /// label so the graph stops presenting it as an active provider.
+    fn remove_service_tag(
+        &self,
+        service_id: i64,
+        tag: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Close a Producer's open trunk pins for one API family (#7 retire): they
+    /// leave the current main graph while the closed rows survive as timeline
+    /// history (the pins are by value, see #26B). Returns how many were closed.
+    fn close_trunk_pins_for_service_api(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
+
     // --- Audit Logs ---
 
     /// Insert an audit log record

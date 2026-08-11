@@ -1956,6 +1956,37 @@ impl SpecRepository for MockRepo {
         Ok(())
     }
 
+    async fn remove_service_tag(&self, service_id: i64, tag: &str) -> Result<(), RepositoryError> {
+        let mut st = self
+            .service_tags
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(tags) = st.get_mut(&service_id) {
+            tags.retain(|t| t != tag);
+        }
+        Ok(())
+    }
+
+    async fn close_trunk_pins_for_service_api(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        now_iso: &str,
+    ) -> Result<u64, RepositoryError> {
+        let mut pins = self
+            .trunk_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut n = 0u64;
+        for p in pins.iter_mut() {
+            if p.service_id == service_id && p.api_type == api_type && p.valid_to.is_none() {
+                p.valid_to = Some(now_iso.to_string());
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+
     async fn get_all_service_tags(&self) -> Result<HashMap<String, Vec<String>>, RepositoryError> {
         Ok(HashMap::new())
     }
