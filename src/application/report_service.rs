@@ -259,6 +259,7 @@ mod tests {
             missing_endpoints: vec![],
             unused_endpoints: vec![],
             trunk_graph: vec![],
+            harvested_subscriptions: vec![],
             trunk_stale_before: None,
             scope_label: None,
         }

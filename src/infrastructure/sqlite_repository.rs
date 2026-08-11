@@ -1390,6 +1390,7 @@ impl SpecRepository for SqliteSpecRepository {
 
         Ok(DependencyReport {
             trunk_graph: Vec::new(),
+            harvested_subscriptions: Vec::new(),
             trunk_stale_before: None,
             scope_label: None,
             unused_endpoints,
@@ -2587,6 +2588,112 @@ impl SpecRepository for SqliteSpecRepository {
             .collect())
     }
 
+    async fn reconcile_harvested_subscriptions(
+        &self,
+        client_id: i64,
+        client_name: &str,
+        trunk: bool,
+        subs: &[HarvestedSubInput],
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        // The client's current open subscriptions, to diff against `subs`.
+        let open: Vec<(String, String, Option<i64>, bool)> = sqlx::query_as(
+            "SELECT channel, message_name, owner_service_id, trunk \
+             FROM harvested_subscriptions WHERE client_id = ? AND valid_to IS NULL",
+        )
+        .bind(client_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        // Close every open row that is gone, or whose owner/trunk changed.
+        for (channel, message_name, owner, row_trunk) in &open {
+            let keep = subs.iter().any(|s| {
+                &s.channel == channel
+                    && &s.message_name == message_name
+                    && &s.owner_service_id == owner
+                    && *row_trunk == trunk
+            });
+            if !keep {
+                sqlx::query(
+                    "UPDATE harvested_subscriptions SET valid_to = ? \
+                     WHERE client_id = ? AND channel = ? AND message_name = ? AND valid_to IS NULL",
+                )
+                .bind(now_iso)
+                .bind(client_id)
+                .bind(channel)
+                .bind(message_name)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            }
+        }
+
+        // Open a fresh row for every desired subscription that has no unchanged
+        // open row (new, or reopened after an owner/trunk change above).
+        for s in subs {
+            let unchanged = open.iter().any(|(c, m, o, t)| {
+                c == &s.channel && m == &s.message_name && o == &s.owner_service_id && *t == trunk
+            });
+            if unchanged {
+                continue;
+            }
+            sqlx::query(
+                "INSERT INTO harvested_subscriptions \
+                   (client_id, client_name, channel, message_name, owner_service_id, owner_name, trunk, valid_from) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
+                 ON CONFLICT (client_id, channel, message_name) WHERE valid_to IS NULL DO NOTHING",
+            )
+            .bind(client_id)
+            .bind(client_name)
+            .bind(&s.channel)
+            .bind(&s.message_name)
+            .bind(s.owner_service_id)
+            .bind(&s.owner_name)
+            .bind(trunk)
+            .bind(now_iso)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn list_current_harvested_subscriptions(
+        &self,
+    ) -> Result<Vec<HarvestedSubscription>, RepositoryError> {
+        let rows: Vec<(String, String, String, Option<String>, bool)> = sqlx::query_as(
+            "SELECT client_name, channel, message_name, owner_name, trunk \
+             FROM harvested_subscriptions WHERE valid_to IS NULL \
+             ORDER BY client_name, channel, message_name",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(client, channel, message_name, owner, trunk)| HarvestedSubscription {
+                    client,
+                    channel,
+                    message_name,
+                    owner,
+                    trunk,
+                },
+            )
+            .collect())
+    }
+
     async fn insert_audit_log(
         &self,
         username: &str,
@@ -3014,6 +3121,60 @@ mod tests {
         assert_eq!(report.unused_endpoints.len(), 1);
         assert_eq!(report.unused_endpoints[0].path, "/b");
         assert!(report.missing_endpoints.is_empty());
+    }
+
+    #[tokio::test]
+    async fn harvested_subscriptions_reconcile_retract_and_reflag() {
+        let repo = setup().await;
+        let owner = repo.ensure_service("orders-svc").await.unwrap();
+        let cid = repo.ensure_client("shipping-svc").await.unwrap();
+
+        // First provide: a resolved subscription and an unfulfilled one.
+        let resolved = HarvestedSubInput {
+            channel: "orders".into(),
+            message_name: "OrderPlaced".into(),
+            owner_service_id: Some(owner),
+            owner_name: Some("orders-svc".into()),
+        };
+        let unfulfilled = HarvestedSubInput {
+            channel: "billing".into(),
+            message_name: "Invoiced".into(),
+            owner_service_id: None,
+            owner_name: None,
+        };
+        repo.reconcile_harvested_subscriptions(
+            cid,
+            "shipping-svc",
+            false,
+            &[resolved.clone(), unfulfilled],
+            "2026-01-01T00:00:00Z",
+        )
+        .await
+        .unwrap();
+
+        let list = repo.list_current_harvested_subscriptions().await.unwrap();
+        assert_eq!(list.len(), 2);
+        let orders = list.iter().find(|s| s.channel == "orders").unwrap();
+        assert_eq!(orders.client, "shipping-svc");
+        assert_eq!(orders.owner.as_deref(), Some("orders-svc"));
+        assert!(!orders.trunk);
+        let billing = list.iter().find(|s| s.channel == "billing").unwrap();
+        assert_eq!(billing.owner, None, "unfulfilled subscription has no owner");
+
+        // Second provide drops the billing subscription and flips to trunk.
+        repo.reconcile_harvested_subscriptions(
+            cid,
+            "shipping-svc",
+            true,
+            std::slice::from_ref(&resolved),
+            "2026-01-02T00:00:00Z",
+        )
+        .await
+        .unwrap();
+        let list2 = repo.list_current_harvested_subscriptions().await.unwrap();
+        assert_eq!(list2.len(), 1, "the dropped subscription is retracted");
+        assert_eq!(list2[0].channel, "orders");
+        assert!(list2[0].trunk, "trunk-ness follows the latest provide");
     }
 
     #[tokio::test]

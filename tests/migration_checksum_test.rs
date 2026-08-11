@@ -162,6 +162,10 @@ const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
         "20260810000000_denormalize_pin_participants.sql",
         "a0ad428e3a2d68fddc35e8e30202fd3d02c6bd504bab22ac6d3f913776e4bcf5",
     ),
+    (
+        "20260811000000_harvested_subscriptions.sql",
+        "e7be11304dc0a0f4dbe743b92a4da6ee02b5e5bdfb2ea11ca7d193eee3ba443d",
+    ),
 ];
 
 const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
@@ -276,6 +280,10 @@ const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
     (
         "20260810000000_denormalize_pin_participants.sql",
         "02a6de7687d2915cc48068cd7f447109aa217afd4fbbea179d2465379092084b",
+    ),
+    (
+        "20260811000000_harvested_subscriptions.sql",
+        "e1eb086120c3fa4780025ee7c57c16ddb0cc3c029bd27d0bc6031b2936a17d26",
     ),
 ];
 

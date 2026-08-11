@@ -1352,6 +1352,7 @@ impl SpecRepository for PostgresSpecRepository {
 
         Ok(DependencyReport {
             trunk_graph: Vec::new(),
+            harvested_subscriptions: Vec::new(),
             trunk_stale_before: None,
             scope_label: None,
             unused_endpoints,
@@ -2540,6 +2541,112 @@ impl SpecRepository for PostgresSpecRepository {
                     message_name,
                     owner_service_id,
                     payload_yaml,
+                },
+            )
+            .collect())
+    }
+
+    async fn reconcile_harvested_subscriptions(
+        &self,
+        client_id: i64,
+        client_name: &str,
+        trunk: bool,
+        subs: &[HarvestedSubInput],
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        // The client's current open subscriptions, to diff against `subs`.
+        let open: Vec<(String, String, Option<i64>, bool)> = sqlx::query_as(
+            "SELECT channel, message_name, owner_service_id, trunk \
+             FROM harvested_subscriptions WHERE client_id = $1 AND valid_to IS NULL",
+        )
+        .bind(client_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        // Close every open row that is gone, or whose owner/trunk changed.
+        for (channel, message_name, owner, row_trunk) in &open {
+            let keep = subs.iter().any(|s| {
+                &s.channel == channel
+                    && &s.message_name == message_name
+                    && &s.owner_service_id == owner
+                    && *row_trunk == trunk
+            });
+            if !keep {
+                sqlx::query(
+                    "UPDATE harvested_subscriptions SET valid_to = $1 \
+                     WHERE client_id = $2 AND channel = $3 AND message_name = $4 AND valid_to IS NULL",
+                )
+                .bind(now_iso)
+                .bind(client_id)
+                .bind(channel)
+                .bind(message_name)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            }
+        }
+
+        // Open a fresh row for every desired subscription that has no unchanged
+        // open row (new, or reopened after an owner/trunk change above).
+        for s in subs {
+            let unchanged = open.iter().any(|(c, m, o, t)| {
+                c == &s.channel && m == &s.message_name && o == &s.owner_service_id && *t == trunk
+            });
+            if unchanged {
+                continue;
+            }
+            sqlx::query(
+                "INSERT INTO harvested_subscriptions \
+                   (client_id, client_name, channel, message_name, owner_service_id, owner_name, trunk, valid_from) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
+                 ON CONFLICT (client_id, channel, message_name) WHERE valid_to IS NULL DO NOTHING",
+            )
+            .bind(client_id)
+            .bind(client_name)
+            .bind(&s.channel)
+            .bind(&s.message_name)
+            .bind(s.owner_service_id)
+            .bind(&s.owner_name)
+            .bind(trunk)
+            .bind(now_iso)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn list_current_harvested_subscriptions(
+        &self,
+    ) -> Result<Vec<HarvestedSubscription>, RepositoryError> {
+        let rows: Vec<(String, String, String, Option<String>, bool)> = sqlx::query_as(
+            "SELECT client_name, channel, message_name, owner_name, trunk \
+             FROM harvested_subscriptions WHERE valid_to IS NULL \
+             ORDER BY client_name, channel, message_name",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(client, channel, message_name, owner, trunk)| HarvestedSubscription {
+                    client,
+                    channel,
+                    message_name,
+                    owner,
+                    trunk,
                 },
             )
             .collect())

@@ -714,4 +714,24 @@ impl SpecRepository for DatabaseRepo {
     ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
         delegate!(self, list_channel_message_contracts())
     }
+
+    async fn reconcile_harvested_subscriptions(
+        &self,
+        client_id: i64,
+        client_name: &str,
+        trunk: bool,
+        subs: &[HarvestedSubInput],
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            reconcile_harvested_subscriptions(client_id, client_name, trunk, subs, now_iso)
+        )
+    }
+
+    async fn list_current_harvested_subscriptions(
+        &self,
+    ) -> Result<Vec<HarvestedSubscription>, RepositoryError> {
+        delegate!(self, list_current_harvested_subscriptions())
+    }
 }

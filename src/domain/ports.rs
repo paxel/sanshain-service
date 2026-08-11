@@ -888,4 +888,26 @@ pub trait SpecRepository: Send + Sync {
     fn list_channel_message_contracts(
         &self,
     ) -> impl Future<Output = Result<Vec<ChannelMessageContract>, RepositoryError>> + Send;
+
+    // --- Harvested AsyncAPI subscriptions (item #6, ADR-0006) ---
+
+    /// Reconcile a Producer's harvested AsyncAPI subscriptions to exactly
+    /// `subs`, append-only: a subscription no longer present is closed; a new
+    /// or changed one (different owner or trunk-ness) closes the old open row
+    /// and opens a fresh one; an unchanged one is left. Manual requires in the
+    /// pin stores are never touched — harvested edges live only here.
+    fn reconcile_harvested_subscriptions(
+        &self,
+        client_id: i64,
+        client_name: &str,
+        trunk: bool,
+        subs: &[HarvestedSubInput],
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// The current (open) harvested subscription edges — version-less consumer
+    /// edges for the graph/report, sorted for determinism.
+    fn list_current_harvested_subscriptions(
+        &self,
+    ) -> impl Future<Output = Result<Vec<HarvestedSubscription>, RepositoryError>> + Send;
 }

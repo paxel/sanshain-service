@@ -563,6 +563,47 @@ pub struct ChannelMessageContract {
     pub payload_yaml: String,
 }
 
+/// A resolved SUB to reconcile into the harvested store (ai/improvements.md #6,
+/// ADR-0006): the subscribed `(channel, message_name)` and the PUB owner it
+/// resolved to against the GA contract store — `None` when no GA provider owns
+/// the channel yet (an unfulfilled subscription, kept visible).
+#[derive(Clone, Debug, PartialEq)]
+pub struct HarvestedSubInput {
+    pub channel: String,
+    pub message_name: String,
+    pub owner_service_id: Option<i64>,
+    pub owner_name: Option<String>,
+}
+
+/// A current (open) harvested subscription edge, for the graph/report. A
+/// **version-less** consumer edge (ADR-0006): a subscription pins no producer
+/// version. `owner` is `None` for an unfulfilled subscription.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct HarvestedSubscription {
+    pub client: String,
+    pub channel: String,
+    pub message_name: String,
+    pub owner: Option<String>,
+    pub trunk: bool,
+}
+
+/// One entry in a provide's `harvested_subscriptions` response: what the
+/// harvest did with a SUB the Producer declared (ai/improvements.md #6).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct HarvestedSubscriptionResult {
+    pub channel: String,
+    pub message_name: String,
+    /// Resolved PUB owner service name, or `None` when unfulfilled.
+    pub owner: Option<String>,
+    /// Drift note against the owner's GA contract when the expectation is not
+    /// satisfiable. On a GA provide this is fatal (the provide is rejected, so
+    /// it never reaches a success response); on a snapshot it is advisory and
+    /// carried here. `None` means no contract to check or the expectation is
+    /// satisfied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drift: Option<String>,
+}
+
 #[derive(Serialize, Clone, Debug)]
 pub struct DependencyReport {
     pub unused_endpoints: Vec<EndpointInfo>,
@@ -574,6 +615,10 @@ pub struct DependencyReport {
     /// Populated by the application layer; empty in raw repository results.
     #[serde(default)]
     pub trunk_graph: Vec<TrunkPinInfo>,
+    /// Current harvested AsyncAPI subscription edges (ai/improvements.md #6),
+    /// version-less consumer edges rendered alongside the require edges.
+    #[serde(default)]
+    pub harvested_subscriptions: Vec<HarvestedSubscription>,
     /// Trunk entries not refreshed since this instant are stale (half the
     /// trunk TTL). `None` when the TTL is disabled. Application-populated.
     #[serde(default, skip_serializing_if = "Option::is_none")]

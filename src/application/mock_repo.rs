@@ -101,6 +101,23 @@ pub struct MockRepo {
     pub group_roles: Mutex<Vec<(i64, String)>>,
     pub user_maintainers: Mutex<Vec<(i64, i64)>>,
     pub group_maintainers: Mutex<Vec<(i64, i64)>>,
+    pub harvested_subscriptions: Mutex<Vec<MockHarvestedSub>>,
+}
+
+/// In-memory harvested subscription row (ai/improvements.md #6). Append-only:
+/// the open row (`valid_to` is `None`) per (client_id, channel, message) is
+/// current.
+#[derive(Clone)]
+pub struct MockHarvestedSub {
+    pub client_id: i64,
+    pub client_name: String,
+    pub channel: String,
+    pub message_name: String,
+    pub owner_service_id: Option<i64>,
+    pub owner_name: Option<String>,
+    pub trunk: bool,
+    pub valid_from: String,
+    pub valid_to: Option<String>,
 }
 
 impl Default for MockRepo {
@@ -137,6 +154,7 @@ impl MockRepo {
             group_roles: Mutex::new(Vec::new()),
             user_maintainers: Mutex::new(Vec::new()),
             group_maintainers: Mutex::new(Vec::new()),
+            harvested_subscriptions: Mutex::new(Vec::new()),
         }
     }
 
@@ -1138,6 +1156,7 @@ impl SpecRepository for MockRepo {
 
         Ok(DependencyReport {
             trunk_graph: Vec::new(),
+            harvested_subscriptions: Vec::new(),
             trunk_stale_before: None,
             scope_label: None,
             unused_endpoints,
@@ -2163,6 +2182,88 @@ impl SpecRepository for MockRepo {
         result.sort_by(|a, b| {
             a.channel
                 .cmp(&b.channel)
+                .then_with(|| a.message_name.cmp(&b.message_name))
+        });
+        Ok(result)
+    }
+
+    async fn reconcile_harvested_subscriptions(
+        &self,
+        client_id: i64,
+        client_name: &str,
+        trunk: bool,
+        subs: &[HarvestedSubInput],
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut rows = self
+            .harvested_subscriptions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        // Close open rows for this client that are gone or changed.
+        for row in rows.iter_mut() {
+            if row.client_id != client_id || row.valid_to.is_some() {
+                continue;
+            }
+            let keep = subs.iter().any(|s| {
+                s.channel == row.channel
+                    && s.message_name == row.message_name
+                    && s.owner_service_id == row.owner_service_id
+                    && trunk == row.trunk
+            });
+            if !keep {
+                row.valid_to = Some(now_iso.to_string());
+            }
+        }
+        // Open a fresh row for each desired sub without an unchanged open row.
+        for s in subs {
+            let unchanged = rows.iter().any(|r| {
+                r.valid_to.is_none()
+                    && r.client_id == client_id
+                    && r.channel == s.channel
+                    && r.message_name == s.message_name
+                    && r.owner_service_id == s.owner_service_id
+                    && r.trunk == trunk
+            });
+            if unchanged {
+                continue;
+            }
+            rows.push(MockHarvestedSub {
+                client_id,
+                client_name: client_name.to_string(),
+                channel: s.channel.clone(),
+                message_name: s.message_name.clone(),
+                owner_service_id: s.owner_service_id,
+                owner_name: s.owner_name.clone(),
+                trunk,
+                valid_from: now_iso.to_string(),
+                valid_to: None,
+            });
+        }
+        Ok(())
+    }
+
+    async fn list_current_harvested_subscriptions(
+        &self,
+    ) -> Result<Vec<HarvestedSubscription>, RepositoryError> {
+        let rows = self
+            .harvested_subscriptions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut result: Vec<HarvestedSubscription> = rows
+            .iter()
+            .filter(|r| r.valid_to.is_none())
+            .map(|r| HarvestedSubscription {
+                client: r.client_name.clone(),
+                channel: r.channel.clone(),
+                message_name: r.message_name.clone(),
+                owner: r.owner_name.clone(),
+                trunk: r.trunk,
+            })
+            .collect();
+        result.sort_by(|a, b| {
+            a.client
+                .cmp(&b.client)
+                .then_with(|| a.channel.cmp(&b.channel))
                 .then_with(|| a.message_name.cmp(&b.message_name))
         });
         Ok(result)

@@ -1367,6 +1367,30 @@ impl SpecRepository for CachedSpecRepository {
     ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
         self.inner.list_channel_message_contracts().await
     }
+
+    async fn reconcile_harvested_subscriptions(
+        &self,
+        client_id: i64,
+        client_name: &str,
+        trunk: bool,
+        subs: &[HarvestedSubInput],
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .reconcile_harvested_subscriptions(client_id, client_name, trunk, subs, now_iso)
+            .await?;
+        // Harvested consumer edges ride the report payload, so a change stales it.
+        if !self.is_disabled() {
+            self.report_cache.invalidate_all();
+        }
+        Ok(())
+    }
+
+    async fn list_current_harvested_subscriptions(
+        &self,
+    ) -> Result<Vec<HarvestedSubscription>, RepositoryError> {
+        self.inner.list_current_harvested_subscriptions().await
+    }
 }
 
 #[cfg(test)]
