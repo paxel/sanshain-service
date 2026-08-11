@@ -75,3 +75,65 @@ fn isolation_empty_notice() {
     let md = report::render_isolation_report(&empty_report(vec![]));
     assert!(md.contains("No dependencies found."));
 }
+
+// Harvested subscriptions are scoped per view (#6/ADR-0006): the dev report
+// carries the full set, the live main view only the trunk edges, and a past
+// main@date carries none (no harvested timeline query yet).
+#[tokio::test]
+async fn scoped_report_filters_harvested_subscriptions_by_view() {
+    let repo = MockRepo::new();
+    let owner = repo.ensure_service("orders").await.unwrap();
+    let trunk_client = repo.ensure_client("shipping").await.unwrap();
+    repo.reconcile_harvested_subscriptions(
+        trunk_client,
+        "shipping",
+        true,
+        &[HarvestedSubInput {
+            channel: "orders".into(),
+            message_name: "OrderPlaced".into(),
+            owner_service_id: Some(owner),
+            owner_name: Some("orders".into()),
+        }],
+        "2026-01-01T00:00:00Z",
+    )
+    .await
+    .unwrap();
+    let dev_client = repo.ensure_client("billing").await.unwrap();
+    repo.reconcile_harvested_subscriptions(
+        dev_client,
+        "billing",
+        false,
+        &[HarvestedSubInput {
+            channel: "invoices".into(),
+            message_name: "Invoiced".into(),
+            owner_service_id: None,
+            owner_name: None,
+        }],
+        "2026-01-01T00:00:00Z",
+    )
+    .await
+    .unwrap();
+
+    // Dev report: the full set (trunk + dev).
+    let dev = report::generate_report(&repo).await.unwrap();
+    assert_eq!(dev.harvested_subscriptions.len(), 2);
+
+    // Live main view: only the trunk subscription.
+    let main = report::generate_scoped_report(&repo, report::ReportScope::Main { at: None })
+        .await
+        .unwrap();
+    assert_eq!(main.harvested_subscriptions.len(), 1);
+    assert!(main.harvested_subscriptions[0].trunk);
+    assert_eq!(main.harvested_subscriptions[0].channel, "orders");
+
+    // A past main@date carries none.
+    let past = report::generate_scoped_report(
+        &repo,
+        report::ReportScope::Main {
+            at: Some("2026-01-01T00:00:00Z".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(past.harvested_subscriptions.is_empty());
+}

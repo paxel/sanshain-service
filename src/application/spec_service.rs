@@ -411,6 +411,19 @@ pub async fn provide_spec(
     };
     let existing = line.iter().find(|v| v.version == version).cloned();
 
+    // #6/ADR-0006: harvest this AsyncAPI provide's declared subscriptions as
+    // version-less consumer edges. Never on `tag` provides — branch graphs are
+    // cut artifacts (ADR-0005), not where development subscriptions accrue.
+    // Computed here (before the no-op fast path) so a byte-identical re-provide
+    // still re-flags trunk-ness and reports the harvest. Read-only; on a GA
+    // provide the drift check rejects (409) before any write happens.
+    let harvest_asyncapi = api_type == ApiType::AsyncApi && tag.is_none();
+    let (harvest_inputs, harvest_results) = if harvest_asyncapi {
+        plan_subscription_harvest(repo, content, stability).await?
+    } else {
+        (Vec::new(), Vec::new())
+    };
+
     // Identical content is an idempotent no-op regardless of Actor: CI
     // re-runs of the same commit must never fight. The one exception is a GA
     // Provide for a same-content *snapshot* — that is a promotion, the normal
@@ -441,15 +454,28 @@ pub async fn provide_spec(
                 .await?;
             count_branch_update(&branch.name);
         }
+        // Content is unchanged, but the `trunk` flag may not be — a nightly
+        // trunk CI re-providing yesterday's snapshot bytes must still move its
+        // harvested edges into the main graph. Reconcile so the trunk-ness
+        // follows this provide, and report the harvest either way.
+        if harvest_asyncapi && !dry_run {
+            let client_id = repo.ensure_client(producername).await?;
+            repo.reconcile_harvested_subscriptions(
+                client_id,
+                producername,
+                trunk,
+                &harvest_inputs,
+                &now_iso(),
+            )
+            .await?;
+        }
         return Ok(ProvideResponse {
             version,
             stability: entry.stability,
             content_hash: hash,
             changes: ProvideChanges::default(),
             promoted: false,
-            // A byte-identical re-provide changes no subscriptions; the harvest
-            // is left as-is and not recomputed on this fast path.
-            harvested_subscriptions: Vec::new(),
+            harvested_subscriptions: harvest_results,
         });
     }
 
@@ -569,18 +595,6 @@ pub async fn provide_spec(
     let promoting = existing.as_ref().map(|e| e.stability) == Some(Stability::Snapshot)
         && stability == Stability::Ga;
 
-    // #6/ADR-0006: harvest this AsyncAPI provide's declared subscriptions as
-    // version-less consumer edges. Never on `tag` provides — branch graphs are
-    // cut artifacts (ADR-0005), not where development subscriptions accrue.
-    // Read-only here; on a GA provide the drift check rejects (409) before any
-    // write happens.
-    let harvest_asyncapi = api_type == ApiType::AsyncApi && tag.is_none();
-    let (harvest_inputs, harvest_results) = if harvest_asyncapi {
-        plan_subscription_harvest(repo, content, stability).await?
-    } else {
-        (Vec::new(), Vec::new())
-    };
-
     if dry_run {
         return Ok(ProvideResponse {
             version,
@@ -588,6 +602,7 @@ pub async fn provide_spec(
             content_hash: hash,
             changes,
             promoted: promoting,
+            // Harvest was planned before the no-op fast path above.
             harvested_subscriptions: harvest_results,
         });
     }
@@ -812,17 +827,6 @@ enum ContractOp {
     },
 }
 
-/// Plan the channel-message-contract changes for a GA AsyncAPI provide.
-///
-/// For every named PUB message in the submitted document:
-/// - no contract yet → insert, owned by this service;
-/// - owned by this service (or by a service that no longer exists) → this
-///   service (re)owns it, after the owner-widen payload compatibility check;
-/// - owned by a *different* live service → accepted only if the payload schema
-///   is semantically identical, otherwise rejected `409` naming the owner.
-///
-/// Messages this service currently owns but no longer provides are planned for
-/// deletion. Performs no writes — it only reads and returns the planned ops.
 /// Plan the harvest of a Producer's declared AsyncAPI subscriptions (#6,
 /// ADR-0006): for each SUB, resolve the PUB owner against the GA contract store
 /// (owner by value; a vanished owner is treated as unfulfilled) and check the
@@ -886,6 +890,17 @@ async fn plan_subscription_harvest(
     Ok((inputs, results))
 }
 
+/// Plan the channel-message-contract changes for a GA AsyncAPI provide.
+///
+/// For every named PUB message in the submitted document:
+/// - no contract yet → insert, owned by this service;
+/// - owned by this service (or by a service that no longer exists) → this
+///   service (re)owns it, after the owner-widen payload compatibility check;
+/// - owned by a *different* live service → accepted only if the payload schema
+///   is semantically identical, otherwise rejected `409` naming the owner.
+///
+/// Messages this service currently owns but no longer provides are planned for
+/// deletion. Performs no writes — it only reads and returns the planned ops.
 async fn plan_channel_message_contracts(
     repo: &impl SpecRepository,
     service_id: i64,

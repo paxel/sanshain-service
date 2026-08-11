@@ -430,3 +430,58 @@ async fn asyncapi_subscribe_drift_blocks_at_ga_and_is_advisory_on_snapshot() {
         "GA drift must be a 409, got: {err:?}"
     );
 }
+
+#[tokio::test]
+async fn byte_identical_trunk_reprovide_moves_harvest_to_main() {
+    let repo = setup().await;
+    repo.ensure_service("orders").await.unwrap();
+    repo.ensure_service("shipping").await.unwrap();
+    spec_service::provide_spec(
+        &repo,
+        params(
+            "orders",
+            ApiType::AsyncApi,
+            &asyncapi_with_id_type("1.0.0", "string"),
+            Stability::Ga,
+        ),
+    )
+    .await
+    .unwrap();
+
+    let sub = asyncapi_subscribes_to("1.0.0", "");
+    // Snapshot provide (trunk = false): the harvest is a dev-view edge.
+    spec_service::provide_spec(
+        &repo,
+        params("shipping", ApiType::AsyncApi, &sub, Stability::Snapshot),
+    )
+    .await
+    .unwrap();
+    let dev = repo.list_current_harvested_subscriptions().await.unwrap();
+    assert!(dev.iter().all(|e| !e.trunk), "snapshot harvest is dev-only");
+
+    // A byte-identical *trunk* re-provide is a content no-op, but the harvest
+    // must still move into the main graph (the fast path used to skip it).
+    let trunk_reprovide = spec_service::ProvideSpecParams {
+        producername: "shipping",
+        api_type: ApiType::AsyncApi,
+        content: &sub,
+        stability: Stability::Snapshot,
+        dry_run: false,
+        trunk: true,
+        tag: None,
+        caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
+        require_prior_content_match: false,
+    };
+    let res = spec_service::provide_spec(&repo, trunk_reprovide)
+        .await
+        .unwrap();
+    assert!(
+        !res.harvested_subscriptions.is_empty(),
+        "a no-op re-provide still reports its harvest"
+    );
+    let after = repo.list_current_harvested_subscriptions().await.unwrap();
+    assert!(
+        after.iter().any(|e| e.channel == "user-created" && e.trunk),
+        "the trunk re-provide moved the harvest into the main graph"
+    );
+}

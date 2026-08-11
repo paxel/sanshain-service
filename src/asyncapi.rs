@@ -1120,13 +1120,13 @@ operations:
         let contract =
             "type: object\nproperties:\n  id: { type: string }\n  name: { type: string }\n";
         let expectation = "type: object\nproperties:\n  id: { type: string }\n";
-        assert!(check_expectation_satisfied(contract, expectation).is_ok());
+        assert_eq!(check_expectation_satisfied(contract, expectation), Ok(()));
     }
 
     #[test]
     fn expectation_equal_to_contract_is_satisfied() {
         let schema = "type: object\nproperties:\n  id: { type: string }\n";
-        assert!(check_expectation_satisfied(schema, schema).is_ok());
+        assert_eq!(check_expectation_satisfied(schema, schema), Ok(()));
     }
 
     #[test]
@@ -1145,7 +1145,11 @@ operations:
     fn expectation_of_an_incompatible_type_is_drift() {
         let contract = "type: object\nproperties:\n  id: { type: string }\n";
         let expectation = "type: object\nproperties:\n  id: { type: integer }\n";
-        assert!(check_expectation_satisfied(contract, expectation).is_err());
+        let err = check_expectation_satisfied(contract, expectation).unwrap_err();
+        assert!(
+            err.contains("id") && err.contains("type"),
+            "error should name the property and the type mismatch: {err}"
+        );
     }
 
     #[test]
