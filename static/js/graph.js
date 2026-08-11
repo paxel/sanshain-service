@@ -113,6 +113,10 @@ function graphEdgeFlags(report, latestGaMap, trunkVersionMap) {
         stale: false,
       });
     const f = flags.get(key);
+    // Harvested subscriptions (#6) are version-less consumer edges: no version
+    // to be outdated/behind, and no last_required_at to be stale. Skip the
+    // version-based classification for them.
+    if (d.harvested) return;
     // Main view: a pin not refreshed since half the trunk TTL is a
     // forgotten thing — shown as such before the cleanup culls it.
     if (staleBefore && d.last_required_at && d.last_required_at < staleBefore) f.stale = true;
@@ -297,6 +301,26 @@ function getFilteredReport(report) {
     deps = (window.graphTimelinePins || report.trunk_graph || []).map(pinAsDep);
     missing = [];
   }
+
+  // Harvested AsyncAPI subscriptions (#6/ADR-0006): version-less consumer edges.
+  // The server already scopes them to match the view (dev = all, main =
+  // trunk-only, branch/other = none), so append them to whichever deps we
+  // built. A subscription with no resolved owner (nobody provides the channel
+  // yet) points at the BROKER so the pending consumption stays visible.
+  (report.harvested_subscriptions || []).forEach((h) => {
+    deps.push({
+      api_type: "asyncapi",
+      client: h.client,
+      service: h.owner || "BROKER",
+      version: null,
+      stability: null,
+      path: h.channel,
+      method: "SUB",
+      deprecated: false,
+      harvested: true,
+      unfulfilled: !h.owner,
+    });
+  });
 
   // 1. Circular dependencies filter
   if (window.graphRedrawMode === "circular") {

@@ -103,6 +103,14 @@ pub async fn generate_scoped_report(
     if !matches!(scope, ReportScope::Dev) {
         report.trunk_graph = Vec::new();
         report.trunk_stale_before = None;
+        // Harvested edges are present-tense too. Keep only the trunk ones, and
+        // only for the *live* main view — a past `main@<date>` or a branch view
+        // has no harvested timeline yet, so it carries none rather than
+        // masquerading today's edges as historical.
+        let live_main = matches!(&scope, ReportScope::Main { at } if at.is_none());
+        report
+            .harvested_subscriptions
+            .retain(|h| h.trunk && live_main);
     }
     match scope {
         ReportScope::Dev => {}
@@ -142,6 +150,9 @@ pub async fn generate_report(repo: &impl SpecRepository) -> Result<DependencyRep
     let mut report = repo.get_report().await?;
     report.service_tags = repo.get_all_service_tags().await?;
     report.trunk_graph = repo.list_current_trunk_pins().await?;
+    // Harvested AsyncAPI subscription edges (#6/ADR-0006). The dev report
+    // carries the full set; scoped views filter it below.
+    report.harvested_subscriptions = repo.list_current_harvested_subscriptions().await?;
     // A pin on a deleted version must look broken in the main view too, not
     // only in branch view (ADR-0005: dangling, never silently healthy).
     super::branch_service::mark_dangling(repo, &mut report.trunk_graph).await?;

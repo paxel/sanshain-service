@@ -729,6 +729,36 @@ components:
             True when this Provide released an existing snapshot in place
             (snapshot → GA under the same number), including the byte-identical
             case where `changes` is all zero.
+        harvested_subscriptions:
+          type: array
+          description: |
+            AsyncAPI `subscribe` operations harvested from this provide as
+            version-less consumer edges (only present for `/provide/asyncapi`,
+            and omitted when empty). Each is validated against the producer's
+            GA channel contract: on a GA provide an unsatisfiable expectation is
+            rejected with `409`; on a snapshot it is reported here as `drift`.
+          items:
+            type: object
+            required:
+              - channel
+              - message_name
+            properties:
+              channel:
+                type: string
+              message_name:
+                type: string
+              owner:
+                type: string
+                nullable: true
+                description: |
+                  The Producer that owns the channel's PUB contract, or absent
+                  when no GA provider owns it yet (an unfulfilled subscription).
+              drift:
+                type: string
+                nullable: true
+                description: |
+                  Advisory note when the subscription's expectation is not
+                  satisfiable by the current contract (snapshot provides only).
 
     RequireBundlePayload:
       type: object
