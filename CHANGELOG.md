@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.2.0] - 2026-08-06
 
 ### Added
+- AsyncAPI `subscribe` operations are now harvested on every provide as version-less consumer
+  edges in the dependency graph — previously they were dropped with a server-side log the Producer
+  never saw. Each resolves to the channel's PUB owner (or shows as pending when none exists yet),
+  and is validated as an expectation: reading fewer fields than the contract is fine, but expecting
+  a field the contract does not guarantee is rejected with `409` on a GA provide and reported as an
+  advisory `harvested_subscriptions` note on a snapshot. See [ADR-0006](docs/adr/0006-asyncapi-subscribe-harvesting.md).
 - A Producer can retire an API family it no longer provides —
   `POST /admin/producers/{name}/retire/{api_type}`: clears the messaging/grpc capability tag,
   drops the family from the current main graph (keeping its timeline history), and releases its

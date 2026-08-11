@@ -113,6 +113,28 @@ feature work stays friction-free. Consuming the producer's snippet (via `/requir
 > defines the keywords from the client's perspective. Only `publish`/`send` messages register a
 > contract.
 
+### Subscribe operations become consumer edges
+
+The mirror of publishing is subscribing. When you provide an AsyncAPI document with `subscribe`
+(2.x) / `receive` (3.x) operations, Sanshain **harvests** them on every provide as **version-less
+consumer edges** — you no longer have to hand-declare a `require` for a channel your own spec
+already says you read. Each harvested subscription:
+
+- **resolves its provider** by looking up the `(channel, message name)` PUB contract. If no GA
+  provider owns the channel yet, the subscription is recorded as **unfulfilled** and shown in the
+  graph as pending, rather than silently dropped.
+- **appears in the dependency graph** inheriting the provide's stream: a `trunk` provide's
+  subscriptions show in the **main** view, a plain snapshot's only in the **dev** view.
+- **is validated against the provider's contract.** Because a subscription is an *expectation*, the
+  rule is one-sided: reading **fewer** fields than the contract guarantees is fine, but expecting a
+  property — or a type — the contract does **not** guarantee is *drift*. On a **GA** provide drift
+  is rejected with `409` naming the channel, message and property; on a snapshot it is reported in
+  the provide response's `harvested_subscriptions` as an advisory note, so development stays
+  friction-free.
+
+Dropping a `subscribe` from a later provide retracts its edge. A subscription is never a version
+pin and never registers a contract — only `publish`/`send` does.
+
 ---
 
 ## Summary Table
