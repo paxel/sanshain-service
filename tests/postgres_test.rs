@@ -15,8 +15,8 @@ use sqlx::postgres::PgPoolOptions;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64};
-use testcontainers::runners::AsyncRunner;
-use testcontainers_modules::postgres::Postgres;
+
+mod common;
 use tokio::sync::RwLock;
 use tower::ServiceExt;
 
@@ -78,7 +78,7 @@ fn test_app_state(repo: PostgresSpecRepository, db_url: String) -> AppState {
 #[tokio::test]
 async fn test_postgres_full_flow_with_testcontainers() {
     // 1. Start Postgres container
-    let postgres_container = Postgres::default().start().await.unwrap();
+    let postgres_container = common::start_postgres().await;
     let host = postgres_container.get_host().await.unwrap();
     let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
     let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
@@ -168,7 +168,7 @@ async fn test_postgres_upsert_compare_and_set_contract() {
     use sanshain_service::domain::models::{ApiType, EndpointRecord, Stability};
     use sanshain_service::domain::ports::{RepositoryError, SpecRepository, UpsertSpecVersion};
 
-    let postgres_container = Postgres::default().start().await.unwrap();
+    let postgres_container = common::start_postgres().await;
     let host = postgres_container.get_host().await.unwrap();
     let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
     let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
@@ -313,7 +313,7 @@ async fn test_postgres_trunk_pins_append_only() {
     use sanshain_service::domain::models::{ApiType, SemVer};
     use sanshain_service::domain::ports::{RecordTrunkPinParams, SpecRepository};
 
-    let postgres_container = Postgres::default().start().await.unwrap();
+    let postgres_container = common::start_postgres().await;
     let host = postgres_container.get_host().await.unwrap();
     let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
     let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
@@ -372,7 +372,7 @@ async fn postgres_audit_stream_filter_is_bound() {
     use sanshain_service::domain::models::AuditLogFilter;
     use sanshain_service::domain::ports::{NewAuditLog, SpecRepository};
 
-    let postgres_container = Postgres::default().start().await.unwrap();
+    let postgres_container = common::start_postgres().await;
     let host = postgres_container.get_host().await.unwrap();
     let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
     let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);

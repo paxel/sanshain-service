@@ -11,8 +11,9 @@ use sanshain_service::domain::models::{ApiType, ChannelMessageContract, Stabilit
 use sanshain_service::domain::ports::SpecRepository;
 use sanshain_service::infrastructure::postgres_repository::PostgresSpecRepository;
 use sqlx::postgres::PgPoolOptions;
-use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
+
+mod common;
 
 fn contract(channel: &str, message: &str, owner: i64, payload: &str) -> ChannelMessageContract {
     ChannelMessageContract {
@@ -30,7 +31,7 @@ async fn repo_and_container() -> (
     PostgresSpecRepository,
     testcontainers::ContainerAsync<Postgres>,
 ) {
-    let container = Postgres::default().start().await.unwrap();
+    let container = common::start_postgres().await;
     let host = container.get_host().await.unwrap();
     let port = container.get_host_port_ipv4(5432).await.unwrap();
     let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
