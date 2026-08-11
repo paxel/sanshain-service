@@ -386,28 +386,66 @@ pub struct PubMessage {
 /// mapping. Note this is the inverse of the official 2.x spec, which defines
 /// the keyword from the client's perspective.
 pub fn extract_pub_messages(yaml_str: &str) -> Result<Vec<PubMessage>, String> {
+    extract_messages(yaml_str, Direction::Pub)
+}
+
+/// Extract every named SUB (subscribe/receive) message — the mirror of
+/// [`extract_pub_messages`], used to harvest a Producer's declared
+/// subscriptions (ai/improvements.md #6, ADR-0006). The returned [`PubMessage`]
+/// describes the subscribed message; its fields (channel, message name,
+/// payload) are direction-neutral. The same app-perspective reading applies:
+/// `subscribe` (2.x) / `receive` (3.x) = this service subscribes.
+pub fn extract_sub_messages(yaml_str: &str) -> Result<Vec<PubMessage>, String> {
+    extract_messages(yaml_str, Direction::Sub)
+}
+
+/// Which side of a channel operation to read, from the application's
+/// perspective: `Pub` = what this service publishes (2.x `publish` / 3.x
+/// `send`), `Sub` = what it subscribes to (2.x `subscribe` / 3.x `receive`).
+#[derive(Clone, Copy)]
+enum Direction {
+    Pub,
+    Sub,
+}
+
+impl Direction {
+    fn v2_keyword(self) -> &'static str {
+        match self {
+            Direction::Pub => "publish",
+            Direction::Sub => "subscribe",
+        }
+    }
+    fn v3_action(self) -> &'static str {
+        match self {
+            Direction::Pub => "send",
+            Direction::Sub => "receive",
+        }
+    }
+}
+
+fn extract_messages(yaml_str: &str, dir: Direction) -> Result<Vec<PubMessage>, String> {
     let root: Value = serde_yaml_ng::from_str(yaml_str)
         .map_err(|e| format!("Failed to parse AsyncAPI YAML: {}", e))?;
     let version = root.get("asyncapi").and_then(Value::as_str).unwrap_or("");
     if version.starts_with("3.") {
-        Ok(extract_pub_messages_v3(&root))
+        Ok(extract_messages_v3(&root, dir))
     } else {
-        Ok(extract_pub_messages_v2(&root))
+        Ok(extract_messages_v2(&root, dir))
     }
 }
 
-fn extract_pub_messages_v2(root: &Value) -> Vec<PubMessage> {
+fn extract_messages_v2(root: &Value, dir: Direction) -> Vec<PubMessage> {
     let mut out = Vec::new();
     let Some(channels) = root.get("channels").and_then(Value::as_mapping) else {
         return out;
     };
     for (channel_name, channel_value) in channels {
         let channel = channel_name.as_str().unwrap_or_default();
-        let Some(publish) = channel_value.get("publish") else {
+        let Some(operation) = channel_value.get(dir.v2_keyword()) else {
             continue;
         };
-        let op_deprecated = is_marked_deprecated(publish);
-        let Some(message) = publish.get("message") else {
+        let op_deprecated = is_marked_deprecated(operation);
+        let Some(message) = operation.get("message") else {
             continue;
         };
         let variants: Vec<&Value> = match message.get("oneOf").and_then(Value::as_sequence) {
@@ -423,14 +461,14 @@ fn extract_pub_messages_v2(root: &Value) -> Vec<PubMessage> {
     out
 }
 
-fn extract_pub_messages_v3(root: &Value) -> Vec<PubMessage> {
+fn extract_messages_v3(root: &Value, dir: Direction) -> Vec<PubMessage> {
     let mut out = Vec::new();
     let Some(operations) = root.get("operations").and_then(Value::as_mapping) else {
         return out;
     };
     let channels = root.get("channels");
     for (_op_name, op) in operations {
-        if op.get("action").and_then(Value::as_str) != Some("send") {
+        if op.get("action").and_then(Value::as_str) != Some(dir.v3_action()) {
             continue;
         }
         let op_deprecated = is_marked_deprecated(op);
@@ -520,6 +558,27 @@ pub fn check_payload_compatible(
     let new: Value = serde_yaml_ng::from_str(new_payload_yaml)
         .map_err(|e| format!("Failed to parse submitted payload: {}", e))?;
     check_schema_compatible("payload", &old, &new)
+}
+
+/// Check a consumer's SUB payload (its *expectation*) is satisfiable by a
+/// Producer's PUB `contract` payload (ai/improvements.md #6, ADR-0006): every
+/// property the expectation reads must exist in the contract with a compatible
+/// type. A consumer expecting *less* than the contract guarantees is fine;
+/// expecting a property, or a type, the contract does not guarantee is drift.
+///
+/// This is the role-swapped sibling of [`check_payload_compatible`]. The
+/// contract plays the "new" schema (it must still provide everything) and the
+/// expectation plays the "old" (what must remain available), so a property the
+/// expectation reads but the contract lacks is reported as missing.
+pub fn check_expectation_satisfied(
+    contract_payload_yaml: &str,
+    expectation_payload_yaml: &str,
+) -> Result<(), String> {
+    let contract: Value = serde_yaml_ng::from_str(contract_payload_yaml)
+        .map_err(|e| format!("Failed to parse contract payload: {}", e))?;
+    let expectation: Value = serde_yaml_ng::from_str(expectation_payload_yaml)
+        .map_err(|e| format!("Failed to parse expectation payload: {}", e))?;
+    check_schema_compatible("payload", &expectation, &contract)
 }
 
 /// Two message payloads are semantically equal if their parsed YAML values are
@@ -987,5 +1046,116 @@ channels:
 
         let doc_only = base.replace("title: T", "title: Titled");
         assert_eq!(analyze_impact(base, &doc_only), Impact::Patch);
+    }
+
+    // --- SUB harvesting (ai/improvements.md #6, ADR-0006) ---
+
+    #[test]
+    fn extract_sub_messages_v2_named_subscribe_only() {
+        // Same fixture as the PUB test: harvesting SUB must pick the mirror
+        // operation — the subscribe message, never the publish one.
+        let yaml = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  orders:
+    publish:
+      message:
+        name: OrderPlaced
+        payload: { type: object }
+    subscribe:
+      message:
+        name: OrderShipped
+        payload: { type: object }
+"#;
+        let msgs = extract_sub_messages(yaml).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].channel, "orders");
+        assert_eq!(msgs[0].message_name, "OrderShipped");
+    }
+
+    #[test]
+    fn extract_sub_messages_empty_when_only_publish() {
+        let yaml = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  orders:
+    publish:
+      message:
+        name: OrderPlaced
+        payload: { type: object }
+"#;
+        assert!(extract_sub_messages(yaml).unwrap().is_empty());
+    }
+
+    #[test]
+    fn extract_sub_messages_v3_receive_only_with_address() {
+        let yaml = r#"
+asyncapi: 3.0.0
+info: { title: T, version: 1.0.0 }
+channels:
+  OrderShipped:
+    address: orders.shipped
+    messages:
+      ShipMessage:
+        name: OrderShipped
+        payload: { type: object }
+operations:
+  publishOrder:
+    action: send
+    channel: { $ref: '#/channels/OrderShipped' }
+  consumeShipped:
+    action: receive
+    channel: { $ref: '#/channels/OrderShipped' }
+"#;
+        let msgs = extract_sub_messages(yaml).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].channel, "orders.shipped");
+        assert_eq!(msgs[0].message_name, "OrderShipped");
+    }
+
+    #[test]
+    fn expectation_reading_a_subset_is_satisfied() {
+        let contract =
+            "type: object\nproperties:\n  id: { type: string }\n  name: { type: string }\n";
+        let expectation = "type: object\nproperties:\n  id: { type: string }\n";
+        assert!(check_expectation_satisfied(contract, expectation).is_ok());
+    }
+
+    #[test]
+    fn expectation_equal_to_contract_is_satisfied() {
+        let schema = "type: object\nproperties:\n  id: { type: string }\n";
+        assert!(check_expectation_satisfied(schema, schema).is_ok());
+    }
+
+    #[test]
+    fn expectation_of_a_property_the_contract_lacks_is_drift() {
+        let contract = "type: object\nproperties:\n  id: { type: string }\n";
+        let expectation =
+            "type: object\nproperties:\n  id: { type: string }\n  ssn: { type: string }\n";
+        let err = check_expectation_satisfied(contract, expectation).unwrap_err();
+        assert!(
+            err.contains("ssn"),
+            "error should name the missing property: {err}"
+        );
+    }
+
+    #[test]
+    fn expectation_of_an_incompatible_type_is_drift() {
+        let contract = "type: object\nproperties:\n  id: { type: string }\n";
+        let expectation = "type: object\nproperties:\n  id: { type: integer }\n";
+        assert!(check_expectation_satisfied(contract, expectation).is_err());
+    }
+
+    #[test]
+    fn expectation_drift_is_detected_in_a_nested_property() {
+        let contract = "type: object\nproperties:\n  meta:\n    type: object\n    properties:\n      a: { type: string }\n";
+        let expectation = "type: object\nproperties:\n  meta:\n    type: object\n    properties:\n      b: { type: string }\n";
+        let err = check_expectation_satisfied(contract, expectation).unwrap_err();
+        assert!(
+            err.contains('b'),
+            "error should name the nested missing property: {err}"
+        );
     }
 }
