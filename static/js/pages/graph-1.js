@@ -438,6 +438,13 @@ async function runGraphDiff() {
 }
 window.runGraphDiff = runGraphDiff;
 
+// Clear button for the graph-diff panel — replaces an inline innerHTML reset.
+function clearGraphDiffOutput() {
+  const out = document.getElementById("graph-diff-output");
+  if (out) out.innerHTML = "";
+}
+window.clearGraphDiffOutput = clearGraphDiffOutput;
+
 document.getElementById("graph-download").onclick = () => {
   let content, filename, mime;
   if (currentGraphMode === "custom") {

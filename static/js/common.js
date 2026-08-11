@@ -502,13 +502,14 @@ function escapeHtml(str) {
   return div.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-// For a JS string literal that itself sits inside a quoted HTML attribute —
-// `onclick="fn('${escapeAttr(x)}')"`. The browser HTML-decodes the attribute
-// before parsing the JS, so both layers must be escaped, innermost first:
-// without the HTML pass a value containing `"` closes the attribute and can
-// add its own handler. Producer, role and branch names are all caller-chosen
-// and unrestricted, so they reach here hostile. For a plain attribute value
-// with no JS around it, use escapeHtml — it leaves no backslashes behind.
+// For a value embedded as a single-quoted JS string that itself sits inside a
+// quoted HTML attribute. The browser HTML-decodes the attribute before parsing
+// the JS, so both layers must be escaped, innermost first: without the HTML
+// pass a value containing a double quote closes the attribute and can inject
+// markup. Producer, role and branch names are all caller-chosen and
+// unrestricted, so they reach here hostile. For a plain attribute value with
+// no JS around it, use escapeHtml — it leaves no backslashes behind. For the
+// dispatcher's data-<event>-args, use attrJson.
 function escapeAttr(str) {
   return String(str)
     .replace(/\\/g, "\\\\")
@@ -517,6 +518,19 @@ function escapeAttr(str) {
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+// Encode a value as JSON safe to drop into a double-quoted HTML attribute for
+// the delegated dispatcher's data-<event>-args. Unlike escapeAttr this does
+// *only* HTML-entity escaping (no backslash/quote JS-escaping), so the string
+// getAttribute hands back is byte-for-byte the JSON.stringify output and
+// JSON.parse round-trips it — backslash escapes such as \n survive intact.
+function attrJson(value) {
+  return JSON.stringify(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 // --- Confirm modal ---
@@ -616,10 +630,20 @@ function showReloadBanner() {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z"/>
         </svg>
         <span>The server has been updated or restarted. You may be viewing stale data.</span>
-        <button onclick="sessionStorage.removeItem('sanshain_instance');location.reload(true)" style="background:#f59e0b;color:white;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px;">Reload</button>
-        <button onclick="this.parentElement.remove();sessionStorage.removeItem('sanshain_instance')" style="background:none;border:none;cursor:pointer;color:#92400e;font-size:18px;line-height:1;padding:0 4px;" title="Dismiss">&times;</button>
+        <button data-click="reloadClearingInstance" style="background:#f59e0b;color:white;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px;">Reload</button>
+        <button data-click="dismissReloadBanner" data-click-args='["$this"]' style="background:none;border:none;cursor:pointer;color:#92400e;font-size:18px;line-height:1;padding:0 4px;" title="Dismiss">&times;</button>
     `;
   document.body.prepend(banner);
+}
+
+// Reload / dismiss actions for the staleness banner (were inline handlers).
+function reloadClearingInstance() {
+  sessionStorage.removeItem("sanshain_instance");
+  location.reload(true);
+}
+function dismissReloadBanner(el) {
+  el.parentElement.remove();
+  sessionStorage.removeItem("sanshain_instance");
 }
 
 // Run staleness check on every page load
@@ -689,3 +713,59 @@ function togglePasswordVisibility(inputId, btn) {
     btn.textContent = "Show";
   }
 }
+
+// ── Delegated event dispatcher (ai/improvements.md #11) ──────────────────
+// Replaces inline event-handler attributes so the CSP can forbid inline
+// script. A control declares data-<event>="fnName" (plus an optional
+// data-<event>-args JSON array) in place of an inline handler attribute; one
+// delegated listener per event type resolves the nearest ancestor carrying
+// the attribute and calls the named global with the decoded args. Because it
+// is delegated on document, it covers markup rendered later by JS exactly as
+// it covers static markup.
+//
+// Arg tokens: "$this" is the element, "$event" the event, "$value" the
+// element's current value. Everything else is passed literally. Dynamic
+// markup builds the args attribute with attrJson() so the JSON round-trips
+// through getAttribute intact.
+(function () {
+  const EVENTS = ["click", "change", "input", "submit", "keydown"];
+
+  function decodeArgs(el, event, raw) {
+    if (!raw) return [];
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      console.error("data-action args are not valid JSON:", raw, e);
+      return [];
+    }
+    return parsed.map((a) => {
+      if (a === "$this") return el;
+      if (a === "$event") return event;
+      if (a === "$value") return el.value;
+      return a;
+    });
+  }
+
+  function dispatch(type, event) {
+    const el = event.target.closest(`[data-${type}]`);
+    if (!el) return;
+    // A data-submit control is always an in-page handler; keep the browser
+    // from navigating away on native form submission (the old handlers all
+    // ended in `return false`).
+    if (type === "submit") event.preventDefault();
+    const name = el.dataset[type];
+    const fn = window[name];
+    if (typeof fn !== "function") {
+      // A dead action is a real bug once inline handlers are gone; surface it.
+      console.error(`data-${type}="${name}" resolves to no function`);
+      return;
+    }
+    const args = decodeArgs(el, event, el.getAttribute(`data-${type}-args`));
+    fn.apply(el, args);
+  }
+
+  for (const type of EVENTS) {
+    document.addEventListener(type, (event) => dispatch(type, event));
+  }
+})();

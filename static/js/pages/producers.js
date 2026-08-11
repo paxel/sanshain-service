@@ -150,7 +150,7 @@ async function showProducerVersions(serviceName) {
   const breadcrumb = document.getElementById("service-breadcrumb");
   breadcrumb.classList.remove("hidden");
   breadcrumb.innerHTML = `
-            <button onclick="goBackToServices()" class="hover:text-indigo-600 font-medium">Producers</button>
+            <button data-click="goBackToServices" class="hover:text-indigo-600 font-medium">Producers</button>
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
             <span class="text-slate-800 font-semibold">${escapeHtml(serviceName)}</span>`;
 
@@ -451,10 +451,10 @@ async function showVersionEndpoints(serviceName, apiType, version) {
   breadcrumb.classList.remove("hidden");
   // Service names come straight from client `/provide` payloads and are
   // not validated, so they must never be interpolated raw into markup —
-  // escape text, and attach handlers as listeners rather than building
-  // `onclick="..."` attributes out of them.
+  // escape text, and wire behaviour through data-action attributes rather
+  // than splicing names into inline handler attributes.
   breadcrumb.innerHTML = `
-            <button onclick="goBackToServices()" class="hover:text-indigo-600 font-medium">Producers</button>
+            <button data-click="goBackToServices" class="hover:text-indigo-600 font-medium">Producers</button>
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
             <button type="button" data-back-to-versions class="hover:text-indigo-600 font-medium">${escapeHtml(serviceName)}</button>
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
@@ -543,9 +543,15 @@ async function showVersionEndpoints(serviceName, apiType, version) {
       const card = document.createElement("div");
       card.className =
         "bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer";
-      card.onclick = () => {
-        window.location.href = `/yaml.html?service=${encodeURIComponent(serviceName)}&api_type=${encodeURIComponent(apiType)}&version=${encodeURIComponent(version)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}`;
-      };
+      // Delegated (not a direct card.onclick) so the client badge nested inside
+      // can be its own data-click: the dispatcher fires only the nearest
+      // data-click ancestor, so a badge click opens its popover without also
+      // opening the endpoint — no stopPropagation needed.
+      card.dataset.click = "openEndpointYaml";
+      card.setAttribute(
+        "data-click-args",
+        attrJson([serviceName, apiType, version, ep.path, ep.method]),
+      );
       card.innerHTML = `
                     <div class="flex items-center justify-between">
                         <div class="flex items-center">
@@ -562,7 +568,7 @@ async function showVersionEndpoints(serviceName, apiType, version) {
                             ${
                               isUnused
                                 ? '<span class="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full mr-2">unused</span>'
-                                : `<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2 relative client-badge-wrapper" data-clients="${escapeHtml(clients.join(","))}" onclick="event.stopPropagation(); toggleClientPopover(this)">${clients.length} client${clients.length !== 1 ? "s" : ""} ▾</span>`
+                                : `<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2 relative client-badge-wrapper" data-clients="${escapeHtml(clients.join(","))}" data-click="toggleClientPopover" data-click-args='["$this"]'>${clients.length} client${clients.length !== 1 ? "s" : ""} ▾</span>`
                             }
                             <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
@@ -575,6 +581,12 @@ async function showVersionEndpoints(serviceName, apiType, version) {
     hideLoader();
     list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(err.message)}</div>`;
   }
+}
+
+// Opens the endpoint's stored YAML — the endpoint card's delegated action
+// (was card.onclick). A named global so the card's data-click resolves.
+function openEndpointYaml(serviceName, apiType, version, path, method) {
+  window.location.href = `/yaml.html?service=${encodeURIComponent(serviceName)}&api_type=${encodeURIComponent(apiType)}&version=${encodeURIComponent(version)}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}`;
 }
 
 function toggleClientPopover(badge) {

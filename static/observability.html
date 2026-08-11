@@ -1,214 +1,352 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="/images/favicon.png">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/images/favicon.png" />
     <title>Sanshain — Observability (サンシャイン)</title>
-    <link rel="stylesheet" href="/css/app.css">
+    <link rel="stylesheet" href="/css/app.css" />
     <script src="/js/common.js"></script>
     <script src="/js/discovery.js"></script>
     <style>
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
     </style>
-</head>
-<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+  </head>
+  <body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
     <div id="app-loader">
-        <div class="cat-container">
-            <svg class="cat-svg" viewBox="0 0 100 60">
-                <ellipse cx="50" cy="45" rx="30" ry="15" fill="#6366f1" opacity="0.15"/>
-                <ellipse cx="50" cy="38" rx="22" ry="14" fill="#6366f1"/>
-                <circle cx="50" cy="22" r="12" fill="#6366f1"/>
-                <polygon points="40,14 42,4 46,12" fill="#6366f1"/>
-                <polygon points="60,14 58,4 54,12" fill="#6366f1"/>
-                <polygon points="40,14 42,4 46,12" fill="#818cf8" opacity="0.5"/>
-                <polygon points="60,14 58,4 54,12" fill="#818cf8" opacity="0.5"/>
-                <circle cx="45" cy="20" r="2" fill="white"/>
-                <circle cx="55" cy="20" r="2" fill="white"/>
-                <circle cx="45.5" cy="20.5" r="0.8" fill="#1e1b4b"/>
-                <circle cx="55.5" cy="20.5" r="0.8" fill="#1e1b4b"/>
-                <ellipse cx="50" cy="25" rx="1.5" ry="1" fill="#c7d2fe"/>
-                <ellipse cx="50" cy="38" rx="18" ry="10" fill="#818cf8" opacity="0.3"/>
-            </svg>
-            <div class="zzz-container">
-                <span class="zzz">z</span>
-                <span class="zzz">z</span>
-                <span class="zzz">z</span>
-            </div>
+      <div class="cat-container">
+        <svg class="cat-svg" viewBox="0 0 100 60">
+          <ellipse cx="50" cy="45" rx="30" ry="15" fill="#6366f1" opacity="0.15" />
+          <ellipse cx="50" cy="38" rx="22" ry="14" fill="#6366f1" />
+          <circle cx="50" cy="22" r="12" fill="#6366f1" />
+          <polygon points="40,14 42,4 46,12" fill="#6366f1" />
+          <polygon points="60,14 58,4 54,12" fill="#6366f1" />
+          <polygon points="40,14 42,4 46,12" fill="#818cf8" opacity="0.5" />
+          <polygon points="60,14 58,4 54,12" fill="#818cf8" opacity="0.5" />
+          <circle cx="45" cy="20" r="2" fill="white" />
+          <circle cx="55" cy="20" r="2" fill="white" />
+          <circle cx="45.5" cy="20.5" r="0.8" fill="#1e1b4b" />
+          <circle cx="55.5" cy="20.5" r="0.8" fill="#1e1b4b" />
+          <ellipse cx="50" cy="25" rx="1.5" ry="1" fill="#c7d2fe" />
+          <ellipse cx="50" cy="38" rx="18" ry="10" fill="#818cf8" opacity="0.3" />
+        </svg>
+        <div class="zzz-container">
+          <span class="zzz">z</span>
+          <span class="zzz">z</span>
+          <span class="zzz">z</span>
         </div>
-        <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
+      </div>
+      <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
     </div>
 
-<header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
-    <div class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
+      <div
+        class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+      >
         <div class="flex items-center justify-between gap-4 md:justify-start">
-            <a href="/" class="flex items-center space-x-3">
-                <img src="/images/sonne.png" alt="Sanshain Logo" width="66" height="36" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
-                <div class="text-2xl font-bold tracking-tight">Sanshain <span class="text-indigo-200">(サンシャイン)</span></div>
-            </a>
-            <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
+          <a href="/" class="flex items-center space-x-3">
+            <img
+              src="/images/sonne.png"
+              alt="Sanshain Logo"
+              width="66"
+              height="36"
+              class="h-9 w-auto rounded-md bg-white/10 p-0.5"
+            />
+            <div class="text-2xl font-bold tracking-tight">
+              Sanshain <span class="text-indigo-200">(サンシャイン)</span>
+            </div>
+          </a>
+          <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
-        <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-            <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors">Producers</a>
-            <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
-            <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
-            <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
-            <a id="nav-audit-link" href="/audit.html" class="hidden text-white hover:text-indigo-100 transition-colors">Audit</a>
-            <a href="/observability.html" class="text-white font-bold underline underline-offset-4">Observability</a>
-            <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
+        <nav
+          class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1"
+        >
+          <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Producers</a
+          >
+          <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Consumers</a
+          >
+          <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
+          <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Reports</a
+          >
+          <a
+            id="nav-audit-link"
+            href="/audit.html"
+            class="hidden text-white hover:text-indigo-100 transition-colors"
+            >Audit</a
+          >
+          <a href="/observability.html" class="text-white font-bold underline underline-offset-4"
+            >Observability</a
+          >
+          <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
         <div class="flex items-center justify-end gap-4 text-sm">
-            <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
-            <a id="banner-username" href="/account.html" class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"></a>
-            <button id="banner-logout" type="button" onclick="sanshainLogout()" class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500">Logout</button>
-            <a id="banner-signin" href="/account.html" class="hidden text-indigo-100 transition-colors hover:text-white">Sign In</a>
+          <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+          <a
+            id="banner-username"
+            href="/account.html"
+            class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"
+          ></a>
+          <button
+            id="banner-logout"
+            type="button"
+            data-click="sanshainLogout"
+            class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500"
+          >
+            Logout
+          </button>
+          <a
+            id="banner-signin"
+            href="/account.html"
+            class="hidden text-indigo-100 transition-colors hover:text-white"
+            >Sign In</a
+          >
         </div>
-    </div>
-</header>
+      </div>
+    </header>
 
-<main class="container mx-auto flex-1 p-6 space-y-8">
-    <!-- System Observability -->
-    <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+    <main class="container mx-auto flex-1 p-6 space-y-8">
+      <!-- System Observability -->
+      <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
         <div class="flex justify-between items-center mb-6">
-            <div>
-                <h2 class="text-lg font-semibold text-slate-800">System Observability</h2>
-                <p class="text-sm text-slate-500 mt-1">Monitor system performance, logs, and manage debug tracing.</p>
-            </div>
-            <div class="flex items-center space-x-4">
-                <span id="branch-count-stat" class="text-xs text-slate-500 mr-2"></span><a href="/metrics" target="_blank" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1 rounded-lg transition-colors border border-slate-200">📊 Raw Metrics</a>
-                <button onclick="loadObservability()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh All</button>
-            </div>
+          <div>
+            <h2 class="text-lg font-semibold text-slate-800">System Observability</h2>
+            <p class="text-sm text-slate-500 mt-1">
+              Monitor system performance, logs, and manage debug tracing.
+            </p>
+          </div>
+          <div class="flex items-center space-x-4">
+            <span id="branch-count-stat" class="text-xs text-slate-500 mr-2"></span
+            ><a
+              href="/metrics"
+              target="_blank"
+              class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1 rounded-lg transition-colors border border-slate-200"
+              >📊 Raw Metrics</a
+            >
+            <button
+              data-click="loadObservability"
+              class="text-indigo-600 hover:text-indigo-800 text-sm"
+            >
+              ↻ Refresh All
+            </button>
+          </div>
         </div>
 
         <!-- Stats Grid -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Resources</span>
-                <div class="mt-2 flex items-end justify-between">
-                    <div>
-                        <div class="text-2xl font-bold text-slate-800" id="stat-cpu">0%</div>
-                        <div class="text-xs text-slate-500">CPU Usage</div>
-                    </div>
-                    <div class="text-right">
-                        <div class="text-sm font-semibold text-slate-700" id="stat-mem">0 / 0 MB</div>
-                        <div class="text-xs text-slate-500">Memory</div>
-                    </div>
-                </div>
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+            <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider"
+              >Resources</span
+            >
+            <div class="mt-2 flex items-end justify-between">
+              <div>
+                <div class="text-2xl font-bold text-slate-800" id="stat-cpu">0%</div>
+                <div class="text-xs text-slate-500">CPU Usage</div>
+              </div>
+              <div class="text-right">
+                <div class="text-sm font-semibold text-slate-700" id="stat-mem">0 / 0 MB</div>
+                <div class="text-xs text-slate-500">Memory</div>
+              </div>
             </div>
-            <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Throughput</span>
-                <div class="mt-2 flex items-end justify-between">
-                    <div>
-                        <div class="text-2xl font-bold text-slate-800" id="stat-requests">0</div>
-                        <div class="text-xs text-slate-500">Requests</div>
-                    </div>
-                    <div class="text-right">
-                        <div class="text-sm font-semibold text-red-600" id="stat-failures">0</div>
-                        <div class="text-xs text-slate-500">Failures</div>
-                    </div>
-                </div>
+          </div>
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+            <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider"
+              >Throughput</span
+            >
+            <div class="mt-2 flex items-end justify-between">
+              <div>
+                <div class="text-2xl font-bold text-slate-800" id="stat-requests">0</div>
+                <div class="text-xs text-slate-500">Requests</div>
+              </div>
+              <div class="text-right">
+                <div class="text-sm font-semibold text-red-600" id="stat-failures">0</div>
+                <div class="text-xs text-slate-500">Failures</div>
+              </div>
             </div>
-            <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Availability</span>
-                <div class="mt-2">
-                    <div class="text-2xl font-bold text-slate-800" id="stat-uptime">0s</div>
-                    <div class="text-xs text-slate-500">Uptime</div>
-                </div>
+          </div>
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+            <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider"
+              >Availability</span
+            >
+            <div class="mt-2">
+              <div class="text-2xl font-bold text-slate-800" id="stat-uptime">0s</div>
+              <div class="text-xs text-slate-500">Uptime</div>
             </div>
+          </div>
         </div>
 
         <!-- Debug Toggles (greyed out for non-admins) -->
         <div class="border-t border-slate-100 pt-6 mb-8">
-            <h3 class="text-sm font-semibold text-slate-800 mb-4 uppercase tracking-tight">Debug Tracing
-                <span id="debug-admin-hint" class="hidden text-xs font-normal text-slate-400 ml-2">(admin only)</span>
-            </h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div id="debug-logic-card" class="flex justify-between items-center bg-slate-50 p-4 rounded-lg border border-slate-100">
-                    <div>
-                        <span class="block text-sm font-medium text-slate-700">Business Logic</span>
-                        <span class="text-xs text-slate-500">Detailed logs for service layer and OpenAPI processing.</span>
-                    </div>
-                    <button id="toggle-debug-logic" onclick="toggleDebug('logic')"
-                        class="relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none bg-slate-200">
-                        <span id="dot-debug-logic" class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform translate-x-1"></span>
-                    </button>
-                </div>
-                <div id="debug-admin-card" class="flex justify-between items-center bg-slate-50 p-4 rounded-lg border border-slate-100">
-                    <div>
-                        <span class="block text-sm font-medium text-slate-700">Admin & User Activity</span>
-                        <span class="text-xs text-slate-500">Detailed logs for presentation and auth layer.</span>
-                    </div>
-                    <button id="toggle-debug-admin" onclick="toggleDebug('admin')"
-                        class="relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none bg-slate-200">
-                        <span id="dot-debug-admin" class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform translate-x-1"></span>
-                    </button>
-                </div>
+          <h3 class="text-sm font-semibold text-slate-800 mb-4 uppercase tracking-tight">
+            Debug Tracing
+            <span id="debug-admin-hint" class="hidden text-xs font-normal text-slate-400 ml-2"
+              >(admin only)</span
+            >
+          </h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div
+              id="debug-logic-card"
+              class="flex justify-between items-center bg-slate-50 p-4 rounded-lg border border-slate-100"
+            >
+              <div>
+                <span class="block text-sm font-medium text-slate-700">Business Logic</span>
+                <span class="text-xs text-slate-500"
+                  >Detailed logs for service layer and OpenAPI processing.</span
+                >
+              </div>
+              <button
+                id="toggle-debug-logic"
+                data-click="toggleDebug"
+                data-click-args='["logic"]'
+                class="relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none bg-slate-200"
+              >
+                <span
+                  id="dot-debug-logic"
+                  class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform translate-x-1"
+                ></span>
+              </button>
             </div>
+            <div
+              id="debug-admin-card"
+              class="flex justify-between items-center bg-slate-50 p-4 rounded-lg border border-slate-100"
+            >
+              <div>
+                <span class="block text-sm font-medium text-slate-700">Admin & User Activity</span>
+                <span class="text-xs text-slate-500"
+                  >Detailed logs for presentation and auth layer.</span
+                >
+              </div>
+              <button
+                id="toggle-debug-admin"
+                data-click="toggleDebug"
+                data-click-args='["admin"]'
+                class="relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none bg-slate-200"
+              >
+                <span
+                  id="dot-debug-admin"
+                  class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform translate-x-1"
+                ></span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Log Viewer -->
         <div class="border-t border-slate-100 pt-6">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-sm font-semibold text-slate-800 uppercase tracking-tight">Live Log Buffer (Multi-Level)</h3>
-                <div class="flex space-x-2 items-center">
-                    <select id="log-filter" onchange="renderLogs()" class="text-xs border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none">
-                        <option value="ALL">All Levels</option>
-                        <option value="INFO">Info & Up</option>
-                        <option value="WARN">Warn & Up</option>
-                        <option value="ERROR">Errors Only</option>
-                    </select>
-                    <button onclick="copyLogs()" title="Copy logs to clipboard" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded border border-slate-200 transition-colors">📋 Copy</button>
-                    <button onclick="downloadLogs()" title="Download logs as text file" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded border border-slate-200 transition-colors">📥 Download</button>
-                    <label class="flex items-center gap-1 text-xs text-slate-500 cursor-pointer select-none" title="Auto-scroll to latest log entries">
-                        <input type="checkbox" id="log-autoscroll" checked class="accent-indigo-600"> Auto-scroll
-                    </label>
-                </div>
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-sm font-semibold text-slate-800 uppercase tracking-tight">
+              Live Log Buffer (Multi-Level)
+            </h3>
+            <div class="flex space-x-2 items-center">
+              <select
+                id="log-filter"
+                data-change="renderLogs"
+                class="text-xs border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none"
+              >
+                <option value="ALL">All Levels</option>
+                <option value="INFO">Info & Up</option>
+                <option value="WARN">Warn & Up</option>
+                <option value="ERROR">Errors Only</option>
+              </select>
+              <button
+                data-click="copyLogs"
+                title="Copy logs to clipboard"
+                class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded border border-slate-200 transition-colors"
+              >
+                📋 Copy
+              </button>
+              <button
+                data-click="downloadLogs"
+                title="Download logs as text file"
+                class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded border border-slate-200 transition-colors"
+              >
+                📥 Download
+              </button>
+              <label
+                class="flex items-center gap-1 text-xs text-slate-500 cursor-pointer select-none"
+                title="Auto-scroll to latest log entries"
+              >
+                <input type="checkbox" id="log-autoscroll" checked class="accent-indigo-600" />
+                Auto-scroll
+              </label>
             </div>
-            <div id="log-container" class="bg-slate-900 rounded-lg p-4 font-mono text-[10px] leading-relaxed overflow-y-auto max-h-[400px] text-slate-300">
-                <div class="text-slate-500 italic">No logs captured yet.</div>
-            </div>
+          </div>
+          <div
+            id="log-container"
+            class="bg-slate-900 rounded-lg p-4 font-mono text-[10px] leading-relaxed overflow-y-auto max-h-[400px] text-slate-300"
+          >
+            <div class="text-slate-500 italic">No logs captured yet.</div>
+          </div>
         </div>
 
         <!-- Database Audit Log Section -->
         <div class="border-t border-slate-100 pt-6 mt-8">
-            <div class="flex justify-between items-center mb-4">
-                <div>
-                    <h3 class="text-sm font-semibold text-slate-800 uppercase tracking-tight">Database Audit Log</h3>
-                    <p class="text-xs text-slate-500 mt-1">Last 30 database mutating operations, admin settings changes, and rejected provides. Use the <a href="/audit.html" class="text-indigo-600 hover:text-indigo-800">Audit timeline</a> to filter or look further back.</p>
-                    <label class="mt-2 flex items-center gap-2 text-xs text-slate-600">
-                        <input type="checkbox" id="audit-hide-rejections" onchange="loadAuditLogs()" class="rounded border-slate-300">
-                        <span>Hide rejected provides</span>
-                        <span id="audit-rejection-note" class="text-slate-400 italic"></span>
-                    </label>
-                </div>
-                <div>
-                    <button onclick="exportAuditLogs()" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition-colors border border-indigo-700 shadow-sm flex items-center gap-1">
-                        📥 Export CSV
-                    </button>
-                </div>
+          <div class="flex justify-between items-center mb-4">
+            <div>
+              <h3 class="text-sm font-semibold text-slate-800 uppercase tracking-tight">
+                Database Audit Log
+              </h3>
+              <p class="text-xs text-slate-500 mt-1">
+                Last 30 database mutating operations, admin settings changes, and rejected provides.
+                Use the
+                <a href="/audit.html" class="text-indigo-600 hover:text-indigo-800"
+                  >Audit timeline</a
+                >
+                to filter or look further back.
+              </p>
+              <label class="mt-2 flex items-center gap-2 text-xs text-slate-600">
+                <input
+                  type="checkbox"
+                  id="audit-hide-rejections"
+                  data-change="loadAuditLogs"
+                  class="rounded border-slate-300"
+                />
+                <span>Hide rejected provides</span>
+                <span id="audit-rejection-note" class="text-slate-400 italic"></span>
+              </label>
             </div>
-            <div class="overflow-x-auto rounded-lg border border-slate-200">
-                <table class="min-w-full divide-y divide-slate-200 text-left text-xs text-slate-600">
-                    <thead class="bg-slate-50 text-slate-500 font-semibold uppercase tracking-wider">
-                        <tr>
-                            <th class="p-3">ID</th>
-                            <th class="p-3">Timestamp</th>
-                            <th class="p-3">Actor</th>
-                            <th class="p-3">Action</th>
-                            <th class="p-3">Details</th>
-                        </tr>
-                    </thead>
-                    <tbody id="audit-log-body" class="divide-y divide-slate-100 bg-white">
-                        <tr>
-                            <td colspan="5" class="p-4 text-center text-slate-400 italic">No audit logs loaded.</td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div>
+              <button
+                data-click="exportAuditLogs"
+                class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition-colors border border-indigo-700 shadow-sm flex items-center gap-1"
+              >
+                📥 Export CSV
+              </button>
             </div>
+          </div>
+          <div class="overflow-x-auto rounded-lg border border-slate-200">
+            <table class="min-w-full divide-y divide-slate-200 text-left text-xs text-slate-600">
+              <thead class="bg-slate-50 text-slate-500 font-semibold uppercase tracking-wider">
+                <tr>
+                  <th class="p-3">ID</th>
+                  <th class="p-3">Timestamp</th>
+                  <th class="p-3">Actor</th>
+                  <th class="p-3">Action</th>
+                  <th class="p-3">Details</th>
+                </tr>
+              </thead>
+              <tbody id="audit-log-body" class="divide-y divide-slate-100 bg-white">
+                <tr>
+                  <td colspan="5" class="p-4 text-center text-slate-400 italic">
+                    No audit logs loaded.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-    </section>
-</main>
+      </section>
+    </main>
 
-<script src="/js/pages/observability.js"></script>
-</body>
+    <script src="/js/pages/observability.js"></script>
+  </body>
 </html>

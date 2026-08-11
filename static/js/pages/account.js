@@ -200,7 +200,7 @@ async function loadTokens() {
                                 ${t.last_used_at ? " · Last used: " + escapeHtml(t.last_used_at) : ""}
                             </div>
                         </div>
-                        <button onclick="confirmAction('Revoke token <strong>${escapeAttr(t.name)}</strong>?', () => revokeToken('${escapeAttr(t.id)}'))"
+                        <button data-click="confirmRevokeToken" data-click-args="${attrJson([t.name, t.id])}"
                             class="text-red-500 hover:text-red-700 text-sm">Revoke</button>
                     </div>
                 `,
@@ -252,6 +252,12 @@ async function revokeToken(id) {
     await apiCall(`/auth/tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
     loadTokens();
   } catch (_) {}
+}
+
+// Confirm-then-revoke wrapper: the token row's delete button declares
+// data-click to this instead of building a confirmAction() call inline.
+function confirmRevokeToken(name, id) {
+  confirmAction(`Revoke token <strong>${escapeHtml(name)}</strong>?`, () => revokeToken(id));
 }
 
 // --- Check session on load ---

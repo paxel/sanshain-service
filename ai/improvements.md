@@ -323,37 +323,38 @@ Version lines and existing Consumer pins are untouched. The client plugin sends 
 
 `create_app` now applies `DefaultBodyLimit::max(state.max_body_bytes)`; the limit is configurable via `MAX_SPEC_BODY_BYTES` (default `DEFAULT_MAX_BODY_BYTES` = 4 MiB, raised from axum's previous implicit 2 MiB; invalid or `0` values fall back to the default) and oversized bodies are rejected with `413 Payload Too Large` at extraction time — the limit counts decompressed bytes, so compressed uploads cannot bypass it. Parser-level protection relies on `serde_yaml_ng`'s built-in recursion limit, which turns pathologically nested YAML into a parse error surfaced as `400 Bad Request`; this is pinned by `split_rejects_excessively_nested_yaml` (tests/openapi_split_tests.rs). Over/under-limit behavior is covered by `test_request_body_over_limit_is_rejected_under_limit_accepted` (tests/integration_test.rs). Documented in `docs/configuration.md`; `api.yaml` lists the `413` response for `/provide*` and `/require-bundle`.
 
-### 11. Tighten browser security headers and remove inline-script dependency — PARTIALLY DONE (2026-08-10)
+### 11. Tighten browser security headers and remove inline-script dependency — DONE (2026-08-11)
 
-**Done and verified (runtime-CDN removal, the supply-chain half):** Tailwind is built to a committed
-static `static/css/app.css` (`npm run build:css`, guarded by `tests/css_is_built.sh` + a CI diff
-step) instead of the runtime play-CDN; dagre/mermaid/marked/diff2html are vendored under
-`static/vendor/` at pinned versions; every inline `<script>` block was extracted to
-`static/js/pages/<page>.js` (classic scripts, position-preserved). No `cdn.tailwindcss.com` or
-`cdn.jsdelivr.net` reference remains. A load-error safety net (`tests/ui/no_console_errors.test.js`,
-all 11 pages) plus behavioural admin-control coverage (`tests/ui/admin_controls.test.js`) were
-added first, as the plan required.
+**Supply-chain half (2026-08-10):** Tailwind is built to a committed static `static/css/app.css`
+(`npm run build:css`, guarded by `tests/css_is_built.sh` + a CI diff step) instead of the runtime
+play-CDN; dagre/mermaid/marked/diff2html are vendored under `static/vendor/` at pinned versions;
+inline `<script>` blocks were extracted to `static/js/pages/<page>.js`. A load-error safety net
+(`tests/ui/no_console_errors.test.js`) plus behavioural admin-control coverage
+(`tests/ui/admin_controls.test.js`) were added first, as the plan required.
 
-**Remaining (the `script-src 'unsafe-inline'` removal, the injection half) — a dedicated pass:**
-This is all-or-nothing: `script-src` cannot drop `'unsafe-inline'` until *both* inline `<script>`
-(done) *and* every inline `on*=` handler are gone, so a half-converted tree is worse than either
-end state — do it in one session.
+**Injection half (2026-08-11):** `script-src` now drops `'unsafe-inline'` — it is `'self'` only,
+with no CDN hosts. Every inline `on*=` handler (86 in `static/*.html`, ~27 in JS template literals,
+plus the Askama templates missed by the first pass — `templates/{index,dashboard,layout}.html`, the
+landing/`/dashboard` pages) is gone, routed through a delegated dispatcher in `common.js`: a control
+declares `data-<event>="fn"` (+ optional `data-<event>-args` JSON built with `attrJson`), and one
+delegated listener per event type (click/change/input/submit/keydown) resolves the nearest ancestor
+and calls the named global. Dynamic markup uses the same attributes, so JS-generated controls are
+covered without per-element listeners. `frame-ancestors 'none'` was added. The two templates missed
+before still loaded the Tailwind CDN and an inline `<script>`; both were vendored/extracted, and the
+Tailwind content globs now include `./templates/`.
 
-- ~113 inline handlers remain: 86 in `static/*.html`, 27 in JS template literals. Most sit on
-  JS-generated markup, so they need **event delegation**, not per-element `addEventListener`.
-- No generic transform works: evaluating a handler body needs `unsafe-eval` (also forbidden). Each
-  `on*="fn(args)"` must become `data-action="fn"` + `data-*` args, with a dispatcher in `common.js`
-  (one delegated listener per event type: click/change/input/submit/keydown) mapping action →
-  registered function that reads its args from the element's dataset. Inline-expression handlers
-  (e.g. `onclick="el.innerHTML=''"`) each become a named registered action.
-- Also: move the 14 `style="…"` attributes and 8 `<style>` blocks out, and drop
-  `style-src 'unsafe-inline'` too (Tailwind no longer injects styles at runtime, so this is now
-  reachable); add `frame-ancestors 'none'`; review every directive.
-- **Tests already in place** to make this safe: the load-error net catches any *leftover* inline
-  handler automatically once the CSP is strict (the browser logs a CSP violation at load). Add a
-  static test that every `data-action` present on a rendered page resolves to a registered handler
-  (catches a mis-wired conversion), and the Validation test asserting the CSP header has no
-  `'unsafe-inline'`.
+`style-src` **keeps** `'unsafe-inline'`: the vendored Mermaid injects `<style>` elements at
+diagram-render time, so it cannot be dropped without nonces/hashes over Mermaid's output — a
+separate, lower-value follow-up. JS `element.style.x = …` is CSSOM and never blocked, so no `style=`
+attributes needed moving for `script-src`.
+
+**Tests:** `tests/no_inline_handlers.rs` (static, data-independent) fails the build if any page or
+page script reintroduces an inline `on*=` handler or a bare `<script>` block, over both `static/`
+and `templates/`; `tests/ui/de_inlined.test.js` asserts at runtime that every `data-<event>` on each
+rendered page resolves to a function and no inline handler survives in the DOM; the load-error net
+catches any missed handler as a CSP violation at load; and `src/lib.rs`'s
+`csp_script_src_forbids_inline_and_is_self_only` pins that `script-src` stays `'self'`-only with no
+CDN and that `frame-ancestors 'none'` is present.
 
 Original text follows.
 

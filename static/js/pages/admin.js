@@ -433,11 +433,11 @@ function roleControls(user) {
     ? `<select id="grant-role-${user.id}" class="text-xs rounded border-slate-200">
                        <option value="">grant role…</option>${options}
                    </select>
-                   <button onclick="grantRole(${user.id})" class="text-indigo-600 hover:text-indigo-800 text-sm">Grant</button>`
+                   <button data-click="grantRole" data-click-args="${attrJson([user.id])}" class="text-indigo-600 hover:text-indigo-800 text-sm">Grant</button>`
     : "";
   const revoke = held
     .map(
-      (r) => `<button onclick="revokeRole(${user.id}, '${escapeAttr(r)}')"
+      (r) => `<button data-click="revokeRole" data-click-args="${attrJson([user.id, r])}"
                         title="Revoke ${escapeAttr(r)}"
                         class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(r)}</button>`,
     )
@@ -515,7 +515,9 @@ async function loadGroups() {
           : '<span class="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">sanshain</span>';
         const roles = (g.roles || [])
           .map(
-            (r) => `<button onclick="setGroupRoles(${g.id}, '${escapeAttr(r)}', false)"
+            (
+              r,
+            ) => `<button data-click="setGroupRoles" data-click-args="${attrJson([g.id, r, false])}"
                                 title="Remove ${escapeAttr(r)}"
                                 class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(r)}</button>`,
           )
@@ -537,7 +539,7 @@ async function loadGroups() {
               .map((id) => {
                 const u = knownUsers.find((x) => x.id === id);
                 const label = u ? u.username : `user #${id}`;
-                return `<button onclick="removeGroupMember(${g.id}, ${id})"
+                return `<button data-click="removeGroupMember" data-click-args="${attrJson([g.id, id])}"
                                 title="Remove ${escapeAttr(label)} from ${escapeAttr(g.name)}"
                                 class="text-xs text-slate-500 hover:text-red-600 bg-white border border-slate-200 rounded-full px-2 py-0.5">✕ ${escapeHtml(label)}</button>`;
               })
@@ -562,10 +564,10 @@ async function loadGroups() {
                                     ? `<select id="group-role-${g.id}" class="text-xs rounded border-slate-200">
                                     <option value="">add role…</option>${addable}
                                 </select>
-                                <button onclick="addGroupRole(${g.id})" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>`
+                                <button data-click="addGroupRole" data-click-args="${attrJson([g.id])}" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>`
                                     : ""
                                 }
-                                ${directory ? "" : `<button onclick="confirmDelete('Delete group <strong>${escapeAttr(g.name)}</strong>?', () => deleteGroup(${g.id}))" class="text-red-500 hover:text-red-700 text-sm">Delete</button>`}
+                                ${directory ? "" : `<button data-click="confirmDeleteGroup" data-click-args="${attrJson([g.name, g.id])}" class="text-red-500 hover:text-red-700 text-sm">Delete</button>`}
                             </div>
                         </div>
                         <div class="mt-1 space-x-2">${roles || '<span class="text-xs text-slate-400 italic">no roles attached</span>'}</div>
@@ -579,7 +581,7 @@ async function loadGroups() {
                                 ? `<select id="group-member-${g.id}" class="text-xs rounded border-slate-200">
                                 <option value="">add member…</option>${addableMembers}
                             </select>
-                            <button onclick="addGroupMember(${g.id})" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>`
+                            <button data-click="addGroupMember" data-click-args="${attrJson([g.id])}" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>`
                                 : ""
                             }
                         </div>`
@@ -697,12 +699,12 @@ async function loadMaintainers() {
       .map((p) => {
         const users = (p.user_ids || []).map((id) => {
           const u = knownUsers.find((x) => x.id === id);
-          return `<button onclick="unassignMaintainer('${escapeAttr(p.producer)}', 'users', ${id})"
+          return `<button data-click="unassignMaintainer" data-click-args="${attrJson([p.producer, "users", id])}"
                                 class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(u ? u.username : "user " + id)}</button>`;
         });
         const groups = (p.group_ids || []).map((id) => {
           const g = knownGroups.find((x) => x.id === id);
-          return `<button onclick="unassignMaintainer('${escapeAttr(p.producer)}', 'groups', ${id})"
+          return `<button data-click="unassignMaintainer" data-click-args="${attrJson([p.producer, "groups", id])}"
                                 class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(g ? g.name : "group " + id)}</button>`;
         });
         return `
@@ -778,8 +780,8 @@ async function loadUsers() {
                         </div>
                         <div class="flex items-center space-x-2">
                             ${roleControls(u)}
-                            ${!u.approved ? `<button onclick="approveUser(${u.id})" class="text-green-600 hover:text-green-800 text-sm">Approve</button>` : ""}
-                            ${!(u.roles || []).includes("admin") ? `<button onclick="confirmDelete('Delete user <strong>${escapeAttr(u.username)}</strong>?', () => deleteUser(${u.id}))" class="text-red-500 hover:text-red-700 text-sm">Delete</button>` : ""}
+                            ${!u.approved ? `<button data-click="approveUser" data-click-args="${attrJson([u.id])}" class="text-green-600 hover:text-green-800 text-sm">Approve</button>` : ""}
+                            ${!(u.roles || []).includes("admin") ? `<button data-click="confirmDeleteUser" data-click-args="${attrJson([u.username, u.id])}" class="text-red-500 hover:text-red-700 text-sm">Delete</button>` : ""}
                         </div>
                     </div>
                 `,
@@ -917,14 +919,14 @@ function renderServices(services) {
     div.innerHTML = `
                     <div class="flex justify-between items-center">
                         <div class="flex items-center space-x-3">
-                            <button onclick="toggleVersions(this, '${escapeAttr(svc)}')" class="text-slate-500 hover:text-slate-600 text-sm">▶</button>
+                            <button data-click="toggleVersions" data-click-args="${attrJson(["$this", svc])}" class="text-slate-500 hover:text-slate-600 text-sm">▶</button>
                             <span class="font-medium text-slate-800">${escapeHtml(svc)}</span>
                             ${svcObj.domain ? `<span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100 font-bold uppercase">${escapeHtml(svcObj.domain)}</span>` : ""}
                         </div>
                         <div class="flex items-center space-x-3">
-                            <button onclick="openMetadataModal('${escapeAttr(svc)}', '${escapeAttr(svcObj.icon || "")}', '${escapeAttr(svcObj.domain || "")}')"
+                            <button data-click="openMetadataModal" data-click-args="${attrJson([svc, svcObj.icon || "", svcObj.domain || ""])}"
                                 class="text-indigo-600 hover:text-indigo-800 text-sm">Metadata</button>
-                            <button onclick="confirmDelete('Delete service <strong>${escapeAttr(svc)}</strong> and all its data?', () => deleteService('${escapeAttr(svc)}'))"
+                            <button data-click="confirmDeleteService" data-click-args="${attrJson([svc])}"
                                 class="text-red-500 hover:text-red-700 text-sm">Delete</button>
                         </div>
                     </div>
@@ -978,11 +980,11 @@ async function renderVersions(container, serviceName) {
                         <span class="flex items-center gap-3">
                             ${
                               v.stability !== "ga" && hasPermission(adminActor, "release_ga")
-                                ? `<button onclick="promoteVersionRow(this, '${escapeAttr(serviceName)}', '${escapeAttr(v.api_type)}', '${escapeAttr(v.version)}')"
+                                ? `<button data-click="promoteVersionRow" data-click-args="${attrJson(["$this", serviceName, v.api_type, v.version])}"
                                     class="text-green-600 hover:text-green-700 text-xs">Promote to GA</button>`
                                 : ""
                             }
-                            <button onclick="deleteVersion('${escapeAttr(serviceName)}', '${escapeAttr(v.api_type)}', '${escapeAttr(v.version)}')"
+                            <button data-click="deleteVersion" data-click-args="${attrJson([serviceName, v.api_type, v.version])}"
                                 class="text-red-400 hover:text-red-600 text-xs">Delete</button>
                         </span>
                     </div>
@@ -1080,7 +1082,7 @@ function renderClients(clients) {
       (c) => `
                 <div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
                     <span class="font-medium text-slate-800">${escapeHtml(c)}</span>
-                    <button onclick="confirmDelete('Delete client <strong>${escapeAttr(c)}</strong> and all its dependencies?', () => deleteClient('${escapeAttr(c)}'))"
+                    <button data-click="confirmDeleteClient" data-click-args="${attrJson([c])}"
                         class="text-red-500 hover:text-red-700 text-sm">Delete</button>
                 </div>
             `,
@@ -1316,6 +1318,51 @@ async function nukeDatabase() {
   });
   if (!res.ok) throw new Error("HTTP " + res.status);
   loadAll();
+}
+
+// Confirmation wrappers for the destructive-operations buttons. Each button
+// declares data-click to one of these instead of building a nukeConfirm()
+// call (with its confirm-callback closure) inline.
+function confirmNukeUsers() {
+  nukeConfirm("☠️ Delete ALL non-admin users?", "DELETE ALL USERS", () => nukeUsers());
+}
+function confirmNukeServices() {
+  nukeConfirm("☠️ Delete ALL services and their data?", "DELETE ALL SERVICES", () =>
+    nukeServices(),
+  );
+}
+function confirmNukeClients() {
+  nukeConfirm("☠️ Delete ALL clients and their dependencies?", "DELETE ALL CLIENTS", () =>
+    nukeClients(),
+  );
+}
+function confirmNukeDatabase() {
+  nukeConfirm(
+    "💀☠️💀 NUKE THE ENTIRE DATABASE? This deletes ALL services, clients, users, versions, endpoints, and dependencies. Only your admin account will survive.",
+    "NUKE DATABASE",
+    () => nukeDatabase(),
+  );
+}
+
+// Confirm-then-delete wrappers: each delete button declares data-click to one
+// of these (with the entity name/id in data-click-args) instead of building a
+// confirmDelete() call with a delete-callback closure inline.
+function confirmDeleteUser(username, id) {
+  confirmDelete(`Delete user <strong>${escapeHtml(username)}</strong>?`, () => deleteUser(id));
+}
+function confirmDeleteGroup(name, id) {
+  confirmDelete(`Delete group <strong>${escapeHtml(name)}</strong>?`, () => deleteGroup(id));
+}
+function confirmDeleteService(svc) {
+  confirmDelete(`Delete service <strong>${escapeHtml(svc)}</strong> and all its data?`, () =>
+    deleteService(svc),
+  );
+}
+function confirmDeleteClient(client) {
+  confirmDelete(
+    `Delete client <strong>${escapeHtml(client)}</strong> and all its dependencies?`,
+    () => deleteClient(client),
+  );
 }
 
 // --- Metadata Modal ---

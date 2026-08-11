@@ -1,121 +1,208 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="/images/favicon.png">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/images/favicon.png" />
     <title>Sanshain - Producers</title>
-    <link rel="stylesheet" href="/css/app.css">
+    <link rel="stylesheet" href="/css/app.css" />
     <script src="/js/common.js"></script>
     <script src="/js/discovery.js"></script>
     <style>
-        .endpoint-card {
-            transition: all 0.2s;
-        }
-        .endpoint-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-        }
+      .endpoint-card {
+        transition: all 0.2s;
+      }
+      .endpoint-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+      }
     </style>
-</head>
-<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+  </head>
+  <body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
     <div id="app-loader">
-        <div class="cat-container">
-            <svg class="cat-svg" viewBox="0 0 100 60">
-                <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
-                <path d="M80,50 C95,50 95,30 85,30" fill="none" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" />
-                <path d="M25,25 L20,10 L35,22 Z" />
-                <path d="M45,22 L60,10 L55,25 Z" />
-                <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
-                <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
-                <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
-            </svg>
-            <div class="zzz-container">
-                <span class="zzz">z</span>
-                <span class="zzz">z</span>
-                <span class="zzz">z</span>
-            </div>
+      <div class="cat-container">
+        <svg class="cat-svg" viewBox="0 0 100 60">
+          <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
+          <path
+            d="M80,50 C95,50 95,30 85,30"
+            fill="none"
+            stroke="#94a3b8"
+            stroke-width="6"
+            stroke-linecap="round"
+          />
+          <path d="M25,25 L20,10 L35,22 Z" />
+          <path d="M45,22 L60,10 L55,25 Z" />
+          <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+          <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+          <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
+        </svg>
+        <div class="zzz-container">
+          <span class="zzz">z</span>
+          <span class="zzz">z</span>
+          <span class="zzz">z</span>
         </div>
-        <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
+      </div>
+      <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
     </div>
-<header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
-    <div class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
+      <div
+        class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+      >
         <div class="flex items-center justify-between gap-4 md:justify-start">
-            <a href="/" class="flex items-center space-x-3">
-                <img src="/images/sonne.png" alt="Sanshain Logo" width="66" height="36" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
-                <div class="text-2xl font-bold tracking-tight">Sanshain <span class="text-indigo-200">(サンシャイン)</span></div>
-            </a>
-            <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
+          <a href="/" class="flex items-center space-x-3">
+            <img
+              src="/images/sonne.png"
+              alt="Sanshain Logo"
+              width="66"
+              height="36"
+              class="h-9 w-auto rounded-md bg-white/10 p-0.5"
+            />
+            <div class="text-2xl font-bold tracking-tight">
+              Sanshain <span class="text-indigo-200">(サンシャイン)</span>
+            </div>
+          </a>
+          <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
-        <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-            <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors">Producers</a>
-            <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
-            <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
-            <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
-            <a id="nav-audit-link" href="/audit.html" class="hidden text-white hover:text-indigo-100 transition-colors">Audit</a>
-            <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors">Observability</a>
-            <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
+        <nav
+          class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1"
+        >
+          <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Producers</a
+          >
+          <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Consumers</a
+          >
+          <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
+          <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Reports</a
+          >
+          <a
+            id="nav-audit-link"
+            href="/audit.html"
+            class="hidden text-white hover:text-indigo-100 transition-colors"
+            >Audit</a
+          >
+          <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Observability</a
+          >
+          <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
         <div class="flex items-center justify-end gap-4 text-sm">
-            <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
-            <a id="banner-username" href="/account.html" class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"></a>
-            <button id="banner-logout" type="button" onclick="sanshainLogout()" class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500">Logout</button>
-            <a id="banner-signin" href="/account.html" class="hidden text-indigo-100 transition-colors hover:text-white">Sign In</a>
+          <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+          <a
+            id="banner-username"
+            href="/account.html"
+            class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"
+          ></a>
+          <button
+            id="banner-logout"
+            type="button"
+            data-click="sanshainLogout"
+            class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500"
+          >
+            Logout
+          </button>
+          <a
+            id="banner-signin"
+            href="/account.html"
+            class="hidden text-indigo-100 transition-colors hover:text-white"
+            >Sign In</a
+          >
         </div>
-    </div>
-</header>
+      </div>
+    </header>
 
-<main class="container mx-auto flex-1 p-6">
-    <div id="service-section">
+    <main class="container mx-auto flex-1 p-6">
+      <div id="service-section">
         <div class="flex justify-between items-center mb-6">
-            <h2 class="text-xl font-semibold flex items-center">
-                <span class="bg-indigo-100 text-indigo-700 p-2 rounded-lg mr-3">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                              d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
-                    </svg>
-                </span>
-                Producers &amp; Versions
-            </h2>
-            <div class="relative w-64">
-                <input type="text" id="service-search" placeholder="Search services..."
-                       class="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <div class="absolute left-3 top-2.5 text-slate-500">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                    </svg>
-                </div>
+          <h2 class="text-xl font-semibold flex items-center">
+            <span class="bg-indigo-100 text-indigo-700 p-2 rounded-lg mr-3">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+                ></path>
+              </svg>
+            </span>
+            Producers &amp; Versions
+          </h2>
+          <div class="relative w-64">
+            <input
+              type="text"
+              id="service-search"
+              placeholder="Search services..."
+              class="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <div class="absolute left-3 top-2.5 text-slate-500">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                ></path>
+              </svg>
             </div>
+          </div>
         </div>
-        <div id="service-breadcrumb" class="flex items-center text-sm text-slate-500 mb-4 hidden"></div>
+        <div
+          id="service-breadcrumb"
+          class="flex items-center text-sm text-slate-500 mb-4 hidden"
+        ></div>
         <div id="services-list" class="space-y-4">
-            <div class="animate-pulse bg-white p-6 rounded-xl border border-slate-200 h-32"></div>
-            <div class="animate-pulse bg-white p-6 rounded-xl border border-slate-200 h-32"></div>
+          <div class="animate-pulse bg-white p-6 rounded-xl border border-slate-200 h-32"></div>
+          <div class="animate-pulse bg-white p-6 rounded-xl border border-slate-200 h-32"></div>
         </div>
-    </div>
-</main>
+      </div>
+    </main>
 
-<!-- Confirm Delete Modal -->
-<div id="confirm-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+    <!-- Confirm Delete Modal -->
+    <div
+      id="confirm-modal"
+      class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50"
+    >
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
         <h3 class="text-lg font-bold text-slate-800 mb-2">Confirm Deletion</h3>
         <p id="confirm-message" class="text-sm text-slate-600 mb-6"></p>
         <div class="flex space-x-3">
-            <button id="confirm-yes" class="flex-1 bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors font-medium">Delete</button>
-            <button onclick="closeConfirmModal()" class="flex-1 bg-slate-100 text-slate-700 py-2 rounded-lg hover:bg-slate-200 transition-colors font-medium">Cancel</button>
+          <button
+            id="confirm-yes"
+            class="flex-1 bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors font-medium"
+          >
+            Delete
+          </button>
+          <button
+            data-click="closeConfirmModal"
+            class="flex-1 bg-slate-100 text-slate-700 py-2 rounded-lg hover:bg-slate-200 transition-colors font-medium"
+          >
+            Cancel
+          </button>
         </div>
+      </div>
     </div>
-</div>
 
-<script src="/js/pages/producers.js"></script>
+    <script src="/js/pages/producers.js"></script>
     <footer class="text-center text-sm text-slate-500 py-6 mt-auto">
-        <img src="/images/sonne.png" alt="Sanshain" width="59" height="32" class="mx-auto mb-2 h-8 w-auto opacity-70">
-        <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
-        <div class="mt-2 flex items-center justify-center gap-4">
-            <a href="https://github.com/paxel/sanshain-service" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800">GitHub</a>
-            <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
-        </div>
+      <img
+        src="/images/sonne.png"
+        alt="Sanshain"
+        width="59"
+        height="32"
+        class="mx-auto mb-2 h-8 w-auto opacity-70"
+      />
+      <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
+      <div class="mt-2 flex items-center justify-center gap-4">
+        <a
+          href="https://github.com/paxel/sanshain-service"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-indigo-600 hover:text-indigo-800"
+          >GitHub</a
+        >
+        <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
+      </div>
     </footer>
-</body>
+  </body>
 </html>

@@ -406,11 +406,17 @@ Every response includes hardened HTTP headers:
 
 | Header                    | Value                                                                                    | Purpose                           |
 |---------------------------|------------------------------------------------------------------------------------------|-----------------------------------|
-| `Content-Security-Policy` | `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'` | Prevents XSS via injected scripts |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-ancestors 'none'` | Prevents XSS via injected scripts |
 | `X-Content-Type-Options`  | `nosniff`                                                                                | Prevents MIME-type sniffing       |
-| `X-Frame-Options`         | `DENY`                                                                                   | Prevents clickjacking             |
+| `X-Frame-Options`         | `SAMEORIGIN`                                                                             | Prevents clickjacking (with `frame-ancestors`) |
 
 These are applied as middleware in the Axum router.
+
+`script-src` is `'self'` only: the admin UI carries no inline scripts and no inline `on*=` event
+handlers — all behaviour is delegated through the dispatcher in `static/js/common.js`, and every
+third-party library is vendored under `static/vendor/`. `style-src` retains `'unsafe-inline'`
+because the vendored Mermaid injects `<style>` elements when it renders diagrams. The exact policy
+lives in `CONTENT_SECURITY_POLICY` in `src/lib.rs`.
 
 ---
 

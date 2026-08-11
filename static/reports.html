@@ -1,88 +1,152 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="/images/favicon.png">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/images/favicon.png" />
     <title>Sanshain - Reports</title>
-    <link rel="stylesheet" href="/css/app.css">
+    <link rel="stylesheet" href="/css/app.css" />
     <script src="/js/common.js"></script>
     <script src="/js/discovery.js"></script>
-</head>
-<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+  </head>
+  <body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
     <div id="app-loader">
-        <div class="cat-container">
-            <svg class="cat-svg" viewBox="0 0 100 60">
-                <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
-                <path d="M80,50 C95,50 95,30 85,30" fill="none" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" />
-                <path d="M25,25 L20,10 L35,22 Z" />
-                <path d="M45,22 L60,10 L55,25 Z" />
-                <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
-                <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
-                <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
-            </svg>
-            <div class="zzz-container">
-                <span class="zzz">z</span>
-                <span class="zzz">z</span>
-                <span class="zzz">z</span>
-            </div>
+      <div class="cat-container">
+        <svg class="cat-svg" viewBox="0 0 100 60">
+          <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
+          <path
+            d="M80,50 C95,50 95,30 85,30"
+            fill="none"
+            stroke="#94a3b8"
+            stroke-width="6"
+            stroke-linecap="round"
+          />
+          <path d="M25,25 L20,10 L35,22 Z" />
+          <path d="M45,22 L60,10 L55,25 Z" />
+          <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+          <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+          <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
+        </svg>
+        <div class="zzz-container">
+          <span class="zzz">z</span>
+          <span class="zzz">z</span>
+          <span class="zzz">z</span>
         </div>
-        <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
+      </div>
+      <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
     </div>
-<header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
-    <div class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
+      <div
+        class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+      >
         <div class="flex items-center justify-between gap-4 md:justify-start">
-            <a href="/" class="flex items-center space-x-3">
-                <img src="/images/sonne.png" alt="Sanshain Logo" width="66" height="36" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
-                <div class="text-2xl font-bold tracking-tight">Sanshain <span class="text-indigo-200">(サンシャイン)</span></div>
-            </a>
-            <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
+          <a href="/" class="flex items-center space-x-3">
+            <img
+              src="/images/sonne.png"
+              alt="Sanshain Logo"
+              width="66"
+              height="36"
+              class="h-9 w-auto rounded-md bg-white/10 p-0.5"
+            />
+            <div class="text-2xl font-bold tracking-tight">
+              Sanshain <span class="text-indigo-200">(サンシャイン)</span>
+            </div>
+          </a>
+          <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
-        <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-            <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors">Producers</a>
-            <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
-            <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
-            <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
-            <a id="nav-audit-link" href="/audit.html" class="hidden text-white hover:text-indigo-100 transition-colors">Audit</a>
-            <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors">Observability</a>
-            <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
+        <nav
+          class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1"
+        >
+          <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Producers</a
+          >
+          <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Consumers</a
+          >
+          <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
+          <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Reports</a
+          >
+          <a
+            id="nav-audit-link"
+            href="/audit.html"
+            class="hidden text-white hover:text-indigo-100 transition-colors"
+            >Audit</a
+          >
+          <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Observability</a
+          >
+          <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
         <div class="flex items-center justify-end gap-4 text-sm">
-            <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
-            <a id="banner-username" href="/account.html" class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"></a>
-            <button id="banner-logout" type="button" onclick="sanshainLogout()" class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500">Logout</button>
-            <a id="banner-signin" href="/account.html" class="hidden text-indigo-100 transition-colors hover:text-white">Sign In</a>
+          <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+          <a
+            id="banner-username"
+            href="/account.html"
+            class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"
+          ></a>
+          <button
+            id="banner-logout"
+            type="button"
+            data-click="sanshainLogout"
+            class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500"
+          >
+            Logout
+          </button>
+          <a
+            id="banner-signin"
+            href="/account.html"
+            class="hidden text-indigo-100 transition-colors hover:text-white"
+            >Sign In</a
+          >
         </div>
-    </div>
-</header>
+      </div>
+    </header>
 
-<main class="container mx-auto flex-1 p-6">
-    <div id="report-section">
+    <main class="container mx-auto flex-1 p-6">
+      <div id="report-section">
         <div class="flex justify-between items-center mb-6">
-            <h2 class="text-xl font-semibold flex items-center">
-                <span class="bg-blue-100 text-blue-700 p-2 rounded-lg mr-3">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 2v-6m-8-2h8a2 2 0 012 2v9a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2h8z"></path>
-                    </svg>
-                </span>
-                System Reports
-            </h2>
+          <h2 class="text-xl font-semibold flex items-center">
+            <span class="bg-blue-100 text-blue-700 p-2 rounded-lg mr-3">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 17v-2m3 2v-4m3 2v-6m-8-2h8a2 2 0 012 2v9a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2h8z"
+                ></path>
+              </svg>
+            </span>
+            System Reports
+          </h2>
         </div>
 
         <div id="reports-grid" class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="text-center py-10 text-slate-500 col-span-2">Loading reports...</div>
+          <div class="text-center py-10 text-slate-500 col-span-2">Loading reports...</div>
         </div>
-    </div>
-</main>
+      </div>
+    </main>
 
-<script src="/js/pages/reports.js"></script>
+    <script src="/js/pages/reports.js"></script>
     <footer class="text-center text-sm text-slate-500 py-6 mt-auto">
-        <img src="/images/sonne.png" alt="Sanshain" width="59" height="32" class="mx-auto mb-2 h-8 w-auto opacity-70">
-        <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
-        <div class="mt-2 flex items-center justify-center gap-4">
-            <a href="https://github.com/paxel/sanshain-service" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800">GitHub</a>
-            <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
-        </div>
+      <img
+        src="/images/sonne.png"
+        alt="Sanshain"
+        width="59"
+        height="32"
+        class="mx-auto mb-2 h-8 w-auto opacity-70"
+      />
+      <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
+      <div class="mt-2 flex items-center justify-center gap-4">
+        <a
+          href="https://github.com/paxel/sanshain-service"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-indigo-600 hover:text-indigo-800"
+          >GitHub</a
+        >
+        <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
+      </div>
     </footer>
-</body>
+  </body>
 </html>

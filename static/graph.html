@@ -1,293 +1,682 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="/images/favicon.png">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/images/favicon.png" />
     <title>Sanshain - Dependency Graph</title>
-    <link rel="stylesheet" href="/css/app.css">
+    <link rel="stylesheet" href="/css/app.css" />
     <script src="/js/common.js"></script>
     <script src="/js/discovery.js"></script>
     <script src="/vendor/dagre-1.1.4.min.js"></script>
     <script src="/js/graph.js"></script>
     <script src="/vendor/mermaid-11.16.1.min.js"></script>
     <style>
-        .custom-scrollbar::-webkit-scrollbar {
-            width: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 10px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 10px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 4px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 10px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.3);
+      }
     </style>
     <script src="/js/pages/graph-0.js"></script>
-</head>
-<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+  </head>
+  <body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
     <div id="app-loader">
-        <div class="cat-container">
-            <svg class="cat-svg" viewBox="0 0 100 60">
-                <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
-                <path d="M80,50 C95,50 95,30 85,30" fill="none" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" />
-                <path d="M25,25 L20,10 L35,22 Z" />
-                <path d="M45,22 L60,10 L55,25 Z" />
-                <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
-                <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
-                <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
-            </svg>
-            <div class="zzz-container">
-                <span class="zzz">z</span>
-                <span class="zzz">z</span>
-                <span class="zzz">z</span>
-            </div>
+      <div class="cat-container">
+        <svg class="cat-svg" viewBox="0 0 100 60">
+          <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
+          <path
+            d="M80,50 C95,50 95,30 85,30"
+            fill="none"
+            stroke="#94a3b8"
+            stroke-width="6"
+            stroke-linecap="round"
+          />
+          <path d="M25,25 L20,10 L35,22 Z" />
+          <path d="M45,22 L60,10 L55,25 Z" />
+          <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+          <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+          <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
+        </svg>
+        <div class="zzz-container">
+          <span class="zzz">z</span>
+          <span class="zzz">z</span>
+          <span class="zzz">z</span>
         </div>
-        <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
+      </div>
+      <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
     </div>
-<header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
-    <div class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
+      <div
+        class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+      >
         <div class="flex items-center justify-between gap-4 md:justify-start">
-            <a href="/" class="flex items-center space-x-3">
-                <img src="/images/sonne.png" alt="Sanshain Logo" width="66" height="36" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
-                <div class="text-2xl font-bold tracking-tight">Sanshain <span class="text-indigo-200">(サンシャイン)</span></div>
-            </a>
-            <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
+          <a href="/" class="flex items-center space-x-3">
+            <img
+              src="/images/sonne.png"
+              alt="Sanshain Logo"
+              width="66"
+              height="36"
+              class="h-9 w-auto rounded-md bg-white/10 p-0.5"
+            />
+            <div class="text-2xl font-bold tracking-tight">
+              Sanshain <span class="text-indigo-200">(サンシャイン)</span>
+            </div>
+          </a>
+          <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
-        <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-            <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors">Producers</a>
-            <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
-            <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
-            <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
-            <a id="nav-audit-link" href="/audit.html" class="hidden text-white hover:text-indigo-100 transition-colors">Audit</a>
-            <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors">Observability</a>
-            <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
+        <nav
+          class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1"
+        >
+          <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Producers</a
+          >
+          <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Consumers</a
+          >
+          <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
+          <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Reports</a
+          >
+          <a
+            id="nav-audit-link"
+            href="/audit.html"
+            class="hidden text-white hover:text-indigo-100 transition-colors"
+            >Audit</a
+          >
+          <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Observability</a
+          >
+          <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
         <div class="flex items-center justify-end gap-4 text-sm">
-            <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
-            <a id="banner-username" href="/account.html" class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"></a>
-            <button id="banner-logout" type="button" onclick="sanshainLogout()" class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500">Logout</button>
-            <a id="banner-signin" href="/account.html" class="hidden text-indigo-100 transition-colors hover:text-white">Sign In</a>
+          <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+          <a
+            id="banner-username"
+            href="/account.html"
+            class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"
+          ></a>
+          <button
+            id="banner-logout"
+            type="button"
+            data-click="sanshainLogout"
+            class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500"
+          >
+            Logout
+          </button>
+          <a
+            id="banner-signin"
+            href="/account.html"
+            class="hidden text-indigo-100 transition-colors hover:text-white"
+            >Sign In</a
+          >
         </div>
-    </div>
-</header>
+      </div>
+    </header>
 
-<main class="container mx-auto flex-1 p-6">
-    <div id="graph-section">
+    <main class="container mx-auto flex-1 p-6">
+      <div id="graph-section">
         <div class="flex justify-between items-center mb-6">
-            <h2 class="text-xl font-semibold flex items-center">
-                <span class="bg-purple-100 text-purple-700 p-2 rounded-lg mr-3">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                              d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
-                    </svg>
-                </span>
-                Dependency Graph
-            </h2>
-            <div class="flex items-center space-x-3">
-                <div class="inline-flex rounded-lg border border-slate-300 text-sm overflow-hidden bg-white">
-                    <button id="graph-mode-custom" class="px-3 py-1.5 bg-indigo-600 text-white" onclick="switchGraphMode('custom')">Graph</button>
-                    <button id="graph-mode-mermaid" class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50" onclick="switchGraphMode('mermaid')">Mermaid</button>
-                    <button id="graph-mode-detailed" class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50" onclick="switchGraphMode('detailed')">Detailed</button>
-                </div>
+          <h2 class="text-xl font-semibold flex items-center">
+            <span class="bg-purple-100 text-purple-700 p-2 rounded-lg mr-3">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"
+                ></path>
+              </svg>
+            </span>
+            Dependency Graph
+          </h2>
+          <div class="flex items-center space-x-3">
+            <div
+              class="inline-flex rounded-lg border border-slate-300 text-sm overflow-hidden bg-white"
+            >
+              <button
+                id="graph-mode-custom"
+                class="px-3 py-1.5 bg-indigo-600 text-white"
+                data-click="switchGraphMode"
+                data-click-args='["custom"]'
+              >
+                Graph
+              </button>
+              <button
+                id="graph-mode-mermaid"
+                class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50"
+                data-click="switchGraphMode"
+                data-click-args='["mermaid"]'
+              >
+                Mermaid
+              </button>
+              <button
+                id="graph-mode-detailed"
+                class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50"
+                data-click="switchGraphMode"
+                data-click-args='["detailed"]'
+              >
+                Detailed
+              </button>
             </div>
+          </div>
         </div>
 
-        <div id="graph-toolbar-row" class="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200">
-            <div class="flex items-center gap-2 flex-grow">
-                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Focus</span>
-                <div id="focus-tags-container" class="flex flex-wrap items-center gap-1.5"></div>
-                <div class="relative flex-shrink-0" style="min-width:140px">
-                    <input type="text" id="graph-service-filter" list="graph-services-list" placeholder="Add service..."
-                           onkeydown="if(event.key==='Enter'){event.preventDefault();applyGraphFocus()}"
-                           class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
-                    <datalist id="graph-services-list"></datalist>
-                </div>
+        <div
+          id="graph-toolbar-row"
+          class="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200"
+        >
+          <div class="flex items-center gap-2 flex-grow">
+            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest"
+              >Focus</span
+            >
+            <div id="focus-tags-container" class="flex flex-wrap items-center gap-1.5"></div>
+            <div class="relative flex-shrink-0" style="min-width: 140px">
+              <input
+                type="text"
+                id="graph-service-filter"
+                list="graph-services-list"
+                placeholder="Add service..."
+                data-keydown="applyGraphFocusOnEnter"
+                data-keydown-args='["$event"]'
+                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+              />
+              <datalist id="graph-services-list"></datalist>
             </div>
+          </div>
 
-            <div class="flex items-center gap-2 ml-auto">
-                <!-- Stream view (ADR-0004): Dev = latest recorded activity;
+          <div class="flex items-center gap-2 ml-auto">
+            <!-- Stream view (ADR-0004): Dev = latest recorded activity;
                      Main = the trunk pin set, producers at trunk version. -->
-                <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
-                    <button id="stream-dev" class="px-3 py-1.5 bg-indigo-600 text-white font-medium" onclick="setStreamView('dev')" title="Latest recorded activity, snapshots included">Dev</button>
-                    <button id="stream-main" class="px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium" onclick="setStreamView('main')" title="The trunk stream: current trunk pins, producers at their trunk version">Main</button>
-                </div>
-                <select id="graph-branch-select" class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white shadow-sm text-slate-600" title="Show a sanshain-branch's graph" onchange="selectBranchView(this.value)">
-                    <option value="">Branch…</option>
-                </select>
-                <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
-                    <button id="graph-redraw-all" class="px-3 py-1.5 bg-indigo-600 text-white font-medium" onclick="setGraphRedrawMode('all')">All</button>
-                    <button id="graph-redraw-circular" class="px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium" onclick="setGraphRedrawMode('circular')">Circular</button>
-                </div>
-                <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
-                    <button id="filter-openapi" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('openapi')">OpenAPI</button>
-                    <button id="filter-asyncapi" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('asyncapi')">AsyncAPI</button>
-                    <button id="filter-proto" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('proto')">Proto</button>
-                </div>
-                <!-- Independent highlight toggles: Outdated (Pin below the
+            <div
+              class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
+            >
+              <button
+                id="stream-dev"
+                class="px-3 py-1.5 bg-indigo-600 text-white font-medium"
+                data-click="setStreamView"
+                data-click-args='["dev"]'
+                title="Latest recorded activity, snapshots included"
+              >
+                Dev
+              </button>
+              <button
+                id="stream-main"
+                class="px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium"
+                data-click="setStreamView"
+                data-click-args='["main"]'
+                title="The trunk stream: current trunk pins, producers at their trunk version"
+              >
+                Main
+              </button>
+            </div>
+            <select
+              id="graph-branch-select"
+              class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white shadow-sm text-slate-600"
+              title="Show a sanshain-branch's graph"
+              data-change="selectBranchView"
+              data-change-args='["$value"]'
+            >
+              <option value="">Branch…</option>
+            </select>
+            <div
+              class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
+            >
+              <button
+                id="graph-redraw-all"
+                class="px-3 py-1.5 bg-indigo-600 text-white font-medium"
+                data-click="setGraphRedrawMode"
+                data-click-args='["all"]'
+              >
+                All
+              </button>
+              <button
+                id="graph-redraw-circular"
+                class="px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium"
+                data-click="setGraphRedrawMode"
+                data-click-args='["circular"]'
+              >
+                Circular
+              </button>
+            </div>
+            <div
+              class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
+            >
+              <button
+                id="filter-openapi"
+                class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium"
+                data-click="toggleProtocolFilter"
+                data-click-args='["openapi"]'
+              >
+                OpenAPI
+              </button>
+              <button
+                id="filter-asyncapi"
+                class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium"
+                data-click="toggleProtocolFilter"
+                data-click-args='["asyncapi"]'
+              >
+                AsyncAPI
+              </button>
+              <button
+                id="filter-proto"
+                class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium"
+                data-click="toggleProtocolFilter"
+                data-click-args='["proto"]'
+              >
+                Proto
+              </button>
+            </div>
+            <!-- Independent highlight toggles: Outdated (Pin below the
                      line's latest GA) and Snapshot-pinned (Pin served from a
                      Snapshot). Display states, never resolution inputs. -->
-                <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
-                    <button id="highlight-outdated" class="px-2.5 py-1.5 whitespace-nowrap bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('outdated')" title="Highlight dependencies whose Pin is below the latest GA of the line within the same major">Outdated</button>
-                    <button id="highlight-breaking-outdated" class="px-2.5 py-1.5 whitespace-nowrap bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('breakingOutdated')" title="Highlight dependencies whose Pin is a whole major behind the latest GA of the line">Major behind</button>
-                    <button id="highlight-snapshot" class="px-2.5 py-1.5 whitespace-nowrap bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('snapshot')" title="Highlight dependencies served from a Snapshot (building against overwritable content)">Snapshot-pinned</button>
-                </div>
-                <button id="graph-direction-toggle"
-                        class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
-                        onclick="toggleGraphDirection()"
-                        title="Pivot graph direction (vertical ↔ horizontal)">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m-4 6H4m0 0l4 4m-4-4l4-4"/></svg>
-                    <span id="graph-direction-label">Vertical</span>
-                </button>
-                <button id="graph-fit-view"
-                        class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
-                        onclick="graphFitToView()"
-                        title="Fit & center graph">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/></svg>
-                    Fit
-                </button>
-                <button id="graph-copy" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm" title="Copy code to clipboard">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg>
-                    Copy
-                </button>
-                <button id="graph-download" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm" title="Download SVG">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
-                    SVG
-                </button>
-                <button id="graph-download-png" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm" title="Download PNG">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
-                    PNG
-                </button>
+            <div
+              class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
+            >
+              <button
+                id="highlight-outdated"
+                class="px-2.5 py-1.5 whitespace-nowrap bg-white text-slate-600 hover:bg-slate-50 font-medium"
+                data-click="toggleHighlightFilter"
+                data-click-args='["outdated"]'
+                title="Highlight dependencies whose Pin is below the latest GA of the line within the same major"
+              >
+                Outdated
+              </button>
+              <button
+                id="highlight-breaking-outdated"
+                class="px-2.5 py-1.5 whitespace-nowrap bg-white text-slate-600 hover:bg-slate-50 font-medium"
+                data-click="toggleHighlightFilter"
+                data-click-args='["breakingOutdated"]'
+                title="Highlight dependencies whose Pin is a whole major behind the latest GA of the line"
+              >
+                Major behind
+              </button>
+              <button
+                id="highlight-snapshot"
+                class="px-2.5 py-1.5 whitespace-nowrap bg-white text-slate-600 hover:bg-slate-50 font-medium"
+                data-click="toggleHighlightFilter"
+                data-click-args='["snapshot"]'
+                title="Highlight dependencies served from a Snapshot (building against overwritable content)"
+              >
+                Snapshot-pinned
+              </button>
             </div>
+            <button
+              id="graph-direction-toggle"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              data-click="toggleGraphDirection"
+              title="Pivot graph direction (vertical ↔ horizontal)"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M8 7h12m0 0l-4-4m4 4l-4 4m-4 6H4m0 0l4 4m-4-4l4-4"
+                />
+              </svg>
+              <span id="graph-direction-label">Vertical</span>
+            </button>
+            <button
+              id="graph-fit-view"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              data-click="graphFitToView"
+              title="Fit & center graph"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"
+                />
+              </svg>
+              Fit
+            </button>
+            <button
+              id="graph-copy"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              title="Copy code to clipboard"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2" />
+                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2" />
+              </svg>
+              Copy
+            </button>
+            <button
+              id="graph-download"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              title="Download SVG"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"
+                />
+              </svg>
+              SVG
+            </button>
+            <button
+              id="graph-download-png"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              title="Download PNG"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"
+                />
+              </svg>
+              PNG
+            </button>
+          </div>
         </div>
 
         <!-- Compare (ADR-0005): a structured diff between any two graph
              selections — release vs release, release vs main, any at a date. -->
-        <div id="graph-compare-row" class="flex flex-wrap items-center gap-2 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200">
-            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Compare</span>
-            <select id="diff-left" class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white"></select>
-            <input type="datetime-local" id="diff-left-at" class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white" title="Optional: left side at this instant">
-            <span class="text-slate-500 text-xs">→</span>
-            <select id="diff-right" class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white"></select>
-            <input type="datetime-local" id="diff-right-at" class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white" title="Optional: right side at this instant">
-            <button onclick="runGraphDiff()" class="px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Diff</button>
-            <button onclick="document.getElementById('graph-diff-output').innerHTML=''" class="px-2.5 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600">Clear</button>
+        <div
+          id="graph-compare-row"
+          class="flex flex-wrap items-center gap-2 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200"
+        >
+          <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest"
+            >Compare</span
+          >
+          <select
+            id="diff-left"
+            class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+          ></select>
+          <input
+            type="datetime-local"
+            id="diff-left-at"
+            class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white"
+            title="Optional: left side at this instant"
+          />
+          <span class="text-slate-500 text-xs">→</span>
+          <select
+            id="diff-right"
+            class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+          ></select>
+          <input
+            type="datetime-local"
+            id="diff-right-at"
+            class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white"
+            title="Optional: right side at this instant"
+          />
+          <button
+            data-click="runGraphDiff"
+            class="px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+          >
+            Diff
+          </button>
+          <button
+            data-click="clearGraphDiffOutput"
+            class="px-2.5 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600"
+          >
+            Clear
+          </button>
         </div>
         <div id="graph-diff-output" class="mb-4 empty:mb-0"></div>
 
         <!-- Timeline (ADR-0005): reconstruct the main or a branch graph at any
              past instant; markers are the change dates of the append-only store. -->
-        <div id="graph-timeline-row" class="hidden flex flex-wrap items-center gap-3 mb-4 p-3 bg-amber-50/50 rounded-xl border border-amber-200">
-            <span class="text-[10px] font-bold text-amber-700 uppercase tracking-widest">Timeline</span>
-            <input type="range" id="graph-timeline-slider" min="0" max="0" value="0" step="1" class="flex-grow accent-amber-600">
-            <span id="graph-timeline-label" class="text-xs font-mono text-slate-600 min-w-[10rem] text-right">now</span>
-            <button id="graph-timeline-now" class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600" onclick="setTimelinePosition(null)">Now</button>
-            <button id="graph-create-branch-here" class="hidden px-2.5 py-1 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700" onclick="createBranchHere()">Create branch here</button>
+        <div
+          id="graph-timeline-row"
+          class="hidden flex flex-wrap items-center gap-3 mb-4 p-3 bg-amber-50/50 rounded-xl border border-amber-200"
+        >
+          <span class="text-[10px] font-bold text-amber-700 uppercase tracking-widest"
+            >Timeline</span
+          >
+          <input
+            type="range"
+            id="graph-timeline-slider"
+            min="0"
+            max="0"
+            value="0"
+            step="1"
+            class="flex-grow accent-amber-600"
+          />
+          <span
+            id="graph-timeline-label"
+            class="text-xs font-mono text-slate-600 min-w-[10rem] text-right"
+            >now</span
+          >
+          <button
+            id="graph-timeline-now"
+            class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600"
+            data-click="setTimelinePosition"
+            data-click-args="[null]"
+          >
+            Now
+          </button>
+          <button
+            id="graph-create-branch-here"
+            class="hidden px-2.5 py-1 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+            data-click="createBranchHere"
+          >
+            Create branch here
+          </button>
         </div>
 
-        <div id="graph-cycle-warning" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center">
-            <svg class="w-5 h-5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
-            </svg>
-            <span id="graph-cycle-text">Circular dependencies detected (shown in red).</span>
+        <div
+          id="graph-cycle-warning"
+          class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center"
+        >
+          <svg
+            class="w-5 h-5 mr-2 flex-shrink-0"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"
+            ></path>
+          </svg>
+          <span id="graph-cycle-text">Circular dependencies detected (shown in red).</span>
         </div>
         <div class="flex gap-6 items-start">
-            <div id="graph-container"
-                 class="flex-grow bg-white p-6 rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <svg id="custom-graph" class="w-full"></svg>
-                <div id="mermaid-graph" class="mermaid hidden"></div>
-            </div>
+          <div
+            id="graph-container"
+            class="flex-grow bg-white p-6 rounded-xl border border-slate-200 shadow-sm overflow-hidden"
+          >
+            <svg id="custom-graph" class="w-full"></svg>
+            <div id="mermaid-graph" class="mermaid hidden"></div>
+          </div>
 
-            <div id="graph-legend" class="w-48 flex-shrink-0 space-y-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm h-fit sticky top-6">
-                <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 border-b border-slate-100 pb-2">Legend</h4>
-                <div class="space-y-3 text-[11px] font-medium text-slate-600">
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:client">
-                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#ccfbf1;border:2px solid #14b8a6"></span>
-                        <span>Consumer only</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:service">
-                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#e0e7ff;border:2px solid #6366f1"></span>
-                        <span>Producer only</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:both">
-                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#fef3c7;border:2px solid #f59e0b"></span>
-                        <span>Consumer &amp; Producer</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 pt-2 border-t border-slate-50 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:circular">
-                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#a855f7"></span>
-                        <span>Circular dep.</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:missing" data-stream-only="dev">
-                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f97316;border-top:2px dashed #f97316"></span>
-                        <span>Missing dep.</span>
-                    </div>
-                    <div class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:conflict" data-stream-only="main">
-                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#dc2626"></span>
-                        <span>Major conflict</span>
-                    </div>
-                    <div class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:stale" data-stream-only="main">
-                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f59e0b;border-top:2px dashed #f59e0b"></span>
-                        <span>Stale (forgotten)</span>
-                    </div>
-                    <div class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:dangling" data-stream-only="main branch">
-                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#ea580c;border-top:2px dotted #ea580c"></span>
-                        <span>Dangling version</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:outdated">
-                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f43f5e"></span>
-                        <span>Outdated Pin</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:breakingOutdated">
-                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#be123c"></span>
-                        <span>Major behind</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:snapshot">
-                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f59e0b"></span>
-                        <span>Snapshot-pinned</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:pubsub-bidir">
-                        <span class="w-6" style="border-top:2px dashed #94a3b8"></span>
-                        <span>PUB/SUB bidir.</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:messaging-register">
-                        <span class="w-6" style="border-top:2px dashed #3b82f6"></span>
-                        <span>Msg. register</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:missing" data-stream-only="dev">
-                        <span class="w-4 text-center font-bold text-orange-600">!</span>
-                        <span>Missing svc.</span>
-                    </div>
-                    <div class="pt-2 border-t border-slate-100">
-                        <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">Producer Tags</p>
-                        <div class="space-y-2">
-                            <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:tag-messaging">
-                                <span class="w-4 text-center text-[10px]">✉</span>
-                                <span>Messaging</span>
-                            </div>
-                            <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:tag-grpc">
-                                <span class="w-4 text-center text-[10px]">⛓️</span>
-                                <span>gRPC</span>
-                            </div>
-                        </div>
-                    </div>
+          <div
+            id="graph-legend"
+            class="w-48 flex-shrink-0 space-y-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm h-fit sticky top-6"
+          >
+            <h4
+              class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 border-b border-slate-100 pb-2"
+            >
+              Legend
+            </h4>
+            <div class="space-y-3 text-[11px] font-medium text-slate-600">
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="node-role:client"
+              >
+                <span
+                  class="w-3.5 h-3.5 rounded shadow-sm"
+                  style="background: #ccfbf1; border: 2px solid #14b8a6"
+                ></span>
+                <span>Consumer only</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="node-role:service"
+              >
+                <span
+                  class="w-3.5 h-3.5 rounded shadow-sm"
+                  style="background: #e0e7ff; border: 2px solid #6366f1"
+                ></span>
+                <span>Producer only</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="node-role:both"
+              >
+                <span
+                  class="w-3.5 h-3.5 rounded shadow-sm"
+                  style="background: #fef3c7; border: 2px solid #f59e0b"
+                ></span>
+                <span>Consumer &amp; Producer</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 pt-2 border-t border-slate-50 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-type:circular"
+              >
+                <span class="w-6 h-0.5 rounded shadow-sm" style="background: #a855f7"></span>
+                <span>Circular dep.</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-type:missing"
+                data-stream-only="dev"
+              >
+                <span
+                  class="w-6 h-0.5 rounded shadow-sm"
+                  style="background: #f97316; border-top: 2px dashed #f97316"
+                ></span>
+                <span>Missing dep.</span>
+              </div>
+              <div
+                class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-flag:conflict"
+                data-stream-only="main"
+              >
+                <span class="w-6 h-0.5 rounded shadow-sm" style="background: #dc2626"></span>
+                <span>Major conflict</span>
+              </div>
+              <div
+                class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-flag:stale"
+                data-stream-only="main"
+              >
+                <span
+                  class="w-6 h-0.5 rounded shadow-sm"
+                  style="background: #f59e0b; border-top: 2px dashed #f59e0b"
+                ></span>
+                <span>Stale (forgotten)</span>
+              </div>
+              <div
+                class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-flag:dangling"
+                data-stream-only="main branch"
+              >
+                <span
+                  class="w-6 h-0.5 rounded shadow-sm"
+                  style="background: #ea580c; border-top: 2px dotted #ea580c"
+                ></span>
+                <span>Dangling version</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-flag:outdated"
+              >
+                <span class="w-6 h-0.5 rounded shadow-sm" style="background: #f43f5e"></span>
+                <span>Outdated Pin</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-flag:breakingOutdated"
+              >
+                <span class="w-6 h-0.5 rounded shadow-sm" style="background: #be123c"></span>
+                <span>Major behind</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-flag:snapshot"
+              >
+                <span class="w-6 h-0.5 rounded shadow-sm" style="background: #f59e0b"></span>
+                <span>Snapshot-pinned</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-type:pubsub-bidir"
+              >
+                <span class="w-6" style="border-top: 2px dashed #94a3b8"></span>
+                <span>PUB/SUB bidir.</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-type:messaging-register"
+              >
+                <span class="w-6" style="border-top: 2px dashed #3b82f6"></span>
+                <span>Msg. register</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="node-role:missing"
+                data-stream-only="dev"
+              >
+                <span class="w-4 text-center font-bold text-orange-600">!</span>
+                <span>Missing svc.</span>
+              </div>
+              <div class="pt-2 border-t border-slate-100">
+                <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+                  Producer Tags
+                </p>
+                <div class="space-y-2">
+                  <div
+                    class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                    data-legend-highlight="node-role:tag-messaging"
+                  >
+                    <span class="w-4 text-center text-[10px]">✉</span>
+                    <span>Messaging</span>
+                  </div>
+                  <div
+                    class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                    data-legend-highlight="node-role:tag-grpc"
+                  >
+                    <span class="w-4 text-center text-[10px]">⛓️</span>
+                    <span>gRPC</span>
+                  </div>
                 </div>
+              </div>
             </div>
+          </div>
         </div>
-    </div>
-</main>
+      </div>
+    </main>
 
-<script src="/js/pages/graph-1.js"></script>
+    <script src="/js/pages/graph-1.js"></script>
     <footer class="text-center text-sm text-slate-500 py-6 mt-auto">
-        <img src="/images/sonne.png" alt="Sanshain" width="59" height="32" class="mx-auto mb-2 h-8 w-auto opacity-70">
-        <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
-        <div class="mt-2 flex items-center justify-center gap-4">
-            <a href="https://github.com/paxel/sanshain-service" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800">GitHub</a>
-            <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
-        </div>
+      <img
+        src="/images/sonne.png"
+        alt="Sanshain"
+        width="59"
+        height="32"
+        class="mx-auto mb-2 h-8 w-auto opacity-70"
+      />
+      <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
+      <div class="mt-2 flex items-center justify-center gap-4">
+        <a
+          href="https://github.com/paxel/sanshain-service"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-indigo-600 hover:text-indigo-800"
+          >GitHub</a
+        >
+        <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
+      </div>
     </footer>
-</body>
+  </body>
 </html>

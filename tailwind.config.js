@@ -4,7 +4,7 @@
 // the HTML and every JS file that builds class strings. All dynamic classes in
 // this codebase are whole-string ternaries, so their literal branches are seen.
 module.exports = {
-  content: ["./static/**/*.html", "./static/**/*.js"],
+  content: ["./static/**/*.html", "./static/**/*.js", "./templates/**/*.html"],
   theme: { extend: {} },
   plugins: [],
 };

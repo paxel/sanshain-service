@@ -567,7 +567,7 @@ function renderFocusTags() {
     const pill = document.createElement("span");
     pill.className =
       "inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs font-medium";
-    pill.innerHTML = `${_graphEscapeHtml(tag)}<button onclick="removeFocusTag('${tag.replace(/'/g, "\\'")}')"
+    pill.innerHTML = `${_graphEscapeHtml(tag)}<button data-click="removeFocusTag" data-click-args="${attrJson([tag])}"
             class="hover:text-indigo-900 cursor-pointer text-indigo-400 font-bold leading-none">&times;</button>`;
     container.appendChild(pill);
   });
@@ -582,6 +582,26 @@ function applyGraphFocus() {
   if (val) addFocusTag(val);
 }
 window.applyGraphFocus = applyGraphFocus;
+
+// Fit-to-view is bound to a closure created only once the graph has rendered
+// (it captures the current pan/scale). Expose a stable top-level entry point so
+// the toolbar button's data-click resolves at page load; it forwards to the
+// live implementation once render has set it, and is a no-op before then (there
+// is nothing to fit yet).
+let _graphFitToView = null;
+function graphFitToView() {
+  if (_graphFitToView) _graphFitToView();
+}
+window.graphFitToView = graphFitToView;
+
+// Enter in the focus input applies it — replaces the inline keydown handler.
+function applyGraphFocusOnEnter(event) {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    applyGraphFocus();
+  }
+}
+window.applyGraphFocusOnEnter = applyGraphFocusOnEnter;
 
 function toggleProtocolFilter(protocol) {
   window.graphProtocolFilters[protocol] = !window.graphProtocolFilters[protocol];
@@ -1740,7 +1760,7 @@ function renderCustomGraph(report, svgElement, direction) {
     updateTransform();
   }
 
-  window.graphFitToView = fitToView;
+  _graphFitToView = fitToView;
   fitToView();
 
   function updateTransform() {

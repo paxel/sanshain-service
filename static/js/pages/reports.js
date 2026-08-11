@@ -60,7 +60,7 @@ async function loadReports() {
                 </div>
                 <h3 class="text-lg font-bold text-slate-800 mb-2">Producer Isolation Report</h3>
                 <p class="text-sm text-slate-600 mb-6">Detailed overview of service-to-service communication, identifying which services "talk" to each other.</p>
-                <button onclick="openScopedReport('/report/isolation', 'Service Isolation Report')"
+                <button data-click="openScopedReport" data-click-args='["/report/isolation","Service Isolation Report"]'
                    class="inline-flex items-center justify-center w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors">
                     View Isolation Report
                 </button>
@@ -74,7 +74,7 @@ async function loadReports() {
                 </div>
                 <h3 class="text-lg font-bold text-slate-800 mb-2">Full Dependency Report</h3>
                 <p class="text-sm text-slate-600 mb-6">Complete inventory of all provided and required endpoints across all services, with each dependency's pinned version.</p>
-                <button onclick="openScopedReport('/report/markdown', 'Full Dependency Report')"
+                <button data-click="openScopedReport" data-click-args='["/report/markdown","Full Dependency Report"]'
                    class="inline-flex items-center justify-center w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors">
                     View Markdown Report
                 </button>

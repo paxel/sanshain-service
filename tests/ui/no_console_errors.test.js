@@ -1,12 +1,13 @@
 import { test, expect } from "@playwright/test";
 
-// The safety net for de-inlining (ai/improvements.md #11). Once the CSP forbids
-// inline scripts and every `onclick=` becomes an addEventListener, a handler
-// that was missed no longer silently no-ops — it throws a ReferenceError or a
-// CSP violation the moment the page loads or the control is used. These tests
-// fail on any such throw, on every page, so a botched extraction cannot pass
-// unseen. They assert nothing about styling — that is what the screenshot pass
-// is for — only that the JavaScript is wired up and runs clean.
+// The safety net for de-inlining (ai/improvements.md #11). The CSP forbids
+// inline scripts, and every `onclick=` now routes through the delegated
+// dispatcher via `data-<event>` attributes. A handler or script that was missed
+// no longer silently no-ops — it throws a ReferenceError or logs a CSP
+// violation the moment the page loads or the control is used. These tests fail
+// on any such throw, on every page, so a botched conversion cannot pass unseen.
+// They assert nothing about styling — that is what the screenshot pass is for —
+// only that the JavaScript is wired up and runs clean.
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 
@@ -60,6 +61,7 @@ const AUTHED_PAGES = [
   "/reports.html",
   "/audit.html",
   "/observability.html",
+  "/dashboard",
 ];
 
 for (const path of AUTHED_PAGES) {
@@ -82,9 +84,9 @@ test("the public landing page loads without a JavaScript error", async ({ page }
   expect(errors, `landing produced JS errors:\n${errors.join("\n")}`).toEqual([]);
 });
 
-// The admin dashboard is where 52 of the ~123 inline handlers live, so it is
-// the page most likely to regress. Exercise a representative spread of its
-// controls and assert no handler threw.
+// The admin dashboard carries by far the most delegated handlers, so it is the
+// page most likely to regress. Exercise a representative spread of its controls
+// and assert no handler threw.
 test("admin dashboard controls fire without error", async ({ page }) => {
   const errors = watchForErrors(page);
   await login(page);

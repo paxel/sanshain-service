@@ -62,6 +62,16 @@ pub struct AppState {
     pub directory_roles: application::directory_roles::DirectoryRoleCache,
 }
 
+/// Content-Security-Policy served with every response (ai/improvements.md #11).
+///
+/// `script-src 'self'` forbids inline scripts and inline `on*=` event handlers;
+/// all behaviour is delegated through the dispatcher in `common.js`. Every
+/// third-party library is vendored under `/static/vendor`, so no CDN host is
+/// listed. `style-src` retains `'unsafe-inline'` because the vendored Mermaid
+/// injects `<style>` elements at diagram-render time — that stays until those
+/// can be nonced or hashed. `frame-ancestors 'none'` forbids framing.
+pub const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-ancestors 'none';";
+
 pub fn create_app(state: AppState) -> Router {
     Router::new()
         // High-priority unique paths
@@ -232,13 +242,41 @@ pub fn create_app(state: AppState) -> Router {
         ))
         .layer(SetResponseHeaderLayer::if_not_present(
             header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static("default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; img-src 'self' data: blob:;"),
+            HeaderValue::from_static(CONTENT_SECURITY_POLICY),
         ))
         .with_state(state)
 }
 
 #[cfg(test)]
 mod tests {
+    use super::CONTENT_SECURITY_POLICY;
+
+    /// The de-inlining (ai/improvements.md #11) exists so `script-src` can drop
+    /// `'unsafe-inline'`; this pins that it stays dropped. `style-src`
+    /// deliberately keeps `'unsafe-inline'` (Mermaid injects `<style>`), so the
+    /// assertion is scoped to the `script-src` directive rather than the whole
+    /// header. It also pins the CDN removal and the anti-framing directive.
+    #[test]
+    fn csp_script_src_forbids_inline_and_is_self_only() {
+        let script_src = CONTENT_SECURITY_POLICY
+            .split(';')
+            .map(str::trim)
+            .find(|d| d.starts_with("script-src"))
+            .expect("CSP declares a script-src directive");
+        assert_eq!(
+            script_src, "script-src 'self'",
+            "script-src must be 'self' only — no 'unsafe-inline', 'unsafe-eval' or CDN hosts"
+        );
+        assert!(
+            !CONTENT_SECURITY_POLICY.contains("cdn."),
+            "no CDN host may appear in the CSP; third-party libraries are vendored"
+        );
+        assert!(
+            CONTENT_SECURITY_POLICY.contains("frame-ancestors 'none'"),
+            "CSP must forbid framing with frame-ancestors 'none'"
+        );
+    }
+
     /// Ensures every `/admin/` route in `create_app` states what it requires of
     /// its caller.
     ///

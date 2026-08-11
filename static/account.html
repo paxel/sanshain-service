@@ -1,242 +1,463 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="/images/favicon.png">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/images/favicon.png" />
     <title>Sanshain - Account</title>
-    <link rel="stylesheet" href="/css/app.css">
+    <link rel="stylesheet" href="/css/app.css" />
     <script src="/js/common.js"></script>
     <style>
-        .fade-in { animation: fadeIn 0.2s ease-in; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+      .fade-in {
+        animation: fadeIn 0.2s ease-in;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
     </style>
-</head>
-<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+  </head>
+  <body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
     <div id="app-loader">
-        <div class="cat-container">
-            <svg class="cat-svg" viewBox="0 0 100 60">
-                <!-- Curled cat body -->
-                <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
-                <!-- Tail -->
-                <path d="M80,50 C95,50 95,30 85,30" fill="none" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" />
-                <!-- Ears -->
-                <path d="M25,25 L20,10 L35,22 Z" />
-                <path d="M45,22 L60,10 L55,25 Z" />
-                <!-- Closed eyes -->
-                <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
-                <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
-                <!-- Nose -->
-                <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
-            </svg>
-            <div class="zzz-container">
-                <span class="zzz">z</span>
-                <span class="zzz">z</span>
-                <span class="zzz">z</span>
-            </div>
+      <div class="cat-container">
+        <svg class="cat-svg" viewBox="0 0 100 60">
+          <!-- Curled cat body -->
+          <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
+          <!-- Tail -->
+          <path
+            d="M80,50 C95,50 95,30 85,30"
+            fill="none"
+            stroke="#94a3b8"
+            stroke-width="6"
+            stroke-linecap="round"
+          />
+          <!-- Ears -->
+          <path d="M25,25 L20,10 L35,22 Z" />
+          <path d="M45,22 L60,10 L55,25 Z" />
+          <!-- Closed eyes -->
+          <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+          <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+          <!-- Nose -->
+          <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
+        </svg>
+        <div class="zzz-container">
+          <span class="zzz">z</span>
+          <span class="zzz">z</span>
+          <span class="zzz">z</span>
         </div>
-        <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
+      </div>
+      <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
     </div>
 
     <header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
-        <div class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div class="flex items-center justify-between gap-4 md:justify-start">
-                <a href="/" class="flex items-center space-x-3">
-                    <img src="/images/sonne.png" alt="Sanshain Logo" width="66" height="36" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
-                    <div class="text-2xl font-bold tracking-tight">Sanshain <span class="text-indigo-200">(サンシャイン)</span></div>
-                </a>
-                <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
+      <div
+        class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+      >
+        <div class="flex items-center justify-between gap-4 md:justify-start">
+          <a href="/" class="flex items-center space-x-3">
+            <img
+              src="/images/sonne.png"
+              alt="Sanshain Logo"
+              width="66"
+              height="36"
+              class="h-9 w-auto rounded-md bg-white/10 p-0.5"
+            />
+            <div class="text-2xl font-bold tracking-tight">
+              Sanshain <span class="text-indigo-200">(サンシャイン)</span>
             </div>
-            <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-                <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors">Producers</a>
-                <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
-                <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
-                <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
-                <a id="nav-audit-link" href="/audit.html" class="hidden text-white hover:text-indigo-100 transition-colors">Audit</a>
-                <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors">Observability</a>
-                <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
-            </nav>
-            <div class="flex items-center justify-end gap-4 text-sm">
-                <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
-                <a id="banner-username" href="/account.html" class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"></a>
-                <button id="banner-logout" type="button" onclick="sanshainLogout()" class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500">Logout</button>
-                <a id="banner-signin" href="/account.html" class="hidden text-indigo-100 transition-colors hover:text-white">Sign In</a>
-            </div>
+          </a>
+          <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
+        <nav
+          class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1"
+        >
+          <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Producers</a
+          >
+          <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Consumers</a
+          >
+          <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
+          <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Reports</a
+          >
+          <a
+            id="nav-audit-link"
+            href="/audit.html"
+            class="hidden text-white hover:text-indigo-100 transition-colors"
+            >Audit</a
+          >
+          <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Observability</a
+          >
+          <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
+        </nav>
+        <div class="flex items-center justify-end gap-4 text-sm">
+          <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+          <a
+            id="banner-username"
+            href="/account.html"
+            class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"
+          ></a>
+          <button
+            id="banner-logout"
+            type="button"
+            data-click="sanshainLogout"
+            class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500"
+          >
+            Logout
+          </button>
+          <a
+            id="banner-signin"
+            href="/account.html"
+            class="hidden text-indigo-100 transition-colors hover:text-white"
+            >Sign In</a
+          >
+        </div>
+      </div>
     </header>
 
     <!-- Auth Screen (Login / Register) -->
-    <div id="auth-screen" class="flex-1 min-h-[calc(100vh-5rem)] flex items-center justify-center hidden">
-        <div class="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm border border-slate-200">
-            <img src="/images/sonne.png" alt="Sanshain" width="117" height="64" class="mx-auto mb-3 h-16 w-auto">
-            <h1 class="text-2xl font-bold text-center mb-6 text-indigo-700">Sanshain</h1>
+    <div
+      id="auth-screen"
+      class="flex-1 min-h-[calc(100vh-5rem)] flex items-center justify-center hidden"
+    >
+      <div class="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm border border-slate-200">
+        <img
+          src="/images/sonne.png"
+          alt="Sanshain"
+          width="117"
+          height="64"
+          class="mx-auto mb-3 h-16 w-auto"
+        />
+        <h1 class="text-2xl font-bold text-center mb-6 text-indigo-700">Sanshain</h1>
 
-            <!-- Tab switcher -->
-            <div class="flex mb-6 border-b border-slate-200">
-                <button id="tab-login" onclick="showTab('login')" class="flex-1 pb-2 text-sm font-medium text-center border-b-2 border-indigo-600 text-indigo-700">Sign In</button>
-                <button id="tab-register" onclick="showTab('register')" class="flex-1 pb-2 text-sm font-medium text-center border-b-2 border-transparent text-slate-500 hover:text-slate-600">Register</button>
-            </div>
-
-            <!-- Login Form -->
-            <div id="login-panel">
-                <div id="login-error" class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"></div>
-                <form id="login-form" class="space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-slate-600 mb-1">Username</label>
-                        <input type="text" id="login-username" required
-                            class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-slate-600 mb-1">Password</label>
-                        <div class="flex">
-                            <input type="password" id="login-password" required
-                                class="w-full px-3 py-2 rounded-l-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                            <button type="button" onclick="togglePasswordVisibility('login-password', this)"
-                                class="px-3 py-2 bg-slate-100 border border-l-0 border-slate-300 rounded-r-lg text-xs text-slate-600 hover:bg-slate-200">Show</button>
-                        </div>
-                    </div>
-                    <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium">
-                        Sign In
-                    </button>
-                </form>
-            </div>
-
-            <!-- Register Form -->
-            <div id="register-panel" class="hidden">
-                <div id="register-error" class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"></div>
-                <div id="register-success" class="hidden bg-green-50 text-green-600 p-3 rounded-lg mb-4 text-sm"></div>
-                <form id="register-form" class="space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-slate-600 mb-1">Username</label>
-                        <input type="text" id="register-username" required
-                            class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-slate-600 mb-1">Password</label>
-                        <div class="flex">
-                            <input type="password" id="register-password" required minlength="6"
-                                class="w-full px-3 py-2 rounded-l-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                            <button type="button" onclick="togglePasswordVisibility('register-password', this)"
-                                class="px-3 py-2 bg-slate-100 border border-l-0 border-slate-300 rounded-r-lg text-xs text-slate-600 hover:bg-slate-200">Show</button>
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-slate-600 mb-1">Confirm Password</label>
-                        <div class="flex">
-                            <input type="password" id="register-password-confirm" required minlength="6"
-                                class="w-full px-3 py-2 rounded-l-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                            <button type="button" onclick="togglePasswordVisibility('register-password-confirm', this)"
-                                class="px-3 py-2 bg-slate-100 border border-l-0 border-slate-300 rounded-r-lg text-xs text-slate-600 hover:bg-slate-200">Show</button>
-                        </div>
-                    </div>
-                    <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium">
-                        Register
-                    </button>
-                </form>
-                <p class="text-xs text-slate-500 mt-3 text-center">After registration an admin must approve your account before you can log in.</p>
-            </div>
+        <!-- Tab switcher -->
+        <div class="flex mb-6 border-b border-slate-200">
+          <button
+            id="tab-login"
+            data-click="showTab"
+            data-click-args='["login"]'
+            class="flex-1 pb-2 text-sm font-medium text-center border-b-2 border-indigo-600 text-indigo-700"
+          >
+            Sign In
+          </button>
+          <button
+            id="tab-register"
+            data-click="showTab"
+            data-click-args='["register"]'
+            class="flex-1 pb-2 text-sm font-medium text-center border-b-2 border-transparent text-slate-500 hover:text-slate-600"
+          >
+            Register
+          </button>
         </div>
+
+        <!-- Login Form -->
+        <div id="login-panel">
+          <div
+            id="login-error"
+            class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"
+          ></div>
+          <form id="login-form" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">Username</label>
+              <input
+                type="text"
+                id="login-username"
+                required
+                class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">Password</label>
+              <div class="flex">
+                <input
+                  type="password"
+                  id="login-password"
+                  required
+                  class="w-full px-3 py-2 rounded-l-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button
+                  type="button"
+                  data-click="togglePasswordVisibility"
+                  data-click-args='["login-password", "$this"]'
+                  class="px-3 py-2 bg-slate-100 border border-l-0 border-slate-300 rounded-r-lg text-xs text-slate-600 hover:bg-slate-200"
+                >
+                  Show
+                </button>
+              </div>
+            </div>
+            <button
+              type="submit"
+              class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+            >
+              Sign In
+            </button>
+          </form>
+        </div>
+
+        <!-- Register Form -->
+        <div id="register-panel" class="hidden">
+          <div
+            id="register-error"
+            class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"
+          ></div>
+          <div
+            id="register-success"
+            class="hidden bg-green-50 text-green-600 p-3 rounded-lg mb-4 text-sm"
+          ></div>
+          <form id="register-form" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">Username</label>
+              <input
+                type="text"
+                id="register-username"
+                required
+                class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">Password</label>
+              <div class="flex">
+                <input
+                  type="password"
+                  id="register-password"
+                  required
+                  minlength="6"
+                  class="w-full px-3 py-2 rounded-l-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button
+                  type="button"
+                  data-click="togglePasswordVisibility"
+                  data-click-args='["register-password", "$this"]'
+                  class="px-3 py-2 bg-slate-100 border border-l-0 border-slate-300 rounded-r-lg text-xs text-slate-600 hover:bg-slate-200"
+                >
+                  Show
+                </button>
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">Confirm Password</label>
+              <div class="flex">
+                <input
+                  type="password"
+                  id="register-password-confirm"
+                  required
+                  minlength="6"
+                  class="w-full px-3 py-2 rounded-l-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button
+                  type="button"
+                  data-click="togglePasswordVisibility"
+                  data-click-args='["register-password-confirm", "$this"]'
+                  class="px-3 py-2 bg-slate-100 border border-l-0 border-slate-300 rounded-r-lg text-xs text-slate-600 hover:bg-slate-200"
+                >
+                  Show
+                </button>
+              </div>
+            </div>
+            <button
+              type="submit"
+              class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+            >
+              Register
+            </button>
+          </form>
+          <p class="text-xs text-slate-500 mt-3 text-center">
+            After registration an admin must approve your account before you can log in.
+          </p>
+        </div>
+      </div>
     </div>
 
     <!-- Account Dashboard (logged in) -->
     <div id="account-dashboard" class="hidden">
-        <main class="container mx-auto p-6 space-y-8">
+      <main class="container mx-auto p-6 space-y-8">
+        <!-- Change Password -->
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+          <h2 class="text-lg font-semibold text-slate-800 mb-4">Change Password</h2>
+          <div
+            id="pw-error"
+            class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"
+          ></div>
+          <div
+            id="pw-success"
+            class="hidden bg-green-50 text-green-600 p-3 rounded-lg mb-4 text-sm"
+          ></div>
+          <form id="pw-form" class="space-y-4 max-w-sm">
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">Current Password</label>
+              <div class="flex">
+                <input
+                  type="password"
+                  id="pw-current"
+                  required
+                  class="w-full px-3 py-2 rounded-l-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button
+                  type="button"
+                  data-click="togglePasswordVisibility"
+                  data-click-args='["pw-current", "$this"]'
+                  class="px-3 py-2 bg-slate-100 border border-l-0 border-slate-300 rounded-r-lg text-xs text-slate-600 hover:bg-slate-200"
+                >
+                  Show
+                </button>
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">New Password</label>
+              <div class="flex">
+                <input
+                  type="password"
+                  id="pw-new"
+                  required
+                  minlength="6"
+                  class="w-full px-3 py-2 rounded-l-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button
+                  type="button"
+                  data-click="togglePasswordVisibility"
+                  data-click-args='["pw-new", "$this"]'
+                  class="px-3 py-2 bg-slate-100 border border-l-0 border-slate-300 rounded-r-lg text-xs text-slate-600 hover:bg-slate-200"
+                >
+                  Show
+                </button>
+              </div>
+            </div>
+            <button
+              type="submit"
+              class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium text-sm"
+            >
+              Update Password
+            </button>
+          </form>
+        </section>
 
-            <!-- Change Password -->
-            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                <h2 class="text-lg font-semibold text-slate-800 mb-4">Change Password</h2>
-                <div id="pw-error" class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"></div>
-                <div id="pw-success" class="hidden bg-green-50 text-green-600 p-3 rounded-lg mb-4 text-sm"></div>
-                <form id="pw-form" class="space-y-4 max-w-sm">
-                    <div>
-                        <label class="block text-sm font-medium text-slate-600 mb-1">Current Password</label>
-                        <div class="flex">
-                            <input type="password" id="pw-current" required
-                                class="w-full px-3 py-2 rounded-l-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                            <button type="button" onclick="togglePasswordVisibility('pw-current', this)"
-                                class="px-3 py-2 bg-slate-100 border border-l-0 border-slate-300 rounded-r-lg text-xs text-slate-600 hover:bg-slate-200">Show</button>
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-slate-600 mb-1">New Password</label>
-                        <div class="flex">
-                            <input type="password" id="pw-new" required minlength="6"
-                                class="w-full px-3 py-2 rounded-l-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                            <button type="button" onclick="togglePasswordVisibility('pw-new', this)"
-                                class="px-3 py-2 bg-slate-100 border border-l-0 border-slate-300 rounded-r-lg text-xs text-slate-600 hover:bg-slate-200">Show</button>
-                        </div>
-                    </div>
-                    <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium text-sm">
-                        Update Password
-                    </button>
-                </form>
-            </section>
+        <!-- API Tokens -->
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+          <div class="flex justify-between items-center mb-4">
+            <div>
+              <h2 class="text-lg font-semibold text-slate-800">API Tokens</h2>
+              <p class="text-sm text-slate-500 mt-1">
+                Create tokens to authenticate API requests from CI/CD pipelines or scripts.
+              </p>
+            </div>
+            <button data-click="loadTokens" class="text-indigo-600 hover:text-indigo-800 text-sm">
+              ↻ Refresh
+            </button>
+          </div>
 
-            <!-- API Tokens -->
-            <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                <div class="flex justify-between items-center mb-4">
-                    <div>
-                        <h2 class="text-lg font-semibold text-slate-800">API Tokens</h2>
-                        <p class="text-sm text-slate-500 mt-1">Create tokens to authenticate API requests from CI/CD pipelines or scripts.</p>
-                    </div>
-                    <button onclick="loadTokens()" class="text-indigo-600 hover:text-indigo-800 text-sm">↻ Refresh</button>
-                </div>
+          <!-- Create Token -->
+          <div class="bg-slate-50 rounded-lg p-4 mb-4">
+            <h3 class="text-sm font-medium text-slate-700 mb-3">Create New Token</h3>
+            <div
+              id="token-create-error"
+              class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-3 text-sm"
+            ></div>
+            <div id="token-created" class="hidden bg-green-50 p-4 rounded-lg mb-3">
+              <p class="text-sm font-medium text-green-800 mb-1">Token created successfully!</p>
+              <p class="text-xs text-green-600 mb-2">
+                Copy this token now — it will not be shown again.
+              </p>
+              <div class="flex items-center space-x-2">
+                <code
+                  id="token-created-value"
+                  class="flex-1 bg-white text-green-900 px-3 py-2 rounded border border-green-200 text-xs font-mono break-all select-all"
+                ></code>
+                <button
+                  data-click="copyToken"
+                  class="bg-green-600 text-white px-3 py-1.5 rounded text-xs hover:bg-green-700 transition-colors"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+            <form id="token-form" class="flex items-end space-x-3">
+              <div class="flex-1">
+                <label class="block text-xs font-medium text-slate-500 mb-1">Token Name</label>
+                <input
+                  type="text"
+                  id="token-name"
+                  required
+                  placeholder="e.g. ci-pipeline"
+                  class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div class="w-32">
+                <label class="block text-xs font-medium text-slate-500 mb-1">Expires (days)</label>
+                <input
+                  type="number"
+                  id="token-expires"
+                  value="365"
+                  min="1"
+                  max="3650"
+                  class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <button
+                type="submit"
+                class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 transition-colors font-medium"
+              >
+                Create
+              </button>
+            </form>
+          </div>
 
-                <!-- Create Token -->
-                <div class="bg-slate-50 rounded-lg p-4 mb-4">
-                    <h3 class="text-sm font-medium text-slate-700 mb-3">Create New Token</h3>
-                    <div id="token-create-error" class="hidden bg-red-50 text-red-600 p-3 rounded-lg mb-3 text-sm"></div>
-                    <div id="token-created" class="hidden bg-green-50 p-4 rounded-lg mb-3">
-                        <p class="text-sm font-medium text-green-800 mb-1">Token created successfully!</p>
-                        <p class="text-xs text-green-600 mb-2">Copy this token now — it will not be shown again.</p>
-                        <div class="flex items-center space-x-2">
-                            <code id="token-created-value" class="flex-1 bg-white text-green-900 px-3 py-2 rounded border border-green-200 text-xs font-mono break-all select-all"></code>
-                            <button onclick="copyToken()" class="bg-green-600 text-white px-3 py-1.5 rounded text-xs hover:bg-green-700 transition-colors">Copy</button>
-                        </div>
-                    </div>
-                    <form id="token-form" class="flex items-end space-x-3">
-                        <div class="flex-1">
-                            <label class="block text-xs font-medium text-slate-500 mb-1">Token Name</label>
-                            <input type="text" id="token-name" required placeholder="e.g. ci-pipeline"
-                                class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                        </div>
-                        <div class="w-32">
-                            <label class="block text-xs font-medium text-slate-500 mb-1">Expires (days)</label>
-                            <input type="number" id="token-expires" value="365" min="1" max="3650"
-                                class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                        </div>
-                        <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 transition-colors font-medium">
-                            Create
-                        </button>
-                    </form>
-                </div>
-
-                <!-- Token List -->
-                <div id="tokens-list" class="space-y-2"></div>
-            </section>
-        </main>
+          <!-- Token List -->
+          <div id="tokens-list" class="space-y-2"></div>
+        </section>
+      </main>
     </div>
 
     <!-- Confirm Modal -->
-    <div id="confirm-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-            <h3 class="text-lg font-bold text-slate-800 mb-2">Confirm</h3>
-            <p id="confirm-message" class="text-sm text-slate-600 mb-6"></p>
-            <div class="flex space-x-3">
-                <button id="confirm-yes" class="flex-1 bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors font-medium">Delete</button>
-                <button onclick="closeConfirmModal()" class="flex-1 bg-slate-100 text-slate-700 py-2 rounded-lg hover:bg-slate-200 transition-colors font-medium">Cancel</button>
-            </div>
+    <div
+      id="confirm-modal"
+      class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50"
+    >
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+        <h3 class="text-lg font-bold text-slate-800 mb-2">Confirm</h3>
+        <p id="confirm-message" class="text-sm text-slate-600 mb-6"></p>
+        <div class="flex space-x-3">
+          <button
+            id="confirm-yes"
+            class="flex-1 bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors font-medium"
+          >
+            Delete
+          </button>
+          <button
+            data-click="closeConfirmModal"
+            class="flex-1 bg-slate-100 text-slate-700 py-2 rounded-lg hover:bg-slate-200 transition-colors font-medium"
+          >
+            Cancel
+          </button>
         </div>
+      </div>
     </div>
 
     <script src="/js/pages/account.js"></script>
     <footer class="text-center text-sm text-slate-500 py-6 mt-auto">
-        <img src="/images/sonne.png" alt="Sanshain" width="59" height="32" class="mx-auto mb-2 h-8 w-auto opacity-70">
-        <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
-        <div class="mt-2 flex items-center justify-center gap-4">
-            <a href="https://github.com/paxel/sanshain-service" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800">GitHub</a>
-            <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
-        </div>
+      <img
+        src="/images/sonne.png"
+        alt="Sanshain"
+        width="59"
+        height="32"
+        class="mx-auto mb-2 h-8 w-auto opacity-70"
+      />
+      <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
+      <div class="mt-2 flex items-center justify-center gap-4">
+        <a
+          href="https://github.com/paxel/sanshain-service"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-indigo-600 hover:text-indigo-800"
+          >GitHub</a
+        >
+        <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
+      </div>
     </footer>
-</body>
+  </body>
 </html>

@@ -97,7 +97,7 @@ function renderTimeline(logs) {
                         ${
                           log.diff
                             ? `
-                            <button onclick="toggleDiff(${log.id})" class="text-indigo-600 hover:text-indigo-800 text-xs font-semibold flex items-center gap-1 whitespace-nowrap">
+                            <button data-click="toggleDiff" data-click-args="${attrJson([log.id])}" class="text-indigo-600 hover:text-indigo-800 text-xs font-semibold flex items-center gap-1 whitespace-nowrap">
                                 <svg id="diff-icon-${log.id}" class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                                 </svg>

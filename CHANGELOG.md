@@ -100,6 +100,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   pins (it leaves the current main graph) but the timeline still reconstructs the era it was
   active, instead of the rows being erased.
 
+### Security
+- The Content-Security-Policy now sets `script-src 'self'` (previously `'unsafe-inline'` plus two
+  CDN hosts) and adds `frame-ancestors 'none'`: all UI behaviour moved off inline event handlers
+  onto a delegated dispatcher, so a stored/reflected HTML injection can no longer run inline
+  script. `style-src` still allows `'unsafe-inline'` because the diagram library injects styles at
+  render time.
+
 ---
 
 Historical changes have been moved to [OLDER_CHANGES.md](OLDER_CHANGES.md).
