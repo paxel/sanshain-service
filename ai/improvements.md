@@ -16,16 +16,17 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 ## Priority legend
 
-### 6. AsyncAPI subscribe operations: harvest as requires, validate as expectations — DESIGNED (ADR-0006, 2026-08-11)
+### 6. AsyncAPI subscribe operations: harvest as requires, validate as expectations — DONE (2026-08-11, ADR-0006)
 
-> **Design settled — [ADR-0006](../docs/adr/0006-asyncapi-subscribe-harvesting.md).** The re-scope
-> to the post-ADR-0003 model is done: harvest a require edge on **every** provide (edge inherits the
-> provide's `trunk` flag; resolved by `(channel, message-name)` against the GA contract store,
-> missing → missing-endpoint tracking); harvested requires are a provide-owned set, reconciled
-> wholesale per provide and kept distinct from hand-declared requires; drift blocks with `409` only
-> on the consumer's **GA** provide and is advisory on snapshots; app-perspective `publish`/`subscribe`
-> reading documented loudly; response gains `harvested_subscriptions`. Ready to implement against the
-> ADR. The step list below predates the ADR — follow the ADR where they differ.
+> **Implemented — [ADR-0006](../docs/adr/0006-asyncapi-subscribe-harvesting.md).** AsyncAPI
+> `subscribe` operations are harvested on **every** provide (not tag provides) as **version-less
+> consumer edges** in a dedicated `harvested_subscriptions` store — inherently distinct from
+> hand-declared requires. Each resolves its PUB owner against the GA contract store (owner by value;
+> null owner = unfulfilled, kept visible), inherits the provide's `trunk` flag (main vs dev view),
+> and is reconciled append-only (a dropped subscription is retracted). Drift (`check_expectation_
+> satisfied`) blocks with `409` only on the consumer's GA provide, advisory on snapshots. Surfaced
+> in `ProvideResponse.harvested_subscriptions` (+ `api.yaml`) and rendered in the report/graph via
+> the BROKER node. The step list below predates the ADR — the ADR is authoritative where they differ.
 >
 > **2.0 note (ADR-0003):** the branch-era mechanics below are stale — contracts are now keyed
 > `(channel, message name)` (no branch), enforced on GA provides only, and there is no
