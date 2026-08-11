@@ -310,6 +310,12 @@ pub struct ProvideResponse {
     /// change listeners care about even when the content is byte-identical.
     #[serde(default)]
     pub promoted: bool,
+    /// AsyncAPI subscribe operations harvested from this provide as consumer
+    /// edges (ai/improvements.md #6) — each with its resolved owner (or none)
+    /// and, on a snapshot, an advisory drift note. Empty for non-AsyncAPI
+    /// provides. Omitted from the JSON when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub harvested_subscriptions: Vec<HarvestedSubscriptionResult>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

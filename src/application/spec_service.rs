@@ -447,6 +447,9 @@ pub async fn provide_spec(
             content_hash: hash,
             changes: ProvideChanges::default(),
             promoted: false,
+            // A byte-identical re-provide changes no subscriptions; the harvest
+            // is left as-is and not recomputed on this fast path.
+            harvested_subscriptions: Vec::new(),
         });
     }
 
@@ -566,6 +569,18 @@ pub async fn provide_spec(
     let promoting = existing.as_ref().map(|e| e.stability) == Some(Stability::Snapshot)
         && stability == Stability::Ga;
 
+    // #6/ADR-0006: harvest this AsyncAPI provide's declared subscriptions as
+    // version-less consumer edges. Never on `tag` provides — branch graphs are
+    // cut artifacts (ADR-0005), not where development subscriptions accrue.
+    // Read-only here; on a GA provide the drift check rejects (409) before any
+    // write happens.
+    let harvest_asyncapi = api_type == ApiType::AsyncApi && tag.is_none();
+    let (harvest_inputs, harvest_results) = if harvest_asyncapi {
+        plan_subscription_harvest(repo, content, stability).await?
+    } else {
+        (Vec::new(), Vec::new())
+    };
+
     if dry_run {
         return Ok(ProvideResponse {
             version,
@@ -573,6 +588,7 @@ pub async fn provide_spec(
             content_hash: hash,
             changes,
             promoted: promoting,
+            harvested_subscriptions: harvest_results,
         });
     }
 
@@ -741,12 +757,28 @@ pub async fn provide_spec(
         changes.deletes
     );
 
+    // #6/ADR-0006: reconcile the harvested subscription set for this Producer.
+    // Always for an AsyncAPI (non-tag) provide, even with no subscriptions —
+    // an empty set retracts every subscription the Producer previously declared.
+    if harvest_asyncapi {
+        let client_id = repo.ensure_client(producername).await?;
+        repo.reconcile_harvested_subscriptions(
+            client_id,
+            producername,
+            trunk,
+            &harvest_inputs,
+            &now_iso(),
+        )
+        .await?;
+    }
+
     Ok(ProvideResponse {
         version,
         stability,
         content_hash: hash,
         changes,
         promoted: promoting,
+        harvested_subscriptions: harvest_results,
     })
 }
 
@@ -791,6 +823,69 @@ enum ContractOp {
 ///
 /// Messages this service currently owns but no longer provides are planned for
 /// deletion. Performs no writes — it only reads and returns the planned ops.
+/// Plan the harvest of a Producer's declared AsyncAPI subscriptions (#6,
+/// ADR-0006): for each SUB, resolve the PUB owner against the GA contract store
+/// (owner by value; a vanished owner is treated as unfulfilled) and check the
+/// expectation is satisfiable. Read-only — returns the reconcile inputs and the
+/// response entries. On a **GA** provide an unsatisfiable expectation is fatal
+/// (the provide is rejected with `409` before it is written); on a snapshot it
+/// is advisory and carried in the result's `drift`.
+async fn plan_subscription_harvest(
+    repo: &impl SpecRepository,
+    content: &str,
+    stability: Stability,
+) -> Result<(Vec<HarvestedSubInput>, Vec<HarvestedSubscriptionResult>), AppError> {
+    let subs = asyncapi::extract_sub_messages(content).map_err(AppError::BadRequest)?;
+    let mut inputs = Vec::with_capacity(subs.len());
+    let mut results = Vec::with_capacity(subs.len());
+    for sub in &subs {
+        let contract = repo
+            .get_channel_message_contract(&sub.channel, &sub.message_name)
+            .await?;
+        let (owner_service_id, owner_name) = match &contract {
+            Some(c) => match repo.get_service_name_by_id(c.owner_service_id).await? {
+                Some(name) => (Some(c.owner_service_id), Some(name)),
+                // Owner vanished but a contract row lingers — treat as unfulfilled.
+                None => (None, None),
+            },
+            None => (None, None),
+        };
+        let drift = match &contract {
+            Some(c) => {
+                match asyncapi::check_expectation_satisfied(&c.payload_yaml, &sub.payload_yaml) {
+                    Ok(()) => None,
+                    Err(reason) => {
+                        let detail = format!(
+                            "channel '{}' message '{}': {}",
+                            sub.channel, sub.message_name, reason
+                        );
+                        if stability == Stability::Ga {
+                            return Err(AppError::Conflict(format!(
+                                "AsyncAPI subscription expectation is not satisfiable by the current contract — {detail}"
+                            )));
+                        }
+                        Some(detail)
+                    }
+                }
+            }
+            None => None,
+        };
+        inputs.push(HarvestedSubInput {
+            channel: sub.channel.clone(),
+            message_name: sub.message_name.clone(),
+            owner_service_id,
+            owner_name: owner_name.clone(),
+        });
+        results.push(HarvestedSubscriptionResult {
+            channel: sub.channel.clone(),
+            message_name: sub.message_name.clone(),
+            owner: owner_name,
+            drift,
+        });
+    }
+    Ok((inputs, results))
+}
+
 async fn plan_channel_message_contracts(
     repo: &impl SpecRepository,
     service_id: i64,
