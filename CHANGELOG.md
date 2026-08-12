@@ -127,6 +127,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   active, instead of the rows being erased.
 
 ### Security
+- LDAP with **Use TLS** on a plain `ldap://` server URL now upgrades the connection in-band via
+  StartTLS before any bind; previously such connections silently stayed plaintext (`ldaps://` was
+  and remains TLS from the scheme).
 - The Content-Security-Policy now sets `script-src 'self'` (previously `'unsafe-inline'` plus two
   CDN hosts) and adds `frame-ancestors 'none'`: all UI behaviour moved off inline event handlers
   onto a delegated dispatcher, so a stored/reflected HTML injection can no longer run inline

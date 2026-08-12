@@ -163,7 +163,8 @@ The **Authentication** section on the admin dashboard lets you choose how users 
 
 | Field              | Description                                                                                | Example                                 |
 |--------------------|--------------------------------------------------------------------------------------------|-----------------------------------------|
-| **Server URL**     | LDAP server address. Use `ldaps://` for TLS.                                               | `ldap://ldap.example.com:389`           |
+| **Server URL**     | LDAP server address. Use `ldaps://` for TLS from the start of the connection.              | `ldap://ldap.example.com:389`           |
+| **Use TLS**        | On a plain `ldap://` URL, upgrades the connection in-band via StartTLS before any bind. `ldaps://` is already encrypted by its scheme and ignores this. | *(checkbox)*                            |
 | **Bind DN**        | Service account DN used to search for users.                                               | `cn=readonly,dc=example,dc=com`         |
 | **Bind Password**  | Password for the service account.                                                          | *(stored encrypted, shown as `****`)*    |
 | **Base DN**        | Search base for user lookups.                                                              | `dc=example,dc=com`                     |
