@@ -388,17 +388,6 @@ pub async fn login_with_provider(
     Ok(session)
 }
 
-/// Complete an OIDC login: the caller has already verified the ID token, so the
-/// username and groups are trusted here. Find or create the local shadow user
-/// (with an unusable random password — OIDC users log in via the provider, not
-/// locally) and mint a session. Mirrors [`login_with_provider`] minus the
-/// credential check the provider already did.
-///
-/// Group → admin: unlike LDAP (which re-queries the directory on every check),
-/// an OIDC token is a login-time snapshot, so a user in the configured
-/// `admin_group` is granted the Admin role here. Grant-only — demotion is a
-/// manual revoke, not an automatic one, so a token that omits the group cannot
-/// silently strip a deliberately-granted admin.
 /// What an OIDC login round-trip stashes in the flow cookie between the
 /// redirect out and the callback: the CSRF state the provider must echo, the
 /// nonce baked into the ID token, and the PKCE verifier for the code exchange.
@@ -473,6 +462,17 @@ pub async fn oidc_complete(
     login_oidc(repo, &claims.username, &claims.groups, &config.admin_group).await
 }
 
+/// Mint the session for a verified OIDC identity: the caller has already
+/// verified the ID token, so the username and groups are trusted here. Find or
+/// create the local shadow user (with an unusable random password — OIDC users
+/// log in via the provider, not locally) and mint a session. Mirrors
+/// [`login_with_provider`] minus the credential check the provider already did.
+///
+/// Group → admin: unlike LDAP (which re-queries the directory on every check),
+/// an OIDC token is a login-time snapshot, so a user in the configured
+/// `admin_group` is granted the Admin role here. Grant-only — demotion is a
+/// manual revoke, not an automatic one, so a token that omits the group cannot
+/// silently strip a deliberately-granted admin.
 pub async fn login_oidc(
     repo: &impl SpecRepository,
     username: &str,
