@@ -18,8 +18,14 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// go wrong: it calls `ClientConfig::builder()`, which panics here because two
 /// crypto providers are linked in, and its root store collapses to *empty* if
 /// reading the platform certificates hiccups — trusting nothing, silently.
-async fn open_connection(url: &str) -> ldap3::result::Result<(LdapConnAsync, ldap3::Ldap)> {
-    let settings = LdapConnSettings::new().set_conn_timeout(CONNECT_TIMEOUT);
+async fn open_connection(
+    url: &str,
+    starttls: bool,
+) -> ldap3::result::Result<(LdapConnAsync, ldap3::Ldap)> {
+    let mut settings = LdapConnSettings::new().set_conn_timeout(CONNECT_TIMEOUT);
+    // StartTLS upgrades a plain `ldap://` connection to TLS in-band. `ldaps://`
+    // is already TLS from the scheme, so it never needs (or wants) this.
+    settings = settings.set_starttls(starttls);
     match crate::infrastructure::tls::ldap_client_config() {
         Some(config) => LdapConnAsync::with_settings(settings.set_config(config), url).await,
         // Only when the configuration could not be built at all, which is
@@ -53,8 +59,14 @@ impl LdapAuthProvider {
         Self { config }
     }
 
+    /// StartTLS applies to a plain `ldap://` URL when the operator asked for
+    /// TLS (`use_tls`). `ldaps://` is already encrypted by its scheme.
+    fn use_starttls(&self) -> bool {
+        self.config.use_tls && self.config.server_url.starts_with("ldap://")
+    }
+
     async fn connect(&self) -> Result<ldap3::Ldap, AuthProviderError> {
-        let (conn, mut ldap) = open_connection(&self.config.server_url)
+        let (conn, mut ldap) = open_connection(&self.config.server_url, self.use_starttls())
             .await
             .map_err(|e| {
                 AuthProviderError::ConnectionFailed(format!(
@@ -126,7 +138,7 @@ impl AuthProvider for LdapAuthProvider {
         let user_dn = entry.dn;
 
         // Attempt bind as the user to verify password
-        let (conn2, mut user_ldap) = open_connection(&self.config.server_url)
+        let (conn2, mut user_ldap) = open_connection(&self.config.server_url, self.use_starttls())
             .await
             .map_err(|e| AuthProviderError::ConnectionFailed(format!("LDAP connect: {}", e)))?;
         ldap3::drive!(conn2);
