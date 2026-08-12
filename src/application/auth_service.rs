@@ -427,7 +427,7 @@ pub async fn login_oidc(
     let local_user = match repo.find_user(username).await? {
         Some(u) => u,
         None => {
-            let hash = hash_password(&generate_random_password())?;
+            let hash = hash_password_async(&generate_random_password()).await?;
             repo.create_user(username, &hash, true).await?
         }
     };
