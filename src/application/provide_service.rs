@@ -306,15 +306,7 @@ pub async fn provide_spec(
         // harvested edges into the main graph. Reconcile so the trunk-ness
         // follows this provide, and report the harvest either way.
         if harvest_asyncapi && !dry_run {
-            let client_id = repo.ensure_client(producername).await?;
-            repo.reconcile_harvested_subscriptions(
-                client_id,
-                producername,
-                trunk,
-                &harvest_inputs,
-                &now_iso(),
-            )
-            .await?;
+            reconcile_harvest(repo, producername, trunk, &harvest_inputs).await?;
         }
         return Ok(ProvideResponse {
             version,
@@ -623,15 +615,7 @@ pub async fn provide_spec(
     // Always for an AsyncAPI (non-tag) provide, even with no subscriptions —
     // an empty set retracts every subscription the Producer previously declared.
     if harvest_asyncapi {
-        let client_id = repo.ensure_client(producername).await?;
-        repo.reconcile_harvested_subscriptions(
-            client_id,
-            producername,
-            trunk,
-            &harvest_inputs,
-            &now_iso(),
-        )
-        .await?;
+        reconcile_harvest(repo, producername, trunk, &harvest_inputs).await?;
     }
 
     Ok(ProvideResponse {
@@ -642,6 +626,21 @@ pub async fn provide_spec(
         promoted: promoting,
         harvested_subscriptions: harvest_results,
     })
+}
+
+/// Reconcile the harvested subscription set for this Producer (#6/ADR-0006):
+/// resolve its client id and hand the declared set to the store, which closes
+/// what was dropped and (re)opens what is declared.
+async fn reconcile_harvest(
+    repo: &impl SpecRepository,
+    producername: &str,
+    trunk: bool,
+    inputs: &[HarvestedSubInput],
+) -> Result<(), AppError> {
+    let client_id = repo.ensure_client(producername).await?;
+    repo.reconcile_harvested_subscriptions(client_id, producername, trunk, inputs, &now_iso())
+        .await?;
+    Ok(())
 }
 
 /// Apply planned channel-message-contract mutations.
