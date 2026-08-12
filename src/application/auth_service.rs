@@ -275,14 +275,9 @@ pub async fn get_auth_mode(repo: &impl SpecRepository) -> Result<AuthMode, AppEr
         .get_setting("auth_mode")
         .await?
         .unwrap_or("disabled".to_string());
-    match val.as_str() {
-        "disabled" | "off" | "maintenance" => Ok(AuthMode::Disabled),
-        "ldap" => Ok(AuthMode::Ldap),
-        "local" => Ok(AuthMode::Local),
-        "oidc" => Ok(AuthMode::Oidc),
-        "dev" => Ok(AuthMode::Dev),
-        _ => Ok(AuthMode::Disabled),
-    }
+    // One parser (AuthMode::from_str) owns the string mapping and aliases; an
+    // unrecognized stored value fails closed to Disabled.
+    Ok(val.parse().unwrap_or(AuthMode::Disabled))
 }
 
 pub async fn set_auth_mode(repo: &impl SpecRepository, mode: &AuthMode) -> Result<(), AppError> {
