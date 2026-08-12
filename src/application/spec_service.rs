@@ -449,18 +449,6 @@ pub struct ValidationReport {
 /// How many split entries the validator previews.
 const VALIDATE_PREVIEW_LIMIT: usize = 20;
 
-/// Run a CPU-bound spec computation (YAML parse/split/merge) on the blocking
-/// pool. Parsing a multi-megabyte document costs real CPU time; inline it
-/// would stall the async worker thread — and every request scheduled on it —
-/// for the whole computation.
-pub(crate) async fn run_cpu_bound<T: Send + 'static>(
-    work: impl FnOnce() -> Result<T, AppError> + Send + 'static,
-) -> Result<T, AppError> {
-    tokio::task::spawn_blocking(work)
-        .await
-        .map_err(|e| AppError::Internal(format!("Spec parsing task failed: {}", e)))?
-}
-
 /// Cap for concurrent `/validate` parses. The endpoint is deliberately
 /// unauthenticated (a public validator), so this cap — not authentication —
 /// is what bounds how much parsing CPU anonymous callers can occupy at once.
@@ -476,7 +464,7 @@ pub async fn validate_spec_async(
         .acquire()
         .await
         .map_err(|e| AppError::Internal(format!("Validator unavailable: {}", e)))?;
-    run_cpu_bound(move || Ok(validate_spec(api_type, &content))).await
+    super::run_cpu_bound(move || Ok(validate_spec(api_type, &content))).await
 }
 
 /// Validate a pasted document against the exact provide-side pipeline:

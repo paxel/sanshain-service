@@ -30,31 +30,17 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
         .is_ok())
 }
 
-/// Run an Argon2 computation on the blocking pool.
-///
-/// Argon2 burns tens of milliseconds of CPU by design; inline it would stall
-/// the async worker thread — and every request scheduled on it — for the
-/// whole computation. Request-path callers must use this; one-off startup
-/// paths may call the sync functions directly.
-async fn spawn_argon2<T: Send + 'static>(
-    work: impl FnOnce() -> Result<T, AppError> + Send + 'static,
-) -> Result<T, AppError> {
-    tokio::task::spawn_blocking(work)
-        .await
-        .map_err(|e| AppError::Internal(format!("Hashing task failed: {}", e)))?
-}
-
 /// [`hash_password`], off the async worker thread.
 pub async fn hash_password_async(password: &str) -> Result<String, AppError> {
     let password = password.to_string();
-    spawn_argon2(move || hash_password(&password)).await
+    super::run_cpu_bound(move || hash_password(&password)).await
 }
 
 /// [`verify_password`], off the async worker thread.
 pub async fn verify_password_async(password: &str, hash: &str) -> Result<bool, AppError> {
     let password = password.to_string();
     let hash = hash.to_string();
-    spawn_argon2(move || verify_password(&password, &hash)).await
+    super::run_cpu_bound(move || verify_password(&password, &hash)).await
 }
 
 pub fn generate_random_password() -> String {

@@ -183,7 +183,7 @@ pub async fn provide_spec(
     let (version, hash, endpoints) = {
         let content = content.to_string();
         let producername = producername.to_string();
-        super::spec_service::run_cpu_bound(move || {
+        super::run_cpu_bound(move || {
             let version = extract_spec_version(api_type, &content)?;
             let hash = content_hash(&content);
             let endpoints = parse_spec_endpoints(api_type, &content, &producername)?;
