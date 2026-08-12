@@ -316,17 +316,40 @@ fn message_key(channel: &str, op_key: &str, message: &Value, index: usize) -> St
     }
 }
 
-/// Recursively check that a payload schema change is backward-compatible.
-fn check_schema_compatible(path: &str, old: &Value, new: &Value) -> Result<(), String> {
+/// A structural incompatibility found by [`find_schema_mismatch`], carried as
+/// data so each caller can phrase it for its own direction: `old`/`new` are
+/// the walk's first/second schema — a stored-vs-submitted comparison reads
+/// them as before/after, an expectation-vs-contract one as consumer/producer.
+enum SchemaMismatch {
+    RefChanged {
+        path: String,
+        old: String,
+        new: String,
+    },
+    TypeChanged {
+        path: String,
+        old: String,
+        new: String,
+    },
+    PropertyMissing {
+        path: String,
+    },
+}
+
+/// Recursively find the first place `new` fails to provide what `old` has:
+/// a property present in `old` but absent from `new` (unless `old` marks it
+/// deprecated), or a type/`$ref` that differs.
+fn find_schema_mismatch(path: &str, old: &Value, new: &Value) -> Result<(), SchemaMismatch> {
     let old_ref = old.get("$ref").and_then(Value::as_str);
     let new_ref = new.get("$ref").and_then(Value::as_str);
     if let (Some(old_ref), Some(new_ref)) = (old_ref, new_ref)
         && old_ref != new_ref
     {
-        return Err(format!(
-            "'{}' changed $ref from '{}' to '{}'",
-            path, old_ref, new_ref
-        ));
+        return Err(SchemaMismatch::RefChanged {
+            path: path.to_string(),
+            old: old_ref.to_string(),
+            new: new_ref.to_string(),
+        });
     }
 
     let old_type = old.get("type").and_then(Value::as_str);
@@ -334,10 +357,11 @@ fn check_schema_compatible(path: &str, old: &Value, new: &Value) -> Result<(), S
     if let (Some(old_type), Some(new_type)) = (old_type, new_type)
         && old_type != new_type
     {
-        return Err(format!(
-            "'{}' changed type from '{}' to '{}'",
-            path, old_type, new_type
-        ));
+        return Err(SchemaMismatch::TypeChanged {
+            path: path.to_string(),
+            old: old_type.to_string(),
+            new: new_type.to_string(),
+        });
     }
 
     if let Some(old_props) = old.get("properties").and_then(Value::as_mapping) {
@@ -347,19 +371,35 @@ fn check_schema_compatible(path: &str, old: &Value, new: &Value) -> Result<(), S
             match new_props.and_then(|props| props.get(prop_name)) {
                 None => {
                     if !is_marked_deprecated(old_prop) {
-                        return Err(format!("Property '{}' was removed", prop_path));
+                        return Err(SchemaMismatch::PropertyMissing { path: prop_path });
                     }
                 }
-                Some(new_prop) => check_schema_compatible(&prop_path, old_prop, new_prop)?,
+                Some(new_prop) => find_schema_mismatch(&prop_path, old_prop, new_prop)?,
             }
         }
     }
 
     if let (Some(old_items), Some(new_items)) = (old.get("items"), new.get("items")) {
-        check_schema_compatible(&format!("{}[]", path), old_items, new_items)?;
+        find_schema_mismatch(&format!("{}[]", path), old_items, new_items)?;
     }
 
     Ok(())
+}
+
+/// Recursively check that a payload schema change is backward-compatible,
+/// phrasing a mismatch as a before/after change.
+fn check_schema_compatible(path: &str, old: &Value, new: &Value) -> Result<(), String> {
+    find_schema_mismatch(path, old, new).map_err(|m| match m {
+        SchemaMismatch::RefChanged { path, old, new } => {
+            format!("'{}' changed $ref from '{}' to '{}'", path, old, new)
+        }
+        SchemaMismatch::TypeChanged { path, old, new } => {
+            format!("'{}' changed type from '{}' to '{}'", path, old, new)
+        }
+        SchemaMismatch::PropertyMissing { path } => {
+            format!("Property '{}' was removed", path)
+        }
+    })
 }
 
 /// A `publish`/`send` (PUB) message extracted from an AsyncAPI document, for
@@ -570,6 +610,11 @@ pub fn check_payload_compatible(
 /// contract plays the "new" schema (it must still provide everything) and the
 /// expectation plays the "old" (what must remain available), so a property the
 /// expectation reads but the contract lacks is reported as missing.
+///
+/// Deliberate leniency: an expectation property the consumer itself marks
+/// `deprecated` may be absent from the contract without counting as drift —
+/// the consumer has flagged that read as going away, so the contract not
+/// guaranteeing it is the expected end state, not a surprise.
 pub fn check_expectation_satisfied(
     contract_payload_yaml: &str,
     expectation_payload_yaml: &str,
@@ -578,7 +623,24 @@ pub fn check_expectation_satisfied(
         .map_err(|e| format!("Failed to parse contract payload: {}", e))?;
     let expectation: Value = serde_yaml_ng::from_str(expectation_payload_yaml)
         .map_err(|e| format!("Failed to parse expectation payload: {}", e))?;
-    check_schema_compatible("payload", &expectation, &contract)
+    // Phrase mismatches in the expectation→contract direction: the walk's
+    // "old" is what the consumer reads, its "new" what the producer provides.
+    // Reusing the compatibility wording here once produced backwards messages
+    // ("Property was removed" for a property the contract never had).
+    find_schema_mismatch("payload", &expectation, &contract).map_err(|m| match m {
+        SchemaMismatch::PropertyMissing { path } => format!(
+            "Consumer expects property '{}', which the contract does not provide",
+            path
+        ),
+        SchemaMismatch::TypeChanged { path, old, new } => format!(
+            "Consumer expects '{}' as type '{}', but the contract provides '{}'",
+            path, old, new
+        ),
+        SchemaMismatch::RefChanged { path, old, new } => format!(
+            "Consumer expects '{}' with $ref '{}', but the contract provides '{}'",
+            path, old, new
+        ),
+    })
 }
 
 /// Two message payloads are semantically equal if their parsed YAML values are
@@ -1135,9 +1197,9 @@ operations:
         let expectation =
             "type: object\nproperties:\n  id: { type: string }\n  ssn: { type: string }\n";
         let err = check_expectation_satisfied(contract, expectation).unwrap_err();
-        assert!(
-            err.contains("ssn"),
-            "error should name the missing property: {err}"
+        assert_eq!(
+            err,
+            "Consumer expects property 'payload.ssn', which the contract does not provide"
         );
     }
 
@@ -1146,10 +1208,21 @@ operations:
         let contract = "type: object\nproperties:\n  id: { type: string }\n";
         let expectation = "type: object\nproperties:\n  id: { type: integer }\n";
         let err = check_expectation_satisfied(contract, expectation).unwrap_err();
-        assert!(
-            err.contains("id") && err.contains("type"),
-            "error should name the property and the type mismatch: {err}"
+        // Direction matters: the consumer's expected type first, the
+        // contract's actual type second — not the compatibility-check wording.
+        assert_eq!(
+            err,
+            "Consumer expects 'payload.id' as type 'integer', but the contract provides 'string'"
         );
+    }
+
+    // The documented leniency: an expectation property the consumer itself
+    // marks deprecated may be absent from the contract without drift.
+    #[test]
+    fn deprecated_expectation_property_absent_from_contract_is_not_drift() {
+        let contract = "type: object\nproperties:\n  id: { type: string }\n";
+        let expectation = "type: object\nproperties:\n  id: { type: string }\n  legacy:\n    type: string\n    deprecated: true\n";
+        assert_eq!(check_expectation_satisfied(contract, expectation), Ok(()));
     }
 
     #[test]
