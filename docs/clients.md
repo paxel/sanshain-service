@@ -68,6 +68,14 @@ requires:
         path: /api/v1/user
 ```
 
+> ⚠️ **AsyncAPI 2.x perspective convention.** Sanshain reads `publish`/`subscribe` from the
+> **application's** perspective: `publish` means *the providing service publishes to the channel*,
+> `subscribe` means *it consumes the channel*. The official AsyncAPI 2.x specification defines
+> those keywords from the client's perspective — exactly inverted. A 2.x document authored with
+> the spec-literal reading registers its contracts, and harvests its subscriptions, exactly
+> backwards. Details and the 3.x `send`/`receive` mapping:
+> [sanshain-yaml.md](sanshain-yaml.md#asyncapi-version-compatibility-v2--v3).
+
 ---
 
 ## Community & Custom Clients
