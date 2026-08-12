@@ -33,6 +33,12 @@ pub struct CachedSpecRepository {
     clients_list_cache: Cache<String, Arc<Vec<String>>>,
     // Authorisation (entry-count bounded, short TTL)
     effective_roles_cache: Cache<i64, Arc<Vec<String>>>,
+    // Settings (entry-count bounded, short TTL)
+    settings_cache: Cache<String, Arc<Option<String>>>,
+    // Groups and their role grants (entry-count bounded, short TTL) — read per
+    // authenticated request for directory-backed users (roles_from_directory)
+    groups_list_cache: Cache<(), Arc<Vec<Group>>>,
+    group_roles_cache: Cache<i64, Arc<Vec<String>>>,
     // Stats
     hits: Arc<AtomicU64>,
     misses: Arc<AtomicU64>,
@@ -48,6 +54,12 @@ fn mb_to_bytes(mb: u64) -> u64 {
 /// the repository invalidate immediately and never wait on it.
 const EFFECTIVE_ROLES_TTL_SECS: u64 = 10;
 
+/// Safety net for the settings cache, same contract as
+/// [`EFFECTIVE_ROLES_TTL_SECS`]: `set_setting` through this repository
+/// invalidates immediately; the TTL bounds how long a write from *another
+/// instance* sharing the database (or direct SQL) can go unnoticed here.
+const SETTINGS_TTL_SECS: u64 = 10;
+
 struct RepoCaches {
     endpoint_cache: Cache<EndpointKey, Arc<(i64, String, bool)>>,
     version_endpoints_cache: Cache<i64, Arc<Vec<EndpointRecord>>>,
@@ -59,6 +71,9 @@ struct RepoCaches {
     services_list_cache: Cache<String, Arc<Vec<String>>>,
     clients_list_cache: Cache<String, Arc<Vec<String>>>,
     effective_roles_cache: Cache<i64, Arc<Vec<String>>>,
+    settings_cache: Cache<String, Arc<Option<String>>>,
+    groups_list_cache: Cache<(), Arc<Vec<Group>>>,
+    group_roles_cache: Cache<i64, Arc<Vec<String>>>,
 }
 
 impl CachedSpecRepository {
@@ -76,6 +91,9 @@ impl CachedSpecRepository {
             services_list_cache: caches.services_list_cache,
             clients_list_cache: caches.clients_list_cache,
             effective_roles_cache: caches.effective_roles_cache,
+            settings_cache: caches.settings_cache,
+            groups_list_cache: caches.groups_list_cache,
+            group_roles_cache: caches.group_roles_cache,
             hits: Arc::new(AtomicU64::new(0)),
             misses: Arc::new(AtomicU64::new(0)),
             memory_limit_mb: Arc::new(AtomicU64::new(memory_limit_mb)),
@@ -187,6 +205,29 @@ impl CachedSpecRepository {
             .time_to_live(std::time::Duration::from_secs(EFFECTIVE_ROLES_TTL_SECS))
             .build();
 
+        // Settings (auth_mode, dev_mode, …) are read by the auth middleware on
+        // every request but change only through admin actions. Absent settings
+        // are cached too (as None) — the most-read keys are often never set.
+        let settings_cache = Cache::builder()
+            .max_capacity(1_000)
+            .time_to_live(std::time::Duration::from_secs(SETTINGS_TTL_SECS))
+            .build();
+
+        // `roles_from_directory` walks all groups and each group's roles on
+        // every authenticated request for directory-backed users — an N+1 on
+        // the auth path when read from the database. Same contract as the
+        // effective-roles cache: writes through this repository invalidate
+        // immediately, the TTL bounds writes made elsewhere.
+        let groups_list_cache = Cache::builder()
+            .max_capacity(10)
+            .time_to_live(std::time::Duration::from_secs(EFFECTIVE_ROLES_TTL_SECS))
+            .build();
+
+        let group_roles_cache = Cache::builder()
+            .max_capacity(10_000)
+            .time_to_live(std::time::Duration::from_secs(EFFECTIVE_ROLES_TTL_SECS))
+            .build();
+
         RepoCaches {
             endpoint_cache,
             version_endpoints_cache,
@@ -198,6 +239,9 @@ impl CachedSpecRepository {
             services_list_cache,
             clients_list_cache,
             effective_roles_cache,
+            settings_cache,
+            groups_list_cache,
+            group_roles_cache,
         }
     }
 
@@ -213,6 +257,9 @@ impl CachedSpecRepository {
         self.services_list_cache.run_pending_tasks().await;
         self.clients_list_cache.run_pending_tasks().await;
         self.effective_roles_cache.run_pending_tasks().await;
+        self.settings_cache.run_pending_tasks().await;
+        self.groups_list_cache.run_pending_tasks().await;
+        self.group_roles_cache.run_pending_tasks().await;
 
         let hits = self.hits.load(Ordering::Relaxed);
         let misses = self.misses.load(Ordering::Relaxed);
@@ -267,6 +314,9 @@ impl CachedSpecRepository {
         self.spec_version_cache.invalidate_all();
         self.services_list_cache.invalidate_all();
         self.clients_list_cache.invalidate_all();
+        self.settings_cache.invalidate_all();
+        self.groups_list_cache.invalidate_all();
+        self.group_roles_cache.invalidate_all();
         self.hits.store(0, Ordering::Relaxed);
         self.misses.store(0, Ordering::Relaxed);
     }
@@ -309,6 +359,9 @@ impl CachedSpecRepository {
         self.services_cache.invalidate_all();
         self.clients_list_cache.invalidate_all();
         self.effective_roles_cache.invalidate_all();
+        self.settings_cache.invalidate_all();
+        self.groups_list_cache.invalidate_all();
+        self.group_roles_cache.invalidate_all();
     }
 }
 
@@ -1007,12 +1060,31 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.delete_session(token).await
     }
 
+    // Settings are read by the auth middleware on every request; cached with
+    // write-through invalidation like `effective_stored_roles`, so a change
+    // through this repository takes effect immediately and the TTL only bounds
+    // staleness for writes made elsewhere (another instance, direct SQL).
     async fn get_setting(&self, key: &str) -> Result<Option<String>, RepositoryError> {
-        self.inner.get_setting(key).await
+        if !self.is_disabled()
+            && let Some(value) = self.settings_cache.get(key).await
+        {
+            self.record_hit();
+            return Ok(value.as_ref().clone());
+        }
+        self.record_miss();
+        let value = self.inner.get_setting(key).await?;
+        if !self.is_disabled() {
+            self.settings_cache
+                .insert(key.to_string(), Arc::new(value.clone()))
+                .await;
+        }
+        Ok(value)
     }
 
     async fn set_setting(&self, key: &str, value: &str) -> Result<(), RepositoryError> {
-        self.inner.set_setting(key, value).await
+        self.inner.set_setting(key, value).await?;
+        self.settings_cache.invalidate(key).await;
+        Ok(())
     }
 
     async fn create_api_token(
@@ -1098,11 +1170,17 @@ impl SpecRepository for CachedSpecRepository {
         name: &str,
         source: GroupSource,
     ) -> Result<Group, RepositoryError> {
-        self.inner.create_group(name, source).await
+        let group = self.inner.create_group(name, source).await?;
+        self.groups_list_cache.invalidate(&()).await;
+        Ok(group)
     }
 
     async fn rename_group(&self, group_id: i64, name: &str) -> Result<bool, RepositoryError> {
-        self.inner.rename_group(group_id, name).await
+        let renamed = self.inner.rename_group(group_id, name).await?;
+        // Directory roles match groups by *name*, so a rename changes who they
+        // apply to just as much as a create or delete does.
+        self.groups_list_cache.invalidate(&()).await;
+        Ok(renamed)
     }
 
     async fn delete_group(&self, group_id: i64) -> Result<bool, RepositoryError> {
@@ -1110,11 +1188,26 @@ impl SpecRepository for CachedSpecRepository {
         // Which users held roles through this group is not tracked here, so
         // everyone's entry goes rather than guessing.
         self.effective_roles_cache.invalidate_all();
+        self.groups_list_cache.invalidate(&()).await;
+        self.group_roles_cache.invalidate(&group_id).await;
         Ok(removed)
     }
 
     async fn list_groups(&self) -> Result<Vec<Group>, RepositoryError> {
-        self.inner.list_groups().await
+        if !self.is_disabled()
+            && let Some(groups) = self.groups_list_cache.get(&()).await
+        {
+            self.record_hit();
+            return Ok(groups.as_ref().clone());
+        }
+        self.record_miss();
+        let groups = self.inner.list_groups().await?;
+        if !self.is_disabled() {
+            self.groups_list_cache
+                .insert((), Arc::new(groups.clone()))
+                .await;
+        }
+        Ok(groups)
     }
 
     async fn set_group_roles(
@@ -1125,11 +1218,25 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.set_group_roles(group_id, roles).await?;
         // Affects every member of the group; membership is not tracked here.
         self.effective_roles_cache.invalidate_all();
+        self.group_roles_cache.invalidate(&group_id).await;
         Ok(())
     }
 
     async fn list_group_roles(&self, group_id: i64) -> Result<Vec<String>, RepositoryError> {
-        self.inner.list_group_roles(group_id).await
+        if !self.is_disabled()
+            && let Some(roles) = self.group_roles_cache.get(&group_id).await
+        {
+            self.record_hit();
+            return Ok(roles.as_ref().clone());
+        }
+        self.record_miss();
+        let roles = self.inner.list_group_roles(group_id).await?;
+        if !self.is_disabled() {
+            self.group_roles_cache
+                .insert(group_id, Arc::new(roles.clone()))
+                .await;
+        }
+        Ok(roles)
     }
 
     async fn add_group_member(&self, group_id: i64, user_id: i64) -> Result<(), RepositoryError> {
@@ -1464,6 +1571,69 @@ mod tests {
         repo.delete_producer("svc").await.unwrap();
         let found = repo.find_service("svc").await.unwrap();
         assert_eq!(found, None);
+    }
+
+    // Group and group-role writes must be visible to the next read immediately
+    // — directory-derived authorisation reads these per request, so a stale
+    // answer here would be a stale permission.
+    #[tokio::test]
+    async fn test_group_writes_invalidate_cached_reads() {
+        let repo = setup_cached_repo(256).await;
+
+        assert!(repo.list_groups().await.unwrap().is_empty());
+        let group = repo
+            .create_group("admins", GroupSource::Ldap)
+            .await
+            .unwrap();
+        let listed = repo.list_groups().await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].name, "admins");
+
+        assert!(repo.list_group_roles(group.id).await.unwrap().is_empty());
+        repo.set_group_roles(group.id, &["admin".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(
+            repo.list_group_roles(group.id).await.unwrap(),
+            vec!["admin".to_string()]
+        );
+
+        repo.rename_group(group.id, "operators").await.unwrap();
+        assert_eq!(repo.list_groups().await.unwrap()[0].name, "operators");
+
+        repo.delete_group(group.id).await.unwrap();
+        assert!(repo.list_groups().await.unwrap().is_empty());
+        assert!(repo.list_group_roles(group.id).await.unwrap().is_empty());
+    }
+
+    // A set_setting must be visible to the next get_setting immediately —
+    // write-through invalidation, not TTL expiry, is what keeps an auth-mode
+    // change effective on the instance that made it.
+    #[tokio::test]
+    async fn test_setting_write_invalidates_cached_read() {
+        let repo = setup_cached_repo(256).await;
+
+        // Absent setting: cached as None, and served from cache on re-read.
+        assert_eq!(repo.get_setting("unseeded_key").await.unwrap(), None);
+        let misses_before = repo.cache_stats().await.miss_count;
+        assert_eq!(repo.get_setting("unseeded_key").await.unwrap(), None);
+        assert_eq!(
+            repo.cache_stats().await.miss_count,
+            misses_before,
+            "second read of an absent setting must be a cache hit"
+        );
+
+        repo.set_setting("unseeded_key", "local").await.unwrap();
+        assert_eq!(
+            repo.get_setting("unseeded_key").await.unwrap(),
+            Some("local".to_string())
+        );
+
+        repo.set_setting("unseeded_key", "ldap").await.unwrap();
+        assert_eq!(
+            repo.get_setting("unseeded_key").await.unwrap(),
+            Some("ldap".to_string())
+        );
     }
 
     #[tokio::test]

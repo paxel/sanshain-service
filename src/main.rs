@@ -191,7 +191,11 @@ pub async fn main() {
         .busy_timeout(std::time::Duration::from_millis(sqlite_busy_timeout_ms))
         .synchronous(SqliteSynchronous::Normal);
 
-        let max_connections = env_number::<u32>("MAX_SQLITE_CONNECTIONS", 1);
+        // WAL mode supports concurrent readers beside one writer; a pool of 1
+        // would serialize every query. Write transactions use BEGIN IMMEDIATE
+        // (see SqliteSpecRepository::write_tx) so writers queue on busy_timeout
+        // rather than fail once the pool exceeds one connection.
+        let max_connections = env_number::<u32>("MAX_SQLITE_CONNECTIONS", 5);
 
         let pool = match SqlitePoolOptions::new()
             .max_connections(max_connections)

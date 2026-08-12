@@ -671,8 +671,10 @@ pub struct ValidateRequest {
     pub content: String,
 }
 
-pub async fn validate(Json(payload): Json<ValidateRequest>) -> impl IntoResponse {
-    Json(services::validate_spec(payload.api_type, &payload.content))
+pub async fn validate(Json(payload): Json<ValidateRequest>) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(
+        services::validate_spec_async(payload.api_type, payload.content).await?,
+    ))
 }
 
 pub async fn sse_updates(

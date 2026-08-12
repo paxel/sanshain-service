@@ -7,7 +7,7 @@ Sanshain Service can be configured using environment variables.
 | `DATABASE_URL`                 | `sqlite:sanshain.db?mode=rwc`             | Database connection string. Use `postgres://user:pass@host:5432/dbname` for PostgreSQL.                   |
 | `BIND_ADDRESS`                 | `0.0.0.0:3000`                            | Address and port to listen on.                                                                            |
 | `MAX_POSTGRES_CONNECTIONS`     | `20`                                      | Max connection pool size for PostgreSQL.                                                                  |
-| `MAX_SQLITE_CONNECTIONS`       | `1`                                       | Max connection pool size for SQLite.                                                                      |
+| `MAX_SQLITE_CONNECTIONS`       | `5`                                       | Max connection pool size for SQLite.                                                                      |
 | `SQLITE_BUSY_TIMEOUT_MS`       | `5000`                                    | SQLite busy timeout in milliseconds.                                                                      |
 | `CLEANUP_INTERVAL_SECS`        | `3600`                                    | Interval for background cleanup tasks (unused snapshots, stale dependencies).                             |
 | `CSRF_MAX_AGE_HOURS`           | `24`                                      | Maximum age of CSRF tokens before they are pruned.                                                        |

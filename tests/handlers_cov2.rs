@@ -81,7 +81,7 @@ paths:
 // `cfg(test)` is always true in this crate; the attribute marks the helpers as
 // test code for clippy's `allow-unwrap-in-tests`.
 #[cfg(test)]
-async fn app_with_seed() -> (axum::Router, SqliteSpecRepository, String) {
+async fn app_with_seed() -> (axum::Router, CachedSpecRepository, String) {
     let pool = SqlitePoolOptions::new()
         .connect("sqlite::memory:")
         .await
@@ -115,8 +115,13 @@ async fn app_with_seed() -> (axum::Router, SqliteSpecRepository, String) {
     .await
     .unwrap();
 
-    let app = create_app(test_state(repo.clone()));
-    (app, repo, session.token)
+    // Hand back the app's *cached* repository, not the bare SQLite one: a
+    // write through a second, uncached handle would bypass the app cache's
+    // write-through invalidation and be invisible until the TTL expires.
+    let state = test_state(repo);
+    let cached_repo = state.repo.clone();
+    let app = create_app(state);
+    (app, cached_repo, session.token)
 }
 
 #[cfg(test)]

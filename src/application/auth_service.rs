@@ -30,6 +30,33 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
         .is_ok())
 }
 
+/// Run an Argon2 computation on the blocking pool.
+///
+/// Argon2 burns tens of milliseconds of CPU by design; inline it would stall
+/// the async worker thread — and every request scheduled on it — for the
+/// whole computation. Request-path callers must use this; one-off startup
+/// paths may call the sync functions directly.
+async fn spawn_argon2<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, AppError> + Send + 'static,
+) -> Result<T, AppError> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| AppError::Internal(format!("Hashing task failed: {}", e)))?
+}
+
+/// [`hash_password`], off the async worker thread.
+pub async fn hash_password_async(password: &str) -> Result<String, AppError> {
+    let password = password.to_string();
+    spawn_argon2(move || hash_password(&password)).await
+}
+
+/// [`verify_password`], off the async worker thread.
+pub async fn verify_password_async(password: &str, hash: &str) -> Result<bool, AppError> {
+    let password = password.to_string();
+    let hash = hash.to_string();
+    spawn_argon2(move || verify_password(&password, &hash)).await
+}
+
 pub fn generate_random_password() -> String {
     Alphanumeric.sample_string(&mut rand::rng(), 16)
 }
@@ -101,7 +128,7 @@ pub async fn login(
         return Err(AppError::Forbidden);
     }
 
-    if !verify_password(password, &user.password_hash)? {
+    if !verify_password_async(password, &user.password_hash).await? {
         return Err(AppError::Unauthorized);
     }
 
@@ -117,10 +144,10 @@ pub async fn change_password(
     old_password: &str,
     new_password: &str,
 ) -> Result<Option<Session>, AppError> {
-    if !verify_password(old_password, &user.password_hash)? {
+    if !verify_password_async(old_password, &user.password_hash).await? {
         return Err(AppError::Unauthorized);
     }
-    let new_hash = hash_password(new_password)?;
+    let new_hash = hash_password_async(new_password).await?;
     repo.update_password(user.id, &new_hash).await?;
 
     if let Some(token) = current_token {
@@ -211,7 +238,7 @@ pub async fn register_user(
     if repo.find_user(username).await?.is_some() {
         return Err(AppError::Conflict("User already exists".to_string()));
     }
-    let hash = hash_password(password)?;
+    let hash = hash_password_async(password).await?;
     let auto_approve = repo
         .get_setting("auto_approve_users")
         .await?
@@ -501,6 +528,22 @@ mod tests {
         let hash = hash_password("secret123").unwrap();
         assert!(verify_password("secret123", &hash).unwrap());
         assert!(!verify_password("wrong", &hash).unwrap());
+    }
+
+    // The blocking-pool wrappers must behave exactly like the sync functions:
+    // same acceptance, same rejection, hashes interchangeable between the two.
+    #[tokio::test]
+    async fn test_hash_and_verify_password_async() {
+        let hash = hash_password_async("secret123").await.unwrap();
+        assert!(verify_password_async("secret123", &hash).await.unwrap());
+        assert!(!verify_password_async("wrong", &hash).await.unwrap());
+        assert!(verify_password("secret123", &hash).unwrap());
+        let sync_hash = hash_password("secret123").unwrap();
+        assert!(
+            verify_password_async("secret123", &sync_hash)
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]

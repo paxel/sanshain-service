@@ -178,12 +178,22 @@ pub async fn provide_spec(
     let username: Option<&str> = caller.as_ref().map(|a| a.username.as_str());
     let tag_branch = resolve_stream(repo, trunk, tag).await?;
 
-    let version = extract_spec_version(api_type, content)?;
-    let hash = content_hash(content);
+    // Version extraction, hashing and splitting all scan the whole document —
+    // CPU work that must not run on the async worker thread.
+    let (version, hash, endpoints) = {
+        let content = content.to_string();
+        let producername = producername.to_string();
+        super::spec_service::run_cpu_bound(move || {
+            let version = extract_spec_version(api_type, &content)?;
+            let hash = content_hash(&content);
+            let endpoints = parse_spec_endpoints(api_type, &content, &producername)?;
+            Ok((version, hash, endpoints))
+        })
+        .await?
+    };
     // The one derivation point of the CAS hash (see the field's doc): the
     // guard compares the stored row against the very bytes being written.
     let expected_prior_hash = require_prior_content_match.then_some(hash.as_str());
-    let endpoints = parse_spec_endpoints(api_type, content, producername)?;
 
     // The GA gate (#27): releasing is a permission, snapshots are open to any
     // authenticated caller. Checked after parsing, so the refusal names a real

@@ -987,6 +987,228 @@ changed. Refactor-only: full Rust suite green before and after, clippy `-D warni
 - Add one intentional fixture or unit assertion if possible.
 - Run the script and `cargo test`.
 
+## Performance findings (source review 2026-08-12)
+
+Found in a targeted performance review. Shared context: the hot spec paths are already in good
+shape (moka caches on endpoints/spec content/reports, bulk queries, transactional writes) — the
+issues below sit in runtime configuration and the per-request auth plumbing.
+
+### 30. SQLite pool defaults to a single connection (P1) — DONE (2026-08-12)
+
+Default raised to 5 (`MAX_SQLITE_CONNECTIONS` still overrides; docs + deploy configs updated).
+History check showed the 1 was hardcoded since inception with no recorded reason. All nine SQLite
+write transactions now go through `SqliteSpecRepository::write_tx()` (`BEGIN IMMEDIATE`), because
+with pool > 1 a deferred read-then-write transaction fails with `SQLITE_BUSY_SNAPSHOT` instead of
+waiting on `busy_timeout`. Full suite green. Original text:
+
+**Problem:** `src/main.rs` reads `env_number::<u32>("MAX_SQLITE_CONNECTIONS", 1)` — the default
+pool holds **one** connection. WAL journal mode is enabled a few lines above, whose whole point is
+many concurrent readers beside one writer, but a one-connection pool serializes every query in the
+service. Each authenticated request issues 3–5 queries (see #32), so requests queue on a single
+connection.
+
+**Impact:** Hard throughput ceiling for the default (SQLite) deployment; latency grows linearly
+with concurrent request count even for pure reads.
+
+**Relevant areas:**
+
+- `src/main.rs` (SQLite pool construction, `MAX_SQLITE_CONNECTIONS`)
+- `docs/configuration.md` (document the new default)
+
+**Implementation instructions:**
+
+1. Check git history for why the default is 1 before changing it (SQLITE_BUSY avoidance is the
+   usual reason). Under WAL with sqlx's default `busy_timeout`, concurrent writers wait rather
+   than fail, so a larger pool is safe; verify `busy_timeout` is actually set on the connect
+   options and set it explicitly if not.
+2. Raise the default to a small fixed number (e.g. 5). Keep `MAX_SQLITE_CONNECTIONS` as the
+   override knob. Do not build a split read/write pool unless the simple raise proves
+   insufficient — KISS.
+3. Update `docs/configuration.md` and `CHANGELOG.md` (user-facing default change).
+
+**Validation:**
+
+- Existing suite must stay green (`cargo test` exercises SQLite heavily).
+- A concurrency smoke test: N parallel read requests complete without `database is locked`
+  errors.
+
+### 31. Argon2 hashing runs inline on Tokio worker threads (P1) — DONE (2026-08-12)
+
+`hash_password_async`/`verify_password_async` (spawn_blocking wrappers in
+`src/application/auth_service.rs`; tokio is not a forbidden dependency there — verified against
+`tests/architecture_boundaries_test.rs`) now serve the request paths: `login`, `change_password`,
+`register_user`, and `LocalAuthProvider::authenticate` (own spawn_blocking, infrastructure layer).
+Sync functions remain for one-off startup paths and tests; equivalence pinned by
+`test_hash_and_verify_password_async`. Original text:
+
+**Problem:** `hash_password`/`verify_password` (`src/application/auth_service.rs`) and the
+LDAP-less login path (`src/infrastructure/local_auth_provider.rs`) run Argon2 directly in async
+context. There is no `spawn_blocking` anywhere in `src/`. Argon2 with default params costs tens of
+milliseconds of pure CPU per call.
+
+**Impact:** A handful of concurrent logins (or registration calls) pins Tokio worker threads;
+every in-flight request on those workers stalls, not only the logins.
+
+**Relevant areas:**
+
+- `src/application/auth_service.rs` (`hash_password`, `verify_password` call sites: login,
+  change-password, register)
+- `src/infrastructure/local_auth_provider.rs` (`authenticate`)
+
+**Implementation instructions:**
+
+1. Wrap the Argon2 hash and verify computations in `tokio::task::spawn_blocking`. Keep the
+   domain/application layer free of Tokio types if the boundary tests require it — if so, do the
+   wrapping at the infrastructure/presentation seam or via a port; check
+   `tests/architecture_boundaries_test.rs` first. Application layer currently already uses
+   async, so `spawn_blocking` inside `auth_service.rs` may be acceptable — verify against the
+   boundary test before deciding.
+2. Propagate `JoinError` as an internal `AppError`; no `unwrap()`.
+3. Behavior must be identical (same hashes, same errors for wrong password).
+
+**Validation:**
+
+- Existing auth unit + integration tests stay green.
+- New test asserting verify still rejects wrong passwords through the new code path.
+
+### 32. Per-request settings queries are uncached (P2) — DONE (2026-08-12)
+
+`settings_cache` added to `CachedRepository` (absent settings cached as `None` — the hottest keys
+are often never set): write-through invalidation in `set_setting`, 10s TTL as the cross-instance
+safety net (documented on the constant), wired into stats/rebuild/invalidate-all. No middleware
+change needed — `directory_groups_for`'s `get_auth_mode` probe is now an in-memory hit.
+`tests/handlers_cov2.rs`'s helper now hands tests the app's cached repository instead of a second
+uncached handle, which would bypass the invalidation. Pinned by
+`test_setting_write_invalidates_cached_read`. Original text:
+
+**Problem:** `CachedRepository` passes `get_setting` straight through to the database
+(`src/infrastructure/cached_repository.rs`, `get_setting`). Middleware calls it repeatedly per
+request: `api_auth` calls `get_auth_mode`; `validate_csrf` calls `get_dev_mode` on every non-GET;
+`permission_auth` calls `get_dev_mode`; and `attach_caller` → `directory_groups_for`
+(`src/presentation/middleware.rs`) misses its per-user cache on every request in non-LDAP mode
+(nothing ever populates it) and then calls `get_auth_mode` — one more query — just to learn the
+instance is not LDAP-backed. Net: 2–4 settings queries per request that change roughly never, on
+the single connection from #30.
+
+**Impact:** Multiplies DB round trips per request for values that change only via admin actions.
+
+**Relevant areas:**
+
+- `src/infrastructure/cached_repository.rs` (add a settings cache; invalidate in `set_setting`)
+- `src/presentation/middleware.rs` (`directory_groups_for` — short-circuit non-LDAP mode before
+  the per-user cache lookup, or cache the mode)
+
+**Implementation instructions:**
+
+1. Add a moka cache for settings in `CachedRepository` (key: setting name), invalidated by
+   `set_setting` on the same repository — the pattern `effective_roles_cache` already uses. A
+   short TTL (e.g. 30s) as a safety net is fine; explicit invalidation is the primary mechanism.
+2. Do **not** cache secrets-bearing settings differently — settings are config values, moka is
+   in-process; no new exposure.
+3. Multi-instance note: with several service instances sharing one Postgres, another instance's
+   `set_setting` is invisible to this instance's cache — the TTL bounds the staleness window.
+   State this in the cache's doc comment.
+
+**Validation:**
+
+- Unit test: `get_setting` after `set_setting` returns the new value (invalidation works).
+- Test that auth-mode change via admin route takes effect within the TTL bound (or immediately
+  on the same instance).
+
+### 33. Session/API-token validation hits the DB on every request (P2 — ask before implementing)
+
+**Problem:** `validate_session` and `validate_api_token` are pass-through in `CachedRepository`;
+every authenticated request does one (session) or two (session miss, then API token) lookups.
+
+**Impact:** One to two indexed point queries per request — cheap individually, but the largest
+remaining per-request DB cost once #32 lands.
+
+**Note — needs a decision before implementation.** Caching credential validation trades
+revocation latency for throughput: a logged-out session or deleted API token would keep working
+until the cache entry expires. The options are (a) short-TTL cache (seconds) with explicit
+invalidation on logout/token-delete on the same instance, (b) leave it uncached and accept the
+cost. Multi-instance deployments make invalidation partial either way. **Ask the owner which
+tradeoff is acceptable before writing any code.**
+
+**Relevant areas:**
+
+- `src/infrastructure/cached_repository.rs`
+- `src/application/auth_service.rs` (`logout` — must invalidate), token-delete admin path
+
+### 34. CPU-heavy YAML parse/split runs inline; `/validate` is anonymous (P3) — DONE (2026-08-12)
+
+`run_cpu_bound` (spawn_blocking wrapper, `src/application/spec_service.rs`) now carries the
+provide path's version-extract + hash + split, the bundle merge in `require_service`, and the
+public validator via new `validate_spec_async` — which also holds a `Semaphore` permit (4) so
+anonymous `/validate` callers queue for parsing CPU instead of occupying it without bound.
+Existing `/validate` integration tests exercise the new path; `validate_spec_async_matches_sync_verdicts`
+pins wrapper equivalence. Original text:
+
+**Problem:** Full-spec YAML parsing and per-endpoint re-serialization (`src/openapi.rs` split on
+provide, `merge_endpoint_yamls` on bundle require) run on async worker threads. `/validate`
+(`src/presentation/handlers/api.rs`) is deliberately unauthenticated and parses an arbitrary
+posted body (bounded by the 4 MiB body limit from item #10).
+
+**Impact:** A large spec parse blocks a worker thread for its duration; `/validate` lets an
+anonymous caller burn CPU at will (rate: one body-limit-sized parse per request).
+
+**Relevant areas:**
+
+- `src/presentation/handlers/api.rs` (provide handlers, `validate`)
+- `src/application/provide_service.rs`, `src/openapi.rs`
+
+**Implementation instructions:**
+
+1. Wrap the parse/split/merge computations in `spawn_blocking` at the handler or application
+   seam (same boundary caveat as #31).
+2. For `/validate`, consider a simple concurrency cap (e.g. a semaphore) rather than auth —
+   the endpoint's anonymity is deliberate (public validator).
+
+**Validation:**
+
+- Existing provide/require/validate tests stay green; no behavior change.
+
+### 35. `roles_from_directory` is N+1 per authenticated LDAP request (P3) — DONE (2026-08-12)
+
+Took the cache option (fewer call sites than a joined port method): `groups_list_cache` +
+`group_roles_cache` in `CachedRepository`, write-through invalidation on
+create/rename/delete_group and set_group_roles (rename matters — directory roles match by group
+*name*), 10s TTL safety net. The loop in `roles_from_directory` remains but reads memory, not the
+database. Pinned by `test_group_writes_invalidate_cached_reads`. Original text:
+
+**Problem:** `src/application/directory_roles.rs` (`roles_from_directory`) calls `list_groups`
+and then `list_group_roles(group.id)` per matching group — on every authenticated request for
+directory-backed users (the group *membership* is cached; the group→role mapping is not).
+
+**Impact:** Small tables, but per-request N+1 on the auth path; grows with group count.
+
+**Relevant areas:**
+
+- `src/application/directory_roles.rs`
+- `src/domain/ports.rs` / repositories (a bulk `list_group_roles_for_groups` or a joined query)
+
+**Implementation instructions:**
+
+1. Either add a single joined repository query (groups + roles, filtered by source = LDAP), or
+   cache the group→roles mapping in `CachedRepository` with invalidation on the group-role
+   mutation methods. Prefer whichever touches fewer call sites.
+
+**Validation:**
+
+- Existing directory-roles tests stay green; add one asserting the bulk path returns the same
+  roles as the loop did.
+
+### 36. `LogCaptureLayer` takes a global mutex per log event (P3 — low)
+
+**Problem:** `src/presentation/middleware.rs` (`LogCaptureLayer::on_event`) locks a
+`std::sync::Mutex` around a `VecDeque` for every log event, on whatever thread logs.
+
+**Impact:** Contention only under heavy log volume (e.g. debug toggles on); negligible otherwise.
+Recorded for completeness — fix only if profiling ever shows it.
+
+**Options:** per-level `parking_lot` mutex, or a bounded channel draining to the buffers from one
+task. Not worth doing speculatively.
+
 ## Suggested implementation order
 
 1. ~~Message-level AsyncAPI channel contracts (#20).~~ — DONE (1.5.0).

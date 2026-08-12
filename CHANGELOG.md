@@ -81,6 +81,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   at a past instant — naming added/removed services and added/removed/changed pins.
 
 ### Changed
+- The SQLite connection pool default (`MAX_SQLITE_CONNECTIONS`) is raised from 1 to 5, so
+  concurrent requests no longer queue on a single database connection; write transactions take
+  the write lock up front so writers still queue safely.
+- Password hashing now runs on the blocking thread pool, so concurrent logins no longer stall
+  unrelated requests.
+- Settings reads (auth mode, dev mode, …) are served from the in-memory cache instead of querying
+  the database on every request; in multi-instance deployments a settings change made on another
+  instance now takes up to 10 seconds to be visible.
+- Spec parsing (provide, bundle merge, `/validate`) runs on the blocking thread pool, so a large
+  document no longer stalls unrelated requests; the public `/validate` endpoint additionally caps
+  concurrent parses at 4, queueing excess callers.
+- Group and group-role lookups used by directory-based authorisation are cached like stored
+  roles, removing their per-request database queries; the same 10-second cross-instance
+  staleness bound applies.
 - The dependency graph's messaging badge now marks only actual AsyncAPI providers, not every
   consumer of one, and the virtual broker node is named `BROKER` rather than asserting Kafka.
 - Outdated pins are split into two tiers with their own colours and toggles — behind within the

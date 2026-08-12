@@ -449,6 +449,36 @@ pub struct ValidationReport {
 /// How many split entries the validator previews.
 const VALIDATE_PREVIEW_LIMIT: usize = 20;
 
+/// Run a CPU-bound spec computation (YAML parse/split/merge) on the blocking
+/// pool. Parsing a multi-megabyte document costs real CPU time; inline it
+/// would stall the async worker thread — and every request scheduled on it —
+/// for the whole computation.
+pub(crate) async fn run_cpu_bound<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, AppError> + Send + 'static,
+) -> Result<T, AppError> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| AppError::Internal(format!("Spec parsing task failed: {}", e)))?
+}
+
+/// Cap for concurrent `/validate` parses. The endpoint is deliberately
+/// unauthenticated (a public validator), so this cap — not authentication —
+/// is what bounds how much parsing CPU anonymous callers can occupy at once.
+/// Excess callers wait their turn instead of being refused.
+static VALIDATE_PERMITS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
+
+/// [`validate_spec`], off the async worker thread and capped in concurrency.
+pub async fn validate_spec_async(
+    api_type: ApiType,
+    content: String,
+) -> Result<ValidationReport, AppError> {
+    let _permit = VALIDATE_PERMITS
+        .acquire()
+        .await
+        .map_err(|e| AppError::Internal(format!("Validator unavailable: {}", e)))?;
+    run_cpu_bound(move || Ok(validate_spec(api_type, &content))).await
+}
+
 /// Validate a pasted document against the exact provide-side pipeline:
 /// version extraction (strict semver) and splitting. No producer context, no
 /// version-line rules — those need a Provide.
@@ -495,6 +525,24 @@ mod tests {
     use super::*;
     // These exercise the pure version-rule helpers (now in version_rules).
     use super::super::version_rules::{classify_change, diff_endpoints, ga_baseline, propose_free};
+
+    // The blocking-pool wrapper must give the same verdict as the sync
+    // validator, for both a valid and an invalid document.
+    #[tokio::test]
+    async fn validate_spec_async_matches_sync_verdicts() {
+        let valid = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.0\npaths:\n  /a:\n    get:\n      responses:\n        '200':\n          description: OK\n";
+        let report = validate_spec_async(ApiType::OpenApi, valid.to_string())
+            .await
+            .unwrap();
+        assert!(report.valid);
+        assert_eq!(report.endpoint_count, Some(1));
+
+        let report = validate_spec_async(ApiType::OpenApi, "not: yaml: spec".to_string())
+            .await
+            .unwrap();
+        assert!(!report.valid);
+        assert!(report.error.is_some());
+    }
 
     fn meta(version: &str, stability: Stability) -> SpecVersionMeta {
         SpecVersionMeta {

@@ -235,7 +235,13 @@ async fn require_bundle_inner(
     }
 
     let yaml = match api_type {
-        ApiType::OpenApi => openapi::merge_endpoint_yamls(&yamls).map_err(AppError::Internal)?,
+        // The merge re-parses every snippet — CPU work, off the async worker.
+        ApiType::OpenApi => {
+            super::spec_service::run_cpu_bound(move || {
+                openapi::merge_endpoint_yamls(&yamls).map_err(AppError::Internal)
+            })
+            .await?
+        }
         _ => yamls.join("\n---\n"),
     };
 

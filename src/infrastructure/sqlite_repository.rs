@@ -146,6 +146,20 @@ impl SqliteSpecRepository {
         migrator.run(&self.pool).await?;
         Ok(())
     }
+
+    /// Begin a write transaction.
+    ///
+    /// `BEGIN IMMEDIATE` takes SQLite's write lock up front, so a concurrent
+    /// write transaction queues on `busy_timeout`. A deferred `BEGIN` that
+    /// reads before writing instead fails with `SQLITE_BUSY_SNAPSHOT` — without
+    /// waiting — once another writer commits in between, which becomes possible
+    /// as soon as the pool holds more than one connection.
+    async fn write_tx(&self) -> Result<sqlx::Transaction<'_, sqlx::Sqlite>, RepositoryError> {
+        self.pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))
+    }
 }
 
 impl SpecRepository for SqliteSpecRepository {
@@ -162,11 +176,7 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
         params: UpsertSpecVersion<'_>,
     ) -> Result<i64, RepositoryError> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut tx = self.write_tx().await?;
 
         // Insert-or-overwrite keeps the row's identity and `created_at` on an
         // overwrite/promotion; only the content, stability, attribution and
@@ -755,11 +765,7 @@ impl SpecRepository for SqliteSpecRepository {
         // because a failure between the children and the branch row would free
         // a branch's graph while leaving the branch — and its name — behind.
         // Postgres gets the same atomicity from the declared cascade.
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut tx = self.write_tx().await?;
         for table in ["branch_dependencies", "branch_member_versions"] {
             sqlx::query(&format!("DELETE FROM {table} WHERE branch_id = ?"))
                 .bind(branch_id)
@@ -783,11 +789,7 @@ impl SpecRepository for SqliteSpecRepository {
         branch_id: i64,
         pins: Vec<RecordTrunkPinParams<'_>>,
     ) -> Result<(), RepositoryError> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut tx = self.write_tx().await?;
         for p in pins {
             let key = "branch_id = ? AND client_id = ? AND service_id = ? AND api_type = ? AND normalized_path = ? AND method = ? AND valid_to IS NULL";
             sqlx::query(&format!(
@@ -869,11 +871,7 @@ impl SpecRepository for SqliteSpecRepository {
         // Close-then-insert is one act: a failure between the two would leave
         // the branch with no open member version at all, hiding the producer
         // from the membership lookups until a later tagged provide repairs it.
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut tx = self.write_tx().await?;
         let key = "branch_id = ? AND service_id = ? AND api_type = ? AND valid_to IS NULL";
         sqlx::query(&format!(
             "UPDATE branch_member_versions SET valid_to = ? WHERE {key} AND NOT (major = ? AND minor = ? AND patch = ?)"
@@ -920,11 +918,7 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
         pins: Vec<RecordTrunkPinParams<'_>>,
     ) -> Result<(), RepositoryError> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut tx = self.write_tx().await?;
         for p in pins {
             let key = "client_id = ? AND service_id = ? AND api_type = ? AND normalized_path = ? AND method = ? AND valid_to IS NULL";
             // Append semantics: a different version closes the open record…
@@ -1467,11 +1461,7 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn nuke_database(&self, keep_user_id: Option<i64>) -> Result<(), RepositoryError> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut tx = self.write_tx().await?;
 
         sqlx::query("DELETE FROM dependencies")
             .execute(&mut *tx)
@@ -1550,11 +1540,7 @@ impl SpecRepository for SqliteSpecRepository {
     async fn delete_producer(&self, name: &str) -> Result<bool, RepositoryError> {
         // spec_versions cascade endpoints and dependencies via FK; SQLite
         // enforces them only with the pragma on, so delete explicitly.
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut tx = self.write_tx().await?;
 
         let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM services WHERE name = ?")
             .bind(name)
@@ -2200,11 +2186,7 @@ impl SpecRepository for SqliteSpecRepository {
         group_id: i64,
         roles: &[String],
     ) -> Result<(), RepositoryError> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut tx = self.write_tx().await?;
         sqlx::query("DELETE FROM user_group_roles WHERE group_id = ?")
             .bind(group_id)
             .execute(&mut *tx)
@@ -2596,11 +2578,7 @@ impl SpecRepository for SqliteSpecRepository {
         subs: &[HarvestedSubInput],
         now_iso: &str,
     ) -> Result<(), RepositoryError> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut tx = self.write_tx().await?;
 
         // The client's current open subscriptions, to diff against `subs`.
         let open: Vec<(String, String, Option<i64>, bool)> = sqlx::query_as(
