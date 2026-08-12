@@ -737,6 +737,14 @@ components:
             and omitted when empty). Each is validated against the producer's
             GA channel contract: on a GA provide an unsatisfiable expectation is
             rejected with `409`; on a snapshot it is reported here as `drift`.
+
+            Perspective convention: Sanshain reads AsyncAPI 2.x
+            `publish`/`subscribe` from the application's perspective —
+            `publish` means "this service publishes", `subscribe` means "this
+            service consumes" (the 2.x specification's client-perspective
+            reading is the inverse). This matches the 3.x `send`/`receive`
+            mapping. A document authored with the spec-literal 2.x reading
+            harvests exactly backwards.
           items:
             type: object
             required:

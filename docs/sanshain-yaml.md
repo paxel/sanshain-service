@@ -213,6 +213,14 @@ However, there is an important difference in how **channel identifiers** are res
 | **Internal mapping** | `publish` → `PUB`, `subscribe` → `SUB`       | `send` → `PUB`, `receive` → `SUB`                            |
 | **Channel identifier** | The channel key (e.g., `user-created`)     | The channel `address` field (e.g., `user/signedup`)          |
 
+> ⚠️ **The 2.x perspective convention.** Sanshain reads AsyncAPI 2.x `publish`/`subscribe` from
+> the **application's** perspective: `publish` means *this service publishes to the channel*,
+> `subscribe` means *this service consumes it*. The official AsyncAPI 2.x specification defines
+> those keywords from the **client's** perspective — exactly inverted. Sanshain deliberately uses
+> the application-perspective reading because it matches the unambiguous 3.x `send`/`receive`
+> mapping. Write your 2.x documents accordingly: a spec authored with the spec-literal reading
+> registers its contracts — and harvests its subscriptions — exactly backwards.
+
 **Key restriction when upgrading from v2 to v3:**
 
 In AsyncAPI 2.x, the channel **key name** (e.g., `orders.created`) is used as the identifier stored in Sanshain. In AsyncAPI 3.x, the channel **`address`** field is used instead, and the key name (e.g., `OrderCreated`) is only a local label.
