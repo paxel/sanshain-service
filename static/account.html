@@ -198,6 +198,13 @@
               Sign In
             </button>
           </form>
+          <!-- Single sign-on (only functional when the operator has configured
+               OIDC auth mode; a plain link so it needs no inline script). -->
+          <a
+            href="/auth/oidc/login"
+            class="mt-3 block w-full text-center border border-slate-300 text-slate-700 py-2 rounded-lg hover:bg-slate-50 transition-colors font-medium"
+            >Sign in with SSO</a
+          >
         </div>
 
         <!-- Register Form -->

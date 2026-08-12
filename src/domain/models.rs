@@ -88,6 +88,9 @@ pub enum AuthMode {
     Dev,
     Local,
     Ldap,
+    /// Human login via an external OpenID Connect provider (browser redirect
+    /// flow). Machine/Consumer clients keep API tokens — OIDC is human-only.
+    Oidc,
 }
 
 impl AuthMode {
@@ -97,6 +100,7 @@ impl AuthMode {
             AuthMode::Dev => "dev",
             AuthMode::Local => "local",
             AuthMode::Ldap => "ldap",
+            AuthMode::Oidc => "oidc",
         }
     }
 }
@@ -110,8 +114,61 @@ impl std::str::FromStr for AuthMode {
             "dev" => Ok(AuthMode::Dev),
             "local" => Ok(AuthMode::Local),
             "ldap" => Ok(AuthMode::Ldap),
+            "oidc" => Ok(AuthMode::Oidc),
             _ => Err(()),
         }
+    }
+}
+
+/// OpenID Connect provider configuration for human browser login (stored in
+/// settings as JSON, like [`LdapConfig`]). The client secret is confidential;
+/// it is never serialized back out to the admin UI.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OidcConfig {
+    /// The provider's issuer URL — its discovery document is at
+    /// `<issuer_url>/.well-known/openid-configuration`.
+    pub issuer_url: String,
+    pub client_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_secret: Option<String>,
+    /// Where the provider redirects back to — must be this service's
+    /// `/auth/oidc/callback`, and registered with the provider.
+    pub redirect_url: String,
+    #[serde(default = "OidcConfig::default_scopes")]
+    pub scopes: Vec<String>,
+    /// ID-token claim carrying the username (default `preferred_username`).
+    #[serde(default = "OidcConfig::default_username_claim")]
+    pub username_claim: String,
+    /// ID-token claim carrying the user's groups (default `groups`).
+    #[serde(default = "OidcConfig::default_groups_claim")]
+    pub groups_claim: String,
+    /// Group whose members are administrators, if any.
+    #[serde(default)]
+    pub admin_group: String,
+}
+
+impl OidcConfig {
+    fn default_scopes() -> Vec<String> {
+        vec!["openid".into(), "email".into(), "profile".into()]
+    }
+    fn default_username_claim() -> String {
+        "preferred_username".to_string()
+    }
+    fn default_groups_claim() -> String {
+        "groups".to_string()
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.issuer_url.starts_with("https://") && !self.issuer_url.starts_with("http://") {
+            return Err("Issuer URL must start with http:// or https://".to_string());
+        }
+        if self.client_id.is_empty() {
+            return Err("Client ID must not be empty".to_string());
+        }
+        if !self.redirect_url.contains("/auth/oidc/callback") {
+            return Err("Redirect URL must point at /auth/oidc/callback".to_string());
+        }
+        Ok(())
     }
 }
 
@@ -1106,5 +1163,41 @@ mod tests {
         let mut config = valid;
         config.base_dn.clear();
         assert_eq!(config.validate().unwrap_err(), "Base DN must not be empty");
+    }
+
+    #[test]
+    fn oidc_config_validation() {
+        let ok = OidcConfig {
+            issuer_url: "https://idp.example.test/realms/x".into(),
+            client_id: "app".into(),
+            client_secret: Some("s".into()),
+            redirect_url: "https://sanshain.example.test/auth/oidc/callback".into(),
+            scopes: OidcConfig::default_scopes(),
+            username_claim: OidcConfig::default_username_claim(),
+            groups_claim: OidcConfig::default_groups_claim(),
+            admin_group: String::new(),
+        };
+        assert!(ok.validate().is_ok());
+
+        let mut bad_issuer = ok.clone();
+        bad_issuer.issuer_url = "idp.example.test".into();
+        assert_eq!(
+            bad_issuer.validate().unwrap_err(),
+            "Issuer URL must start with http:// or https://"
+        );
+
+        let mut no_client = ok.clone();
+        no_client.client_id.clear();
+        assert_eq!(
+            no_client.validate().unwrap_err(),
+            "Client ID must not be empty"
+        );
+
+        let mut bad_redirect = ok.clone();
+        bad_redirect.redirect_url = "https://sanshain.example.test/wrong".into();
+        assert_eq!(
+            bad_redirect.validate().unwrap_err(),
+            "Redirect URL must point at /auth/oidc/callback"
+        );
     }
 }

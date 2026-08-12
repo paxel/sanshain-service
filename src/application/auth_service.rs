@@ -266,6 +266,7 @@ pub async fn get_auth_mode(repo: &impl SpecRepository) -> Result<AuthMode, AppEr
         "disabled" | "off" | "maintenance" => Ok(AuthMode::Disabled),
         "ldap" => Ok(AuthMode::Ldap),
         "local" => Ok(AuthMode::Local),
+        "oidc" => Ok(AuthMode::Oidc),
         "dev" => Ok(AuthMode::Dev),
         _ => Ok(AuthMode::Disabled),
     }
@@ -292,6 +293,27 @@ pub async fn get_ldap_config(repo: &impl SpecRepository) -> Result<Option<LdapCo
     } else {
         Ok(None)
     }
+}
+
+pub async fn get_oidc_config(repo: &impl SpecRepository) -> Result<Option<OidcConfig>, AppError> {
+    let json = repo.get_setting("oidc_config").await?;
+    if let Some(s) = json {
+        Ok(serde_json::from_str(&s)
+            .map_err(|e| AppError::Internal(format!("OIDC config parse error: {}", e)))?)
+    } else {
+        Ok(None)
+    }
+}
+
+pub async fn set_oidc_config(
+    repo: &impl SpecRepository,
+    config: &OidcConfig,
+) -> Result<(), AppError> {
+    config.validate().map_err(AppError::BadRequest)?;
+    let json = serde_json::to_string(config)
+        .map_err(|e| AppError::Internal(format!("OIDC config serialize error: {}", e)))?;
+    repo.set_setting("oidc_config", &json).await?;
+    Ok(())
 }
 
 pub async fn set_ldap_config(
@@ -356,6 +378,38 @@ pub async fn login_with_provider(
     let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
     let session = repo.create_session(local_user.id, &expires_at).await?;
     Ok(session)
+}
+
+/// Complete an OIDC login: the caller has already verified the ID token, so the
+/// username and groups are trusted here. Find or create the local shadow user
+/// (with an unusable random password — OIDC users log in via the provider, not
+/// locally) and mint a session. Mirrors [`login_with_provider`] minus the
+/// credential check the provider already did.
+///
+/// Group → admin: unlike LDAP (which re-queries the directory on every check),
+/// an OIDC token is a login-time snapshot, so a user in the configured
+/// `admin_group` is granted the Admin role here. Grant-only — demotion is a
+/// manual revoke, not an automatic one, so a token that omits the group cannot
+/// silently strip a deliberately-granted admin.
+pub async fn login_oidc(
+    repo: &impl SpecRepository,
+    username: &str,
+    groups: &[String],
+    admin_group: &str,
+) -> Result<Session, AppError> {
+    let local_user = match repo.find_user(username).await? {
+        Some(u) => u,
+        None => {
+            let hash = hash_password(&generate_random_password())?;
+            repo.create_user(username, &hash, true).await?
+        }
+    };
+    if !admin_group.is_empty() && groups.iter().any(|g| g == admin_group) {
+        repo.grant_user_role(local_user.id, Role::Admin.as_str())
+            .await?;
+    }
+    let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
+    Ok(repo.create_session(local_user.id, &expires_at).await?)
 }
 
 #[instrument(skip_all)]

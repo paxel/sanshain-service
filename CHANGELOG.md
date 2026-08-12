@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.2.0] - 2026-08-06
 
 ### Added
+- Human login via an external **OpenID Connect** provider (SSO): choose the `oidc` auth mode and
+  configure the provider (issuer, client, `/auth/oidc/callback` redirect); a "Sign in with SSO"
+  button runs the PKCE authorization-code flow, verifies the ID token (JWKS signature, nonce,
+  issuer, audience, expiry), and creates a session. Machine/Consumer clients keep API tokens —
+  OIDC is human-only. Local/root password login stays available so a provider outage can't lock
+  everyone out. See [administration.md](docs/administration.md).
 - AsyncAPI `subscribe` operations are now harvested on every provide as version-less consumer
   edges in the dependency graph — previously they were dropped with a server-side log the Producer
   never saw. Each resolves to the channel's PUB owner (or shows as pending when none exists yet),

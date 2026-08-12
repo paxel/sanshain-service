@@ -44,6 +44,10 @@ hex = "0.4"
 sha2 = "0.11"
 askama = "0.15"
 ldap3 = { version = "0.12", default-features = false, features = ["tls-rustls-ring"] }
+# OIDC human login (ai/improvements grill: batch 2). reqwest via openidconnect's
+# feature; rustls-tls to match the existing rustls stack (no native-tls pull).
+openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
+base64 = "0.22"
 # Feature set mirrors what ldap3's `tls-rustls-ring` enables, so both crates
 # resolve to the same `rustls` build and the same `ClientConfig` type.
 rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12", "ring"] }
@@ -73,6 +77,7 @@ sanshain_service = { path = ".", features = ["test-support"] }
 flate2 = "1"
 criterion = "0.5"
 rcgen = "0.13"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies"] }
 testcontainers = "0.27"
 testcontainers-modules = { version = "0.15", features = ["postgres"] }
 

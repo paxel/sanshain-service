@@ -185,6 +185,8 @@ pub fn create_app(state: AppState) -> Router {
 
         // Auth (Mixed prefix)
         .route("/auth/login", post(auth::auth_login))
+        .route("/auth/oidc/login", get(auth::oidc_login))
+        .route("/auth/oidc/callback", get(auth::oidc_callback))
         .route("/auth/logout", post(auth::auth_logout))
         .route("/auth/register", post(auth::auth_register))
         .route("/auth/me", get(auth::auth_me).layer(from_fn_with_state(state.clone(), authenticated_auth)))
@@ -453,6 +455,8 @@ mod tests {
             "/auth/favorites",
             "/auth/favorites/{item_type}/{item_name}",
             "/auth/login",
+            "/auth/oidc/login",
+            "/auth/oidc/callback",
             "/auth/logout",
             "/auth/me",
             "/auth/register",

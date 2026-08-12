@@ -4,7 +4,7 @@ This guide covers the admin dashboard at `/admin.html` and administrative tasks.
 
 ### TL;DR
 - **Access**: Sign in at `/admin.html`. First-time login uses a random password from logs.
-- **Auth**: Configure **LDAP**, **Local Users**, or **Dev Mode** in the Authentication section.
+- **Auth**: Configure **LDAP**, **OIDC** (SSO), **Local Users**, or **Dev Mode** in the Authentication section.
 - **Versions**: Delete a version (the escape hatch from GA immutability — check the dependents first) and tune snapshot cleanup in the settings.
 - **Cleanup**: Delete Producers, Consumers and stale dependencies in the management tabs.
 - **Tokens**: Users create their own API tokens at `/account.html`.
@@ -47,6 +47,31 @@ If Dev Mode is requested without the gate, the service **fails closed**: authent
 # Local development only — never set this gate in production:
 ALLOW_INSECURE_DEV_MODE=true SANSHAIN_DEV_MODE=true cargo run
 ```
+
+## OIDC Single Sign-On (human login)
+
+Set the auth mode to **`oidc`** to let people log in through an external OpenID
+Connect provider (Keycloak, Okta, Azure AD, Google, …). OIDC is **human-only** —
+Consumer/machine clients keep API tokens.
+
+Configure it through the auth-config API — `PUT /admin/auth-config` with
+`{"auth_mode": "oidc", "oidc_config": { … }}` (a dedicated admin-panel form is a
+follow-up; the LDAP panel is the current UI precedent). The `oidc_config` fields:
+
+| Field            | Meaning                                                                 |
+|------------------|-------------------------------------------------------------------------|
+| `issuer_url`     | Provider issuer (discovery at `<issuer_url>/.well-known/openid-configuration`) |
+| `client_id`      | The application client registered with the provider                     |
+| `client_secret`  | The client secret (confidential client); never shown back once saved    |
+| `redirect_url`   | Must be `https://<your-host>/auth/oidc/callback`, and registered with the provider |
+| `username_claim` | ID-token claim used as the username (default `preferred_username`)       |
+| `groups_claim`   | ID-token claim carrying groups (default `groups`)                       |
+
+The login page shows a **Sign in with SSO** button (`/auth/oidc/login`). It runs
+the authorization-code flow with PKCE, verifies the ID token (signature via the
+provider's JWKS, nonce, issuer, audience, expiry), and creates a local session.
+The username/password endpoint stays open for **root and local accounts**, so a
+provider outage or first-time setup cannot lock everyone out.
 
 ## Version Administration
 

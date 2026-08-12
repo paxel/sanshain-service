@@ -2,7 +2,12 @@ use crate::AppState;
 use crate::application::services::{self, AppError};
 use crate::domain::models::User;
 use crate::domain::ports::{NewAuditLog, SpecRepository};
-use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use axum::{
+    Json,
+    extract::{Query, State},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
+    response::{IntoResponse, Redirect},
+};
 use serde::{Deserialize, Serialize};
 
 use super::record_audit_log_for as record_audit_log;
@@ -68,7 +73,12 @@ pub async fn auth_login(
                 token: session.token,
             }))
         }
-        crate::domain::models::AuthMode::Local | crate::domain::models::AuthMode::Dev => {
+        // OIDC users log in via the /auth/oidc redirect flow; the password
+        // endpoint stays open for local/root accounts (an OIDC outage or first
+        // setup must not lock everyone out), same as the LDAP local fallback.
+        crate::domain::models::AuthMode::Local
+        | crate::domain::models::AuthMode::Dev
+        | crate::domain::models::AuthMode::Oidc => {
             let (session, _user) =
                 services::login(&state.repo, &payload.username, &payload.password).await?;
 
@@ -329,4 +339,136 @@ pub async fn remove_favorite(
 ) -> Result<impl IntoResponse, AppError> {
     services::remove_user_favorite(&state.repo, user.id, &item_type, &item_name).await?;
     Ok(StatusCode::OK)
+}
+
+// --- OIDC human login (ai/improvements grill batch 2) ---
+
+const OIDC_FLOW_COOKIE: &str = "sanshain_oidc_flow";
+
+#[derive(Deserialize)]
+pub struct OidcCallbackQuery {
+    pub code: Option<String>,
+    pub state: Option<String>,
+    pub error: Option<String>,
+}
+
+fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
+    raw.split(';').find_map(|kv| {
+        let (k, v) = kv.trim().split_once('=')?;
+        (k == name).then(|| v.to_string())
+    })
+}
+
+/// Begin OIDC login: build the provider authorization URL, stash the CSRF
+/// state, nonce and PKCE verifier in a short-lived HttpOnly cookie, then
+/// redirect the browser to the provider.
+pub async fn oidc_login(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+    let config = services::get_oidc_config(&state.repo)
+        .await?
+        .ok_or_else(|| AppError::BadRequest("OIDC is not configured".to_string()))?;
+    let authorize = crate::infrastructure::oidc_provider::authorize_url(&config).await?;
+    let flow = format!(
+        "{}|{}|{}",
+        authorize.state, authorize.nonce, authorize.pkce_verifier
+    );
+    // Secure: OIDC runs over HTTPS in production (providers require an https
+    // redirect); the flow cookie carrying the PKCE verifier/nonce must not go
+    // over plaintext.
+    let cookie =
+        format!("{OIDC_FLOW_COOKIE}={flow}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600");
+    let mut response = Redirect::to(&authorize.url).into_response();
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&cookie).map_err(|_| AppError::Internal("cookie".to_string()))?,
+    );
+    Ok(response)
+}
+
+/// OIDC callback: verify state against the flow cookie, exchange the code and
+/// verify the ID token, mint a session, hand it to the browser as the
+/// `sanshain_token` cookie, and redirect into the app.
+pub async fn oidc_callback(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<OidcCallbackQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    if query.error.is_some() {
+        return Err(AppError::Unauthorized);
+    }
+    let code = query
+        .code
+        .ok_or_else(|| AppError::BadRequest("missing code".to_string()))?;
+    let cb_state = query
+        .state
+        .ok_or_else(|| AppError::BadRequest("missing state".to_string()))?;
+
+    let flow = cookie_value(&headers, OIDC_FLOW_COOKIE)
+        .ok_or_else(|| AppError::BadRequest("no OIDC login in progress".to_string()))?;
+    let mut parts = flow.splitn(3, '|');
+    let exp_state = parts.next().unwrap_or_default();
+    let nonce = parts.next().unwrap_or_default();
+    let verifier = parts.next().unwrap_or_default();
+    // CSRF: the provider echoes our state; it must match the cookie.
+    if exp_state.is_empty() || cb_state != exp_state {
+        return Err(AppError::Unauthorized);
+    }
+
+    let config = services::get_oidc_config(&state.repo)
+        .await?
+        .ok_or_else(|| AppError::BadRequest("OIDC is not configured".to_string()))?;
+    let claims = crate::infrastructure::oidc_provider::exchange_and_verify(
+        &config,
+        code,
+        verifier.to_string(),
+        nonce.to_string(),
+    )
+    .await?;
+    let session = services::login_oidc(
+        &state.repo,
+        &claims.username,
+        &claims.groups,
+        &config.admin_group,
+    )
+    .await?;
+
+    // Non-HttpOnly so the SPA's getSanshainToken() can read it (matches the
+    // existing token model); Secure because OIDC is HTTPS; clear the flow cookie.
+    let token_cookie = format!(
+        "sanshain_token={}; Path=/; Secure; SameSite=Lax; Max-Age=604800",
+        session.token
+    );
+    let clear = format!("{OIDC_FLOW_COOKIE}=; Path=/; HttpOnly; Max-Age=0");
+    let mut response = Redirect::to("/account.html").into_response();
+    let h = response.headers_mut();
+    h.append(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&token_cookie)
+            .map_err(|_| AppError::Internal("cookie".to_string()))?,
+    );
+    h.append(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&clear).map_err(|_| AppError::Internal("cookie".to_string()))?,
+    );
+    Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cookie_value_extracts_the_named_cookie() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_static("a=1; sanshain_oidc_flow=st|no|pk; b=2"),
+        );
+        assert_eq!(
+            cookie_value(&headers, OIDC_FLOW_COOKIE).as_deref(),
+            Some("st|no|pk")
+        );
+        assert_eq!(cookie_value(&headers, "missing"), None);
+        assert_eq!(cookie_value(&HeaderMap::new(), OIDC_FLOW_COOKIE), None);
+    }
 }

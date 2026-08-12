@@ -1,6 +1,6 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
-use crate::domain::models::{ApiType, AuditLogEntry, AuthMode, LdapConfig};
+use crate::domain::models::{ApiType, AuditLogEntry, AuthMode, LdapConfig, OidcConfig};
 use crate::domain::ports::{NewAuditLog, SpecRepository};
 use axum::{
     Json,
@@ -426,9 +426,18 @@ pub async fn get_auth_config(State(state): State<AppState>) -> Result<impl IntoR
         l
     });
 
+    let oidc = services::get_oidc_config(&state.repo).await?;
+    let oidc_val = oidc.map(|mut o| {
+        if o.client_secret.is_some() {
+            o.client_secret = Some("****".to_string());
+        }
+        o
+    });
+
     Ok(Json(serde_json::json!({
         "auth_mode": mode,
         "ldap_config": ldap_val,
+        "oidc_config": oidc_val,
     })))
 }
 
@@ -436,6 +445,8 @@ pub async fn get_auth_config(State(state): State<AppState>) -> Result<impl IntoR
 pub struct AuthConfigRequest {
     pub auth_mode: String,
     pub ldap_config: Option<LdapConfig>,
+    #[serde(default)]
+    pub oidc_config: Option<OidcConfig>,
 }
 
 pub async fn set_auth_config(
@@ -451,6 +462,14 @@ pub async fn set_auth_config(
             "LDAP config required for ldap mode".to_string(),
         ));
     }
+    if mode == AuthMode::Oidc
+        && payload.oidc_config.is_none()
+        && services::get_oidc_config(&state.repo).await?.is_none()
+    {
+        return Err(AppError::BadRequest(
+            "OIDC config required for oidc mode".to_string(),
+        ));
+    }
 
     services::set_auth_mode(&state.repo, &mode).await?;
     if let Some(mut ldap) = payload.ldap_config {
@@ -461,6 +480,17 @@ pub async fn set_auth_config(
             ldap.bind_password = old_config.bind_password;
         }
         services::set_ldap_config(&state.repo, &ldap).await?;
+    }
+    if let Some(mut oidc) = payload.oidc_config {
+        // A masked secret means "keep the stored one" — never overwrite it with
+        // the placeholder the read endpoint returns. Propagate a read failure
+        // rather than storing the literal "****" as the secret.
+        if oidc.client_secret.as_deref() == Some("****")
+            && let Some(old) = services::get_oidc_config(&state.repo).await?
+        {
+            oidc.client_secret = old.client_secret;
+        }
+        services::set_oidc_config(&state.repo, &oidc).await?;
     }
     record_audit_log(
         &state.repo,
