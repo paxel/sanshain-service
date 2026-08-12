@@ -8,6 +8,7 @@
 //! OIDC is human-only: Consumer/machine clients keep API tokens.
 
 use crate::domain::models::{AppError, OidcConfig};
+use crate::domain::ports::{OidcAuthorizeUrl, OidcClaims, OidcFlow};
 use base64::Engine;
 use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata};
 use openidconnect::{
@@ -15,21 +16,23 @@ use openidconnect::{
     PkceCodeVerifier, RedirectUrl, Scope, TokenResponse, reqwest,
 };
 
-/// What a login round-trip must carry across the redirect (in a short-lived
-/// cookie): the provider URL to send the browser to, and the CSRF state, nonce
-/// and PKCE verifier the callback checks against.
-pub struct AuthorizeUrl {
-    pub url: String,
-    pub state: String,
-    pub nonce: String,
-    pub pkce_verifier: String,
-}
+/// The openidconnect-backed implementation of the [`OidcFlow`] port.
+pub struct OidcProvider;
 
-/// The identity a verified ID token resolves to.
-pub struct OidcClaims {
-    pub username: String,
-    pub email: Option<String>,
-    pub groups: Vec<String>,
+impl OidcFlow for OidcProvider {
+    async fn authorize_url(&self, config: &OidcConfig) -> Result<OidcAuthorizeUrl, AppError> {
+        authorize_url(config).await
+    }
+
+    async fn exchange_and_verify(
+        &self,
+        config: &OidcConfig,
+        code: String,
+        pkce_verifier: String,
+        expected_nonce: String,
+    ) -> Result<OidcClaims, AppError> {
+        exchange_and_verify(config, code, pkce_verifier, expected_nonce).await
+    }
 }
 
 /// An HTTP client that does not follow redirects — required by the OIDC spec's
@@ -54,7 +57,7 @@ async fn discover(
 
 /// Build the provider authorization URL plus the state/nonce/PKCE the callback
 /// verifies against.
-pub async fn authorize_url(config: &OidcConfig) -> Result<AuthorizeUrl, AppError> {
+async fn authorize_url(config: &OidcConfig) -> Result<OidcAuthorizeUrl, AppError> {
     let http = http_client()?;
     let metadata = discover(config, &http).await?;
     let redirect = RedirectUrl::new(config.redirect_url.clone())
@@ -83,7 +86,7 @@ pub async fn authorize_url(config: &OidcConfig) -> Result<AuthorizeUrl, AppError
         }
     }
     let (url, state, nonce) = request.url();
-    Ok(AuthorizeUrl {
+    Ok(OidcAuthorizeUrl {
         url: url.to_string(),
         state: state.secret().clone(),
         nonce: nonce.secret().clone(),
@@ -94,7 +97,7 @@ pub async fn authorize_url(config: &OidcConfig) -> Result<AuthorizeUrl, AppError
 /// Exchange the authorization code for tokens, verify the ID token, and resolve
 /// the identity. Verification (signature via JWKS, nonce, issuer, audience,
 /// expiry) is done by openidconnect; a failure is an authentication failure.
-pub async fn exchange_and_verify(
+async fn exchange_and_verify(
     config: &OidcConfig,
     code: String,
     pkce_verifier: String,

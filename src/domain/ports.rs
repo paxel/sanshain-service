@@ -40,6 +40,48 @@ pub trait DirectoryGroups: Send + Sync {
     ) -> impl Future<Output = Result<Vec<String>, AuthProviderError>> + Send;
 }
 
+/// What an OIDC login round-trip must carry across the redirect: the provider
+/// URL to send the browser to, and the CSRF state, nonce and PKCE verifier the
+/// callback checks against.
+pub struct OidcAuthorizeUrl {
+    pub url: String,
+    pub state: String,
+    pub nonce: String,
+    pub pkce_verifier: String,
+}
+
+/// The identity a verified ID token resolves to.
+pub struct OidcClaims {
+    pub username: String,
+    pub email: Option<String>,
+    pub groups: Vec<String>,
+}
+
+/// Port for the OIDC browser-login round-trip (discovery, PKCE
+/// authorization-code flow, ID-token verification).
+///
+/// Separate from [`AuthProvider`] because OIDC never sees a password: the
+/// provider authenticates the human and hands back a verified identity.
+pub trait OidcFlow: Send + Sync {
+    /// Build the provider authorization URL plus the state/nonce/PKCE the
+    /// callback verifies against.
+    fn authorize_url(
+        &self,
+        config: &OidcConfig,
+    ) -> impl Future<Output = Result<OidcAuthorizeUrl, AppError>> + Send;
+
+    /// Exchange the authorization code for tokens, verify the ID token, and
+    /// resolve the identity. A verification failure is an authentication
+    /// failure.
+    fn exchange_and_verify(
+        &self,
+        config: &OidcConfig,
+        code: String,
+        pkce_verifier: String,
+        expected_nonce: String,
+    ) -> impl Future<Output = Result<OidcClaims, AppError>> + Send;
+}
+
 #[derive(Error, Debug)]
 pub enum RepositoryError {
     #[error("Not Found")]

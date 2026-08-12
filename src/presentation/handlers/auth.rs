@@ -360,24 +360,23 @@ fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
     })
 }
 
-/// Begin OIDC login: build the provider authorization URL, stash the CSRF
-/// state, nonce and PKCE verifier in a short-lived HttpOnly cookie, then
-/// redirect the browser to the provider.
+/// Begin OIDC login: stash the flow state (CSRF state, nonce, PKCE verifier)
+/// in a short-lived HttpOnly cookie, then redirect the browser to the
+/// provider. The flow itself lives in `services::oidc_begin`.
 pub async fn oidc_login(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    let config = services::get_oidc_config(&state.repo)
-        .await?
-        .ok_or_else(|| AppError::BadRequest("OIDC is not configured".to_string()))?;
-    let authorize = crate::infrastructure::oidc_provider::authorize_url(&config).await?;
-    let flow = format!(
-        "{}|{}|{}",
-        authorize.state, authorize.nonce, authorize.pkce_verifier
-    );
+    let (url, flow) = services::oidc_begin(
+        &state.repo,
+        &crate::infrastructure::oidc_provider::OidcProvider,
+    )
+    .await?;
     // Secure: OIDC runs over HTTPS in production (providers require an https
     // redirect); the flow cookie carrying the PKCE verifier/nonce must not go
     // over plaintext.
-    let cookie =
-        format!("{OIDC_FLOW_COOKIE}={flow}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600");
-    let mut response = Redirect::to(&authorize.url).into_response();
+    let cookie = format!(
+        "{OIDC_FLOW_COOKIE}={}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600",
+        flow.encode()
+    );
+    let mut response = Redirect::to(&url).into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
         HeaderValue::from_str(&cookie).map_err(|_| AppError::Internal("cookie".to_string()))?,
@@ -385,9 +384,10 @@ pub async fn oidc_login(State(state): State<AppState>) -> Result<impl IntoRespon
     Ok(response)
 }
 
-/// OIDC callback: verify state against the flow cookie, exchange the code and
-/// verify the ID token, mint a session, hand it to the browser as the
-/// `sanshain_token` cookie, and redirect into the app.
+/// OIDC callback: decode the flow cookie and hand the round-trip's second half
+/// to `services::oidc_complete` (state check, code exchange, ID-token
+/// verification, session mint); then set the `sanshain_token` cookie and
+/// redirect into the app.
 pub async fn oidc_callback(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -403,32 +403,15 @@ pub async fn oidc_callback(
         .state
         .ok_or_else(|| AppError::BadRequest("missing state".to_string()))?;
 
-    let flow = cookie_value(&headers, OIDC_FLOW_COOKIE)
+    let raw_flow = cookie_value(&headers, OIDC_FLOW_COOKIE)
         .ok_or_else(|| AppError::BadRequest("no OIDC login in progress".to_string()))?;
-    let mut parts = flow.splitn(3, '|');
-    let exp_state = parts.next().unwrap_or_default();
-    let nonce = parts.next().unwrap_or_default();
-    let verifier = parts.next().unwrap_or_default();
-    // CSRF: the provider echoes our state; it must match the cookie.
-    if exp_state.is_empty() || cb_state != exp_state {
-        return Err(AppError::Unauthorized);
-    }
-
-    let config = services::get_oidc_config(&state.repo)
-        .await?
-        .ok_or_else(|| AppError::BadRequest("OIDC is not configured".to_string()))?;
-    let claims = crate::infrastructure::oidc_provider::exchange_and_verify(
-        &config,
-        code,
-        verifier.to_string(),
-        nonce.to_string(),
-    )
-    .await?;
-    let session = services::login_oidc(
+    let flow = services::OidcFlowState::decode(&raw_flow).ok_or(AppError::Unauthorized)?;
+    let session = services::oidc_complete(
         &state.repo,
-        &claims.username,
-        &claims.groups,
-        &config.admin_group,
+        &crate::infrastructure::oidc_provider::OidcProvider,
+        code,
+        &cb_state,
+        flow,
     )
     .await?;
 

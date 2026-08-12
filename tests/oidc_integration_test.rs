@@ -7,7 +7,8 @@
 //! redirect — so no browser is needed.
 
 use sanshain_service::domain::models::OidcConfig;
-use sanshain_service::infrastructure::oidc_provider;
+use sanshain_service::domain::ports::OidcFlow;
+use sanshain_service::infrastructure::oidc_provider::OidcProvider;
 use serde_json::json;
 use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
@@ -140,7 +141,8 @@ async fn oidc_discovery_and_authorize_url_against_keycloak() {
     setup_realm(&base, &http).await;
 
     // Discovery + client build + PKCE authorization URL.
-    let authorize = oidc_provider::authorize_url(&config(&base))
+    let authorize = OidcProvider
+        .authorize_url(&config(&base))
         .await
         .expect("authorize_url discovers and builds");
     assert!(
@@ -223,7 +225,8 @@ async fn oidc_full_code_flow_verifies_the_id_token() {
     setup_realm(&base, &http).await;
 
     let cfg = config(&base);
-    let authorize = oidc_provider::authorize_url(&cfg)
+    let authorize = OidcProvider
+        .authorize_url(&cfg)
         .await
         .expect("authorize_url");
 
@@ -232,10 +235,10 @@ async fn oidc_full_code_flow_verifies_the_id_token() {
 
     // Exchange + verify the ID token (JWKS signature, nonce, issuer, audience,
     // expiry) → resolved identity.
-    let claims =
-        oidc_provider::exchange_and_verify(&cfg, code, authorize.pkce_verifier, authorize.nonce)
-            .await
-            .expect("code exchange + ID token verification");
+    let claims = OidcProvider
+        .exchange_and_verify(&cfg, code, authorize.pkce_verifier, authorize.nonce)
+        .await
+        .expect("code exchange + ID token verification");
     assert_eq!(claims.username, USER);
     assert_eq!(claims.email.as_deref(), Some("alice@example.org"));
 }
