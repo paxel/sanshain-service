@@ -2140,15 +2140,15 @@ channels:\n  user/signup:\n    publish:\n      message:\n        name: UserSigne
             .unwrap();
     assert_eq!(contracts_before, 1, "GA registered a channel contract");
 
-    // Retire.
+    // Retire — an ordinary provide for the family, carrying no document.
     let (status, _, body) = send(
         &ctx,
         "POST",
-        "/admin/producers/notifier/retire/asyncapi",
-        None,
+        "/provide/asyncapi",
+        Some(json!({"producername": "notifier", "retired": true})),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "got: {body}");
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
     let res = as_json(&body);
     assert_eq!(res["tag_cleared"], "messaging");
     assert_eq!(res["trunk_pins_closed"], 1);
@@ -2190,4 +2190,148 @@ channels:\n  user/signup:\n    publish:\n      message:\n        name: UserSigne
     .await
     .unwrap();
     assert_eq!(versions, 1, "the retired family's version line is kept");
+}
+
+// ---------------------------------------------------------------------------
+// Retiring is a role: releaser (what CI holds) or maintainer of the Producer
+// ---------------------------------------------------------------------------
+
+/// A plain authenticated caller may publish snapshots all day; retiring is a
+/// different act — it withdraws a Producer's standing as a provider — so it is
+/// gated even though it rides the same endpoint.
+#[tokio::test]
+async fn retire_is_refused_without_releaser_or_maintainer() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    let token = unprivileged_token(&ctx).await;
+
+    // The same caller can provide, which is the point of the contrast.
+    let (status, body) = send_as(
+        &ctx,
+        &token,
+        "POST",
+        "/provide",
+        Some(json!({
+            "producername": "svc",
+            "openapi_yaml": spec("1.0.1"),
+            "stability": "snapshot"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
+
+    let (status, body) = send_as(
+        &ctx,
+        &token,
+        "POST",
+        "/provide",
+        Some(json!({"producername": "svc", "retired": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "got: {body}");
+    assert!(
+        body.contains("releaser") && body.contains("maintainer"),
+        "the refusal names both ways in, got: {body}"
+    );
+}
+
+/// The role a build pipeline already holds in order to publish GA is the role
+/// that lets it retire — otherwise dropping a protocol from `sanshain.yaml`
+/// could never be automated.
+#[tokio::test]
+async fn releaser_may_retire() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    let token = releaser_token(&ctx).await;
+
+    let (status, body) = send_as(
+        &ctx,
+        &token,
+        "POST",
+        "/provide",
+        Some(json!({"producername": "svc", "retired": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
+    let res = as_json(&body);
+    assert!(
+        res["tag_cleared"].is_null(),
+        "OpenAPI has no capability tag"
+    );
+    assert_eq!(res["trunk_pins_closed"], 0);
+    assert_eq!(res["contracts_released"], 0);
+
+    // The version line survives: retiring withdraws the capability, not history.
+    let versions: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM spec_versions sv JOIN services s ON s.id = sv.service_id \
+         WHERE s.name = 'svc' AND sv.api_type = 'openapi'",
+    )
+    .fetch_one(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(versions, 1);
+}
+
+/// A retire is not a build, so every field that only makes sense for one is
+/// refused rather than quietly dropped — honouring half of a contradictory
+/// request is how a pipeline retires a family it meant to publish.
+#[tokio::test]
+async fn retire_refuses_publish_shaped_fields() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+    send(&ctx, "POST", "/admin/branches", Some(json!({"name": "R"}))).await;
+
+    for (label, extra) in [
+        ("body", json!({"openapi_yaml": spec("1.0.1")})),
+        ("stability", json!({"stability": "snapshot"})),
+        ("trunk", json!({"trunk": true})),
+        ("tag", json!({"tag": "R"})),
+    ] {
+        let mut payload = json!({"producername": "svc", "retired": true});
+        for (k, v) in extra.as_object().unwrap() {
+            payload[k] = v.clone();
+        }
+        let (status, _, body) = send(&ctx, "POST", "/provide", Some(payload)).await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "`retired` with a {label} must be refused, got: {body}"
+        );
+    }
+}
+
+/// A dry-run retire answers the question a PR pipeline is actually asking —
+/// "would this be allowed?" — and changes nothing.
+#[tokio::test]
+async fn dry_run_retire_checks_permission_and_changes_nothing() {
+    let ctx = setup().await;
+    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
+
+    let unprivileged = unprivileged_token(&ctx).await;
+    let (status, body) = send_as(
+        &ctx,
+        &unprivileged,
+        "POST",
+        "/provide",
+        Some(json!({"producername": "svc", "retired": true, "dry_run": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "got: {body}");
+
+    let (status, body) = send_as(
+        &ctx,
+        &releaser_token(&ctx).await,
+        "POST",
+        "/provide",
+        Some(json!({"producername": "svc", "retired": true, "dry_run": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
+
+    let audits: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'RETIRE_PROTOCOL'")
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(audits, 0, "a dry run is not an event worth recording");
 }

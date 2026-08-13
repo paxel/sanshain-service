@@ -114,10 +114,20 @@ Plugins should support both a single `provide` object and a `provides` list for 
 Sanshain cannot tell a dropped protocol from a pipeline that merely stopped running, so removing a
 `provide` entry does nothing on its own — the service keeps its old capability tag, graph edges and
 contracts. To actually retire a family, keep the entry and set `retired: true` (or drop it and
-declare the removal another way the plugin supports). The plugin turns that into
-`POST /admin/producers/{name}/retire/{apiType}`, which clears the `messaging`/`grpc` tag, removes
-the family from the current dependency graph, and releases its AsyncAPI channel-message contracts —
-**without** deleting version history or breaking Consumers still pinned to the old versions.
+declare the removal another way the plugin supports). The plugin turns that into an ordinary provide
+call for that family carrying `retired: true` and no specification body, which clears the
+`messaging`/`grpc` tag, removes the family from the current dependency graph, and releases its
+AsyncAPI channel-message contracts — **without** deleting version history or breaking Consumers
+still pinned to the old versions.
+
+Because a retire publishes nothing, the call carries no `file` content and no `stability`, and it
+belongs to no stream: sending a body, a `stability`, `trunk` or `tag` alongside `retired: true` is
+refused with `400` rather than half-honoured. Under `dry_run` the call checks permission and stops.
+
+**Retiring is a role**, like releasing. The caller needs the `releaser` role — which is what a build
+pipeline already holds in order to publish GA — or a maintainer grant on that Producer; admins and
+root hold both. A plain authenticated token can provide but cannot retire, so dropping a protocol
+stays a deliberate act.
 
 The **version** of a Provide is read from the spec file itself: `MAJOR[.MINOR[.PATCH]]`, optionally `v`-prefixed — omitted parts are zero and the stored form is always the full three-part version:
 

@@ -20,12 +20,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and is validated as an expectation: reading fewer fields than the contract is fine, but expecting
   a field the contract does not guarantee is rejected with `409` on a GA provide and reported as an
   advisory `harvested_subscriptions` note on a snapshot. See [ADR-0006](docs/adr/0006-asyncapi-subscribe-harvesting.md).
-- A Producer can retire an API family it no longer provides —
-  `POST /admin/producers/{name}/retire/{api_type}`: clears the messaging/grpc capability tag,
+- A Producer can retire an API family it no longer provides, by sending `retired: true` on that
+  family's provide call with no specification body: clears the messaging/grpc capability tag,
   drops the family from the current main graph (keeping its timeline history), and releases its
   AsyncAPI channel-message contracts for another Producer to claim, without deleting version
-  history or breaking existing pins. Meant for the client plugin to call when a service's
-  `sanshain.yaml` drops a protocol.
+  history or breaking existing pins. Meant for the client plugin to send when a service's
+  `sanshain.yaml` drops a protocol. Retiring needs the `releaser` role — which CI already holds to
+  publish GA — or a maintainer grant on the Producer; combining it with a body, `stability`,
+  `trunk` or `tag` answers `400`.
 - Version strings — `info.version`, the proto `// sanshain-version:` marker, and pinned `version`
   parameters — now accept an optional leading `v` and omitted MINOR/PATCH with implicit zeroes
   (`v2` → `2.0.0`); previously only exact `MAJOR.MINOR.PATCH` was accepted. Stored and answered

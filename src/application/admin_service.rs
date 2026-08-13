@@ -125,25 +125,64 @@ pub struct RetiredProtocol {
     pub contracts_released: usize,
 }
 
-/// #7: a Producer declares it no longer provides an API family. Retiring the
-/// capability — not deleting the history: the auto-tag is cleared, the family's
-/// open trunk pins are closed (it leaves the current main graph), and its
-/// AsyncAPI channel-message contracts are released so another Producer may
-/// claim them. Version lines are kept and existing Consumer pins still resolve;
-/// the graph simply stops presenting a service as an active provider of
-/// something it no longer offers.
+/// #7 (`ai/improvements.md`): a Producer declares it no longer provides an API
+/// family — the `retired` flag on its provide call. Retiring the capability,
+/// not deleting the history:
+/// the auto-tag is cleared, the family's open trunk pins are closed (it leaves
+/// the current main graph), and its AsyncAPI channel-message contracts are
+/// released so another Producer may claim them. Version lines are kept and
+/// existing Consumer pins still resolve; the graph simply stops presenting a
+/// service as an active provider of something it no longer offers.
+///
+/// Retiring is gated like releasing, and for the same reason: it is a
+/// deliberate act on a Producer's public standing, not an incidental one. Two
+/// roles reach it — a `releaser` (which is what a build pipeline holds, so CI
+/// can retire a family the moment `sanshain.yaml` drops it) and a `maintainer`
+/// of this particular Producer. Admins and root hold both implicitly. A plain
+/// authenticated caller may still provide; it may not retire.
+///
+/// `dry_run` runs the gate and the Producer lookup and then stops. The returned
+/// counts are zero because nothing was retired — a dry run reports that the
+/// call *would* be permitted, not what it would have changed.
 #[instrument(skip_all)]
 pub async fn retire_protocol_family(
     repo: &impl SpecRepository,
     producer: &str,
     api_type: ApiType,
+    caller: Option<&crate::domain::permissions::Actor>,
+    dry_run: bool,
 ) -> Result<RetiredProtocol, AppError> {
+    use crate::domain::permissions::Permission;
+
+    let permitted = match caller {
+        Some(actor) if actor.has_permission(Permission::ReleaseGa) => true,
+        Some(actor) => super::authz::require_producer_permission(
+            repo,
+            actor,
+            Permission::ManageProducers,
+            producer,
+        )
+        .await
+        .is_ok(),
+        None => false,
+    };
+    if !permitted {
+        return Err(AppError::ForbiddenWithReason(format!(
+            "retiring an API family of '{producer}' requires the 'releaser' role or a \
+             maintainer grant on that Producer — ask an administrator for either"
+        )));
+    }
+
     let service_id = repo
         .find_service(producer)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Producer '{producer}' not found")))?;
 
     let mut result = RetiredProtocol::default();
+
+    if dry_run {
+        return Ok(result);
+    }
 
     // The auto-tag the matching provide added (OpenAPI has none).
     let tag = match api_type {
