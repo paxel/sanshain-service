@@ -80,6 +80,8 @@ provide endpoint, and its `ManageProducers` guard excluded the Releaser role tha
 
 ## Phase 1 — client adaptation, all five
 
+Done: **SanshainMaven**, **sanshain-rs**. Remaining: sanshain-go, sanshain-js, SanshainConan.
+
 | Item | Change |
 |---|---|
 | A | Map `403` on provide to a message naming the `releaser` role. |
@@ -96,8 +98,16 @@ Per-client repairs on top of the shared list:
   resolves to an unrelated placeholder repository. It becomes `github.com/paxel/sanshain-go/v2`.
 - **sanshain-js** — package renamed to `sanshain`; `deploy.yml` folded into `release.yml`; Node
   raised to 22.14.0 and npm to 11.5.1, both required by trusted publishing.
-- **sanshain-rs** — add `license`, `repository` and `description` to both crates; rename the library
-  crate to `sanshain`; `cargo-sanshain`'s dependency on it carries both `version` and `path`.
+- **sanshain-rs** — a larger job than an adaptation, because the repository is a single generated
+  commit that never went through a release cycle: it had no licence, no CI, no tags, placeholder
+  authors, and it was the only client **not** reading `sanshain.yaml` — it read
+  `[package.metadata.sanshain]` from `Cargo.toml`. That was an artifact, not a decision, so the
+  config source moved to `sanshain.yaml` with no fallback (`serde_yaml_ng`, the reader the service
+  already uses) and `cargo_metadata` left the dependency list. Also: Apache-2.0 plus a `LICENSE`
+  file, `[workspace.package]` inheritance, edition 2024 with `rust-version = "1.85"`, the library
+  crate renamed to `sanshain` with its directory, three READMEs, and the public surface narrowed —
+  the payload builders and message formatters became `pub(crate)` and the unused `sync_specs` was
+  deleted, because first publish freezes everything that is `pub`.
 - **SanshainConan** — drop `python_requires`; rewrite `README.md` and `docs/integration.md` to the
   import pattern.
 

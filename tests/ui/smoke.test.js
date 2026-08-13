@@ -690,3 +690,160 @@ test.describe("Release-graph regressions (ai/improvements.md #28)", () => {
     await page.waitForURL("**/account.html", { timeout: 10000 });
   });
 });
+
+// The endpoint card navigates by delegated action, and its arguments travel
+// through a data-click-args attribute. When those args fail to parse the
+// dispatcher logs and calls the handler with none at all, so the click still
+// "works" — it just navigates to a URL of five `undefined`s. Nothing caught
+// that: the handler resolved, no exception was thrown, and the page loaded.
+test.describe("Endpoint card navigation", () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+
+  const SERVICE = "card-nav-fixture";
+  const SPEC = [
+    "openapi: 3.0.0",
+    "info:",
+    "  title: Card Nav Fixture",
+    "  version: 1.0.0",
+    "paths:",
+    "  /widgets/{id}:",
+    "    get:",
+    "      responses:",
+    "        '200':",
+    "          description: OK",
+    "",
+  ].join("\n");
+
+  test.beforeAll(async ({ request }) => {
+    if (!adminPassword) {
+      throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
+    }
+    const login = await request.post("/auth/login", {
+      data: { username: "root", password: adminPassword },
+    });
+    const { token } = await login.json();
+    await request.post("/provide", {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { producername: SERVICE, stability: "ga", openapi_yaml: SPEC },
+    });
+  });
+
+  test("clicking an endpoint card opens that endpoint, not a URL of undefineds", async ({
+    page,
+  }) => {
+    page.on("dialog", async (d) => await d.dismiss());
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+
+    await page.goto(`/producers.html?service=${SERVICE}&api_type=openapi&version=1.0.0`);
+    const card = page.locator(".endpoint-card").first();
+    await expect(card).toBeVisible({ timeout: 10000 });
+
+    // The args must survive the round trip through the attribute — this is the
+    // step that silently produced an empty list.
+    const args = await card.evaluate((el) => JSON.parse(el.getAttribute("data-click-args")));
+    expect(args, "the card's action args must parse and carry all five values").toEqual([
+      SERVICE,
+      "openapi",
+      "1.0.0",
+      "/widgets/{id}",
+      "GET",
+    ]);
+
+    await card.click();
+    await page.waitForURL(/yaml\.html/, { timeout: 10000 });
+    const url = new URL(page.url());
+    expect(url.pathname).toBe("/yaml.html");
+    expect(page.url(), "no query parameter may be the string 'undefined'").not.toContain(
+      "undefined",
+    );
+    expect(url.searchParams.get("service")).toBe(SERVICE);
+    expect(url.searchParams.get("api_type")).toBe("openapi");
+    expect(url.searchParams.get("version")).toBe("1.0.0");
+    expect(url.searchParams.get("path")).toBe("/widgets/{id}");
+    expect(url.searchParams.get("method")).toBe("GET");
+  });
+});
+
+// The graph draws Producers and Consumers as the same kind of node, but they
+// have different pages. Sending a consumer-only node to producers.html asks for
+// a version line that does not exist, and the page renders "Fetch error: 404" —
+// a dead end reachable by clicking any consumer in the graph.
+test.describe("Graph node navigation", () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+
+  const PRODUCER = "nodelink-producer";
+  const CONSUMER = "nodelink-consumer";
+  const SPEC = [
+    "openapi: 3.0.0",
+    "info:",
+    "  title: Node Link Fixture",
+    "  version: 1.0.0",
+    "paths:",
+    "  /things:",
+    "    get:",
+    "      responses:",
+    "        '200':",
+    "          description: OK",
+    "",
+  ].join("\n");
+
+  test.beforeAll(async ({ request }) => {
+    if (!adminPassword) {
+      throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
+    }
+    const login = await request.post("/auth/login", {
+      data: { username: "root", password: adminPassword },
+    });
+    const { token } = await login.json();
+    const auth = { Authorization: `Bearer ${token}` };
+    await request.post("/provide", {
+      headers: auth,
+      data: { producername: PRODUCER, stability: "ga", openapi_yaml: SPEC },
+    });
+    // Give the producer a consumer, so the graph draws a node that provides
+    // nothing.
+    await request.get("/require", {
+      headers: auth,
+      params: {
+        consumername: CONSUMER,
+        producername: PRODUCER,
+        version: "1.0.0",
+        path: "/things",
+        method: "GET",
+      },
+    });
+  });
+
+  test("a consumer node links to the consumers page, not a 404 on producers", async ({ page }) => {
+    page.on("dialog", async (d) => await d.dismiss());
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+
+    await page.goto("/graph.html");
+    await expect(page.locator(`[data-node="${CONSUMER}"]`).first()).toBeVisible({ timeout: 20000 });
+
+    const hrefFor = async (node) => {
+      await page.locator(`[data-node="${node}"]`).first().hover();
+      await page.waitForTimeout(400);
+      return page.locator("#graph-tooltip a").first().getAttribute("href");
+    };
+
+    expect(await hrefFor(CONSUMER)).toBe(`/consumers.html?name=${CONSUMER}`);
+    expect(await hrefFor(PRODUCER)).toBe(`/producers.html?service=${PRODUCER}`);
+
+    // The link must also land somewhere that works: the consumers page focused
+    // on that consumer, showing the pin recorded above.
+    await page.goto(`/consumers.html?name=${CONSUMER}`);
+    await expect(page.locator("#clients-list")).toContainText(PRODUCER, { timeout: 10000 });
+    await expect(page.locator("#clients-list")).toContainText("1.0.0");
+  });
+});

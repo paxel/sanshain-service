@@ -548,10 +548,7 @@ async function showVersionEndpoints(serviceName, apiType, version) {
       // data-click ancestor, so a badge click opens its popover without also
       // opening the endpoint — no stopPropagation needed.
       card.dataset.click = "openEndpointYaml";
-      card.setAttribute(
-        "data-click-args",
-        attrJson([serviceName, apiType, version, ep.path, ep.method]),
-      );
+      setActionArgs(card, "click", [serviceName, apiType, version, ep.path, ep.method]);
       card.innerHTML = `
                     <div class="flex items-center justify-between">
                         <div class="flex items-center">

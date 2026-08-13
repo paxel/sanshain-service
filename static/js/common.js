@@ -533,6 +533,16 @@ function attrJson(value) {
     .replace(/"/g, "&quot;");
 }
 
+// The same args, for an element built through the DOM rather than an innerHTML
+// string. setAttribute stores its value verbatim — nothing HTML-decodes it — so
+// attrJson's entities would survive into the attribute and JSON.parse would
+// reject them, leaving the handler to run with no arguments at all. Use this
+// whenever the element is created with createElement; use attrJson only inside
+// a template literal the browser will parse.
+function setActionArgs(el, type, values) {
+  el.setAttribute(`data-${type}-args`, JSON.stringify(values));
+}
+
 // --- Confirm modal ---
 // Requires a #confirm-modal, #confirm-message, #confirm-yes in the page.
 function confirmAction(message, onConfirm, title = "Confirm Action", buttonText = "Confirm") {

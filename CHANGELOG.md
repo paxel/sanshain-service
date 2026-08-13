@@ -111,6 +111,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   current behavior plainly (a missing Pin answers 404, a missing endpoint 410).
 
 ### Fixed
+- A consumer-only node in the dependency graph now links to the consumers page focused on that
+  consumer; previously its "View Service Details" pointed at the producers page, which answered
+  "Fetch error: 404" since a pure Consumer has no version line.
 - The observability page's audit panel no longer loses real changes to a burst of rejected
   provides: it reads a wider window and offers a "Hide rejected provides" toggle.
 - `LOG_BUFFER_SIZE` now actually bounds how many log messages are kept per level; previously it

@@ -56,11 +56,29 @@ async function auditPage(page) {
   return page.evaluate(
     ({ events, onAttrs }) => {
       const unresolved = [];
+      // Args that do not parse are the quiet failure: the dispatcher catches
+      // the error and calls the handler with an empty list, so the action
+      // still fires — with every parameter undefined. Nothing throws and the
+      // handler resolves, so the checks above stay green while the feature is
+      // broken. The usual cause is building the attribute with attrJson() and
+      // setAttribute(), which stores the HTML entities verbatim instead of
+      // letting the parser decode them.
+      const badArgs = [];
       for (const type of events) {
         for (const el of document.querySelectorAll(`[data-${type}]`)) {
           const name = el.getAttribute(`data-${type}`);
           if (typeof window[name] !== "function") {
             unresolved.push(`data-${type}="${name}" (${el.tagName.toLowerCase()})`);
+          }
+          const raw = el.getAttribute(`data-${type}-args`);
+          if (raw === null) continue;
+          try {
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) {
+              badArgs.push(`data-${type}-args on ${name} is not an array: ${raw}`);
+            }
+          } catch {
+            badArgs.push(`data-${type}-args on ${name} is not valid JSON: ${raw}`);
           }
         }
       }
@@ -70,7 +88,7 @@ async function auditPage(page) {
           if (el.hasAttribute(a)) inline.push(`${a} on <${el.tagName.toLowerCase()}>`);
         }
       }
-      return { unresolved, inline };
+      return { unresolved, badArgs, inline };
     },
     { events: EVENTS, onAttrs: ON_ATTRS },
   );
@@ -84,10 +102,11 @@ for (const path of AUTHED_PAGES) {
     await page.goto(path);
     await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
     await page.waitForTimeout(1500);
-    const { unresolved, inline } = await auditPage(page);
+    const { unresolved, badArgs, inline } = await auditPage(page);
     expect(unresolved, `${path} has dead data-action handlers:\n${unresolved.join("\n")}`).toEqual(
       [],
     );
+    expect(badArgs, `${path} has unparseable action args:\n${badArgs.join("\n")}`).toEqual([]);
     expect(inline, `${path} still has inline handlers:\n${inline.join("\n")}`).toEqual([]);
   });
 }
@@ -96,7 +115,8 @@ test("the public landing page data-action handlers resolve", async ({ page }) =>
   await page.goto("/");
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(1000);
-  const { unresolved, inline } = await auditPage(page);
+  const { unresolved, badArgs, inline } = await auditPage(page);
+  expect(badArgs, `landing has unparseable action args:\n${badArgs.join("\n")}`).toEqual([]);
   expect(unresolved, `landing has dead data-action handlers:\n${unresolved.join("\n")}`).toEqual(
     [],
   );

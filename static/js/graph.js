@@ -1644,17 +1644,27 @@ function renderCustomGraph(report, svgElement, direction) {
 
     const tags = report?.service_tags?.[name] || [];
 
+    // The graph draws Producers and Consumers as the same kind of node, but the
+    // two have different pages. `services_detailed` lists Producers only, so a
+    // node missing from it consumes without providing — sending it to
+    // producers.html asks for a version line that does not exist and lands on
+    // "Fetch error: 404".
+    const isProducer = (report?.services_detailed || []).some((s) => s.name === name);
+    const href = isProducer
+      ? `/producers.html?service=${encodeURIComponent(name)}`
+      : `/consumers.html?name=${encodeURIComponent(name)}`;
+
     tooltip.innerHTML = `
       <div class="mb-3 pb-2 border-b border-slate-700/50">
-        <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Service Node</div>
+        <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">${isProducer ? "Producer" : "Consumer"} Node</div>
         <div class="font-bold text-lg text-white truncate mb-1">${_graphEscapeHtml(name)}</div>
         <div class="flex flex-wrap gap-1.5 mt-2">
           ${tags.map((t) => `<span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[10px]">${_graphEscapeHtml(t)}</span>`).join("")}
         </div>
       </div>
       <div class="space-y-3">
-        <a href="/producers.html?service=${encodeURIComponent(name)}" class="flex items-center justify-center gap-2 w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-all shadow-lg shadow-indigo-500/20">
-          <span>View Service Details</span>
+        <a href="${href}" class="flex items-center justify-center gap-2 w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-all shadow-lg shadow-indigo-500/20">
+          <span>View ${isProducer ? "Service" : "Consumer"} Details</span>
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
         </a>
       </div>

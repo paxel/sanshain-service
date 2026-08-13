@@ -22,15 +22,15 @@ The [**sanshain-maven-plugin**](https://github.com/paxel/sanshain-maven-plugin) 
 - **Config**: Defined in your `pom.xml`.
 
 ### Rust / Cargo
-The [**cargo-sanshain**](https://github.com/paxel/sanshain) subcommand integrates Sanshain into the Rust ecosystem.
-- **Installation**: `cargo install --git https://github.com/paxel/sanshain --path cargo-sanshain`.
+The [**cargo-sanshain**](https://github.com/paxel/sanshain-rs) subcommand integrates Sanshain into the Rust ecosystem, built on the [**sanshain**](https://github.com/paxel/sanshain-rs) client library.
+- **Installation**: `cargo install cargo-sanshain`.
 - **Usage**: `cargo sanshain provide` and `cargo sanshain require`.
 - **Config**: Uses `sanshain.yaml` in the crate root.
 
 ### Go CLI
 The [**sanshain-go**](https://github.com/paxel/sanshain-go) tool provides a lightweight Go-based CLI.
 - **Installation**: `go install github.com/paxel/sanshain-go/cmd/sanshain-go@latest`.
-- **Features**: Automatic stability detection (from the current git branch) and native Go integration.
+- **Features**: Native Go integration. Stability is `snapshot` unless the pipeline sets the GA switch (`SANSHAIN_GA=true` or `--ga`) — there is no branch detection.
 - **Config**: Uses `sanshain.yaml`.
 
 ### JavaScript / TypeScript
@@ -50,7 +50,7 @@ The [**sanshain-conan**](https://github.com/paxel/sanshain-conan) plugin extends
 ---
 
 ## Configuration (`sanshain.yaml`)
-Most clients (except Maven) share a common configuration format:
+Every official client reads the same `sanshain.yaml` from the project root — the Maven plugin accepts `pom.xml` parameters as overrides, but the file is the shared format:
 
 ```yaml
 serviceName: "my-service"

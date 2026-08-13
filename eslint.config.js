@@ -22,6 +22,7 @@ export default [
         escapeHtml: "readonly",
         escapeAttr: "readonly",
         attrJson: "readonly",
+        setActionArgs: "readonly",
         confirmDelete: "readonly",
         confirmAction: "readonly",
         togglePasswordVisibility: "readonly",
