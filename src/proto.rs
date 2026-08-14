@@ -688,8 +688,14 @@ message Outer {
     }
 
     #[test]
+    fn test_extract_sanshain_version_accepts_v_prefix_and_short_forms() {
+        let version = extract_sanshain_version("// sanshain-version: v1.2\n").unwrap();
+        assert_eq!(version.to_string(), "1.2.0");
+    }
+
+    #[test]
     fn test_extract_sanshain_version_rejects_non_semver() {
-        let err = extract_sanshain_version("// sanshain-version: v1.2.0\n").unwrap_err();
-        assert!(err.contains("drop the 'v' prefix"), "got: {}", err);
+        let err = extract_sanshain_version("// sanshain-version: one.two\n").unwrap_err();
+        assert!(err.contains("MAJOR[.MINOR[.PATCH]]"), "got: {}", err);
     }
 }

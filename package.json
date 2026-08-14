@@ -7,16 +7,18 @@
     "lint": "cargo clippy -- -D warnings",
     "test:unit": "cargo test",
     "test:itest": "./scripts/itest.sh",
-    "test:ui": "npx playwright test tests/ui/smoke.test.js",
+    "test:ui": "npx playwright test tests/ui/smoke.test.js tests/ui/no_console_errors.test.js tests/ui/de_inlined.test.js",
     "screenshots": "./scripts/update_screenshots.sh",
     "test": "cargo test",
-    "check": "npm run fmt:check && npm run lint && npm run test"
+    "check": "npm run fmt:check && npm run lint && npm run test",
+    "build:css": "tailwindcss -c tailwind.config.js -i static/css/app.input.css -o static/css/app.css --minify"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^10.0.0",
     "globals": "^16.0.0",
-    "prettier": "^3.0.0"
+    "prettier": "^3.0.0",
+    "tailwindcss": "^3.4.19"
   }
 }

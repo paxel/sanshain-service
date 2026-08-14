@@ -316,17 +316,40 @@ fn message_key(channel: &str, op_key: &str, message: &Value, index: usize) -> St
     }
 }
 
-/// Recursively check that a payload schema change is backward-compatible.
-fn check_schema_compatible(path: &str, old: &Value, new: &Value) -> Result<(), String> {
+/// A structural incompatibility found by [`find_schema_mismatch`], carried as
+/// data so each caller can phrase it for its own direction: `old`/`new` are
+/// the walk's first/second schema — a stored-vs-submitted comparison reads
+/// them as before/after, an expectation-vs-contract one as consumer/producer.
+enum SchemaMismatch {
+    RefChanged {
+        path: String,
+        old: String,
+        new: String,
+    },
+    TypeChanged {
+        path: String,
+        old: String,
+        new: String,
+    },
+    PropertyMissing {
+        path: String,
+    },
+}
+
+/// Recursively find the first place `new` fails to provide what `old` has:
+/// a property present in `old` but absent from `new` (unless `old` marks it
+/// deprecated), or a type/`$ref` that differs.
+fn find_schema_mismatch(path: &str, old: &Value, new: &Value) -> Result<(), SchemaMismatch> {
     let old_ref = old.get("$ref").and_then(Value::as_str);
     let new_ref = new.get("$ref").and_then(Value::as_str);
     if let (Some(old_ref), Some(new_ref)) = (old_ref, new_ref)
         && old_ref != new_ref
     {
-        return Err(format!(
-            "'{}' changed $ref from '{}' to '{}'",
-            path, old_ref, new_ref
-        ));
+        return Err(SchemaMismatch::RefChanged {
+            path: path.to_string(),
+            old: old_ref.to_string(),
+            new: new_ref.to_string(),
+        });
     }
 
     let old_type = old.get("type").and_then(Value::as_str);
@@ -334,10 +357,11 @@ fn check_schema_compatible(path: &str, old: &Value, new: &Value) -> Result<(), S
     if let (Some(old_type), Some(new_type)) = (old_type, new_type)
         && old_type != new_type
     {
-        return Err(format!(
-            "'{}' changed type from '{}' to '{}'",
-            path, old_type, new_type
-        ));
+        return Err(SchemaMismatch::TypeChanged {
+            path: path.to_string(),
+            old: old_type.to_string(),
+            new: new_type.to_string(),
+        });
     }
 
     if let Some(old_props) = old.get("properties").and_then(Value::as_mapping) {
@@ -347,19 +371,35 @@ fn check_schema_compatible(path: &str, old: &Value, new: &Value) -> Result<(), S
             match new_props.and_then(|props| props.get(prop_name)) {
                 None => {
                     if !is_marked_deprecated(old_prop) {
-                        return Err(format!("Property '{}' was removed", prop_path));
+                        return Err(SchemaMismatch::PropertyMissing { path: prop_path });
                     }
                 }
-                Some(new_prop) => check_schema_compatible(&prop_path, old_prop, new_prop)?,
+                Some(new_prop) => find_schema_mismatch(&prop_path, old_prop, new_prop)?,
             }
         }
     }
 
     if let (Some(old_items), Some(new_items)) = (old.get("items"), new.get("items")) {
-        check_schema_compatible(&format!("{}[]", path), old_items, new_items)?;
+        find_schema_mismatch(&format!("{}[]", path), old_items, new_items)?;
     }
 
     Ok(())
+}
+
+/// Recursively check that a payload schema change is backward-compatible,
+/// phrasing a mismatch as a before/after change.
+fn check_schema_compatible(path: &str, old: &Value, new: &Value) -> Result<(), String> {
+    find_schema_mismatch(path, old, new).map_err(|m| match m {
+        SchemaMismatch::RefChanged { path, old, new } => {
+            format!("'{}' changed $ref from '{}' to '{}'", path, old, new)
+        }
+        SchemaMismatch::TypeChanged { path, old, new } => {
+            format!("'{}' changed type from '{}' to '{}'", path, old, new)
+        }
+        SchemaMismatch::PropertyMissing { path } => {
+            format!("Property '{}' was removed", path)
+        }
+    })
 }
 
 /// A `publish`/`send` (PUB) message extracted from an AsyncAPI document, for
@@ -386,28 +426,66 @@ pub struct PubMessage {
 /// mapping. Note this is the inverse of the official 2.x spec, which defines
 /// the keyword from the client's perspective.
 pub fn extract_pub_messages(yaml_str: &str) -> Result<Vec<PubMessage>, String> {
+    extract_messages(yaml_str, Direction::Pub)
+}
+
+/// Extract every named SUB (subscribe/receive) message — the mirror of
+/// [`extract_pub_messages`], used to harvest a Producer's declared
+/// subscriptions (ai/improvements.md #6, ADR-0006). The returned [`PubMessage`]
+/// describes the subscribed message; its fields (channel, message name,
+/// payload) are direction-neutral. The same app-perspective reading applies:
+/// `subscribe` (2.x) / `receive` (3.x) = this service subscribes.
+pub fn extract_sub_messages(yaml_str: &str) -> Result<Vec<PubMessage>, String> {
+    extract_messages(yaml_str, Direction::Sub)
+}
+
+/// Which side of a channel operation to read, from the application's
+/// perspective: `Pub` = what this service publishes (2.x `publish` / 3.x
+/// `send`), `Sub` = what it subscribes to (2.x `subscribe` / 3.x `receive`).
+#[derive(Clone, Copy)]
+enum Direction {
+    Pub,
+    Sub,
+}
+
+impl Direction {
+    fn v2_keyword(self) -> &'static str {
+        match self {
+            Direction::Pub => "publish",
+            Direction::Sub => "subscribe",
+        }
+    }
+    fn v3_action(self) -> &'static str {
+        match self {
+            Direction::Pub => "send",
+            Direction::Sub => "receive",
+        }
+    }
+}
+
+fn extract_messages(yaml_str: &str, dir: Direction) -> Result<Vec<PubMessage>, String> {
     let root: Value = serde_yaml_ng::from_str(yaml_str)
         .map_err(|e| format!("Failed to parse AsyncAPI YAML: {}", e))?;
     let version = root.get("asyncapi").and_then(Value::as_str).unwrap_or("");
     if version.starts_with("3.") {
-        Ok(extract_pub_messages_v3(&root))
+        Ok(extract_messages_v3(&root, dir))
     } else {
-        Ok(extract_pub_messages_v2(&root))
+        Ok(extract_messages_v2(&root, dir))
     }
 }
 
-fn extract_pub_messages_v2(root: &Value) -> Vec<PubMessage> {
+fn extract_messages_v2(root: &Value, dir: Direction) -> Vec<PubMessage> {
     let mut out = Vec::new();
     let Some(channels) = root.get("channels").and_then(Value::as_mapping) else {
         return out;
     };
     for (channel_name, channel_value) in channels {
         let channel = channel_name.as_str().unwrap_or_default();
-        let Some(publish) = channel_value.get("publish") else {
+        let Some(operation) = channel_value.get(dir.v2_keyword()) else {
             continue;
         };
-        let op_deprecated = is_marked_deprecated(publish);
-        let Some(message) = publish.get("message") else {
+        let op_deprecated = is_marked_deprecated(operation);
+        let Some(message) = operation.get("message") else {
             continue;
         };
         let variants: Vec<&Value> = match message.get("oneOf").and_then(Value::as_sequence) {
@@ -423,14 +501,14 @@ fn extract_pub_messages_v2(root: &Value) -> Vec<PubMessage> {
     out
 }
 
-fn extract_pub_messages_v3(root: &Value) -> Vec<PubMessage> {
+fn extract_messages_v3(root: &Value, dir: Direction) -> Vec<PubMessage> {
     let mut out = Vec::new();
     let Some(operations) = root.get("operations").and_then(Value::as_mapping) else {
         return out;
     };
     let channels = root.get("channels");
     for (_op_name, op) in operations {
-        if op.get("action").and_then(Value::as_str) != Some("send") {
+        if op.get("action").and_then(Value::as_str) != Some(dir.v3_action()) {
             continue;
         }
         let op_deprecated = is_marked_deprecated(op);
@@ -520,6 +598,49 @@ pub fn check_payload_compatible(
     let new: Value = serde_yaml_ng::from_str(new_payload_yaml)
         .map_err(|e| format!("Failed to parse submitted payload: {}", e))?;
     check_schema_compatible("payload", &old, &new)
+}
+
+/// Check a consumer's SUB payload (its *expectation*) is satisfiable by a
+/// Producer's PUB `contract` payload (ai/improvements.md #6, ADR-0006): every
+/// property the expectation reads must exist in the contract with a compatible
+/// type. A consumer expecting *less* than the contract guarantees is fine;
+/// expecting a property, or a type, the contract does not guarantee is drift.
+///
+/// This is the role-swapped sibling of [`check_payload_compatible`]. The
+/// contract plays the "new" schema (it must still provide everything) and the
+/// expectation plays the "old" (what must remain available), so a property the
+/// expectation reads but the contract lacks is reported as missing.
+///
+/// Deliberate leniency: an expectation property the consumer itself marks
+/// `deprecated` may be absent from the contract without counting as drift —
+/// the consumer has flagged that read as going away, so the contract not
+/// guaranteeing it is the expected end state, not a surprise.
+pub fn check_expectation_satisfied(
+    contract_payload_yaml: &str,
+    expectation_payload_yaml: &str,
+) -> Result<(), String> {
+    let contract: Value = serde_yaml_ng::from_str(contract_payload_yaml)
+        .map_err(|e| format!("Failed to parse contract payload: {}", e))?;
+    let expectation: Value = serde_yaml_ng::from_str(expectation_payload_yaml)
+        .map_err(|e| format!("Failed to parse expectation payload: {}", e))?;
+    // Phrase mismatches in the expectation→contract direction: the walk's
+    // "old" is what the consumer reads, its "new" what the producer provides.
+    // Reusing the compatibility wording here once produced backwards messages
+    // ("Property was removed" for a property the contract never had).
+    find_schema_mismatch("payload", &expectation, &contract).map_err(|m| match m {
+        SchemaMismatch::PropertyMissing { path } => format!(
+            "Consumer expects property '{}', which the contract does not provide",
+            path
+        ),
+        SchemaMismatch::TypeChanged { path, old, new } => format!(
+            "Consumer expects '{}' as type '{}', but the contract provides '{}'",
+            path, old, new
+        ),
+        SchemaMismatch::RefChanged { path, old, new } => format!(
+            "Consumer expects '{}' with $ref '{}', but the contract provides '{}'",
+            path, old, new
+        ),
+    })
 }
 
 /// Two message payloads are semantically equal if their parsed YAML values are
@@ -987,5 +1108,131 @@ channels:
 
         let doc_only = base.replace("title: T", "title: Titled");
         assert_eq!(analyze_impact(base, &doc_only), Impact::Patch);
+    }
+
+    // --- SUB harvesting (ai/improvements.md #6, ADR-0006) ---
+
+    #[test]
+    fn extract_sub_messages_v2_named_subscribe_only() {
+        // Same fixture as the PUB test: harvesting SUB must pick the mirror
+        // operation — the subscribe message, never the publish one.
+        let yaml = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  orders:
+    publish:
+      message:
+        name: OrderPlaced
+        payload: { type: object }
+    subscribe:
+      message:
+        name: OrderShipped
+        payload: { type: object }
+"#;
+        let msgs = extract_sub_messages(yaml).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].channel, "orders");
+        assert_eq!(msgs[0].message_name, "OrderShipped");
+    }
+
+    #[test]
+    fn extract_sub_messages_empty_when_only_publish() {
+        let yaml = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  orders:
+    publish:
+      message:
+        name: OrderPlaced
+        payload: { type: object }
+"#;
+        assert!(extract_sub_messages(yaml).unwrap().is_empty());
+    }
+
+    #[test]
+    fn extract_sub_messages_v3_receive_only_with_address() {
+        let yaml = r#"
+asyncapi: 3.0.0
+info: { title: T, version: 1.0.0 }
+channels:
+  OrderShipped:
+    address: orders.shipped
+    messages:
+      ShipMessage:
+        name: OrderShipped
+        payload: { type: object }
+operations:
+  publishOrder:
+    action: send
+    channel: { $ref: '#/channels/OrderShipped' }
+  consumeShipped:
+    action: receive
+    channel: { $ref: '#/channels/OrderShipped' }
+"#;
+        let msgs = extract_sub_messages(yaml).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].channel, "orders.shipped");
+        assert_eq!(msgs[0].message_name, "OrderShipped");
+    }
+
+    #[test]
+    fn expectation_reading_a_subset_is_satisfied() {
+        let contract =
+            "type: object\nproperties:\n  id: { type: string }\n  name: { type: string }\n";
+        let expectation = "type: object\nproperties:\n  id: { type: string }\n";
+        assert_eq!(check_expectation_satisfied(contract, expectation), Ok(()));
+    }
+
+    #[test]
+    fn expectation_equal_to_contract_is_satisfied() {
+        let schema = "type: object\nproperties:\n  id: { type: string }\n";
+        assert_eq!(check_expectation_satisfied(schema, schema), Ok(()));
+    }
+
+    #[test]
+    fn expectation_of_a_property_the_contract_lacks_is_drift() {
+        let contract = "type: object\nproperties:\n  id: { type: string }\n";
+        let expectation =
+            "type: object\nproperties:\n  id: { type: string }\n  ssn: { type: string }\n";
+        let err = check_expectation_satisfied(contract, expectation).unwrap_err();
+        assert_eq!(
+            err,
+            "Consumer expects property 'payload.ssn', which the contract does not provide"
+        );
+    }
+
+    #[test]
+    fn expectation_of_an_incompatible_type_is_drift() {
+        let contract = "type: object\nproperties:\n  id: { type: string }\n";
+        let expectation = "type: object\nproperties:\n  id: { type: integer }\n";
+        let err = check_expectation_satisfied(contract, expectation).unwrap_err();
+        // Direction matters: the consumer's expected type first, the
+        // contract's actual type second — not the compatibility-check wording.
+        assert_eq!(
+            err,
+            "Consumer expects 'payload.id' as type 'integer', but the contract provides 'string'"
+        );
+    }
+
+    // The documented leniency: an expectation property the consumer itself
+    // marks deprecated may be absent from the contract without drift.
+    #[test]
+    fn deprecated_expectation_property_absent_from_contract_is_not_drift() {
+        let contract = "type: object\nproperties:\n  id: { type: string }\n";
+        let expectation = "type: object\nproperties:\n  id: { type: string }\n  legacy:\n    type: string\n    deprecated: true\n";
+        assert_eq!(check_expectation_satisfied(contract, expectation), Ok(()));
+    }
+
+    #[test]
+    fn expectation_drift_is_detected_in_a_nested_property() {
+        let contract = "type: object\nproperties:\n  meta:\n    type: object\n    properties:\n      a: { type: string }\n";
+        let expectation = "type: object\nproperties:\n  meta:\n    type: object\n    properties:\n      b: { type: string }\n";
+        let err = check_expectation_satisfied(contract, expectation).unwrap_err();
+        assert!(
+            err.contains('b'),
+            "error should name the nested missing property: {err}"
+        );
     }
 }

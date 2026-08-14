@@ -16,12 +16,21 @@ Do not “fix everything” in one pull request. Pick one item, add tests, imple
 
 ## Priority legend
 
-### 6. AsyncAPI subscribe operations: harvest as requires, validate as expectations — REWRITTEN 2026-07-04
+### 6. AsyncAPI subscribe operations: harvest as requires, validate as expectations — DONE (2026-08-11, ADR-0006)
 
+> **Implemented — [ADR-0006](../docs/adr/0006-asyncapi-subscribe-harvesting.md).** AsyncAPI
+> `subscribe` operations are harvested on **every** provide (not tag provides) as **version-less
+> consumer edges** in a dedicated `harvested_subscriptions` store — inherently distinct from
+> hand-declared requires. Each resolves its PUB owner against the GA contract store (owner by value;
+> null owner = unfulfilled, kept visible), inherits the provide's `trunk` flag (main vs dev view),
+> and is reconciled append-only (a dropped subscription is retracted). Drift (`check_expectation_
+> satisfied`) blocks with `409` only on the consumer's GA provide, advisory on snapshots. Surfaced
+> in `ProvideResponse.harvested_subscriptions` (+ `api.yaml`) and rendered in the report/graph via
+> the BROKER node. The step list below predates the ADR — the ADR is authoritative where they differ.
+>
 > **2.0 note (ADR-0003):** the branch-era mechanics below are stale — contracts are now keyed
 > `(channel, message name)` (no branch), enforced on GA provides only, and there is no
-> protected-branch fallback in resolution. The SUB-harvesting idea itself still stands; re-scope
-> the steps to version lines before implementing.
+> protected-branch fallback in resolution.
 
 **Original approach rejected.** The earlier version of this item ("store and serve SUB operations
 as endpoints") contradicts Sanshain's model: **provide = the contract a service produces,
@@ -156,7 +165,18 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 
 ## P1 — Correctness and missing feature gaps
 
-### 7. Make protocol removal explicit and clear stale Kafka/gRPC/OpenAPI markers
+### 7. Make protocol removal explicit and clear stale Kafka/gRPC/OpenAPI markers — DONE (2026-08-11)
+
+Retire is an explicit act, not inference from absence (a stateless API cannot tell a dropped
+protocol from a pipeline that merely stopped running). The family's own provide call carries
+`retired: true` and no document — the endpoint already names the family, so nothing else needs to.
+It retires the capability while keeping history: it clears the `messaging`/`grpc` auto-tag, closes
+the family's open trunk pins (they leave the current main graph, closed rows stay as timeline
+history via #26B), and releases the Producer's AsyncAPI channel-message contracts so another may
+claim them. Version lines and existing Consumer pins are untouched. Retiring is gated like
+releasing — the `releaser` role, which CI already holds to publish GA, or a maintainer grant on the
+Producer — so the client plugin can send it the moment `sanshain.yaml` drops a family. Original
+text:
 
 > **2.0 note (ADR-0003):** the instructions below are written against the branch model
 > (service/branch sync, protected-branch rules, shared contracts) and are obsolete as written.
@@ -315,7 +335,42 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 
 `create_app` now applies `DefaultBodyLimit::max(state.max_body_bytes)`; the limit is configurable via `MAX_SPEC_BODY_BYTES` (default `DEFAULT_MAX_BODY_BYTES` = 4 MiB, raised from axum's previous implicit 2 MiB; invalid or `0` values fall back to the default) and oversized bodies are rejected with `413 Payload Too Large` at extraction time — the limit counts decompressed bytes, so compressed uploads cannot bypass it. Parser-level protection relies on `serde_yaml_ng`'s built-in recursion limit, which turns pathologically nested YAML into a parse error surfaced as `400 Bad Request`; this is pinned by `split_rejects_excessively_nested_yaml` (tests/openapi_split_tests.rs). Over/under-limit behavior is covered by `test_request_body_over_limit_is_rejected_under_limit_accepted` (tests/integration_test.rs). Documented in `docs/configuration.md`; `api.yaml` lists the `413` response for `/provide*` and `/require-bundle`.
 
-### 11. Tighten browser security headers and remove inline-script dependency
+### 11. Tighten browser security headers and remove inline-script dependency — DONE (2026-08-11)
+
+**Supply-chain half (2026-08-10):** Tailwind is built to a committed static `static/css/app.css`
+(`npm run build:css`, guarded by `tests/css_is_built.sh` + a CI diff step) instead of the runtime
+play-CDN; dagre/mermaid/marked/diff2html are vendored under `static/vendor/` at pinned versions;
+inline `<script>` blocks were extracted to `static/js/pages/<page>.js`. A load-error safety net
+(`tests/ui/no_console_errors.test.js`) plus behavioural admin-control coverage
+(`tests/ui/admin_controls.test.js`) were added first, as the plan required.
+
+**Injection half (2026-08-11):** `script-src` now drops `'unsafe-inline'` — it is `'self'` only,
+with no CDN hosts. Every inline `on*=` handler (86 in `static/*.html`, ~27 in JS template literals,
+plus the Askama templates missed by the first pass — `templates/{index,dashboard,layout}.html`, the
+landing/`/dashboard` pages) is gone, routed through a delegated dispatcher in `common.js`: a control
+declares `data-<event>="fn"` (+ optional `data-<event>-args` JSON built with `attrJson`), and one
+delegated listener per event type (click/change/input/submit/keydown) resolves the nearest ancestor
+and calls the named global. Dynamic markup uses the same attributes, so JS-generated controls are
+covered without per-element listeners. `frame-ancestors 'none'` was added. The two templates missed
+before still loaded the Tailwind CDN and an inline `<script>`; both were vendored/extracted, and the
+Tailwind content globs now include `./templates/`.
+
+`style-src` **keeps** `'unsafe-inline'`: the vendored Mermaid injects `<style>` elements at
+diagram-render time, so it cannot be dropped without nonces/hashes over Mermaid's output — a
+separate, lower-value follow-up. JS `element.style.x = …` is CSSOM and never blocked, so no `style=`
+attributes needed moving for `script-src`.
+
+**Tests:** `tests/no_inline_handlers.rs` (static, data-independent) fails the build if any page or
+page script reintroduces an inline `on*=` handler or a bare `<script>` block, over both `static/`
+and `templates/`; `tests/ui/de_inlined.test.js` asserts at runtime that every `data-<event>` on each
+rendered page resolves to a function and no inline handler survives in the DOM; the load-error net
+catches any missed handler as a CSP violation at load; and `src/lib.rs`'s
+`csp_script_src_forbids_inline_and_is_self_only` pins that `script-src` stays `'self'`-only with no
+CDN and that `frame-ancestors 'none'` is present.
+
+Original text follows.
+
+
 
 **Problem:** The CSP allows inline scripts/styles and CDN script/style sources. That is convenient for static pages but weakens XSS protection.
 
@@ -338,6 +393,192 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 
 - Add or update a test that asserts the CSP header does not contain `'unsafe-inline'` after migration.
 - Manually load admin pages or run existing Playwright/UI tests if available.
+
+### 23. Trunk flag and main/dev graph views (ADR-0004, designed 2026-08-07) — DONE (2.2.0)
+
+**Problem:** The dependency graph is the union of every pin any branch's build recorded recently,
+thinned by `dependency_max_age_days` — it cannot distinguish the trunk stream's pins from
+development churn, and edges flicker with CI activity. See
+[ADR-0004](../docs/adr/0004-trunk-flag-and-graph-views.md) for the settled design; implement it
+as specified there, no re-litigation of the decisions. Tracker spec: issue #30.
+
+**Impact:** The graph cannot be trusted as an architecture view; superseded pins linger until
+expiry, rarely-built services vanish and reappear.
+
+**Relevant areas:**
+
+- `src/infrastructure/migrations/{sqlite,postgres}/` — new migration
+- `src/domain/models.rs`, `src/domain/ports.rs` — trunk fields on version/dependency records
+- `src/infrastructure/*repository*.rs` — LWW upsert for trunk pins, both backends
+- `src/application/spec_service.rs` (provide/require paths), `report_service.rs` (graph payload)
+- `src/presentation/handlers/api.rs`, `api.yaml` — optional `trunk` on provide body, require
+  params, require-bundle body (optional field, non-breaking; absent = today's behavior exactly)
+- `src/presentation/handlers/admin.rs`, `maintenance.yaml` — `trunk_max_age_days` setting
+- `static/graph.html`, `static/js/graph.js` — view toggle, conflict + staleness highlighting
+- `docs/sanshain-yaml.md` (`sanshain.trunk`), `docs/user-guide.md` (graph views), `CHANGELOG.md`
+
+**Implementation instructions:**
+
+1. Migration: add `trunk_provided_at TEXT NULL` to `spec_versions` (set on every trunk provide of
+   that entry, NULL = never trunk-provided). New table `trunk_dependencies`, **append-only**
+   (ADR-0005 builds its timeline on this — never overwrite or hard-delete rows): columns for
+   client, service, api_type, normalized_path/path, method, the pinned **version by value** (not
+   a `spec_versions.id` FK), `valid_from`, and `valid_to NULL`-able. The current trunk pin per
+   (client, service, api_type, normalized_path, method) is the row with `valid_to IS NULL`; a new
+   trunk require closes that row (sets `valid_to`) and inserts the new one. TTL culling closes
+   rows the same way instead of deleting. Separate from `dependencies` so none of this disturbs
+   existing dev-graph semantics.
+2. Contract: optional boolean `trunk` (default false) on the provide JSON body, the require query
+   parameters, and the require-bundle JSON body. Document in `api.yaml`; absent flag must leave
+   every existing behavior byte-identical.
+3. Provide path: when `trunk=true` and not a dry-run, stamp `trunk_provided_at` on the written
+   version entry. No effect on version rules, stability, GA immutability, or the no-op check.
+4. Require path: when `trunk=true`, additionally record the trunk pin per step 1's append
+   semantics (close the open row if its pin differs, insert the new one; identical pin just
+   refreshes the open row's timestamp). The normal dependency recording still happens.
+5. Settings: `trunk_max_age_days` (default 90), stored like `dependency_max_age_days`, exposed
+   via the same settings surface in `maintenance.yaml`; the cleanup job *closes* trunk rows past
+   the TTL (sets `valid_to`, never deletes) and clears stale `trunk_provided_at` markers.
+6. Report: extend the graph payload with the trunk data (each producer's newest trunk-flagged
+   version; trunk edges with their pins and `last_required_at`). Keep the existing dev payload
+   unchanged.
+7. UI: main/dev toggle on the graph page. Main view: producers at trunk version, trunk edges;
+   highlight (a) major-lag conflicts (edge pin's major < producer trunk major), (b) stale entries
+   (timestamp older than a fraction — e.g. half — of `trunk_max_age_days`).
+8. Tests: repository LWW upsert (both backends), provide/require flag handling incl. dry-run,
+   TTL cleanup, report payload shape; contract checks for the new optional fields.
+9. Client libraries (separate repos, tickets exist): send `trunk` from `sanshain.yaml`
+   `sanshain.trunk=true` / CI variable.
+
+**Validation:**
+
+- Two trunk requires of the same (client, producer, endpoint) with different pins leave exactly
+  one *open* trunk row (the newer) and one closed one (the older, history preserved), while
+  `dependencies` keeps accumulating as today.
+- A provide/require without the flag produces bit-identical rows and responses to current 2.2.0.
+
+### 24. Sanshain-branches: named release graphs and the timeline (ADR-0005, designed 2026-08-07) — DONE (2.2.0)
+
+**Problem:** The main graph (item 23) shows only current trunk truth. What a *release* consists
+of, which releases contain a given producer version, and what changed between two graphs is not
+answerable. See [ADR-0005](../docs/adr/0005-sanshain-branches-and-timeline.md) for the settled
+design; implement as specified there, no re-litigation. Depends on item 23 (append-only trunk
+storage is the timeline's substrate) — implement 23 first. Tracker spec: issue #30.
+
+**Impact:** Release/deployment truth, vulnerability impact lookup ("which releases pin
+`b@1.0.0`?"), and release diffing all remain impossible; the branch-cut workflow has no
+representation.
+
+**Relevant areas:**
+
+- `src/infrastructure/migrations/{sqlite,postgres}/` — branch tables
+- `src/domain/models.rs`, `src/domain/ports.rs`, `src/infrastructure/*repository*.rs`
+- `src/application/spec_service.rs` (tag on provide/require), new branch service functions
+- `src/presentation/handlers/api.rs`, `api.yaml` — optional `tag` on provide/require/
+  require-bundle, mutually exclusive with `trunk` (both → `400`)
+- `src/presentation/handlers/admin.rs`, `maintenance.yaml` — branch create/delete/list endpoints
+- `static/graph.html`, `static/js/graph.js` — graph selector, timeline slider, diff view
+- `docs/sanshain-yaml.md`, `docs/user-guide.md`, `docs/administration.md`, `CHANGELOG.md`
+
+**Implementation instructions:**
+
+1. Migration: `sanshain_branches` (id, unique live name, created_at, created_by, source, as-of
+   date). Branch membership/edges reuse the item-23 append-only row shape (version **by value**,
+   `valid_from`/`valid_to`) keyed by branch id — a branch has its own timeline exactly like trunk.
+2. Create: `POST /admin/branches` `{name, source?, as_of?}` — RouteGuard `release_ga`. Source
+   defaults to trunk, `as_of` to now; source may be another branch. Copies the source graph's
+   state at `as_of` (rows open at that instant) as the new branch's initial open rows. Duplicate
+   live name → `409`. Audited. The `maintenance.yaml` description must be complete enough that a
+   DevOps release-cut script can be written against it alone (all parameters, defaults, error
+   answers) — this endpoint's primary caller is automation, not the UI.
+3. Delete: `DELETE /admin/branches/{name}` — admin permission (higher bar than creation, per
+   ADR-0005). Frees the name. Audited.
+4. Wire: optional `tag=<name>` on provide, require, require-bundle. `tag` + `trunk` together →
+   `400`. Unknown tag → `404` with an instructive "a releaser must create it first" message.
+   Tagged calls append to the branch timeline with item-23 semantics (provide marks the member
+   version, require updates the pin).
+5. Lifecycle: extend the delete-version dependents listing (UI confirmation + the dependents
+   endpoint) with referencing branches. Dangling by-value references render highlighted in the
+   branch graph and heal automatically when the version is re-provided. No hard blocks.
+6. UI: graph-page selector (main / dev / each branch), timeline slider with change markers
+   (closed-row `valid_to` dates) for trunk and branches, date-pinned rendering, and a diff view
+   between any two (graph, date) selections. "Create branch here" from a timeline position, for
+   releasers.
+7. Report/API: expose branch listing and a branch's graph (current or at a date) for the UI; keep
+   existing report payloads unchanged.
+8. Tests: branch create from trunk-at-date (incl. retroactive after further trunk movement),
+   create from another branch, duplicate name 409, unknown tag 404, tag+trunk 400, tagged
+   require updates branch not trunk, delete-version warning includes branches, dangling reference
+   heals on re-provide, permissions (releaser create / admin delete), audit entries.
+9. Client libraries: extend the four trunk tickets — same mechanism sends `tag` from
+   configuration for release-branch pipelines.
+10. Rename: `PUT /admin/branches/{name}` `{new_name}` — admin permission, audited with old and
+    new name, duplicate live name → `409`. Branch identity is the internal id, so membership,
+    timeline and audit stamps survive a rename untouched.
+11. Audit: provide/require audit entries record the declared stream (trunk / tag name / none) in
+    a nullable column; branch create/delete/rename write their own audit entries; the audit page
+    gets a stream filter.
+12. Reports: `/report` (and the reports UI) accepts an optional scope — `dev` (default, byte-
+    identical behavior when absent), `main`, or `<branch>[@date]` — feeding report generation
+    from the selected graph state through the existing code path.
+13. Legend: view-aware — each graph view lists only markers it can draw (dev: today's set; main:
+    + stale, + major-lag; branch: + dangling reference; timeline: + change markers). "Missing"
+    stays applicable everywhere (snapshot overwrite or delete+republish can orphan any pin).
+14. Reverse lookup: version rows on the producers page show chips naming the sanshain-branches
+    that contain that version.
+15. Exports: graph PNG and report exports are stamped with view + branch name + date.
+16. Metrics: `sanshain_branch_updates_total{branch}` counter and a branch-count gauge; surface
+    on the observability page.
+
+**Validation:**
+
+- Create "R" off trunk at date D after trunk moved on: R equals the main graph as it was at D.
+- A hotfix tagged require changes R's edge and nothing in main/dev; R's timeline shows the change.
+- Deleting a version pinned by R warns naming R; re-providing the version heals R's reference.
+
+### 25. Graph symbol semantics: messaging badge, Broker node, outdated severity — DONE (2026-08-08)
+
+Step 3 landed as a neutral authored glyph rather than the official AsyncAPI logo: vendoring a
+third-party mark is a licensing decision, and the BROKER rename deliberately stops the graph
+asserting a vendor. Drop the official SVG into `static/images/` and swap the glyph if wanted.
+Original text:
+
+Independent of items 23/24 — implementable immediately, frontend-only except the vendored asset.
+
+**Problem:** Every node touching an AsyncAPI dependency edge wears the 🛢️ messaging symbol:
+`static/js/graph.js` pushes a `messaging` tag onto every *client* of an asyncapi dependency
+(lines ~494-500) and links both edge ends to an injected virtual node named `KAFKA` (~507-530),
+although server-side only actual AsyncAPI providers carry the tag. The barrel emoji reads as
+"oil", and "KAFKA" asserts a broker Sanshain has no evidence for. Separately, the `outdated`
+edge flag (line ~69) is binary — one patch behind and three majors behind look identical.
+
+**Impact:** With one async producer and three consumers, all four nodes show the barrel; the
+architecture view misstates who provides messaging. Breaking-level pin lag is indistinguishable
+from trivial lag.
+
+**Relevant areas:** `static/js/graph.js`, `static/graph.html` (legend), `static/images/`
+(new vendored asset), `CHANGELOG.md`.
+
+**Implementation instructions:**
+
+1. Delete the client-tag derivation for `messaging`/`grpc` in `graph.js` (~494-505): node badges
+   come from server-side `service_tags` only, so only actual AsyncAPI providers are marked.
+   Async involvement of consumers stays visible as the edge's api-type.
+2. Rename the virtual `KAFKA` node to `BROKER` (constant, label, and any `service_tags` seeding).
+3. Replace the 🛢️ emoji (node symbols and legend) with the official AsyncAPI logo as a local
+   vendored SVG under `static/images/` (CSP forbids remote assets; do NOT use the Apache Kafka
+   logo — ASF trademark and a broker assumption we just removed).
+4. Split the `outdated` flag into two tiers against the line's latest GA: `outdated` (behind
+   within the same major) and `breaking-outdated` (major behind), distinct colors, separate
+   legend entries and highlight filters.
+5. Update the legend labels accordingly ("Missing dep."/"Missing svc." stay as-is).
+
+**Validation:**
+
+- Fixture with one AsyncAPI provider and three consumers of it: exactly one node carries the
+  AsyncAPI badge; the virtual node renders as `BROKER`.
+- A pin one patch behind latest GA renders `outdated`; a pin one major behind renders
+  `breaking-outdated`; both filters highlight independently.
 
 ## P1 — Data integrity and operational reliability
 
@@ -370,7 +611,7 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 - Add a repository test with an injected failure after some writes and assert no partial state persists.
 - Run tests for both SQLite and Postgres adapters if available.
 
-### 13. Fix log buffer sizing to honor `LOG_BUFFER_SIZE`
+### 13. Fix log buffer sizing to honor `LOG_BUFFER_SIZE` — DONE (2026-08-08)
 
 **Problem:** `main.rs` reads `LOG_BUFFER_SIZE` and initializes buffers with that capacity, but `LogCaptureLayer::on_event()` uses a hard-coded `max_size` of `100` for every level.
 
@@ -393,7 +634,7 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 - Unit-test the layer with a small buffer size and assert old entries are evicted at that size.
 - Run `cargo test`.
 
-### 14. Add cleanup for expired sessions and API tokens
+### 14. Add cleanup for expired sessions and API tokens — DONE (2026-08-08)
 
 **Problem:** There is periodic cleanup for stale branches, dependencies, and in-memory CSRF tokens, but expired sessions/API tokens can remain in persistent storage unless repository validation deletes them elsewhere.
 
@@ -419,7 +660,7 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 - Integration test proving expired token/session is rejected.
 - Run `cargo test`.
 
-### 15. Improve startup configuration validation
+### 15. Improve startup configuration validation — DONE (2026-08-08)
 
 **Problem:** Several environment values are parsed with fallbacks. Invalid values silently become defaults in some cases, while invalid database/bind values fail loudly.
 
@@ -442,9 +683,207 @@ a SQLite repository test module, and a Postgres testcontainers repository test. 
 - Unit-test config parsing for valid, missing, and invalid values.
 - Run `cargo test`.
 
+### 26. Make the pin stores hold the invariants they claim — DONE (Problem A 2026-08-08, Problem B 2026-08-10)
+
+**Problem B — DONE (2026-08-10).** Pin rows now denormalize the participant name (client_name/
+service_name) and the client/service foreign keys dropped their cascade, so a Producer/Consumer
+delete no longer erases history — the row survives by value, exactly like a deleted version
+dangles rather than vanishing. A participant delete closes its open trunk pins (leaves the current
+main graph, keeps the closed rows as timeline). Branches keep the 409 refusal for their frozen
+open state; their closed rows now survive the same way. Original text:
+
+**Problem B — the append-only claim is not enforced against participant deletes.**
+`trunk_dependencies`, `branch_dependencies` and `branch_member_versions` declare
+`client_id`/`service_id` as `ON DELETE CASCADE` (sqlx enables `PRAGMA foreign_keys`, Postgres
+enforces natively), so deleting a Consumer or Producer physically removes their rows from every
+recorded graph — including the *closed* rows the timeline reconstructs from. The migration
+comment states the opposite ("the same append-only shape … closed records are the timeline").
+
+**Impact B:** Retiring a decommissioned service silently rewrites what past release cuts
+recorded: "Release Maribou" loses those edges and its timeline changes retroactively. This is the
+one thing the by-value version design exists to prevent — a deleted *version* leaves a visible
+dangling reference, but a deleted *participant* leaves nothing at all.
+
+**Note:** dropping the cascade alone fixes nothing. Every pin query inner-joins `clients`/
+`services` by id, so an orphaned row is invisible to readers either way, and `ON DELETE RESTRICT`
+would instead block a legitimate admin delete. The real options are (a) denormalize the
+participant *names* into the pin rows so history stands on its own, or (b) soft-delete
+participants and teach the joins to include tombstones. Both are migration + backfill + a rewrite
+of every pin query on both backends — which is why this sits with Problem A: same tables, same
+writers, one migration slot rather than two.
+
+**Decision 2026-08-08 (supersedes the Note above for the branch case):** deleting a Producer or
+Consumer that a sanshain-branch's recorded graph still references is **refused with a 409** naming
+the branches, enforced in the application layer. This is a hard block, which the Note above and
+ADR-0005's "warnings, not hard blocks" argued against — the owner chose it deliberately: a release
+cut is a frozen record, and a warning the admin clicks through still rewrites it. Trunk presence
+does **not** block, so Problem B's impact survives for the trunk timeline, which is why this item
+stays open.
+
+**Superseded mitigation (2026-08-07):** `admin_delete_producer`/`admin_delete_consumer` now
+answer `{"deleted", "branches"}` and name the affected release graphs in the audit entry
+(`list_participant_branch_references`), mirroring the delete-version warning. The admin is told;
+the history is still lost.
+
+**Problem A — DONE (2026-08-08; migration-collapse test added 2026-08-10).** The concurrent-writes
+Postgres test from the Validation list is still missing — the race is now prevented by the
+constraint rather than demonstrated, which is weaker evidence than the item asked for. A UNIQUE partial index now enforces one open record per
+pin key on all three tables, and the writers insert with `ON CONFLICT … DO UPDATE` so the loser
+of a race refreshes the winner's row. Original text:
+`record_trunk_pins` and `record_branch_pins` refresh-or-insert with a
+check-then-insert inside a transaction, but nothing in the schema enforces "at most one open
+record per pin key". `idx_trunk_dependencies_open` is non-unique, and under Postgres READ
+COMMITTED two concurrent requires for the same pin each see `rows_affected == 0` on the refresh
+`UPDATE` (neither sees the other's uncommitted `INSERT`) and both insert.
+
+**Impact A:** Duplicate open rows for one pin key: the main graph and reports draw the edge twice,
+and a later re-pin closes both rows at once, breaking the invariant every reader assumes. SQLite
+serializes writes so it does not reproduce — the two backends silently diverge.
+`record_branch_member_version` has the same check-then-insert shape (its
+`UPDATE`/`INSERT` pair was made transactional on 2026-08-07, which fixes the crash-between-writes
+half but not this one).
+
+**Relevant areas:**
+
+- `src/infrastructure/sqlite_repository.rs`, `src/infrastructure/postgres_repository.rs`
+  (`record_trunk_pins`, `record_branch_pins`, `record_branch_member_version`)
+- `src/infrastructure/migrations/{sqlite,postgres}/`
+
+**Implementation instructions:**
+
+1. Read the three writers first and derive the exact key column set from the `UPDATE` predicates
+   — the pin stores match on `normalized_path`, not `path`; the member store has no path at all.
+   The index must match the predicate exactly or it will not prevent the race.
+2. Write one migration per backend that (a) closes pre-existing duplicate open rows, keeping the
+   newest per key, then (b) creates a UNIQUE partial index on the open rows
+   (`... WHERE valid_to IS NULL`). Step (a) is not optional: the index creation fails on any
+   deployment that already accumulated duplicates.
+3. Convert the writers to rely on the constraint (upsert / `ON CONFLICT`) rather than the
+   check-then-insert, so the race is resolved by the database rather than by timing.
+4. Migrations are checksum-verified — expect `tests/migration_checksum_test.rs`,
+   `upgrade_test.rs` and `upgrade_test_postgres.rs` to need attention in the same change.
+
+**Validation:**
+
+- Postgres test issuing two concurrent identical trunk requires, asserting exactly one open row.
+- A migration test seeding duplicate open rows and asserting the migration collapses them.
+- Run `cargo test` (the Postgres suites need Docker).
+
+### 28. Release-graph correctness gaps found in review — DONE (2026-08-10)
+
+All eight sub-items shipped 2026-08-08/09; the Validation debt was paid 2026-08-10: backend items
+1/4/5 have integration tests, frontend items 2/3/6/7 have Playwright regressions (the two most
+vacuity-prone — filter narrowing and response ordering — proven to fail with their fix reverted;
+the dangling-dash and redirect tests assert concrete attributes/navigation and were not
+revert-proven). Known remainder: 28.8's atomicity itself is untestable without fault
+injection — the transaction is the fix, and the branch-delete behaviour is covered. Original text:
+
+Independent defects sharing one theme: a scoped or reconstructed view still mixes in
+present-tense or unfiltered data. Each is small; they are grouped because they are found and
+verified together, not because they must ship together.
+
+1. **Scoped reports carry today's trunk graph.** `generate_scoped_report`
+   (`report_service.rs:93`) replaces only `dependency_graph`; `trunk_graph` and
+   `trunk_stale_before` still come from `generate_report`'s present-tense fill. So
+   `GET /report?scope=main@<past>` is stamped with a historical `scope_label` while carrying
+   today's trunk edges — the masquerade `scope_label` exists to prevent. Fix: for a non-dev
+   scope, either fill `trunk_graph` at the same instant or empty it, as the dev-only overlays
+   already are.
+2. **Main view injects unfiltered producer nodes.** `renderCustomGraph` (`graph.js:724`) adds a
+   node per `trunkVersionMap` key, built from the unfiltered `report.services_detailed` *after*
+   `getFilteredReport` narrowed the edges. A focus tag, Circular mode, or an unchecked protocol
+   filter still draws every trunk-provided producer as an isolated node, so the filters look
+   broken. Fix: intersect the injected nodes with the filtered edge set.
+3. **Dangling/stale dash patterns are overwritten.** `graph.js:1239` unconditionally resets
+   `stroke-dasharray` to `6 3` for missing/pubsub/messaging edges, after the stale (`3 4`) and
+   dangling (`2 5`) patterns were set; the colour chain lets pubsub win too. A dangling AsyncAPI
+   PUB/SUB pin renders identically to a healthy one. Fix: fold dangling/stale into the same
+   decision chain that already resolves colour (the 2026-08-07 fix did this for colour only).
+4. **`list_graph_change_dates` ignores member versions.** Both backends scan only
+   `*_dependencies`, so a branch whose hotfix was a tagged Provide with no tagged require has an
+   empty timeline — no slider marker for a change that happened. Fix: union
+   `branch_member_versions` valid_from/valid_to.
+5. **Bundle entries colliding after normalization are dropped from the pin store.**
+   `record_pins` (`spec_service.rs:1223`) sends one param per raw endpoint, but the store keys on
+   `normalized_path`; the second of two colliding entries hits the refresh branch and vanishes,
+   while `record_dependencies_bulk` keeps both — dev and main graphs then disagree. Fix:
+   deduplicate by normalized key before recording, or make the collision an explicit rejection.
+6. **Timeline slider races itself.** `graph.js:444` binds `input` (not `change`) and fires the
+   async `setTimelinePosition()` unsequenced, so on a slow link the last response to land wins
+   and the graph can settle on an instant the user scrubbed past. Fix: sequence with a request
+   token, or bind `change`.
+7. **`runGraphDiff` has no 401 path.** `graph.html:662` awaits `apiCall` unguarded; `apiCall`
+   throws on 401 and `graph.html` defines no `onSessionExpired`, so an expired session leaves the
+   panel stuck on "Comparing…". `selectBranchView` (`graph.js:481`) only `console.warn`s, leaving
+   the select showing a branch the view never switched to.
+8. **SQLite `delete_branch` is not transactional.** `sqlite_repository.rs:748` issues the child
+   deletes and the branch delete as separate statements; a failure between them leaves a branch
+   whose graph is gone but whose name is still held. Postgres relies on the declared cascade and
+   is atomic — the backends diverge.
+
+**Validation:** each item needs its own regression test; items 1, 4, 5 and 8 are backend and
+belong in `tests/trunk_graph_test.rs`, items 2, 3, 6 and 7 in the Playwright suite.
+
+### 29. Audit stream identifies a branch by name, not id — DONE (2026-08-08)
+
+Resolved by adding `audit_logs.branch_id` (no foreign key, so an audit row outlives the branch it
+names), stamping it on tagged provides/requires, and resolving the `?stream=` name to an id at
+read time. `stream` remains the label the row was written with, and stays the only marker for
+`trunk`, which is not a branch. A name that resolves to no live branch still matches by label, so
+a deleted branch's history remains reachable under its old name. Original text:
+
+**Problem:** every tagged build stamps `audit_logs.stream` with the branch *name*
+(`provide_common`/`require_common`), while `rename_branch`'s doc states "identity is the id:
+membership, timeline and audit stamps survive". Membership and timeline do — they key on
+`branch_id`. Audit stamps do not.
+
+**Impact:** after renaming `rel-1` → `release-maribou`, `/api/audit/timeline?stream=release-maribou`
+returns nothing from before the rename; the history is reachable only under a name that no longer
+exists. Worse, `delete_branch` frees the name, so a new branch reusing it inherits the deleted
+branch's audit stream and "who changed Release Maribou?" merges two different release cuts.
+
+**Note — needs a decision before implementation.** The options are not equivalent:
+(a) stamp `branch_id` and resolve names at read time — correct, but the audit filter is a
+user-typed name and historical rows would need backfilling; (b) rewrite `stream` on rename —
+cheap, but it *edits existing audit rows*, which is a deliberate integrity decision nobody should
+take unilaterally, and it does not fix name reuse after delete; (c) refuse to free a name on
+delete. Ask before implementing.
+
+### 27. Diff graphs by the key the pin stores actually use — DONE (2026-08-07)
+
+**Problem:** `diff_graphs` keys pins by the raw `path`, while the pin stores match open records
+by `normalized_path`. A path whose parameter is respelled (`/users/{id}` → `/users/{userId}`)
+normalizes to the same stored record — one pin whose version moved — but the diff sees two
+different keys.
+
+**Impact:** `GET /admin/graph/diff` reports such a change as a removal plus an addition instead
+of a version change, so a release diff claims a dependency was dropped and a new one introduced.
+Misleading exactly where the feature is meant to be authoritative.
+
+**Relevant areas:**
+
+- `src/application/branch_service.rs` (`diff_graphs`, the `key` closure)
+- `src/domain/models.rs` (`TrunkPinInfo` — has no `normalized_path` field today)
+- the pin queries in both repositories
+
+**Implementation instructions:**
+
+1. Decide the seam: either select `normalized_path` in the pin queries and carry it on
+   `TrunkPinInfo` (skipped in serialization if it should not reach the wire), or normalize in
+   the application layer using the same function the write path uses. Prefer the former — two
+   normalizers will drift.
+2. Key `diff_graphs` by the normalized path; keep the raw `path` for display so the rendered
+   diff still shows what a human wrote.
+
+**Validation:**
+
+- Unit test: two pin sets differing only in parameter spelling and version produce one
+  `pins_changed` entry and no add/remove pair.
+- Run `cargo test`.
+
 ## P2 — Maintainability and quality
 
-### 22. Observability audit panel shows only the last 30 rows, now shared with rejections
+### 22. Observability audit panel shows only the last 30 rows, now shared with rejections — DONE (2026-08-08)
 
 > **2.0 note (ADR-0003):** protected branches and the Branch filter no longer exist; refusals are
 > now 409s from the version rules. The crowding concern stands, but re-check what is audited today
@@ -469,7 +908,15 @@ the intended place to investigate refusals in depth.
 
 **Options:** raise the limit, paginate, or add an action-type filter to the panel.
 
-### 16. Split large service modules into focused use cases
+### 16. Split large service modules into focused use cases — DONE (2026-08-11)
+
+Extracted: `version_rules.rs` (ADR-0003 version rules as pure functions), `require_service.rs` (the
+Require use case), and now `provide_service.rs` (the Provide use case — `provide_spec`,
+`promote_version`, `ProvideSpecParams`, AsyncAPI channel-contract planning and subscribe harvesting).
+`spec_service.rs` (~1711 → ~500 lines) now holds only the read/query use-cases plus the spec-parse
+and stream helpers shared across Provide/Require, marked `pub(crate)`. The Provide entry points are
+re-exported through `services` and (for compat) `spec_service`, so no handler or test call sites
+changed. Refactor-only: full Rust suite green before and after, clippy `-D warnings` clean. Original text:
 
 **Problem:** `src/application/spec_service.rs` is large and mixes provide, require, bundle, compatibility, versioning, tests, and shared-contract logic.
 
@@ -520,7 +967,7 @@ the intended place to investigate refusals in depth.
 
 - Run all integration tests plus `cargo test`.
 
-### 18. Add an architecture boundary check
+### 18. Add an architecture boundary check — DONE (2026-08-09)
 
 **Problem:** The project relies on humans and guidelines to maintain DDD boundaries. A future change can accidentally import infrastructure types into domain/application code.
 
@@ -542,6 +989,228 @@ the intended place to investigate refusals in depth.
 
 - Add one intentional fixture or unit assertion if possible.
 - Run the script and `cargo test`.
+
+## Performance findings (source review 2026-08-12)
+
+Found in a targeted performance review. Shared context: the hot spec paths are already in good
+shape (moka caches on endpoints/spec content/reports, bulk queries, transactional writes) — the
+issues below sit in runtime configuration and the per-request auth plumbing.
+
+### 30. SQLite pool defaults to a single connection (P1) — DONE (2026-08-12)
+
+Default raised to 5 (`MAX_SQLITE_CONNECTIONS` still overrides; docs + deploy configs updated).
+History check showed the 1 was hardcoded since inception with no recorded reason. All nine SQLite
+write transactions now go through `SqliteSpecRepository::write_tx()` (`BEGIN IMMEDIATE`), because
+with pool > 1 a deferred read-then-write transaction fails with `SQLITE_BUSY_SNAPSHOT` instead of
+waiting on `busy_timeout`. Full suite green. Original text:
+
+**Problem:** `src/main.rs` reads `env_number::<u32>("MAX_SQLITE_CONNECTIONS", 1)` — the default
+pool holds **one** connection. WAL journal mode is enabled a few lines above, whose whole point is
+many concurrent readers beside one writer, but a one-connection pool serializes every query in the
+service. Each authenticated request issues 3–5 queries (see #32), so requests queue on a single
+connection.
+
+**Impact:** Hard throughput ceiling for the default (SQLite) deployment; latency grows linearly
+with concurrent request count even for pure reads.
+
+**Relevant areas:**
+
+- `src/main.rs` (SQLite pool construction, `MAX_SQLITE_CONNECTIONS`)
+- `docs/configuration.md` (document the new default)
+
+**Implementation instructions:**
+
+1. Check git history for why the default is 1 before changing it (SQLITE_BUSY avoidance is the
+   usual reason). Under WAL with sqlx's default `busy_timeout`, concurrent writers wait rather
+   than fail, so a larger pool is safe; verify `busy_timeout` is actually set on the connect
+   options and set it explicitly if not.
+2. Raise the default to a small fixed number (e.g. 5). Keep `MAX_SQLITE_CONNECTIONS` as the
+   override knob. Do not build a split read/write pool unless the simple raise proves
+   insufficient — KISS.
+3. Update `docs/configuration.md` and `CHANGELOG.md` (user-facing default change).
+
+**Validation:**
+
+- Existing suite must stay green (`cargo test` exercises SQLite heavily).
+- A concurrency smoke test: N parallel read requests complete without `database is locked`
+  errors.
+
+### 31. Argon2 hashing runs inline on Tokio worker threads (P1) — DONE (2026-08-12)
+
+`hash_password_async`/`verify_password_async` (spawn_blocking wrappers in
+`src/application/auth_service.rs`; tokio is not a forbidden dependency there — verified against
+`tests/architecture_boundaries_test.rs`) now serve the request paths: `login`, `change_password`,
+`register_user`, and `LocalAuthProvider::authenticate` (own spawn_blocking, infrastructure layer).
+Sync functions remain for one-off startup paths and tests; equivalence pinned by
+`test_hash_and_verify_password_async`. Original text:
+
+**Problem:** `hash_password`/`verify_password` (`src/application/auth_service.rs`) and the
+LDAP-less login path (`src/infrastructure/local_auth_provider.rs`) run Argon2 directly in async
+context. There is no `spawn_blocking` anywhere in `src/`. Argon2 with default params costs tens of
+milliseconds of pure CPU per call.
+
+**Impact:** A handful of concurrent logins (or registration calls) pins Tokio worker threads;
+every in-flight request on those workers stalls, not only the logins.
+
+**Relevant areas:**
+
+- `src/application/auth_service.rs` (`hash_password`, `verify_password` call sites: login,
+  change-password, register)
+- `src/infrastructure/local_auth_provider.rs` (`authenticate`)
+
+**Implementation instructions:**
+
+1. Wrap the Argon2 hash and verify computations in `tokio::task::spawn_blocking`. Keep the
+   domain/application layer free of Tokio types if the boundary tests require it — if so, do the
+   wrapping at the infrastructure/presentation seam or via a port; check
+   `tests/architecture_boundaries_test.rs` first. Application layer currently already uses
+   async, so `spawn_blocking` inside `auth_service.rs` may be acceptable — verify against the
+   boundary test before deciding.
+2. Propagate `JoinError` as an internal `AppError`; no `unwrap()`.
+3. Behavior must be identical (same hashes, same errors for wrong password).
+
+**Validation:**
+
+- Existing auth unit + integration tests stay green.
+- New test asserting verify still rejects wrong passwords through the new code path.
+
+### 32. Per-request settings queries are uncached (P2) — DONE (2026-08-12)
+
+`settings_cache` added to `CachedRepository` (absent settings cached as `None` — the hottest keys
+are often never set): write-through invalidation in `set_setting`, 10s TTL as the cross-instance
+safety net (documented on the constant), wired into stats/rebuild/invalidate-all. No middleware
+change needed — `directory_groups_for`'s `get_auth_mode` probe is now an in-memory hit.
+`tests/handlers_cov2.rs`'s helper now hands tests the app's cached repository instead of a second
+uncached handle, which would bypass the invalidation. Pinned by
+`test_setting_write_invalidates_cached_read`. Original text:
+
+**Problem:** `CachedRepository` passes `get_setting` straight through to the database
+(`src/infrastructure/cached_repository.rs`, `get_setting`). Middleware calls it repeatedly per
+request: `api_auth` calls `get_auth_mode`; `validate_csrf` calls `get_dev_mode` on every non-GET;
+`permission_auth` calls `get_dev_mode`; and `attach_caller` → `directory_groups_for`
+(`src/presentation/middleware.rs`) misses its per-user cache on every request in non-LDAP mode
+(nothing ever populates it) and then calls `get_auth_mode` — one more query — just to learn the
+instance is not LDAP-backed. Net: 2–4 settings queries per request that change roughly never, on
+the single connection from #30.
+
+**Impact:** Multiplies DB round trips per request for values that change only via admin actions.
+
+**Relevant areas:**
+
+- `src/infrastructure/cached_repository.rs` (add a settings cache; invalidate in `set_setting`)
+- `src/presentation/middleware.rs` (`directory_groups_for` — short-circuit non-LDAP mode before
+  the per-user cache lookup, or cache the mode)
+
+**Implementation instructions:**
+
+1. Add a moka cache for settings in `CachedRepository` (key: setting name), invalidated by
+   `set_setting` on the same repository — the pattern `effective_roles_cache` already uses. A
+   short TTL (e.g. 30s) as a safety net is fine; explicit invalidation is the primary mechanism.
+2. Do **not** cache secrets-bearing settings differently — settings are config values, moka is
+   in-process; no new exposure.
+3. Multi-instance note: with several service instances sharing one Postgres, another instance's
+   `set_setting` is invisible to this instance's cache — the TTL bounds the staleness window.
+   State this in the cache's doc comment.
+
+**Validation:**
+
+- Unit test: `get_setting` after `set_setting` returns the new value (invalidation works).
+- Test that auth-mode change via admin route takes effect within the TTL bound (or immediately
+  on the same instance).
+
+### 33. Session/API-token validation hits the DB on every request (P2 — ask before implementing)
+
+**Problem:** `validate_session` and `validate_api_token` are pass-through in `CachedRepository`;
+every authenticated request does one (session) or two (session miss, then API token) lookups.
+
+**Impact:** One to two indexed point queries per request — cheap individually, but the largest
+remaining per-request DB cost once #32 lands.
+
+**Note — needs a decision before implementation.** Caching credential validation trades
+revocation latency for throughput: a logged-out session or deleted API token would keep working
+until the cache entry expires. The options are (a) short-TTL cache (seconds) with explicit
+invalidation on logout/token-delete on the same instance, (b) leave it uncached and accept the
+cost. Multi-instance deployments make invalidation partial either way. **Ask the owner which
+tradeoff is acceptable before writing any code.**
+
+**Relevant areas:**
+
+- `src/infrastructure/cached_repository.rs`
+- `src/application/auth_service.rs` (`logout` — must invalidate), token-delete admin path
+
+### 34. CPU-heavy YAML parse/split runs inline; `/validate` is anonymous (P3) — DONE (2026-08-12)
+
+`run_cpu_bound` (spawn_blocking wrapper, `src/application/spec_service.rs`) now carries the
+provide path's version-extract + hash + split, the bundle merge in `require_service`, and the
+public validator via new `validate_spec_async` — which also holds a `Semaphore` permit (4) so
+anonymous `/validate` callers queue for parsing CPU instead of occupying it without bound.
+Existing `/validate` integration tests exercise the new path; `validate_spec_async_matches_sync_verdicts`
+pins wrapper equivalence. Original text:
+
+**Problem:** Full-spec YAML parsing and per-endpoint re-serialization (`src/openapi.rs` split on
+provide, `merge_endpoint_yamls` on bundle require) run on async worker threads. `/validate`
+(`src/presentation/handlers/api.rs`) is deliberately unauthenticated and parses an arbitrary
+posted body (bounded by the 4 MiB body limit from item #10).
+
+**Impact:** A large spec parse blocks a worker thread for its duration; `/validate` lets an
+anonymous caller burn CPU at will (rate: one body-limit-sized parse per request).
+
+**Relevant areas:**
+
+- `src/presentation/handlers/api.rs` (provide handlers, `validate`)
+- `src/application/provide_service.rs`, `src/openapi.rs`
+
+**Implementation instructions:**
+
+1. Wrap the parse/split/merge computations in `spawn_blocking` at the handler or application
+   seam (same boundary caveat as #31).
+2. For `/validate`, consider a simple concurrency cap (e.g. a semaphore) rather than auth —
+   the endpoint's anonymity is deliberate (public validator).
+
+**Validation:**
+
+- Existing provide/require/validate tests stay green; no behavior change.
+
+### 35. `roles_from_directory` is N+1 per authenticated LDAP request (P3) — DONE (2026-08-12)
+
+Took the cache option (fewer call sites than a joined port method): `groups_list_cache` +
+`group_roles_cache` in `CachedRepository`, write-through invalidation on
+create/rename/delete_group and set_group_roles (rename matters — directory roles match by group
+*name*), 10s TTL safety net. The loop in `roles_from_directory` remains but reads memory, not the
+database. Pinned by `test_group_writes_invalidate_cached_reads`. Original text:
+
+**Problem:** `src/application/directory_roles.rs` (`roles_from_directory`) calls `list_groups`
+and then `list_group_roles(group.id)` per matching group — on every authenticated request for
+directory-backed users (the group *membership* is cached; the group→role mapping is not).
+
+**Impact:** Small tables, but per-request N+1 on the auth path; grows with group count.
+
+**Relevant areas:**
+
+- `src/application/directory_roles.rs`
+- `src/domain/ports.rs` / repositories (a bulk `list_group_roles_for_groups` or a joined query)
+
+**Implementation instructions:**
+
+1. Either add a single joined repository query (groups + roles, filtered by source = LDAP), or
+   cache the group→roles mapping in `CachedRepository` with invalidation on the group-role
+   mutation methods. Prefer whichever touches fewer call sites.
+
+**Validation:**
+
+- Existing directory-roles tests stay green; add one asserting the bulk path returns the same
+  roles as the loop did.
+
+### 36. `LogCaptureLayer` takes a global mutex per log event (P3 — low)
+
+**Problem:** `src/presentation/middleware.rs` (`LogCaptureLayer::on_event`) locks a
+`std::sync::Mutex` around a `VecDeque` for every log event, on whatever thread logs.
+
+**Impact:** Contention only under heavy log volume (e.g. debug toggles on); negligible otherwise.
+Recorded for completeness — fix only if profiling ever shows it.
+
+**Options:** per-level `parking_lot` mutex, or a bounded channel draining to the buffers from one
+task. Not worth doing speculatively.
 
 ## Suggested implementation order
 

@@ -11,8 +11,10 @@ info:
 
     **The version lives in the spec file.** For OpenAPI and AsyncAPI it is read
     from `info.version`; for proto from a mandatory
-    `// sanshain-version: MAJOR.MINOR.PATCH` comment. It must be strict
-    three-part semver — no `v` prefix, no `-SNAPSHOT` or other suffixes.
+    `// sanshain-version: MAJOR.MINOR.PATCH` comment. Accepted spellings are
+    `MAJOR[.MINOR[.PATCH]]` with an optional leading `v` — omitted parts are
+    zero (`v2` → `2.0.0`) and the stored/answered form is always the full
+    three-part version. No `-SNAPSHOT` or other suffixes.
 
     **Stability** is declared on every Provide: `snapshot` (overwritable
     work-in-progress, expires when unused) or `ga` (immutable; the number is
@@ -28,7 +30,7 @@ info:
     **Only the canonical names** `producername` and `consumername` are
     accepted; the 1.x aliases `servicename` and `clientname` are rejected as
     unknown fields like every other branch-era leftover.
-  version: "2.1.0"
+  version: "2.2.0"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt
@@ -81,15 +83,22 @@ paths:
               $ref: "#/components/schemas/ProvidePayload"
       responses:
         "202":
-          description: Specification accepted and stored.
+          description: |
+            Specification accepted and stored — or, for `retired: true`, the
+            family retired. The two answer different objects; a caller knows
+            which it sent.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ProvideResponse"
+                oneOf:
+                  - $ref: "#/components/schemas/ProvideResponse"
+                  - $ref: "#/components/schemas/RetiredProtocolResponse"
         "400":
           description: |
-            Invalid request — malformed spec YAML, or a missing/non-semver
-            `info.version`.
+            Invalid request — malformed spec YAML, a missing/non-semver
+            `info.version`, or two paths that are the same endpoint after
+            normalization (differing only in a path-parameter name, a trailing
+            slash, or doubled separators).
           content:
             application/json:
               schema:
@@ -104,6 +113,10 @@ paths:
             `stability: ga` without the `release_ga` permission. Releasing is
             a role: grant `releaser` to the publishing user or token (admins
             and root always may), or publish as a snapshot.
+
+            Also `retired: true` without the `release_ga` permission and
+            without a maintainer grant on this Producer. Retiring is a role for
+            the same reason releasing is — see `ProvidePayload.retired`.
           content:
             application/json:
               schema:
@@ -140,11 +153,16 @@ paths:
               $ref: "#/components/schemas/ProvideAsyncApiPayload"
       responses:
         "202":
-          description: Specification accepted and stored.
+          description: |
+            Specification accepted and stored — or, for `retired: true`, the
+            family retired. The two answer different objects; a caller knows
+            which it sent.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ProvideResponse"
+                oneOf:
+                  - $ref: "#/components/schemas/ProvideResponse"
+                  - $ref: "#/components/schemas/RetiredProtocolResponse"
         "400":
           description: Invalid request (e.g. malformed YAML, bad version).
           content:
@@ -153,8 +171,9 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
         "403":
           description: |
-            `stability: ga` without the `release_ga` permission (see
-            `/provide`).
+            `stability: ga` without the `release_ga` permission, or
+            `retired: true` without it and without a maintainer grant on this
+            Producer (see `/provide`).
           content:
             application/json:
               schema:
@@ -188,11 +207,16 @@ paths:
               $ref: "#/components/schemas/ProvideProtoPayload"
       responses:
         "202":
-          description: Specification accepted and stored.
+          description: |
+            Specification accepted and stored — or, for `retired: true`, the
+            family retired. The two answer different objects; a caller knows
+            which it sent.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ProvideResponse"
+                oneOf:
+                  - $ref: "#/components/schemas/ProvideResponse"
+                  - $ref: "#/components/schemas/RetiredProtocolResponse"
         "400":
           description: Invalid request (e.g. missing sanshain-version marker).
           content:
@@ -201,8 +225,9 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
         "403":
           description: |
-            `stability: ga` without the `release_ga` permission (see
-            `/provide`).
+            `stability: ga` without the `release_ga` permission, or
+            `retired: true` without it and without a maintainer grant on this
+            Producer (see `/provide`).
           content:
             application/json:
               schema:
@@ -249,7 +274,10 @@ paths:
           in: query
           required: true
           schema: { type: string }
-          description: The exact pinned version (`MAJOR.MINOR.PATCH`). No ranges, no `latest`.
+          description: |
+            The exact pinned version (`MAJOR.MINOR.PATCH`). No ranges, no
+            `latest`. A leading `v` and omitted MINOR/PATCH are accepted and
+            normalized (`v1` → `1.0.0`).
         - name: path
           in: query
           required: true
@@ -265,6 +293,23 @@ paths:
           required: false
           schema: { type: boolean, default: false }
           description: Resolve without recording the dependency.
+        - name: trunk
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: |
+            Marks this build as the trunk stream's: the pin is additionally
+            recorded in the append-only trunk store that feeds the main graph
+            (last write per endpoint wins). Omit when not using trunk/graph
+            features.
+        - name: tag
+          in: query
+          required: false
+          schema: { type: string }
+          description: |
+            The pin updates the named sanshain-branch's graph instead of
+            trunk (release-branch hotfix). Mutually exclusive with `trunk`
+            (both → `400`); an unknown tag answers `404`.
       responses:
         "200":
           description: The endpoint snippet as YAML.
@@ -325,6 +370,16 @@ paths:
           in: query
           required: false
           schema: { type: boolean, default: false }
+        - name: trunk
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: See `trunk` on `/require`.
+        - name: tag
+          in: query
+          required: false
+          schema: { type: string }
+          description: See `tag` on `/require`.
       responses:
         "200":
           description: The channel snippet as YAML.
@@ -378,6 +433,16 @@ paths:
           in: query
           required: false
           schema: { type: boolean, default: false }
+        - name: trunk
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: See `trunk` on `/require`.
+        - name: tag
+          in: query
+          required: false
+          schema: { type: string }
+          description: See `tag` on `/require`.
       responses:
         "200":
           description: The .proto snippet.
@@ -480,7 +545,8 @@ paths:
       summary: Validate a specification without publishing anything
       description: |
         The free validator: runs exactly the provide-side pipeline — version
-        extraction (strict `MAJOR.MINOR.PATCH`) and endpoint splitting — with
+        extraction (`MAJOR[.MINOR[.PATCH]]`, optional `v` prefix) and endpoint
+        splitting — with
         no persistence and no producer context. **Unauthenticated** and
         stateless; bounded by the request body-size limit. Always answers
         `200` with a verdict, so callers parse one shape. "Valid here" means
@@ -562,8 +628,6 @@ components:
       type: object
       required:
         - producername
-        - openapi_yaml
-        - stability
       properties:
         producername:
           type: string
@@ -573,19 +637,69 @@ components:
           description: |
             The full OpenAPI specification as a YAML string. Its
             `info.version` is the authoritative version of this Provide.
+            Required, except on a retire (`retired: true`), which publishes
+            nothing.
         stability:
-          $ref: "#/components/schemas/Stability"
+          allOf:
+            - $ref: "#/components/schemas/Stability"
+          description: |
+            Required, except on a retire, which publishes nothing and so has no
+            stability to declare.
+        retired:
+          type: boolean
+          default: false
+          description: |
+            The Producer no longer provides this API family — retire the
+            capability instead of publishing a version. The endpoint already
+            names the family, so nothing else identifies it.
+
+            Retiring clears the `messaging`/`grpc` auto-tag, closes the family's
+            open trunk pins (it leaves the current main graph while its closed
+            rows stay as timeline history), and releases any AsyncAPI
+            channel-message contracts it owned so another Producer may claim
+            them. Version lines are kept and existing Consumer pins still
+            resolve. Answers `{"tag_cleared", "trunk_pins_closed",
+            "contracts_released"}`.
+
+            **Retiring is a role**, like releasing: the caller needs the
+            `releaser` role — which is what a build pipeline holds, so CI can
+            retire the moment `sanshain.yaml` drops a protocol — or a maintainer
+            grant on this Producer. Admins and root hold both implicitly.
+            Otherwise `403`. A plain authenticated caller may still provide.
+
+            Combining it with anything a publish needs answers `400`: a
+            specification body, a `stability`, `trunk`, or `tag`. A retire is
+            not a build, so a request declaring both is a contradiction rather
+            than one with defaults to fill in.
+
+            With `dry_run: true` the permission check and the Producer lookup
+            run and nothing is retired; the returned counts are zero because
+            nothing happened.
         dry_run:
           type: boolean
           default: false
           description: Validate and classify without storing anything.
+        trunk:
+          type: boolean
+          default: false
+          description: |
+            Marks this build as the trunk stream's: the stored version entry
+            becomes "trunk's current version" (shown in the main graph), as
+            opposed to e.g. a release-branch GA backport. Orthogonal to
+            `stability`; no effect on version rules. Omit when not using
+            trunk/graph features.
+        tag:
+          type: string
+          description: |
+            Marks this build as a sanshain-branch's (release-branch hotfix):
+            the producer's member version within that branch is updated.
+            Mutually exclusive with `trunk` (both → `400`); an unknown tag
+            answers `404` — a releaser must create the branch first.
 
     ProvideAsyncApiPayload:
       type: object
       required:
         - producername
-        - asyncapi_yaml
-        - stability
       properties:
         producername:
           type: string
@@ -594,19 +708,31 @@ components:
           type: string
           description: |
             The full AsyncAPI document as a YAML string. Its `info.version` is
-            the authoritative version of this Provide.
+            the authoritative version of this Provide. See
+            `ProvidePayload.openapi_yaml` for when it may be omitted.
         stability:
-          $ref: "#/components/schemas/Stability"
+          allOf:
+            - $ref: "#/components/schemas/Stability"
+          description: See `ProvidePayload.stability`.
+        retired:
+          type: boolean
+          default: false
+          description: See `ProvidePayload.retired`.
         dry_run:
           type: boolean
           default: false
+        trunk:
+          type: boolean
+          default: false
+          description: See `ProvidePayload.trunk`.
+        tag:
+          type: string
+          description: See `ProvidePayload.tag`.
 
     ProvideProtoPayload:
       type: object
       required:
         - producername
-        - proto_content
-        - stability
       properties:
         producername:
           type: string
@@ -615,12 +741,58 @@ components:
           type: string
           description: |
             The full .proto file. Must carry exactly one
-            `// sanshain-version: MAJOR.MINOR.PATCH` comment.
+            `// sanshain-version: MAJOR.MINOR.PATCH` comment. See
+            `ProvidePayload.openapi_yaml` for when it may be omitted.
         stability:
-          $ref: "#/components/schemas/Stability"
+          allOf:
+            - $ref: "#/components/schemas/Stability"
+          description: See `ProvidePayload.stability`.
+        retired:
+          type: boolean
+          default: false
+          description: See `ProvidePayload.retired`.
         dry_run:
           type: boolean
           default: false
+        trunk:
+          type: boolean
+          default: false
+          description: See `ProvidePayload.trunk`.
+        tag:
+          type: string
+          description: See `ProvidePayload.tag`.
+
+    RetiredProtocolResponse:
+      type: object
+      description: |
+        What retiring an API family actually shed. Answered by a provide call
+        carrying `retired: true`, in place of `ProvideResponse` — a retire
+        publishes no version, so it reports no version.
+
+        All three counts are zero under `dry_run`, which checks permission and
+        stops without retiring anything.
+      required:
+        - trunk_pins_closed
+        - contracts_released
+      properties:
+        tag_cleared:
+          type: string
+          nullable: true
+          description: |
+            The capability auto-tag removed — `messaging` for AsyncAPI, `grpc`
+            for proto. Null for OpenAPI, which carries no such tag, and null
+            when the family had none to clear.
+        trunk_pins_closed:
+          type: integer
+          description: |
+            Open trunk pins closed. They leave the current main graph; their
+            closed rows stay as timeline history, so the era the Producer did
+            provide this family remains visible.
+        contracts_released:
+          type: integer
+          description: |
+            AsyncAPI channel-message contracts released for another Producer to
+            claim. Always zero for OpenAPI and proto, which own no contracts.
 
     ProvideResponse:
       type: object
@@ -654,6 +826,44 @@ components:
             True when this Provide released an existing snapshot in place
             (snapshot → GA under the same number), including the byte-identical
             case where `changes` is all zero.
+        harvested_subscriptions:
+          type: array
+          description: |
+            AsyncAPI `subscribe` operations harvested from this provide as
+            version-less consumer edges (only present for `/provide/asyncapi`,
+            and omitted when empty). Each is validated against the producer's
+            GA channel contract: on a GA provide an unsatisfiable expectation is
+            rejected with `409`; on a snapshot it is reported here as `drift`.
+
+            Perspective convention: Sanshain reads AsyncAPI 2.x
+            `publish`/`subscribe` from the application's perspective —
+            `publish` means "this service publishes", `subscribe` means "this
+            service consumes" (the 2.x specification's client-perspective
+            reading is the inverse). This matches the 3.x `send`/`receive`
+            mapping. A document authored with the spec-literal 2.x reading
+            harvests exactly backwards.
+          items:
+            type: object
+            required:
+              - channel
+              - message_name
+            properties:
+              channel:
+                type: string
+              message_name:
+                type: string
+              owner:
+                type: string
+                nullable: true
+                description: |
+                  The Producer that owns the channel's PUB contract, or absent
+                  when no GA provider owns it yet (an unfulfilled subscription).
+              drift:
+                type: string
+                nullable: true
+                description: |
+                  Advisory note when the subscription's expectation is not
+                  satisfiable by the current contract (snapshot provides only).
 
     RequireBundlePayload:
       type: object
@@ -671,7 +881,9 @@ components:
           description: Name of the Producer.
         version:
           type: string
-          description: The exact pinned version (`MAJOR.MINOR.PATCH`).
+          description: |
+            The exact pinned version (`MAJOR.MINOR.PATCH`). A leading `v` and
+            omitted MINOR/PATCH are accepted and normalized (`v1` → `1.0.0`).
         api_type:
           type: string
           enum: [openapi, asyncapi, proto]
@@ -688,6 +900,13 @@ components:
         dry_run:
           type: boolean
           default: false
+        trunk:
+          type: boolean
+          default: false
+          description: See `trunk` on `/require`.
+        tag:
+          type: string
+          description: See `tag` on `/require`.
 
     ValidationReport:
       type: object

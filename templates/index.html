@@ -1,192 +1,201 @@
-{% extends "layout.html" %}
+{% extends "layout.html" %} {% block title %}OpenAPI Distribution Service{% endblock %} {% block
+body %}
+<main class="flex-1 container mx-auto px-4 py-12 fade-in">
+  <div class="max-w-3xl mx-auto text-center mb-12">
+    <img
+      src="/images/sonne.png"
+      alt="Sanshain"
+      width="234"
+      height="128"
+      class="mx-auto mb-6 h-32 w-auto drop-shadow-md"
+    />
+    <h2 class="text-4xl font-bold text-indigo-700 mb-4">Sanshain Service (サンシャイン)</h2>
+    <p class="text-lg text-slate-600">
+      A lightweight OpenAPI distribution and contract-testing service. Providers publish their
+      specs, consumers declare requirements, and Sanshain validates compatibility across your entire
+      service mesh.
+    </p>
+  </div>
 
-{% block title %}OpenAPI Distribution Service{% endblock %}
+  <div class="max-w-5xl mx-auto mt-8 mb-16">
+    <div class="grid md:grid-cols-3 gap-8 relative">
+      <!-- Connecting lines for desktop -->
+      <div
+        class="hidden md:block absolute top-1/2 left-1/4 right-1/4 h-0.5 bg-indigo-100 -translate-y-1/2 z-0"
+      ></div>
 
-{% block body %}
-    <main class="flex-1 container mx-auto px-4 py-12 fade-in">
-        <div class="max-w-3xl mx-auto text-center mb-12">
-            <img src="/images/sonne.png" alt="Sanshain" width="234" height="128" class="mx-auto mb-6 h-32 w-auto drop-shadow-md">
-            <h2 class="text-4xl font-bold text-indigo-700 mb-4">Sanshain Service (サンシャイン)</h2>
-            <p class="text-lg text-slate-600">
-                A lightweight OpenAPI distribution and contract-testing service.
-                Providers publish their specs, consumers declare requirements, and Sanshain
-                validates compatibility across your entire service mesh.
-            </p>
+      <!-- Step 1: Provide -->
+      <div
+        class="relative z-10 bg-white p-8 rounded-2xl shadow-sm border border-slate-200 text-center hover:shadow-md transition-shadow"
+      >
+        <div
+          class="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-indigo-100"
+        >
+          <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+            ></path>
+          </svg>
         </div>
+        <h4 class="text-xl font-bold text-slate-800 mb-1">Provide</h4>
+        <p class="text-indigo-600 font-semibold text-sm mb-3">Contract Push</p>
+        <p class="text-sm text-slate-500 leading-relaxed">
+          Producers publish full API specifications to the central registry.
+        </p>
+      </div>
 
-        <div class="max-w-5xl mx-auto mt-8 mb-16">
-            <div class="grid md:grid-cols-3 gap-8 relative">
-                <!-- Connecting lines for desktop -->
-                <div class="hidden md:block absolute top-1/2 left-1/4 right-1/4 h-0.5 bg-indigo-100 -translate-y-1/2 z-0"></div>
-
-                <!-- Step 1: Provide -->
-                <div class="relative z-10 bg-white p-8 rounded-2xl shadow-sm border border-slate-200 text-center hover:shadow-md transition-shadow">
-                    <div class="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-indigo-100">
-                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-                        </svg>
-                    </div>
-                    <h4 class="text-xl font-bold text-slate-800 mb-1">Provide</h4>
-                    <p class="text-indigo-600 font-semibold text-sm mb-3">Contract Push</p>
-                    <p class="text-sm text-slate-500 leading-relaxed">Producers publish full API specifications to the central registry.</p>
-                </div>
-
-                <!-- Step 2: Manage -->
-                <div class="relative z-10 bg-white p-8 rounded-2xl shadow-md border border-indigo-100 text-center ring-4 ring-indigo-50 ring-opacity-50">
-                    <div class="w-16 h-16 bg-indigo-600 text-white rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-indigo-700 shadow-lg shadow-indigo-200">
-                        <img src="/images/sonne.png" alt="Sanshain" width="40" height="40" class="w-10 h-10 brightness-0 invert">
-                    </div>
-                    <h4 class="text-xl font-bold text-slate-800 mb-1">Manage</h4>
-                    <p class="text-indigo-600 font-semibold text-sm mb-3">Sanshain</p>
-                    <p class="text-sm text-slate-500 leading-relaxed">Centralized validation, semantic versioning, and smart contract splitting.</p>
-                </div>
-
-                <!-- Step 3: Require -->
-                <div class="relative z-10 bg-white p-8 rounded-2xl shadow-sm border border-slate-200 text-center hover:shadow-md transition-shadow">
-                    <div class="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-indigo-100">
-                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                        </svg>
-                    </div>
-                    <h4 class="text-xl font-bold text-slate-800 mb-1">Require</h4>
-                    <p class="text-indigo-600 font-semibold text-sm mb-3">Contract Pull</p>
-                    <p class="text-sm text-slate-500 leading-relaxed">Consumers pull exactly the subsets of contracts they need to stay compatible.</p>
-                </div>
-            </div>
+      <!-- Step 2: Manage -->
+      <div
+        class="relative z-10 bg-white p-8 rounded-2xl shadow-md border border-indigo-100 text-center ring-4 ring-indigo-50 ring-opacity-50"
+      >
+        <div
+          class="w-16 h-16 bg-indigo-600 text-white rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-indigo-700 shadow-lg shadow-indigo-200"
+        >
+          <img
+            src="/images/sonne.png"
+            alt="Sanshain"
+            width="40"
+            height="40"
+            class="w-10 h-10 brightness-0 invert"
+          />
         </div>
+        <h4 class="text-xl font-bold text-slate-800 mb-1">Manage</h4>
+        <p class="text-indigo-600 font-semibold text-sm mb-3">Sanshain</p>
+        <p class="text-sm text-slate-500 leading-relaxed">
+          Centralized validation, semantic versioning, and smart contract splitting.
+        </p>
+      </div>
 
-        <!-- Free spec validator: the same pipeline a Provide runs, minus persistence. -->
-        <div class="max-w-4xl mx-auto mb-16">
-            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
-                <div class="text-center mb-6">
-                    <h3 class="text-2xl font-bold text-slate-800 mb-2">Try it — validate a spec</h3>
-                    <p class="text-sm text-slate-500">Paste an OpenAPI, AsyncAPI or Protobuf specification. Sanshain checks it exactly the way a publish would: strict <span class="font-mono">MAJOR.MINOR.PATCH</span> version, clean parse, and a preview of the endpoints it would store. Nothing is saved.</p>
-                </div>
-                <textarea id="validator-input" rows="10" spellcheck="false"
-                    placeholder="openapi: 3.0.3&#10;info:&#10;  title: My API&#10;  version: 1.0.0&#10;paths:&#10;  ..."
-                    class="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
-                <div class="flex flex-wrap items-center justify-center gap-3 mt-4">
-                    <button data-validate="openapi" onclick="runValidation('openapi')"
-                        class="validator-btn border border-emerald-500 text-emerald-700 hover:bg-emerald-50 px-4 py-2 rounded-lg text-sm font-medium transition-colors">Validate OpenAPI</button>
-                    <button data-validate="asyncapi" onclick="runValidation('asyncapi')"
-                        class="validator-btn border border-indigo-500 text-indigo-700 hover:bg-indigo-50 px-4 py-2 rounded-lg text-sm font-medium transition-colors">Validate AsyncAPI</button>
-                    <button data-validate="proto" onclick="runValidation('proto')"
-                        class="validator-btn border border-blue-500 text-blue-700 hover:bg-blue-50 px-4 py-2 rounded-lg text-sm font-medium transition-colors">Validate Protobuf</button>
-                </div>
-                <div id="validator-result" class="hidden mt-5 rounded-xl border p-4 text-sm text-left"></div>
-            </div>
+      <!-- Step 3: Require -->
+      <div
+        class="relative z-10 bg-white p-8 rounded-2xl shadow-sm border border-slate-200 text-center hover:shadow-md transition-shadow"
+      >
+        <div
+          class="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-indigo-100"
+        >
+          <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+            ></path>
+          </svg>
         </div>
+        <h4 class="text-xl font-bold text-slate-800 mb-1">Require</h4>
+        <p class="text-indigo-600 font-semibold text-sm mb-3">Contract Pull</p>
+        <p class="text-sm text-slate-500 leading-relaxed">
+          Consumers pull exactly the subsets of contracts they need to stay compatible.
+        </p>
+      </div>
+    </div>
+  </div>
 
-        <div class="max-w-4xl mx-auto text-center py-12 border-t border-slate-100">
-            <h3 class="text-2xl font-bold text-slate-800 mb-10">Unified Contract Management</h3>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-12">
-                <div class="flex flex-col items-center group">
-                    <div class="w-16 h-16 mb-4 text-emerald-500 bg-emerald-50 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                        </svg>
-                    </div>
-                    <span class="font-bold text-slate-700 text-lg">OpenAPI</span>
-                    <p class="text-sm text-slate-500 mt-2">REST & HTTP APIs</p>
-                </div>
-                <div class="flex flex-col items-center group">
-                    <div class="w-16 h-16 mb-4 text-indigo-500 bg-indigo-50 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
-                        </svg>
-                    </div>
-                    <span class="font-bold text-slate-700 text-lg">AsyncAPI</span>
-                    <p class="text-sm text-slate-500 mt-2">Events & Messaging</p>
-                </div>
-                <div class="flex flex-col items-center group">
-                    <div class="w-16 h-16 mb-4 text-blue-500 bg-blue-50 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5"></path>
-                        </svg>
-                    </div>
-                    <span class="font-bold text-slate-700 text-lg">Protobuf</span>
-                    <p class="text-sm text-slate-500 mt-2">gRPC & Binary</p>
-                </div>
-            </div>
+  <!-- Free spec validator: the same pipeline a Provide runs, minus persistence. -->
+  <div class="max-w-4xl mx-auto mb-16">
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
+      <div class="text-center mb-6">
+        <h3 class="text-2xl font-bold text-slate-800 mb-2">Try it — validate a spec</h3>
+        <p class="text-sm text-slate-500">
+          Paste an OpenAPI, AsyncAPI or Protobuf specification. Sanshain checks it exactly the way a
+          publish would: strict <span class="font-mono">MAJOR.MINOR.PATCH</span> version, clean
+          parse, and a preview of the endpoints it would store. Nothing is saved.
+        </p>
+      </div>
+      <textarea
+        id="validator-input"
+        rows="10"
+        spellcheck="false"
+        placeholder="openapi: 3.0.3&#10;info:&#10;  title: My API&#10;  version: 1.0.0&#10;paths:&#10;  ..."
+        class="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      ></textarea>
+      <div class="flex flex-wrap items-center justify-center gap-3 mt-4">
+        <button
+          data-validate="openapi"
+          data-click="runValidation"
+          data-click-args='["openapi"]'
+          class="validator-btn border border-emerald-500 text-emerald-700 hover:bg-emerald-50 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+        >
+          Validate OpenAPI
+        </button>
+        <button
+          data-validate="asyncapi"
+          data-click="runValidation"
+          data-click-args='["asyncapi"]'
+          class="validator-btn border border-indigo-500 text-indigo-700 hover:bg-indigo-50 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+        >
+          Validate AsyncAPI
+        </button>
+        <button
+          data-validate="proto"
+          data-click="runValidation"
+          data-click-args='["proto"]'
+          class="validator-btn border border-blue-500 text-blue-700 hover:bg-blue-50 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+        >
+          Validate Protobuf
+        </button>
+      </div>
+      <div id="validator-result" class="hidden mt-5 rounded-xl border p-4 text-sm text-left"></div>
+    </div>
+  </div>
+
+  <div class="max-w-4xl mx-auto text-center py-12 border-t border-slate-100">
+    <h3 class="text-2xl font-bold text-slate-800 mb-10">Unified Contract Management</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-12">
+      <div class="flex flex-col items-center group">
+        <div
+          class="w-16 h-16 mb-4 text-emerald-500 bg-emerald-50 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"
+        >
+          <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+            ></path>
+          </svg>
         </div>
-    </main>
-{% endblock %}
-
-{% block scripts %}
-    <script>
-        hideLoader();
-        renderBanner();
-
-        // Lazy format detection: suggest the matching button as the user
-        // pastes — detection preselects, the click decides.
-        const validatorInput = document.getElementById('validator-input');
-        function detectFormat(text) {
-            const head = text.slice(0, 2000);
-            if (/^\s*asyncapi\s*:/m.test(head)) return 'asyncapi';
-            if (/^\s*openapi\s*:|^\s*swagger\s*:/m.test(head)) return 'openapi';
-            if (/^\s*syntax\s*=|^\s*package\s+[\w.]+\s*;|\bservice\s+\w+\s*\{/m.test(head)) return 'proto';
-            return null;
-        }
-        function highlightSuggestion() {
-            const detected = detectFormat(validatorInput.value);
-            document.querySelectorAll('.validator-btn').forEach((btn) => {
-                const isMatch = btn.dataset.validate === detected;
-                btn.classList.toggle('ring-2', isMatch);
-                btn.classList.toggle('ring-offset-1', isMatch);
-                btn.classList.toggle('ring-indigo-400', isMatch);
-            });
-        }
-        validatorInput.addEventListener('input', highlightSuggestion);
-        validatorInput.addEventListener('paste', () => setTimeout(highlightSuggestion, 0));
-
-        async function runValidation(apiType) {
-            const content = validatorInput.value;
-            const resultEl = document.getElementById('validator-result');
-            const render = (ok, html) => {
-                resultEl.classList.remove('hidden');
-                resultEl.className = 'mt-5 rounded-xl border p-4 text-sm text-left ' +
-                    (ok ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                        : 'border-rose-200 bg-rose-50 text-rose-900');
-                resultEl.innerHTML = html;
-            };
-            const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            if (!content.trim()) {
-                render(false, 'Paste a specification first.');
-                return;
-            }
-            try {
-                const res = await fetch('/validate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ api_type: apiType, content }),
-                });
-                if (!res.ok) {
-                    render(false, `The validator answered ${res.status}.`);
-                    return;
-                }
-                const verdict = await res.json();
-                if (verdict.valid) {
-                    const preview = (verdict.endpoints || [])
-                        .map((e) => `<li class="font-mono text-xs">${esc(e)}</li>`)
-                        .join('');
-                    const more = verdict.endpoint_count > (verdict.endpoints || []).length
-                        ? `<p class="text-xs mt-1 opacity-70">… and ${verdict.endpoint_count - verdict.endpoints.length} more</p>` : '';
-                    render(true,
-                        `<p class="font-semibold">✓ Valid ${esc(apiType)} — version ${esc(verdict.version)}, ` +
-                        `${verdict.endpoint_count} endpoint${verdict.endpoint_count === 1 ? '' : 's'}</p>` +
-                        (preview ? `<p class="mt-2 text-xs font-semibold opacity-70">Sanshain would store:</p><ul class="mt-1 space-y-0.5">${preview}</ul>${more}` : ''));
-                } else {
-                    const preview = (verdict.endpoints || [])
-                        .map((e) => `<li class="font-mono text-xs">${esc(e)}</li>`)
-                        .join('');
-                    render(false,
-                        `<p class="font-semibold">✗ Not valid as ${esc(apiType)}</p>` +
-                        `<p class="mt-1">${esc(verdict.error || 'Unknown error')}</p>` +
-                        (preview ? `<p class="mt-2 text-xs font-semibold opacity-70">The document itself splits into:</p><ul class="mt-1 space-y-0.5">${preview}</ul>` : ''));
-                }
-            } catch (e) {
-                render(false, 'Error: ' + esc(e.message));
-            }
-        }
-    </script>
+        <span class="font-bold text-slate-700 text-lg">OpenAPI</span>
+        <p class="text-sm text-slate-500 mt-2">REST & HTTP APIs</p>
+      </div>
+      <div class="flex flex-col items-center group">
+        <div
+          class="w-16 h-16 mb-4 text-indigo-500 bg-indigo-50 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"
+        >
+          <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+            ></path>
+          </svg>
+        </div>
+        <span class="font-bold text-slate-700 text-lg">AsyncAPI</span>
+        <p class="text-sm text-slate-500 mt-2">Events & Messaging</p>
+      </div>
+      <div class="flex flex-col items-center group">
+        <div
+          class="w-16 h-16 mb-4 text-blue-500 bg-blue-50 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"
+        >
+          <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+              d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5"
+            ></path>
+          </svg>
+        </div>
+        <span class="font-bold text-slate-700 text-lg">Protobuf</span>
+        <p class="text-sm text-slate-500 mt-2">gRPC & Binary</p>
+      </div>
+    </div>
+  </div>
+</main>
+{% endblock %} {% block scripts %}
+<script src="/js/pages/landing.js"></script>
 {% endblock %}

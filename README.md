@@ -23,8 +23,10 @@ Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and
 - **Version Lines**: Each spec's version comes from the document itself (`info.version`; proto uses a `// sanshain-version:` comment) with a declared stability — `snapshot` or `ga`. GA permanently claims its number; elements marked deprecated may be removed. See [API Lifecycle](docs/api-lifecycle.md).
 - **Dependency Tracking**: Tracks exactly which Consumer pins which version of which endpoint.
 - **Web Dashboard**: Navigate services, version timelines, diffs and dependencies visually.
+- **Release Graphs**: A trunk ("main") stream and named sanshain-branches capture what production actually is — release cuts (retroactive if needed), a timeline over past graph states, structured graph diffs, and release-scoped reports (`?scope=main[@instant]` or `<branch>[@instant]`).
 - **Free Spec Validator**: The landing page validates any OpenAPI, AsyncAPI or Protobuf spec against the exact rules a publish would face — no login, nothing stored.
 - **Auditing**: Full history of provides and administrative actions.
+- **Flexible Auth**: Local accounts, LDAP/Active Directory, or OpenID Connect SSO for human login; machine clients always use API tokens.
 
 ![Dependency Graph](docs/images/graph.png)
 
@@ -40,7 +42,7 @@ Detailed instructions: [**Getting Started**](docs/getting-started.md).
 - [**Client Ecosystem**](docs/clients.md) — Detailed guide for Maven, Cargo, Go, JS, and Conan.
 - [**API Lifecycle**](docs/api-lifecycle.md) — How to handle breaking changes and versioning.
 - [**API Usage**](docs/api-usage.md) — Authentication and detailed endpoint reference.
-- [**Administration**](docs/administration.md) — LDAP setup, version administration, and user management.
+- [**Administration**](docs/administration.md) — LDAP and OIDC (SSO) setup, version administration, and user management.
 - [**Troubleshooting**](docs/troubleshooting.md) — Common issues and how to solve them.
 - [**AI Migration**](docs/ai-migration.md) — Guide for using AI to migrate your services to Sanshain.
 - [**Corporate Best Practices**](docs/corporate-best-practices.md) — Recommendations for enterprise usage.

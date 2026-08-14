@@ -1,0 +1,825 @@
+//! The Provide use-case of the version-line model (ADR-0003): the version and
+//! stability rules, promotion, AsyncAPI channel-message contracts, and
+//! subscribe harvesting. Split out of spec_service.rs (ai/improvements.md #16);
+//! the read/query use-cases stay there. Refactor only — no behaviour change.
+
+use super::now_iso;
+use super::require_service::count_branch_update;
+use super::spec_service::{
+    content_hash, extract_spec_version, parse_spec_endpoints, resolve_stream,
+};
+use super::version_rules::{
+    check_compatibility, classify_change, diff_endpoints, ga_baseline, propose_free,
+};
+use crate::asyncapi;
+use crate::domain::models::*;
+use crate::domain::permissions::{Actor, Permission};
+use crate::domain::ports::{NewAuditLog, SpecRepository, UpsertSpecVersion};
+use std::collections::HashSet;
+use tracing::instrument;
+
+pub struct ProvideSpecParams<'a> {
+    pub producername: &'a str,
+    pub api_type: ApiType,
+    pub content: &'a str,
+    /// Declared by the caller: `snapshot` (overwritable) or `ga` (immutable).
+    pub stability: Stability,
+    pub dry_run: bool,
+    /// ADR-0004: this build belongs to the trunk stream — a real provide
+    /// (including the idempotent no-op) refreshes the entry's
+    /// `trunk_provided_at` marker. No effect on version rules or stability.
+    pub trunk: bool,
+    /// ADR-0005: this build belongs to the named sanshain-branch — a real
+    /// provide marks the producer's member version within it. Mutually
+    /// exclusive with `trunk`.
+    pub tag: Option<&'a str>,
+    /// The resolved caller: the GA gate checks it for
+    /// [`Permission::ReleaseGa`], and its username is the single identity used
+    /// for audit attribution and the version's `provided_by` credit. `None`
+    /// (no authenticated Actor) can never release.
+    pub caller: Option<Actor>,
+    /// Compare-and-set for promote-by-copy (#28): when `true`, the write only
+    /// lands if the stored entry still carries the hash of the exact bytes
+    /// being submitted, so a snapshot overwritten between read and release
+    /// answers 409 instead of silently going GA with stale bytes.
+    /// The expected hash is derived in [`provide_spec`] from `content` itself —
+    /// never passed in — so guard and payload cannot drift apart: if a
+    /// replica's content cache is stale, the derived hash is stale with it,
+    /// the stored row doesn't match, and the release refuses instead of
+    /// freezing old bytes.
+    pub require_prior_content_match: bool,
+}
+
+/// Promote a stored snapshot to GA without re-uploading (#28).
+///
+/// Definitionally "provide the stored content with `stability: ga`": the call
+/// funnels into [`provide_spec`], so the GA gate, promotion semantics,
+/// attribution, audit entries and rejection telemetry are all the same as for
+/// any release. An already-GA version is the idempotent no-op; an unknown
+/// producer or version is a 404.
+pub async fn promote_version(
+    repo: &impl SpecRepository,
+    producername: &str,
+    api_type: ApiType,
+    version: SemVer,
+    caller: Option<Actor>,
+) -> Result<ProvideResponse, AppError> {
+    let entry = crate::application::admin_service::find_version_entry(
+        repo,
+        producername,
+        api_type,
+        version,
+    )
+    .await?;
+    let content = repo
+        .get_spec_content(entry.id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Version not found".to_string()))?;
+    provide_spec(
+        repo,
+        ProvideSpecParams {
+            producername,
+            api_type,
+            content: &content,
+            stability: Stability::Ga,
+            dry_run: false,
+            // A promotion is a stability flip, not a stream declaration.
+            trunk: false,
+            tag: None,
+            caller,
+            require_prior_content_match: true,
+        },
+    )
+    .await
+}
+
+/// A version-rule rejection is self-service, but it is also a signal worth
+/// counting: the audit gets a `VERSION_REJECTED` entry and the Prometheus
+/// exposition a `sanshain_version_rejected_total` counter. Dry runs are
+/// previews and record neither. Best-effort — a failed audit write must not
+/// turn a clean 409 into a 500.
+async fn record_version_rejection(
+    repo: &impl SpecRepository,
+    dry_run: bool,
+    username: Option<&str>,
+    producername: &str,
+    version: SemVer,
+    reason: &'static str,
+    message: &str,
+) {
+    if dry_run {
+        return;
+    }
+    // The producer name becomes a Prometheus label and an audit row, so only
+    // Producers that exist are recorded — otherwise any authenticated caller
+    // could mint unbounded label cardinality out of made-up names. The check
+    // lives here, not at call sites, so no future caller can forget it; and it
+    // is best-effort like the rest of this function — a DB hiccup while
+    // deciding whether to record must not turn a clean refusal into a 500.
+    match repo.find_service(producername).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return,
+        Err(e) => {
+            tracing::warn!(
+                service = producername,
+                "Could not check producer existence for rejection telemetry: {}",
+                e
+            );
+            return;
+        }
+    }
+    metrics::counter!(
+        "sanshain_version_rejected_total",
+        "reason" => reason,
+        "producer" => producername.to_string()
+    )
+    .increment(1);
+    let actor = username.unwrap_or(crate::domain::models::DEV_MODE_ACTOR);
+    if let Err(e) = repo
+        .insert_audit_log(
+            actor,
+            NewAuditLog {
+                action: "VERSION_REJECTED",
+                details: message,
+                service: Some(producername),
+                version: Some(&version.to_string()),
+                action_type: Some("REJECT"),
+                ..Default::default()
+            },
+        )
+        .await
+    {
+        tracing::warn!(
+            service = producername,
+            "Could not record the version rejection in the audit log: {}",
+            e
+        );
+    }
+}
+
+#[instrument(skip_all)]
+pub async fn provide_spec(
+    repo: &impl SpecRepository,
+    params: ProvideSpecParams<'_>,
+) -> Result<ProvideResponse, AppError> {
+    let ProvideSpecParams {
+        producername,
+        api_type,
+        content,
+        stability,
+        dry_run,
+        trunk,
+        tag,
+        caller,
+        require_prior_content_match,
+    } = params;
+    // One identity: authorization and audit attribution both come from the
+    // Actor, so they cannot drift apart.
+    let username: Option<&str> = caller.as_ref().map(|a| a.username.as_str());
+    let tag_branch = resolve_stream(repo, trunk, tag).await?;
+
+    // Version extraction, hashing and splitting all scan the whole document —
+    // CPU work that must not run on the async worker thread.
+    let (version, hash, endpoints) = {
+        let content = content.to_string();
+        let producername = producername.to_string();
+        super::run_cpu_bound(move || {
+            let version = extract_spec_version(api_type, &content)?;
+            let hash = content_hash(&content);
+            let endpoints = parse_spec_endpoints(api_type, &content, &producername)?;
+            Ok((version, hash, endpoints))
+        })
+        .await?
+    };
+    // The one derivation point of the CAS hash (see the field's doc): the
+    // guard compares the stored row against the very bytes being written.
+    let expected_prior_hash = require_prior_content_match.then_some(hash.as_str());
+
+    // The GA gate (#27): releasing is a permission, snapshots are open to any
+    // authenticated caller. Checked after parsing, so the refusal names a real
+    // version and malformed documents keep their 400 — and before any write,
+    // so an unauthorized attempt cannot even create the service. All GA
+    // shapes are gated, including promotions and the idempotent no-op: a 202
+    // must never tell a misconfigured CI that its credentials can release.
+    if stability == Stability::Ga
+        && !caller
+            .as_ref()
+            .is_some_and(|a| a.has_permission(Permission::ReleaseGa))
+    {
+        let message = format!(
+            "publishing GA for '{}' requires the 'releaser' role — publish as a snapshot, or ask an administrator to grant the role",
+            producername
+        );
+        record_version_rejection(
+            repo,
+            dry_run,
+            username,
+            producername,
+            version,
+            "ga_requires_releaser",
+            &message,
+        )
+        .await;
+        return Err(AppError::ForbiddenWithReason(message));
+    }
+
+    tracing::debug!(
+        "Providing {:?} {} for service '{}' as {} (dry_run: {})",
+        api_type,
+        version,
+        producername,
+        stability.as_str(),
+        dry_run
+    );
+
+    let sid = if dry_run {
+        repo.find_service(producername).await?.unwrap_or(0)
+    } else {
+        let sid = repo.ensure_service(producername).await?;
+        let auto_tag = match api_type {
+            ApiType::AsyncApi => Some("messaging".to_string()),
+            ApiType::Proto => Some("grpc".to_string()),
+            ApiType::OpenApi => None,
+        };
+        if let Some(tag) = auto_tag {
+            repo.add_service_tags(sid, &[tag]).await?;
+        }
+        sid
+    };
+
+    let line: Vec<SpecVersionMeta> = if sid != 0 {
+        repo.list_spec_versions(sid)
+            .await?
+            .into_iter()
+            .filter(|v| v.api_type == api_type)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let existing = line.iter().find(|v| v.version == version).cloned();
+
+    // #6/ADR-0006: harvest this AsyncAPI provide's declared subscriptions as
+    // version-less consumer edges. Never on `tag` provides — branch graphs are
+    // cut artifacts (ADR-0005), not where development subscriptions accrue.
+    // Computed here (before the no-op fast path) so a byte-identical re-provide
+    // still re-flags trunk-ness and reports the harvest. Read-only; on a GA
+    // provide the drift check rejects (409) before any write happens.
+    let harvest_asyncapi = api_type == ApiType::AsyncApi && tag.is_none();
+    let (harvest_inputs, harvest_results) = if harvest_asyncapi {
+        plan_subscription_harvest(repo, content, stability).await?
+    } else {
+        (Vec::new(), Vec::new())
+    };
+
+    // Identical content is an idempotent no-op regardless of Actor: CI
+    // re-runs of the same commit must never fight. The one exception is a GA
+    // Provide for a same-content *snapshot* — that is a promotion, the normal
+    // release flow (the released content usually IS the last snapshot), and it
+    // must fall through to flip the stability in place.
+    if let Some(ref entry) = existing
+        && entry.content_hash == hash
+        && !(entry.stability == Stability::Snapshot && stability == Stability::Ga)
+    {
+        // The no-op still counts as "provided": a snapshot a CI re-provides
+        // every night is in active use and must not age out of the use-based
+        // expiry just because its content never changed.
+        if entry.stability == Stability::Snapshot && !dry_run {
+            repo.touch_spec_version_provided(entry.id, &now_iso())
+                .await?;
+        }
+        // A no-op trunk re-provide still says "this is trunk's version" — the
+        // nightly trunk CI whose content didn't change is what keeps the
+        // marker fresh for the trunk TTL.
+        if trunk && !dry_run {
+            repo.touch_spec_version_trunk(entry.id, &now_iso()).await?;
+        }
+        // Likewise a no-op tagged re-provide still marks the member version.
+        if let Some(branch) = &tag_branch
+            && !dry_run
+        {
+            repo.record_branch_member_version(branch.id, sid, api_type, version, &now_iso())
+                .await?;
+            count_branch_update(&branch.name);
+        }
+        // Content is unchanged, but the `trunk` flag may not be — a nightly
+        // trunk CI re-providing yesterday's snapshot bytes must still move its
+        // harvested edges into the main graph. Reconcile so the trunk-ness
+        // follows this provide, and report the harvest either way.
+        if harvest_asyncapi && !dry_run {
+            reconcile_harvest(repo, producername, trunk, &harvest_inputs).await?;
+        }
+        return Ok(ProvideResponse {
+            version,
+            stability: entry.stability,
+            content_hash: hash,
+            changes: ProvideChanges::default(),
+            promoted: false,
+            harvested_subscriptions: harvest_results,
+        });
+    }
+
+    match (&existing, stability) {
+        // GA permanently claims its number: different content under the same
+        // number is the forgot-to-bump mistake, caught at the door.
+        (Some(entry), _) if entry.stability == Stability::Ga => {
+            let old_content = repo.get_spec_content(entry.id).await?.unwrap_or_default();
+            let changes =
+                diff_endpoints(&repo.get_endpoints_for_version(entry.id).await?, &endpoints);
+            let impact = classify_change(api_type, &old_content, content, changes.inserts);
+            let proposed = propose_free(&line, version.increment(impact));
+            // Bytes differ but no endpoint the splitter sees changed: the
+            // difference is almost certainly whitespace, line endings or
+            // comments — name that, or the refusal reads as gaslighting to a
+            // caller who changed nothing.
+            let cosmetic_hint = if changes.inserts == 0
+                && changes.updates == 0
+                && changes.deletes == 0
+            {
+                " (no endpoint content changed — the difference may be whitespace, line endings or comments; documents are compared byte-for-byte)"
+            } else {
+                ""
+            };
+            let message = if stability == Stability::Ga {
+                format!(
+                    "version {} of {} '{}' is GA and immutable, but the submitted content differs — did you forget to increment info's version? Publish as {} instead{}",
+                    version,
+                    api_type.as_str(),
+                    producername,
+                    proposed,
+                    cosmetic_hint
+                )
+            } else {
+                format!(
+                    "version {} of {} '{}' is GA — a released number can never carry a snapshot again; bump your version to {}{}",
+                    version,
+                    api_type.as_str(),
+                    producername,
+                    proposed,
+                    cosmetic_hint
+                )
+            };
+            let reason = if stability == Stability::Ga {
+                "immutable_ga"
+            } else {
+                "snapshot_on_ga"
+            };
+            record_version_rejection(
+                repo,
+                dry_run,
+                username,
+                producername,
+                version,
+                reason,
+                &message,
+            )
+            .await;
+            return Err(AppError::VersionConflict { message, proposed });
+        }
+        _ => {}
+    }
+
+    // Semver honesty, enforced on GA only: breaking without a major bump is a
+    // lie that detonates when a Consumer "safely" repins within the major.
+    // Snapshots are declared work-in-progress and are never compat-checked.
+    if stability == Stability::Ga
+        && let Some(baseline) = ga_baseline(&line, version)
+        && version.major <= baseline.version.major
+        && let Some(baseline_content) = repo.get_spec_content(baseline.id).await?
+        && let Err(reason) = check_compatibility(api_type, &baseline_content, content)
+    {
+        let proposed = propose_free(&line, SemVer::new(baseline.version.major + 1, 0, 0));
+        let message = format!(
+            "version {} of {} '{}' is breaking relative to GA {} but does not bump the major — publish as {} instead: {}",
+            version,
+            api_type.as_str(),
+            producername,
+            baseline.version,
+            proposed,
+            reason
+        );
+        record_version_rejection(
+            repo,
+            dry_run,
+            username,
+            producername,
+            version,
+            "breaking_without_major",
+            &message,
+        )
+        .await;
+        return Err(AppError::VersionConflict { message, proposed });
+    }
+
+    // `changes` counts are relative to what this exact version stored before
+    // (snapshot overwrite / promotion); a brand-new version reports its whole
+    // endpoint set as inserts.
+    let changes = match &existing {
+        Some(entry) => diff_endpoints(&repo.get_endpoints_for_version(entry.id).await?, &endpoints),
+        None => ProvideChanges {
+            inserts: endpoints.len(),
+            updates: 0,
+            deletes: 0,
+        },
+    };
+
+    // Item #20: message-level channel contracts, GA provides only. A snapshot
+    // claiming global topic ownership would let one developer's WIP block
+    // another Producer's release.
+    let contract_ops = if api_type == ApiType::AsyncApi && stability == Stability::Ga {
+        plan_channel_message_contracts(repo, sid, content).await?
+    } else {
+        Vec::new()
+    };
+
+    let promoting = existing.as_ref().map(|e| e.stability) == Some(Stability::Snapshot)
+        && stability == Stability::Ga;
+
+    if dry_run {
+        return Ok(ProvideResponse {
+            version,
+            stability,
+            content_hash: hash,
+            changes,
+            promoted: promoting,
+            // Harvest was planned before the no-op fast path above.
+            harvested_subscriptions: harvest_results,
+        });
+    }
+
+    let overwriting = existing.as_ref().map(|e| e.provided_by.clone());
+    // Attribution is the authenticated Actor — with one exception: promoting a
+    // snapshot with byte-identical content keeps the snapshot's provider, so
+    // the human who built it stays on the released version (the audit's
+    // VERSION_PROMOTED entry still names the promoting Actor). Different
+    // content means the promoter owns what they pushed.
+    let credited = if promoting && existing.as_ref().is_some_and(|e| e.content_hash == hash) {
+        existing
+            .as_ref()
+            .map(|e| e.provided_by.clone())
+            .unwrap_or_default()
+    } else {
+        username.unwrap_or("").to_string()
+    };
+    let record = UpsertSpecVersion {
+        service_id: sid,
+        api_type,
+        version,
+        stability,
+        content,
+        content_hash: &hash,
+        provided_by: &credited,
+        expected_prior_hash,
+        now_iso: &now_iso(),
+        endpoints: endpoints
+            .into_iter()
+            .map(|e| EndpointRecord {
+                id: None,
+                api_type,
+                path: e.path,
+                normalized_path: e.normalized_path,
+                method: e.method,
+                yaml_content: e.yaml_content,
+                deprecated: e.deprecated,
+            })
+            .collect(),
+    };
+    let entry_id = match repo.upsert_spec_version(record).await {
+        Ok(id) => id,
+        // A CAS refusal deserves a remedy, not a bare "Conflict" — and an
+        // accurate one: the guard has three arms (row released concurrently,
+        // row overwritten, row vanished), so re-read to say which happened.
+        Err(e) => {
+            if matches!(e, crate::domain::ports::RepositoryError::Conflict)
+                && expected_prior_hash.is_some()
+            {
+                // The refusal is already decided; the re-read only makes the
+                // message accurate. If it fails — most likely under exactly the
+                // write load that caused the conflict — degrade the message
+                // rather than escalate the 409 into a 500.
+                let message = match repo.find_spec_version(sid, api_type, version).await {
+                    Ok(Some(entry)) if entry.stability == Stability::Ga => format!(
+                        "version {} was released concurrently — nothing left to do",
+                        version
+                    ),
+                    Ok(Some(_)) => {
+                        "the snapshot changed while releasing — reload and promote again"
+                            .to_string()
+                    }
+                    Ok(None) => format!(
+                        "version {} was deleted while releasing — nothing left to promote",
+                        version
+                    ),
+                    Err(_) => "the version moved while releasing — reload and retry".to_string(),
+                };
+                return Err(AppError::Conflict(message));
+            }
+            return Err(e.into());
+        }
+    };
+
+    apply_contract_ops(repo, contract_ops).await?;
+
+    // The write landed; stamp the trunk marker on the (possibly fresh) entry.
+    if trunk {
+        repo.touch_spec_version_trunk(entry_id, &now_iso()).await?;
+    }
+    // A tagged provide marks the member version within its branch (ADR-0005).
+    if let Some(branch) = &tag_branch {
+        repo.record_branch_member_version(branch.id, sid, api_type, version, &now_iso())
+            .await?;
+        count_branch_update(&branch.name);
+    }
+
+    // Promotion is a state change worth its own audit entry even when the
+    // content is byte-identical to the snapshot it releases.
+    if promoting && let Some(actor) = username {
+        let details = format!(
+            "Promoted {} {} of '{}' to GA — the number is permanently claimed",
+            api_type.as_str(),
+            version,
+            producername
+        );
+        if let Err(e) = repo
+            .insert_audit_log(
+                actor,
+                NewAuditLog {
+                    action: "VERSION_PROMOTED",
+                    details: &details,
+                    service: Some(producername),
+                    version: Some(&version.to_string()),
+                    action_type: Some("WRITE"),
+                    ..Default::default()
+                },
+            )
+            .await
+        {
+            tracing::warn!(
+                service = producername,
+                "Could not record the promotion in the audit log: {}",
+                e
+            );
+        }
+    }
+
+    // An overwrite by a different Actor is allowed (last writer wins) but
+    // never silent: the previous provider is named in the audit trail.
+    if let Some(previous) = overwriting
+        && !promoting
+        && let Some(actor) = username
+        && !previous.is_empty()
+        && previous != actor
+    {
+        let details = format!(
+            "Snapshot {} {} of '{}' overwritten by '{}' (previously provided by '{}')",
+            api_type.as_str(),
+            version,
+            producername,
+            actor,
+            previous
+        );
+        if let Err(e) = repo
+            .insert_audit_log(
+                actor,
+                NewAuditLog {
+                    action: "SNAPSHOT_OVERWRITTEN",
+                    details: &details,
+                    service: Some(producername),
+                    version: Some(&version.to_string()),
+                    action_type: Some("WRITE"),
+                    ..Default::default()
+                },
+            )
+            .await
+        {
+            tracing::warn!(
+                service = producername,
+                "Could not record the snapshot overwrite in the audit log: {}",
+                e
+            );
+        }
+    }
+
+    tracing::info!(
+        service = producername,
+        version = %version,
+        "Provided {:?} spec {} as {} (changes: +{} ~{} -{})",
+        api_type,
+        version,
+        stability.as_str(),
+        changes.inserts,
+        changes.updates,
+        changes.deletes
+    );
+
+    // #6/ADR-0006: reconcile the harvested subscription set for this Producer.
+    // Always for an AsyncAPI (non-tag) provide, even with no subscriptions —
+    // an empty set retracts every subscription the Producer previously declared.
+    if harvest_asyncapi {
+        reconcile_harvest(repo, producername, trunk, &harvest_inputs).await?;
+    }
+
+    Ok(ProvideResponse {
+        version,
+        stability,
+        content_hash: hash,
+        changes,
+        promoted: promoting,
+        harvested_subscriptions: harvest_results,
+    })
+}
+
+/// Reconcile the harvested subscription set for this Producer (#6/ADR-0006):
+/// resolve its client id and hand the declared set to the store, which closes
+/// what was dropped and (re)opens what is declared.
+async fn reconcile_harvest(
+    repo: &impl SpecRepository,
+    producername: &str,
+    trunk: bool,
+    inputs: &[HarvestedSubInput],
+) -> Result<(), AppError> {
+    let client_id = repo.ensure_client(producername).await?;
+    repo.reconcile_harvested_subscriptions(client_id, producername, trunk, inputs, &now_iso())
+        .await?;
+    Ok(())
+}
+
+/// Apply planned channel-message-contract mutations.
+async fn apply_contract_ops(
+    repo: &impl SpecRepository,
+    ops: Vec<ContractOp>,
+) -> Result<(), AppError> {
+    for op in ops {
+        match op {
+            ContractOp::Upsert(contract) => {
+                repo.upsert_channel_message_contract(&contract).await?;
+            }
+            ContractOp::Delete {
+                channel,
+                message_name,
+            } => {
+                repo.delete_channel_message_contract(&channel, &message_name)
+                    .await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+enum ContractOp {
+    Upsert(ChannelMessageContract),
+    Delete {
+        channel: String,
+        message_name: String,
+    },
+}
+
+/// Plan the harvest of a Producer's declared AsyncAPI subscriptions (#6,
+/// ADR-0006): for each SUB, resolve the PUB owner against the GA contract store
+/// (owner by value; a vanished owner is treated as unfulfilled) and check the
+/// expectation is satisfiable. Read-only — returns the reconcile inputs and the
+/// response entries. On a **GA** provide an unsatisfiable expectation is fatal
+/// (the provide is rejected with `409` before it is written); on a snapshot it
+/// is advisory and carried in the result's `drift`.
+async fn plan_subscription_harvest(
+    repo: &impl SpecRepository,
+    content: &str,
+    stability: Stability,
+) -> Result<(Vec<HarvestedSubInput>, Vec<HarvestedSubscriptionResult>), AppError> {
+    let subs = asyncapi::extract_sub_messages(content).map_err(AppError::BadRequest)?;
+    let mut inputs = Vec::with_capacity(subs.len());
+    let mut results = Vec::with_capacity(subs.len());
+    for sub in &subs {
+        let contract = repo
+            .get_channel_message_contract(&sub.channel, &sub.message_name)
+            .await?;
+        let (owner_service_id, owner_name) = match &contract {
+            Some(c) => match repo.get_service_name_by_id(c.owner_service_id).await? {
+                Some(name) => (Some(c.owner_service_id), Some(name)),
+                // Owner vanished but a contract row lingers — treat as unfulfilled.
+                None => (None, None),
+            },
+            None => (None, None),
+        };
+        let drift = match &contract {
+            Some(c) => {
+                match asyncapi::check_expectation_satisfied(&c.payload_yaml, &sub.payload_yaml) {
+                    Ok(()) => None,
+                    Err(reason) => {
+                        let detail = format!(
+                            "channel '{}' message '{}': {}",
+                            sub.channel, sub.message_name, reason
+                        );
+                        if stability == Stability::Ga {
+                            return Err(AppError::Conflict(format!(
+                                "AsyncAPI subscription expectation is not satisfiable by the current contract — {detail}"
+                            )));
+                        }
+                        Some(detail)
+                    }
+                }
+            }
+            None => None,
+        };
+        inputs.push(HarvestedSubInput {
+            channel: sub.channel.clone(),
+            message_name: sub.message_name.clone(),
+            owner_service_id,
+            owner_name: owner_name.clone(),
+        });
+        results.push(HarvestedSubscriptionResult {
+            channel: sub.channel.clone(),
+            message_name: sub.message_name.clone(),
+            owner: owner_name,
+            drift,
+        });
+    }
+    Ok((inputs, results))
+}
+
+/// Plan the channel-message-contract changes for a GA AsyncAPI provide.
+///
+/// For every named PUB message in the submitted document:
+/// - no contract yet → insert, owned by this service;
+/// - owned by this service (or by a service that no longer exists) → this
+///   service (re)owns it, after the owner-widen payload compatibility check;
+/// - owned by a *different* live service → accepted only if the payload schema
+///   is semantically identical, otherwise rejected `409` naming the owner.
+///
+/// Messages this service currently owns but no longer provides are planned for
+/// deletion. Performs no writes — it only reads and returns the planned ops.
+async fn plan_channel_message_contracts(
+    repo: &impl SpecRepository,
+    service_id: i64,
+    content: &str,
+) -> Result<Vec<ContractOp>, AppError> {
+    let messages = asyncapi::extract_pub_messages(content).map_err(AppError::BadRequest)?;
+
+    let mut ops = Vec::new();
+    let mut provided: HashSet<(String, String)> = HashSet::new();
+
+    for msg in &messages {
+        provided.insert((msg.channel.clone(), msg.message_name.clone()));
+
+        let existing = repo
+            .get_channel_message_contract(&msg.channel, &msg.message_name)
+            .await?;
+
+        let owner_alive = match &existing {
+            Some(c) => repo
+                .get_service_name_by_id(c.owner_service_id)
+                .await?
+                .is_some(),
+            None => false,
+        };
+
+        match existing {
+            None => ops.push(ContractOp::Upsert(new_contract(msg, service_id))),
+            Some(_) if !owner_alive => ops.push(ContractOp::Upsert(new_contract(msg, service_id))),
+            Some(contract) if contract.owner_service_id == service_id => {
+                if let Err(reason) =
+                    asyncapi::check_payload_compatible(&contract.payload_yaml, &msg.payload_yaml)
+                {
+                    return Err(AppError::BreakingChange(format!(
+                        "Incompatible change to owned AsyncAPI message '{}' on channel '{}': {}",
+                        msg.message_name, msg.channel, reason
+                    )));
+                }
+                ops.push(ContractOp::Upsert(new_contract(msg, service_id)));
+            }
+            Some(contract) => {
+                if !asyncapi::payloads_equal(&contract.payload_yaml, &msg.payload_yaml) {
+                    let owner = repo
+                        .get_service_name_by_id(contract.owner_service_id)
+                        .await?
+                        .unwrap_or_else(|| "another service".to_string());
+                    return Err(AppError::Conflict(format!(
+                        "AsyncAPI message '{}' on channel '{}' is owned by service '{}' with a different schema; align the schema or rename your message",
+                        msg.message_name, msg.channel, owner
+                    )));
+                }
+            }
+        }
+    }
+
+    for contract in repo.list_channel_message_contracts().await? {
+        if contract.owner_service_id == service_id
+            && !provided.contains(&(contract.channel.clone(), contract.message_name.clone()))
+        {
+            ops.push(ContractOp::Delete {
+                channel: contract.channel,
+                message_name: contract.message_name,
+            });
+        }
+    }
+
+    Ok(ops)
+}
+
+fn new_contract(msg: &asyncapi::PubMessage, service_id: i64) -> ChannelMessageContract {
+    ChannelMessageContract {
+        channel: msg.channel.clone(),
+        message_name: msg.message_name.clone(),
+        owner_service_id: service_id,
+        payload_yaml: msg.payload_yaml.clone(),
+    }
+}

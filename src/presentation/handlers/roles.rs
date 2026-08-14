@@ -31,10 +31,8 @@ async fn record(
         NewAuditLog {
             action,
             details,
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
+            ..Default::default()
         },
     )
     .await

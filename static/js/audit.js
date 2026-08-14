@@ -8,6 +8,7 @@ async function loadTimeline() {
     const type = document.getElementById("filter-type").value;
     const service = document.getElementById("filter-service").value.trim();
     const version = document.getElementById("filter-version").value.trim();
+    const stream = document.getElementById("filter-stream").value.trim();
 
     let url = "/api/audit/timeline?limit=100";
     if (from) url += `&from_date=${from}`;
@@ -15,6 +16,7 @@ async function loadTimeline() {
     if (type) url += `&action_type=${type}`;
     if (service) url += `&service=${encodeURIComponent(service)}`;
     if (version) url += `&version=${encodeURIComponent(version)}`;
+    if (stream) url += `&stream=${encodeURIComponent(stream)}`;
 
     const res = await apiCall(url);
     if (!res.ok) {
@@ -95,7 +97,7 @@ function renderTimeline(logs) {
                         ${
                           log.diff
                             ? `
-                            <button onclick="toggleDiff(${log.id})" class="text-indigo-600 hover:text-indigo-800 text-xs font-semibold flex items-center gap-1 whitespace-nowrap">
+                            <button data-click="toggleDiff" data-click-args="${attrJson([log.id])}" class="text-indigo-600 hover:text-indigo-800 text-xs font-semibold flex items-center gap-1 whitespace-nowrap">
                                 <svg id="diff-icon-${log.id}" class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                                 </svg>

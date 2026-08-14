@@ -230,13 +230,28 @@ call_api POST "/provide" "$PAYLOAD_BRANCH"
 assert_status 422 "Provide with 1.x branch field rejected"
 assert_contains "unknown field \`branch\`" "Rejection names the unknown branch field"
 
-# A loose version is rejected with guidance
+# Short and v-prefixed versions are accepted with implicit zeroes
 LOOSE_SPEC="${OPENAPI_SPEC/version: 1.0.0/version: '1.0'}"
 PAYLOAD_LOOSE=$(jq -n --arg svc "$SVC_NAME" --arg yaml "$LOOSE_SPEC" \
     '{producername:$svc, openapi_yaml:$yaml, stability:"snapshot"}')
 call_api POST "/provide" "$PAYLOAD_LOOSE"
-assert_status 400 "Provide with loose version '1.0' rejected"
-assert_contains "MAJOR.MINOR.PATCH" "Rejection explains the expected version format"
+assert_status 202 "Provide with short version '1.0' accepted"
+assert_json ".version" "1.0.0" "Implicit zero fills the missing PATCH"
+
+VPREFIX_SPEC="${OPENAPI_SPEC/version: 1.0.0/version: v1.0.0}"
+PAYLOAD_VPREFIX=$(jq -n --arg svc "$SVC_NAME" --arg yaml "$VPREFIX_SPEC" \
+    '{producername:$svc, openapi_yaml:$yaml, stability:"snapshot"}')
+call_api POST "/provide" "$PAYLOAD_VPREFIX"
+assert_status 202 "Provide with v-prefixed version accepted"
+assert_json ".version" "1.0.0" "The v prefix is dropped in the canonical version"
+
+# A non-numeric version is rejected with guidance
+BAD_SPEC="${OPENAPI_SPEC/version: 1.0.0/version: '1.beta'}"
+PAYLOAD_BAD=$(jq -n --arg svc "$SVC_NAME" --arg yaml "$BAD_SPEC" \
+    '{producername:$svc, openapi_yaml:$yaml, stability:"snapshot"}')
+call_api POST "/provide" "$PAYLOAD_BAD"
+assert_status 400 "Provide with non-numeric version rejected"
+assert_contains "MAJOR" "Rejection explains the expected version format"
 
 # A -SNAPSHOT suffix is rejected pointing at the stability flag
 SUFFIX_SPEC="${OPENAPI_SPEC/version: 1.0.0/version: 1.0.0-SNAPSHOT}"

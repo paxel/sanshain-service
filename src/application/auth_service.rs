@@ -1,6 +1,6 @@
 use crate::domain::models::*;
 use crate::domain::permissions::Role;
-use crate::domain::ports::{AuthProvider, SpecRepository};
+use crate::domain::ports::{AuthProvider, OidcFlow, SpecRepository};
 use argon2::{
     Argon2,
     password_hash::{PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
@@ -28,6 +28,19 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
     Ok(argon2
         .verify_password(password.as_bytes(), &parsed_hash)
         .is_ok())
+}
+
+/// [`hash_password`], off the async worker thread.
+pub async fn hash_password_async(password: &str) -> Result<String, AppError> {
+    let password = password.to_string();
+    super::run_cpu_bound(move || hash_password(&password)).await
+}
+
+/// [`verify_password`], off the async worker thread.
+pub async fn verify_password_async(password: &str, hash: &str) -> Result<bool, AppError> {
+    let password = password.to_string();
+    let hash = hash.to_string();
+    super::run_cpu_bound(move || verify_password(&password, &hash)).await
 }
 
 pub fn generate_random_password() -> String {
@@ -101,7 +114,7 @@ pub async fn login(
         return Err(AppError::Forbidden);
     }
 
-    if !verify_password(password, &user.password_hash)? {
+    if !verify_password_async(password, &user.password_hash).await? {
         return Err(AppError::Unauthorized);
     }
 
@@ -117,10 +130,10 @@ pub async fn change_password(
     old_password: &str,
     new_password: &str,
 ) -> Result<Option<Session>, AppError> {
-    if !verify_password(old_password, &user.password_hash)? {
+    if !verify_password_async(old_password, &user.password_hash).await? {
         return Err(AppError::Unauthorized);
     }
-    let new_hash = hash_password(new_password)?;
+    let new_hash = hash_password_async(new_password).await?;
     repo.update_password(user.id, &new_hash).await?;
 
     if let Some(token) = current_token {
@@ -211,7 +224,7 @@ pub async fn register_user(
     if repo.find_user(username).await?.is_some() {
         return Err(AppError::Conflict("User already exists".to_string()));
     }
-    let hash = hash_password(password)?;
+    let hash = hash_password_async(password).await?;
     let auto_approve = repo
         .get_setting("auto_approve_users")
         .await?
@@ -262,13 +275,9 @@ pub async fn get_auth_mode(repo: &impl SpecRepository) -> Result<AuthMode, AppEr
         .get_setting("auth_mode")
         .await?
         .unwrap_or("disabled".to_string());
-    match val.as_str() {
-        "disabled" | "off" | "maintenance" => Ok(AuthMode::Disabled),
-        "ldap" => Ok(AuthMode::Ldap),
-        "local" => Ok(AuthMode::Local),
-        "dev" => Ok(AuthMode::Dev),
-        _ => Ok(AuthMode::Disabled),
-    }
+    // One parser (AuthMode::from_str) owns the string mapping and aliases; an
+    // unrecognized stored value fails closed to Disabled.
+    Ok(val.parse().unwrap_or(AuthMode::Disabled))
 }
 
 pub async fn set_auth_mode(repo: &impl SpecRepository, mode: &AuthMode) -> Result<(), AppError> {
@@ -292,6 +301,27 @@ pub async fn get_ldap_config(repo: &impl SpecRepository) -> Result<Option<LdapCo
     } else {
         Ok(None)
     }
+}
+
+pub async fn get_oidc_config(repo: &impl SpecRepository) -> Result<Option<OidcConfig>, AppError> {
+    let json = repo.get_setting("oidc_config").await?;
+    if let Some(s) = json {
+        Ok(serde_json::from_str(&s)
+            .map_err(|e| AppError::Internal(format!("OIDC config parse error: {}", e)))?)
+    } else {
+        Ok(None)
+    }
+}
+
+pub async fn set_oidc_config(
+    repo: &impl SpecRepository,
+    config: &OidcConfig,
+) -> Result<(), AppError> {
+    config.validate().map_err(AppError::BadRequest)?;
+    let json = serde_json::to_string(config)
+        .map_err(|e| AppError::Internal(format!("OIDC config serialize error: {}", e)))?;
+    repo.set_setting("oidc_config", &json).await?;
+    Ok(())
 }
 
 pub async fn set_ldap_config(
@@ -356,6 +386,112 @@ pub async fn login_with_provider(
     let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
     let session = repo.create_session(local_user.id, &expires_at).await?;
     Ok(session)
+}
+
+/// What an OIDC login round-trip stashes in the flow cookie between the
+/// redirect out and the callback: the CSRF state the provider must echo, the
+/// nonce baked into the ID token, and the PKCE verifier for the code exchange.
+pub struct OidcFlowState {
+    pub state: String,
+    pub nonce: String,
+    pub pkce_verifier: String,
+}
+
+impl OidcFlowState {
+    /// Cookie-value encoding. `|` never occurs in the base64url alphabets the
+    /// three parts are drawn from.
+    pub fn encode(&self) -> String {
+        format!("{}|{}|{}", self.state, self.nonce, self.pkce_verifier)
+    }
+
+    /// Inverse of [`encode`](Self::encode). `None` for anything but three
+    /// non-empty parts — a malformed cookie is not a login in progress.
+    pub fn decode(raw: &str) -> Option<Self> {
+        let mut parts = raw.splitn(3, '|');
+        let state = parts.next()?.to_string();
+        let nonce = parts.next()?.to_string();
+        let pkce_verifier = parts.next()?.to_string();
+        (!state.is_empty() && !nonce.is_empty() && !pkce_verifier.is_empty()).then_some(Self {
+            state,
+            nonce,
+            pkce_verifier,
+        })
+    }
+}
+
+/// Begin OIDC login: hand back the provider authorization URL to redirect the
+/// browser to, and the flow state the callback will verify against.
+pub async fn oidc_begin(
+    repo: &impl SpecRepository,
+    provider: &impl OidcFlow,
+) -> Result<(String, OidcFlowState), AppError> {
+    let config = get_oidc_config(repo)
+        .await?
+        .ok_or_else(|| AppError::BadRequest("OIDC is not configured".to_string()))?;
+    let authorize = provider.authorize_url(&config).await?;
+    Ok((
+        authorize.url,
+        OidcFlowState {
+            state: authorize.state,
+            nonce: authorize.nonce,
+            pkce_verifier: authorize.pkce_verifier,
+        },
+    ))
+}
+
+/// Complete OIDC login: check the provider-echoed state against the flow
+/// cookie (CSRF), exchange the code, verify the ID token, and mint a session
+/// for the resolved identity.
+pub async fn oidc_complete(
+    repo: &impl SpecRepository,
+    provider: &impl OidcFlow,
+    code: String,
+    callback_state: &str,
+    flow: OidcFlowState,
+) -> Result<Session, AppError> {
+    // CSRF: the provider echoes our state; it must match the cookie.
+    if callback_state != flow.state {
+        return Err(AppError::Unauthorized);
+    }
+    let config = get_oidc_config(repo)
+        .await?
+        .ok_or_else(|| AppError::BadRequest("OIDC is not configured".to_string()))?;
+    let claims = provider
+        .exchange_and_verify(&config, code, flow.pkce_verifier, flow.nonce)
+        .await?;
+    login_oidc(repo, &claims.username, &claims.groups, &config.admin_group).await
+}
+
+/// Mint the session for a verified OIDC identity: the caller has already
+/// verified the ID token, so the username and groups are trusted here. Find or
+/// create the local shadow user (with an unusable random password — OIDC users
+/// log in via the provider, not locally) and mint a session. Mirrors
+/// [`login_with_provider`] minus the credential check the provider already did.
+///
+/// Group → admin: unlike LDAP (which re-queries the directory on every check),
+/// an OIDC token is a login-time snapshot, so a user in the configured
+/// `admin_group` is granted the Admin role here. Grant-only — demotion is a
+/// manual revoke, not an automatic one, so a token that omits the group cannot
+/// silently strip a deliberately-granted admin.
+pub async fn login_oidc(
+    repo: &impl SpecRepository,
+    username: &str,
+    groups: &[String],
+    admin_group: &str,
+) -> Result<Session, AppError> {
+    let local_user = match repo.find_user(username).await? {
+        Some(u) => u,
+        None => {
+            let hash = hash_password_async(&generate_random_password()).await?;
+            repo.create_user(username, &hash, true).await?
+        }
+    };
+    if !admin_group.is_empty() && groups.iter().any(|g| g == admin_group) {
+        repo.grant_user_role(local_user.id, Role::Admin.as_str())
+            .await?;
+    }
+    let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
+    Ok(repo.create_session(local_user.id, &expires_at).await?)
 }
 
 #[instrument(skip_all)]
@@ -442,11 +578,137 @@ mod tests {
         assert_ne!(token, second_token);
     }
 
+    struct StubOidc;
+    impl crate::domain::ports::OidcFlow for StubOidc {
+        async fn authorize_url(
+            &self,
+            _config: &OidcConfig,
+        ) -> Result<crate::domain::ports::OidcAuthorizeUrl, AppError> {
+            Ok(crate::domain::ports::OidcAuthorizeUrl {
+                url: "https://idp.example/authorize".to_string(),
+                state: "st".to_string(),
+                nonce: "no".to_string(),
+                pkce_verifier: "pk".to_string(),
+            })
+        }
+
+        async fn exchange_and_verify(
+            &self,
+            _config: &OidcConfig,
+            code: String,
+            pkce_verifier: String,
+            expected_nonce: String,
+        ) -> Result<crate::domain::ports::OidcClaims, AppError> {
+            if code == "good" && pkce_verifier == "pk" && expected_nonce == "no" {
+                Ok(crate::domain::ports::OidcClaims {
+                    username: "alice".to_string(),
+                    email: None,
+                    groups: Vec::new(),
+                })
+            } else {
+                Err(AppError::Unauthorized)
+            }
+        }
+    }
+
+    async fn repo_with_oidc_config() -> MockRepo {
+        let repo = MockRepo::new();
+        repo.set_setting(
+            "oidc_config",
+            r#"{"issuer_url":"https://idp.example","client_id":"c","redirect_url":"https://app.example/auth/oidc/callback"}"#,
+        )
+        .await
+        .unwrap();
+        repo
+    }
+
+    #[test]
+    fn oidc_flow_state_roundtrips_and_rejects_malformed() {
+        let flow = OidcFlowState {
+            state: "st".to_string(),
+            nonce: "no".to_string(),
+            pkce_verifier: "pk".to_string(),
+        };
+        let decoded = OidcFlowState::decode(&flow.encode()).unwrap();
+        assert_eq!(decoded.state, "st");
+        assert_eq!(decoded.nonce, "no");
+        assert_eq!(decoded.pkce_verifier, "pk");
+
+        assert!(OidcFlowState::decode("").is_none());
+        assert!(OidcFlowState::decode("st|no").is_none());
+        assert!(OidcFlowState::decode("|no|pk").is_none());
+        assert!(OidcFlowState::decode("st||pk").is_none());
+        assert!(OidcFlowState::decode("st|no|").is_none());
+    }
+
+    #[tokio::test]
+    async fn oidc_begin_answers_url_and_flow_state() {
+        let repo = repo_with_oidc_config().await;
+        let (url, flow) = oidc_begin(&repo, &StubOidc).await.unwrap();
+        assert_eq!(url, "https://idp.example/authorize");
+        assert_eq!(flow.state, "st");
+        assert_eq!(flow.nonce, "no");
+        assert_eq!(flow.pkce_verifier, "pk");
+    }
+
+    #[tokio::test]
+    async fn oidc_begin_without_config_is_a_bad_request() {
+        let repo = MockRepo::new();
+        assert!(matches!(
+            oidc_begin(&repo, &StubOidc).await,
+            Err(AppError::BadRequest(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn oidc_complete_mints_a_session_for_the_verified_identity() {
+        let repo = repo_with_oidc_config().await;
+        let flow = OidcFlowState {
+            state: "st".to_string(),
+            nonce: "no".to_string(),
+            pkce_verifier: "pk".to_string(),
+        };
+        let session = oidc_complete(&repo, &StubOidc, "good".to_string(), "st", flow)
+            .await
+            .unwrap();
+        assert!(!session.token.is_empty());
+        assert!(repo.find_user("alice").await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn oidc_complete_refuses_a_state_mismatch() {
+        let repo = repo_with_oidc_config().await;
+        let flow = OidcFlowState {
+            state: "st".to_string(),
+            nonce: "no".to_string(),
+            pkce_verifier: "pk".to_string(),
+        };
+        let result = oidc_complete(&repo, &StubOidc, "good".to_string(), "forged", flow).await;
+        assert!(matches!(result, Err(AppError::Unauthorized)));
+        assert!(repo.find_user("alice").await.unwrap().is_none());
+    }
+
     #[test]
     fn test_hash_and_verify_password() {
         let hash = hash_password("secret123").unwrap();
         assert!(verify_password("secret123", &hash).unwrap());
         assert!(!verify_password("wrong", &hash).unwrap());
+    }
+
+    // The blocking-pool wrappers must behave exactly like the sync functions:
+    // same acceptance, same rejection, hashes interchangeable between the two.
+    #[tokio::test]
+    async fn test_hash_and_verify_password_async() {
+        let hash = hash_password_async("secret123").await.unwrap();
+        assert!(verify_password_async("secret123", &hash).await.unwrap());
+        assert!(!verify_password_async("wrong", &hash).await.unwrap());
+        assert!(verify_password("secret123", &hash).unwrap());
+        let sync_hash = hash_password("secret123").unwrap();
+        assert!(
+            verify_password_async("secret123", &sync_hash)
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]

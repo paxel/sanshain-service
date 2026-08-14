@@ -1,157 +1,188 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="/images/favicon.png">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/images/favicon.png" />
     <title>Report — Sanshain</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="/css/app.css" />
+    <script src="/vendor/marked-18.0.9.umd.js"></script>
     <style>
-        /* Markdown prose styling */
-        .prose h1 { font-size: 1.75rem; font-weight: 700; margin: 1.5rem 0 0.75rem; color: #1e293b; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.5rem; }
-        .prose h2 { font-size: 1.35rem; font-weight: 600; margin: 1.25rem 0 0.5rem; color: #334155; }
-        .prose h3 { font-size: 1.1rem; font-weight: 600; margin: 1rem 0 0.5rem; color: #475569; }
-        .prose p { margin: 0.5rem 0; line-height: 1.7; color: #334155; }
-        .prose ul, .prose ol { margin: 0.5rem 0 0.5rem 1.5rem; color: #334155; }
-        .prose ul { list-style-type: disc; }
-        .prose ol { list-style-type: decimal; }
-        .prose li { margin: 0.25rem 0; line-height: 1.6; }
-        .prose table { border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; width: max-content; min-width: 100%; }
-        .prose .table-wrapper { overflow-x: auto; margin: 1rem 0; }
-        .prose .table-wrapper table { margin: 0; }
-        .prose td, .prose th { white-space: nowrap; }
-        .prose th { background: #f1f5f9; font-weight: 600; text-align: left; padding: 0.5rem 0.75rem; border: 1px solid #e2e8f0; color: #334155; }
-        .prose td { padding: 0.5rem 0.75rem; border: 1px solid #e2e8f0; color: #475569; }
-        .prose tr:nth-child(even) { background: #f8fafc; }
-        .prose code { background: #f1f5f9; padding: 0.15rem 0.35rem; border-radius: 0.25rem; font-size: 0.85em; color: #7c3aed; }
-        .prose pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin: 0.75rem 0; }
-        .prose pre code { background: none; color: inherit; padding: 0; }
-        .prose hr { border: none; border-top: 1px solid #e2e8f0; margin: 1.5rem 0; }
-        .prose a { color: #4f46e5; text-decoration: underline; }
-        .prose blockquote { border-left: 4px solid #c7d2fe; padding: 0.5rem 1rem; margin: 0.75rem 0; background: #f5f3ff; color: #4338ca; }
+      /* Markdown prose styling */
+      .prose h1 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        margin: 1.5rem 0 0.75rem;
+        color: #1e293b;
+        border-bottom: 1px solid #e2e8f0;
+        padding-bottom: 0.5rem;
+      }
+      .prose h2 {
+        font-size: 1.35rem;
+        font-weight: 600;
+        margin: 1.25rem 0 0.5rem;
+        color: #334155;
+      }
+      .prose h3 {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin: 1rem 0 0.5rem;
+        color: #475569;
+      }
+      .prose p {
+        margin: 0.5rem 0;
+        line-height: 1.7;
+        color: #334155;
+      }
+      .prose ul,
+      .prose ol {
+        margin: 0.5rem 0 0.5rem 1.5rem;
+        color: #334155;
+      }
+      .prose ul {
+        list-style-type: disc;
+      }
+      .prose ol {
+        list-style-type: decimal;
+      }
+      .prose li {
+        margin: 0.25rem 0;
+        line-height: 1.6;
+      }
+      .prose table {
+        border-collapse: collapse;
+        margin: 1rem 0;
+        font-size: 0.875rem;
+        width: max-content;
+        min-width: 100%;
+      }
+      .prose .table-wrapper {
+        overflow-x: auto;
+        margin: 1rem 0;
+      }
+      .prose .table-wrapper table {
+        margin: 0;
+      }
+      .prose td,
+      .prose th {
+        white-space: nowrap;
+      }
+      .prose th {
+        background: #f1f5f9;
+        font-weight: 600;
+        text-align: left;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid #e2e8f0;
+        color: #334155;
+      }
+      .prose td {
+        padding: 0.5rem 0.75rem;
+        border: 1px solid #e2e8f0;
+        color: #475569;
+      }
+      .prose tr:nth-child(even) {
+        background: #f8fafc;
+      }
+      .prose code {
+        background: #f1f5f9;
+        padding: 0.15rem 0.35rem;
+        border-radius: 0.25rem;
+        font-size: 0.85em;
+        color: #7c3aed;
+      }
+      .prose pre {
+        background: #1e293b;
+        color: #e2e8f0;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        overflow-x: auto;
+        margin: 0.75rem 0;
+      }
+      .prose pre code {
+        background: none;
+        color: inherit;
+        padding: 0;
+      }
+      .prose hr {
+        border: none;
+        border-top: 1px solid #e2e8f0;
+        margin: 1.5rem 0;
+      }
+      .prose a {
+        color: #4f46e5;
+        text-decoration: underline;
+      }
+      .prose blockquote {
+        border-left: 4px solid #c7d2fe;
+        padding: 0.5rem 1rem;
+        margin: 0.75rem 0;
+        background: #f5f3ff;
+        color: #4338ca;
+      }
     </style>
-</head>
-<body class="bg-slate-50 min-h-screen">
+  </head>
+  <body class="bg-slate-50 min-h-screen">
     <!-- Header -->
     <header class="bg-gradient-to-r from-indigo-700 to-indigo-900 text-white shadow-lg">
-        <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <a href="/producers.html" class="text-indigo-200 hover:text-white transition-colors text-sm">← Back to Dashboard</a>
-                <span class="text-indigo-300">|</span>
-                <h1 id="report-title" class="text-lg font-semibold">Report</h1>
-            </div>
-            <div class="flex items-center gap-2">
-                <button id="copy-btn" onclick="copyMarkdown()"
-                    class="inline-flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white text-sm px-3 py-1.5 rounded-lg transition-colors">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/>
-                        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/>
-                    </svg>
-                    Copy Markdown
-                </button>
-                <button id="download-btn" onclick="downloadMarkdown()"
-                    class="inline-flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white text-sm px-3 py-1.5 rounded-lg transition-colors">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17v3a2 2 0 002 2h14a2 2 0 002-2v-3"/>
-                    </svg>
-                    Download
-                </button>
-            </div>
+      <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <a
+            href="/producers.html"
+            class="text-indigo-200 hover:text-white transition-colors text-sm"
+            >← Back to Dashboard</a
+          >
+          <span class="text-indigo-300">|</span>
+          <h1 id="report-title" class="text-lg font-semibold">Report</h1>
         </div>
+        <div class="flex items-center gap-2">
+          <button
+            id="copy-btn"
+            data-click="copyMarkdown"
+            class="inline-flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white text-sm px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2" />
+              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2" />
+            </svg>
+            Copy Markdown
+          </button>
+          <button
+            id="download-btn"
+            data-click="downloadMarkdown"
+            class="inline-flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white text-sm px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 10v6m0 0l-3-3m3 3l3-3M3 17v3a2 2 0 002 2h14a2 2 0 002-2v-3"
+              />
+            </svg>
+            Download
+          </button>
+        </div>
+      </div>
     </header>
 
     <!-- Content -->
     <main class="max-w-7xl mx-auto px-6 py-8">
-        <div id="loading" class="text-center py-20">
-            <div class="inline-block w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-            <p class="mt-4 text-slate-500">Loading report…</p>
-        </div>
-        <div id="error" class="hidden text-center py-20">
-            <p class="text-red-500 text-lg font-medium">Failed to load report</p>
-            <p id="error-detail" class="text-slate-500 mt-2"></p>
-        </div>
-        <div id="report-content" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-8 prose max-w-none"></div>
+      <div id="loading" class="text-center py-20">
+        <div
+          class="inline-block w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"
+        ></div>
+        <p class="mt-4 text-slate-500">Loading report…</p>
+      </div>
+      <div id="error" class="hidden text-center py-20">
+        <p class="text-red-500 text-lg font-medium">Failed to load report</p>
+        <p id="error-detail" class="text-slate-500 mt-2"></p>
+      </div>
+      <div
+        id="report-content"
+        class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-8 prose max-w-none"
+      ></div>
     </main>
 
-    <script>
-        let rawMarkdown = '';
-        let reportFilename = 'report.md';
-
-        async function loadReport() {
-            const params = new URLSearchParams(window.location.search);
-            const src = params.get('src');
-            const title = params.get('title') || 'Report';
-
-            document.getElementById('report-title').textContent = title;
-            document.title = title + ' — Sanshain';
-
-            if (!src) {
-                showError('No report source specified.');
-                return;
-            }
-
-            // Derive filename from src
-            const srcPath = src.split('?')[0].split('/').pop() || 'report';
-            reportFilename = `${srcPath}.md`;
-
-            try {
-                const headers = {};
-                const token = localStorage.getItem('sanshain_token');
-                if (token) headers['Authorization'] = `Bearer ${token}`;
-                const resp = await fetch(src, { headers });
-                if (!resp.ok) {
-                    if (resp.status === 401 || resp.status === 403) {
-                        showError('Authentication required. Please log in first.');
-                    } else {
-                        showError(`Server returned ${resp.status} ${resp.statusText}`);
-                    }
-                    return;
-                }
-                rawMarkdown = await resp.text();
-                document.getElementById('loading').classList.add('hidden');
-                const content = document.getElementById('report-content');
-                let html = marked.parse(rawMarkdown);
-                // Wrap tables in a scrollable container for long service names
-                html = html.replace(/<table>/g, '<div class="table-wrapper"><table>').replace(/<\/table>/g, '</table></div>');
-                content.innerHTML = html;
-                content.classList.remove('hidden');
-            } catch (e) {
-                showError(e.message);
-            }
-        }
-
-        function showError(msg) {
-            document.getElementById('loading').classList.add('hidden');
-            document.getElementById('error').classList.remove('hidden');
-            document.getElementById('error-detail').textContent = msg;
-        }
-
-        function copyMarkdown() {
-            if (!rawMarkdown) return;
-            const btn = document.getElementById('copy-btn');
-            navigator.clipboard.writeText(rawMarkdown).then(() => {
-                btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copied!`;
-                setTimeout(() => {
-                    btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg> Copy Markdown`;
-                }, 2000);
-            });
-        }
-
-        function downloadMarkdown() {
-            if (!rawMarkdown) return;
-            const blob = new Blob([rawMarkdown], { type: 'text/markdown' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = reportFilename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }
-
-        loadReport();
-    </script>
-</body>
+    <script src="/js/pages/report-viewer.js"></script>
+  </body>
 </html>

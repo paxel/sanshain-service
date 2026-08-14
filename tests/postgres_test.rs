@@ -15,8 +15,8 @@ use sqlx::postgres::PgPoolOptions;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64};
-use testcontainers::runners::AsyncRunner;
-use testcontainers_modules::postgres::Postgres;
+
+mod common;
 use tokio::sync::RwLock;
 use tower::ServiceExt;
 
@@ -78,7 +78,7 @@ fn test_app_state(repo: PostgresSpecRepository, db_url: String) -> AppState {
 #[tokio::test]
 async fn test_postgres_full_flow_with_testcontainers() {
     // 1. Start Postgres container
-    let postgres_container = Postgres::default().start().await.unwrap();
+    let postgres_container = common::start_postgres().await;
     let host = postgres_container.get_host().await.unwrap();
     let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
     let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
@@ -168,7 +168,7 @@ async fn test_postgres_upsert_compare_and_set_contract() {
     use sanshain_service::domain::models::{ApiType, EndpointRecord, Stability};
     use sanshain_service::domain::ports::{RepositoryError, SpecRepository, UpsertSpecVersion};
 
-    let postgres_container = Postgres::default().start().await.unwrap();
+    let postgres_container = common::start_postgres().await;
     let host = postgres_container.get_host().await.unwrap();
     let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
     let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
@@ -303,4 +303,120 @@ async fn test_postgres_upsert_compare_and_set_contract() {
             .is_none(),
         "nothing was resurrected"
     );
+}
+
+/// ADR-0004: trunk pins are append-only on PostgreSQL exactly as on SQLite —
+/// a re-pin closes the open record and inserts, an identical re-pin only
+/// refreshes, and the current view is the open rows.
+#[tokio::test]
+async fn test_postgres_trunk_pins_append_only() {
+    use sanshain_service::domain::models::{ApiType, SemVer};
+    use sanshain_service::domain::ports::{RecordTrunkPinParams, SpecRepository};
+
+    let postgres_container = common::start_postgres().await;
+    let host = postgres_container.get_host().await.unwrap();
+    let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
+    let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .unwrap();
+    let repo = PostgresSpecRepository::new(pool.clone());
+    repo.run_migrations().await.expect("migrations");
+
+    let service_id = repo.ensure_service("svc").await.unwrap();
+    let client_id = repo.ensure_client("webapp").await.unwrap();
+    let pin = |version: SemVer, now: &'static str| RecordTrunkPinParams {
+        client_id,
+        service_id,
+        api_type: ApiType::OpenApi,
+        version,
+        path: "/users",
+        normalized_path: "/users",
+        method: "GET",
+        now_iso: now,
+    };
+
+    repo.record_trunk_pins(vec![pin(SemVer::new(1, 0, 0), "2026-08-07T10:00:00Z")])
+        .await
+        .unwrap();
+    repo.record_trunk_pins(vec![pin(SemVer::new(1, 1, 0), "2026-08-07T11:00:00Z")])
+        .await
+        .unwrap();
+    // Identical re-pin: refresh only.
+    repo.record_trunk_pins(vec![pin(SemVer::new(1, 1, 0), "2026-08-07T12:00:00Z")])
+        .await
+        .unwrap();
+
+    let current = repo.list_current_trunk_pins().await.unwrap();
+    assert_eq!(current.len(), 1, "got: {current:?}");
+    assert_eq!(current[0].client, "webapp");
+    assert_eq!(current[0].service, "svc");
+    assert_eq!(current[0].version, SemVer::new(1, 1, 0));
+    assert_eq!(current[0].last_required_at, "2026-08-07T12:00:00Z");
+    assert_eq!(current[0].valid_from, "2026-08-07T11:00:00Z");
+
+    let rows: Vec<(Option<String>, i32)> =
+        sqlx::query_as("SELECT valid_to, minor FROM trunk_dependencies ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(rows.len(), 2, "append-only: close + insert, got {rows:?}");
+    assert_eq!(rows[0], (Some("2026-08-07T11:00:00Z".to_string()), 0));
+    assert_eq!(rows[1], (None, 1));
+}
+
+#[tokio::test]
+async fn postgres_audit_stream_filter_is_bound() {
+    use sanshain_service::domain::models::AuditLogFilter;
+    use sanshain_service::domain::ports::{NewAuditLog, SpecRepository};
+
+    let postgres_container = common::start_postgres().await;
+    let host = postgres_container.get_host().await.unwrap();
+    let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
+    let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .unwrap();
+    let repo = PostgresSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+
+    for stream in [Some("trunk"), None] {
+        repo.insert_audit_log(
+            "tester",
+            NewAuditLog {
+                action: "TRUNK_PIN",
+                details: "d",
+                service: None,
+                version: None,
+                action_type: Some("WRITE"),
+                diff: None,
+                stream,
+                branch_id: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    // The stream predicate must bind its value; before the fix the query had
+    // one more placeholder than bound parameters and answered an error.
+    let logs = repo
+        .get_audit_logs(AuditLogFilter {
+            from_date: None,
+            to_date: None,
+            action_type: None,
+            service_wildcard: None,
+            version_wildcard: None,
+            stream: Some("trunk".to_string()),
+            branch_id: None,
+            limit: 10,
+        })
+        .await
+        .unwrap();
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].stream.as_deref(), Some("trunk"));
 }

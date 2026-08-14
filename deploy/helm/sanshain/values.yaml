@@ -78,7 +78,7 @@ config:
   rustLog: "info,sanshain_service=debug"
   bindAddress: "0.0.0.0:3000"
   maxPostgresConnections: 20
-  maxSqliteConnections: 1
+  maxSqliteConnections: 5
   sqliteBusyTimeoutMs: 5000
   cleanupIntervalSecs: 3600
   csrfMaxAgeHours: 24

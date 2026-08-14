@@ -62,6 +62,16 @@ pub struct AppState {
     pub directory_roles: application::directory_roles::DirectoryRoleCache,
 }
 
+/// Content-Security-Policy served with every response (ai/improvements.md #11).
+///
+/// `script-src 'self'` forbids inline scripts and inline `on*=` event handlers;
+/// all behaviour is delegated through the dispatcher in `common.js`. Every
+/// third-party library is vendored under `/static/vendor`, so no CDN host is
+/// listed. `style-src` retains `'unsafe-inline'` because the vendored Mermaid
+/// injects `<style>` elements at diagram-render time — that stays until those
+/// can be nonced or hashed. `frame-ancestors 'none'` forbids framing.
+pub const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-ancestors 'none';";
+
 pub fn create_app(state: AppState) -> Router {
     Router::new()
         // High-priority unique paths
@@ -124,6 +134,21 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/producers/{name}/endpoints", get(admin::admin_list_producer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/full-spec", get(admin::admin_get_full_spec).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/diff", get(admin::admin_diff_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/producers/{name}/branch-memberships", get(admin::admin_producer_branch_memberships).layer(require(state.clone(), RouteGuard::Authenticated)))
+        // Sanshain-branches (ADR-0005): creation is release work (the cut
+        // script's endpoint) — releaser-guarded; reading is open to any
+        // authenticated caller like the rest of the graph surface.
+        .route("/admin/branches", get(admin::admin_list_branches).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/branches", post(admin::admin_create_branch).layer(require(state.clone(), RouteGuard::Global(Permission::ReleaseGa))))
+        // Rename and delete sit at the admin bar (ADR-0005), deliberately
+        // above creation: they rewrite/remove a record others reference.
+        .route("/admin/branches/{name}", put(admin::admin_rename_branch).layer(require(state.clone(), RouteGuard::Global(Permission::ManageProducers))))
+        .route("/admin/branches/{name}", delete(admin::admin_delete_branch).layer(require(state.clone(), RouteGuard::Global(Permission::ManageProducers))))
+        .route("/admin/branches/{name}/graph", get(admin::admin_branch_graph).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/branches/{name}/timeline", get(admin::admin_branch_timeline).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/trunk/graph", get(admin::admin_trunk_graph).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/trunk/timeline", get(admin::admin_trunk_timeline).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/graph/diff", get(admin::admin_graph_diff).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers", get(admin::admin_list_consumers).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers/{name}", delete(admin::admin_delete_consumer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageConsumers))))
         .route("/admin/consumers/{name}/endpoints", get(admin::admin_list_consumer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
@@ -140,6 +165,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/cleanup/snapshots", post(admin::trigger_snapshot_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/settings/dependency-max-age", get(admin::get_dependency_max_age).post(admin::set_dependency_max_age).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/cleanup/dependencies", post(admin::trigger_dependency_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        .route("/admin/settings/trunk-max-age", get(admin::get_trunk_max_age).post(admin::set_trunk_max_age).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        .route("/admin/cleanup/trunk", post(admin::trigger_trunk_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/users", get(admin::admin_list_users).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
         .route("/admin/users/{id}/approve", post(admin::admin_approve_user).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
         .route("/admin/users/{id}", delete(admin::admin_delete_user_handler).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
@@ -157,6 +184,8 @@ pub fn create_app(state: AppState) -> Router {
 
         // Auth (Mixed prefix)
         .route("/auth/login", post(auth::auth_login))
+        .route("/auth/oidc/login", get(auth::oidc_login))
+        .route("/auth/oidc/callback", get(auth::oidc_callback))
         .route("/auth/logout", post(auth::auth_logout))
         .route("/auth/register", post(auth::auth_register))
         .route("/auth/me", get(auth::auth_me).layer(from_fn_with_state(state.clone(), authenticated_auth)))
@@ -214,13 +243,41 @@ pub fn create_app(state: AppState) -> Router {
         ))
         .layer(SetResponseHeaderLayer::if_not_present(
             header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static("default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; img-src 'self' data: blob:;"),
+            HeaderValue::from_static(CONTENT_SECURITY_POLICY),
         ))
         .with_state(state)
 }
 
 #[cfg(test)]
 mod tests {
+    use super::CONTENT_SECURITY_POLICY;
+
+    /// The de-inlining (ai/improvements.md #11) exists so `script-src` can drop
+    /// `'unsafe-inline'`; this pins that it stays dropped. `style-src`
+    /// deliberately keeps `'unsafe-inline'` (Mermaid injects `<style>`), so the
+    /// assertion is scoped to the `script-src` directive rather than the whole
+    /// header. It also pins the CDN removal and the anti-framing directive.
+    #[test]
+    fn csp_script_src_forbids_inline_and_is_self_only() {
+        let script_src = CONTENT_SECURITY_POLICY
+            .split(';')
+            .map(str::trim)
+            .find(|d| d.starts_with("script-src"))
+            .expect("CSP declares a script-src directive");
+        assert_eq!(
+            script_src, "script-src 'self'",
+            "script-src must be 'self' only — no 'unsafe-inline', 'unsafe-eval' or CDN hosts"
+        );
+        assert!(
+            !CONTENT_SECURITY_POLICY.contains("cdn."),
+            "no CDN host may appear in the CSP; third-party libraries are vendored"
+        );
+        assert!(
+            CONTENT_SECURITY_POLICY.contains("frame-ancestors 'none'"),
+            "CSP must forbid framing with frame-ancestors 'none'"
+        );
+    }
+
     /// Ensures every `/admin/` route in `create_app` states what it requires of
     /// its caller.
     ///
@@ -397,6 +454,8 @@ mod tests {
             "/auth/favorites",
             "/auth/favorites/{item_type}/{item_name}",
             "/auth/login",
+            "/auth/oidc/login",
+            "/auth/oidc/callback",
             "/auth/logout",
             "/auth/me",
             "/auth/register",

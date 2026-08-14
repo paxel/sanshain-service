@@ -1,6 +1,6 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
-use crate::domain::models::{ApiType, AuditLogEntry, AuthMode, LdapConfig};
+use crate::domain::models::{ApiType, AuditLogEntry, AuthMode, LdapConfig, OidcConfig};
 use crate::domain::ports::{NewAuditLog, SpecRepository};
 use axum::{
     Json,
@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::str::FromStr;
 
-use super::record_audit_log;
+use super::{DEV_MODE_ACTOR, actor_or_dev_mode, record_audit_log};
 
 pub async fn admin_list_producers(
     State(state): State<AppState>,
@@ -230,13 +230,12 @@ pub async fn admin_delete_producer(
                 action: "DELETE_SERVICE",
                 details: &format!("Deleted service '{}'", name),
                 service: Some(&name),
-                version: None,
                 action_type: Some("WRITE"),
-                diff: None,
+                ..Default::default()
             },
         )
         .await?;
-        Ok(StatusCode::OK)
+        Ok(Json(json!({ "deleted": name })))
     } else {
         Err(AppError::NotFound(format!("Service not found: {}", name)))
     }
@@ -325,7 +324,7 @@ pub async fn admin_delete_version(
             service: Some(&name),
             version: Some(&version_str),
             action_type: Some("WRITE"),
-            diff: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -346,14 +345,12 @@ pub async fn admin_delete_consumer(
             NewAuditLog {
                 action: "DELETE_CLIENT",
                 details: &format!("Deleted client '{}'", name),
-                service: None,
-                version: None,
                 action_type: Some("WRITE"),
-                diff: None,
+                ..Default::default()
             },
         )
         .await?;
-        Ok(StatusCode::OK)
+        Ok(Json(json!({ "deleted": name })))
     } else {
         Err(AppError::NotFound(format!("Client not found: {}", name)))
     }
@@ -383,10 +380,8 @@ pub async fn set_auto_approve_users(
         NewAuditLog {
             action: "SET_AUTO_APPROVE",
             details: &format!("Set auto-approve-users to {}", payload.enabled),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -404,9 +399,18 @@ pub async fn get_auth_config(State(state): State<AppState>) -> Result<impl IntoR
         l
     });
 
+    let oidc = services::get_oidc_config(&state.repo).await?;
+    let oidc_val = oidc.map(|mut o| {
+        if o.client_secret.is_some() {
+            o.client_secret = Some("****".to_string());
+        }
+        o
+    });
+
     Ok(Json(serde_json::json!({
         "auth_mode": mode,
         "ldap_config": ldap_val,
+        "oidc_config": oidc_val,
     })))
 }
 
@@ -414,6 +418,8 @@ pub async fn get_auth_config(State(state): State<AppState>) -> Result<impl IntoR
 pub struct AuthConfigRequest {
     pub auth_mode: String,
     pub ldap_config: Option<LdapConfig>,
+    #[serde(default)]
+    pub oidc_config: Option<OidcConfig>,
 }
 
 pub async fn set_auth_config(
@@ -429,6 +435,14 @@ pub async fn set_auth_config(
             "LDAP config required for ldap mode".to_string(),
         ));
     }
+    if mode == AuthMode::Oidc
+        && payload.oidc_config.is_none()
+        && services::get_oidc_config(&state.repo).await?.is_none()
+    {
+        return Err(AppError::BadRequest(
+            "OIDC config required for oidc mode".to_string(),
+        ));
+    }
 
     services::set_auth_mode(&state.repo, &mode).await?;
     if let Some(mut ldap) = payload.ldap_config {
@@ -440,6 +454,17 @@ pub async fn set_auth_config(
         }
         services::set_ldap_config(&state.repo, &ldap).await?;
     }
+    if let Some(mut oidc) = payload.oidc_config {
+        // A masked secret means "keep the stored one" — never overwrite it with
+        // the placeholder the read endpoint returns. Propagate a read failure
+        // rather than storing the literal "****" as the secret.
+        if oidc.client_secret.as_deref() == Some("****")
+            && let Some(old) = services::get_oidc_config(&state.repo).await?
+        {
+            oidc.client_secret = old.client_secret;
+        }
+        services::set_oidc_config(&state.repo, &oidc).await?;
+    }
     record_audit_log(
         &state.repo,
         user,
@@ -449,10 +474,8 @@ pub async fn set_auth_config(
                 "Updated auth mode to '{}' and LDAP configurations",
                 payload.auth_mode
             ),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -492,10 +515,8 @@ pub async fn set_snapshot_max_age(
         NewAuditLog {
             action: "SET_SNAPSHOT_MAX_AGE",
             details: &format!("Set snapshot max age to {} days", payload.days),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -516,10 +537,8 @@ pub async fn trigger_snapshot_cleanup(
                 "Manually triggered snapshot cleanup, removed {} snapshots",
                 deleted
             ),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -550,10 +569,8 @@ pub async fn set_dependency_max_age(
         NewAuditLog {
             action: "UPDATE_SETTINGS",
             details: &format!("Set dependency max age to {} days", payload.days),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -574,10 +591,8 @@ pub async fn trigger_dependency_cleanup(
                 "Triggered dependency cleanup, deleted {} stale dependencies",
                 res
             ),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -628,10 +643,8 @@ pub async fn admin_approve_user(
             NewAuditLog {
                 action: "APPROVE_USER",
                 details: &format!("Approved user '{}'", target_username),
-                service: None,
-                version: None,
                 action_type: Some("ADMIN"),
-                diff: None,
+                ..Default::default()
             },
         )
         .await?;
@@ -665,10 +678,8 @@ pub async fn admin_delete_user_handler(
             NewAuditLog {
                 action: "DELETE_USER",
                 details: &format!("Deleted user '{}'", target_username),
-                service: None,
-                version: None,
                 action_type: Some("ADMIN"),
-                diff: None,
+                ..Default::default()
             },
         )
         .await?;
@@ -699,10 +710,8 @@ pub async fn admin_nuke_producers(
         NewAuditLog {
             action: "NUKE_DATABASE",
             details: &format!("Nuked all services, deleted {} services", res),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -725,10 +734,8 @@ pub async fn admin_nuke_consumers(
         NewAuditLog {
             action: "NUKE_DATABASE",
             details: &format!("Nuked all clients, deleted {} clients", res),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -751,10 +758,8 @@ pub async fn admin_nuke_users(
         NewAuditLog {
             action: "NUKE_DATABASE",
             details: &format!("Nuked all non-admin users, deleted {} users", res),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -778,10 +783,8 @@ pub async fn admin_nuke_database(
         NewAuditLog {
             action: "NUKE_DATABASE",
             details: "Nuked complete database (Full reset)",
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -793,13 +796,14 @@ pub async fn export_audit_logs_csv(
 ) -> Result<impl IntoResponse, AppError> {
     let logs: Vec<AuditLogEntry> = state.repo.get_recent_audit_logs(1000).await?;
     let mut csv =
-        String::from("id,timestamp,username,action,details,service,version,action_type\n");
+        String::from("id,timestamp,username,action,details,service,version,action_type,stream\n");
     for log in logs {
         let esc_user = log.username.replace('"', "\"\"");
         let esc_action = log.action.replace('"', "\"\"");
         let esc_details = log.details.replace('"', "\"\"");
+        let esc_stream = log.stream.as_deref().unwrap_or("").replace('"', "\"\"");
         csv.push_str(&format!(
-            "{},\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\"\n",
+            "{},\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\"\n",
             log.id,
             log.timestamp,
             esc_user,
@@ -807,7 +811,8 @@ pub async fn export_audit_logs_csv(
             esc_details,
             log.service.as_deref().unwrap_or(""),
             log.version.as_deref().unwrap_or(""),
-            log.action_type.as_deref().unwrap_or("")
+            log.action_type.as_deref().unwrap_or(""),
+            esc_stream
         ));
     }
     let headers = [
@@ -849,9 +854,8 @@ pub async fn admin_update_producer_metadata(
             action: "UPDATE_SERVICE_METADATA",
             details: &format!("Updated metadata for service '{}'", payload.name),
             service: Some(&payload.name),
-            version: None,
             action_type: Some("WRITE"),
-            diff: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -966,10 +970,8 @@ pub async fn set_debug_config(
                 "Updated debug config: business_logic_debug={}, admin_user_debug={}",
                 config.business_logic_debug, config.admin_user_debug
             ),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -1085,10 +1087,8 @@ pub async fn set_cache_config(
         NewAuditLog {
             action: "UPDATE_SETTINGS",
             details: &format!("Updated cache memory limit to {} MB", payload.memory_mb),
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
+            ..Default::default()
         },
     )
     .await?;
@@ -1107,19 +1107,224 @@ pub async fn clear_cache(
         NewAuditLog {
             action: "CLEAR_CACHE",
             details: "Cleared spec caches",
-            service: None,
-            version: None,
             action_type: Some("ADMIN"),
-            diff: None,
+            ..Default::default()
         },
     )
     .await?;
     Ok(Json(json!({ "cleared": true })))
 }
 
+#[derive(Deserialize)]
+pub struct ObservabilityAuditQuery {
+    /// How many entries to return. The panel asks for more than it shows so a
+    /// burst of rejections cannot push every real change out of the window.
+    pub limit: Option<u32>,
+}
+
+/// Upper bound for the observability panel: this is a glance, not the audit
+/// timeline, and an unbounded limit would let one page pull the whole table.
+const OBSERVABILITY_AUDIT_MAX: u32 = 200;
+
 pub async fn get_observability_audit_logs(
     State(state): State<AppState>,
+    Query(query): Query<ObservabilityAuditQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let logs: Vec<AuditLogEntry> = state.repo.get_recent_audit_logs(30).await?;
+    let limit = query.limit.unwrap_or(100).clamp(1, OBSERVABILITY_AUDIT_MAX);
+    let logs: Vec<AuditLogEntry> = state.repo.get_recent_audit_logs(limit).await?;
     Ok(Json(logs))
+}
+
+// ── Sanshain-branches (ADR-0005) ─────────────────────────────────────────
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateBranchRequest {
+    pub name: String,
+    /// An existing branch's name; trunk when omitted.
+    pub source: Option<String>,
+    /// RFC 3339 instant; now when omitted (retroactive creation).
+    pub as_of: Option<String>,
+}
+
+pub async fn admin_create_branch(
+    State(state): State<AppState>,
+    caller: Option<axum::Extension<crate::domain::permissions::Actor>>,
+    Json(payload): Json<CreateBranchRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let created_by = caller
+        .as_ref()
+        .map(|axum::Extension(a)| a.username.clone())
+        .unwrap_or_else(|| DEV_MODE_ACTOR.to_string());
+    let branch = services::create_branch(
+        &state.repo,
+        services::CreateBranchParams {
+            name: &payload.name,
+            source: payload.source.as_deref(),
+            as_of: payload.as_of.as_deref(),
+            created_by: &created_by,
+        },
+    )
+    .await?;
+    Ok((StatusCode::CREATED, Json(branch)))
+}
+
+pub async fn admin_list_branches(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(services::list_branches(&state.repo).await?))
+}
+
+#[derive(Deserialize)]
+pub struct BranchGraphQuery {
+    /// Render the branch's graph as it was at this RFC 3339 instant.
+    pub at: Option<String>,
+}
+
+pub async fn admin_branch_graph(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Query(query): Query<BranchGraphQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let pins = services::get_branch_graph(&state.repo, &name, query.at.as_deref()).await?;
+    Ok(Json(pins))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenameBranchRequest {
+    pub new_name: String,
+}
+
+pub async fn admin_rename_branch(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Path(name): Path<String>,
+    Json(payload): Json<RenameBranchRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let actor = actor_or_dev_mode(user.as_deref());
+    let branch = services::rename_branch(&state.repo, &name, &payload.new_name, &actor).await?;
+    Ok(Json(branch))
+}
+
+pub async fn admin_delete_branch(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let actor = actor_or_dev_mode(user.as_deref());
+    services::delete_branch(&state.repo, &name, &actor).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn get_trunk_max_age(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let res = services::get_trunk_max_age_days(&state.repo).await?;
+    Ok(Json(json!({ "days": res })))
+}
+
+pub async fn set_trunk_max_age(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Json(payload): Json<MaxAgeDaysPayload>,
+) -> Result<impl IntoResponse, AppError> {
+    services::set_trunk_max_age_days(&state.repo, payload.days).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "SETTINGS_CHANGED",
+            details: &format!("Set trunk max age to {} days", payload.days),
+            action_type: Some("ADMIN"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(Json(json!({ "days": payload.days })))
+}
+
+pub async fn trigger_trunk_cleanup(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+) -> Result<impl IntoResponse, AppError> {
+    let closed = services::cleanup_stale_trunk_data(&state.repo).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "TRUNK_CLEANUP",
+            details: &format!("Triggered trunk cleanup, closed {closed} stale trunk pins"),
+            action_type: Some("ADMIN"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(Json(json!({ "closed": closed })))
+}
+
+/// The main graph — current, or as it was at `at` (the timeline, ADR-0005).
+pub async fn admin_trunk_graph(
+    State(state): State<AppState>,
+    Query(query): Query<BranchGraphQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let pins = services::get_trunk_graph(&state.repo, query.at.as_deref()).await?;
+    Ok(Json(pins))
+}
+
+/// The instants the main graph changed — the timeline slider's markers.
+pub async fn admin_trunk_timeline(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(state.repo.list_graph_change_dates(None).await?))
+}
+
+/// The instants a branch's graph changed.
+pub async fn admin_branch_timeline(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let branch = state
+        .repo
+        .find_branch(&name)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("no sanshain-branch '{name}'")))?;
+    Ok(Json(
+        state.repo.list_graph_change_dates(Some(branch.id)).await?,
+    ))
+}
+
+/// Reverse lookup (ADR-0005): which sanshain-branches reference each of this
+/// producer's versions — the "which releases pin b@1.0.0?" answer.
+pub async fn admin_producer_branch_memberships(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let service_id = state
+        .repo
+        .find_service(&name)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Producer '{name}' not found")))?;
+    Ok(Json(
+        state
+            .repo
+            .list_branch_memberships_for_service(service_id)
+            .await?,
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct GraphDiffQuery {
+    /// `main[@instant]` or `<branch>[@instant]`.
+    pub left: String,
+    pub right: String,
+}
+
+pub async fn admin_graph_diff(
+    State(state): State<AppState>,
+    Query(query): Query<GraphDiffQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(
+        services::diff_graphs(&state.repo, &query.left, &query.right).await?,
+    ))
 }

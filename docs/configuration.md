@@ -7,7 +7,7 @@ Sanshain Service can be configured using environment variables.
 | `DATABASE_URL`                 | `sqlite:sanshain.db?mode=rwc`             | Database connection string. Use `postgres://user:pass@host:5432/dbname` for PostgreSQL.                   |
 | `BIND_ADDRESS`                 | `0.0.0.0:3000`                            | Address and port to listen on.                                                                            |
 | `MAX_POSTGRES_CONNECTIONS`     | `20`                                      | Max connection pool size for PostgreSQL.                                                                  |
-| `MAX_SQLITE_CONNECTIONS`       | `1`                                       | Max connection pool size for SQLite.                                                                      |
+| `MAX_SQLITE_CONNECTIONS`       | `5`                                       | Max connection pool size for SQLite.                                                                      |
 | `SQLITE_BUSY_TIMEOUT_MS`       | `5000`                                    | SQLite busy timeout in milliseconds.                                                                      |
 | `CLEANUP_INTERVAL_SECS`        | `3600`                                    | Interval for background cleanup tasks (unused snapshots, stale dependencies).                             |
 | `CSRF_MAX_AGE_HOURS`           | `24`                                      | Maximum age of CSRF tokens before they are pruned.                                                        |
@@ -30,6 +30,11 @@ Sanshain Service can be configured using environment variables.
 | `OTEL_EXPORTER_OTLP_ENDPOINT`  | `http://localhost:4317`                   | OTLP/gRPC collector endpoint for distributed tracing.                                                     |
 | `RUST_LOG`                     | `sanshain_service=info,tower_http=info`   | Log level filter (e.g., `sanshain_service=debug,tower_http=debug` for verbose output).                    |
 | `EXTRA_CA_CERTS_DIR`           | *unset*                                   | Directory of additional CA certificates to trust for outbound TLS. See below.                             |
+
+Invalid values are refused at startup rather than silently replaced by the default: a numeric
+setting that is not a number, or a fixed-vocabulary setting (`LOG_FORMAT`, `OTEL_ENABLED`) with an
+unrecognised value, makes the service exit with a message naming the variable. A typo should not
+leave you running with settings you did not choose.
 
 ## Root users
 

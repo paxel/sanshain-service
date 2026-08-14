@@ -1,7 +1,7 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
-    UpsertSpecVersion,
+    EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
+    SpecRepository, UpsertSpecVersion,
 };
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
@@ -21,6 +21,7 @@ pub struct MockSpecVersion {
     pub created_at: String,
     pub updated_at: String,
     pub last_required_at: Option<String>,
+    pub trunk_provided_at: Option<String>,
     pub endpoints: Vec<EndpointRecord>,
 }
 
@@ -37,8 +38,24 @@ impl MockSpecVersion {
             created_at: self.created_at.clone(),
             updated_at: self.updated_at.clone(),
             last_required_at: self.last_required_at.clone(),
+            trunk_provided_at: self.trunk_provided_at.clone(),
         }
     }
+}
+
+/// One trunk pin record, mirroring a `trunk_dependencies` row (append-only).
+#[derive(Clone, Debug)]
+pub struct MockTrunkPin {
+    pub client_id: i64,
+    pub service_id: i64,
+    pub api_type: ApiType,
+    pub version: SemVer,
+    pub path: String,
+    pub normalized_path: String,
+    pub method: String,
+    pub valid_from: String,
+    pub last_required_at: String,
+    pub valid_to: Option<String>,
 }
 
 /// One recorded Pin, mirroring a `dependencies` row.
@@ -56,11 +73,19 @@ pub struct MockDependency {
 /// Producer metadata as stored: (icon, domain).
 type ProducerMetadata = (Option<String>, Option<String>);
 
+/// A branch member version as stored:
+/// (branch_id, service_id, api_type, version, valid_from, valid_to).
+type BranchMemberVersion = (i64, i64, ApiType, SemVer, String, Option<String>);
+
 pub struct MockRepo {
     pub services: Mutex<HashMap<String, i64>>,
     pub producer_metadata: Mutex<HashMap<String, ProducerMetadata>>,
     pub spec_versions: Mutex<Vec<MockSpecVersion>>,
     pub dependencies: Mutex<Vec<MockDependency>>,
+    pub trunk_pins: Mutex<Vec<MockTrunkPin>>,
+    pub branches: Mutex<Vec<BranchInfo>>,
+    pub branch_pins: Mutex<Vec<(i64, MockTrunkPin)>>,
+    pub branch_member_versions: Mutex<Vec<BranchMemberVersion>>,
     pub clients: Mutex<HashMap<String, i64>>,
     pub next_id: Mutex<i64>,
     pub users: Mutex<Vec<User>>,
@@ -76,6 +101,23 @@ pub struct MockRepo {
     pub group_roles: Mutex<Vec<(i64, String)>>,
     pub user_maintainers: Mutex<Vec<(i64, i64)>>,
     pub group_maintainers: Mutex<Vec<(i64, i64)>>,
+    pub harvested_subscriptions: Mutex<Vec<MockHarvestedSub>>,
+}
+
+/// In-memory harvested subscription row (ai/improvements.md #6). Append-only:
+/// the open row (`valid_to` is `None`) per (client_id, channel, message) is
+/// current.
+#[derive(Clone)]
+pub struct MockHarvestedSub {
+    pub client_id: i64,
+    pub client_name: String,
+    pub channel: String,
+    pub message_name: String,
+    pub owner_service_id: Option<i64>,
+    pub owner_name: Option<String>,
+    pub trunk: bool,
+    pub valid_from: String,
+    pub valid_to: Option<String>,
 }
 
 impl Default for MockRepo {
@@ -93,6 +135,10 @@ impl MockRepo {
             producer_metadata: Mutex::new(HashMap::new()),
             spec_versions: Mutex::new(Vec::new()),
             dependencies: Mutex::new(Vec::new()),
+            trunk_pins: Mutex::new(Vec::new()),
+            branches: Mutex::new(Vec::new()),
+            branch_pins: Mutex::new(Vec::new()),
+            branch_member_versions: Mutex::new(Vec::new()),
             clients: Mutex::new(HashMap::new()),
             next_id: Mutex::new(1),
             users: Mutex::new(Vec::new()),
@@ -108,6 +154,7 @@ impl MockRepo {
             group_roles: Mutex::new(Vec::new()),
             user_maintainers: Mutex::new(Vec::new()),
             group_maintainers: Mutex::new(Vec::new()),
+            harvested_subscriptions: Mutex::new(Vec::new()),
         }
     }
 
@@ -208,6 +255,7 @@ impl SpecRepository for MockRepo {
             created_at: params.now_iso.to_string(),
             updated_at: params.now_iso.to_string(),
             last_required_at: None,
+            trunk_provided_at: None,
             endpoints,
         });
         Ok(id)
@@ -330,6 +378,508 @@ impl SpecRepository for MockRepo {
             entry.updated_at = now_iso.to_string();
         }
         Ok(())
+    }
+
+    async fn touch_spec_version_trunk(
+        &self,
+        spec_version_id: i64,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut versions = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(entry) = versions.iter_mut().find(|v| v.id == spec_version_id) {
+            entry.trunk_provided_at = Some(now_iso.to_string());
+        }
+        Ok(())
+    }
+
+    async fn insert_branch(
+        &self,
+        name: &str,
+        created_at: &str,
+        created_by: &str,
+        source: &str,
+        as_of: &str,
+    ) -> Result<i64, RepositoryError> {
+        let mut branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
+        if branches.iter().any(|b| b.name == name) {
+            return Err(RepositoryError::Conflict);
+        }
+        let id = self.next_id();
+        branches.push(BranchInfo {
+            id,
+            name: name.to_string(),
+            created_at: created_at.to_string(),
+            created_by: created_by.to_string(),
+            source: source.to_string(),
+            as_of: as_of.to_string(),
+        });
+        Ok(id)
+    }
+
+    async fn find_branch(&self, name: &str) -> Result<Option<BranchInfo>, RepositoryError> {
+        Ok(self
+            .branches
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|b| b.name == name)
+            .cloned())
+    }
+
+    async fn list_branches(&self) -> Result<Vec<BranchInfo>, RepositoryError> {
+        let mut branches = self
+            .branches
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        branches.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(b.id.cmp(&a.id)));
+        Ok(branches)
+    }
+
+    async fn copy_trunk_graph_to_branch(
+        &self,
+        branch_id: i64,
+        as_of: &str,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let source: Vec<MockTrunkPin> = self
+            .trunk_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|r| {
+                r.valid_from.as_str() <= as_of && r.valid_to.as_deref().is_none_or(|to| to > as_of)
+            })
+            .cloned()
+            .collect();
+        let mut pins = self
+            .branch_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        for mut row in source {
+            row.valid_from = now_iso.to_string();
+            row.last_required_at = now_iso.to_string();
+            row.valid_to = None;
+            pins.push((branch_id, row));
+        }
+        Ok(())
+    }
+
+    async fn copy_branch_graph_to_branch(
+        &self,
+        target_branch_id: i64,
+        source_branch_id: i64,
+        as_of: &str,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut pins = self
+            .branch_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let source: Vec<MockTrunkPin> = pins
+            .iter()
+            .filter(|(b, r)| {
+                *b == source_branch_id
+                    && r.valid_from.as_str() <= as_of
+                    && r.valid_to.as_deref().is_none_or(|to| to > as_of)
+            })
+            .map(|(_, r)| r.clone())
+            .collect();
+        for mut row in source {
+            row.valid_from = now_iso.to_string();
+            row.last_required_at = now_iso.to_string();
+            row.valid_to = None;
+            pins.push((target_branch_id, row));
+        }
+        Ok(())
+    }
+
+    async fn list_branch_pins(
+        &self,
+        branch_id: i64,
+        at: Option<&str>,
+    ) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        let pins = self
+            .branch_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Ok(pins
+            .iter()
+            .filter(|(b, r)| {
+                *b == branch_id
+                    && match at {
+                        Some(at) => {
+                            r.valid_from.as_str() <= at
+                                && r.valid_to.as_deref().is_none_or(|to| to > at)
+                        }
+                        None => r.valid_to.is_none(),
+                    }
+            })
+            .map(|(_, r)| TrunkPinInfo {
+                client: self.client_name(r.client_id).unwrap_or_default(),
+                service: self.service_name(r.service_id).unwrap_or_default(),
+                api_type: r.api_type,
+                version: r.version,
+                path: r.path.clone(),
+                normalized_path: r.normalized_path.clone(),
+                method: r.method.clone(),
+                valid_from: r.valid_from.clone(),
+                last_required_at: r.last_required_at.clone(),
+                dangling: false,
+            })
+            .collect())
+    }
+
+    async fn list_trunk_pins_at(&self, at: &str) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        let rows = self
+            .trunk_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Ok(rows
+            .iter()
+            .filter(|r| {
+                r.valid_from.as_str() <= at && r.valid_to.as_deref().is_none_or(|to| to > at)
+            })
+            .map(|r| TrunkPinInfo {
+                client: self.client_name(r.client_id).unwrap_or_default(),
+                service: self.service_name(r.service_id).unwrap_or_default(),
+                api_type: r.api_type,
+                version: r.version,
+                path: r.path.clone(),
+                normalized_path: r.normalized_path.clone(),
+                method: r.method.clone(),
+                valid_from: r.valid_from.clone(),
+                last_required_at: r.last_required_at.clone(),
+                dangling: false,
+            })
+            .collect())
+    }
+
+    async fn list_graph_change_dates(
+        &self,
+        branch_id: Option<i64>,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let mut dates: Vec<String> = match branch_id {
+            None => self
+                .trunk_pins
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .flat_map(|r| std::iter::once(r.valid_from.clone()).chain(r.valid_to.clone()))
+                .collect(),
+            Some(bid) => self
+                .branch_pins
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .filter(|(b, _)| *b == bid)
+                .flat_map(|(_, r)| std::iter::once(r.valid_from.clone()).chain(r.valid_to.clone()))
+                .collect(),
+        };
+        dates.sort();
+        dates.dedup();
+        Ok(dates)
+    }
+
+    async fn list_branch_memberships_for_service(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<BranchMembership>, RepositoryError> {
+        let branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
+        let pins = self
+            .branch_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let members = self
+            .branch_member_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let name_of = |id: i64| {
+            branches
+                .iter()
+                .find(|b| b.id == id)
+                .map(|b| b.name.clone())
+                .unwrap_or_default()
+        };
+        let mut rows: Vec<BranchMembership> = pins
+            .iter()
+            .filter(|(_, r)| r.service_id == service_id && r.valid_to.is_none())
+            .map(|(bid, r)| BranchMembership {
+                api_type: r.api_type,
+                version: r.version,
+                branch: name_of(*bid),
+            })
+            .chain(
+                members
+                    .iter()
+                    .filter(|m| m.1 == service_id && m.5.is_none())
+                    .map(|m| BranchMembership {
+                        api_type: m.2,
+                        version: m.3,
+                        branch: name_of(m.0),
+                    }),
+            )
+            .collect();
+        rows.sort_by(|a, b| a.branch.cmp(&b.branch).then(a.version.cmp(&b.version)));
+        rows.dedup_by(|a, b| {
+            a.branch == b.branch && a.api_type == b.api_type && a.version == b.version
+        });
+        Ok(rows)
+    }
+
+    async fn list_branches_referencing(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
+        let pins = self
+            .branch_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let members = self
+            .branch_member_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut names: Vec<String> = branches
+            .iter()
+            .filter(|b| {
+                pins.iter().any(|(bid, r)| {
+                    *bid == b.id
+                        && r.valid_to.is_none()
+                        && r.service_id == service_id
+                        && r.api_type == api_type
+                        && r.version == version
+                }) || members.iter().any(|m| {
+                    m.0 == b.id
+                        && m.5.is_none()
+                        && m.1 == service_id
+                        && m.2 == api_type
+                        && m.3 == version
+                })
+            })
+            .map(|b| b.name.clone())
+            .collect();
+        names.sort();
+        Ok(names)
+    }
+
+    async fn close_expired_trunk_data(
+        &self,
+        cutoff_iso: &str,
+        now_iso: &str,
+    ) -> Result<u64, RepositoryError> {
+        let mut closed = 0;
+        for row in self
+            .trunk_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter_mut()
+        {
+            if row.valid_to.is_none() && row.last_required_at.as_str() < cutoff_iso {
+                row.valid_to = Some(now_iso.to_string());
+                closed += 1;
+            }
+        }
+        for entry in self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter_mut()
+        {
+            if entry
+                .trunk_provided_at
+                .as_deref()
+                .is_some_and(|t| t < cutoff_iso)
+            {
+                entry.trunk_provided_at = None;
+            }
+        }
+        Ok(closed)
+    }
+
+    async fn rename_branch(&self, branch_id: i64, new_name: &str) -> Result<(), RepositoryError> {
+        let mut branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
+        if branches
+            .iter()
+            .any(|b| b.name == new_name && b.id != branch_id)
+        {
+            return Err(RepositoryError::Conflict);
+        }
+        if let Some(branch) = branches.iter_mut().find(|b| b.id == branch_id) {
+            branch.name = new_name.to_string();
+        }
+        Ok(())
+    }
+
+    async fn delete_branch(&self, branch_id: i64) -> Result<(), RepositoryError> {
+        self.branches
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|b| b.id != branch_id);
+        self.branch_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(b, _)| *b != branch_id);
+        self.branch_member_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|r| r.0 != branch_id);
+        Ok(())
+    }
+
+    async fn record_branch_pins(
+        &self,
+        branch_id: i64,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> Result<(), RepositoryError> {
+        let mut rows = self
+            .branch_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        for p in pins {
+            let same_key = |r: &&mut (i64, MockTrunkPin)| {
+                r.0 == branch_id
+                    && r.1.client_id == p.client_id
+                    && r.1.service_id == p.service_id
+                    && r.1.api_type == p.api_type
+                    && r.1.normalized_path == p.normalized_path
+                    && r.1.method == p.method
+                    && r.1.valid_to.is_none()
+            };
+            if let Some(open) = rows.iter_mut().find(|r| same_key(r)) {
+                if open.1.version == p.version {
+                    open.1.last_required_at = p.now_iso.to_string();
+                    continue;
+                }
+                open.1.valid_to = Some(p.now_iso.to_string());
+            }
+            rows.push((
+                branch_id,
+                MockTrunkPin {
+                    client_id: p.client_id,
+                    service_id: p.service_id,
+                    api_type: p.api_type,
+                    version: p.version,
+                    path: p.path.to_string(),
+                    normalized_path: p.normalized_path.to_string(),
+                    method: p.method.to_string(),
+                    valid_from: p.now_iso.to_string(),
+                    last_required_at: p.now_iso.to_string(),
+                    valid_to: None,
+                },
+            ));
+        }
+        Ok(())
+    }
+
+    async fn record_branch_member_version(
+        &self,
+        branch_id: i64,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut rows = self
+            .branch_member_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(open) = rows
+            .iter_mut()
+            .find(|r| r.0 == branch_id && r.1 == service_id && r.2 == api_type && r.5.is_none())
+        {
+            if open.3 == version {
+                return Ok(());
+            }
+            open.5 = Some(now_iso.to_string());
+        }
+        rows.push((
+            branch_id,
+            service_id,
+            api_type,
+            version,
+            now_iso.to_string(),
+            None,
+        ));
+        Ok(())
+    }
+
+    async fn record_trunk_pins(
+        &self,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> Result<(), RepositoryError> {
+        let mut rows = self
+            .trunk_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        for p in pins {
+            let same_key = |r: &&mut MockTrunkPin| {
+                r.client_id == p.client_id
+                    && r.service_id == p.service_id
+                    && r.api_type == p.api_type
+                    && r.normalized_path == p.normalized_path
+                    && r.method == p.method
+                    && r.valid_to.is_none()
+            };
+            if let Some(open) = rows.iter_mut().find(|r| same_key(r)) {
+                if open.version == p.version {
+                    open.last_required_at = p.now_iso.to_string();
+                    continue;
+                }
+                open.valid_to = Some(p.now_iso.to_string());
+            }
+            rows.push(MockTrunkPin {
+                client_id: p.client_id,
+                service_id: p.service_id,
+                api_type: p.api_type,
+                version: p.version,
+                path: p.path.to_string(),
+                normalized_path: p.normalized_path.to_string(),
+                method: p.method.to_string(),
+                valid_from: p.now_iso.to_string(),
+                last_required_at: p.now_iso.to_string(),
+                valid_to: None,
+            });
+        }
+        Ok(())
+    }
+
+    async fn list_current_trunk_pins(&self) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        let rows = self
+            .trunk_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let clients = self.clients.lock().unwrap_or_else(PoisonError::into_inner);
+        let services = self.services.lock().unwrap_or_else(PoisonError::into_inner);
+        Ok(rows
+            .iter()
+            .filter(|r| r.valid_to.is_none())
+            .map(|r| TrunkPinInfo {
+                client: clients
+                    .iter()
+                    .find(|(_, id)| **id == r.client_id)
+                    .map(|(name, _)| name.clone())
+                    .unwrap_or_default(),
+                service: services
+                    .iter()
+                    .find(|(_, id)| **id == r.service_id)
+                    .map(|(name, _)| name.clone())
+                    .unwrap_or_default(),
+                api_type: r.api_type,
+                version: r.version,
+                path: r.path.clone(),
+                normalized_path: r.normalized_path.clone(),
+                method: r.method.clone(),
+                valid_from: r.valid_from.clone(),
+                last_required_at: r.last_required_at.clone(),
+                dangling: false,
+            })
+            .collect())
     }
 
     async fn delete_expired_snapshots(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
@@ -605,6 +1155,10 @@ impl SpecRepository for MockRepo {
         }
 
         Ok(DependencyReport {
+            trunk_graph: Vec::new(),
+            harvested_subscriptions: Vec::new(),
+            trunk_stale_before: None,
+            scope_label: None,
             unused_endpoints,
             missing_endpoints,
             dependency_graph,
@@ -955,6 +1509,13 @@ impl SpecRepository for MockRepo {
             }
         }
         Ok(None)
+    }
+
+    async fn delete_expired_credentials(&self, now_iso: &str) -> Result<u64, RepositoryError> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+        let before = sessions.len();
+        sessions.retain(|s| s.expires_at.as_str() >= now_iso);
+        Ok((before - sessions.len()) as u64)
     }
 
     async fn delete_session(&self, token: &str) -> Result<(), RepositoryError> {
@@ -1414,6 +1975,37 @@ impl SpecRepository for MockRepo {
         Ok(())
     }
 
+    async fn remove_service_tag(&self, service_id: i64, tag: &str) -> Result<(), RepositoryError> {
+        let mut st = self
+            .service_tags
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(tags) = st.get_mut(&service_id) {
+            tags.retain(|t| t != tag);
+        }
+        Ok(())
+    }
+
+    async fn close_trunk_pins_for_service_api(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        now_iso: &str,
+    ) -> Result<u64, RepositoryError> {
+        let mut pins = self
+            .trunk_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut n = 0u64;
+        for p in pins.iter_mut() {
+            if p.service_id == service_id && p.api_type == api_type && p.valid_to.is_none() {
+                p.valid_to = Some(now_iso.to_string());
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+
     async fn get_all_service_tags(&self) -> Result<HashMap<String, Vec<String>>, RepositoryError> {
         Ok(HashMap::new())
     }
@@ -1441,6 +2033,7 @@ impl SpecRepository for MockRepo {
             version: log.version.map(|v| v.to_string()),
             action_type: log.action_type.map(|t| t.to_string()),
             diff: log.diff.map(|d| d.to_string()),
+            stream: log.stream.map(|s| s.to_string()),
         });
         Ok(())
     }
@@ -1589,6 +2182,88 @@ impl SpecRepository for MockRepo {
         result.sort_by(|a, b| {
             a.channel
                 .cmp(&b.channel)
+                .then_with(|| a.message_name.cmp(&b.message_name))
+        });
+        Ok(result)
+    }
+
+    async fn reconcile_harvested_subscriptions(
+        &self,
+        client_id: i64,
+        client_name: &str,
+        trunk: bool,
+        subs: &[HarvestedSubInput],
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut rows = self
+            .harvested_subscriptions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        // Close open rows for this client that are gone or changed.
+        for row in rows.iter_mut() {
+            if row.client_id != client_id || row.valid_to.is_some() {
+                continue;
+            }
+            let keep = subs.iter().any(|s| {
+                s.channel == row.channel
+                    && s.message_name == row.message_name
+                    && s.owner_service_id == row.owner_service_id
+                    && trunk == row.trunk
+            });
+            if !keep {
+                row.valid_to = Some(now_iso.to_string());
+            }
+        }
+        // Open a fresh row for each desired sub without an unchanged open row.
+        for s in subs {
+            let unchanged = rows.iter().any(|r| {
+                r.valid_to.is_none()
+                    && r.client_id == client_id
+                    && r.channel == s.channel
+                    && r.message_name == s.message_name
+                    && r.owner_service_id == s.owner_service_id
+                    && r.trunk == trunk
+            });
+            if unchanged {
+                continue;
+            }
+            rows.push(MockHarvestedSub {
+                client_id,
+                client_name: client_name.to_string(),
+                channel: s.channel.clone(),
+                message_name: s.message_name.clone(),
+                owner_service_id: s.owner_service_id,
+                owner_name: s.owner_name.clone(),
+                trunk,
+                valid_from: now_iso.to_string(),
+                valid_to: None,
+            });
+        }
+        Ok(())
+    }
+
+    async fn list_current_harvested_subscriptions(
+        &self,
+    ) -> Result<Vec<HarvestedSubscription>, RepositoryError> {
+        let rows = self
+            .harvested_subscriptions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut result: Vec<HarvestedSubscription> = rows
+            .iter()
+            .filter(|r| r.valid_to.is_none())
+            .map(|r| HarvestedSubscription {
+                client: r.client_name.clone(),
+                channel: r.channel.clone(),
+                message_name: r.message_name.clone(),
+                owner: r.owner_name.clone(),
+                trunk: r.trunk,
+            })
+            .collect();
+        result.sort_by(|a, b| {
+            a.client
+                .cmp(&b.client)
+                .then_with(|| a.channel.cmp(&b.channel))
                 .then_with(|| a.message_name.cmp(&b.message_name))
         });
         Ok(result)

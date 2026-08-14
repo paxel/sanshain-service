@@ -108,6 +108,8 @@ async fn provide(repo: &SqliteSpecRepository, producer: &str, content: &str, sta
             content,
             stability,
             dry_run: false,
+            trunk: false,
+            tag: None,
             caller: Some(if stability == Stability::Ga {
                 sanshain_service::domain::permissions::Actor::test_releaser()
             } else {
@@ -133,6 +135,8 @@ async fn pin_consumer(repo: &SqliteSpecRepository, consumer: &str, producer: &st
             api_type: ApiType::OpenApi,
             path: "/hello",
             method: "GET",
+            trunk: false,
+            tag: None,
         },
     )
     .await
@@ -195,6 +199,8 @@ fn all_audit_logs_filter() -> sanshain_service::domain::models::AuditLogFilter {
         action_type: None,
         service_wildcard: None,
         version_wildcard: None,
+        stream: None,
+        branch_id: None,
         limit: 100,
     }
 }

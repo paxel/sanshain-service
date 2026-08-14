@@ -90,7 +90,7 @@ sequenceDiagram
 ```
 
 **Key behaviors:**
-- **Version from the spec**: `info.version` (OpenAPI/AsyncAPI) or a mandatory `// sanshain-version:` comment (proto); strict `MAJOR.MINOR.PATCH`, rejected `400` otherwise.
+- **Version from the spec**: `info.version` (OpenAPI/AsyncAPI) or a mandatory `// sanshain-version:` comment (proto); `MAJOR[.MINOR[.PATCH]]` with an optional `v` prefix (normalized, implicit zeroes), rejected `400` otherwise.
 - **Idempotency**: Re-providing byte-identical content is a no-op regardless of stability or caller.
 - **GA immutability**: A GA version with different content returns `409` with `proposed_version` (breaking → major, additive → minor, shape-identical → patch). A GA whose changes against the highest GA below it are breaking without a major bump is rejected the same way (semver honesty).
 - **Snapshots**: Overwritable, last writer wins, never compatibility-checked. A snapshot Provide for a GA'd number is rejected; a GA Provide for a snapshot number promotes it in place.
@@ -143,7 +143,7 @@ sequenceDiagram
     Handler-->>Consumer: YAML snippet, 404 or 410
 ```
 
-**No fallback, no waiting**: Resolution answers the exact Pin — GA preferred, the same-numbered snapshot as the only alternative — and fails in milliseconds otherwise. Exact pins are written by a human after the version exists, so nothing long-polls for a version to appear.
+**Exact resolution**: Resolution answers the exact Pin — GA preferred, the same-numbered snapshot as the only alternative — anything else is a `404`. Exact pins are written by a human after the version exists.
 
 **Dependency tracking**: Every *successful* `require` (unless `dry_run=true`) is recorded, building a dependency graph (Consumer A → Producer X endpoint at version) and counting as *use* for snapshot expiry. A failed require records nothing — resolution never creates graph entities.
 
@@ -406,11 +406,17 @@ Every response includes hardened HTTP headers:
 
 | Header                    | Value                                                                                    | Purpose                           |
 |---------------------------|------------------------------------------------------------------------------------------|-----------------------------------|
-| `Content-Security-Policy` | `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'` | Prevents XSS via injected scripts |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-ancestors 'none'` | Prevents XSS via injected scripts |
 | `X-Content-Type-Options`  | `nosniff`                                                                                | Prevents MIME-type sniffing       |
-| `X-Frame-Options`         | `DENY`                                                                                   | Prevents clickjacking             |
+| `X-Frame-Options`         | `SAMEORIGIN`                                                                             | Prevents clickjacking (with `frame-ancestors`) |
 
 These are applied as middleware in the Axum router.
+
+`script-src` is `'self'` only: the admin UI carries no inline scripts and no inline `on*=` event
+handlers — all behaviour is delegated through the dispatcher in `static/js/common.js`, and every
+third-party library is vendored under `static/vendor/`. `style-src` retains `'unsafe-inline'`
+because the vendored Mermaid injects `<style>` elements when it renders diagrams. The exact policy
+lives in `CONTENT_SECURITY_POLICY` in `src/lib.rs`.
 
 ---
 

@@ -5,32 +5,141 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [2.1.0] - 2026-08-04
+## [2.2.0] - 2026-08-06
 
 ### Added
-- `releaser`: a global role conferring exactly `release_ga`, grantable to users, native groups and
-  directory groups. Like `admin`, it is admin-guarded — only an admin (or root) may grant or revoke
-  it.
-- Refused release attempts are recorded: a real (non-dry-run) GA Provide without the permission
-  writes a `VERSION_REJECTED` audit entry and increments
-  `sanshain_version_rejected_total{reason="ga_requires_releaser"}`. Dry-runs get the same `403`
-  without the telemetry.
-- **One-click promote.** Snapshot entries on the producers page and the admin dashboard offer a
-  "Promote to GA" button to holders of `release_ga`
-  (`POST /admin/producers/{name}/versions/{api_type}/{version}/promote`). It releases the stored
-  content in place — same gate, attribution and audit trail as re-providing it as GA; promoting an
-  already-GA version is a harmless no-op.
+- Human login via an external **OpenID Connect** provider (SSO): choose the `oidc` auth mode and
+  configure the provider (issuer, client, `/auth/oidc/callback` redirect); a "Sign in with SSO"
+  button runs the PKCE authorization-code flow, verifies the ID token (JWKS signature, nonce,
+  issuer, audience, expiry), and creates a session. Machine/Consumer clients keep API tokens —
+  OIDC is human-only. Local/root password login stays available so a provider outage can't lock
+  everyone out. See [administration.md](docs/administration.md).
+- AsyncAPI `subscribe` operations are now harvested on every provide as version-less consumer
+  edges in the dependency graph — previously they were dropped with a server-side log the Producer
+  never saw. Each resolves to the channel's PUB owner (or shows as pending when none exists yet),
+  and is validated as an expectation: reading fewer fields than the contract is fine, but expecting
+  a field the contract does not guarantee is rejected with `409` on a GA provide and reported as an
+  advisory `harvested_subscriptions` note on a snapshot. See [ADR-0006](docs/adr/0006-asyncapi-subscribe-harvesting.md).
+- A Producer can retire an API family it no longer provides, by sending `retired: true` on that
+  family's provide call with no specification body: clears the messaging/grpc capability tag,
+  drops the family from the current main graph (keeping its timeline history), and releases its
+  AsyncAPI channel-message contracts for another Producer to claim, without deleting version
+  history or breaking existing pins. Meant for the client plugin to send when a service's
+  `sanshain.yaml` drops a protocol. Retiring needs the `releaser` role — which CI already holds to
+  publish GA — or a maintainer grant on the Producer; combining it with a body, `stability`,
+  `trunk` or `tag` answers `400`.
+- Version strings — `info.version`, the proto `// sanshain-version:` marker, and pinned `version`
+  parameters — now accept an optional leading `v` and omitted MINOR/PATCH with implicit zeroes
+  (`v2` → `2.0.0`); previously only exact `MAJOR.MINOR.PATCH` was accepted. Stored and answered
+  versions stay canonical three-part.
+- Version rows on the producers page now offer "View spec": the full stored document opens in the
+  viewer with the same version-history sidebar, diff and blame as the endpoint view — previously
+  the UI only offered it as a file download.
+- When a GA re-provide differs only in bytes the splitter doesn't see (whitespace, line endings,
+  comments), the `409` now says so instead of only asking whether you forgot to bump — content
+  comparison is and stays byte-for-byte.
+- Provides accept an optional `trunk: true` flag (ADR-0004): the version entry is marked as
+  trunk's current version — shown as a badge on the producers page — with no effect on version
+  rules or stability. Absent flag, nothing changes.
+- Requires (and require-bundle) accept the same optional `trunk` flag: the pin is additionally
+  recorded in a new append-only trunk store where the last write per endpoint defines the current
+  trunk pin set, exposed as `trunk_graph` in the `/report` payload.
+- The graph page gained a Main/Dev toggle (ADR-0004): the main view draws producers at their
+  trunk version with the current trunk pins as edges, highlights major-lag conflicts, and the
+  legend shows only markers the active view can draw.
+- Sanshain-branches (ADR-0005): `POST /admin/branches` (releaser-gated, built for the release-cut
+  script) creates a named copy of the trunk graph — or another branch — at a chosen instant,
+  including retroactively; `GET /admin/branches` lists them and
+  `GET /admin/branches/{name}/graph[?at=…]` answers a branch's pin set.
+- Provides and requires accept an optional `tag=<branch>` (release-branch hotfixes): the call
+  updates that sanshain-branch's graph and member versions instead of trunk. `trunk` and `tag`
+  together answer `400`; an unknown tag answers an instructive `404` — no auto-create.
+- Sanshain-branches can be renamed (repairing a botched name; membership and timeline survive)
+  and deleted (freeing the name) — admin-only, audited, from the admin dashboard's new
+  Sanshain-Branches section or `PUT`/`DELETE /admin/branches/{name}`.
+- Trunk data ages visibly: a configurable month-scale TTL (`trunk_max_age_days`, default 90)
+  closes trunk pins and clears trunk markers not refreshed in time — they leave the main graph
+  but stay as history — and the main graph highlights entries as stale (amber, ⚠) once they pass
+  half the TTL, so forgotten producers and dead requires surface before they vanish.
+- Reports take a graph scope: `?scope=dev` (default, unchanged), `main[@instant]` (trunk pins),
+  or `<branch>[@instant]` — so a release-scoped architecture or isolation report describes what
+  production actually is. The reports page gained the matching selector.
+- The graph page draws sanshain-branches: pick one from the new branch selector. A pin whose
+  version was deleted renders as a dangling reference (dotted orange, own legend entry) and heals
+  automatically when the number is re-provided; the delete-version confirmation now also names
+  referencing sanshain-branches alongside pinned Consumers.
+- Provide/require audit entries record their declared stream (`trunk`, a branch tag, or none),
+  and the audit timeline filters by it — "who changed Release Maribou, when?" is one query.
+- The graph page gained a timeline (ADR-0005): a slider over the change instants of the main
+  graph or a branch renders the graph as it was at that date (`GET /admin/trunk/graph?at=…`,
+  `…/timeline`), and releasers can "create branch here" — the retroactive release cut.
+- Reverse lookup: producer version rows show chips naming every sanshain-branch referencing that
+  version (`GET /admin/producers/{name}/branch-memberships`). Graph exports (SVG/PNG/mermaid)
+  are stamped with their view, branch and instant; scoped reports carry a `Scope:` line.
+- New metrics: `sanshain_branch_updates_total{branch}` and a `sanshain_branches` gauge, with the
+  branch count shown on the observability page.
+- Graph diffing (`GET /admin/graph/diff?left=…&right=…`, and a Compare panel on the graph page):
+  a structured diff between any two graph selections — release vs release, release vs main, any
+  at a past instant — naming added/removed services and added/removed/changed pins.
+
+### Changed
+- The SQLite connection pool default (`MAX_SQLITE_CONNECTIONS`) is raised from 1 to 5, so
+  concurrent requests no longer queue on a single database connection; write transactions take
+  the write lock up front so writers still queue safely.
+- Password hashing now runs on the blocking thread pool, so concurrent logins no longer stall
+  unrelated requests.
+- Settings reads (auth mode, dev mode, …) are served from the in-memory cache instead of querying
+  the database on every request; in multi-instance deployments a settings change made on another
+  instance now takes up to 10 seconds to be visible.
+- Spec parsing (provide, bundle merge, `/validate`) runs on the blocking thread pool, so a large
+  document no longer stalls unrelated requests; the public `/validate` endpoint additionally caps
+  concurrent parses at 4, queueing excess callers.
+- Group and group-role lookups used by directory-based authorisation are cached like stored
+  roles, removing their per-request database queries; the same 10-second cross-instance
+  staleness bound applies.
+- The dependency graph's messaging badge now marks only actual AsyncAPI providers, not every
+  consumer of one, and the virtual broker node is named `BROKER` rather than asserting Kafka.
+- Outdated pins are split into two tiers with their own colours and toggles — behind within the
+  same major, and a whole major behind; previously one patch behind and three majors behind
+  looked identical.
+- A spec whose paths differ only in a path-parameter name (`/users/{id}` and `/users/{userId}`),
+  a trailing slash, or doubled separators is now refused with `400` naming both — OpenAPI forbids
+  them as identical and nothing downstream can tell them apart; previously both were stored and a
+  Consumer pinning one of them got an arbitrary answer.
+- UI messages and docs no longer explain resolution by contrast with removed 1.x mechanics
+  ("fails immediately", "hard-fail", "no fallback and nothing waits"); they now state the
+  current behavior plainly (a missing Pin answers 404, a missing endpoint 410).
+
+### Fixed
+- A consumer-only node in the dependency graph now links to the consumers page focused on that
+  consumer; previously its "View Service Details" pointed at the producers page, which answered
+  "Fetch error: 404" since a pure Consumer has no version line.
+- The observability page's audit panel no longer loses real changes to a burst of rejected
+  provides: it reads a wider window and offers a "Hide rejected provides" toggle.
+- `LOG_BUFFER_SIZE` now actually bounds how many log messages are kept per level; previously it
+  only sized the initial allocation while the retention stayed fixed at 100.
+- The observability page's log copy/download now includes the `[service@version]` context the
+  on-screen view shows — previously the export dropped it, leaving provide lines without any
+  reference to the producer they concern.
+- The max-age settings (snapshot, dependency, trunk) reject `days` above 36500 (~100 years) with
+  a `400`; previously any number was stored, and an absurd value could crash the cleanup task.
+- A dry-run provide of unchanged content no longer refreshes the snapshot's use-based expiry —
+  previously a pipeline that only ever dry-ran kept its snapshots alive indefinitely.
+- Deleting a Producer or Consumer is refused with `409` while a sanshain-branch's recorded graph
+  still references it, naming the branches to retire first. Its trunk history is preserved: the
+  pin rows store the participant name by value, so a delete closes the participant's open trunk
+  pins (it leaves the current main graph) but the timeline still reconstructs the era it was
+  active, instead of the rows being erased.
 
 ### Security
-- Publishing `stability: ga` now requires the `release_ga` permission (new `releaser` role; admins
-  and root hold it implicitly) — previously any authenticated token could release, and snapshots are
-  unaffected. **On upgrade, grant `releaser` to whatever pushes GA today — typically your CI user —
-  or releases fail with an instructive `403`.**
-- Changing the membership or existence of a group that holds an admin-guarded role (`admin`,
-  `releaser`), and deleting a user who holds such a role or is a configured root account, now
-  additionally require an admin — previously any `manage_roles` (or, for user deletion,
-  `manage_users`) holder could do so and thereby grant or strip those rights. Replacing a group's
-  role set already required an admin for `admin` in 2.0; that guard now covers `releaser` too.
+- LDAP with **Use TLS** on a plain `ldap://` server URL now upgrades the connection in-band via
+  StartTLS before any bind; previously such connections silently stayed plaintext (`ldaps://` was
+  and remains TLS from the scheme).
+- The Content-Security-Policy now sets `script-src 'self'` (previously `'unsafe-inline'` plus two
+  CDN hosts) and adds `frame-ancestors 'none'`: all UI behaviour moved off inline event handlers
+  onto a delegated dispatcher, so a stored/reflected HTML injection can no longer run inline
+  script. `style-src` still allows `'unsafe-inline'` because the diagram library injects styles at
+  render time.
 
 ---
 

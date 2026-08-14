@@ -1,20 +1,11 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
+  <head>
+    <meta charset="UTF-8" />
     <title>Redirecting...</title>
-    <script>
-        // Backward-compatibility redirect: map old hash-based URLs to new standalone pages
-        const hash = window.location.hash.replace(/^#/, '').toLowerCase();
-        const map = {
-            'clients': '/consumers.html',
-            'graph': '/graph.html',
-            'reports': '/reports.html'
-        };
-        window.location.replace(map[hash] || '/producers.html');
-    </script>
-</head>
-<body>
+    <script src="/js/pages/service.js"></script>
+  </head>
+  <body>
     <p>Redirecting...</p>
-</body>
+  </body>
 </html>

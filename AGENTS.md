@@ -11,12 +11,14 @@ specifications (OpenAPI, AsyncAPI, gRPC/Proto). **Producers** "provide" their fu
 - **Templates**: [Askama](https://github.com/djc/askama).
 - **Caching**: [Moka](https://github.com/moka-rs/moka).
 - **Auth**: Argon2, session tokens, optional LDAP/AD.
-- **Frontend**: Vanilla JS/CSS + HTMX for admin fragments.
+- **Frontend**: Vanilla JS + [Tailwind CSS](https://tailwindcss.com/) (built to `static/css/app.css` via `npm run build:css`; committed, since prod serves `static/` directly). HTMX for admin fragments.
 - **Task runner**: [just](https://github.com/casey/just) (`justfile`) — `npm run` scripts wrap the same commands.
 
 ## Architecture (DDD Hexagonal/Onion)
 Strict layering — maintain these boundaries when adding or changing code:
 1. **Domain** (`src/domain/`): models (`models.rs`), port traits (`ports.rs`). **No framework deps** (no Axum, no SQLx).
+   Enforced by `tests/architecture_boundaries_test.rs`, which fails the build when Domain or
+   Application references a framework or an adapter — add a port instead of an import.
 2. **Application** (`src/application/`): use-case/business logic (`services.rs`). Depends only on Domain.
 3. **Infrastructure** (`src/infrastructure/`): port implementations — SQLx repositories, LDAP, telemetry, cache. Depends on Domain.
 4. **Presentation** (`src/presentation/`, wired in `src/main.rs`/`src/lib.rs`): thin Axum handlers and middleware. Delegate business logic to Application; do not put logic here.

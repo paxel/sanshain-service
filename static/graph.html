@@ -1,741 +1,682 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="/images/favicon.png">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/images/favicon.png" />
     <title>Sanshain - Dependency Graph</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/css/app.css" />
     <script src="/js/common.js"></script>
     <script src="/js/discovery.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@dagrejs/dagre@1.1.4/dist/dagre.min.js"></script>
+    <script src="/vendor/dagre-1.1.4.min.js"></script>
     <script src="/js/graph.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script src="/vendor/mermaid-11.16.1.min.js"></script>
     <style>
-        .custom-scrollbar::-webkit-scrollbar {
-            width: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 10px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 10px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 4px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 10px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.3);
+      }
     </style>
-    <script>
-        mermaid.initialize({startOnLoad: false, theme: 'base', themeVariables: {fontSize: '14px', fontFamily: 'ui-sans-serif, system-ui, sans-serif'}});
-    </script>
-</head>
-<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+    <script src="/js/pages/graph-0.js"></script>
+  </head>
+  <body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
     <div id="app-loader">
-        <div class="cat-container">
-            <svg class="cat-svg" viewBox="0 0 100 60">
-                <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
-                <path d="M80,50 C95,50 95,30 85,30" fill="none" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" />
-                <path d="M25,25 L20,10 L35,22 Z" />
-                <path d="M45,22 L60,10 L55,25 Z" />
-                <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
-                <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
-                <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
-            </svg>
-            <div class="zzz-container">
-                <span class="zzz">z</span>
-                <span class="zzz">z</span>
-                <span class="zzz">z</span>
-            </div>
+      <div class="cat-container">
+        <svg class="cat-svg" viewBox="0 0 100 60">
+          <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
+          <path
+            d="M80,50 C95,50 95,30 85,30"
+            fill="none"
+            stroke="#94a3b8"
+            stroke-width="6"
+            stroke-linecap="round"
+          />
+          <path d="M25,25 L20,10 L35,22 Z" />
+          <path d="M45,22 L60,10 L55,25 Z" />
+          <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+          <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
+          <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
+        </svg>
+        <div class="zzz-container">
+          <span class="zzz">z</span>
+          <span class="zzz">z</span>
+          <span class="zzz">z</span>
         </div>
-        <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
+      </div>
+      <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
     </div>
-<header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
-    <div class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
+      <div
+        class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+      >
         <div class="flex items-center justify-between gap-4 md:justify-start">
-            <a href="/" class="flex items-center space-x-3">
-                <img src="/images/sonne.png" alt="Sanshain Logo" width="66" height="36" class="h-9 w-auto rounded-md bg-white/10 p-0.5">
-                <div class="text-2xl font-bold tracking-tight">Sanshain <span class="text-indigo-200">(サンシャイン)</span></div>
-            </a>
-            <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
+          <a href="/" class="flex items-center space-x-3">
+            <img
+              src="/images/sonne.png"
+              alt="Sanshain Logo"
+              width="66"
+              height="36"
+              class="h-9 w-auto rounded-md bg-white/10 p-0.5"
+            />
+            <div class="text-2xl font-bold tracking-tight">
+              Sanshain <span class="text-indigo-200">(サンシャイン)</span>
+            </div>
+          </a>
+          <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
         </div>
-        <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
-            <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors">Producers</a>
-            <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors">Consumers</a>
-            <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
-            <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors">Reports</a>
-            <a id="nav-audit-link" href="/audit.html" class="hidden text-white hover:text-indigo-100 transition-colors">Audit</a>
-            <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors">Observability</a>
-            <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
+        <nav
+          class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1"
+        >
+          <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Producers</a
+          >
+          <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Consumers</a
+          >
+          <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
+          <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Reports</a
+          >
+          <a
+            id="nav-audit-link"
+            href="/audit.html"
+            class="hidden text-white hover:text-indigo-100 transition-colors"
+            >Audit</a
+          >
+          <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors"
+            >Observability</a
+          >
+          <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
         <div class="flex items-center justify-end gap-4 text-sm">
-            <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
-            <a id="banner-username" href="/account.html" class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"></a>
-            <button id="banner-logout" type="button" onclick="sanshainLogout()" class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500">Logout</button>
-            <a id="banner-signin" href="/account.html" class="hidden text-indigo-100 transition-colors hover:text-white">Sign In</a>
+          <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+          <a
+            id="banner-username"
+            href="/account.html"
+            class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"
+          ></a>
+          <button
+            id="banner-logout"
+            type="button"
+            data-click="sanshainLogout"
+            class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500"
+          >
+            Logout
+          </button>
+          <a
+            id="banner-signin"
+            href="/account.html"
+            class="hidden text-indigo-100 transition-colors hover:text-white"
+            >Sign In</a
+          >
         </div>
-    </div>
-</header>
+      </div>
+    </header>
 
-<main class="container mx-auto flex-1 p-6">
-    <div id="graph-section">
+    <main class="container mx-auto flex-1 p-6">
+      <div id="graph-section">
         <div class="flex justify-between items-center mb-6">
-            <h2 class="text-xl font-semibold flex items-center">
-                <span class="bg-purple-100 text-purple-700 p-2 rounded-lg mr-3">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                              d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
-                    </svg>
-                </span>
-                Dependency Graph
-            </h2>
-            <div class="flex items-center space-x-3">
-                <div class="inline-flex rounded-lg border border-slate-300 text-sm overflow-hidden bg-white">
-                    <button id="graph-mode-custom" class="px-3 py-1.5 bg-indigo-600 text-white" onclick="switchGraphMode('custom')">Graph</button>
-                    <button id="graph-mode-mermaid" class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50" onclick="switchGraphMode('mermaid')">Mermaid</button>
-                    <button id="graph-mode-detailed" class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50" onclick="switchGraphMode('detailed')">Detailed</button>
-                </div>
+          <h2 class="text-xl font-semibold flex items-center">
+            <span class="bg-purple-100 text-purple-700 p-2 rounded-lg mr-3">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"
+                ></path>
+              </svg>
+            </span>
+            Dependency Graph
+          </h2>
+          <div class="flex items-center space-x-3">
+            <div
+              class="inline-flex rounded-lg border border-slate-300 text-sm overflow-hidden bg-white"
+            >
+              <button
+                id="graph-mode-custom"
+                class="px-3 py-1.5 bg-indigo-600 text-white"
+                data-click="switchGraphMode"
+                data-click-args='["custom"]'
+              >
+                Graph
+              </button>
+              <button
+                id="graph-mode-mermaid"
+                class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50"
+                data-click="switchGraphMode"
+                data-click-args='["mermaid"]'
+              >
+                Mermaid
+              </button>
+              <button
+                id="graph-mode-detailed"
+                class="px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50"
+                data-click="switchGraphMode"
+                data-click-args='["detailed"]'
+              >
+                Detailed
+              </button>
             </div>
+          </div>
         </div>
 
-        <div id="graph-toolbar-row" class="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200">
-            <div class="flex items-center gap-2 flex-grow">
-                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Focus</span>
-                <div id="focus-tags-container" class="flex flex-wrap items-center gap-1.5"></div>
-                <div class="relative flex-shrink-0" style="min-width:140px">
-                    <input type="text" id="graph-service-filter" list="graph-services-list" placeholder="Add service..."
-                           onkeydown="if(event.key==='Enter'){event.preventDefault();applyGraphFocus()}"
-                           class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
-                    <datalist id="graph-services-list"></datalist>
-                </div>
+        <div
+          id="graph-toolbar-row"
+          class="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200"
+        >
+          <div class="flex items-center gap-2 flex-grow">
+            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest"
+              >Focus</span
+            >
+            <div id="focus-tags-container" class="flex flex-wrap items-center gap-1.5"></div>
+            <div class="relative flex-shrink-0" style="min-width: 140px">
+              <input
+                type="text"
+                id="graph-service-filter"
+                list="graph-services-list"
+                placeholder="Add service..."
+                data-keydown="applyGraphFocusOnEnter"
+                data-keydown-args='["$event"]'
+                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+              />
+              <datalist id="graph-services-list"></datalist>
             </div>
+          </div>
 
-            <div class="flex items-center gap-2 ml-auto">
-                <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
-                    <button id="graph-redraw-all" class="px-3 py-1.5 bg-indigo-600 text-white font-medium" onclick="setGraphRedrawMode('all')">All</button>
-                    <button id="graph-redraw-circular" class="px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium" onclick="setGraphRedrawMode('circular')">Circular</button>
-                </div>
-                <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
-                    <button id="filter-openapi" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('openapi')">OpenAPI</button>
-                    <button id="filter-asyncapi" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('asyncapi')">AsyncAPI</button>
-                    <button id="filter-proto" class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium" onclick="toggleProtocolFilter('proto')">Proto</button>
-                </div>
-                <!-- Independent highlight toggles: Outdated (Pin below the
+          <div class="flex items-center gap-2 ml-auto">
+            <!-- Stream view (ADR-0004): Dev = latest recorded activity;
+                     Main = the trunk pin set, producers at trunk version. -->
+            <div
+              class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
+            >
+              <button
+                id="stream-dev"
+                class="px-3 py-1.5 bg-indigo-600 text-white font-medium"
+                data-click="setStreamView"
+                data-click-args='["dev"]'
+                title="Latest recorded activity, snapshots included"
+              >
+                Dev
+              </button>
+              <button
+                id="stream-main"
+                class="px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium"
+                data-click="setStreamView"
+                data-click-args='["main"]'
+                title="The trunk stream: current trunk pins, producers at their trunk version"
+              >
+                Main
+              </button>
+            </div>
+            <select
+              id="graph-branch-select"
+              class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white shadow-sm text-slate-600"
+              title="Show a sanshain-branch's graph"
+              data-change="selectBranchView"
+              data-change-args='["$value"]'
+            >
+              <option value="">Branch…</option>
+            </select>
+            <div
+              class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
+            >
+              <button
+                id="graph-redraw-all"
+                class="px-3 py-1.5 bg-indigo-600 text-white font-medium"
+                data-click="setGraphRedrawMode"
+                data-click-args='["all"]'
+              >
+                All
+              </button>
+              <button
+                id="graph-redraw-circular"
+                class="px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium"
+                data-click="setGraphRedrawMode"
+                data-click-args='["circular"]'
+              >
+                Circular
+              </button>
+            </div>
+            <div
+              class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
+            >
+              <button
+                id="filter-openapi"
+                class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium"
+                data-click="toggleProtocolFilter"
+                data-click-args='["openapi"]'
+              >
+                OpenAPI
+              </button>
+              <button
+                id="filter-asyncapi"
+                class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium"
+                data-click="toggleProtocolFilter"
+                data-click-args='["asyncapi"]'
+              >
+                AsyncAPI
+              </button>
+              <button
+                id="filter-proto"
+                class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium"
+                data-click="toggleProtocolFilter"
+                data-click-args='["proto"]'
+              >
+                Proto
+              </button>
+            </div>
+            <!-- Independent highlight toggles: Outdated (Pin below the
                      line's latest GA) and Snapshot-pinned (Pin served from a
                      Snapshot). Display states, never resolution inputs. -->
-                <div class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm">
-                    <button id="highlight-outdated" class="px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('outdated')" title="Highlight dependencies whose Pin is semantically below the latest GA of the line">Outdated</button>
-                    <button id="highlight-snapshot" class="px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium" onclick="toggleHighlightFilter('snapshot')" title="Highlight dependencies served from a Snapshot (building against overwritable content)">Snapshot-pinned</button>
-                </div>
-                <button id="graph-direction-toggle"
-                        class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
-                        onclick="toggleGraphDirection()"
-                        title="Pivot graph direction (vertical ↔ horizontal)">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m-4 6H4m0 0l4 4m-4-4l4-4"/></svg>
-                    <span id="graph-direction-label">Vertical</span>
-                </button>
-                <button id="graph-fit-view"
-                        class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
-                        onclick="graphFitToView()"
-                        title="Fit & center graph">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/></svg>
-                    Fit
-                </button>
-                <button id="graph-copy" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm" title="Copy code to clipboard">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg>
-                    Copy
-                </button>
-                <button id="graph-download" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm" title="Download SVG">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
-                    SVG
-                </button>
-                <button id="graph-download-png" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm" title="Download PNG">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
-                    PNG
-                </button>
+            <div
+              class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
+            >
+              <button
+                id="highlight-outdated"
+                class="px-2.5 py-1.5 whitespace-nowrap bg-white text-slate-600 hover:bg-slate-50 font-medium"
+                data-click="toggleHighlightFilter"
+                data-click-args='["outdated"]'
+                title="Highlight dependencies whose Pin is below the latest GA of the line within the same major"
+              >
+                Outdated
+              </button>
+              <button
+                id="highlight-breaking-outdated"
+                class="px-2.5 py-1.5 whitespace-nowrap bg-white text-slate-600 hover:bg-slate-50 font-medium"
+                data-click="toggleHighlightFilter"
+                data-click-args='["breakingOutdated"]'
+                title="Highlight dependencies whose Pin is a whole major behind the latest GA of the line"
+              >
+                Major behind
+              </button>
+              <button
+                id="highlight-snapshot"
+                class="px-2.5 py-1.5 whitespace-nowrap bg-white text-slate-600 hover:bg-slate-50 font-medium"
+                data-click="toggleHighlightFilter"
+                data-click-args='["snapshot"]'
+                title="Highlight dependencies served from a Snapshot (building against overwritable content)"
+              >
+                Snapshot-pinned
+              </button>
             </div>
+            <button
+              id="graph-direction-toggle"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              data-click="toggleGraphDirection"
+              title="Pivot graph direction (vertical ↔ horizontal)"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M8 7h12m0 0l-4-4m4 4l-4 4m-4 6H4m0 0l4 4m-4-4l4-4"
+                />
+              </svg>
+              <span id="graph-direction-label">Vertical</span>
+            </button>
+            <button
+              id="graph-fit-view"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              data-click="graphFitToView"
+              title="Fit & center graph"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"
+                />
+              </svg>
+              Fit
+            </button>
+            <button
+              id="graph-copy"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              title="Copy code to clipboard"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2" />
+                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2" />
+              </svg>
+              Copy
+            </button>
+            <button
+              id="graph-download"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              title="Download SVG"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"
+                />
+              </svg>
+              SVG
+            </button>
+            <button
+              id="graph-download-png"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              title="Download PNG"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"
+                />
+              </svg>
+              PNG
+            </button>
+          </div>
         </div>
 
-        <div id="graph-cycle-warning" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center">
-            <svg class="w-5 h-5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
-            </svg>
-            <span id="graph-cycle-text">Circular dependencies detected (shown in red).</span>
+        <!-- Compare (ADR-0005): a structured diff between any two graph
+             selections — release vs release, release vs main, any at a date. -->
+        <div
+          id="graph-compare-row"
+          class="flex flex-wrap items-center gap-2 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200"
+        >
+          <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest"
+            >Compare</span
+          >
+          <select
+            id="diff-left"
+            class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+          ></select>
+          <input
+            type="datetime-local"
+            id="diff-left-at"
+            class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white"
+            title="Optional: left side at this instant"
+          />
+          <span class="text-slate-500 text-xs">→</span>
+          <select
+            id="diff-right"
+            class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+          ></select>
+          <input
+            type="datetime-local"
+            id="diff-right-at"
+            class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white"
+            title="Optional: right side at this instant"
+          />
+          <button
+            data-click="runGraphDiff"
+            class="px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+          >
+            Diff
+          </button>
+          <button
+            data-click="clearGraphDiffOutput"
+            class="px-2.5 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600"
+          >
+            Clear
+          </button>
+        </div>
+        <div id="graph-diff-output" class="mb-4 empty:mb-0"></div>
+
+        <!-- Timeline (ADR-0005): reconstruct the main or a branch graph at any
+             past instant; markers are the change dates of the append-only store. -->
+        <div
+          id="graph-timeline-row"
+          class="hidden flex flex-wrap items-center gap-3 mb-4 p-3 bg-amber-50/50 rounded-xl border border-amber-200"
+        >
+          <span class="text-[10px] font-bold text-amber-700 uppercase tracking-widest"
+            >Timeline</span
+          >
+          <input
+            type="range"
+            id="graph-timeline-slider"
+            min="0"
+            max="0"
+            value="0"
+            step="1"
+            class="flex-grow accent-amber-600"
+          />
+          <span
+            id="graph-timeline-label"
+            class="text-xs font-mono text-slate-600 min-w-[10rem] text-right"
+            >now</span
+          >
+          <button
+            id="graph-timeline-now"
+            class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600"
+            data-click="setTimelinePosition"
+            data-click-args="[null]"
+          >
+            Now
+          </button>
+          <button
+            id="graph-create-branch-here"
+            class="hidden px-2.5 py-1 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+            data-click="createBranchHere"
+          >
+            Create branch here
+          </button>
+        </div>
+
+        <div
+          id="graph-cycle-warning"
+          class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center"
+        >
+          <svg
+            class="w-5 h-5 mr-2 flex-shrink-0"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"
+            ></path>
+          </svg>
+          <span id="graph-cycle-text">Circular dependencies detected (shown in red).</span>
         </div>
         <div class="flex gap-6 items-start">
-            <div id="graph-container"
-                 class="flex-grow bg-white p-6 rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <svg id="custom-graph" class="w-full"></svg>
-                <div id="mermaid-graph" class="mermaid hidden"></div>
-            </div>
+          <div
+            id="graph-container"
+            class="flex-grow bg-white p-6 rounded-xl border border-slate-200 shadow-sm overflow-hidden"
+          >
+            <svg id="custom-graph" class="w-full"></svg>
+            <div id="mermaid-graph" class="mermaid hidden"></div>
+          </div>
 
-            <div id="graph-legend" class="w-48 flex-shrink-0 space-y-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm h-fit sticky top-6">
-                <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 border-b border-slate-100 pb-2">Legend</h4>
-                <div class="space-y-3 text-[11px] font-medium text-slate-600">
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:client">
-                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#ccfbf1;border:2px solid #14b8a6"></span>
-                        <span>Consumer only</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:service">
-                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#e0e7ff;border:2px solid #6366f1"></span>
-                        <span>Producer only</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:both">
-                        <span class="w-3.5 h-3.5 rounded shadow-sm" style="background:#fef3c7;border:2px solid #f59e0b"></span>
-                        <span>Consumer &amp; Producer</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 pt-2 border-t border-slate-50 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:circular">
-                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#a855f7"></span>
-                        <span>Circular dep.</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:missing">
-                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f97316;border-top:2px dashed #f97316"></span>
-                        <span>Missing dep.</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:outdated">
-                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f43f5e"></span>
-                        <span>Outdated Pin</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-flag:snapshot">
-                        <span class="w-6 h-0.5 rounded shadow-sm" style="background:#f59e0b"></span>
-                        <span>Snapshot-pinned</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:pubsub-bidir">
-                        <span class="w-6" style="border-top:2px dashed #94a3b8"></span>
-                        <span>PUB/SUB bidir.</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="edge-type:messaging-register">
-                        <span class="w-6" style="border-top:2px dashed #3b82f6"></span>
-                        <span>Msg. register</span>
-                    </div>
-                    <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:missing">
-                        <span class="w-4 text-center font-bold text-orange-600">!</span>
-                        <span>Missing svc.</span>
-                    </div>
-                    <div class="pt-2 border-t border-slate-100">
-                        <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">Producer Tags</p>
-                        <div class="space-y-2">
-                            <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:tag-messaging">
-                                <span class="w-4 text-center text-[10px]">🛢️</span>
-                                <span>Kafka</span>
-                            </div>
-                            <div class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50" data-legend-highlight="node-role:tag-grpc">
-                                <span class="w-4 text-center text-[10px]">⛓️</span>
-                                <span>gRPC</span>
-                            </div>
-                        </div>
-                    </div>
+          <div
+            id="graph-legend"
+            class="w-48 flex-shrink-0 space-y-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm h-fit sticky top-6"
+          >
+            <h4
+              class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 border-b border-slate-100 pb-2"
+            >
+              Legend
+            </h4>
+            <div class="space-y-3 text-[11px] font-medium text-slate-600">
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="node-role:client"
+              >
+                <span
+                  class="w-3.5 h-3.5 rounded shadow-sm"
+                  style="background: #ccfbf1; border: 2px solid #14b8a6"
+                ></span>
+                <span>Consumer only</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="node-role:service"
+              >
+                <span
+                  class="w-3.5 h-3.5 rounded shadow-sm"
+                  style="background: #e0e7ff; border: 2px solid #6366f1"
+                ></span>
+                <span>Producer only</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="node-role:both"
+              >
+                <span
+                  class="w-3.5 h-3.5 rounded shadow-sm"
+                  style="background: #fef3c7; border: 2px solid #f59e0b"
+                ></span>
+                <span>Consumer &amp; Producer</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 pt-2 border-t border-slate-50 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-type:circular"
+              >
+                <span class="w-6 h-0.5 rounded shadow-sm" style="background: #a855f7"></span>
+                <span>Circular dep.</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-type:missing"
+                data-stream-only="dev"
+              >
+                <span
+                  class="w-6 h-0.5 rounded shadow-sm"
+                  style="background: #f97316; border-top: 2px dashed #f97316"
+                ></span>
+                <span>Missing dep.</span>
+              </div>
+              <div
+                class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-flag:conflict"
+                data-stream-only="main"
+              >
+                <span class="w-6 h-0.5 rounded shadow-sm" style="background: #dc2626"></span>
+                <span>Major conflict</span>
+              </div>
+              <div
+                class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-flag:stale"
+                data-stream-only="main"
+              >
+                <span
+                  class="w-6 h-0.5 rounded shadow-sm"
+                  style="background: #f59e0b; border-top: 2px dashed #f59e0b"
+                ></span>
+                <span>Stale (forgotten)</span>
+              </div>
+              <div
+                class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-flag:dangling"
+                data-stream-only="main branch"
+              >
+                <span
+                  class="w-6 h-0.5 rounded shadow-sm"
+                  style="background: #ea580c; border-top: 2px dotted #ea580c"
+                ></span>
+                <span>Dangling version</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-flag:outdated"
+              >
+                <span class="w-6 h-0.5 rounded shadow-sm" style="background: #f43f5e"></span>
+                <span>Outdated Pin</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-flag:breakingOutdated"
+              >
+                <span class="w-6 h-0.5 rounded shadow-sm" style="background: #be123c"></span>
+                <span>Major behind</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-flag:snapshot"
+              >
+                <span class="w-6 h-0.5 rounded shadow-sm" style="background: #f59e0b"></span>
+                <span>Snapshot-pinned</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-type:pubsub-bidir"
+              >
+                <span class="w-6" style="border-top: 2px dashed #94a3b8"></span>
+                <span>PUB/SUB bidir.</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="edge-type:messaging-register"
+              >
+                <span class="w-6" style="border-top: 2px dashed #3b82f6"></span>
+                <span>Msg. register</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="node-role:missing"
+                data-stream-only="dev"
+              >
+                <span class="w-4 text-center font-bold text-orange-600">!</span>
+                <span>Missing svc.</span>
+              </div>
+              <div class="pt-2 border-t border-slate-100">
+                <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+                  Producer Tags
+                </p>
+                <div class="space-y-2">
+                  <div
+                    class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                    data-legend-highlight="node-role:tag-messaging"
+                  >
+                    <span class="w-4 text-center text-[10px]">✉</span>
+                    <span>Messaging</span>
+                  </div>
+                  <div
+                    class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                    data-legend-highlight="node-role:tag-grpc"
+                  >
+                    <span class="w-4 text-center text-[10px]">⛓️</span>
+                    <span>gRPC</span>
+                  </div>
                 </div>
+              </div>
             </div>
+          </div>
         </div>
-    </div>
-</main>
+      </div>
+    </main>
 
-<script>
-    let lastGraphReport = null;
-    let lastMermaidCode = '';
-    let currentGraphMode = 'custom';
-    let currentGraphDirection = 'TB';
-
-    function toggleGraphDirection() {
-        currentGraphDirection = currentGraphDirection === 'TB' ? 'LR' : 'TB';
-        const label = document.getElementById('graph-direction-label');
-        if (label) label.textContent = currentGraphDirection === 'TB' ? 'Vertical' : 'Horizontal';
-        if (currentGraphMode === 'custom') {
-            redrawGraph();
-        }
-    }
-
-    function switchGraphMode(mode) {
-        currentGraphMode = mode;
-        ['custom','mermaid','detailed'].forEach(m => {
-            const btn = document.getElementById(`graph-mode-${m}`);
-            if (btn) {
-                btn.className = m === mode
-                    ? 'px-3 py-1.5 bg-indigo-600 text-white'
-                    : 'px-3 py-1.5 bg-white text-slate-600 hover:bg-slate-50';
-            }
-        });
-        const dirBtn = document.getElementById('graph-direction-toggle');
-        const copyBtn = document.getElementById('graph-copy');
-        const dlBtn = document.getElementById('graph-download');
-        const dlPngBtn = document.getElementById('graph-download-png');
-        const toolbarRow = document.getElementById('graph-toolbar-row');
-
-        if (dirBtn) dirBtn.classList.toggle('hidden', mode !== 'custom');
-        if (copyBtn) copyBtn.classList.remove('hidden');
-        if (dlBtn) dlBtn.classList.remove('hidden');
-        if (dlPngBtn) dlPngBtn.classList.remove('hidden');
-        if (toolbarRow) toolbarRow.classList.remove('hidden');
-
-        if (lastGraphReport) {
-            const customSvg = document.getElementById('custom-graph');
-            const mermaidDiv = document.getElementById('mermaid-graph');
-            if (mode === 'custom') {
-                customSvg.classList.remove('hidden');
-                mermaidDiv.classList.add('hidden');
-                redrawGraph();
-            } else {
-                customSvg.classList.add('hidden');
-                mermaidDiv.classList.remove('hidden');
-                redrawGraph();
-            }
-        }
-    }
-
-    async function showGraph() {
-        try {
-            restoreGraphFiltersFromUrl();
-            await loadGraph();
-        } catch (err) {
-            console.error('Failed to show graph:', err);
-            hideLoader();
-            const graphDiv = document.getElementById('mermaid-graph');
-            if (graphDiv) {
-                graphDiv.classList.remove('hidden');
-                graphDiv.innerHTML = `<div class="text-red-500 p-4">Error: ${err.message}</div>`;
-            }
-        }
-    }
-
-    async function loadGraph() {
-        showLoader();
-        const customSvg = document.getElementById('custom-graph');
-        const graphDiv = document.getElementById('mermaid-graph');
-        if (currentGraphMode === 'custom') {
-            while (customSvg.firstChild) customSvg.removeChild(customSvg.firstChild);
-            customSvg.classList.remove('hidden');
-            graphDiv.classList.add('hidden');
-        } else {
-            customSvg.classList.add('hidden');
-            graphDiv.classList.remove('hidden');
-            graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">Generating dependency graph...</div>';
-        }
-
-        try {
-            const report = await fetchJSON('/report');
-
-            // Fetch Producer details for icons, domains and — decisive for the
-            // Outdated highlight — the version lines, whose latest GA is the
-            // reference an edge's Pin is compared against.
-            try {
-                const servicesDetailed = await fetchJSON('/admin/producers');
-                report.services_detailed = servicesDetailed;
-            } catch (e) {
-                console.warn('Could not load service details:', e);
-            }
-
-            lastGraphReport = report;
-
-            const datalist = document.getElementById('graph-services-list');
-            if (datalist) {
-                const services = new Set();
-                report.dependency_graph.forEach(d => {
-                    services.add(d.client);
-                    services.add(d.service);
-                });
-                datalist.innerHTML = '';
-                [...services].sort().forEach(s => {
-                    const opt = document.createElement('option');
-                    opt.value = s;
-                    datalist.appendChild(opt);
-                });
-            }
-
-            if (report.dependency_graph.length === 0) {
-                customSvg.classList.add('hidden');
-                graphDiv.classList.remove('hidden');
-                graphDiv.innerHTML = '<div class="py-10 text-slate-500 italic">No dependencies found to visualize.</div>';
-                document.getElementById('graph-cycle-warning').classList.add('hidden');
-                hideLoader();
-                return;
-            }
-
-            updateGraphUrl(false);
-
-            await new Promise(r => setTimeout(r, 10));
-            redrawGraph();
-            hideLoader();
-        } catch (err) {
-            hideLoader();
-            customSvg.classList.add('hidden');
-            graphDiv.classList.remove('hidden');
-            graphDiv.innerHTML = `<div class="text-red-500 p-4">Error generating graph: ${err.message}</div>`;
-        }
-    }
-
-    function detectCycles(adjMap) {
-        const WHITE = 0, GRAY = 1, BLACK = 2;
-        const color = {};
-        const parent = {};
-        const cycleEdges = new Set();
-
-        for (const node of adjMap.keys()) color[node] = WHITE;
-
-        function dfs(u) {
-            color[u] = GRAY;
-            for (const v of (adjMap.get(u) || [])) {
-                if (color[v] === undefined) color[v] = WHITE;
-                if (color[v] === GRAY) {
-                    cycleEdges.add(`${u}-->${v}`);
-                    let cur = u;
-                    while (cur && cur !== v) {
-                        const p = parent[cur];
-                        if (p !== undefined) cycleEdges.add(`${p}-->${cur}`);
-                        cur = p;
-                    }
-                } else if (color[v] === WHITE) {
-                    parent[v] = u;
-                    dfs(v);
-                }
-            }
-            color[u] = BLACK;
-        }
-
-        for (const node of adjMap.keys()) {
-            if (color[node] === WHITE) dfs(node);
-        }
-        return cycleEdges;
-    }
-
-    function sanitizeId(name) {
-        return name.replace(/[^a-zA-Z0-9_]/g, '_');
-    }
-
-    async function renderGraph(report, detailed) {
-        const graphDiv = document.getElementById('mermaid-graph');
-        const warningDiv = document.getElementById('graph-cycle-warning');
-
-        const allNodes = new Set();
-        const adjMap = new Map();
-        const edgeLabels = new Map();
-
-        report.dependency_graph.forEach(d => {
-            const from = d.client;
-            const to = d.service;
-            allNodes.add(from);
-            allNodes.add(to);
-            if (!adjMap.has(from)) adjMap.set(from, []);
-            if (!adjMap.get(from).includes(to)) adjMap.get(from).push(to);
-            const key = `${from}-->${to}`;
-            if (!edgeLabels.has(key)) edgeLabels.set(key, new Set());
-            edgeLabels.get(key).add(`[${d.api_type || 'REST'}] ${d.method} ${d.path} @${d.version}`);
-        });
-
-        const cycleEdges = detectCycles(adjMap);
-        const hasCycles = cycleEdges.size > 0;
-
-        if (hasCycles) {
-            warningDiv.classList.remove('hidden');
-        } else {
-            warningDiv.classList.add('hidden');
-        }
-
-        const clientNodes = new Set(report.dependency_graph.map(d => d.client));
-        const serviceNodes = new Set(report.dependency_graph.map(d => d.service));
-
-        // Per-edge highlight flags (Outdated / Snapshot-pinned).
-        const latestGaMap = graphLatestGaMap(report);
-        const edgeFlags = graphEdgeFlags(report, latestGaMap);
-
-        let mmd = 'graph TD\n';
-
-        mmd += '  classDef serviceOnly fill:#e0e7ff,stroke:#6366f1,stroke-width:2px,color:#3730a3\n';
-        mmd += '  classDef clientOnly fill:#ccfbf1,stroke:#14b8a6,stroke-width:2px,color:#115e59\n';
-        mmd += '  classDef both fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n';
-        mmd += '  classDef cycleEdge stroke:#ef4444,stroke-width:3px\n';
-        mmd += '  linkStyle default stroke:#94a3b8,stroke-width:2px\n';
-
-        for (const node of allNodes) {
-            const id = sanitizeId(node);
-            const isClient = clientNodes.has(node);
-            const isService = serviceNodes.has(node);
-            if (isClient && isService) {
-                mmd += `  ${id}["${node}"]\n`;
-            } else if (isService) {
-                mmd += `  ${id}["${node}"]\n`;
-            } else {
-                mmd += `  ${id}("${node}")\n`;
-            }
-        }
-
-        for (const node of allNodes) {
-            const id = sanitizeId(node);
-            const isClient = clientNodes.has(node);
-            const isService = serviceNodes.has(node);
-            if (isClient && isService) {
-                mmd += `  class ${id} both\n`;
-            } else if (isService) {
-                mmd += `  class ${id} serviceOnly\n`;
-            } else {
-                mmd += `  class ${id} clientOnly\n`;
-            }
-        }
-
-        let edgeIndex = 0;
-        const cycleEdgeIndices = [];
-        const outdatedEdgeIndices = [];
-        const snapshotEdgeIndices = [];
-        const uniqueEdges = new Set();
-        report.dependency_graph.forEach(d => {
-            const key = `${d.client}-->${d.service}`;
-            if (uniqueEdges.has(key)) return;
-            uniqueEdges.add(key);
-
-            const fromId = sanitizeId(d.client);
-            const toId = sanitizeId(d.service);
-            const labels = edgeLabels.get(key);
-            const isCycle = cycleEdges.has(key);
-
-            if (detailed && labels && labels.size > 0) {
-                const labelText = [...labels].slice(0, 5).join('\\n') + (labels.size > 5 ? `\\n+${labels.size - 5} more` : '');
-                mmd += `  ${fromId} -->|"${labelText}"| ${toId}\n`;
-            } else {
-                mmd += `  ${fromId} --> ${toId}\n`;
-            }
-
-            if (isCycle) cycleEdgeIndices.push(edgeIndex);
-            const flags = edgeFlags.get(key);
-            if (flags && flags.outdated) outdatedEdgeIndices.push(edgeIndex);
-            if (flags && flags.snapshot) snapshotEdgeIndices.push(edgeIndex);
-            edgeIndex++;
-        });
-
-        for (const idx of cycleEdgeIndices) {
-            mmd += `  linkStyle ${idx} stroke:#ef4444,stroke-width:3px\n`;
-        }
-        // Highlight toggles: snapshot first, so an edge that is both keeps the
-        // Outdated color, matching the custom renderer's precedence.
-        if (window.graphHighlightFilters.snapshot) {
-            for (const idx of snapshotEdgeIndices) {
-                mmd += `  linkStyle ${idx} stroke:#f59e0b,stroke-width:3px\n`;
-            }
-        }
-        if (window.graphHighlightFilters.outdated) {
-            for (const idx of outdatedEdgeIndices) {
-                mmd += `  linkStyle ${idx} stroke:#f43f5e,stroke-width:3px\n`;
-            }
-        }
-
-        lastMermaidCode = mmd;
-
-        graphDiv.removeAttribute('data-processed');
-        graphDiv.innerHTML = mmd;
-        await mermaid.run({ nodes: [graphDiv] });
-    }
-
-    document.getElementById('graph-copy').onclick = () => {
-        let content;
-        if (currentGraphMode === 'custom') {
-            const svg = document.getElementById('custom-graph');
-            if (!svg.firstChild) return;
-            content = getCustomGraphSVG(svg);
-        } else {
-            if (!lastMermaidCode) return;
-            content = lastMermaidCode;
-        }
-        const btn = document.getElementById('graph-copy');
-        navigator.clipboard.writeText(content).then(() => {
-            btn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copied!`;
-            setTimeout(() => {
-                btn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg> Copy`;
-            }, 2000);
-        });
-    };
-
-    document.getElementById('graph-download').onclick = () => {
-        let content, filename, mime;
-        if (currentGraphMode === 'custom') {
-            const svg = document.getElementById('custom-graph');
-            if (!svg.firstChild) return;
-            content = getCustomGraphSVG(svg);
-            filename = 'dependency_graph.svg';
-            mime = 'image/svg+xml';
-        } else {
-            if (!lastMermaidCode) return;
-            content = lastMermaidCode;
-            filename = 'dependency_graph.mmd';
-            mime = 'text/plain';
-        }
-        const blob = new Blob([content], { type: mime });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    };
-
-    document.getElementById('graph-download-png').onclick = () => {
-        exportToPng(currentGraphMode);
-    };
-
-    // Legend hover-to-highlight
-    (function initLegendHighlight() {
-        const legend = document.getElementById('graph-legend');
-        if (!legend) return;
-
-        function applyLegendHighlight(filter) {
-            const nodes = window._graphNodeElements;
-            const edges = window._graphEdgeElements;
-            if (!nodes || !edges) return;
-
-            const [type, value] = filter.split(':');
-
-            if (type === 'node-role') {
-                const matchedNodes = new Set();
-                nodes.forEach((el, name) => {
-                    const match = el.dataset.role === value;
-                    el.style.opacity = match ? '1' : '0.12';
-                    el.style.transition = 'opacity 0.2s';
-                    if (match) matchedNodes.add(name);
-                });
-                edges.forEach((els, key) => {
-                    const [from, to] = key.split('-->');
-                    const connected = matchedNodes.has(from) || matchedNodes.has(to);
-                    els.path.style.opacity = connected ? '1' : '0.08';
-                    els.path.style.transition = 'opacity 0.2s';
-                });
-            } else if (type === 'edge-type' || type === 'edge-flag') {
-                const connectedNodes = new Set();
-                edges.forEach((els, key) => {
-                    const match = type === 'edge-type'
-                        ? els.path.dataset.edgeType === value
-                        : els.path.dataset[value === 'outdated' ? 'outdated' : 'snapshot'] === '1';
-                    els.path.style.opacity = match ? '1' : '0.08';
-                    els.path.style.transition = 'opacity 0.2s';
-                    if (match) {
-                        const [from, to] = key.split('-->');
-                        connectedNodes.add(from);
-                        connectedNodes.add(to);
-                    }
-                });
-                nodes.forEach((el, name) => {
-                    el.style.opacity = connectedNodes.has(name) ? '1' : '0.12';
-                    el.style.transition = 'opacity 0.2s';
-                });
-            }
-        }
-
-        function clearLegendHighlight() {
-            const nodes = window._graphNodeElements;
-            const edges = window._graphEdgeElements;
-            if (!nodes || !edges) return;
-            nodes.forEach(el => { el.style.opacity = '1'; el.style.transition = 'opacity 0.2s'; });
-            edges.forEach(els => { els.path.style.opacity = '1'; els.path.style.transition = 'opacity 0.2s'; });
-            // Re-assert the persistent highlight toggles the hover overrode.
-            if (window.applyGraphHighlights) window.applyGraphHighlights();
-        }
-
-        legend.querySelectorAll('.legend-item[data-legend-highlight]').forEach(item => {
-            item.addEventListener('mouseenter', () => {
-                const filter = item.dataset.legendHighlight;
-                if (filter) applyLegendHighlight(filter);
-            });
-            item.addEventListener('mouseleave', () => {
-                clearLegendHighlight();
-            });
-        });
-    })();
-
-    function updateGraphUrl(push = false) {
-        const focus = window.graphFocusTags.join(',');
-
-        const hiddenProtocols = [];
-        if (!window.graphProtocolFilters.openapi) hiddenProtocols.push('openapi');
-        if (!window.graphProtocolFilters.asyncapi) hiddenProtocols.push('asyncapi');
-        if (!window.graphProtocolFilters.proto) hiddenProtocols.push('proto');
-        const hide_protocols = hiddenProtocols.join(',');
-
-        const highlights = [];
-        if (window.graphHighlightFilters.outdated) highlights.push('outdated');
-        if (window.graphHighlightFilters.snapshot) highlights.push('snapshot');
-
-        const params = new URLSearchParams();
-        if (focus) params.set('focus', focus);
-        if (hide_protocols) params.set('hide_protocols', hide_protocols);
-        if (highlights.length) params.set('highlight', highlights.join(','));
-
-        const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
-        const state = { focus: window.graphFocusTags, hide_protocols: hiddenProtocols, highlight: highlights };
-
-        if (push) {
-            history.pushState(state, '', newUrl);
-        } else {
-            history.replaceState(state, '', newUrl);
-        }
-    }
-    window.updateGraphUrl = updateGraphUrl;
-
-    function restoreGraphFiltersFromUrl() {
-        const params = new URLSearchParams(window.location.search);
-
-        const focus = params.get('focus');
-        if (focus) {
-            window.graphFocusTags = focus.split(',').filter(Boolean);
-        } else {
-            window.graphFocusTags = [];
-        }
-        renderFocusTags();
-
-        const hide_protocols = params.get('hide_protocols');
-        const hiddenSet = new Set(hide_protocols ? hide_protocols.split(',').filter(Boolean) : []);
-
-        window.graphProtocolFilters = {
-            openapi: !hiddenSet.has('openapi'),
-            asyncapi: !hiddenSet.has('asyncapi'),
-            proto: !hiddenSet.has('proto')
-        };
-
-        ['openapi', 'asyncapi', 'proto'].forEach(p => {
-            const btn = document.getElementById(`filter-${p}`);
-            if (btn) {
-                if (window.graphProtocolFilters[p]) {
-                    btn.className = "px-2.5 py-1.5 bg-indigo-600 text-white font-medium";
-                } else {
-                    btn.className = "px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium";
-                }
-            }
-        });
-
-        const highlightSet = new Set((params.get('highlight') || '').split(',').filter(Boolean));
-        window.graphHighlightFilters = {
-            outdated: highlightSet.has('outdated'),
-            snapshot: highlightSet.has('snapshot'),
-        };
-        updateHighlightButtons();
-    }
-
-    // Handle back/forward navigation
-    window.addEventListener('popstate', async () => {
-        restoreGraphFiltersFromUrl();
-        await loadGraph();
-    });
-
-    window.addEventListener('sanshain-update', async () => {
-        console.log('Detected spec update, refreshing graph...');
-        await loadGraph();
-    });
-
-    function initGraph() {
-        checkDiscoveryAuth(() => showGraph());
-    }
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initGraph);
-    } else {
-        initGraph();
-    }
-</script>
+    <script src="/js/pages/graph-1.js"></script>
     <footer class="text-center text-sm text-slate-500 py-6 mt-auto">
-        <img src="/images/sonne.png" alt="Sanshain" width="59" height="32" class="mx-auto mb-2 h-8 w-auto opacity-70">
-        <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
-        <div class="mt-2 flex items-center justify-center gap-4">
-            <a href="https://github.com/paxel/sanshain-service" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800">GitHub</a>
-            <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
-        </div>
+      <img
+        src="/images/sonne.png"
+        alt="Sanshain"
+        width="59"
+        height="32"
+        class="mx-auto mb-2 h-8 w-auto opacity-70"
+      />
+      <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
+      <div class="mt-2 flex items-center justify-center gap-4">
+        <a
+          href="https://github.com/paxel/sanshain-service"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-indigo-600 hover:text-indigo-800"
+          >GitHub</a
+        >
+        <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
+      </div>
     </footer>
-</body>
+  </body>
 </html>

@@ -1,7 +1,7 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewAuditLog, RecordDependencyParams, RepositoryError, SpecRepository,
-    UpsertSpecVersion,
+    EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
+    SpecRepository, UpsertSpecVersion,
 };
 use crate::infrastructure::postgres_repository::PostgresSpecRepository;
 use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
@@ -92,6 +92,145 @@ impl SpecRepository for DatabaseRepo {
         now_iso: &str,
     ) -> Result<(), RepositoryError> {
         delegate!(self, touch_spec_version_provided(spec_version_id, now_iso))
+    }
+
+    async fn touch_spec_version_trunk(
+        &self,
+        spec_version_id: i64,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, touch_spec_version_trunk(spec_version_id, now_iso))
+    }
+
+    async fn list_trunk_pins_at(&self, at: &str) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        delegate!(self, list_trunk_pins_at(at))
+    }
+
+    async fn list_graph_change_dates(
+        &self,
+        branch_id: Option<i64>,
+    ) -> Result<Vec<String>, RepositoryError> {
+        delegate!(self, list_graph_change_dates(branch_id))
+    }
+
+    async fn list_branch_memberships_for_service(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<BranchMembership>, RepositoryError> {
+        delegate!(self, list_branch_memberships_for_service(service_id))
+    }
+
+    async fn list_branches_referencing(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+    ) -> Result<Vec<String>, RepositoryError> {
+        delegate!(
+            self,
+            list_branches_referencing(service_id, api_type, version)
+        )
+    }
+
+    async fn close_expired_trunk_data(
+        &self,
+        cutoff_iso: &str,
+        now_iso: &str,
+    ) -> Result<u64, RepositoryError> {
+        delegate!(self, close_expired_trunk_data(cutoff_iso, now_iso))
+    }
+
+    async fn rename_branch(&self, branch_id: i64, new_name: &str) -> Result<(), RepositoryError> {
+        delegate!(self, rename_branch(branch_id, new_name))
+    }
+
+    async fn delete_branch(&self, branch_id: i64) -> Result<(), RepositoryError> {
+        delegate!(self, delete_branch(branch_id))
+    }
+
+    async fn record_branch_pins(
+        &self,
+        branch_id: i64,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, record_branch_pins(branch_id, pins))
+    }
+
+    async fn record_branch_member_version(
+        &self,
+        branch_id: i64,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            record_branch_member_version(branch_id, service_id, api_type, version, now_iso)
+        )
+    }
+
+    async fn record_trunk_pins(
+        &self,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, record_trunk_pins(pins))
+    }
+
+    async fn list_current_trunk_pins(&self) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        delegate!(self, list_current_trunk_pins())
+    }
+
+    async fn insert_branch(
+        &self,
+        name: &str,
+        created_at: &str,
+        created_by: &str,
+        source: &str,
+        as_of: &str,
+    ) -> Result<i64, RepositoryError> {
+        delegate!(
+            self,
+            insert_branch(name, created_at, created_by, source, as_of)
+        )
+    }
+
+    async fn find_branch(&self, name: &str) -> Result<Option<BranchInfo>, RepositoryError> {
+        delegate!(self, find_branch(name))
+    }
+
+    async fn list_branches(&self) -> Result<Vec<BranchInfo>, RepositoryError> {
+        delegate!(self, list_branches())
+    }
+
+    async fn copy_trunk_graph_to_branch(
+        &self,
+        branch_id: i64,
+        as_of: &str,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, copy_trunk_graph_to_branch(branch_id, as_of, now_iso))
+    }
+
+    async fn copy_branch_graph_to_branch(
+        &self,
+        target_branch_id: i64,
+        source_branch_id: i64,
+        as_of: &str,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            copy_branch_graph_to_branch(target_branch_id, source_branch_id, as_of, now_iso)
+        )
+    }
+
+    async fn list_branch_pins(
+        &self,
+        branch_id: i64,
+        at: Option<&str>,
+    ) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
+        delegate!(self, list_branch_pins(branch_id, at))
     }
 
     async fn delete_expired_snapshots(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
@@ -281,6 +420,10 @@ impl SpecRepository for DatabaseRepo {
         token: &str,
     ) -> Result<Option<(User, Session)>, RepositoryError> {
         delegate!(self, validate_session(token))
+    }
+
+    async fn delete_expired_credentials(&self, now_iso: &str) -> Result<u64, RepositoryError> {
+        delegate!(self, delete_expired_credentials(now_iso))
     }
 
     async fn delete_session(&self, token: &str) -> Result<(), RepositoryError> {
@@ -475,6 +618,22 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, add_service_tags(service_id, tags))
     }
 
+    async fn remove_service_tag(&self, service_id: i64, tag: &str) -> Result<(), RepositoryError> {
+        delegate!(self, remove_service_tag(service_id, tag))
+    }
+
+    async fn close_trunk_pins_for_service_api(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        now_iso: &str,
+    ) -> Result<u64, RepositoryError> {
+        delegate!(
+            self,
+            close_trunk_pins_for_service_api(service_id, api_type, now_iso)
+        )
+    }
+
     async fn get_all_service_tags(&self) -> Result<HashMap<String, Vec<String>>, RepositoryError> {
         delegate!(self, get_all_service_tags())
     }
@@ -554,5 +713,25 @@ impl SpecRepository for DatabaseRepo {
         &self,
     ) -> Result<Vec<ChannelMessageContract>, RepositoryError> {
         delegate!(self, list_channel_message_contracts())
+    }
+
+    async fn reconcile_harvested_subscriptions(
+        &self,
+        client_id: i64,
+        client_name: &str,
+        trunk: bool,
+        subs: &[HarvestedSubInput],
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            reconcile_harvested_subscriptions(client_id, client_name, trunk, subs, now_iso)
+        )
+    }
+
+    async fn list_current_harvested_subscriptions(
+        &self,
+    ) -> Result<Vec<HarvestedSubscription>, RepositoryError> {
+        delegate!(self, list_current_harvested_subscriptions())
     }
 }

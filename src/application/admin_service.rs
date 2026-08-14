@@ -30,11 +30,197 @@ pub async fn nuke_database(
     Ok(())
 }
 
+/// The sanshain-branches whose recorded graph still references this
+/// participant (as Consumer or Producer). Surfaced before deleting it, for
+/// the same reason [`list_version_dependents`] names branches before a
+/// version delete — except the stakes are higher here: the participant's rows
+/// cascade out of every branch graph, so those release cuts lose the edges
+/// retroactively rather than showing them as dangling. Removing that
+/// asymmetry is `ai/improvements.md` #26; until then, say it out loud.
+///
+/// Composed from the branch listing rather than a dedicated query: release
+/// cuts are few and this runs only on the interactive delete path.
+pub async fn list_participant_branch_references(
+    repo: &impl SpecRepository,
+    name: &str,
+    role: ParticipantRole,
+) -> Result<Vec<String>, AppError> {
+    // A Producer can be present in a release cut through a tagged Provide
+    // alone — a hotfix recorded as a member version before anything pins it —
+    // so the pin scan is not the whole picture for that role.
+    let member_branches = match role {
+        ParticipantRole::Producer => match repo.find_service(name).await? {
+            Some(sid) => repo
+                .list_branch_memberships_for_service(sid)
+                .await?
+                .into_iter()
+                .map(|m| m.branch)
+                .collect(),
+            None => Vec::new(),
+        },
+        ParticipantRole::Consumer => Vec::new(),
+    };
+
+    let mut referencing = Vec::new();
+    for branch in repo.list_branches().await? {
+        let pins = repo.list_branch_pins(branch.id, None).await?;
+        let touched = pins.iter().any(|p| match role {
+            ParticipantRole::Consumer => p.client == name,
+            ParticipantRole::Producer => p.service == name,
+        }) || member_branches.contains(&branch.name);
+        if touched {
+            referencing.push(branch.name);
+        }
+    }
+    Ok(referencing)
+}
+
+/// Which side of an edge a delete removes. Names are unique per table, not
+/// across them — one service commonly appears as both — so matching either
+/// column would report release graphs that lose nothing.
+#[derive(Clone, Copy)]
+pub enum ParticipantRole {
+    Consumer,
+    Producer,
+}
+
+/// A participant's rows cascade out of every graph that references them, and
+/// a sanshain-branch is a frozen record — losing edges from a recorded release
+/// cut would rewrite history retroactively. So the delete is refused while any
+/// branch still references the participant, naming them so the admin knows
+/// what to retire first.
+///
+/// Trunk presence deliberately does *not* block: trunk is the living stream,
+/// it already churns and ages out on its TTL, and with trunk CI in use almost
+/// every participant appears there — blocking on it would make retiring a
+/// decommissioned service impossible. The trunk timeline does lose that
+/// participant's closed rows; see `ai/improvements.md` #26.
+async fn refuse_if_a_release_graph_needs_it(
+    repo: &impl SpecRepository,
+    name: &str,
+    role: ParticipantRole,
+) -> Result<(), AppError> {
+    let branches = list_participant_branch_references(repo, name, role).await?;
+    if branches.is_empty() {
+        return Ok(());
+    }
+    Err(AppError::Conflict(format!(
+        "'{name}' is part of the recorded graph of sanshain-branch(es) {} — \
+         deleting it would remove those edges from release cuts that already \
+         happened. Delete the branch(es) first if the record is no longer needed.",
+        branches.join(", ")
+    )))
+}
+
+/// What retiring a protocol family did, for the response and the audit trail.
+#[derive(serde::Serialize, Debug, Default)]
+pub struct RetiredProtocol {
+    /// The capability tag cleared, if the family had one (messaging/grpc).
+    pub tag_cleared: Option<String>,
+    /// Open trunk pins closed — they leave the current main graph but stay as
+    /// history (#26B), so the timeline still shows the era it provided.
+    pub trunk_pins_closed: u64,
+    /// Channel-message contracts released (AsyncAPI) so another Producer may
+    /// claim them.
+    pub contracts_released: usize,
+}
+
+/// #7 (`ai/improvements.md`): a Producer declares it no longer provides an API
+/// family — the `retired` flag on its provide call. Retiring the capability,
+/// not deleting the history:
+/// the auto-tag is cleared, the family's open trunk pins are closed (it leaves
+/// the current main graph), and its AsyncAPI channel-message contracts are
+/// released so another Producer may claim them. Version lines are kept and
+/// existing Consumer pins still resolve; the graph simply stops presenting a
+/// service as an active provider of something it no longer offers.
+///
+/// Retiring is gated like releasing, and for the same reason: it is a
+/// deliberate act on a Producer's public standing, not an incidental one. Two
+/// roles reach it — a `releaser` (which is what a build pipeline holds, so CI
+/// can retire a family the moment `sanshain.yaml` drops it) and a `maintainer`
+/// of this particular Producer. Admins and root hold both implicitly. A plain
+/// authenticated caller may still provide; it may not retire.
+///
+/// `dry_run` runs the gate and the Producer lookup and then stops. The returned
+/// counts are zero because nothing was retired — a dry run reports that the
+/// call *would* be permitted, not what it would have changed.
+#[instrument(skip_all)]
+pub async fn retire_protocol_family(
+    repo: &impl SpecRepository,
+    producer: &str,
+    api_type: ApiType,
+    caller: Option<&crate::domain::permissions::Actor>,
+    dry_run: bool,
+) -> Result<RetiredProtocol, AppError> {
+    use crate::domain::permissions::Permission;
+
+    let permitted = match caller {
+        Some(actor) if actor.has_permission(Permission::ReleaseGa) => true,
+        Some(actor) => super::authz::require_producer_permission(
+            repo,
+            actor,
+            Permission::ManageProducers,
+            producer,
+        )
+        .await
+        .is_ok(),
+        None => false,
+    };
+    if !permitted {
+        return Err(AppError::ForbiddenWithReason(format!(
+            "retiring an API family of '{producer}' requires the 'releaser' role or a \
+             maintainer grant on that Producer — ask an administrator for either"
+        )));
+    }
+
+    let service_id = repo
+        .find_service(producer)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Producer '{producer}' not found")))?;
+
+    let mut result = RetiredProtocol::default();
+
+    if dry_run {
+        return Ok(result);
+    }
+
+    // The auto-tag the matching provide added (OpenAPI has none).
+    let tag = match api_type {
+        ApiType::AsyncApi => Some("messaging"),
+        ApiType::Proto => Some("grpc"),
+        ApiType::OpenApi => None,
+    };
+    if let Some(tag) = tag {
+        repo.remove_service_tag(service_id, tag).await?;
+        result.tag_cleared = Some(tag.to_string());
+    }
+
+    result.trunk_pins_closed = repo
+        .close_trunk_pins_for_service_api(service_id, api_type, &super::now_iso())
+        .await?;
+
+    // AsyncAPI contracts this Producer owns are released — no other family has
+    // channel contracts, so this is a no-op for OpenAPI/Proto.
+    if api_type == ApiType::AsyncApi {
+        for contract in repo.list_channel_message_contracts().await? {
+            if contract.owner_service_id == service_id {
+                repo.delete_channel_message_contract(&contract.channel, &contract.message_name)
+                    .await?;
+                result.contracts_released += 1;
+            }
+        }
+    }
+
+    Ok(result)
+}
+
 pub async fn delete_producer(repo: &impl SpecRepository, name: &str) -> Result<bool, AppError> {
+    refuse_if_a_release_graph_needs_it(repo, name, ParticipantRole::Producer).await?;
     Ok(repo.delete_producer(name).await?)
 }
 
 pub async fn delete_consumer(repo: &impl SpecRepository, name: &str) -> Result<bool, AppError> {
+    refuse_if_a_release_graph_needs_it(repo, name, ParticipantRole::Consumer).await?;
     Ok(repo.delete_consumer(name).await?)
 }
 
@@ -66,6 +252,24 @@ pub async fn find_version_entry(
         })
 }
 
+/// The Consumers pinned to a version plus the sanshain-branches referencing
+/// it. ADR-0005: release graphs are part of the informed-delete picture — a
+/// warning, never a block. Deleting anyway leaves them visibly dangling; a
+/// later re-provide heals them.
+async fn version_dependents(
+    repo: &impl SpecRepository,
+    entry: &SpecVersionMeta,
+) -> Result<Vec<String>, AppError> {
+    let mut dependents = repo.list_version_dependents(entry.id).await?;
+    for branch in repo
+        .list_branches_referencing(entry.service_id, entry.api_type, entry.version)
+        .await?
+    {
+        dependents.push(format!("sanshain-branch '{branch}'"));
+    }
+    Ok(dependents)
+}
+
 /// The Consumers currently pinned to a version — surfaced *before* a
 /// delete-version is confirmed, because deleting a depended-on version means
 /// those builds hard-fail. Visible, not hidden.
@@ -76,7 +280,7 @@ pub async fn list_version_dependents(
     version: SemVer,
 ) -> Result<Vec<String>, AppError> {
     let entry = find_version_entry(repo, producer, api_type, version).await?;
-    Ok(repo.list_version_dependents(entry.id).await?)
+    version_dependents(repo, &entry).await
 }
 
 /// The sole escape hatch from GA immutability (ADR-0003): delete the version
@@ -89,7 +293,7 @@ pub async fn delete_version(
     version: SemVer,
 ) -> Result<Vec<String>, AppError> {
     let entry = find_version_entry(repo, producer, api_type, version).await?;
-    let dependents = repo.list_version_dependents(entry.id).await?;
+    let dependents = version_dependents(repo, &entry).await?;
     repo.delete_spec_version(entry.id).await?;
     Ok(dependents)
 }
@@ -137,6 +341,7 @@ async fn producer_versions_map(
                 last_required_at: meta.last_required_at,
                 endpoint_count,
                 expires_at,
+                trunk_provided_at: meta.trunk_provided_at,
             });
     }
 
@@ -229,18 +434,34 @@ pub async fn list_consumer_endpoints(
     Ok(repo.list_consumer_endpoints(client_name).await?)
 }
 
+/// Upper bound for every *_max_age_days setting (~100 years): far beyond any
+/// real retention need, and small enough that the chrono duration math on the
+/// cleanup and report paths can never overflow (chrono panics on overflow).
+pub const MAX_AGE_DAYS_LIMIT: u64 = 36_500;
+
+fn validate_max_age_days(days: u64) -> Result<(), AppError> {
+    if days > MAX_AGE_DAYS_LIMIT {
+        return Err(AppError::BadRequest(format!(
+            "days must be at most {MAX_AGE_DAYS_LIMIT}"
+        )));
+    }
+    Ok(())
+}
+
 pub async fn get_snapshot_max_age_days(repo: &impl SpecRepository) -> Result<u64, AppError> {
     let val = repo
         .get_setting("snapshot_max_age_days")
         .await?
         .unwrap_or("30".to_string());
-    Ok(val.parse().unwrap_or(30))
+    // The clamp covers values stored before the setter validated.
+    Ok(val.parse().unwrap_or(30).min(MAX_AGE_DAYS_LIMIT))
 }
 
 pub async fn set_snapshot_max_age_days(
     repo: &impl SpecRepository,
     days: u64,
 ) -> Result<(), AppError> {
+    validate_max_age_days(days)?;
     repo.set_setting("snapshot_max_age_days", &days.to_string())
         .await?;
     Ok(())
@@ -263,13 +484,14 @@ pub async fn get_dependency_max_age_days(repo: &impl SpecRepository) -> Result<u
         .get_setting("dependency_max_age_days")
         .await?
         .unwrap_or("30".to_string());
-    Ok(val.parse().unwrap_or(30))
+    Ok(val.parse().unwrap_or(30).min(MAX_AGE_DAYS_LIMIT))
 }
 
 pub async fn set_dependency_max_age_days(
     repo: &impl SpecRepository,
     days: u64,
 ) -> Result<(), AppError> {
+    validate_max_age_days(days)?;
     repo.set_setting("dependency_max_age_days", &days.to_string())
         .await?;
     Ok(())
@@ -283,6 +505,47 @@ pub async fn cleanup_stale_dependencies(repo: &impl SpecRepository) -> Result<u6
     }
     let cutoff = Utc::now() - chrono::Duration::days(days as i64);
     Ok(repo.delete_stale_dependencies(&cutoff.to_rfc3339()).await?)
+}
+
+/// Trunk TTL (ADR-0004): month-scale, independent of the much shorter dev
+/// expiry. 0 disables the cleanup.
+pub async fn get_trunk_max_age_days(repo: &impl SpecRepository) -> Result<u64, AppError> {
+    let val = repo
+        .get_setting("trunk_max_age_days")
+        .await?
+        .unwrap_or("90".to_string());
+    Ok(val.parse().unwrap_or(90).min(MAX_AGE_DAYS_LIMIT))
+}
+
+pub async fn set_trunk_max_age_days(repo: &impl SpecRepository, days: u64) -> Result<(), AppError> {
+    validate_max_age_days(days)?;
+    repo.set_setting("trunk_max_age_days", &days.to_string())
+        .await?;
+    Ok(())
+}
+
+/// Expired sessions and API tokens are already refused by validation, so this
+/// reclaims storage rather than changing who can log in. Without it the
+/// credential tables grow forever — a record of every login the service ever
+/// issued, kept indefinitely for no operational purpose.
+#[instrument(skip_all)]
+pub async fn cleanup_expired_credentials(repo: &impl SpecRepository) -> Result<u64, AppError> {
+    Ok(repo.delete_expired_credentials(&super::now_iso()).await?)
+}
+
+/// Close trunk pins and clear trunk markers not refreshed within the TTL —
+/// they leave the *current* view; the closed rows stay as history (ADR-0005).
+#[instrument(skip_all)]
+pub async fn cleanup_stale_trunk_data(repo: &impl SpecRepository) -> Result<u64, AppError> {
+    let days = get_trunk_max_age_days(repo).await?;
+    if days == 0 {
+        return Ok(0);
+    }
+    let now = Utc::now();
+    let cutoff = (now - chrono::Duration::days(days as i64))
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let now = now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    Ok(repo.close_expired_trunk_data(&cutoff, &now).await?)
 }
 
 pub async fn get_user_favorites(
@@ -346,6 +609,35 @@ mod tests {
         repo.ensure_service("svc").await.unwrap();
         assert!(delete_producer(&repo, "svc").await.unwrap());
         assert!(!delete_producer(&repo, "svc").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn max_age_settings_reject_and_clamp_absurd_values() {
+        let repo = MockRepo::new();
+        for result in [
+            set_snapshot_max_age_days(&repo, MAX_AGE_DAYS_LIMIT + 1).await,
+            set_dependency_max_age_days(&repo, MAX_AGE_DAYS_LIMIT + 1).await,
+            set_trunk_max_age_days(&repo, MAX_AGE_DAYS_LIMIT + 1).await,
+        ] {
+            assert!(matches!(result, Err(AppError::BadRequest(_))));
+        }
+        set_trunk_max_age_days(&repo, MAX_AGE_DAYS_LIMIT)
+            .await
+            .unwrap();
+        assert_eq!(
+            get_trunk_max_age_days(&repo).await.unwrap(),
+            MAX_AGE_DAYS_LIMIT
+        );
+
+        // A value stored before the setter validated is clamped on read, so
+        // the chrono duration math on the report/cleanup paths cannot panic.
+        repo.set_setting("snapshot_max_age_days", "999999999999999")
+            .await
+            .unwrap();
+        assert_eq!(
+            get_snapshot_max_age_days(&repo).await.unwrap(),
+            MAX_AGE_DAYS_LIMIT
+        );
     }
 
     #[tokio::test]

@@ -20,6 +20,8 @@ async fn dry_run(
             content,
             stability: Stability::Snapshot,
             dry_run: true,
+            trunk: false,
+            tag: None,
             caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
             require_prior_content_match: false,
         },

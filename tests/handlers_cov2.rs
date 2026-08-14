@@ -81,7 +81,7 @@ paths:
 // `cfg(test)` is always true in this crate; the attribute marks the helpers as
 // test code for clippy's `allow-unwrap-in-tests`.
 #[cfg(test)]
-async fn app_with_seed() -> (axum::Router, SqliteSpecRepository, String) {
+async fn app_with_seed() -> (axum::Router, CachedSpecRepository, String) {
     let pool = SqlitePoolOptions::new()
         .connect("sqlite::memory:")
         .await
@@ -106,6 +106,8 @@ async fn app_with_seed() -> (axum::Router, SqliteSpecRepository, String) {
             content: DEMO_SPEC_1_0_0,
             stability: Stability::Ga,
             dry_run: false,
+            trunk: false,
+            tag: None,
             caller: Some(sanshain_service::domain::permissions::Actor::test_releaser()),
             require_prior_content_match: false,
         },
@@ -113,8 +115,13 @@ async fn app_with_seed() -> (axum::Router, SqliteSpecRepository, String) {
     .await
     .unwrap();
 
-    let app = create_app(test_state(repo.clone()));
-    (app, repo, session.token)
+    // Hand back the app's *cached* repository, not the bare SQLite one: a
+    // write through a second, uncached handle would bypass the app cache's
+    // write-through invalidation and be invisible until the TTL expires.
+    let state = test_state(repo);
+    let cached_repo = state.repo.clone();
+    let app = create_app(state);
+    (app, cached_repo, session.token)
 }
 
 #[cfg(test)]
@@ -524,7 +531,7 @@ async fn audit_log_listing_and_csv_export_carry_the_recorded_action() {
     let mut lines = csv.lines();
     assert_eq!(
         lines.next().unwrap(),
-        "id,timestamp,username,action,details,service,version,action_type"
+        "id,timestamp,username,action,details,service,version,action_type,stream"
     );
     assert!(
         csv.contains("\"CLEAR_CACHE\""),
@@ -748,6 +755,8 @@ async fn nuke_producers_and_consumers_require_exact_confirmation() {
             api_type: ApiType::OpenApi,
             path: "/hello",
             method: "GET",
+            trunk: false,
+            tag: None,
         },
     )
     .await
@@ -915,6 +924,8 @@ async fn report_markdown_and_isolation_render_the_seeded_producer() {
             api_type: ApiType::OpenApi,
             path: "/hello",
             method: "GET",
+            trunk: false,
+            tag: None,
         },
     )
     .await

@@ -40,6 +40,48 @@ pub trait DirectoryGroups: Send + Sync {
     ) -> impl Future<Output = Result<Vec<String>, AuthProviderError>> + Send;
 }
 
+/// What an OIDC login round-trip must carry across the redirect: the provider
+/// URL to send the browser to, and the CSRF state, nonce and PKCE verifier the
+/// callback checks against.
+pub struct OidcAuthorizeUrl {
+    pub url: String,
+    pub state: String,
+    pub nonce: String,
+    pub pkce_verifier: String,
+}
+
+/// The identity a verified ID token resolves to.
+pub struct OidcClaims {
+    pub username: String,
+    pub email: Option<String>,
+    pub groups: Vec<String>,
+}
+
+/// Port for the OIDC browser-login round-trip (discovery, PKCE
+/// authorization-code flow, ID-token verification).
+///
+/// Separate from [`AuthProvider`] because OIDC never sees a password: the
+/// provider authenticates the human and hands back a verified identity.
+pub trait OidcFlow: Send + Sync {
+    /// Build the provider authorization URL plus the state/nonce/PKCE the
+    /// callback verifies against.
+    fn authorize_url(
+        &self,
+        config: &OidcConfig,
+    ) -> impl Future<Output = Result<OidcAuthorizeUrl, AppError>> + Send;
+
+    /// Exchange the authorization code for tokens, verify the ID token, and
+    /// resolve the identity. A verification failure is an authentication
+    /// failure.
+    fn exchange_and_verify(
+        &self,
+        config: &OidcConfig,
+        code: String,
+        pkce_verifier: String,
+        expected_nonce: String,
+    ) -> impl Future<Output = Result<OidcClaims, AppError>> + Send;
+}
+
 #[derive(Error, Debug)]
 pub enum RepositoryError {
     #[error("Not Found")]
@@ -58,6 +100,19 @@ pub struct RecordDependencyParams<'a> {
     pub path: &'a str,
     pub normalized_path: &'a str,
     pub method: &'a str,
+}
+
+/// One trunk pin to record (ADR-0004). The version is by value — the trunk
+/// store never references a `spec_versions` row id.
+pub struct RecordTrunkPinParams<'a> {
+    pub client_id: i64,
+    pub service_id: i64,
+    pub api_type: ApiType,
+    pub version: crate::domain::models::SemVer,
+    pub path: &'a str,
+    pub normalized_path: &'a str,
+    pub method: &'a str,
+    pub now_iso: &'a str,
 }
 
 pub type EndpointDetails = (i64, String, bool);
@@ -89,6 +144,11 @@ pub struct UpsertSpecVersion<'a> {
 
 /// Content of a new audit-log entry — everything except the acting username,
 /// which the caller resolves from the request context.
+///
+/// `Default` so a call site names only the fields it means: two optional
+/// fields added here previously forced `None` into every one of ~40 existing
+/// constructions, which is a lot of churn for no meaning.
+#[derive(Default)]
 pub struct NewAuditLog<'a> {
     pub action: &'a str,
     pub details: &'a str,
@@ -96,6 +156,15 @@ pub struct NewAuditLog<'a> {
     pub version: Option<&'a str>,
     pub action_type: Option<&'a str>,
     pub diff: Option<&'a str>,
+    /// The declared stream (ADR-0005): `trunk`, a sanshain-branch's tag
+    /// name, or `None` for calls outside the stream model. The *label* the
+    /// call was made with — see `branch_id` for the identity.
+    pub stream: Option<&'a str>,
+    /// The sanshain-branch this entry belongs to, when the stream names one.
+    /// Identity, so a rename does not orphan the row and a reused name does
+    /// not absorb a dead branch's history. `None` for `trunk` and for calls
+    /// outside the stream model.
+    pub branch_id: Option<i64>,
 }
 
 pub trait SpecRepository: Send + Sync {
@@ -159,6 +228,155 @@ pub trait SpecRepository: Send + Sync {
     fn touch_spec_version_provided(
         &self,
         spec_version_id: i64,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Stamp the entry as trunk's current version (ADR-0004): a real
+    /// trunk-flagged Provide — including the idempotent no-op — refreshes
+    /// `trunk_provided_at`.
+    fn touch_spec_version_trunk(
+        &self,
+        spec_version_id: i64,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Record trunk pins, append-only (ADR-0004/0005): per pin key, a
+    /// different version closes the open record and inserts a new one; the
+    /// same version only refreshes the open record's `last_required_at`.
+    /// Nothing is ever overwritten or deleted — closed records are the
+    /// timeline.
+    fn record_trunk_pins(
+        &self,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// The current trunk pin set — one entry per open record, joined to
+    /// client/service names. The main graph's edges.
+    fn list_current_trunk_pins(
+        &self,
+    ) -> impl Future<Output = Result<Vec<TrunkPinInfo>, RepositoryError>> + Send;
+
+    /// Create a sanshain-branch record (ADR-0005). `Conflict` when the name
+    /// is already taken by a live branch.
+    fn insert_branch(
+        &self,
+        name: &str,
+        created_at: &str,
+        created_by: &str,
+        source: &str,
+        as_of: &str,
+    ) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
+
+    fn find_branch(
+        &self,
+        name: &str,
+    ) -> impl Future<Output = Result<Option<BranchInfo>, RepositoryError>> + Send;
+
+    fn list_branches(
+        &self,
+    ) -> impl Future<Output = Result<Vec<BranchInfo>, RepositoryError>> + Send;
+
+    /// Copy the trunk graph as it was at `as_of` into the branch as its
+    /// initial open rows (`valid_from = now_iso`). A row was current at
+    /// `as_of` iff `valid_from <= as_of` and (`valid_to` is NULL or
+    /// `valid_to > as_of`).
+    fn copy_trunk_graph_to_branch(
+        &self,
+        branch_id: i64,
+        as_of: &str,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Same as [`SpecRepository::copy_trunk_graph_to_branch`], sourcing from
+    /// another branch's graph at `as_of`.
+    fn copy_branch_graph_to_branch(
+        &self,
+        target_branch_id: i64,
+        source_branch_id: i64,
+        as_of: &str,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// A branch's pin set: the rows current at `at`, or the open rows when
+    /// `at` is `None`.
+    fn list_branch_pins(
+        &self,
+        branch_id: i64,
+        at: Option<&str>,
+    ) -> impl Future<Output = Result<Vec<TrunkPinInfo>, RepositoryError>> + Send;
+
+    /// The trunk pin set as it was at `at` (rows current at that instant).
+    fn list_trunk_pins_at(
+        &self,
+        at: &str,
+    ) -> impl Future<Output = Result<Vec<TrunkPinInfo>, RepositoryError>> + Send;
+
+    /// The instants a graph changed — every open/close event of its pin
+    /// store, distinct and ascending. `None` = trunk; `Some` = a branch.
+    /// The timeline slider's markers (ADR-0005).
+    fn list_graph_change_dates(
+        &self,
+        branch_id: Option<i64>,
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    /// Reverse lookup (ADR-0005): every (api_type, version, branch) a
+    /// producer is referenced by across all branches' open records.
+    fn list_branch_memberships_for_service(
+        &self,
+        service_id: i64,
+    ) -> impl Future<Output = Result<Vec<BranchMembership>, RepositoryError>> + Send;
+
+    /// Names of branches whose graph or member versions reference this
+    /// (service, api_type, version) by value in an open record — surfaced in
+    /// the delete-version warning (ADR-0005).
+    fn list_branches_referencing(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    /// Trunk TTL cleanup (ADR-0004/0005): close open trunk pins not
+    /// re-required since the cutoff and clear stale trunk version markers.
+    /// Rows are closed, never deleted — history is the timeline. Returns how
+    /// many pins were closed.
+    fn close_expired_trunk_data(
+        &self,
+        cutoff_iso: &str,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
+
+    /// Rename a branch — identity is the id, so membership, timeline and
+    /// audit stamps survive. `Conflict` when the new name is already live.
+    fn rename_branch(
+        &self,
+        branch_id: i64,
+        new_name: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Delete a branch and (cascading) its graph rows; frees the name.
+    fn delete_branch(
+        &self,
+        branch_id: i64,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Record pins on a branch's graph, with exactly the append semantics of
+    /// [`SpecRepository::record_trunk_pins`] — the hotfix act (ADR-0005).
+    fn record_branch_pins(
+        &self,
+        branch_id: i64,
+        pins: Vec<RecordTrunkPinParams<'_>>,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Mark the producer's member version within a branch (tag-flagged
+    /// Provide): a different version closes the open record and inserts; the
+    /// same version refreshes nothing (already current). Append-only.
+    fn record_branch_member_version(
+        &self,
+        branch_id: i64,
+        service_id: i64,
+        api_type: ApiType,
+        version: SemVer,
         now_iso: &str,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
@@ -368,6 +586,15 @@ pub trait SpecRepository: Send + Sync {
         &self,
         token: &str,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Remove sessions and API tokens whose `expires_at` has passed. Validation
+    /// already refuses them, so this reclaims storage and keeps the credential
+    /// tables from being an ever-growing record of every login. Returns how
+    /// many rows went.
+    fn delete_expired_credentials(
+        &self,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
 
     /// Get a setting value by key.
     fn get_setting(
@@ -612,6 +839,25 @@ pub trait SpecRepository: Send + Sync {
         &self,
     ) -> impl Future<Output = Result<HashMap<String, Vec<String>>, RepositoryError>> + Send;
 
+    /// Remove one capability tag from a service — the retire-protocol act (#7):
+    /// a Producer that no longer provides a family sheds its `messaging`/`grpc`
+    /// label so the graph stops presenting it as an active provider.
+    fn remove_service_tag(
+        &self,
+        service_id: i64,
+        tag: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Close a Producer's open trunk pins for one API family (#7 retire): they
+    /// leave the current main graph while the closed rows survive as timeline
+    /// history (the pins are by value, see #26B). Returns how many were closed.
+    fn close_trunk_pins_for_service_api(
+        &self,
+        service_id: i64,
+        api_type: ApiType,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
+
     // --- Audit Logs ---
 
     /// Insert an audit log record
@@ -684,4 +930,26 @@ pub trait SpecRepository: Send + Sync {
     fn list_channel_message_contracts(
         &self,
     ) -> impl Future<Output = Result<Vec<ChannelMessageContract>, RepositoryError>> + Send;
+
+    // --- Harvested AsyncAPI subscriptions (item #6, ADR-0006) ---
+
+    /// Reconcile a Producer's harvested AsyncAPI subscriptions to exactly
+    /// `subs`, append-only: a subscription no longer present is closed; a new
+    /// or changed one (different owner or trunk-ness) closes the old open row
+    /// and opens a fresh one; an unchanged one is left. Manual requires in the
+    /// pin stores are never touched — harvested edges live only here.
+    fn reconcile_harvested_subscriptions(
+        &self,
+        client_id: i64,
+        client_name: &str,
+        trunk: bool,
+        subs: &[HarvestedSubInput],
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// The current (open) harvested subscription edges — version-less consumer
+    /// edges for the graph/report, sorted for determinism.
+    fn list_current_harvested_subscriptions(
+        &self,
+    ) -> impl Future<Output = Result<Vec<HarvestedSubscription>, RepositoryError>> + Send;
 }

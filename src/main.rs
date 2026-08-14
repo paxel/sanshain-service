@@ -16,12 +16,57 @@ use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
 use sanshain_service::infrastructure::telemetry;
 use sanshain_service::{AppState, LogCaptureLayer, create_app};
 
+/// Read a numeric setting, refusing to start when the value is not one.
+///
+/// These were all parsed with `.ok().unwrap_or(default)`, so `LOG_BUFFER_SIZE=1OO`
+/// silently became 100 and the operator believed a setting was active that the
+/// service had ignored — the exact complaint behind `ai/improvements.md` #15. A
+/// container that will not start is far cheaper to diagnose than one running
+/// with settings nobody chose. Called before tracing is initialised, so the
+/// message goes to stderr where a container runtime will surface it.
+fn env_number<T>(name: &str, default: T) -> T
+where
+    T: std::str::FromStr + std::fmt::Display,
+{
+    match std::env::var(name) {
+        Err(_) => default,
+        Ok(raw) => match raw.trim().parse::<T>() {
+            Ok(value) => value,
+            Err(_) => {
+                eprintln!(
+                    "CONFIGURATION ERROR: {name}={raw:?} is not a valid number. \
+                     Correct it or unset it to use the default ({default})."
+                );
+                std::process::exit(1);
+            }
+        },
+    }
+}
+
+/// Same contract for a setting with a fixed vocabulary: an unrecognised value
+/// is refused rather than quietly treated as "not the special one".
+fn env_choice(name: &str, allowed: &[&str], default: &str) -> String {
+    match std::env::var(name) {
+        Err(_) => default.to_string(),
+        Ok(raw) => {
+            let value = raw.trim().to_ascii_lowercase();
+            if allowed.contains(&value.as_str()) {
+                value
+            } else {
+                eprintln!(
+                    "CONFIGURATION ERROR: {name}={raw:?} is not recognised. \
+                     Valid values: {}. Unset it to use the default ({default}).",
+                    allowed.join(", ")
+                );
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
 #[tokio::main]
 pub async fn main() {
-    let log_buffer_size = std::env::var("LOG_BUFFER_SIZE")
-        .ok()
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(100);
+    let log_buffer_size = env_number::<usize>("LOG_BUFFER_SIZE", 100);
 
     let business_logic_debug = Arc::new(AtomicBool::new(false));
     let admin_user_debug = Arc::new(AtomicBool::new(false));
@@ -41,6 +86,7 @@ pub async fn main() {
     )));
 
     let capture_layer = LogCaptureLayer {
+        max_size: log_buffer_size,
         error_buffer: error_buffer.clone(),
         warn_buffer: warn_buffer.clone(),
         info_buffer: info_buffer.clone(),
@@ -59,7 +105,7 @@ pub async fn main() {
         .unwrap_or_else(|_| "sanshain_service=debug,tower_http=debug".into());
     let capture_filter = tracing_subscriber::EnvFilter::new(capture_log_filter);
 
-    let otel_enabled = std::env::var("OTEL_ENABLED").unwrap_or_default() == "true";
+    let otel_enabled = env_choice("OTEL_ENABLED", &["true", "false"], "false") == "true";
     let (otel_layer, otel_provider) = if otel_enabled {
         match telemetry::init_tracer() {
             Ok((layer, provider)) => (Some(layer), Some(provider)),
@@ -78,7 +124,7 @@ pub async fn main() {
         .with(capture_layer.with_filter(capture_filter))
         .with(otel_layer);
 
-    if std::env::var("LOG_FORMAT").unwrap_or_default() == "json" {
+    if env_choice("LOG_FORMAT", &["json", "text"], "text") == "json" {
         registry
             .with(
                 tracing_subscriber::fmt::layer()
@@ -108,10 +154,7 @@ pub async fn main() {
     let repo = if db_connection_str.starts_with("postgres://")
         || db_connection_str.starts_with("postgresql://")
     {
-        let max_connections = std::env::var("MAX_POSTGRES_CONNECTIONS")
-            .ok()
-            .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(20);
+        let max_connections = env_number::<u32>("MAX_POSTGRES_CONNECTIONS", 20);
 
         let pool = match PgPoolOptions::new()
             .max_connections(max_connections)
@@ -134,10 +177,7 @@ pub async fn main() {
         tracing::info!("Using PostgreSQL database backend");
         DatabaseRepo::Postgres(pg_repo)
     } else {
-        let sqlite_busy_timeout_ms = std::env::var("SQLITE_BUSY_TIMEOUT_MS")
-            .ok()
-            .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or(5000);
+        let sqlite_busy_timeout_ms = env_number::<u64>("SQLITE_BUSY_TIMEOUT_MS", 5000);
 
         let connection_options = match SqliteConnectOptions::from_str(&db_connection_str) {
             Ok(opts) => opts,
@@ -151,10 +191,11 @@ pub async fn main() {
         .busy_timeout(std::time::Duration::from_millis(sqlite_busy_timeout_ms))
         .synchronous(SqliteSynchronous::Normal);
 
-        let max_connections = std::env::var("MAX_SQLITE_CONNECTIONS")
-            .ok()
-            .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(1);
+        // WAL mode supports concurrent readers beside one writer; a pool of 1
+        // would serialize every query. Write transactions use BEGIN IMMEDIATE
+        // (see SqliteSpecRepository::write_tx) so writers queue on busy_timeout
+        // rather than fail once the pool exceeds one connection.
+        let max_connections = env_number::<u32>("MAX_SQLITE_CONNECTIONS", 5);
 
         let pool = match SqlitePoolOptions::new()
             .max_connections(max_connections)
@@ -179,10 +220,7 @@ pub async fn main() {
     };
 
     // Wrap with in-memory cache layer
-    let cache_memory_mb = std::env::var("CACHE_MEMORY_MB")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(256);
+    let cache_memory_mb = env_number::<u64>("CACHE_MEMORY_MB", 256);
     let repo = CachedSpecRepository::new(repo, cache_memory_mb);
     if cache_memory_mb > 0 {
         tracing::info!("In-memory cache enabled with {} MB limit", cache_memory_mb);
@@ -249,17 +287,17 @@ pub async fn main() {
 
     let (prometheus_layer, prometheus_handle) = PrometheusMetricLayer::pair();
 
-    let max_body_bytes = std::env::var("MAX_SPEC_BODY_BYTES")
-        .ok()
-        .and_then(|s| s.parse::<usize>().ok())
-        .filter(|&n| n > 0)
-        .unwrap_or(sanshain_service::DEFAULT_MAX_BODY_BYTES);
+    let max_body_bytes = env_number::<usize>(
+        "MAX_SPEC_BODY_BYTES",
+        sanshain_service::DEFAULT_MAX_BODY_BYTES,
+    );
+    if max_body_bytes == 0 {
+        eprintln!("CONFIGURATION ERROR: MAX_SPEC_BODY_BYTES=0 would reject every request.");
+        std::process::exit(1);
+    }
     tracing::info!("Maximum request body size: {} bytes", max_body_bytes);
 
-    let spec_updated_channel_size = std::env::var("SPEC_UPDATED_CHANNEL_SIZE")
-        .ok()
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(100);
+    let spec_updated_channel_size = env_number::<usize>("SPEC_UPDATED_CHANNEL_SIZE", 100);
 
     // Root is resolved from configuration and never stored, so no stored grant
     // can revoke it. Falling back to the bootstrap administrator's name keeps an
@@ -313,15 +351,9 @@ pub async fn main() {
     let cleanup_repo = state.repo.clone();
     let cleanup_csrf = state.csrf_tokens.clone();
 
-    let cleanup_interval_secs = std::env::var("CLEANUP_INTERVAL_SECS")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(3600);
+    let cleanup_interval_secs = env_number::<u64>("CLEANUP_INTERVAL_SECS", 3600);
 
-    let csrf_max_age_hours = std::env::var("CSRF_MAX_AGE_HOURS")
-        .ok()
-        .and_then(|s| s.parse::<i64>().ok())
-        .unwrap_or(24);
+    let csrf_max_age_hours = env_number::<i64>("CSRF_MAX_AGE_HOURS", 24);
 
     tokio::spawn(async move {
         let mut interval =
@@ -337,6 +369,19 @@ pub async fn main() {
                 Ok(0) => {}
                 Ok(n) => tracing::info!("Dependency cleanup: pruned {} stale dependencies", n),
                 Err(e) => tracing::warn!("Dependency cleanup failed: {:?}", e),
+            }
+            match services::cleanup_stale_trunk_data(&cleanup_repo).await {
+                Ok(0) => {}
+                Ok(n) => tracing::info!("Trunk cleanup: closed {} stale trunk pins", n),
+                Err(e) => tracing::warn!("Trunk cleanup failed: {:?}", e),
+            }
+            match services::cleanup_expired_credentials(&cleanup_repo).await {
+                Ok(0) => {}
+                Ok(n) => tracing::info!(
+                    "Credential cleanup: removed {} expired sessions and API tokens",
+                    n
+                ),
+                Err(e) => tracing::warn!("Credential cleanup failed: {:?}", e),
             }
 
             // Prune expired CSRF tokens

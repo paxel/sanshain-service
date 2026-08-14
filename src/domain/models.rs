@@ -88,6 +88,9 @@ pub enum AuthMode {
     Dev,
     Local,
     Ldap,
+    /// Human login via an external OpenID Connect provider (browser redirect
+    /// flow). Machine/Consumer clients keep API tokens — OIDC is human-only.
+    Oidc,
 }
 
 impl AuthMode {
@@ -97,6 +100,7 @@ impl AuthMode {
             AuthMode::Dev => "dev",
             AuthMode::Local => "local",
             AuthMode::Ldap => "ldap",
+            AuthMode::Oidc => "oidc",
         }
     }
 }
@@ -110,8 +114,61 @@ impl std::str::FromStr for AuthMode {
             "dev" => Ok(AuthMode::Dev),
             "local" => Ok(AuthMode::Local),
             "ldap" => Ok(AuthMode::Ldap),
+            "oidc" => Ok(AuthMode::Oidc),
             _ => Err(()),
         }
+    }
+}
+
+/// OpenID Connect provider configuration for human browser login (stored in
+/// settings as JSON, like [`LdapConfig`]). The client secret is confidential;
+/// it is never serialized back out to the admin UI.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OidcConfig {
+    /// The provider's issuer URL — its discovery document is at
+    /// `<issuer_url>/.well-known/openid-configuration`.
+    pub issuer_url: String,
+    pub client_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_secret: Option<String>,
+    /// Where the provider redirects back to — must be this service's
+    /// `/auth/oidc/callback`, and registered with the provider.
+    pub redirect_url: String,
+    #[serde(default = "OidcConfig::default_scopes")]
+    pub scopes: Vec<String>,
+    /// ID-token claim carrying the username (default `preferred_username`).
+    #[serde(default = "OidcConfig::default_username_claim")]
+    pub username_claim: String,
+    /// ID-token claim carrying the user's groups (default `groups`).
+    #[serde(default = "OidcConfig::default_groups_claim")]
+    pub groups_claim: String,
+    /// Group whose members are administrators, if any.
+    #[serde(default)]
+    pub admin_group: String,
+}
+
+impl OidcConfig {
+    fn default_scopes() -> Vec<String> {
+        vec!["openid".into(), "email".into(), "profile".into()]
+    }
+    fn default_username_claim() -> String {
+        "preferred_username".to_string()
+    }
+    fn default_groups_claim() -> String {
+        "groups".to_string()
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.issuer_url.starts_with("https://") && !self.issuer_url.starts_with("http://") {
+            return Err("Issuer URL must start with http:// or https://".to_string());
+        }
+        if self.client_id.is_empty() {
+            return Err("Client ID must not be empty".to_string());
+        }
+        if !self.redirect_url.contains("/auth/oidc/callback") {
+            return Err("Redirect URL must point at /auth/oidc/callback".to_string());
+        }
+        Ok(())
     }
 }
 
@@ -163,20 +220,17 @@ impl SemVer {
         }
     }
 
-    /// Parse a Producer-declared spec version: strict `MAJOR.MINOR.PATCH`,
-    /// nothing else. The two rejections people will actually hit get specific
-    /// messages: a `v` prefix, and a `-SNAPSHOT` (or any suffix) — stability
-    /// is declared on the Provide, never encoded in the version string.
+    /// Parse a Producer-declared spec version: `MAJOR[.MINOR[.PATCH]]` with an
+    /// optional leading `v`; omitted parts are zero, so `v2` and `2.0` both
+    /// mean `2.0.0`. The rejection people will actually hit gets a specific
+    /// message: a `-SNAPSHOT` (or any suffix) — stability is declared on the
+    /// Provide, never encoded in the version string.
     pub fn parse_spec_version(raw: &str) -> Result<SemVer, String> {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
-            return Err("version is empty — expected MAJOR.MINOR.PATCH (e.g. 1.2.0)".to_string());
-        }
-        if trimmed.starts_with('v') || trimmed.starts_with('V') {
-            return Err(format!(
-                "invalid version '{}': drop the 'v' prefix — expected MAJOR.MINOR.PATCH (e.g. 1.2.0)",
-                trimmed
-            ));
+            return Err(
+                "version is empty — expected MAJOR[.MINOR[.PATCH]] (e.g. 1.2.0)".to_string(),
+            );
         }
         if trimmed.to_uppercase().contains("-SNAPSHOT") {
             return Err(format!(
@@ -190,13 +244,13 @@ impl SemVer {
         }
         if trimmed.contains('-') || trimmed.contains('+') {
             return Err(format!(
-                "invalid version '{}': pre-release suffixes and build metadata are not accepted — expected exactly MAJOR.MINOR.PATCH (e.g. 1.2.0)",
+                "invalid version '{}': pre-release suffixes and build metadata are not accepted — expected MAJOR[.MINOR[.PATCH]] (e.g. 1.2.0)",
                 trimmed
             ));
         }
         trimmed.parse::<SemVer>().map_err(|_| {
             format!(
-                "invalid version '{}': expected exactly MAJOR.MINOR.PATCH with numeric parts (e.g. 1.2.0)",
+                "invalid version '{}': expected MAJOR[.MINOR[.PATCH]] with numeric parts, optionally 'v'-prefixed (e.g. 1.2.0, v2.1, 2)",
                 trimmed
             )
         })
@@ -211,24 +265,27 @@ impl std::fmt::Display for SemVer {
 
 impl std::str::FromStr for SemVer {
     type Err = String;
+    /// Accepts `MAJOR[.MINOR[.PATCH]]` with an optional leading `v`/`V`;
+    /// omitted parts are zero (`v2` → `2.0.0`). The canonical form
+    /// ([`Display`](std::fmt::Display)) is always the full three-part
+    /// `MAJOR.MINOR.PATCH`, so lenient input never leaks into storage or
+    /// responses.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = s.split('.').collect();
-        if parts.len() != 3 {
+        let digits = s.strip_prefix(['v', 'V']).unwrap_or(s);
+        let parts: Vec<&str> = digits.split('.').collect();
+        if parts.is_empty() || parts.len() > 3 {
             return Err(format!("Invalid SemVer: {}", s));
         }
-        let major = parts[0]
-            .parse()
-            .map_err(|e| format!("Invalid major: {}", e))?;
-        let minor = parts[1]
-            .parse()
-            .map_err(|e| format!("Invalid minor: {}", e))?;
-        let patch = parts[2]
-            .parse()
-            .map_err(|e| format!("Invalid patch: {}", e))?;
+        let mut numbers = [0u32; 3];
+        for (slot, part) in numbers.iter_mut().zip(&parts) {
+            *slot = part
+                .parse()
+                .map_err(|e| format!("Invalid SemVer '{}': {}", s, e))?;
+        }
         Ok(SemVer {
-            major,
-            minor,
-            patch,
+            major: numbers[0],
+            minor: numbers[1],
+            patch: numbers[2],
         })
     }
 }
@@ -296,6 +353,8 @@ pub struct SpecVersionMeta {
     pub created_at: String,
     pub updated_at: String,
     pub last_required_at: Option<String>,
+    /// When trunk CI last provided this entry (ADR-0004); `None` = never.
+    pub trunk_provided_at: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -308,6 +367,12 @@ pub struct ProvideResponse {
     /// change listeners care about even when the content is byte-identical.
     #[serde(default)]
     pub promoted: bool,
+    /// AsyncAPI subscribe operations harvested from this provide as consumer
+    /// edges (ai/improvements.md #6) — each with its resolved owner (or none)
+    /// and, on a snapshot, an advisory drift note. Empty for non-AsyncAPI
+    /// provides. Omitted from the JSON when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub harvested_subscriptions: Vec<HarvestedSubscriptionResult>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -561,6 +626,47 @@ pub struct ChannelMessageContract {
     pub payload_yaml: String,
 }
 
+/// A resolved SUB to reconcile into the harvested store (ai/improvements.md #6,
+/// ADR-0006): the subscribed `(channel, message_name)` and the PUB owner it
+/// resolved to against the GA contract store — `None` when no GA provider owns
+/// the channel yet (an unfulfilled subscription, kept visible).
+#[derive(Clone, Debug, PartialEq)]
+pub struct HarvestedSubInput {
+    pub channel: String,
+    pub message_name: String,
+    pub owner_service_id: Option<i64>,
+    pub owner_name: Option<String>,
+}
+
+/// A current (open) harvested subscription edge, for the graph/report. A
+/// **version-less** consumer edge (ADR-0006): a subscription pins no producer
+/// version. `owner` is `None` for an unfulfilled subscription.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct HarvestedSubscription {
+    pub client: String,
+    pub channel: String,
+    pub message_name: String,
+    pub owner: Option<String>,
+    pub trunk: bool,
+}
+
+/// One entry in a provide's `harvested_subscriptions` response: what the
+/// harvest did with a SUB the Producer declared (ai/improvements.md #6).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct HarvestedSubscriptionResult {
+    pub channel: String,
+    pub message_name: String,
+    /// Resolved PUB owner service name, or `None` when unfulfilled.
+    pub owner: Option<String>,
+    /// Drift note against the owner's GA contract when the expectation is not
+    /// satisfiable. On a GA provide this is fatal (the provide is rejected, so
+    /// it never reaches a success response); on a snapshot it is advisory and
+    /// carried here. `None` means no contract to check or the expectation is
+    /// satisfied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drift: Option<String>,
+}
+
 #[derive(Serialize, Clone, Debug)]
 pub struct DependencyReport {
     pub unused_endpoints: Vec<EndpointInfo>,
@@ -568,6 +674,23 @@ pub struct DependencyReport {
     pub dependency_graph: Vec<DependencyInfo>,
     #[serde(default)]
     pub service_tags: HashMap<String, Vec<String>>,
+    /// The current trunk pin set (ADR-0004) — the main graph's edges.
+    /// Populated by the application layer; empty in raw repository results.
+    #[serde(default)]
+    pub trunk_graph: Vec<TrunkPinInfo>,
+    /// Current harvested AsyncAPI subscription edges (ai/improvements.md #6),
+    /// version-less consumer edges rendered alongside the require edges.
+    #[serde(default)]
+    pub harvested_subscriptions: Vec<HarvestedSubscription>,
+    /// Trunk entries not refreshed since this instant are stale (half the
+    /// trunk TTL). `None` when the TTL is disabled. Application-populated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trunk_stale_before: Option<String>,
+    /// The graph scope this report describes (`main`, `<branch>[@date]`);
+    /// `None` for the classic dev report. Stamped into exports so a scoped
+    /// document cannot masquerade as the whole picture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_label: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -590,6 +713,58 @@ pub struct MissingEndpointInfo {
     pub version: SemVer,
     pub path: String,
     pub method: String,
+}
+
+/// A sanshain-branch (ADR-0005): a named graph created by a releaser as a
+/// copy of a source graph at a chosen instant, updated by tagged builds.
+/// Identity is the id; the unique-among-live name is a rename-safe label.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct BranchInfo {
+    pub id: i64,
+    pub name: String,
+    pub created_at: String,
+    pub created_by: String,
+    /// Provenance: `trunk`, or the source branch's then-current name.
+    pub source: String,
+    /// The instant of the source graph the branch was born from.
+    pub as_of: String,
+}
+
+/// One reverse-lookup row (ADR-0005): a version of a producer that a
+/// sanshain-branch currently references (pin or member version, by value).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct BranchMembership {
+    pub api_type: ApiType,
+    pub version: SemVer,
+    pub branch: String,
+}
+
+/// One current trunk pin (ADR-0004): the open record of the append-only trunk
+/// dependency store, joined to names. The version is by value — it may
+/// reference a deleted entry (dangling until re-provided).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TrunkPinInfo {
+    pub client: String,
+    pub service: String,
+    pub api_type: ApiType,
+    pub version: SemVer,
+    pub path: String,
+    /// The path with parameter names blanked and separators collapsed — the
+    /// key the pin stores actually match on. Two spellings of one endpoint are
+    /// one pin, so anything comparing pin sets must compare this, not `path`.
+    /// Internal: never serialized, the wire keeps the human spelling.
+    #[serde(skip)]
+    pub normalized_path: String,
+    pub method: String,
+    /// When this pin became the current one.
+    pub valid_from: String,
+    /// Refreshed by every identical trunk re-require.
+    pub last_required_at: String,
+    /// The pinned version no longer exists (deleted entry) — a visibly
+    /// dangling by-value reference that heals when the number is re-provided.
+    /// Computed on read; serialized only when true.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dangling: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -637,6 +812,8 @@ pub struct ProducerVersionInfo {
     /// layer; `None` in raw repository results.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<String>,
+    /// When trunk CI last provided this entry (ADR-0004); `None` = never.
+    pub trunk_provided_at: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -706,6 +883,11 @@ pub struct CacheStats {
     pub hit_rate_percent: f64,
 }
 
+/// Stand-in actor when a write happens with no authenticated user attached
+/// (dev mode). Part of the domain because every layer that records an audit
+/// row must use the same sentinel — provenance must never read as blank.
+pub const DEV_MODE_ACTOR: &str = "DevMode/Anonymous";
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AuditLogEntry {
     pub id: i64,
@@ -720,6 +902,9 @@ pub struct AuditLogEntry {
     pub version: Option<String>,
     pub action_type: Option<String>,
     pub diff: Option<String>,
+    /// The declared stream (ADR-0005): `trunk`, a tag name, or `None`.
+    #[serde(default)]
+    pub stream: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -729,6 +914,15 @@ pub struct AuditLogFilter {
     pub action_type: Option<String>,
     pub service_wildcard: Option<String>,
     pub version_wildcard: Option<String>,
+    /// Exact stream match (ADR-0005): `trunk` or a branch name. A branch name
+    /// is resolved to its id before the query, so a renamed branch is found
+    /// under its current name; an unresolvable name falls back to matching the
+    /// recorded label, which is how a deleted branch stays reachable.
+    #[serde(default)]
+    pub stream: Option<String>,
+    /// Set by the application layer when `stream` resolved to a live branch.
+    #[serde(skip)]
+    pub branch_id: Option<i64>,
     pub limit: u32,
 }
 
@@ -736,6 +930,57 @@ pub struct AuditLogFilter {
 mod tests {
     use super::*;
     use std::str::FromStr;
+
+    /// Lenient input, canonical storage: short and `v`-prefixed forms fill
+    /// omitted parts with zeroes and always display as full three-part.
+    #[test]
+    fn semver_accepts_short_and_v_prefixed_forms_with_implicit_zeroes() {
+        for (input, expected) in [
+            ("2", SemVer::new(2, 0, 0)),
+            ("1.2", SemVer::new(1, 2, 0)),
+            ("1.2.3", SemVer::new(1, 2, 3)),
+            ("v2", SemVer::new(2, 0, 0)),
+            ("v1.2", SemVer::new(1, 2, 0)),
+            ("V1.2.3", SemVer::new(1, 2, 3)),
+        ] {
+            let parsed = SemVer::from_str(input).unwrap_or_else(|e| panic!("{input}: {e}"));
+            assert_eq!(parsed, expected, "{input}");
+        }
+        assert_eq!(SemVer::from_str("v1.2").unwrap().to_string(), "1.2.0");
+    }
+
+    #[test]
+    fn semver_rejects_malformed_versions() {
+        for input in [
+            "",
+            "v",
+            "1.",
+            "1..2",
+            "1.2.3.4",
+            "one",
+            "v1.x",
+            "1.2.3-SNAPSHOT",
+        ] {
+            assert!(
+                SemVer::from_str(input).is_err(),
+                "'{input}' must be rejected"
+            );
+        }
+    }
+
+    /// The spec-version wrapper accepts the lenient forms and keeps its
+    /// specific guidance for suffixed versions.
+    #[test]
+    fn parse_spec_version_accepts_lenient_forms_and_keeps_suffix_guidance() {
+        assert_eq!(
+            SemVer::parse_spec_version(" v2.1 ").unwrap(),
+            SemVer::new(2, 1, 0)
+        );
+        let err = SemVer::parse_spec_version("1.2.0-SNAPSHOT").unwrap_err();
+        assert!(err.contains("stability"), "{err}");
+        let err = SemVer::parse_spec_version("1.2.beta").unwrap_err();
+        assert!(err.contains("MAJOR[.MINOR[.PATCH]]"), "{err}");
+    }
 
     #[test]
     fn provide_changes_is_empty_only_when_all_zero() {
@@ -918,5 +1163,41 @@ mod tests {
         let mut config = valid;
         config.base_dn.clear();
         assert_eq!(config.validate().unwrap_err(), "Base DN must not be empty");
+    }
+
+    #[test]
+    fn oidc_config_validation() {
+        let ok = OidcConfig {
+            issuer_url: "https://idp.example.test/realms/x".into(),
+            client_id: "app".into(),
+            client_secret: Some("s".into()),
+            redirect_url: "https://sanshain.example.test/auth/oidc/callback".into(),
+            scopes: OidcConfig::default_scopes(),
+            username_claim: OidcConfig::default_username_claim(),
+            groups_claim: OidcConfig::default_groups_claim(),
+            admin_group: String::new(),
+        };
+        assert!(ok.validate().is_ok());
+
+        let mut bad_issuer = ok.clone();
+        bad_issuer.issuer_url = "idp.example.test".into();
+        assert_eq!(
+            bad_issuer.validate().unwrap_err(),
+            "Issuer URL must start with http:// or https://"
+        );
+
+        let mut no_client = ok.clone();
+        no_client.client_id.clear();
+        assert_eq!(
+            no_client.validate().unwrap_err(),
+            "Client ID must not be empty"
+        );
+
+        let mut bad_redirect = ok.clone();
+        bad_redirect.redirect_url = "https://sanshain.example.test/wrong".into();
+        assert_eq!(
+            bad_redirect.validate().unwrap_err(),
+            "Redirect URL must point at /auth/oidc/callback"
+        );
     }
 }

@@ -107,8 +107,29 @@ Plugins should support both a single `provide` object and a `provides` list for 
 |-------------|--------|----------|----------------------------------|------------------------------------------------------------------------------|
 | `file`      | string | **yes**  | —                                | Path to the specification file.                                              |
 | `apiType`   | string | no       | `openapi`                        | Type of API: `openapi`, `asyncapi`, or `proto`.                              |
+| `retired`   | bool   | no       | `false`                          | The project no longer provides this family. See **Retiring a protocol** below.|
 
-The **version** of a Provide is read from the spec file itself and must be strict `MAJOR.MINOR.PATCH`:
+#### Retiring a protocol
+
+Sanshain cannot tell a dropped protocol from a pipeline that merely stopped running, so removing a
+`provide` entry does nothing on its own — the service keeps its old capability tag, graph edges and
+contracts. To actually retire a family, keep the entry and set `retired: true` (or drop it and
+declare the removal another way the plugin supports). The plugin turns that into an ordinary provide
+call for that family carrying `retired: true` and no specification body, which clears the
+`messaging`/`grpc` tag, removes the family from the current dependency graph, and releases its
+AsyncAPI channel-message contracts — **without** deleting version history or breaking Consumers
+still pinned to the old versions.
+
+Because a retire publishes nothing, the call carries no `file` content and no `stability`, and it
+belongs to no stream: sending a body, a `stability`, `trunk` or `tag` alongside `retired: true` is
+refused with `400` rather than half-honoured. Under `dry_run` the call checks permission and stops.
+
+**Retiring is a role**, like releasing. The caller needs the `releaser` role — which is what a build
+pipeline already holds in order to publish GA — or a maintainer grant on that Producer; admins and
+root hold both. A plain authenticated token can provide but cannot retire, so dropping a protocol
+stays a deliberate act.
+
+The **version** of a Provide is read from the spec file itself: `MAJOR[.MINOR[.PATCH]]`, optionally `v`-prefixed — omitted parts are zero and the stored form is always the full three-part version:
 
 - **OpenAPI / AsyncAPI**: the document's `info.version` field.
 - **Proto**: a mandatory `// sanshain-version: MAJOR.MINOR.PATCH` comment in the file (conventionally in the header). A missing, malformed or conflicting marker rejects the Provide.
@@ -134,7 +155,7 @@ A list of service dependencies. Each entry results in a single `POST /require-bu
 | `outputDirectory` | string | **yes**  | —         | Directory where the merged specification file will be written.           |
 | `endpoints`       | list   | **yes**  | —         | List of endpoints/channels to require (see below).                       |
 
-The **Pin** is the whole contract: what your build downloads changes only when someone edits `version`. There is no fallback to another version and nothing waits for a version to appear — a Pin that does not exist on the server fails the require immediately (`404`).
+The **Pin** is the whole contract: what your build downloads changes only when someone edits `version`. A Pin that does not exist on the server fails the require with `404`.
 
 ### `endpoints` Entry
 
@@ -201,6 +222,14 @@ However, there is an important difference in how **channel identifiers** are res
 | **Operations**       | `channels.*.publish` / `channels.*.subscribe` | `operations.*.action: send` / `operations.*.action: receive` |
 | **Internal mapping** | `publish` → `PUB`, `subscribe` → `SUB`       | `send` → `PUB`, `receive` → `SUB`                            |
 | **Channel identifier** | The channel key (e.g., `user-created`)     | The channel `address` field (e.g., `user/signedup`)          |
+
+> ⚠️ **The 2.x perspective convention.** Sanshain reads AsyncAPI 2.x `publish`/`subscribe` from
+> the **application's** perspective: `publish` means *this service publishes to the channel*,
+> `subscribe` means *this service consumes it*. The official AsyncAPI 2.x specification defines
+> those keywords from the **client's** perspective — exactly inverted. Sanshain deliberately uses
+> the application-perspective reading because it matches the unambiguous 3.x `send`/`receive`
+> mapping. Write your 2.x documents accordingly: a spec authored with the spec-literal reading
+> registers its contracts — and harvests its subscriptions — exactly backwards.
 
 **Key restriction when upgrading from v2 to v3:**
 

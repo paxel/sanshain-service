@@ -4,7 +4,7 @@ This guide covers the admin dashboard at `/admin.html` and administrative tasks.
 
 ### TL;DR
 - **Access**: Sign in at `/admin.html`. First-time login uses a random password from logs.
-- **Auth**: Configure **LDAP**, **Local Users**, or **Dev Mode** in the Authentication section.
+- **Auth**: Configure **LDAP**, **OIDC** (SSO), **Local Users**, or **Dev Mode** in the Authentication section.
 - **Versions**: Delete a version (the escape hatch from GA immutability — check the dependents first) and tune snapshot cleanup in the settings.
 - **Cleanup**: Delete Producers, Consumers and stale dependencies in the management tabs.
 - **Tokens**: Users create their own API tokens at `/account.html`.
@@ -15,11 +15,11 @@ This guide covers the admin dashboard at `/admin.html` and administrative tasks.
 
 Open `/admin.html` in your browser and sign in with an admin account. On a fresh installation the only admin account is **root** — see [Getting Started](getting-started.md) for the initial password procedure.
 
-![Admin login screen](images/Screenshot_20260421_230832.png)
+![Admin login screen](images/login.png)
 
 After a successful login the dashboard loads with all management sections organized into tabs.
 
-![Admin dashboard](images/Screenshot_20260421_230857.png)
+![Admin dashboard](images/admin_overview.png)
 
 ## Observability
 
@@ -48,6 +48,31 @@ If Dev Mode is requested without the gate, the service **fails closed**: authent
 ALLOW_INSECURE_DEV_MODE=true SANSHAIN_DEV_MODE=true cargo run
 ```
 
+## OIDC Single Sign-On (human login)
+
+Set the auth mode to **`oidc`** to let people log in through an external OpenID
+Connect provider (Keycloak, Okta, Azure AD, Google, …). OIDC is **human-only** —
+Consumer/machine clients keep API tokens.
+
+Configure it through the auth-config API — `PUT /admin/auth-config` with
+`{"auth_mode": "oidc", "oidc_config": { … }}` (a dedicated admin-panel form is a
+follow-up; the LDAP panel is the current UI precedent). The `oidc_config` fields:
+
+| Field            | Meaning                                                                 |
+|------------------|-------------------------------------------------------------------------|
+| `issuer_url`     | Provider issuer (discovery at `<issuer_url>/.well-known/openid-configuration`) |
+| `client_id`      | The application client registered with the provider                     |
+| `client_secret`  | The client secret (confidential client); never shown back once saved    |
+| `redirect_url`   | Must be `https://<your-host>/auth/oidc/callback`, and registered with the provider |
+| `username_claim` | ID-token claim used as the username (default `preferred_username`)       |
+| `groups_claim`   | ID-token claim carrying groups (default `groups`)                       |
+
+The login page shows a **Sign in with SSO** button (`/auth/oidc/login`). It runs
+the authorization-code flow with PKCE, verifies the ID token (signature via the
+provider's JWKS, nonce, issuer, audience, expiry), and creates a local session.
+The username/password endpoint stays open for **root and local accounts**, so a
+provider outage or first-time setup cannot lock everyone out.
+
 ## Version Administration
 
 The unit of administration is the **version line**: the ordered set of versions one Producer has published for one API type. Versions manage themselves for the most part — GA versions are immutable and never age-culled, snapshots expire when unused — so administration is the exceptions.
@@ -56,7 +81,7 @@ The unit of administration is the **version line**: the ordered set of versions 
 
 Deleting a version is **the sole escape hatch from GA immutability** ([ADR-0003](adr/0003-versions-replace-branches.md)): it removes the version outright and frees its number for republishing. It is deliberately a heavy tool:
 
-- **Consumers pinned to the deleted version hard-fail** (`404`) on their next require — there is no fallback. The UI shows the pinned Consumers (the dependents) before the delete is confirmed; check that listing first and get the Consumers moved off the version where possible.
+- **Consumers pinned to the deleted version fail** (`404`) on their next require. The UI shows the pinned Consumers (the dependents) before the delete is confirmed; check that listing first and get the Consumers moved off the version where possible.
 - **Audited**: every delete-version writes an audit entry naming the Actor and the Consumers that were still pinned.
 - **Who may**: holders of the `manage_producers` permission on any Producer, and Maintainers on their own Producers.
 
@@ -77,6 +102,30 @@ Snapshots expire **use-based**: a snapshot that is neither provided nor required
 ### Dependency Cleanup
 
 Recorded dependencies go stale when a Consumer stops requiring an endpoint. `dependency_max_age_days` (`GET`/`POST /admin/settings/dependency-max-age`) controls when unused dependencies are removed; `POST /admin/cleanup/dependencies` runs it immediately.
+
+### Credential Cleanup
+
+Expired sessions and API tokens are removed by the same background pass. Validation already
+refuses them, so this reclaims storage rather than changing who can sign in — without it the
+credential tables keep a row for every login the service ever issued.
+
+### Trunk Cleanup
+
+Trunk data ages on its own month-scale TTL, independent of the much shorter dev expiry: trunk pins and trunk markers not refreshed within `trunk_max_age_days` (default `90`, `0` disables — `GET`/`POST /admin/settings/trunk-max-age`) are *closed*. They leave the current main graph but stay as history, so the timeline can still render past states. `POST /admin/cleanup/trunk` runs it immediately. The main graph highlights entries as stale (amber, ⚠) once they pass half the TTL — forgotten producers surface before they vanish.
+
+All max-age settings accept at most `36500` days (~100 years); larger values answer `400`.
+
+## Sanshain-Branch Management
+
+The **Sanshain-Branches** dashboard section manages release cuts ([ADR-0005](adr/0005-sanshain-branches-and-timeline.md)):
+
+- **Create** (`POST /admin/branches`, requires the `releaser` role) — a named copy of the main graph, or another branch, at a chosen instant; a past `as_of` repairs a forgotten cut retroactively. `main`, `dev` and `trunk` are reserved names (the built-in graph views, and the trunk stream sentinel).
+- **Rename** (`PUT /admin/branches/{name}`, admin) — repairs a botched name; membership, timeline and audit stamps survive, because all three key on the branch's id rather than its label. Pipelines still sending the old tag get an instructive `404` until reconfigured.
+- **Delete** (`DELETE /admin/branches/{name}`, admin) — the audited end-of-life act; frees the name.
+
+Deleting a *version* that branches reference leaves those pins visibly dangling (never silently dropped); the delete-version confirmation names the referencing branches alongside pinned Consumers, and a later re-provide of the number heals them.
+
+Deleting a *Producer or Consumer* is refused with `409` while any sanshain-branch's recorded graph still references it — the participant's rows would cascade out of release cuts that already happened, rewriting them retroactively. The message names the branches to retire first. Trunk presence does not block the delete: trunk is the living stream and ages out on its own TTL.
 
 ## Local User Management
 
@@ -114,7 +163,8 @@ The **Authentication** section on the admin dashboard lets you choose how users 
 
 | Field              | Description                                                                                | Example                                 |
 |--------------------|--------------------------------------------------------------------------------------------|-----------------------------------------|
-| **Server URL**     | LDAP server address. Use `ldaps://` for TLS.                                               | `ldap://ldap.example.com:389`           |
+| **Server URL**     | LDAP server address. Use `ldaps://` for TLS from the start of the connection.              | `ldap://ldap.example.com:389`           |
+| **Use TLS**        | On a plain `ldap://` URL, upgrades the connection in-band via StartTLS before any bind. `ldaps://` is already encrypted by its scheme and ignores this. | *(checkbox)*                            |
 | **Bind DN**        | Service account DN used to search for users.                                               | `cn=readonly,dc=example,dc=com`         |
 | **Bind Password**  | Password for the service account.                                                          | *(stored encrypted, shown as `****`)*    |
 | **Base DN**        | Search base for user lookups.                                                              | `dc=example,dc=com`                     |
@@ -311,4 +361,4 @@ For detailed setup instructions, see [Getting Started — PostgreSQL](getting-st
 
 - **Account** (`/account.html`) — manage your own password and API tokens.
 
-  ![Account page with token management](images/Screenshot_20260421_230948.png)
+  ![Account page with token management](images/user_dashboard.png)

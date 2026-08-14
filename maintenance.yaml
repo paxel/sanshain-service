@@ -18,7 +18,7 @@ info:
     listed in `SANSHAIN_ROOT_USERS` holds every permission.
 
     See [Administration](docs/administration.md) for the concepts.
-  version: "2.1.0"
+  version: "2.2.0"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt
@@ -90,6 +90,72 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/branches/{name}/timeline:
+    get:
+      summary: "Read: branches/name/timeline"
+      description: |
+        The instants this branch's graph changed (every open/close event of
+        its append-only pin store), distinct and ascending — the timeline
+        slider's markers (ADR-0005).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The change instants as a JSON array of RFC 3339 strings.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No sanshain-branch with this name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/trunk/graph:
+    get:
+      summary: "Read: trunk/graph"
+      description: |
+        The main graph's pin set — current, or as it was at the optional `at`
+        instant, reconstructed from the append-only trunk history (ADR-0005).
+        Pins on deleted versions are marked dangling; a non-RFC-3339 `at`
+        answers `400`.
+      parameters:
+        - name: at
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The pin set as a JSON array.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/trunk/timeline:
+    get:
+      summary: "Read: trunk/timeline"
+      description: |
+        The instants the main graph changed, distinct and ascending — the
+        timeline slider's markers (ADR-0005).
+      responses:
+        "200":
+          description: The change instants as a JSON array of RFC 3339 strings.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/cache/clear:
     post:
       summary: "Create or run: cache/clear"
@@ -115,6 +181,31 @@ paths:
       summary: "Create or run: cleanup/dependencies"
       description: |
         Requires the `manage_settings` permission.
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/cleanup/trunk:
+    post:
+      summary: "Create or run: cleanup/trunk"
+      description: |
+        Requires the `manage_settings` permission.
+
+        Runs the trunk TTL cleanup immediately (ADR-0004): open trunk pins not
+        re-required within `trunk_max_age_days` are *closed* (they leave the
+        main graph's current view; the rows stay as timeline history) and
+        stale trunk version markers are cleared. Answers `{"closed": n}`.
       responses:
         "200":
           description: Success.
@@ -177,6 +268,12 @@ paths:
       summary: "Delete: consumers/name"
       description: |
         Requires the `manage_consumers` permission.
+
+        Answers `{"deleted": name}`. Refused with `409` while any
+        sanshain-branch's recorded graph still references the Consumer — a
+        release cut is a frozen record, and the delete would remove its edges
+        retroactively. The message names the branches to retire first. Trunk
+        presence does not block.
       parameters:
         - name: name
           in: path
@@ -532,7 +629,14 @@ paths:
     get:
       summary: "Read: observability/audit-logs"
       description: |
-        Requires the `view_audit` permission.
+        Requires the `view_audit` permission. The most recent audit entries for
+        the observability panel; optional `limit` (default 100, capped at 200).
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
       responses:
         "200":
           description: Success.
@@ -552,7 +656,9 @@ paths:
     get:
       summary: "Read: observability/audit-logs/export"
       description: |
-        Requires the `view_audit` permission.
+        Requires the `view_audit` permission. CSV of the most recent audit
+        entries, columns `id,timestamp,username,action,details,service,version,
+        action_type,stream` — every field except the bulky `diff` blob.
       responses:
         "200":
           description: Success.
@@ -648,6 +754,41 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/graph/diff:
+    get:
+      summary: "Read: graph/diff"
+      description: |
+        Structured diff between two graph selections (ADR-0005) — release vs
+        release, release vs main, one graph at two instants. `left`/`right`
+        are `main[@rfc3339]` or `<branch>[@rfc3339]`. Answers services
+        added/removed, pins added/removed, and per-pin version changes; all
+        arrays empty means no differences.
+      parameters:
+        - name: left
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: right
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The structured diff.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: A named branch does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/producers:
     get:
       summary: "Read: producers"
@@ -695,6 +836,12 @@ paths:
       summary: "Delete: producers/name"
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
+
+        Answers `{"deleted": name}`. Refused with `409` while any
+        sanshain-branch's recorded graph still references the Producer — a
+        release cut is a frozen record, and the delete would remove its edges
+        retroactively. The message names the branches to retire first. Trunk
+        presence does not block.
       parameters:
         - name: name
           in: path
@@ -712,6 +859,34 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
         "403":
           description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/branch-memberships:
+    get:
+      summary: "Read: producers/name/branch-memberships"
+      description: |
+        Reverse lookup (ADR-0005): every (api_type, version, branch) this
+        producer is currently referenced by across all sanshain-branches —
+        "which releases pin b@1.0.0?" answered where you're already looking.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The memberships as a JSON array.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: Producer not found.
           content:
             application/json:
               schema:
@@ -740,6 +915,201 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
         "403":
           description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/branches:
+    get:
+      summary: "Read: branches"
+      description: |
+        Every sanshain-branch (ADR-0005), newest first: `id`, `name`,
+        `created_at`, `created_by`, `source` (`trunk` or the source branch's
+        then-current name) and `as_of` (the instant of the source graph the
+        branch was born from).
+      responses:
+        "200":
+          description: The branch listing as a JSON array.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    post:
+      summary: "Write: branches"
+      description: |
+        Requires the `release_ga` permission (the `releaser` role; admins and
+        root hold it implicitly) — creating a named release graph is release
+        work, and this endpoint's primary caller is the **DevOps release-cut
+        script**, which needs nothing beyond this description:
+
+        Creates a **sanshain-branch**: a named copy of a source graph at a
+        chosen instant, from then on updated by `tag`-flagged hotfix builds.
+
+        Body (JSON):
+        - `name` (string, required): unique among existing branches; free
+          text ("Release Maribou"). Duplicate → `409`.
+        - `source` (string, optional): the name of an existing branch to copy
+          from. **Omitted → the trunk graph.** Unknown name → `404`, nothing
+          is created.
+        - `as_of` (string, optional): RFC 3339 instant of the source graph to
+          copy. **Omitted → now.** A past instant creates the branch
+          *retroactively* — trunk-at-that-date is reconstructed from the
+          append-only history, so a forgotten release day is repairable.
+          Malformed → `400`.
+
+        The call is not idempotent: repeating it answers `409`. Creation is
+        audited (`BRANCH_CREATED`, naming the caller, source and instant).
+      responses:
+        "201":
+          description: Created. The body is the branch record (see GET).
+        "400":
+          description: >-
+            Empty or reserved name (`main`, `dev`, `trunk`), or `as_of` is not
+            an RFC 3339 instant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without the `release_ga` permission.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: The `source` branch does not exist. Nothing was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "409":
+          description: A branch with this name already exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/branches/{name}:
+    put:
+      summary: "Write: branches/name"
+      description: |
+        Requires the `manage_producers` permission (admins) — deliberately a
+        higher bar than creation. Renames the branch: identity is the internal
+        id, so membership, timeline and audit stamps survive; a pipeline still
+        sending the old tag name gets the instructive `404` until its
+        configuration is updated (intended for a name wrong enough to rename).
+        Body: `{"new_name": "..."}`. Audited with old and new name.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Renamed; the body is the updated branch record.
+        "400":
+          description: Empty new name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but not an admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No sanshain-branch with this name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "409":
+          description: The new name is already taken by a live branch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    delete:
+      summary: "Write: branches/name"
+      description: |
+        Requires the `manage_producers` permission (admins). Deletes the
+        branch and its graph rows — the deliberate, audited EOL act — and
+        frees the name for reuse.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but not an admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No sanshain-branch with this name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/branches/{name}/graph:
+    get:
+      summary: "Read: branches/name/graph"
+      description: |
+        The branch's pin set — its graph edges, each `{client, service,
+        api_type, version, path, method, valid_from, last_required_at}` with
+        the version **by value** (a deleted spec version renders as a dangling
+        reference and heals when the number is re-provided). Optional `at`
+        (RFC 3339) answers the branch's graph as it was at that instant; a
+        non-RFC-3339 `at` answers `400`.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: at
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The pin set as a JSON array.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No sanshain-branch with this name.
           content:
             application/json:
               schema:
@@ -1217,7 +1587,49 @@ paths:
     post:
       summary: "Create or run: settings/dependency-max-age"
       description: |
-        Requires the `manage_settings` permission.
+        Requires the `manage_settings` permission. Body: `{"days": n}`, at
+        least 1 and at most 36500 (~100 years); values outside answer `400`.
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/settings/trunk-max-age:
+    get:
+      summary: "Read: settings/trunk-max-age"
+      description: |
+        Requires the `manage_settings` permission. The trunk TTL in days
+        (ADR-0004), default 90; 0 disables the cleanup.
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    post:
+      summary: "Create or run: settings/trunk-max-age"
+      description: |
+        Requires the `manage_settings` permission. Body: `{"days": n}`, at
+        most 36500 (~100 years); larger values answer `400`.
       responses:
         "200":
           description: Success.
@@ -1259,6 +1671,7 @@ paths:
         Requires the `manage_settings` permission.
 
         Days a snapshot survives without being provided or required. `0` disables the cleanup.
+        At most 36500 (~100 years); larger values answer `400`.
       responses:
         "200":
           description: Success.

@@ -1,11 +1,10 @@
 use sqlx::postgres::PgPoolOptions;
-use testcontainers::runners::AsyncRunner;
-use testcontainers_modules::postgres::Postgres;
+mod common;
 
 #[tokio::test]
 async fn test_postgres_migration_upgrade_1_0_1() {
     // 1. Start Postgres container
-    let postgres_container = Postgres::default().start().await.unwrap();
+    let postgres_container = common::start_postgres().await;
     let host = postgres_container.get_host().await.unwrap();
     let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
     let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);

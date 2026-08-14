@@ -25,13 +25,25 @@ impl<R: SpecRepository + 'static> AuthProvider for LocalAuthProvider<R> {
             .map_err(|e| AuthProviderError::Internal(format!("{:?}", e)))?
             .ok_or(AuthProviderError::InvalidCredentials)?;
 
-        let parsed_hash = argon2::PasswordHash::new(&user.password_hash)
-            .map_err(|e| AuthProviderError::Internal(format!("hash parse error: {}", e)))?;
-
-        use argon2::PasswordVerifier;
-        argon2::Argon2::default()
-            .verify_password(password.as_bytes(), &parsed_hash)
-            .map_err(|_| AuthProviderError::InvalidCredentials)?;
+        // Argon2 is deliberately slow CPU work; run it on the blocking pool so
+        // it does not stall the async worker thread it happens to run on.
+        let password = password.to_string();
+        let stored_hash = user.password_hash.clone();
+        let verified = tokio::task::spawn_blocking(move || {
+            let parsed_hash = argon2::PasswordHash::new(&stored_hash)
+                .map_err(|e| AuthProviderError::Internal(format!("hash parse error: {}", e)))?;
+            use argon2::PasswordVerifier;
+            Ok::<bool, AuthProviderError>(
+                argon2::Argon2::default()
+                    .verify_password(password.as_bytes(), &parsed_hash)
+                    .is_ok(),
+            )
+        })
+        .await
+        .map_err(|e| AuthProviderError::Internal(format!("hashing task failed: {}", e)))??;
+        if !verified {
+            return Err(AuthProviderError::InvalidCredentials);
+        }
 
         if !user.approved {
             return Err(AuthProviderError::InvalidCredentials);

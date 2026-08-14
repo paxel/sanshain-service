@@ -29,6 +29,11 @@ jobs:
         run: cargo fmt --check
       - name: Clippy
         run: cargo clippy -- -D warnings
+      # Testcontainers tests pull this image on demand; concurrent in-test pulls
+      # are flaky ("bytes remaining on stream"), so fetch it once up front.
+      # Tag must match the testcontainers-modules default (see Cargo.toml).
+      - name: Pre-pull testcontainers images
+        run: for i in 1 2 3; do docker pull postgres:11-alpine && break || sleep 5; done
       - name: Tests
         run: cargo test
       - name: Integration Tests
@@ -63,10 +68,10 @@ jobs:
       - name: Security Audit
         run: cargo audit
       # Ratchet rule (see AGENTS.md): when coverage rises, raise --fail-under to
-      # (new value - 2) in the same PR. Never lower it. Floor set 2026-08-02 at
-      # 78.74% measured with --engine llvm.
+      # (new value - 2) in the same PR. Never lower it. Floor set 2026-08-13 at
+      # 81.03% measured with --engine llvm.
       - name: Coverage
-        run: cargo tarpaulin --out Xml --fail-under 76.74
+        run: cargo tarpaulin --out Xml --fail-under 79.03
   js-quality:
     runs-on: ubuntu-latest
     steps:
@@ -75,6 +80,9 @@ jobs:
       - run: npm ci
       - run: npx eslint static/js/
       - run: npx prettier --check static/js/
+      # The Tailwind CSS is a committed artifact (prod serves static/ directly);
+      # fail if it drifts from source.
+      - run: npm run build:css && git diff --exit-code static/css/app.css
   ui-quality:
     runs-on: ubuntu-latest
     steps:
@@ -118,7 +126,7 @@ jobs:
             echo "Service failed to start"
             exit 1
           fi
-          npx playwright test tests/ui/smoke.test.js
+          npx playwright test tests/ui/smoke.test.js tests/ui/no_console_errors.test.js tests/ui/de_inlined.test.js
         env:
           INITIAL_ADMIN_PASSWORD: root_password
       - name: Upload Playwright report on failure
