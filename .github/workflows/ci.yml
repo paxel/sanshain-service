@@ -6,6 +6,16 @@ on:
   pull_request:
     branches: ["**"]
 
+# A push to a branch with an open PR fires both triggers and runs everything
+# twice. The group must name the bare branch on both events: head_ref is bare
+# on PR events, and ref_name (not ref, which is refs/heads/…) is bare on
+# pushes — with `ref` the twins would land in different groups and nothing
+# would be deduplicated. The loser is cancelled instead of burning a second
+# full run, and a newer push likewise supersedes a stale in-flight one.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
