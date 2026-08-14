@@ -4,6 +4,15 @@ on:
     branches: ["**"]
   pull_request:
     branches: ["**"]
+# A push to a branch with an open PR fires both triggers and runs the whole
+# 45-minute suite twice. The group must name the bare branch on both events:
+# head_ref is bare on PR events, and ref_name (not ref, which is refs/heads/…)
+# is bare on pushes — with `ref` the twins would land in different groups and
+# nothing would be deduplicated. The loser is cancelled instead of burning a
+# duplicate, and a newer push likewise supersedes a stale in-flight run.
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
@@ -126,7 +135,7 @@ jobs:
             echo "Service failed to start"
             exit 1
           fi
-          npx playwright test tests/ui/smoke.test.js tests/ui/no_console_errors.test.js tests/ui/de_inlined.test.js
+          npx playwright test tests/ui/smoke.test.js tests/ui/no_console_errors.test.js tests/ui/de_inlined.test.js tests/ui/link_crawl.test.js
         env:
           INITIAL_ADMIN_PASSWORD: root_password
       - name: Upload Playwright report on failure
