@@ -80,7 +80,12 @@ provide endpoint, and its `ManageProducers` guard excluded the Releaser role tha
 
 ## Phase 1 — client adaptation, all five
 
-Done: **SanshainMaven**, **sanshain-rs**. Remaining: sanshain-go, sanshain-js, SanshainConan.
+Done: **SanshainMaven**, **sanshain-rs**, **sanshain-go**, **SanshainConan**. Remaining: sanshain-js.
+
+Wire detail found late and fixed in all adapted clients: `/require-bundle` reads `trunk`/`tag`
+from the **JSON body** — its handler has no query extractor — while the single-endpoint
+`GET /require` takes them as query parameters. The first Maven/Rust implementations put the
+bundle stream on the query string, which the server silently ignored.
 
 | Item | Change |
 |---|---|
@@ -94,8 +99,9 @@ Done: **SanshainMaven**, **sanshain-rs**. Remaining: sanshain-go, sanshain-js, S
 
 Per-client repairs on top of the shared list:
 
-- **sanshain-go** — the module path in `go.mod` is `github.com/paxel/sanshain/sanshain-go/v2`, which
-  resolves to an unrelated placeholder repository. It becomes `github.com/paxel/sanshain-go/v2`.
+- **sanshain-go** — the module path in `go.mod` was `github.com/paxel/sanshain/sanshain-go/v2`,
+  which resolved to an unrelated placeholder repository; now `github.com/paxel/sanshain-go/v2`
+  (imports, README and docs updated). Client version stays 2.0.0 — no 2.x was ever tagged.
 - **sanshain-js** — package renamed to `sanshain`; `deploy.yml` folded into `release.yml`; Node
   raised to 22.14.0 and npm to 11.5.1, both required by trusted publishing.
 - **sanshain-rs** — a larger job than an adaptation, because the repository is a single generated
@@ -108,8 +114,12 @@ Per-client repairs on top of the shared list:
   crate renamed to `sanshain` with its directory, three READMEs, and the public surface narrowed —
   the payload builders and message formatters became `pub(crate)` and the unused `sync_specs` was
   deleted, because first publish freezes everything that is `pub`.
-- **SanshainConan** — drop `python_requires`; rewrite `README.md` and `docs/integration.md` to the
-  import pattern.
+- **SanshainConan** — `python_requires` is gone: the `Sanshain` helper moved from `conanfile.py`
+  into the package (`sanshainconan.integration`), `conanfile.py` was deleted, and consumers
+  `pip install sanshain-conan` and import it. `pyproject.toml` gained a hatchling build, a
+  `sanshain-conan` console script and a repository URL, and dropped the unused `conan` dependency.
+  `release.yml` builds with `uv build` and publishes via PyPI Trusted Publishing (OIDC); the
+  sourcehut manifest runs pytest instead of the now-meaningless `conan export`. Docs rewritten.
 
 ## Phase 2 — publishing setup
 
