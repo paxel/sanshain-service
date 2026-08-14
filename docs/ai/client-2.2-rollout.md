@@ -80,7 +80,7 @@ provide endpoint, and its `ManageProducers` guard excluded the Releaser role tha
 
 ## Phase 1 — client adaptation, all five
 
-Done: **SanshainMaven**, **sanshain-rs**, **sanshain-go**, **SanshainConan**. Remaining: sanshain-js.
+Done: **all five** — SanshainMaven, sanshain-rs, sanshain-go, SanshainConan, sanshain-js.
 
 Wire detail found late and fixed in all adapted clients: `/require-bundle` reads `trunk`/`tag`
 from the **JSON body** — its handler has no query extractor — while the single-endpoint
@@ -102,8 +102,13 @@ Per-client repairs on top of the shared list:
 - **sanshain-go** — the module path in `go.mod` was `github.com/paxel/sanshain/sanshain-go/v2`,
   which resolved to an unrelated placeholder repository; now `github.com/paxel/sanshain-go/v2`
   (imports, README and docs updated). Client version stays 2.0.0 — no 2.x was ever tagged.
-- **sanshain-js** — package renamed to `sanshain`; `deploy.yml` folded into `release.yml`; Node
-  raised to 22.14.0 and npm to 11.5.1, both required by trusted publishing.
+- **sanshain-js** — package renamed to `sanshain`, version 3.0.0 → 2.3.0 (the unpublished 3.x was
+  renumbered into the major-tracks-the-service scheme; tag v2.2.0 already exists there, so 2.3.0
+  is the next free number). `deploy.yml` deleted, `release.yml` rebuilt as gate → release →
+  publish-npm with Trusted Publishing (OIDC, no NPM_TOKEN) on Node 24, whose bundled npm satisfies
+  the >= 11.5.1 requirement. `package-lock.json` regenerated detached from the parent workspace —
+  the same npm-ci identity trap the service had. The GitHub Action gained `trunk`/`tag` inputs and
+  invokes `npx sanshain`.
 - **sanshain-rs** — a larger job than an adaptation, because the repository is a single generated
   commit that never went through a release cycle: it had no licence, no CI, no tags, placeholder
   authors, and it was the only client **not** reading `sanshain.yaml` — it read

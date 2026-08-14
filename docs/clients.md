@@ -34,17 +34,15 @@ The [**sanshain-go**](https://github.com/paxel/sanshain-go) tool provides a ligh
 - **Config**: Uses `sanshain.yaml`.
 
 ### JavaScript / TypeScript
-The [**sanshain-js**](https://github.com/paxel/sanshain-js) package provides a Node.js client, a CLI, and a GitHub Action.
+The [**sanshain**](https://github.com/paxel/sanshain-js) npm package provides a Node.js client, a CLI, and a GitHub Action.
 - **GitHub Action**: Use `paxel/sanshain-js@main` in your workflows.
-- **Installation**: Install directly from GitHub (not yet on NPM):
-  ```bash
-  npm install --save-dev github:paxel/sanshain-js
-  ```
+- **Installation**: `npm install --save-dev sanshain`.
 - **CLI**: `npx sanshain provide` (requires `sanshain.yaml`).
 
 ### Conan Plugin (C / C++)
-The [**sanshain-conan**](https://github.com/paxel/sanshain-conan) plugin extends Conan to manage API specifications as dependencies.
-- **Integration**: Uses `python_requires` in `conanfile.py`.
+The [**sanshain-conan**](https://github.com/paxel/sanshain-conan) PyPI package extends Conan to manage API specifications as dependencies.
+- **Installation**: `pip install sanshain-conan` into the environment Conan runs in.
+- **Integration**: `from sanshainconan import Sanshain` in `conanfile.py` — the former `python_requires` pattern is gone.
 - **Workflow**: Runs during `conan install` to prepare build inputs.
 
 ---
