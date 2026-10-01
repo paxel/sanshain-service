@@ -4,6 +4,13 @@ version = "2.2.0"
 edition = "2024"
 license = "Apache-2.0"
 
+[lints.rust]
+# No-`unsafe` policy: memory safety is left entirely to the compiler. `deny`
+# rather than `forbid` only because some integration tests must call
+# `std::env::set_var`/`remove_var`, which are `unsafe` in edition 2024; those
+# files opt out with a file-level `#![expect(unsafe_code, reason = ...)]`.
+unsafe_code = "deny"
+
 [lints.clippy]
 # No-panic policy (see AGENTS.md / ai/improvements.md E3). Test code is exempt
 # via `allow-*-in-tests` in clippy.toml.

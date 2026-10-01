@@ -5,6 +5,11 @@
 //! stored documents, and the audited delete-version escape hatch from GA
 //! immutability.
 
+#![expect(
+    unsafe_code,
+    reason = "edition 2024: std::env::set_var/remove_var are unsafe"
+)]
+
 use axum::{
     body::Body,
     http::{Request, StatusCode},

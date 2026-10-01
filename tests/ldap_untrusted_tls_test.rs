@@ -8,6 +8,11 @@
 //! proves the trust store is actually enforced (the "silently trusts nothing /
 //! silently trusts anything" failure this guards against).
 
+#![expect(
+    unsafe_code,
+    reason = "edition 2024: std::env::set_var/remove_var are unsafe"
+)]
+
 use sanshain_service::domain::models::LdapConfig;
 use sanshain_service::domain::ports::{AuthProvider, AuthProviderError};
 use sanshain_service::infrastructure::ldap_provider::LdapAuthProvider;

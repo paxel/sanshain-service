@@ -4,6 +4,11 @@
 //! toggles, the nuke endpoints, user administration, producer metadata, and
 //! the report/bundle/timeline API surface.
 
+#![expect(
+    unsafe_code,
+    reason = "edition 2024: std::env::set_var/remove_var are unsafe"
+)]
+
 use axum::{
     body::Body,
     http::{Request, StatusCode},

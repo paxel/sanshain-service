@@ -8,6 +8,11 @@
 //! (`ldap_untrusted_tls_test.rs`) because the trust store is a process-wide
 //! `OnceLock` that cannot hold two different roots in one process.
 
+#![expect(
+    unsafe_code,
+    reason = "edition 2024: std::env::set_var/remove_var are unsafe"
+)]
+
 use ldap3::{Ldap, LdapConnAsync, Mod};
 use sanshain_service::domain::models::LdapConfig;
 use sanshain_service::domain::ports::AuthProvider;
