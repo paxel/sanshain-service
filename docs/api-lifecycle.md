@@ -38,7 +38,7 @@ Every rejection is self-service: set your spec's version (`info.version`, or the
 
 The breaking-change classifier covers all three API types:
 
-- **OpenAPI**: removed paths/methods/response codes, removed schema properties, property type changes, new required request fields.
+- **OpenAPI**: removed paths/methods/response codes, removed parameters or schema properties, parameter and property type changes, new required request fields, new required parameters or optional ones made required, and request enums that lose a value or become an enum. Schemas are compared at every nesting depth, in components and in inline request and response bodies. A new enum value in a response is not breaking; `allOf`/`oneOf`/`anyOf` compositions are not analyzed.
 - **AsyncAPI**: removed messages, removed payload properties, payload property type (or `$ref`) changes. Enum value and `required` changes are not analyzed.
 - **gRPC/proto**: removed rpcs or messages, removed message fields, field number/type/`repeated` label changes, rpc signature changes. Enum changes are not analyzed.
 
@@ -50,7 +50,7 @@ Elements marked **deprecated** in the previous GA are exempt: removing them is t
 Once a new major version is GA, encourage Consumers to move their Pins.
 
 - **Annotate**: Mark the old elements as deprecated in your specification:
-  - **OpenAPI**: `deprecated: true` on the operation (and/or on individual schema properties).
+  - **OpenAPI**: `deprecated: true` on the operation (and/or on individual parameters or schema properties).
   - **AsyncAPI**: `deprecated: true` (or `x-deprecated: true`) on the `publish`/`subscribe` operation, message, or payload property.
   - **gRPC/proto**: `option deprecated = true;` inside the rpc or message body, or `[deprecated = true]` on a field.
 

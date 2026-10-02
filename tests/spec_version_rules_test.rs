@@ -546,6 +546,27 @@ async fn ga_breaking_without_major_bump_is_rejected_with_major_proposal() {
 }
 
 #[tokio::test]
+async fn ga_new_required_query_parameter_without_major_bump_is_rejected() {
+    let ctx = setup().await;
+    provide(&ctx, "svc", "ga", &spec_two_endpoints("1.0.0")).await;
+
+    // Every endpoint stays, but GET /users now demands `?limit=`: a Consumer
+    // built against 1.0.0 stops working, so 1.1.0 is a lie.
+    let with_required_param = spec_two_endpoints("1.1.0").replace(
+        "  /users:\n    get:\n",
+        "  /users:\n    get:\n      parameters:\n        - name: limit\n          in: query\n          required: true\n          schema:\n            type: integer\n",
+    );
+    let (status, body) = provide(&ctx, "svc", "ga", &with_required_param).await;
+    assert_eq!(status, StatusCode::CONFLICT, "got: {body}");
+    let message = body["error"].as_str().unwrap();
+    assert!(
+        message.contains("Required parameter 'limit' (query) was added to GET /users"),
+        "got: {message}"
+    );
+    assert_eq!(body["proposed_version"], "2.0.0");
+}
+
+#[tokio::test]
 async fn snapshots_are_never_compat_checked() {
     let ctx = setup().await;
     provide(&ctx, "svc", "ga", &spec_two_endpoints("1.0.0")).await;
