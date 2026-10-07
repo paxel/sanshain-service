@@ -3,6 +3,14 @@
 This file contains historical changelog entries for the Sanshain Service.
 For recent changes, see [CHANGELOG.md](CHANGELOG.md).
 
+## [2.3.0] - 2026-10-03
+
+### Changed
+- An OpenAPI GA publish without a major bump is now rejected when it removes or newly requires a parameter, changes a parameter's type, drops a request enum value, or changes a nested or inline request/response body schema; moving an inline schema into a `$ref` with the same shape still passes.
+
+### Security
+- Updated `h2` to 0.4.19 (RUSTSEC-2026-0258) and `rustls` to 0.23.45 (RUSTSEC-2026-0285).
+
 ## [2.2.0] - 2026-08-06
 
 ### Added
