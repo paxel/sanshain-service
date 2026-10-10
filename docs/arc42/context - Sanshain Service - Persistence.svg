@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="444" height="601" viewBox="-12.0 -12.0 444.0 601.0">
+<rect x="-12.0" y="-12.0" width="444.0" height="601.0" fill="#ffffff"/>
+<rect x="4.0" y="4.0" width="364.0" height="482.0" rx="4.0" fill="none" stroke="#8a939e" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="16.0" y="25.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="start" fill="#8a939e">Persistence (whitebox)</text>
+<rect x="110.0" y="110.0" width="152.0" height="80.0" rx="4.0" fill="#ffd58f" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<rect x="114.0" y="114.0" width="144.0" height="72.0" rx="2.0" fill="none" stroke="#222222" stroke-width="1" stroke-linejoin="round"/>
+<text x="186.0" y="148.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Repository Cache</text>
+<text x="186.0" y="165.9" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«cache»</text>
+<rect x="111.0" y="300.0" width="150.0" height="80.0" rx="4.0" fill="#ffd58f" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="186.0" y="338.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">SQL Repositories</text>
+<text x="186.0" y="355.9" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«component»</text>
+<polyline points="186.0,380.0 186.0,490.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon points="186.0,490.0 181.0,479.0 191.0,479.0" fill="#444b55"/>
+<rect x="182.0" y="486.0" width="8.0" height="8.0" rx="0.0" fill="#ffffff" stroke="#8a939e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="186.0,0.0 186.0,110.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon points="186.0,110.0 181.0,99.0 191.0,99.0" fill="#444b55"/>
+<rect x="182.0" y="-4.0" width="8.0" height="8.0" rx="0.0" fill="#ffffff" stroke="#8a939e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="186.0,190.0 186.0,300.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon points="186.0,300.0 181.0,289.0 191.0,289.0" fill="#444b55"/>
+<text x="178.0" y="480.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="end" fill="#8a939e">Database Server</text>
+<rect x="191.0" y="427.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="194.0" y="439.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[1]</text>
+<text x="178.0" y="20.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="end" fill="#8a939e">Application Services › [2]</text>
+<rect x="191.0" y="47.0" width="114.9" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="194.0" y="59.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">SpecRepository port</text>
+<rect x="191.0" y="237.0" width="122.1" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="194.0" y="249.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">on cache miss / writes</text>
+<text x="18.0" y="520.7" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#666666">Legend</text>
+<text x="18.0" y="546.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[1]</text>
+<text x="44.2" y="546.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">SQL (SQLite file or PostgreSQL)</text>
+<text x="18.0" y="563.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[2]</text>
+<text x="44.2" y="563.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">Application Services › Administration</text>
+</svg>

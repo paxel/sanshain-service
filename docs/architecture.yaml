@@ -1,0 +1,514 @@
+format: 1
+motivation: 'Sanshain sits between the build pipelines of many microservices: Build Tooling publishes specs as Producer and fetches pinned endpoint snippets as Consumer, while people use the web dashboard to inspect versions and the dependency graph. Human login can be delegated to LDAP/AD or an OIDC provider; machine clients always use API tokens. State lives in SQLite or PostgreSQL; traces and metrics go to an optional observability stack.'
+export:
+  all: true
+  svg: true
+  png: false
+  png_scale: 2
+  text: markdown
+  html: true
+  folder: arc42
+tags:
+- id: 44
+  name: business logic
+  color: '#a8d5f7'
+- id: 45
+  name: presentation
+  color: '#b8e6a8'
+- id: 46
+  name: infrastructure
+  color: '#ffd58f'
+blocks:
+- id: 1
+  name: Sanshain Service
+  kind: component
+  cell:
+    col: 0
+    row: 0
+  responsibility: 'Central registry for OpenAPI, AsyncAPI and gRPC specs: Producers publish versioned specs, Consumers download only the endpoints they pin, and the resulting dependency graph is tracked and shown.'
+  motivation: 'Hexagonal layering: the HTTP API translates REST requests into use cases; Application Services hold the business rules and depend on traits in the domain layer (models, permissions, ports - shared by every box, so not drawn). Infrastructure adapters implement those ports: Auth Providers for human login and Persistence for storage. Spec parsing is kept apart from the use cases so that the free validator and the publish path apply identical rules. Telemetry is fed by middleware layers on every request rather than by explicit calls.'
+- id: 2
+  name: User
+  kind: person
+  cell:
+    col: 0
+    row: -1
+  responsibility: Developer, maintainer or administrator who browses producers, versions, diffs and the dependency graph, and manages users, roles and settings.
+- id: 4
+  name: Build Tooling
+  kind: external_system
+  cell:
+    col: -1
+    row: 0
+  responsibility: Maven plugin, cargo-sanshain, Go CLI, JS client/GitHub Action and Conan plugin; publish specs for a Producer and fetch pinned endpoint snippets for a Consumer during CI builds.
+- id: 6
+  name: LDAP / Active Directory
+  kind: external_system
+  cell:
+    col: 1
+    row: 0
+  responsibility: Optional corporate directory that authenticates human users and supplies group memberships.
+- id: 8
+  name: OIDC Provider
+  kind: external_system
+  cell:
+    col: 1
+    row: -1
+  responsibility: Optional SSO identity provider for human login.
+- id: 10
+  name: Database Server
+  kind: database
+  cell:
+    col: 0
+    row: 1
+  responsibility: Stores specs, version lines, endpoints, pins, branches, users, roles and audit log. Embedded SQLite by default, PostgreSQL for larger deployments.
+- id: 12
+  name: Observability Stack
+  kind: external_system
+  cell:
+    col: 1
+    row: 1
+  responsibility: Optional OpenTelemetry collector receiving traces and Prometheus scraping request metrics.
+- id: 14
+  name: HTTP API
+  kind: component
+  parent: 1
+  tag: 44
+  cell:
+    col: 0
+    row: 0
+  responsibility: 'Axum router, handlers and middleware (src/presentation, src/lib.rs): REST endpoints for provide/require/report/admin/auth, token and session authentication, permission guards per route, SSE/WebSocket live updates and the /metrics endpoint.'
+  motivation: 'The endpoint groups follow the public REST surface documented in api.yaml: Build Tooling provides, requires and pulls reports; the Web UI uses reports, live updates, administration and login. Every group hands its work to the Application Services. Authentication, permission guards, CSRF and observability apply to every request alike, so they are drawn as the Request Guards band rather than as a box every line passes through.'
+- id: 15
+  name: Web UI
+  kind: ui
+  parent: 1
+  tag: 45
+  cell:
+    col: 0
+    row: -1
+  responsibility: 'Browser dashboard (static/*.html, static/js, askama templates): producers, consumers, version timelines, diffs, dependency graph, reports, audit, observability and admin pages, plus the anonymous spec validator.'
+- id: 17
+  name: Application Services
+  kind: component
+  parent: 1
+  tag: 44
+  cell:
+    col: 0
+    row: 1
+  responsibility: 'Use cases (src/application): provide and require specs, version-line rules, release branches and graph timelines, reports, administration, authentication and permission checks. Depends only on domain ports.'
+  motivation: 'Split by use case rather than by entity: the write path (Provide) and the read path (Require) were pulled out of spec_service so neither flow is interleaved with rules it does not need, and the version rules were isolated as pure functions so they can be decided without a database. Release graphs and reports, administration, and access control each form their own module. Every module except Version Rules is reached from the HTTP API. All of them except Version Rules also store through the SpecRepository port; to keep the diagram readable that line is drawn only from Administration.'
+- id: 19
+  name: Telemetry
+  kind: component
+  parent: 1
+  tag: 46
+  cell:
+    col: 1
+    row: 2
+  responsibility: OpenTelemetry tracer with OTLP exporter (src/infrastructure/telemetry.rs) and the Prometheus recorder behind /metrics; fed by the tracing and metric layers of every request.
+- id: 21
+  name: Spec Parsers
+  kind: component
+  parent: 1
+  tag: 44
+  cell:
+    col: -1
+    row: 1
+  responsibility: 'OpenAPI, AsyncAPI and Protobuf handling (src/openapi.rs, src/asyncapi.rs, src/proto.rs): validate documents, extract version and endpoints, cut endpoint snippets and detect breaking changes.'
+- id: 23
+  name: Repository Cache
+  kind: cache
+  parent: 60
+  tag: 46
+  cell:
+    col: 0
+    row: 2
+  responsibility: Moka-based caching decorator around the SpecRepository port (src/infrastructure/cached_repository.rs); configurable and clearable from the admin settings.
+- id: 25
+  name: Auth Providers
+  kind: component
+  parent: 1
+  tag: 46
+  cell:
+    col: 1
+    row: 1
+  responsibility: 'Adapters for human login (src/infrastructure/*_provider.rs, tls.rs): local Argon2 accounts, LDAP/AD bind and group lookup, and the OIDC authorization code flow.'
+- id: 27
+  name: SQL Repositories
+  kind: component
+  parent: 60
+  tag: 46
+  cell:
+    col: 0
+    row: 3
+  responsibility: sqlx implementations of SpecRepository for SQLite and PostgreSQL plus schema migrations (src/infrastructure/sqlite_repository.rs, postgres_repository.rs, database.rs, migrations).
+- id: 29
+  name: Provide
+  kind: component
+  parent: 17
+  tag: 44
+  cell:
+    col: 0
+    row: 0
+  responsibility: 'Publish use case (provide_service.rs, ADR-0003): accept a spec for a Producer, enforce version and stability rules, store the version line with its endpoints, promote snapshots to GA and harvest AsyncAPI subscribes.'
+- id: 30
+  name: Version Rules
+  kind: component
+  parent: 17
+  tag: 44
+  cell:
+    col: -1
+    row: 0
+  responsibility: Pure functions (version_rules.rs) that decide whether a candidate version is honest for its version line and propose the correct next version; no I/O.
+- id: 32
+  name: Spec Query
+  kind: component
+  parent: 17
+  tag: 44
+  cell:
+    col: 1
+    row: 1
+  responsibility: 'Read use cases (spec_service.rs): endpoint views, version listing, diffs, endpoint history and provide timeline, plus spec parsing and stream helpers shared with Provide and Require.'
+- id: 34
+  name: Require
+  kind: component
+  parent: 17
+  tag: 44
+  cell:
+    col: 1
+    row: 0
+  responsibility: 'Consume use case (require_service.rs, ADR-0003): resolve a Consumer''s pin to an exact version, return just the requested endpoint or bundle, and record the dependency and trunk/branch pins it implies.'
+- id: 36
+  name: Branches & Reports
+  kind: component
+  parent: 17
+  tag: 44
+  cell:
+    col: 2
+    row: 0
+  responsibility: 'Release graphs (branch_service.rs, report_service.rs, ADR-0004/0005): create, rename and delete sanshain-branches from trunk or another branch at an instant, timelines and graph diffs, and dependency reports scoped to dev, main or a branch (JSON, Markdown, isolation).'
+- id: 37
+  name: Access Control
+  kind: component
+  parent: 17
+  tag: 44
+  cell:
+    col: 3
+    row: 1
+  responsibility: 'Authentication and authorization (auth_service.rs, authz.rs, directory_roles.rs): password hashing, login and tokens, resolving an Actor with roles, groups and maintainer scopes, and short-lived caching of directory-derived roles.'
+- id: 38
+  name: Administration
+  kind: component
+  parent: 17
+  tag: 44
+  cell:
+    col: 2
+    row: 1
+  responsibility: 'Operator use cases (admin_service.rs): delete producers, consumers and versions, retention settings and cleanup of snapshots, dependencies and trunk data, user approval, and destructive resets.'
+- id: 47
+  name: Request Guards
+  kind: component
+  parent: 14
+  tag: 45
+  band: true
+  responsibility: 'Cross-cutting request handling every endpoint passes (middleware.rs, lib.rs): API token and session authentication, per-route permission guards, CSRF validation, CORS, compression, tracing and Prometheus layers feeding Telemetry, plus health/ready/metrics and HTML page routes.'
+- id: 48
+  name: Provide Endpoints
+  kind: component
+  parent: 14
+  tag: 44
+  cell:
+    col: -2
+    row: 1
+  responsibility: 'POST /provide, /provide/asyncapi, /provide/grpc (handlers/api.rs): a Producer publishes an OpenAPI, AsyncAPI or Protobuf spec version.'
+- id: 50
+  name: Require Endpoints
+  kind: component
+  parent: 14
+  tag: 44
+  cell:
+    col: -1
+    row: 1
+  responsibility: 'GET /require, /require/asyncapi, /require/grpc, POST /require-bundle, GET /endpoint-versions and /producers/{name}/versions (handlers/api.rs): a Consumer fetches pinned endpoint snippets and discovers versions.'
+- id: 52
+  name: Report & Validate Endpoints
+  kind: component
+  parent: 14
+  tag: 44
+  cell:
+    col: 0
+    row: 1
+  responsibility: 'GET /report, /report/markdown, /report/isolation and the anonymous POST /validate (handlers/api.rs): dependency reports and the free spec validator.'
+- id: 54
+  name: Live Update Endpoints
+  kind: component
+  parent: 14
+  tag: 44
+  cell:
+    col: 1
+    row: 1
+  responsibility: 'GET /api/sse/updates and /api/ws/updates, plus /api/audit/timeline (handlers/api.rs): push provide/require events to the dashboard and graph.'
+- id: 56
+  name: Admin Endpoints
+  kind: component
+  parent: 14
+  tag: 44
+  cell:
+    col: 2
+    row: 1
+  responsibility: '/admin/* (handlers/admin.rs, handlers/roles.rs): producers, versions, promotion, diffs, branches, trunk graph and timelines, consumers, users, roles, groups, maintainers, settings, cleanup, observability and audit.'
+- id: 58
+  name: Auth Endpoints
+  kind: component
+  parent: 14
+  tag: 44
+  cell:
+    col: 3
+    row: 1
+  responsibility: '/auth/login, /auth/oidc/login and callback, /auth/logout, /auth/register, /auth/me and /tokens (handlers/auth.rs): human login, sessions and API token management.'
+- id: 60
+  name: Persistence
+  kind: database
+  parent: 1
+  tag: 46
+  cell:
+    col: 0
+    row: 2
+  responsibility: 'Implements the SpecRepository port: a Moka cache in front of interchangeable sqlx repositories for SQLite and PostgreSQL, including schema migrations.'
+  motivation: The cache is a decorator over the same port the SQL repositories implement, so the use cases never know whether a read came from memory or the database; the backend is chosen at startup.
+relations:
+- id: 3
+  a:
+  - block: 1
+    side: top
+  - block: 15
+    side: top
+  b:
+  - block: 2
+    side: bottom
+  direction: in
+  text: web dashboard, graph, admin (HTTPS)
+- id: 5
+  a:
+  - block: 1
+    side: left
+  - block: 14
+    side: left
+  - block: 48
+    side: left
+  - block: 50
+    side: left
+  - block: 52
+    side: left
+  b:
+  - block: 4
+    side: right
+  direction: in
+  text: provide / require / report (REST, API token)
+- id: 7
+  a:
+  - block: 1
+    side: right
+  - block: 25
+    side: right
+  b:
+  - block: 6
+    side: left
+  direction: out
+  text: bind + group lookup (LDAP/LDAPS)
+- id: 9
+  a:
+  - block: 1
+    side: right
+  - block: 25
+    side: right
+  b:
+  - block: 8
+    side: left
+  direction: out
+  text: authorization code flow (HTTPS)
+- id: 11
+  a:
+  - block: 1
+    side: bottom
+  - block: 60
+    side: bottom
+  - block: 27
+    side: bottom
+  b:
+  - block: 10
+    side: top
+  direction: out
+  text: SQL (SQLite file or PostgreSQL)
+- id: 13
+  a:
+  - block: 1
+    side: bottom
+  - block: 19
+    side: bottom
+  b:
+  - block: 12
+    side: top
+  direction: bi
+  text: OTLP traces (gRPC) / Prometheus scrape /metrics
+- id: 16
+  owner: 1
+  a:
+  - block: 14
+    side: top
+  - block: 52
+    side: top
+  - block: 54
+    side: top
+  - block: 56
+    side: top
+  - block: 58
+    side: top
+  b:
+  - block: 15
+    side: bottom
+  direction: in
+  text: fetch JSON, SSE/WS updates
+- id: 18
+  owner: 1
+  a:
+  - block: 14
+    side: bottom
+  - block: 48
+    side: bottom
+  - block: 50
+    side: bottom
+  - block: 52
+    side: bottom
+  - block: 54
+    side: bottom
+  - block: 56
+    side: bottom
+  - block: 58
+    side: bottom
+  b:
+  - block: 17
+    side: top
+  - block: 29
+    side: top
+  - block: 34
+    side: top
+  - block: 32
+    side: top
+  - block: 36
+    side: top
+  - block: 38
+    side: top
+  - block: 37
+    side: top
+  direction: out
+  text: use cases
+- id: 22
+  owner: 1
+  a:
+  - block: 17
+    side: left
+  - block: 32
+    side: left
+  b:
+  - block: 21
+    side: right
+  direction: out
+  text: parse, validate, split, diff
+- id: 24
+  owner: 1
+  a:
+  - block: 17
+    side: bottom
+  - block: 38
+    side: bottom
+  b:
+  - block: 60
+    side: top
+  - block: 23
+    side: top
+  direction: out
+  text: SpecRepository port
+- id: 26
+  owner: 1
+  a:
+  - block: 17
+    side: right
+  - block: 37
+    side: right
+  b:
+  - block: 25
+    side: left
+  direction: out
+  text: AuthProvider / DirectoryGroups / OidcFlow ports
+- id: 28
+  owner: 60
+  a:
+  - block: 23
+    side: bottom
+  b:
+  - block: 27
+    side: top
+  direction: out
+  text: on cache miss / writes
+- id: 35
+  owner: 17
+  a:
+  - block: 32
+    side: top
+  b:
+  - block: 34
+    side: bottom
+  direction: in
+  text: resolve stream
+- id: 39
+  owner: 17
+  a:
+  - block: 36
+    side: bottom
+  b:
+  - block: 38
+    side: top
+  direction: out
+  text: retention settings (trunk max age)
+- id: 40
+  owner: 17
+  a:
+  - block: 29
+    side: right
+  b:
+  - block: 34
+    side: left
+  direction: out
+  text: count branch update
+- id: 41
+  owner: 17
+  a:
+  - block: 38
+    side: right
+  b:
+  - block: 37
+    side: left
+  direction: out
+  text: producer permission check
+- id: 42
+  owner: 17
+  a:
+  - block: 29
+    side: left
+  b:
+  - block: 30
+    side: right
+  direction: out
+  text: check compatibility, propose next version
+- id: 43
+  owner: 17
+  a:
+  - block: 29
+    side: right
+  b:
+  - block: 32
+    side: left
+  direction: out
+  text: shared parsing / stream helpers

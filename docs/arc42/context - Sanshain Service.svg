@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="971" height="1140" viewBox="-12.0 -12.0 971.4 1140.0">
+<rect x="-12.0" y="-12.0" width="971.4" height="1140.0" fill="#ffffff"/>
+<rect x="4.0" y="4.0" width="939.4" height="902.0" rx="4.0" fill="none" stroke="#8a939e" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="16.0" y="25.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="start" fill="#8a939e">Sanshain Service (whitebox)</text>
+<rect x="379.5" y="300.0" width="150.0" height="80.0" rx="4.0" fill="#a8d5f7" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="454.5" y="338.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">HTTP API</text>
+<text x="454.5" y="355.9" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«component»</text>
+<rect x="507.5" y="362.0" width="14.0" height="10.0" rx="1.0" fill="none" stroke="#666666" stroke-width="1" stroke-linejoin="round"/>
+<rect x="510.5" y="365.0" width="4.0" height="4.0" rx="0.0" fill="#666666"/>
+<rect x="379.5" y="110.0" width="150.0" height="80.0" rx="4.0" fill="#b8e6a8" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<polyline points="379.5,124.0 529.5,124.0" fill="none" stroke="#222222" stroke-width="1" stroke-linejoin="round"/>
+<circle cx="388.5" cy="117.0" r="2.2" fill="#222222"/>
+<circle cx="396.5" cy="117.0" r="2.2" fill="#222222"/>
+<circle cx="404.5" cy="117.0" r="2.2" fill="#222222"/>
+<text x="454.5" y="148.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Web UI</text>
+<text x="454.5" y="165.9" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«UI»</text>
+<rect x="370.0" y="510.0" width="168.9" height="80.0" rx="4.0" fill="#a8d5f7" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="454.5" y="548.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Application Services</text>
+<text x="454.5" y="565.8" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«component»</text>
+<rect x="516.9" y="572.0" width="14.0" height="10.0" rx="1.0" fill="none" stroke="#666666" stroke-width="1" stroke-linejoin="round"/>
+<rect x="519.9" y="575.0" width="4.0" height="4.0" rx="0.0" fill="#666666"/>
+<rect x="648.9" y="720.0" width="150.0" height="80.0" rx="4.0" fill="#ffd58f" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="723.9" y="758.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Telemetry</text>
+<text x="723.9" y="775.8" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«component»</text>
+<rect x="110.0" y="510.0" width="150.0" height="80.0" rx="4.0" fill="#a8d5f7" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="185.0" y="548.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Spec Parsers</text>
+<text x="185.0" y="565.8" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«component»</text>
+<rect x="648.9" y="490.0" width="150.0" height="120.0" rx="4.0" fill="#ffd58f" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="723.9" y="548.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Auth Providers</text>
+<text x="723.9" y="565.8" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«component»</text>
+<polygon points="379.5,730.0 379.5,790.0 380.1,791.3 382.0,792.6 385.2,793.8 389.5,795.0 395.0,796.1 401.4,797.1 408.8,797.9 417.0,798.7 425.8,799.2 435.1,799.7 444.7,799.9 454.5,800.0 464.3,799.9 473.9,799.7 483.2,799.2 492.0,798.7 500.1,797.9 507.5,797.1 514.0,796.1 519.4,795.0 523.8,793.8 526.9,792.6 528.8,791.3 529.5,790.0 529.5,730.0 529.5,730.0 528.8,728.7 526.9,727.4 523.8,726.2 519.4,725.0 514.0,723.9 507.5,722.9 500.1,722.1 492.0,721.3 483.2,720.8 473.9,720.3 464.3,720.1 454.5,720.0 444.7,720.1 435.1,720.3 425.8,720.8 417.0,721.3 408.8,722.1 401.4,722.9 395.0,723.9 389.5,725.0 385.2,726.2 382.0,727.4 380.1,728.7 379.5,730.0" fill="#ffd58f" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<polyline points="529.5,730.0 526.9,732.6 519.4,735.0 507.5,737.1 492.0,738.7 473.9,739.7 454.5,740.0 435.1,739.7 417.0,738.7 401.4,737.1 389.5,735.0 382.0,732.6 379.5,730.0 382.0,727.4 389.5,725.0 401.4,722.9 417.0,721.3 435.1,720.3 454.5,720.0 473.9,720.3 492.0,721.3 507.5,722.9 519.4,725.0 526.9,727.4 529.5,730.0 529.5,730.0" fill="none" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="454.5" y="758.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Persistence</text>
+<text x="454.5" y="775.8" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«database»</text>
+<rect x="507.5" y="782.0" width="14.0" height="10.0" rx="1.0" fill="none" stroke="#666666" stroke-width="1" stroke-linejoin="round"/>
+<rect x="510.5" y="785.0" width="4.0" height="4.0" rx="0.0" fill="#666666"/>
+<polyline points="454.5,110.0 454.5,0.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon points="454.5,110.0 449.5,99.0 459.5,99.0" fill="#444b55"/>
+<rect x="450.5" y="-4.0" width="8.0" height="8.0" rx="0.0" fill="#ffffff" stroke="#8a939e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="379.5,340.0 0.0,340.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon points="379.5,340.0 368.5,345.0 368.5,335.0" fill="#444b55"/>
+<rect x="-4.0" y="336.0" width="8.0" height="8.0" rx="0.0" fill="#ffffff" stroke="#8a939e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="798.9,550.0 947.4,550.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon points="947.4,550.0 936.4,555.0 936.4,545.0" fill="#444b55"/>
+<rect x="943.4" y="546.0" width="8.0" height="8.0" rx="0.0" fill="#ffffff" stroke="#8a939e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="798.9,590.0 947.4,590.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon points="947.4,590.0 936.4,595.0 936.4,585.0" fill="#444b55"/>
+<rect x="943.4" y="586.0" width="8.0" height="8.0" rx="0.0" fill="#ffffff" stroke="#8a939e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="454.5,800.0 454.5,910.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon points="454.5,910.0 449.5,899.0 459.5,899.0" fill="#444b55"/>
+<rect x="450.5" y="906.0" width="8.0" height="8.0" rx="0.0" fill="#ffffff" stroke="#8a939e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="723.9,800.0 723.9,910.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon points="723.9,800.0 728.9,811.0 718.9,811.0" fill="#444b55"/>
+<polygon points="723.9,910.0 718.9,899.0 728.9,899.0" fill="#444b55"/>
+<rect x="719.9" y="906.0" width="8.0" height="8.0" rx="0.0" fill="#ffffff" stroke="#8a939e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="454.5,300.0 454.5,190.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon points="454.5,300.0 449.5,289.0 459.5,289.0" fill="#444b55"/>
+<polyline points="454.5,380.0 454.5,510.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon points="454.5,510.0 449.5,499.0 459.5,499.0" fill="#444b55"/>
+<polyline points="370.0,550.0 260.0,550.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon points="260.0,550.0 271.0,545.0 271.0,555.0" fill="#444b55"/>
+<polyline points="454.5,590.0 454.5,720.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon points="454.5,720.0 449.5,709.0 459.5,709.0" fill="#444b55"/>
+<polyline points="538.9,550.0 648.9,550.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon points="648.9,550.0 637.9,555.0 637.9,545.0" fill="#444b55"/>
+<text x="446.5" y="20.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="end" fill="#8a939e">User</text>
+<rect x="459.5" y="47.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="462.5" y="59.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[1]</text>
+<text x="8.0" y="357.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#8a939e">Build Tooling</text>
+<rect x="179.6" y="321.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="182.6" y="333.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[2]</text>
+<text x="939.4" y="567.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="end" fill="#8a939e">LDAP / Active Directory</text>
+<rect x="863.1" y="531.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="866.1" y="543.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[3]</text>
+<text x="939.4" y="607.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="end" fill="#8a939e">OIDC Provider</text>
+<rect x="863.1" y="571.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="866.1" y="583.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[4]</text>
+<text x="446.5" y="900.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="end" fill="#8a939e">Database Server</text>
+<rect x="459.5" y="847.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="462.5" y="859.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[5]</text>
+<text x="715.9" y="900.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="end" fill="#8a939e">Observability Stack</text>
+<rect x="728.9" y="847.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="731.9" y="859.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[6]</text>
+<rect x="459.5" y="237.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="462.5" y="249.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[7]</text>
+<rect x="459.5" y="437.0" width="55.8" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="462.5" y="449.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">use cases</text>
+<rect x="304.9" y="531.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="307.9" y="543.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[8]</text>
+<rect x="459.5" y="647.0" width="114.9" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="462.5" y="659.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">SpecRepository port</text>
+<rect x="583.8" y="531.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="586.8" y="543.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[9]</text>
+<text x="18.0" y="940.7" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#666666">Legend</text>
+<text x="18.0" y="966.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[1]</text>
+<text x="44.2" y="966.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">web dashboard, graph, admin (HTTPS)</text>
+<text x="18.0" y="983.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[2]</text>
+<text x="44.2" y="983.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">provide / require / report (REST, API token)</text>
+<text x="18.0" y="1000.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[3]</text>
+<text x="44.2" y="1000.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">bind + group lookup (LDAP/LDAPS)</text>
+<text x="18.0" y="1017.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[4]</text>
+<text x="44.2" y="1017.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">authorization code flow (HTTPS)</text>
+<text x="18.0" y="1034.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[5]</text>
+<text x="44.2" y="1034.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">SQL (SQLite file or PostgreSQL)</text>
+<text x="18.0" y="1051.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[6]</text>
+<text x="44.2" y="1051.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">OTLP traces (gRPC) / Prometheus scrape /metrics</text>
+<text x="18.0" y="1068.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[7]</text>
+<text x="44.2" y="1068.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">fetch JSON, SSE/WS updates</text>
+<text x="18.0" y="1085.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[8]</text>
+<text x="44.2" y="1085.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">parse, validate, split, diff</text>
+<text x="18.0" y="1102.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[9]</text>
+<text x="44.2" y="1102.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">AuthProvider / DirectoryGroups / OidcFlow ports</text>
+</svg>
