@@ -1,0 +1,16 @@
+= Sanshain Service
+
+== Context and scope
+
+include::context.adoc[]
+
+== Building block view
+
+include::context - Sanshain Service.adoc[]
+
+include::context - Sanshain Service - Application Services.adoc[]
+
+include::context - Sanshain Service - HTTP API.adoc[]
+
+include::context - Sanshain Service - Persistence.adoc[]
+
