@@ -50,6 +50,7 @@ export default [
         fetchJSON: "readonly",
         graphEdgeFlags: "readonly",
         graphLatestGaMap: "readonly",
+        graphPeripheralLabel: "readonly",
         hasPermission: "readonly",
         loadTimeline: "readonly",
         loadUserFavorites: "readonly",

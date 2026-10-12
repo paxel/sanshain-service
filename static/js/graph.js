@@ -15,6 +15,8 @@ window.graphProtocolFilters = {
   openapi: true,
   asyncapi: true,
   proto: true,
+  // Peripheral Resources (#46) — shown by default, hideable like a protocol.
+  periphery: true,
 };
 // Independent display-state highlights (never resolution inputs):
 // outdated = Pin below the line's latest GA within the same major;
@@ -38,6 +40,33 @@ window.graphTimelineAt = null;
 window.graphTimelinePins = null;
 window.graphTimelineDates = [];
 window.graphUserPermissions = [];
+// Periphery (#46) of the main/branch view at the timeline position, fetched
+// per scope; the dev view reads the report's own set instead.
+window.graphScopePeriphery = null;
+
+// A Peripheral Resource node is keyed by its full Backstage ref; it is shown
+// as `name`, or `namespace/name` outside the default namespace.
+function graphPeripheralLabel(ref) {
+  const rest = ref.replace(/^resource:/, "");
+  return rest.startsWith("default/") ? rest.slice("default/".length) : rest;
+}
+window.graphPeripheralLabel = graphPeripheralLabel;
+
+// Fetch the periphery of the current main/branch view at the current
+// timeline position. A past instant gets the periphery as it was then —
+// today's set must never be drawn onto a reconstructed graph.
+async function graphFetchScopePeriphery(view, branchName, at) {
+  if (view === "dev") return null;
+  let scope = view === "main" ? "main" : branchName;
+  if (at) scope += `@${at}`;
+  try {
+    const res = await apiCall(`/admin/periphery?scope=${encodeURIComponent(scope)}`);
+    return res.ok ? await res.json() : [];
+  } catch (e) {
+    console.warn("Could not load the periphery:", e);
+    return [];
+  }
+}
 
 // Per (service, api_type): the newest trunk-marked version of the line —
 // what the main view labels producers with and checks conflicts against.
@@ -117,6 +146,8 @@ function graphEdgeFlags(report, latestGaMap, trunkVersionMap) {
     // to be outdated/behind, and no last_required_at to be stale. Skip the
     // version-based classification for them.
     if (d.harvested) return;
+    // Peripheral edges (#46) carry no version either.
+    if (d.peripheral) return;
     // Main view: a pin not refreshed since half the trunk TTL is a
     // forgotten thing — shown as such before the cleanup culls it.
     if (staleBefore && d.last_required_at && d.last_required_at < staleBefore) f.stale = true;
@@ -322,6 +353,26 @@ function getFilteredReport(report) {
     });
   });
 
+  // Peripheral Resources (#46): edges from a system to what its Backstage
+  // catalog-info lists under dependsOn — their own node kind, no version.
+  const periphery =
+    window.graphStreamView === "dev"
+      ? report.peripheral_dependencies || []
+      : window.graphScopePeriphery || [];
+  periphery.forEach((p) => {
+    deps.push({
+      api_type: "periphery",
+      client: p.system,
+      service: p.resource,
+      version: null,
+      stability: null,
+      path: p.resource,
+      method: "DEPENDS",
+      deprecated: false,
+      peripheral: true,
+    });
+  });
+
   // 1. Circular dependencies filter
   if (window.graphRedrawMode === "circular") {
     const adjMap = new Map();
@@ -369,6 +420,7 @@ function getFilteredReport(report) {
     if (type === "openapi" && !window.graphProtocolFilters.openapi) return false;
     if (type === "asyncapi" && !window.graphProtocolFilters.asyncapi) return false;
     if (type === "proto" && !window.graphProtocolFilters.proto) return false;
+    if (type === "periphery" && !window.graphProtocolFilters.periphery) return false;
     return true;
   });
 
@@ -417,9 +469,18 @@ function setStreamView(view) {
   });
   window.graphTimelineAt = null;
   window.graphTimelinePins = null;
+  window.graphScopePeriphery = null;
   initTimelineSlider();
   refreshTimeline();
   redrawGraph();
+  const branchName = window.graphBranchName;
+  graphFetchScopePeriphery(view, branchName, null).then((periphery) => {
+    // Only apply if the user is still on the view this was fetched for.
+    if (window.graphStreamView !== view || window.graphBranchName !== branchName) return;
+    if (window.graphTimelineAt) return;
+    window.graphScopePeriphery = periphery;
+    redrawGraph();
+  });
 }
 window.setStreamView = setStreamView;
 
@@ -460,11 +521,20 @@ async function setTimelinePosition(at) {
   const slider = document.getElementById("graph-timeline-slider");
   const label = document.getElementById("graph-timeline-label");
   if (at === null) {
-    window._graphTimelineToken = (window._graphTimelineToken || 0) + 1;
+    const token = (window._graphTimelineToken || 0) + 1;
+    window._graphTimelineToken = token;
     window.graphTimelineAt = null;
     window.graphTimelinePins = null;
     slider.value = slider.max;
     label.textContent = "now";
+    redrawGraph();
+    const periphery = await graphFetchScopePeriphery(
+      window.graphStreamView,
+      window.graphBranchName,
+      null,
+    );
+    if (token !== window._graphTimelineToken) return;
+    window.graphScopePeriphery = periphery;
     redrawGraph();
     return;
   }
@@ -486,8 +556,11 @@ async function setTimelinePosition(at) {
     if (!res.ok || token !== window._graphTimelineToken) return;
     const pins = await res.json();
     if (token !== window._graphTimelineToken) return;
+    const periphery = await graphFetchScopePeriphery(view, window.graphBranchName, at);
+    if (token !== window._graphTimelineToken) return;
     window.graphTimelinePins = pins;
     window.graphTimelineAt = at;
+    window.graphScopePeriphery = periphery;
     redrawGraph();
   } catch (e) {
     console.warn("Could not load the graph at that instant:", e);
@@ -796,6 +869,11 @@ function renderCustomGraph(report, svgElement, direction) {
   const clientNodes = new Set(deps.map((d) => d.client));
   const serviceNodes = new Set(deps.map((d) => d.service));
   const cycleEdges = graphDetectCycles(adjMap);
+  // Peripheral Resources (#46) and the edges leading to them.
+  const peripheralNodes = new Set(deps.filter((d) => d.peripheral).map((d) => d.service));
+  const peripheralEdges = new Set(
+    deps.filter((d) => d.peripheral).map((d) => `${d.client}-->${d.service}`),
+  );
 
   // Outdated / Snapshot-pinned flags per aggregated edge — and in the main
   // view, major-lag conflicts against the producer's trunk version.
@@ -937,7 +1015,8 @@ function renderCustomGraph(report, svgElement, direction) {
 
   for (const node of allNodes) {
     const meta = serviceMetaMap.get(node);
-    const m = _measureNode(node, !!(meta && meta.icon));
+    const label = peripheralNodes.has(node) ? graphPeripheralLabel(node) : node;
+    const m = _measureNode(label, !!(meta && meta.icon));
     nodeMetrics.set(node, m);
     g.setNode(node, { label: node, width: m.width, height: m.height });
     if (meta && meta.domain) {
@@ -1269,7 +1348,14 @@ function renderCustomGraph(report, svgElement, direction) {
     // stale/dangling branches had just chosen.
     let edgeColor, edgeWidth, markerEnd;
     let dashArray = null;
-    if (isCycle) {
+    const isPeripheral = peripheralEdges.has(key);
+    if (isPeripheral) {
+      // Outside Sanshain: a thin dashed slate line, never a pin colour.
+      edgeColor = "#64748b";
+      edgeWidth = "1.5";
+      dashArray = "4 3";
+      markerEnd = "url(#arrow)";
+    } else if (isCycle) {
       edgeColor = "#a855f7";
       edgeWidth = "3";
       markerEnd = "url(#arrow-red)";
@@ -1321,7 +1407,8 @@ function renderCustomGraph(report, svgElement, direction) {
     path.setAttribute("class", "graph-edge");
     path.dataset.from = e.v;
     path.dataset.to = e.w;
-    if (isCycle) path.dataset.edgeType = "circular";
+    if (isPeripheral) path.dataset.edgeType = "peripheral";
+    else if (isCycle) path.dataset.edgeType = "circular";
     else if (isMissing) path.dataset.edgeType = "missing";
     else if (isMessagingRegister) path.dataset.edgeType = "messaging-register";
     else if (isBidirectionalPubSub) path.dataset.edgeType = "pubsub-bidir";
@@ -1358,7 +1445,12 @@ function renderCustomGraph(report, svgElement, direction) {
     // Determine node colors
     let fill, stroke, textColor;
 
-    if (isMissingService) {
+    const isPeripheralNode = peripheralNodes.has(node);
+    if (isPeripheralNode) {
+      fill = "#f1f5f9";
+      stroke = "#64748b";
+      textColor = "#334155";
+    } else if (isMissingService) {
       fill = "#fff7ed";
       stroke = "#f97316";
       textColor = "#9a3412";
@@ -1381,7 +1473,8 @@ function renderCustomGraph(report, svgElement, direction) {
     group.dataset.node = node;
     if (nodeTags.length > 0) group.dataset.tags = nodeTags.join(",");
     // Set role for legend highlighting
-    if (isMissingService) group.dataset.role = "missing";
+    if (isPeripheralNode) group.dataset.role = "peripheral";
+    else if (isMissingService) group.dataset.role = "missing";
     else if (hasTag("messaging")) group.dataset.role = "tag-messaging";
     else if (hasTag("grpc")) group.dataset.role = "tag-grpc";
     else if (isClient && isService) group.dataset.role = "both";
@@ -1406,6 +1499,7 @@ function renderCustomGraph(report, svgElement, direction) {
     rect.setAttribute("stroke", stroke);
     rect.setAttribute("stroke-width", "2");
     if (isMissingService) rect.setAttribute("stroke-dasharray", "6 3");
+    if (isPeripheralNode) rect.setAttribute("stroke-dasharray", "4 3");
     group.appendChild(rect);
 
     // Add Symbols (Top-Left: ! for missing, Top-Right: ✉️ for AsyncAPI, 🔌 for gRPC)
@@ -1452,7 +1546,7 @@ function renderCustomGraph(report, svgElement, direction) {
     });
 
     // Double border for "both" nodes
-    if (isClient && isService) {
+    if (isClient && isService && !isPeripheralNode) {
       const inner = document.createElementNS("http://www.w3.org/2000/svg", "rect");
       inner.setAttribute("x", nd.x - nd.width / 2 + 4);
       inner.setAttribute("y", nd.y - nd.height / 2 + 4);
@@ -1499,7 +1593,7 @@ function renderCustomGraph(report, svgElement, direction) {
       group.appendChild(text);
     });
 
-    if (node.length > 25) {
+    if (isPeripheralNode || node.length > 25) {
       // Show full name on hover if it was wrapped/truncated
       const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
       title.textContent = node;
@@ -1581,6 +1675,10 @@ function renderCustomGraph(report, svgElement, direction) {
             const type = d.api_type || "OpenAPI";
             const isVirtual = path === "register";
 
+            if (d.peripheral) {
+              return `<div class="text-slate-300 text-[11px] py-1">depends on <span class="font-mono">${_graphEscapeHtml(path)}</span> <span class="text-slate-500">(Backstage)</span></div>`;
+            }
+
             if (isVirtual) {
               return `<div class="text-slate-400 italic text-[11px] py-1 border-b border-slate-800/50 last:border-0">${_graphEscapeHtml(method)} ${_graphEscapeHtml(path)}</div>`;
             }
@@ -1640,6 +1738,19 @@ function renderCustomGraph(report, svgElement, direction) {
     if (tooltipHideTimer) {
       clearTimeout(tooltipHideTimer);
       tooltipHideTimer = null;
+    }
+
+    if (name.startsWith("resource:")) {
+      tooltip.innerHTML = `
+        <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Peripheral Resource</div>
+        <div class="font-bold text-white break-all">${_graphEscapeHtml(name)}</div>
+        <div class="text-[11px] text-slate-400 mt-1">Outside Sanshain — declared in a system's Backstage catalog-info.yaml (dependsOn).</div>
+      `;
+      tooltip.style.display = "block";
+      tooltip.style.left = Math.max(10, e.clientX + 8) + "px";
+      tooltip.style.top = Math.max(10, e.clientY + 8) + "px";
+      tooltip.style.opacity = "1";
+      return;
     }
 
     const tags = report?.service_tags?.[name] || [];

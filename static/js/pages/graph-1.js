@@ -246,7 +246,13 @@ async function renderGraph(report, detailed) {
     if (!adjMap.get(from).includes(to)) adjMap.get(from).push(to);
     const key = `${from}-->${to}`;
     if (!edgeLabels.has(key)) edgeLabels.set(key, new Set());
-    edgeLabels.get(key).add(`[${d.api_type || "REST"}] ${d.method} ${d.path} @${d.version}`);
+    edgeLabels
+      .get(key)
+      .add(
+        d.peripheral
+          ? "depends on"
+          : `[${d.api_type || "REST"}] ${d.method} ${d.path} @${d.version}`,
+      );
   });
 
   const cycleEdges = detectCycles(adjMap);
@@ -260,6 +266,10 @@ async function renderGraph(report, detailed) {
 
   const clientNodes = new Set(report.dependency_graph.map((d) => d.client));
   const serviceNodes = new Set(report.dependency_graph.map((d) => d.service));
+  // Peripheral Resources (#46): drawn as cylinders with a dashed outline.
+  const peripheralNodes = new Set(
+    report.dependency_graph.filter((d) => d.peripheral).map((d) => d.service),
+  );
 
   // Per-edge highlight flags (Outdated / Snapshot-pinned).
   const latestGaMap = graphLatestGaMap(report);
@@ -271,13 +281,17 @@ async function renderGraph(report, detailed) {
   mmd += "  classDef clientOnly fill:#ccfbf1,stroke:#14b8a6,stroke-width:2px,color:#115e59\n";
   mmd += "  classDef both fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n";
   mmd += "  classDef cycleEdge stroke:#ef4444,stroke-width:3px\n";
+  mmd +=
+    "  classDef peripheral fill:#f1f5f9,stroke:#64748b,stroke-width:1.5px,stroke-dasharray:4 3,color:#334155\n";
   mmd += "  linkStyle default stroke:#94a3b8,stroke-width:2px\n";
 
   for (const node of allNodes) {
     const id = sanitizeId(node);
     const isClient = clientNodes.has(node);
     const isService = serviceNodes.has(node);
-    if (isClient && isService) {
+    if (peripheralNodes.has(node)) {
+      mmd += `  ${id}[("${graphPeripheralLabel(node)}")]\n`;
+    } else if (isClient && isService) {
       mmd += `  ${id}["${node}"]\n`;
     } else if (isService) {
       mmd += `  ${id}["${node}"]\n`;
@@ -290,7 +304,9 @@ async function renderGraph(report, detailed) {
     const id = sanitizeId(node);
     const isClient = clientNodes.has(node);
     const isService = serviceNodes.has(node);
-    if (isClient && isService) {
+    if (peripheralNodes.has(node)) {
+      mmd += `  class ${id} peripheral\n`;
+    } else if (isClient && isService) {
       mmd += `  class ${id} both\n`;
     } else if (isService) {
       mmd += `  class ${id} serviceOnly\n`;
@@ -425,6 +441,14 @@ async function runGraphDiff() {
   for (const p of diff.pins_removed)
     rows.push(
       `<div class="text-red-700">− ${escapeHtml(p.client)} → ${escapeHtml(p.service)} ${escapeHtml(p.method)} ${escapeHtml(p.path)} @ ${escapeHtml(p.version)}</div>`,
+    );
+  for (const p of diff.periphery_added || [])
+    rows.push(
+      `<div class="text-green-700">+ ${escapeHtml(p.system)} ⇢ ${escapeHtml(p.resource)}</div>`,
+    );
+  for (const p of diff.periphery_removed || [])
+    rows.push(
+      `<div class="text-red-700">− ${escapeHtml(p.system)} ⇢ ${escapeHtml(p.resource)}</div>`,
     );
   for (const p of diff.pins_changed)
     rows.push(
@@ -563,6 +587,7 @@ function updateGraphUrl(push = false) {
   if (!window.graphProtocolFilters.openapi) hiddenProtocols.push("openapi");
   if (!window.graphProtocolFilters.asyncapi) hiddenProtocols.push("asyncapi");
   if (!window.graphProtocolFilters.proto) hiddenProtocols.push("proto");
+  if (!window.graphProtocolFilters.periphery) hiddenProtocols.push("periphery");
   const hide_protocols = hiddenProtocols.join(",");
 
   const highlights = [];
@@ -608,9 +633,10 @@ function restoreGraphFiltersFromUrl() {
     openapi: !hiddenSet.has("openapi"),
     asyncapi: !hiddenSet.has("asyncapi"),
     proto: !hiddenSet.has("proto"),
+    periphery: !hiddenSet.has("periphery"),
   };
 
-  ["openapi", "asyncapi", "proto"].forEach((p) => {
+  ["openapi", "asyncapi", "proto", "periphery"].forEach((p) => {
     const btn = document.getElementById(`filter-${p}`);
     if (btn) {
       if (window.graphProtocolFilters[p]) {
