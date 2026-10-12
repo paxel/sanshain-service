@@ -9,6 +9,7 @@ A `sanshain.yaml` file lives in the root of a project and declares:
 1. **Connection settings** — Sanshain server URL (optional in file), compression.
 2. **Provide(s)** — Which API spec(s) this project publishes (OpenAPI, AsyncAPI, and/or Proto). The **version is never configured here** — it lives in the spec file itself (`info.version`, or a `// sanshain-version:` comment for proto). What the file configures is how the plugin decides the **stability** (`snapshot` or `ga`) of each Provide.
 3. **Requires** — Which endpoints/channels from other services this project depends on, each **pinned to an exact version**.
+4. **Catalog info** *(optional)* — The project's Backstage `catalog-info.yaml`, whose `dependsOn` tells Sanshain which **Peripheral Resources** (databases, buckets, queues…) the project depends on, so the network graph can show them.
 
 Client plugins read this file and translate it into the appropriate `/provide`, `/provide/asyncapi`, `/provide/grpc`, `/require`, and `/require-bundle` API calls.
 
@@ -64,11 +65,12 @@ requires:
 
 ### Top-Level Fields
 
-| Field             | Type    | Required | Default              | Description                                                                                       |
-|-------------------|---------|----------|----------------------|---------------------------------------------------------------------------------------------------|
-| `sanshainUrl`     | string  | no       | —                    | Base URL of the Sanshain Service instance. Recommended to provide via ENV.                        |
-| `serviceName`     | string  | **yes**  | —                    | Name identifying this project (both for providing and requiring APIs).                            |
-| `compression`     | boolean | no       | `false`              | Whether to request gzip-compressed responses.                                                     |
+| Field         | Type    | Required | Default | Description                                                                                               |
+|---------------|---------|----------|---------|-----------------------------------------------------------------------------------------------------------|
+| `sanshainUrl` | string  | no       | —       | Base URL of the Sanshain Service instance. Recommended to provide via ENV.                                |
+| `serviceName` | string  | **yes**  | —       | Name identifying this project (both for providing and requiring APIs).                                    |
+| `compression` | boolean | no       | `false` | Whether to request gzip-compressed responses.                                                             |
+| `catalogInfo` | string  | no       | —       | Path to the project's Backstage `catalog-info.yaml`. When set, the build pushes it (see "Catalog Phase"). |
 
 ### How stability is decided
 
@@ -534,6 +536,31 @@ The client receives a `.proto` file containing only the `InventoryService` defin
    **Idempotency**: re-providing byte-identical content is a no-op — `changes` reports all zero. CI re-runs of the same commit never fight.
 
 3. **Handle a `409` rejection**: the body carries `proposed_version` — the next free version, bumped by what actually changed (breaking → major, additive → minor, shape-identical → patch). Every rejection is self-service: set the spec file's version to `proposed_version` (or an appropriate higher one) and republish. There is nothing to pull or sync — the fix is always a version bump in your own spec file. A `400` means the document itself is invalid — most commonly a missing or non-semver version.
+
+### Catalog Phase
+
+Only when `catalogInfo` is set. Once per build:
+
+1. Read the file at `catalogInfo`.
+2. Call `PUT /catalog/<root.serviceName>` with:
+   ```json
+   {
+     "catalog_info_yaml": "<file content>",
+     "trunk": true
+   }
+   ```
+   `trunk` follows the same switch as provides and requires (ADR-0004).
+3. **Handle the response**: `200` returns the recorded resources, e.g.
+   `{"system": "orders-service", "trunk": true, "resources": ["resource:default/orders-db"]}`.
+   A `400` means Sanshain could not read the file as this project's Component. The usual cause is a
+   `metadata.name` that is not the `serviceName`. Fail the build so the mismatch is fixed.
+
+What Sanshain reads: only the `Component` whose `metadata.name` equals `serviceName`, and of it only
+`spec.dependsOn`. Only `resource:` refs become graph nodes; `component:` refs, `consumesApis` and
+everything else are ignored, because connections between services are what `requires` already
+records. A ref without a kind counts as a `resource`, and a ref without a namespace takes the
+Component's namespace. Each push replaces the previous set, so removing a line from `dependsOn`
+removes the resource from the graph.
 
 ### Require Phase
 

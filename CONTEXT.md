@@ -120,6 +120,13 @@ no ranges, no "latest", and no default: what a Consumer builds against changes o
 edits the Pin.
 _Avoid_: requirement, target version, constraint
 
+**Peripheral Resource**:
+Something outside Sanshain a Producer or Consumer depends on — a database, bucket, queue — known
+only by its Backstage entity ref (`resource:<namespace>/<name>`), read from the `dependsOn` of the
+system's own `catalog-info.yaml`. One node per ref, shared by every system that names it. Never a
+Producer or Consumer, and never an edge between two systems: those stay Sanshain's own.
+_Avoid_: external service, dependency (without qualifier), infrastructure
+
 **Actor**:
 The authenticated caller behind a request. Always what the audit log records; never overridable.
 The Actor is also the attribution shown on a Version — the last provider — with one exception:
