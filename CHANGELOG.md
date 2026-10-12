@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - `PUT /catalog/{systemname}`: a build can push its Backstage `catalog-info.yaml`, and Sanshain records the **Peripheral Resources** (databases, buckets, queues…) the system's Component lists under `dependsOn`. Only `resource:` refs are read, and each push replaces the system's previous set. A trunk build updates the main graph as well as the dev graph. A file without a Component named like the system is rejected (`400`), so a name mismatch fails the build.
+- `/report` carries `peripheral_dependencies` (system → resource edges) for its scope, and the new `GET /admin/periphery?scope=` answers the same edges for `dev`, `main[@instant]` or `<branch>[@instant]`. A past instant shows the periphery as it was then.
 
 ---
 

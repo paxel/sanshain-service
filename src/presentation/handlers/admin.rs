@@ -1272,6 +1272,22 @@ pub async fn admin_trunk_graph(
     Ok(Json(pins))
 }
 
+#[derive(Deserialize)]
+pub struct PeripheryQuery {
+    pub scope: Option<String>,
+}
+
+/// The periphery edges (#46) of one graph scope — `dev` (default),
+/// `main[@rfc3339]` or `<branch>[@rfc3339]` — for the graph's main, branch
+/// and timeline views, whose pin sets come from the bare-array endpoints.
+pub async fn admin_periphery(
+    State(state): State<AppState>,
+    Query(query): Query<PeripheryQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let scope = services::ReportScope::parse(query.scope.as_deref())?;
+    Ok(Json(services::get_periphery(&state.repo, &scope).await?))
+}
+
 /// The instants the main graph changed — the timeline slider's markers.
 pub async fn admin_trunk_timeline(
     State(state): State<AppState>,

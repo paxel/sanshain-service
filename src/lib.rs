@@ -153,6 +153,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/trunk/graph", get(admin::admin_trunk_graph).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/trunk/timeline", get(admin::admin_trunk_timeline).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/graph/diff", get(admin::admin_graph_diff).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/periphery", get(admin::admin_periphery).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers", get(admin::admin_list_consumers).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers/{name}", delete(admin::admin_delete_consumer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageConsumers))))
         .route("/admin/consumers/{name}/endpoints", get(admin::admin_list_consumer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))

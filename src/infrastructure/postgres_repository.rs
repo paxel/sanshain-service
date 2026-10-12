@@ -1353,6 +1353,7 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(DependencyReport {
             trunk_graph: Vec::new(),
             harvested_subscriptions: Vec::new(),
+            peripheral_dependencies: Vec::new(),
             trunk_stale_before: None,
             scope_label: None,
             unused_endpoints,

@@ -711,6 +711,11 @@ pub struct DependencyReport {
     /// version-less consumer edges rendered alongside the require edges.
     #[serde(default)]
     pub harvested_subscriptions: Vec<HarvestedSubscription>,
+    /// Edges to Peripheral Resources (#46) for the report's scope: the dev
+    /// set for the classic report, trunk or a branch's set — current or at an
+    /// instant — for a scoped one. Application-populated.
+    #[serde(default)]
+    pub peripheral_dependencies: Vec<PeripheralDependency>,
     /// Trunk entries not refreshed since this instant are stale (half the
     /// trunk TTL). `None` when the TTL is disabled. Application-populated.
     #[serde(default, skip_serializing_if = "Option::is_none")]

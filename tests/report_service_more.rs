@@ -20,6 +20,7 @@ fn empty_report(deps: Vec<DependencyInfo>) -> DependencyReport {
     DependencyReport {
         trunk_graph: Vec::new(),
         harvested_subscriptions: Vec::new(),
+        peripheral_dependencies: Vec::new(),
         trunk_stale_before: None,
         scope_label: None,
         dependency_graph: deps,

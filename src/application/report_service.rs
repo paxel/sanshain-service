@@ -35,6 +35,27 @@ impl ReportScope {
     }
 }
 
+/// The periphery edges (#46) of a graph scope: the dev set, or trunk's or a
+/// branch's set — current or as it was at the scope's instant, so a past view
+/// never shows today's resources.
+pub async fn get_periphery(
+    repo: &impl SpecRepository,
+    scope: &ReportScope,
+) -> Result<Vec<PeripheralDependency>, AppError> {
+    let (track, at) = match scope {
+        ReportScope::Dev => (PeripheryTrack::Dev, None),
+        ReportScope::Main { at } => (PeripheryTrack::Trunk, at.as_deref()),
+        ReportScope::Branch { name, at } => {
+            let branch = repo
+                .find_branch(name)
+                .await?
+                .ok_or_else(|| AppError::NotFound(format!("no sanshain-branch '{name}'")))?;
+            (PeripheryTrack::Branch(branch.id), at.as_deref())
+        }
+    };
+    Ok(repo.list_periphery(track, at).await?)
+}
+
 /// Project a pin set into the dependency-graph shape reports render. The
 /// stability is looked up from the stored version line; a dangling pin
 /// (deleted version) reports as GA — reports state pins, not resolutions.
@@ -112,6 +133,9 @@ pub async fn generate_scoped_report(
             .harvested_subscriptions
             .retain(|h| h.trunk && live_main);
     }
+    if !matches!(scope, ReportScope::Dev) {
+        report.peripheral_dependencies = get_periphery(repo, &scope).await?;
+    }
     match scope {
         ReportScope::Dev => {}
         ReportScope::Main { at } => {
@@ -153,6 +177,7 @@ pub async fn generate_report(repo: &impl SpecRepository) -> Result<DependencyRep
     // Harvested AsyncAPI subscription edges (#6/ADR-0006). The dev report
     // carries the full set; scoped views filter it below.
     report.harvested_subscriptions = repo.list_current_harvested_subscriptions().await?;
+    report.peripheral_dependencies = repo.list_periphery(PeripheryTrack::Dev, None).await?;
     // A pin on a deleted version must look broken in the main view too, not
     // only in branch view (ADR-0005: dangling, never silently healthy).
     super::branch_service::mark_dangling(repo, &mut report.trunk_graph).await?;
@@ -271,6 +296,7 @@ mod tests {
             unused_endpoints: vec![],
             trunk_graph: vec![],
             harvested_subscriptions: vec![],
+            peripheral_dependencies: vec![],
             trunk_stale_before: None,
             scope_label: None,
         }
@@ -302,6 +328,62 @@ mod tests {
             }
             _ => panic!("expected a branch scope"),
         }
+    }
+
+    #[tokio::test]
+    async fn get_periphery_reads_the_set_of_the_scope() {
+        use crate::application::mock_repo::MockRepo;
+        let repo = MockRepo::new();
+        let db = "resource:default/db".to_string();
+        repo.reconcile_periphery(
+            "svc",
+            true,
+            std::slice::from_ref(&db),
+            "2026-01-01T00:00:00Z",
+        )
+        .await
+        .unwrap();
+        repo.reconcile_periphery("svc", false, &[], "2026-02-01T00:00:00Z")
+            .await
+            .unwrap();
+        let edge = PeripheralDependency {
+            system: "svc".to_string(),
+            resource: db,
+        };
+        assert!(
+            get_periphery(&repo, &ReportScope::Dev)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            get_periphery(&repo, &ReportScope::Main { at: None })
+                .await
+                .unwrap(),
+            vec![edge.clone()]
+        );
+        assert!(
+            get_periphery(
+                &repo,
+                &ReportScope::Main {
+                    at: Some("2025-12-31T00:00:00Z".to_string())
+                }
+            )
+            .await
+            .unwrap()
+            .is_empty()
+        );
+        assert!(matches!(
+            get_periphery(
+                &repo,
+                &ReportScope::Branch {
+                    name: "nope".to_string(),
+                    at: None
+                }
+            )
+            .await,
+            Err(AppError::NotFound(_))
+        ));
     }
 
     #[test]

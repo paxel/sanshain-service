@@ -268,3 +268,76 @@ async fn a_trunk_push_writes_trunk_and_dev_and_a_dev_push_only_dev() {
         ]
     );
 }
+
+#[cfg(test)]
+async fn get_json(ctx: &TestContext, uri: &str) -> Value {
+    let (status, _, body) = send(ctx, "GET", uri, None).await;
+    assert_eq!(status, StatusCode::OK, "{uri} got: {body}");
+    as_json(&body)
+}
+
+#[tokio::test]
+async fn the_report_carries_the_periphery_of_its_scope() {
+    let ctx = setup().await;
+    push(&ctx, "orders", &catalog("orders", &["orders-db"]), true).await;
+    push(
+        &ctx,
+        "billing",
+        &catalog("billing", &["orders-db", "ledger"]),
+        false,
+    )
+    .await;
+
+    // Dev: all activity — the trunk push landed there too.
+    let dev = get_json(&ctx, "/report").await;
+    assert_eq!(
+        dev["peripheral_dependencies"],
+        json!([
+            {"system": "billing", "resource": "resource:default/ledger"},
+            {"system": "billing", "resource": "resource:default/orders-db"},
+            {"system": "orders", "resource": "resource:default/orders-db"},
+        ])
+    );
+    // Main: trunk only.
+    let main = get_json(&ctx, "/report?scope=main").await;
+    assert_eq!(
+        main["peripheral_dependencies"],
+        json!([{"system": "orders", "resource": "resource:default/orders-db"}])
+    );
+    // A past main carries the periphery as it was then — none yet.
+    let past = get_json(&ctx, "/report?scope=main@2000-01-01T00:00:00Z").await;
+    assert_eq!(past["peripheral_dependencies"], json!([]));
+}
+
+#[tokio::test]
+async fn the_periphery_endpoint_answers_per_scope() {
+    let ctx = setup().await;
+    push(&ctx, "orders", &catalog("orders", &["orders-db"]), true).await;
+    push(
+        &ctx,
+        "orders",
+        &catalog("orders", &["orders-db", "scratch"]),
+        false,
+    )
+    .await;
+
+    assert_eq!(
+        get_json(&ctx, "/admin/periphery").await,
+        json!([
+            {"system": "orders", "resource": "resource:default/orders-db"},
+            {"system": "orders", "resource": "resource:default/scratch"},
+        ])
+    );
+    assert_eq!(
+        get_json(&ctx, "/admin/periphery?scope=main").await,
+        json!([{"system": "orders", "resource": "resource:default/orders-db"}])
+    );
+    assert_eq!(
+        get_json(&ctx, "/admin/periphery?scope=main@2000-01-01T00:00:00Z").await,
+        json!([])
+    );
+    let (status, _, _) = send(&ctx, "GET", "/admin/periphery?scope=no-such-branch", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = send(&ctx, "GET", "/admin/periphery?scope=main@nope", None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

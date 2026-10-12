@@ -789,6 +789,44 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/periphery:
+    get:
+      summary: "Read: periphery"
+      description: |
+        Any signed-in caller.
+
+        The edges from systems to their Peripheral Resources (#46) — what
+        their Backstage `catalog-info.yaml` lists under `dependsOn` — for one
+        graph scope: `dev` (the default), `main[@rfc3339]` or
+        `<branch>[@rfc3339]`, the selector grammar of `/admin/graph/diff`. A
+        past instant answers the periphery as it was then.
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A JSON array of `{system, resource}` edges, sorted.
+        "400":
+          description: A selector instant that is not RFC 3339, or `dev@…`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: A named branch does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/producers:
     get:
       summary: "Read: producers"
