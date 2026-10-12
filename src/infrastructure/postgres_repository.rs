@@ -545,6 +545,18 @@ impl SpecRepository for PostgresSpecRepository {
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // The periphery (#46) is part of the cut too.
+        sqlx::query(
+            "INSERT INTO peripheral_dependencies (track, branch_id, system_name, resource_ref, valid_from) \
+             SELECT 'branch', $1, system_name, resource_ref, $2 FROM peripheral_dependencies \
+             WHERE track = 'trunk' AND branch_id IS NULL AND valid_from <= $3 AND (valid_to IS NULL OR valid_to > $3)",
+        )
+        .bind(branch_id)
+        .bind(now_iso)
+        .bind(as_of)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(())
     }
 
@@ -562,6 +574,19 @@ impl SpecRepository for PostgresSpecRepository {
         )
         .bind(target_branch_id)
         .bind(now_iso)
+        .bind(now_iso)
+        .bind(source_branch_id)
+        .bind(as_of)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // The periphery (#46) is part of the cut too.
+        sqlx::query(
+            "INSERT INTO peripheral_dependencies (track, branch_id, system_name, resource_ref, valid_from) \
+             SELECT 'branch', $1, system_name, resource_ref, $2 FROM peripheral_dependencies \
+             WHERE track = 'branch' AND branch_id = $3 AND valid_from <= $4 AND (valid_to IS NULL OR valid_to > $4)",
+        )
+        .bind(target_branch_id)
         .bind(now_iso)
         .bind(source_branch_id)
         .bind(as_of)
@@ -623,7 +648,10 @@ impl SpecRepository for PostgresSpecRepository {
         let rows: Vec<(String,)> = match branch_id {
             None => {
                 sqlx::query_as(
-                    "SELECT DISTINCT d FROM (SELECT valid_from AS d FROM trunk_dependencies UNION SELECT valid_to AS d FROM trunk_dependencies WHERE valid_to IS NOT NULL) x ORDER BY d",
+                    "SELECT DISTINCT d FROM (SELECT valid_from AS d FROM trunk_dependencies \
+                       UNION SELECT valid_to AS d FROM trunk_dependencies WHERE valid_to IS NOT NULL \
+                       UNION SELECT valid_from AS d FROM peripheral_dependencies WHERE track = 'trunk' \
+                       UNION SELECT valid_to AS d FROM peripheral_dependencies WHERE track = 'trunk' AND valid_to IS NOT NULL) x ORDER BY d",
                 )
                 .fetch_all(&self.pool)
                 .await
@@ -638,7 +666,9 @@ impl SpecRepository for PostgresSpecRepository {
                        SELECT valid_from AS d FROM branch_dependencies WHERE branch_id = $1 \
                        UNION SELECT valid_to AS d FROM branch_dependencies WHERE branch_id = $1 AND valid_to IS NOT NULL \
                        UNION SELECT valid_from AS d FROM branch_member_versions WHERE branch_id = $1 \
-                       UNION SELECT valid_to AS d FROM branch_member_versions WHERE branch_id = $1 AND valid_to IS NOT NULL) x ORDER BY d",
+                       UNION SELECT valid_to AS d FROM branch_member_versions WHERE branch_id = $1 AND valid_to IS NOT NULL \
+                       UNION SELECT valid_from AS d FROM peripheral_dependencies WHERE track = 'branch' AND branch_id = $1 \
+                       UNION SELECT valid_to AS d FROM peripheral_dependencies WHERE track = 'branch' AND branch_id = $1 AND valid_to IS NOT NULL) x ORDER BY d",
                 )
                 .bind(bid)
                 .fetch_all(&self.pool)
@@ -1450,6 +1480,10 @@ impl SpecRepository for PostgresSpecRepository {
         // the graph selector survive a factory reset as empty shells whose
         // names stay claimed. Their pin rows go with the participants.
         sqlx::query("DELETE FROM sanshain_branches")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM peripheral_dependencies")
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;

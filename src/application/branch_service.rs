@@ -310,23 +310,32 @@ pub async fn get_trunk_graph(
 }
 
 /// One side of a graph diff: `main[@instant]` or `<branch>[@instant]`
-/// (see [`split_selector`] for the grammar).
+/// (see [`split_selector`] for the grammar) — its pins and its periphery
+/// (#46) at the same instant.
 async fn resolve_graph_selection(
     repo: &impl SpecRepository,
     raw: &str,
-) -> Result<Vec<TrunkPinInfo>, AppError> {
+) -> Result<(Vec<TrunkPinInfo>, Vec<PeripheralDependency>), AppError> {
     let (name, at) = split_selector(raw)?;
     if name == "main" {
-        return Ok(match at.as_deref() {
+        let pins = match at.as_deref() {
             Some(at) => repo.list_trunk_pins_at(at).await?,
             None => repo.list_current_trunk_pins().await?,
-        });
+        };
+        let periphery = repo
+            .list_periphery(PeripheryTrack::Trunk, at.as_deref())
+            .await?;
+        return Ok((pins, periphery));
     }
     let branch = repo
         .find_branch(name)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("no sanshain-branch '{name}'")))?;
-    Ok(repo.list_branch_pins(branch.id, at.as_deref()).await?)
+    let pins = repo.list_branch_pins(branch.id, at.as_deref()).await?;
+    let periphery = repo
+        .list_periphery(PeripheryTrack::Branch(branch.id), at.as_deref())
+        .await?;
+    Ok((pins, periphery))
 }
 
 /// One pin whose version differs between the two sides of a diff.
@@ -352,6 +361,10 @@ pub struct GraphDiff {
     pub pins_added: Vec<TrunkPinInfo>,
     pub pins_removed: Vec<TrunkPinInfo>,
     pub pins_changed: Vec<PinChange>,
+    /// Periphery edges (#46) only on the right / only on the left — a
+    /// resource a release started or stopped depending on.
+    pub periphery_added: Vec<PeripheralDependency>,
+    pub periphery_removed: Vec<PeripheralDependency>,
 }
 
 #[instrument(skip_all)]
@@ -360,8 +373,20 @@ pub async fn diff_graphs(
     left: &str,
     right: &str,
 ) -> Result<GraphDiff, AppError> {
-    let left_pins = resolve_graph_selection(repo, left).await?;
-    let right_pins = resolve_graph_selection(repo, right).await?;
+    let (left_pins, left_periphery) = resolve_graph_selection(repo, left).await?;
+    let (right_pins, right_periphery) = resolve_graph_selection(repo, right).await?;
+    // Both sides arrive sorted and duplicate-free, so set differences keep
+    // that order.
+    let periphery_added: Vec<PeripheralDependency> = right_periphery
+        .iter()
+        .filter(|p| !left_periphery.contains(p))
+        .cloned()
+        .collect();
+    let periphery_removed: Vec<PeripheralDependency> = left_periphery
+        .iter()
+        .filter(|p| !right_periphery.contains(p))
+        .cloned()
+        .collect();
 
     // Keyed on the normalized path, because that is what the pin stores match
     // on: a pin refreshed after its raw path was respelled across versions
@@ -443,6 +468,8 @@ pub async fn diff_graphs(
         pins_added,
         pins_removed,
         pins_changed,
+        periphery_added,
+        periphery_removed,
     })
 }
 

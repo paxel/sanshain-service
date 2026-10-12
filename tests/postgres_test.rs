@@ -482,4 +482,65 @@ async fn test_postgres_periphery_append_only_and_at_an_instant() {
         ),
         vec![db("b"), db("c")]
     );
+
+    // A cut copies trunk's periphery as of its instant; a branch off the
+    // branch copies the branch's; the timeline sees the periphery changes.
+    let rel = repo
+        .insert_branch(
+            "rel",
+            "2026-03-01T00:00:00Z",
+            "root",
+            "trunk",
+            "2026-01-15T00:00:00Z",
+        )
+        .await
+        .unwrap();
+    repo.copy_trunk_graph_to_branch(rel, "2026-01-15T00:00:00Z", "2026-03-01T00:00:00Z")
+        .await
+        .unwrap();
+    assert_eq!(
+        names(
+            repo.list_periphery(PeripheryTrack::Branch(rel), None)
+                .await
+                .unwrap()
+        ),
+        vec![db("a"), db("b")]
+    );
+    let hotfix = repo
+        .insert_branch(
+            "hotfix",
+            "2026-03-02T00:00:00Z",
+            "root",
+            "rel",
+            "2026-03-02T00:00:00Z",
+        )
+        .await
+        .unwrap();
+    repo.copy_branch_graph_to_branch(hotfix, rel, "2026-03-02T00:00:00Z", "2026-03-02T00:00:00Z")
+        .await
+        .unwrap();
+    assert_eq!(
+        names(
+            repo.list_periphery(PeripheryTrack::Branch(hotfix), None)
+                .await
+                .unwrap()
+        ),
+        vec![db("a"), db("b")]
+    );
+    let dates = repo.list_graph_change_dates(None).await.unwrap();
+    assert!(
+        dates.contains(&"2026-02-01T00:00:00Z".to_string()),
+        "{dates:?}"
+    );
+    let branch_dates = repo.list_graph_change_dates(Some(rel)).await.unwrap();
+    assert_eq!(branch_dates, vec!["2026-03-01T00:00:00Z".to_string()]);
+
+    // Deleting a branch cascades its copy away.
+    repo.delete_branch(rel).await.unwrap();
+    assert!(
+        repo.list_periphery(PeripheryTrack::Branch(rel), None)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }

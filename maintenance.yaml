@@ -761,7 +761,8 @@ paths:
         Structured diff between two graph selections (ADR-0005) — release vs
         release, release vs main, one graph at two instants. `left`/`right`
         are `main[@rfc3339]` or `<branch>[@rfc3339]`. Answers services
-        added/removed, pins added/removed, and per-pin version changes; all
+        added/removed, pins added/removed, per-pin version changes, and
+        periphery edges (system → Peripheral Resource) added/removed; all
         arrays empty means no differences.
       parameters:
         - name: left

@@ -341,3 +341,161 @@ async fn the_periphery_endpoint_answers_per_scope() {
     let (status, _, _) = send(&ctx, "GET", "/admin/periphery?scope=main@nope", None).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+#[cfg(test)]
+async fn create_branch(ctx: &TestContext, body: Value) {
+    let (status, _, text) = send(ctx, "POST", "/admin/branches", Some(body)).await;
+    assert!(
+        status.is_success(),
+        "branch creation failed: {status} {text}"
+    );
+}
+
+#[tokio::test]
+async fn a_branch_cut_copies_the_trunk_periphery_and_keeps_it_frozen() {
+    let ctx = setup().await;
+    push(&ctx, "orders", &catalog("orders", &["orders-db"]), true).await;
+    create_branch(&ctx, json!({"name": "rel-1"})).await;
+    // Trunk moves on after the cut; the release keeps what it was cut with.
+    push(&ctx, "orders", &catalog("orders", &["orders-db-v2"]), true).await;
+
+    assert_eq!(
+        get_json(&ctx, "/admin/periphery?scope=rel-1").await,
+        json!([{"system": "orders", "resource": "resource:default/orders-db"}])
+    );
+    assert_eq!(
+        get_json(&ctx, "/admin/periphery?scope=main").await,
+        json!([{"system": "orders", "resource": "resource:default/orders-db-v2"}])
+    );
+    let report = get_json(&ctx, "/report?scope=rel-1").await;
+    assert_eq!(
+        report["peripheral_dependencies"],
+        json!([{"system": "orders", "resource": "resource:default/orders-db"}])
+    );
+
+    // Branching off a branch copies the branch's periphery.
+    create_branch(&ctx, json!({"name": "rel-1.1", "source": "rel-1"})).await;
+    assert_eq!(
+        get_json(&ctx, "/admin/periphery?scope=rel-1.1").await,
+        json!([{"system": "orders", "resource": "resource:default/orders-db"}])
+    );
+
+    // The diff names the resource the release does not have yet.
+    let diff = get_json(&ctx, "/admin/graph/diff?left=rel-1&right=main").await;
+    assert_eq!(
+        diff["periphery_added"],
+        json!([{"system": "orders", "resource": "resource:default/orders-db-v2"}])
+    );
+    assert_eq!(
+        diff["periphery_removed"],
+        json!([{"system": "orders", "resource": "resource:default/orders-db"}])
+    );
+}
+
+#[tokio::test]
+async fn a_retroactive_cut_takes_the_periphery_as_it_was() {
+    let ctx = setup().await;
+    push(&ctx, "orders", &catalog("orders", &["orders-db"]), true).await;
+    // Backdate the push so an instant before it exists without sleeping.
+    sqlx::query("UPDATE peripheral_dependencies SET valid_from = '2026-01-01T00:00:00Z'")
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
+    create_branch(
+        &ctx,
+        json!({"name": "old", "as_of": "2025-12-31T00:00:00Z"}),
+    )
+    .await;
+    assert_eq!(
+        get_json(&ctx, "/admin/periphery?scope=old").await,
+        json!([])
+    );
+    create_branch(
+        &ctx,
+        json!({"name": "new", "as_of": "2026-01-02T00:00:00Z"}),
+    )
+    .await;
+    assert_eq!(
+        get_json(&ctx, "/admin/periphery?scope=new").await,
+        json!([{"system": "orders", "resource": "resource:default/orders-db"}])
+    );
+}
+
+#[tokio::test]
+async fn periphery_changes_are_timeline_instants() {
+    let ctx = setup().await;
+    push(&ctx, "orders", &catalog("orders", &["orders-db"]), true).await;
+    sqlx::query("UPDATE peripheral_dependencies SET valid_from = '2026-01-01T00:00:00Z'")
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
+    let dates = get_json(&ctx, "/admin/trunk/timeline").await;
+    assert_eq!(dates, json!(["2026-01-01T00:00:00Z"]));
+}
+
+#[tokio::test]
+async fn deleting_a_branch_deletes_its_periphery_copy() {
+    let ctx = setup().await;
+    push(&ctx, "orders", &catalog("orders", &["orders-db"]), true).await;
+    create_branch(&ctx, json!({"name": "rel-1"})).await;
+    let (status, _, body) = send(&ctx, "DELETE", "/admin/branches/rel-1", None).await;
+    assert!(status.is_success(), "got: {status} {body}");
+    let rows: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM peripheral_dependencies WHERE track = 'branch'")
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(rows.0, 0);
+}
+
+#[cfg(test)]
+fn one_endpoint_spec() -> String {
+    "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.0\npaths:\n  /users:\n    get:\n      responses:\n        '200':\n          description: OK\n".to_string()
+}
+
+#[tokio::test]
+async fn deleting_the_last_role_of_a_system_closes_its_periphery() {
+    let ctx = setup().await;
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/provide",
+        Some(json!({"producername": "users", "openapi_yaml": one_endpoint_spec(), "stability": "snapshot"})),
+    )
+    .await;
+    assert!(status.is_success(), "provide failed: {status} {body}");
+    for (consumer, producer) in [("webapp", "users"), ("users", "users")] {
+        let (status, _, body) = send(
+            &ctx,
+            "GET",
+            &format!("/require?consumername={consumer}&producername={producer}&version=1.0.0&path=/users&method=GET&trunk=true"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "require failed: {body}");
+    }
+    push(&ctx, "webapp", &catalog("webapp", &["sessions"]), true).await;
+    push(&ctx, "users", &catalog("users", &["users-db"]), true).await;
+
+    // `webapp` is only a Consumer: deleting it closes its periphery.
+    let (status, _, body) = send(&ctx, "DELETE", "/admin/consumers/webapp", None).await;
+    assert!(status.is_success(), "got: {status} {body}");
+    // `users` is a Consumer and a Producer: dropping one role keeps it.
+    let (status, _, body) = send(&ctx, "DELETE", "/admin/consumers/users", None).await;
+    assert!(status.is_success(), "got: {status} {body}");
+
+    let expected = json!([{"system": "users", "resource": "resource:default/users-db"}]);
+    assert_eq!(get_json(&ctx, "/admin/periphery").await, expected);
+    assert_eq!(
+        get_json(&ctx, "/admin/periphery?scope=main").await,
+        expected
+    );
+    // Closed, not deleted: the timeline keeps webapp's rows.
+    let closed: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM peripheral_dependencies WHERE system_name = 'webapp' AND valid_to IS NOT NULL",
+    )
+    .fetch_one(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(closed.0, 2);
+}

@@ -4,11 +4,17 @@ use chrono::Utc;
 use tracing::instrument;
 
 pub async fn delete_all_services(repo: &impl SpecRepository) -> Result<u64, AppError> {
-    Ok(repo.delete_all_services().await?)
+    let deleted = repo.delete_all_services().await?;
+    let systems = super::catalog_service::systems_with_periphery(repo).await?;
+    super::catalog_service::close_periphery_of_departed(repo, &systems).await?;
+    Ok(deleted)
 }
 
 pub async fn delete_all_clients(repo: &impl SpecRepository) -> Result<u64, AppError> {
-    Ok(repo.delete_all_clients().await?)
+    let deleted = repo.delete_all_clients().await?;
+    let systems = super::catalog_service::systems_with_periphery(repo).await?;
+    super::catalog_service::close_periphery_of_departed(repo, &systems).await?;
+    Ok(deleted)
 }
 
 /// Delete every user who is not an effective administrator. Spared alongside
@@ -216,12 +222,20 @@ pub async fn retire_protocol_family(
 
 pub async fn delete_producer(repo: &impl SpecRepository, name: &str) -> Result<bool, AppError> {
     refuse_if_a_release_graph_needs_it(repo, name, ParticipantRole::Producer).await?;
-    Ok(repo.delete_producer(name).await?)
+    let deleted = repo.delete_producer(name).await?;
+    if deleted {
+        super::catalog_service::close_periphery_of_departed(repo, &[name.to_string()]).await?;
+    }
+    Ok(deleted)
 }
 
 pub async fn delete_consumer(repo: &impl SpecRepository, name: &str) -> Result<bool, AppError> {
     refuse_if_a_release_graph_needs_it(repo, name, ParticipantRole::Consumer).await?;
-    Ok(repo.delete_consumer(name).await?)
+    let deleted = repo.delete_consumer(name).await?;
+    if deleted {
+        super::catalog_service::close_periphery_of_departed(repo, &[name.to_string()]).await?;
+    }
+    Ok(deleted)
 }
 
 pub async fn list_producers(repo: &impl SpecRepository) -> Result<Vec<String>, AppError> {

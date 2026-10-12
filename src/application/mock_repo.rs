@@ -187,6 +187,31 @@ impl MockRepo {
             .map(|(name, _)| name.clone())
     }
 
+    /// Copy the periphery rows of `source` valid at `as_of` into a branch's
+    /// set, opened at `now_iso` — the periphery half of a branch cut (#46).
+    fn copy_periphery(&self, source: PeripheryTrack, branch_id: i64, as_of: &str, now_iso: &str) {
+        let mut rows = self
+            .periphery
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let copied: Vec<MockPeripheryRow> = rows
+            .iter()
+            .filter(|r| {
+                r.track == source
+                    && r.valid_from.as_str() <= as_of
+                    && r.valid_to.as_deref().is_none_or(|to| to > as_of)
+            })
+            .map(|r| MockPeripheryRow {
+                track: PeripheryTrack::Branch(branch_id),
+                system: r.system.clone(),
+                resource: r.resource.clone(),
+                valid_from: now_iso.to_string(),
+                valid_to: None,
+            })
+            .collect();
+        rows.extend(copied);
+    }
+
     fn client_name(&self, client_id: i64) -> Option<String> {
         self.clients
             .lock()
@@ -478,6 +503,7 @@ impl SpecRepository for MockRepo {
             row.valid_to = None;
             pins.push((branch_id, row));
         }
+        self.copy_periphery(PeripheryTrack::Trunk, branch_id, as_of, now_iso);
         Ok(())
     }
 
@@ -507,6 +533,13 @@ impl SpecRepository for MockRepo {
             row.valid_to = None;
             pins.push((target_branch_id, row));
         }
+        drop(pins);
+        self.copy_periphery(
+            PeripheryTrack::Branch(source_branch_id),
+            target_branch_id,
+            as_of,
+            now_iso,
+        );
         Ok(())
     }
 
@@ -592,6 +625,18 @@ impl SpecRepository for MockRepo {
                 .flat_map(|(_, r)| std::iter::once(r.valid_from.clone()).chain(r.valid_to.clone()))
                 .collect(),
         };
+        let track = match branch_id {
+            None => PeripheryTrack::Trunk,
+            Some(bid) => PeripheryTrack::Branch(bid),
+        };
+        dates.extend(
+            self.periphery
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .filter(|r| r.track == track)
+                .flat_map(|r| std::iter::once(r.valid_from.clone()).chain(r.valid_to.clone())),
+        );
         dates.sort();
         dates.dedup();
         Ok(dates)
@@ -742,6 +787,10 @@ impl SpecRepository for MockRepo {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .retain(|r| r.0 != branch_id);
+        self.periphery
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|r| r.track != PeripheryTrack::Branch(branch_id));
         Ok(())
     }
 
@@ -1246,6 +1295,10 @@ impl SpecRepository for MockRepo {
         self.delete_all_services().await?;
         self.delete_all_clients().await?;
         self.channel_message_contracts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+        self.periphery
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clear();

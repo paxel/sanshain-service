@@ -42,6 +42,42 @@ pub async fn push_catalog(
     })
 }
 
+/// Close the dev and trunk periphery of every `candidate` that is no longer
+/// a Producer or a Consumer, so a deleted system leaves no stray node behind.
+/// Closed, not deleted: the timeline keeps it, and a sanshain-branch's copy
+/// is never touched (ADR-0005 #26B).
+pub(crate) async fn close_periphery_of_departed(
+    repo: &impl SpecRepository,
+    candidates: &[String],
+) -> Result<(), AppError> {
+    let mut participants = repo.list_producers().await?;
+    participants.extend(repo.list_consumers().await?);
+    let now = now_iso();
+    for system in candidates {
+        if !participants.contains(system) {
+            repo.reconcile_periphery(system, true, &[], &now).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Every system with a current dev or trunk periphery — the candidates a
+/// bulk participant delete has to check.
+pub(crate) async fn systems_with_periphery(
+    repo: &impl SpecRepository,
+) -> Result<Vec<String>, AppError> {
+    let mut systems: Vec<String> = repo
+        .list_periphery(PeripheryTrack::Dev, None)
+        .await?
+        .into_iter()
+        .chain(repo.list_periphery(PeripheryTrack::Trunk, None).await?)
+        .map(|p| p.system)
+        .collect();
+    systems.sort();
+    systems.dedup();
+    Ok(systems)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,6 +207,33 @@ mod tests {
             other => panic!("expected BadRequest, got {other:?}"),
         }
         assert!(repo.periphery.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn only_systems_without_a_role_lose_their_periphery() {
+        let repo = MockRepo::new();
+        repo.ensure_service("users").await.unwrap();
+        push_catalog(&repo, "users", &catalog("users", &["users-db"]), true)
+            .await
+            .unwrap();
+        push_catalog(&repo, "gone", &catalog("gone", &["old-db"]), true)
+            .await
+            .unwrap();
+        let candidates = systems_with_periphery(&repo).await.unwrap();
+        assert_eq!(candidates, vec!["gone".to_string(), "users".to_string()]);
+        close_periphery_of_departed(&repo, &candidates)
+            .await
+            .unwrap();
+        for track in [PeripheryTrack::Dev, PeripheryTrack::Trunk] {
+            let systems: Vec<String> = repo
+                .list_periphery(track, None)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|p| p.system)
+                .collect();
+            assert_eq!(systems, vec!["users".to_string()], "{track:?}");
+        }
     }
 
     #[tokio::test]
