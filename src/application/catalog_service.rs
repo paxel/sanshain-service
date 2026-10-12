@@ -42,40 +42,34 @@ pub async fn push_catalog(
     })
 }
 
+/// Every Producer and Consumer name — who counts as a participant.
+#[instrument(skip_all)]
+pub(crate) async fn participants(repo: &impl SpecRepository) -> Result<Vec<String>, AppError> {
+    let mut names = repo.list_producers().await?;
+    names.extend(repo.list_consumers().await?);
+    names.sort();
+    names.dedup();
+    Ok(names)
+}
+
 /// Close the dev and trunk periphery of every `candidate` that is no longer
 /// a Producer or a Consumer, so a deleted system leaves no stray node behind.
+/// Callers pass only names that *were* participants before their delete.
 /// Closed, not deleted: the timeline keeps it, and a sanshain-branch's copy
 /// is never touched (ADR-0005 #26B).
+#[instrument(skip_all)]
 pub(crate) async fn close_periphery_of_departed(
     repo: &impl SpecRepository,
     candidates: &[String],
 ) -> Result<(), AppError> {
-    let mut participants = repo.list_producers().await?;
-    participants.extend(repo.list_consumers().await?);
+    let remaining = participants(repo).await?;
     let now = now_iso();
     for system in candidates {
-        if !participants.contains(system) {
+        if !remaining.contains(system) {
             repo.reconcile_periphery(system, true, &[], &now).await?;
         }
     }
     Ok(())
-}
-
-/// Every system with a current dev or trunk periphery — the candidates a
-/// bulk participant delete has to check.
-pub(crate) async fn systems_with_periphery(
-    repo: &impl SpecRepository,
-) -> Result<Vec<String>, AppError> {
-    let mut systems: Vec<String> = repo
-        .list_periphery(PeripheryTrack::Dev, None)
-        .await?
-        .into_iter()
-        .chain(repo.list_periphery(PeripheryTrack::Trunk, None).await?)
-        .map(|p| p.system)
-        .collect();
-    systems.sort();
-    systems.dedup();
-    Ok(systems)
 }
 
 #[cfg(test)]
@@ -210,18 +204,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_systems_without_a_role_lose_their_periphery() {
+    async fn only_candidates_without_a_role_lose_their_periphery() {
         let repo = MockRepo::new();
         repo.ensure_service("users").await.unwrap();
-        push_catalog(&repo, "users", &catalog("users", &["users-db"]), true)
-            .await
-            .unwrap();
-        push_catalog(&repo, "gone", &catalog("gone", &["old-db"]), true)
-            .await
-            .unwrap();
-        let candidates = systems_with_periphery(&repo).await.unwrap();
-        assert_eq!(candidates, vec!["gone".to_string(), "users".to_string()]);
-        close_periphery_of_departed(&repo, &candidates)
+        for system in ["users", "gone", "catalog-only"] {
+            push_catalog(&repo, system, &catalog(system, &["db"]), true)
+                .await
+                .unwrap();
+        }
+        // `catalog-only` was never a participant, so it is no candidate.
+        close_periphery_of_departed(&repo, &["users".to_string(), "gone".to_string()])
             .await
             .unwrap();
         for track in [PeripheryTrack::Dev, PeripheryTrack::Trunk] {
@@ -232,7 +224,11 @@ mod tests {
                 .into_iter()
                 .map(|p| p.system)
                 .collect();
-            assert_eq!(systems, vec!["users".to_string()], "{track:?}");
+            assert_eq!(
+                systems,
+                vec!["catalog-only".to_string(), "users".to_string()],
+                "{track:?}"
+            );
         }
     }
 

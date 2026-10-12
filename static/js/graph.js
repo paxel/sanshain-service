@@ -470,14 +470,14 @@ function setStreamView(view) {
   window.graphTimelineAt = null;
   window.graphTimelinePins = null;
   window.graphScopePeriphery = null;
+  // A view switch outdates every timeline/periphery request still in flight.
+  const token = (window._graphTimelineToken || 0) + 1;
+  window._graphTimelineToken = token;
   initTimelineSlider();
   refreshTimeline();
   redrawGraph();
-  const branchName = window.graphBranchName;
-  graphFetchScopePeriphery(view, branchName, null).then((periphery) => {
-    // Only apply if the user is still on the view this was fetched for.
-    if (window.graphStreamView !== view || window.graphBranchName !== branchName) return;
-    if (window.graphTimelineAt) return;
+  graphFetchScopePeriphery(view, window.graphBranchName, null).then((periphery) => {
+    if (token !== window._graphTimelineToken) return;
     window.graphScopePeriphery = periphery;
     redrawGraph();
   });
@@ -1521,6 +1521,9 @@ function renderCustomGraph(report, svgElement, direction) {
     // a specific broker, and a trademarked mark would contradict that.
     if (hasTag("messaging")) trSymbols.push({ type: "text", text: "✉" });
     if (hasTag("grpc")) trSymbols.push({ type: "text", text: "⛓️" });
+    // One generic symbol for every Peripheral Resource (#46): Sanshain reads
+    // no spec.type, so it claims no database/queue/bucket distinction.
+    if (isPeripheralNode) trSymbols.push({ type: "text", text: "⬡" });
 
     trSymbols.forEach((s, i) => {
       const x = cx + hw - 12 - i * 14;

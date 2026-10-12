@@ -73,10 +73,17 @@ pub fn component_resource_dependencies(
         }
         let entity: Entity = serde_yaml_ng::from_value(value)
             .map_err(|e| CatalogError::NotAnEntity(index + 1, e.to_string()))?;
-        if !entity.api_version.starts_with("backstage.io/") {
+        // `backstage.io/v1alpha1`, but also plugin groups such as
+        // `scaffolder.backstage.io/v1beta3`: a Template in the same file is a
+        // valid entity, merely not the one Sanshain reads.
+        let group = entity.api_version.split('/').next().unwrap_or_default();
+        if !(group == "backstage.io" || group.ends_with(".backstage.io")) {
             return Err(CatalogError::NotAnEntity(
                 index + 1,
-                format!("apiVersion '{}' is not backstage.io/…", entity.api_version),
+                format!(
+                    "apiVersion '{}' is not a backstage.io group",
+                    entity.api_version
+                ),
             ));
         }
         if entity.kind.eq_ignore_ascii_case("component")
@@ -115,7 +122,7 @@ pub fn component_resource_dependencies(
         };
         let (kind, rest) = raw.split_once(':').unwrap_or((DEFAULT_KIND, raw));
         let (ns, name) = rest.split_once('/').unwrap_or((namespace, rest));
-        if kind.trim().is_empty() || ns.trim().is_empty() || name.trim().is_empty() {
+        if ![kind, ns, name].iter().all(|part| is_ref_part(part.trim())) {
             return Err(CatalogError::MalformedDependsOn(
                 component.metadata.name,
                 format!("'{raw}' is not an entity ref of the form [kind:][namespace/]name"),
@@ -130,6 +137,17 @@ pub fn component_resource_dependencies(
         }
     }
     Ok(refs.into_iter().collect())
+}
+
+/// Backstage's character set for kinds, namespaces and names: letters,
+/// digits and `-_.`, at most 63 characters. Anything else — quotes, spaces,
+/// markup — is no entity ref, and would otherwise travel into graph labels.
+fn is_ref_part(part: &str) -> bool {
+    !part.is_empty()
+        && part.len() <= 63
+        && part
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
 #[cfg(test)]
@@ -222,6 +240,17 @@ spec:
     }
 
     #[test]
+    fn plugin_entities_in_the_same_file_are_accepted() {
+        let yaml = format!(
+            "apiVersion: scaffolder.backstage.io/v1beta3\nkind: Template\nmetadata:\n  name: new-service\n---\n{ORDERS}"
+        );
+        assert_eq!(
+            component_resource_dependencies(&yaml, "orders-service").map(|r| r.len()),
+            Ok(3)
+        );
+    }
+
+    #[test]
     fn a_component_without_depends_on_has_no_periphery() {
         let yaml = "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: svc\nspec:\n  type: service\n";
         assert_eq!(component_resource_dependencies(yaml, "svc"), Ok(vec![]));
@@ -263,6 +292,11 @@ spec:
             component_resource_dependencies("serviceName: svc\n", "svc"),
             Err(CatalogError::NotAnEntity(1, _))
         ));
+        let lookalike = "apiVersion: notbackstage.io/v1\nkind: Component\nmetadata:\n  name: svc\n";
+        assert!(matches!(
+            component_resource_dependencies(lookalike, "svc"),
+            Err(CatalogError::NotAnEntity(1, _))
+        ));
         let foreign = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: svc\n";
         assert!(matches!(
             component_resource_dependencies(foreign, "svc"),
@@ -285,6 +319,11 @@ spec:
         let empty_name = "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: svc\nspec:\n  dependsOn: ['resource:default/']\n";
         assert!(matches!(
             component_resource_dependencies(empty_name, "svc"),
+            Err(CatalogError::MalformedDependsOn(_, _))
+        ));
+        let quoted = "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: svc\nspec:\n  dependsOn: ['resource:default/db\"x']\n";
+        assert!(matches!(
+            component_resource_dependencies(quoted, "svc"),
             Err(CatalogError::MalformedDependsOn(_, _))
         ));
     }

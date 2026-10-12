@@ -4,16 +4,19 @@ use chrono::Utc;
 use tracing::instrument;
 
 pub async fn delete_all_services(repo: &impl SpecRepository) -> Result<u64, AppError> {
+    // Only the participants this delete removed may lose their periphery: a
+    // system that pushed its catalog but never required anything is no
+    // participant before or after, and must keep it.
+    let before = super::catalog_service::participants(repo).await?;
     let deleted = repo.delete_all_services().await?;
-    let systems = super::catalog_service::systems_with_periphery(repo).await?;
-    super::catalog_service::close_periphery_of_departed(repo, &systems).await?;
+    super::catalog_service::close_periphery_of_departed(repo, &before).await?;
     Ok(deleted)
 }
 
 pub async fn delete_all_clients(repo: &impl SpecRepository) -> Result<u64, AppError> {
+    let before = super::catalog_service::participants(repo).await?;
     let deleted = repo.delete_all_clients().await?;
-    let systems = super::catalog_service::systems_with_periphery(repo).await?;
-    super::catalog_service::close_periphery_of_departed(repo, &systems).await?;
+    super::catalog_service::close_periphery_of_departed(repo, &before).await?;
     Ok(deleted)
 }
 

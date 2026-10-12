@@ -499,3 +499,46 @@ async fn deleting_the_last_role_of_a_system_closes_its_periphery() {
     .unwrap();
     assert_eq!(closed.0, 2);
 }
+
+#[tokio::test]
+async fn nuking_consumers_keeps_the_periphery_of_catalog_only_systems() {
+    let ctx = setup().await;
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/provide",
+        Some(json!({"producername": "users", "openapi_yaml": one_endpoint_spec(), "stability": "snapshot"})),
+    )
+    .await;
+    assert!(status.is_success(), "provide failed: {status} {body}");
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/require?consumername=webapp&producername=users&version=1.0.0&path=/users&method=GET",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "require failed: {body}");
+    push(&ctx, "webapp", &catalog("webapp", &["sessions"]), false).await;
+    // Pushed its catalog, never required anything: no participant at all.
+    push(
+        &ctx,
+        "batch-job",
+        &catalog("batch-job", &["archive"]),
+        false,
+    )
+    .await;
+
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/nuke/consumers",
+        Some(json!({"confirmation": "DELETE ALL CLIENTS"})),
+    )
+    .await;
+    assert!(status.is_success(), "got: {status} {body}");
+    assert_eq!(
+        get_json(&ctx, "/admin/periphery").await,
+        json!([{"system": "batch-job", "resource": "resource:default/archive"}])
+    );
+}

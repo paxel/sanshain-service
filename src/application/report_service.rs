@@ -38,6 +38,7 @@ impl ReportScope {
 /// The periphery edges (#46) of a graph scope: the dev set, or trunk's or a
 /// branch's set — current or as it was at the scope's instant, so a past view
 /// never shows today's resources.
+#[instrument(skip_all)]
 pub async fn get_periphery(
     repo: &impl SpecRepository,
     scope: &ReportScope,
