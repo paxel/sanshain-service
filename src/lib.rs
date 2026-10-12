@@ -1,5 +1,6 @@
 pub mod application;
 pub mod asyncapi;
+pub mod backstage;
 pub mod domain;
 pub mod infrastructure;
 pub mod openapi;
