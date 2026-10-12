@@ -952,4 +952,26 @@ pub trait SpecRepository: Send + Sync {
     fn list_current_harvested_subscriptions(
         &self,
     ) -> impl Future<Output = Result<Vec<HarvestedSubscription>, RepositoryError>> + Send;
+
+    // --- Periphery from Backstage catalog-info (#46) ---
+
+    /// Reconcile a system's periphery to exactly `resources`, append-only
+    /// (ADR-0005): a resource no longer listed is closed, a new one opened, an
+    /// unchanged one left. Always the dev set; with `trunk` the trunk set too,
+    /// in the same transaction.
+    fn reconcile_periphery(
+        &self,
+        system: &str,
+        trunk: bool,
+        resources: &[String],
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// The periphery edges of one set — current, or as it was at `at` —
+    /// sorted by system and resource.
+    fn list_periphery(
+        &self,
+        track: PeripheryTrack,
+        at: Option<&str>,
+    ) -> impl Future<Output = Result<Vec<PeripheralDependency>, RepositoryError>> + Send;
 }

@@ -753,6 +753,51 @@ pub async fn producer_versions(
     Ok(Json(versions))
 }
 
+/// The catalog push payload (#46): the system's Backstage `catalog-info.yaml`
+/// as text, and whether this is a trunk build (ADR-0004).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CatalogPushRequest {
+    pub catalog_info_yaml: String,
+    #[serde(default)]
+    pub trunk: bool,
+}
+
+/// `PUT /catalog/{systemname}` — record the system's periphery (#46).
+pub async fn push_catalog(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Path(systemname): Path<String>,
+    Json(payload): Json<CatalogPushRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let result = services::push_catalog(
+        &state.repo,
+        &systemname,
+        &payload.catalog_info_yaml,
+        payload.trunk,
+    )
+    .await?;
+    let _ = record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "CATALOG_PUSHED",
+            details: &format!(
+                "System '{}' declared {} peripheral resource(s): {}",
+                result.system,
+                result.resources.len(),
+                result.resources.join(", ")
+            ),
+            service: Some(&result.system),
+            action_type: Some("WRITE"),
+            stream: payload.trunk.then_some("trunk"),
+            ..Default::default()
+        },
+    )
+    .await;
+    Ok(Json(result))
+}
+
 #[derive(Deserialize)]
 pub struct EndpointHistoryQuery {
     pub service: String,

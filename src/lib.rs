@@ -87,6 +87,9 @@ pub fn create_app(state: AppState) -> Router {
         .route("/require/asyncapi", get(api::require_asyncapi).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/require/grpc", get(api::require_proto).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/require-bundle", post(api::require_bundle).layer(from_fn_with_state(state.clone(), api_auth)))
+        // #46: a build pushes its Backstage catalog-info.yaml; whoever may
+        // require may describe its own periphery.
+        .route("/catalog/{systemname}", put(api::push_catalog).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/report", get(api::report).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/report/markdown", get(api::report_markdown).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/report/isolation", get(api::report_isolation).layer(from_fn_with_state(state.clone(), api_auth)))

@@ -2,6 +2,7 @@ pub mod admin_service;
 pub mod auth_service;
 pub mod authz;
 pub mod branch_service;
+pub mod catalog_service;
 pub mod directory_roles;
 pub mod provide_service;
 pub mod report_service;

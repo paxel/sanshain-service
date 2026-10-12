@@ -425,3 +425,61 @@ async fn postgres_audit_stream_filter_is_bound() {
     assert_eq!(logs.len(), 1);
     assert_eq!(logs[0].stream.as_deref(), Some("trunk"));
 }
+
+#[tokio::test]
+async fn test_postgres_periphery_append_only_and_at_an_instant() {
+    use sanshain_service::domain::models::{PeripheralDependency, PeripheryTrack};
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let postgres_container = common::start_postgres().await;
+    let host = postgres_container.get_host().await.unwrap();
+    let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
+    let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .unwrap();
+    let repo = PostgresSpecRepository::new(pool.clone());
+    repo.run_migrations().await.unwrap();
+
+    let db = |r: &str| format!("resource:default/{r}");
+    let names = |v: Vec<PeripheralDependency>| -> Vec<String> {
+        v.into_iter().map(|p| p.resource).collect()
+    };
+    repo.reconcile_periphery("orders", true, &[db("a"), db("b")], "2026-01-01T00:00:00Z")
+        .await
+        .unwrap();
+    repo.reconcile_periphery("orders", true, &[db("b"), db("c")], "2026-02-01T00:00:00Z")
+        .await
+        .unwrap();
+    // The open-row index decides a racing duplicate instead of erroring.
+    repo.reconcile_periphery("orders", true, &[db("b"), db("c")], "2026-02-02T00:00:00Z")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        names(
+            repo.list_periphery(PeripheryTrack::Trunk, None)
+                .await
+                .unwrap()
+        ),
+        vec![db("b"), db("c")]
+    );
+    assert_eq!(
+        names(
+            repo.list_periphery(PeripheryTrack::Trunk, Some("2026-01-15T00:00:00Z"))
+                .await
+                .unwrap()
+        ),
+        vec![db("a"), db("b")]
+    );
+    assert_eq!(
+        names(
+            repo.list_periphery(PeripheryTrack::Dev, None)
+                .await
+                .unwrap()
+        ),
+        vec![db("b"), db("c")]
+    );
+}

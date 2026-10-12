@@ -502,6 +502,67 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
 
+  /catalog/{systemname}:
+    put:
+      operationId: pushCatalog
+      summary: Record a system's periphery from its Backstage catalog-info.yaml
+      description: |
+        Optional. A Producer's or Consumer's build pushes its Backstage
+        `catalog-info.yaml` so the network graph can show the **Peripheral
+        Resources** the system depends on — databases, buckets, queues and
+        other things outside Sanshain.
+
+        Sanshain reads only the `Component` whose `metadata.name` equals
+        `systemname` (case-insensitive), and of it only `spec.dependsOn`. Only
+        `resource:` refs are kept; `component:` refs, `consumesApis` and all
+        other fields are ignored, because edges between systems are Sanshain's
+        own (`/require`). A ref without a kind is read as a `resource`, a ref
+        without a namespace takes the Component's namespace (`default` when it
+        declares none), and refs are lower-cased.
+
+        Each push **replaces** the system's periphery: a resource no longer
+        listed is removed from the current graph (it stays in the timeline),
+        and an empty or missing `dependsOn` clears it. `trunk: true` updates the
+        main graph and the dev graph; otherwise only the dev graph.
+        Sanshain-branches get the periphery copied when they are cut.
+
+        Any authenticated caller may push — the same bar as `/require`.
+      parameters:
+        - name: systemname
+          in: path
+          required: true
+          schema: { type: string }
+          description: |
+            The system the file describes — the `serviceName` from
+            `sanshain.yaml`, i.e. the Producer or Consumer name.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CatalogPushPayload"
+      responses:
+        "200":
+          description: The periphery now recorded for the system.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogPushResponse"
+        "400":
+          description: |
+            The file is not valid YAML, a document in it is not a Backstage
+            entity, it has no (or more than one) `Component` named
+            `systemname`, or its `dependsOn` is not a list of entity refs.
+            Nothing is recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "422":
+          description: Request body has the wrong shape (missing `catalog_info_yaml`, unknown fields).
+        "413":
+          description: Request body exceeds the configured size limit (`MAX_SPEC_BODY_BYTES`, default 4 MiB).
+
   /producers/{producername}/versions:
     get:
       operationId: listProducerVersions
@@ -907,6 +968,34 @@ components:
         tag:
           type: string
           description: See `tag` on `/require`.
+
+    CatalogPushPayload:
+      type: object
+      required:
+        - catalog_info_yaml
+      properties:
+        catalog_info_yaml:
+          type: string
+          description: The system's Backstage `catalog-info.yaml`, as text. May hold several documents.
+        trunk:
+          type: boolean
+          default: false
+          description: |
+            A trunk build (ADR-0004): the periphery updates the main graph as
+            well as the dev graph.
+
+    CatalogPushResponse:
+      type: object
+      required: [system, trunk, resources]
+      properties:
+        system:
+          type: string
+        trunk:
+          type: boolean
+        resources:
+          type: array
+          description: The recorded refs, `resource:<namespace>/<name>`, lower-cased and sorted.
+          items: { type: string }
 
     ValidationReport:
       type: object

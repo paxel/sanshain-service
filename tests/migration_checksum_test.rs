@@ -166,6 +166,10 @@ const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
         "20260811000000_harvested_subscriptions.sql",
         "e7be11304dc0a0f4dbe743b92a4da6ee02b5e5bdfb2ea11ca7d193eee3ba443d",
     ),
+    (
+        "20261012000000_peripheral_dependencies.sql",
+        "c245c46ad95dc48947c60ebd4b9289ba580f8310839703ee34dd7c84ed678506",
+    ),
 ];
 
 const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
@@ -284,6 +288,10 @@ const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
     (
         "20260811000000_harvested_subscriptions.sql",
         "e1eb086120c3fa4780025ee7c57c16ddb0cc3c029bd27d0bc6031b2936a17d26",
+    ),
+    (
+        "20261012000000_peripheral_dependencies.sql",
+        "87b2338f7c5d7e0a39ef12403d8da21e27ebd482338214dfb9ab2400b498e022",
     ),
 ];
 

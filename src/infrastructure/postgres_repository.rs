@@ -83,7 +83,7 @@ fn hash_session_token(token: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-use super::pin_rows::{PinRow, pin_row_to_info};
+use super::pin_rows::{PinRow, periphery_track_key, pin_row_to_info};
 use crate::domain::models::*;
 use crate::domain::ports::{
     EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
@@ -2649,6 +2649,109 @@ impl SpecRepository for PostgresSpecRepository {
                     trunk,
                 },
             )
+            .collect())
+    }
+
+    async fn reconcile_periphery(
+        &self,
+        system: &str,
+        trunk: bool,
+        resources: &[String],
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut tracks = vec![PeripheryTrack::Dev];
+        if trunk {
+            tracks.push(PeripheryTrack::Trunk);
+        }
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        for track in tracks {
+            let (track, _) = periphery_track_key(track);
+            let open: Vec<(String,)> = sqlx::query_as(
+                "SELECT resource_ref FROM peripheral_dependencies \
+                 WHERE track = $1 AND branch_id IS NULL AND system_name = $2 AND valid_to IS NULL",
+            )
+            .bind(track)
+            .bind(system)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            for (resource,) in &open {
+                if !resources.contains(resource) {
+                    sqlx::query(
+                        "UPDATE peripheral_dependencies SET valid_to = $1 \
+                         WHERE track = $2 AND branch_id IS NULL AND system_name = $3 \
+                           AND resource_ref = $4 AND valid_to IS NULL",
+                    )
+                    .bind(now_iso)
+                    .bind(track)
+                    .bind(system)
+                    .bind(resource)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                }
+            }
+            for resource in resources {
+                if open.iter().any(|(r,)| r == resource) {
+                    continue;
+                }
+                sqlx::query(
+                    "INSERT INTO peripheral_dependencies \
+                       (track, branch_id, system_name, resource_ref, valid_from) \
+                     VALUES ($1, NULL, $2, $3, $4) \
+                     ON CONFLICT (track, (COALESCE(branch_id, 0)), system_name, resource_ref) \
+                     WHERE valid_to IS NULL DO NOTHING",
+                )
+                .bind(track)
+                .bind(system)
+                .bind(resource)
+                .bind(now_iso)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            }
+        }
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn list_periphery(
+        &self,
+        track: PeripheryTrack,
+        at: Option<&str>,
+    ) -> Result<Vec<PeripheralDependency>, RepositoryError> {
+        let (track, branch_id) = periphery_track_key(track);
+        let base = "SELECT system_name, resource_ref FROM peripheral_dependencies \
+                    WHERE track = $1 AND COALESCE(branch_id, 0) = COALESCE($2::BIGINT, 0)";
+        let order = "ORDER BY system_name, resource_ref";
+        let rows: Vec<(String, String)> =
+            match at {
+                Some(at) => sqlx::query_as(&format!(
+                    "{base} AND valid_from <= $3 AND (valid_to IS NULL OR valid_to > $3) {order}"
+                ))
+                .bind(track)
+                .bind(branch_id)
+                .bind(at)
+                .fetch_all(&self.pool)
+                .await,
+                None => {
+                    sqlx::query_as(&format!("{base} AND valid_to IS NULL {order}"))
+                        .bind(track)
+                        .bind(branch_id)
+                        .fetch_all(&self.pool)
+                        .await
+                }
+            }
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .map(|(system, resource)| PeripheralDependency { system, resource })
             .collect())
     }
 

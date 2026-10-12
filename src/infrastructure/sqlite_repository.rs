@@ -82,7 +82,7 @@ fn hash_session_token(token: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-use super::pin_rows::{PinRow, pin_row_to_info};
+use super::pin_rows::{PinRow, periphery_track_key, pin_row_to_info};
 use crate::domain::models::*;
 use crate::domain::ports::{
     EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
@@ -2672,6 +2672,107 @@ impl SpecRepository for SqliteSpecRepository {
             .collect())
     }
 
+    async fn reconcile_periphery(
+        &self,
+        system: &str,
+        trunk: bool,
+        resources: &[String],
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut tracks = vec![PeripheryTrack::Dev];
+        if trunk {
+            tracks.push(PeripheryTrack::Trunk);
+        }
+        let mut tx = self.write_tx().await?;
+        for track in tracks {
+            let (track, _) = periphery_track_key(track);
+            let open: Vec<(String,)> = sqlx::query_as(
+                "SELECT resource_ref FROM peripheral_dependencies \
+                 WHERE track = ? AND branch_id IS NULL AND system_name = ? AND valid_to IS NULL",
+            )
+            .bind(track)
+            .bind(system)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            for (resource,) in &open {
+                if !resources.contains(resource) {
+                    sqlx::query(
+                        "UPDATE peripheral_dependencies SET valid_to = ? \
+                         WHERE track = ? AND branch_id IS NULL AND system_name = ? \
+                           AND resource_ref = ? AND valid_to IS NULL",
+                    )
+                    .bind(now_iso)
+                    .bind(track)
+                    .bind(system)
+                    .bind(resource)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                }
+            }
+            for resource in resources {
+                if open.iter().any(|(r,)| r == resource) {
+                    continue;
+                }
+                sqlx::query(
+                    "INSERT INTO peripheral_dependencies \
+                       (track, branch_id, system_name, resource_ref, valid_from) \
+                     VALUES (?, NULL, ?, ?, ?) \
+                     ON CONFLICT (track, COALESCE(branch_id, 0), system_name, resource_ref) \
+                     WHERE valid_to IS NULL DO NOTHING",
+                )
+                .bind(track)
+                .bind(system)
+                .bind(resource)
+                .bind(now_iso)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            }
+        }
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn list_periphery(
+        &self,
+        track: PeripheryTrack,
+        at: Option<&str>,
+    ) -> Result<Vec<PeripheralDependency>, RepositoryError> {
+        let (track, branch_id) = periphery_track_key(track);
+        let base = "SELECT system_name, resource_ref FROM peripheral_dependencies \
+                    WHERE track = ? AND COALESCE(branch_id, 0) = COALESCE(?, 0)";
+        let order = "ORDER BY system_name, resource_ref";
+        let rows: Vec<(String, String)> = match at {
+            Some(at) => {
+                sqlx::query_as(&format!(
+                    "{base} AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?) {order}"
+                ))
+                .bind(track)
+                .bind(branch_id)
+                .bind(at)
+                .bind(at)
+                .fetch_all(&self.pool)
+                .await
+            }
+            None => {
+                sqlx::query_as(&format!("{base} AND valid_to IS NULL {order}"))
+                    .bind(track)
+                    .bind(branch_id)
+                    .fetch_all(&self.pool)
+                    .await
+            }
+        }
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .map(|(system, resource)| PeripheralDependency { system, resource })
+            .collect())
+    }
+
     async fn insert_audit_log(
         &self,
         username: &str,
@@ -3099,6 +3200,66 @@ mod tests {
         assert_eq!(report.unused_endpoints.len(), 1);
         assert_eq!(report.unused_endpoints[0].path, "/b");
         assert!(report.missing_endpoints.is_empty());
+    }
+
+    #[tokio::test]
+    async fn periphery_reconcile_is_append_only_and_readable_at_an_instant() {
+        let repo = setup().await;
+        let db = |r: &str| format!("resource:default/{r}");
+        repo.reconcile_periphery("orders", true, &[db("a"), db("b")], "2026-01-01T00:00:00Z")
+            .await
+            .unwrap();
+        // Re-pushing an unchanged resource keeps its row; a dropped one closes.
+        repo.reconcile_periphery("orders", true, &[db("b"), db("c")], "2026-02-01T00:00:00Z")
+            .await
+            .unwrap();
+        // A dev push touches only the dev set.
+        repo.reconcile_periphery("orders", false, &[], "2026-03-01T00:00:00Z")
+            .await
+            .unwrap();
+
+        let names = |v: Vec<PeripheralDependency>| -> Vec<String> {
+            v.into_iter().map(|p| p.resource).collect()
+        };
+        assert_eq!(
+            names(
+                repo.list_periphery(PeripheryTrack::Trunk, None)
+                    .await
+                    .unwrap()
+            ),
+            vec![db("b"), db("c")]
+        );
+        assert!(
+            repo.list_periphery(PeripheryTrack::Dev, None)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            names(
+                repo.list_periphery(PeripheryTrack::Trunk, Some("2026-01-15T00:00:00Z"))
+                    .await
+                    .unwrap()
+            ),
+            vec![db("a"), db("b")]
+        );
+        assert_eq!(
+            names(
+                repo.list_periphery(PeripheryTrack::Dev, Some("2026-02-15T00:00:00Z"))
+                    .await
+                    .unwrap()
+            ),
+            vec![db("b"), db("c")]
+        );
+        // `b` stayed open across the second push: one row, not two.
+        let b_rows: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM peripheral_dependencies WHERE track = 'trunk' AND resource_ref = ?",
+        )
+        .bind(db("b"))
+        .fetch_one(&repo.pool)
+        .await
+        .unwrap();
+        assert_eq!(b_rows.0, 1);
     }
 
     #[tokio::test]

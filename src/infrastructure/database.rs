@@ -734,4 +734,22 @@ impl SpecRepository for DatabaseRepo {
     ) -> Result<Vec<HarvestedSubscription>, RepositoryError> {
         delegate!(self, list_current_harvested_subscriptions())
     }
+
+    async fn reconcile_periphery(
+        &self,
+        system: &str,
+        trunk: bool,
+        resources: &[String],
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, reconcile_periphery(system, trunk, resources, now_iso))
+    }
+
+    async fn list_periphery(
+        &self,
+        track: PeripheryTrack,
+        at: Option<&str>,
+    ) -> Result<Vec<PeripheralDependency>, RepositoryError> {
+        delegate!(self, list_periphery(track, at))
+    }
 }

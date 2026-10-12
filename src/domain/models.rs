@@ -650,6 +650,35 @@ pub struct HarvestedSubscription {
     pub trunk: bool,
 }
 
+/// One edge from a system to a **Peripheral Resource** (#46): something outside
+/// Sanshain the system depends on, known only by its Backstage entity ref
+/// (`resource:<namespace>/<name>`, lower-cased). The ref is the node's
+/// identity, so systems sharing a resource point at one node.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PeripheralDependency {
+    pub system: String,
+    pub resource: String,
+}
+
+/// Which periphery set a read or a write addresses (#46). A trunk push
+/// updates both `Trunk` and `Dev` — the dev view is all activity, trunk
+/// included; a sanshain-branch gets its set only as a copy at the cut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PeripheryTrack {
+    Dev,
+    Trunk,
+    Branch(i64),
+}
+
+/// The answer to a catalog push (#46): the periphery now recorded for the
+/// system, so the build can show what Sanshain understood.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct CatalogPushResult {
+    pub system: String,
+    pub trunk: bool,
+    pub resources: Vec<String>,
+}
+
 /// One entry in a provide's `harvested_subscriptions` response: what the
 /// harvest did with a SUB the Producer declared (ai/improvements.md #6).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

@@ -53,3 +53,17 @@ pub(crate) fn pin_row_to_info<I: Into<i64>>(
         dangling: false,
     })
 }
+
+/// How a periphery set (#46) is addressed in `peripheral_dependencies`: the
+/// `track` column and the `branch_id` the open-row index compares as
+/// `COALESCE(branch_id, 0)`.
+pub(crate) fn periphery_track_key(
+    track: crate::domain::models::PeripheryTrack,
+) -> (&'static str, Option<i64>) {
+    use crate::domain::models::PeripheryTrack;
+    match track {
+        PeripheryTrack::Dev => ("dev", None),
+        PeripheryTrack::Trunk => ("trunk", None),
+        PeripheryTrack::Branch(id) => ("branch", Some(id)),
+    }
+}

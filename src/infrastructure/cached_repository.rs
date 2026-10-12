@@ -1498,6 +1498,31 @@ impl SpecRepository for CachedSpecRepository {
     ) -> Result<Vec<HarvestedSubscription>, RepositoryError> {
         self.inner.list_current_harvested_subscriptions().await
     }
+
+    async fn reconcile_periphery(
+        &self,
+        system: &str,
+        trunk: bool,
+        resources: &[String],
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .reconcile_periphery(system, trunk, resources, now_iso)
+            .await?;
+        // Periphery edges ride the report payload, so a change stales it.
+        if !self.is_disabled() {
+            self.report_cache.invalidate_all();
+        }
+        Ok(())
+    }
+
+    async fn list_periphery(
+        &self,
+        track: PeripheryTrack,
+        at: Option<&str>,
+    ) -> Result<Vec<PeripheralDependency>, RepositoryError> {
+        self.inner.list_periphery(track, at).await
+    }
 }
 
 #[cfg(test)]

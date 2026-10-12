@@ -102,6 +102,18 @@ pub struct MockRepo {
     pub user_maintainers: Mutex<Vec<(i64, i64)>>,
     pub group_maintainers: Mutex<Vec<(i64, i64)>>,
     pub harvested_subscriptions: Mutex<Vec<MockHarvestedSub>>,
+    pub periphery: Mutex<Vec<MockPeripheryRow>>,
+}
+
+/// In-memory `peripheral_dependencies` row (#46). Append-only: the open row
+/// (`valid_to` is `None`) per (track, system, resource) is current.
+#[derive(Clone)]
+pub struct MockPeripheryRow {
+    pub track: PeripheryTrack,
+    pub system: String,
+    pub resource: String,
+    pub valid_from: String,
+    pub valid_to: Option<String>,
 }
 
 /// In-memory harvested subscription row (ai/improvements.md #6). Append-only:
@@ -155,6 +167,7 @@ impl MockRepo {
             user_maintainers: Mutex::new(Vec::new()),
             group_maintainers: Mutex::new(Vec::new()),
             harvested_subscriptions: Mutex::new(Vec::new()),
+            periphery: Mutex::new(Vec::new()),
         }
     }
 
@@ -2266,6 +2279,79 @@ impl SpecRepository for MockRepo {
                 .then_with(|| a.channel.cmp(&b.channel))
                 .then_with(|| a.message_name.cmp(&b.message_name))
         });
+        Ok(result)
+    }
+
+    async fn reconcile_periphery(
+        &self,
+        system: &str,
+        trunk: bool,
+        resources: &[String],
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut tracks = vec![PeripheryTrack::Dev];
+        if trunk {
+            tracks.push(PeripheryTrack::Trunk);
+        }
+        let mut rows = self
+            .periphery
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        for track in tracks {
+            for row in rows.iter_mut() {
+                if row.track == track
+                    && row.system == system
+                    && row.valid_to.is_none()
+                    && !resources.contains(&row.resource)
+                {
+                    row.valid_to = Some(now_iso.to_string());
+                }
+            }
+            for resource in resources {
+                let open = rows.iter().any(|r| {
+                    r.track == track
+                        && r.system == system
+                        && &r.resource == resource
+                        && r.valid_to.is_none()
+                });
+                if !open {
+                    rows.push(MockPeripheryRow {
+                        track,
+                        system: system.to_string(),
+                        resource: resource.clone(),
+                        valid_from: now_iso.to_string(),
+                        valid_to: None,
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn list_periphery(
+        &self,
+        track: PeripheryTrack,
+        at: Option<&str>,
+    ) -> Result<Vec<PeripheralDependency>, RepositoryError> {
+        let rows = self
+            .periphery
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut result: Vec<PeripheralDependency> = rows
+            .iter()
+            .filter(|r| r.track == track)
+            .filter(|r| match at {
+                Some(at) => {
+                    r.valid_from.as_str() <= at && r.valid_to.as_deref().is_none_or(|to| to > at)
+                }
+                None => r.valid_to.is_none(),
+            })
+            .map(|r| PeripheralDependency {
+                system: r.system.clone(),
+                resource: r.resource.clone(),
+            })
+            .collect();
+        result.sort();
         Ok(result)
     }
 }
