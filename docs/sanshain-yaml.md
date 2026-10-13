@@ -72,6 +72,13 @@ requires:
 | `compression` | boolean | no       | `false` | Whether to request gzip-compressed responses.                                                             |
 | `catalogInfo` | string  | no       | —       | Path to the project's Backstage `catalog-info.yaml`. When set, the build pushes it (see "Catalog Phase"). |
 
+### Relative paths
+
+Every relative path in `sanshain.yaml` — `file`, `outputDirectory` and `catalogInfo` — is resolved
+against the directory that contains `sanshain.yaml`, not the current working directory. A build that
+points its client at another config file (`--config`, `-config`, `configFile`) therefore finds the
+same files as a build started next to it.
+
 ### How stability is decided
 
 Sanshain never sees your git repository, and the plugins do no git detection either. The rule is
@@ -539,10 +546,14 @@ The client receives a `.proto` file containing only the `InventoryService` defin
 
 ### Catalog Phase
 
-Only when `catalogInfo` is set. Once per build:
+A separate step of its own, because a pure Consumer never provides and a pure Producer may never
+require: `sanshain catalog` (CLI clients), the `sanshain:catalog` goal (Maven), `Sanshain.catalog()`
+(Conan helper). It needs Sanshain Service 2.4.0 or later; an older service answers `404`, which the
+clients report as such. Once per build:
 
-1. Read the file at `catalogInfo`.
-2. Call `PUT /catalog/<root.serviceName>` with:
+1. Without `catalogInfo`, warn and skip — or fail when `strict` is on.
+2. Read the file at `catalogInfo`.
+3. Call `PUT /catalog/<root.serviceName>` with:
    ```json
    {
      "catalog_info_yaml": "<file content>",
@@ -550,10 +561,11 @@ Only when `catalogInfo` is set. Once per build:
    }
    ```
    `trunk` follows the same switch as provides and requires (ADR-0004).
-3. **Handle the response**: `200` returns the recorded resources, e.g.
+4. **Handle the response**: `200` returns the recorded resources, e.g.
    `{"system": "orders-service", "trunk": true, "resources": ["resource:default/orders-db"]}`.
    A `400` means Sanshain could not read the file as this project's Component. The usual cause is a
-   `metadata.name` that is not the `serviceName`. Fail the build so the mismatch is fixed.
+   `metadata.name` that is not the `serviceName`. Fail the build so the mismatch is fixed —
+   unless the client runs best-effort, which warns and carries on, as for every other call.
 
 What Sanshain reads: only the `Component` whose `metadata.name` equals `serviceName`, and of it only
 `spec.dependsOn`. Only `resource:` refs become graph nodes; `component:` refs, `consumesApis` and
