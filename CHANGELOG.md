@@ -13,6 +13,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Sanshain-branches copy the trunk periphery when they are cut (also retroactively, as of the cut's instant). The graph diff reports `periphery_added`/`periphery_removed`, and periphery changes show up as timeline instants. Deleting a Producer or Consumer closes the periphery of a system that has no role left; branch copies are kept.
 - The network graph draws Peripheral Resources as their own node kind (slate, dashed outline, labelled `name` or `namespace/name`), with dashed edges from the systems that depend on them. Systems sharing a resource point at one node. A new **Periphery** switch next to the protocol filters hides them, and a legend entry highlights them. The main, branch and timeline views show the periphery of that scope and instant, and the compare panel lists added and removed periphery edges.
 
+### Security
+- Updated `quinn-proto` to 0.11.19 (RUSTSEC-2026-0339, RUSTSEC-2026-0341, RUSTSEC-2026-0342).
+
 ---
 
 Historical changes have been moved to [OLDER_CHANGES.md](OLDER_CHANGES.md).
