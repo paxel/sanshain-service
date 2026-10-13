@@ -650,11 +650,16 @@ test.describe("Release-graph regressions (ai/improvements.md #28)", () => {
       const originalRedraw = window.redrawGraph;
       window.redrawGraph = () => {};
       const resolvers = {};
-      window.apiCall = (url) =>
-        new Promise((resolve) => {
-          const key = url.includes("T01") ? "older" : "newer";
-          resolvers[key] = () => resolve({ ok: true, json: async () => [{ marker: key }] });
+      window.apiCall = (url) => {
+        const key = url.includes("T01") ? "older" : "newer";
+        const answer = { ok: true, json: async () => [{ marker: key }] };
+        // The periphery of the instant (#46) is fetched after its pins; answer
+        // it at once so only the pin responses are raced.
+        if (url.includes("/admin/periphery")) return Promise.resolve(answer);
+        return new Promise((resolve) => {
+          resolvers[key] = () => resolve(answer);
         });
+      };
       try {
         const older = window.setTimelinePosition("2026-01-01T01:00:00Z");
         const newer = window.setTimelinePosition("2026-01-01T02:00:00Z");
@@ -665,17 +670,20 @@ test.describe("Release-graph regressions (ai/improvements.md #28)", () => {
         return {
           at: window.graphTimelineAt,
           marker: window.graphTimelinePins?.[0]?.marker ?? null,
+          peripheryMarker: window.graphScopePeriphery?.[0]?.marker ?? null,
         };
       } finally {
         window.apiCall = originalApi;
         window.redrawGraph = originalRedraw;
         window.graphTimelineAt = null;
         window.graphTimelinePins = null;
+        window.graphScopePeriphery = null;
       }
     });
-    // …and must not win.
+    // …and must not win — neither its pins nor its periphery.
     expect(result.at).toBe("2026-01-01T02:00:00Z");
     expect(result.marker).toBe("newer");
+    expect(result.peripheryMarker).toBe("newer");
   });
 
   // #28.7: an expired session mid-action redirects like every other admin
