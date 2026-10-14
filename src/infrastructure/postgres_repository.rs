@@ -439,9 +439,29 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn delete_spec_version(&self, spec_version_id: i64) -> Result<bool, RepositoryError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // A deleted version is no longer what trunk carries; its closed member
+        // record stays as history.
+        sqlx::query(
+            "UPDATE trunk_member_versions AS m SET valid_to = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') \
+             WHERE m.valid_to IS NULL AND EXISTS (SELECT 1 FROM spec_versions sv WHERE sv.id = $1 \
+             AND sv.service_id = m.service_id AND sv.api_type = m.api_type \
+             AND sv.major = m.major AND sv.minor = m.minor AND sv.patch = m.patch)",
+        )
+        .bind(spec_version_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let result = sqlx::query("DELETE FROM spec_versions WHERE id = $1")
             .bind(spec_version_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        tx.commit()
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(result.rows_affected() > 0)
@@ -480,10 +500,52 @@ impl SpecRepository for PostgresSpecRepository {
         spec_version_id: i64,
         now_iso: &str,
     ) -> Result<(), RepositoryError> {
+        // Marker and member record are one act: a failure between them would
+        // leave the main view's live and historical answers disagreeing.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("UPDATE spec_versions SET trunk_provided_at = $1 WHERE id = $2")
             .bind(now_iso)
             .bind(spec_version_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // The open record of this entry's line, compared with this entry.
+        let line = "m.valid_to IS NULL AND EXISTS (SELECT 1 FROM spec_versions sv WHERE sv.id = $2 \
+                    AND sv.service_id = m.service_id AND sv.api_type = m.api_type";
+        let same = "AND sv.major = m.major AND sv.minor = m.minor AND sv.patch = m.patch)";
+        sqlx::query(&format!(
+            "UPDATE trunk_member_versions AS m SET valid_to = $1 WHERE {line} AND NOT (sv.major = m.major AND sv.minor = m.minor AND sv.patch = m.patch))"
+        ))
+        .bind(now_iso)
+        .bind(spec_version_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let refreshed = sqlx::query(&format!(
+            "UPDATE trunk_member_versions AS m SET last_provided_at = $1 WHERE {line} {same}"
+        ))
+        .bind(now_iso)
+        .bind(spec_version_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        if refreshed.rows_affected() == 0 {
+            sqlx::query(
+                "INSERT INTO trunk_member_versions (service_id, service_name, api_type, major, minor, patch, valid_from, last_provided_at) \
+                 SELECT sv.service_id, s.name, sv.api_type, sv.major, sv.minor, sv.patch, $1, $1 \
+                 FROM spec_versions sv JOIN services s ON s.id = sv.service_id WHERE sv.id = $2",
+            )
+            .bind(now_iso)
+            .bind(spec_version_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        tx.commit()
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(())
@@ -784,6 +846,14 @@ impl SpecRepository for PostgresSpecRepository {
         sqlx::query(
             "UPDATE spec_versions SET trunk_provided_at = NULL WHERE trunk_provided_at IS NOT NULL AND trunk_provided_at < $1",
         )
+        .bind(cutoff_iso)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "UPDATE trunk_member_versions SET valid_to = $1 WHERE valid_to IS NULL AND last_provided_at < $2",
+        )
+        .bind(now_iso)
         .bind(cutoff_iso)
         .execute(&self.pool)
         .await
@@ -1518,6 +1588,10 @@ impl SpecRepository for PostgresSpecRepository {
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM trunk_member_versions")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM channel_message_contracts")
             .execute(&mut *tx)
             .await
@@ -1617,6 +1691,15 @@ impl SpecRepository for PostgresSpecRepository {
         // longer cascaded away). The stamp matches now_iso()'s shape.
         sqlx::query(
             "UPDATE trunk_dependencies SET valid_to = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') \
+             WHERE service_id = $1 AND valid_to IS NULL",
+        )
+        .bind(service_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // Its trunk member versions close the same way.
+        sqlx::query(
+            "UPDATE trunk_member_versions SET valid_to = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') \
              WHERE service_id = $1 AND valid_to IS NULL",
         )
         .bind(service_id)
@@ -2511,6 +2594,16 @@ impl SpecRepository for PostgresSpecRepository {
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "UPDATE trunk_member_versions SET valid_to = $1 \
+             WHERE service_id = $2 AND api_type = $3 AND valid_to IS NULL",
+        )
+        .bind(now_iso)
+        .bind(service_id)
+        .bind(api_type.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(res.rows_affected())
     }
 
@@ -2819,6 +2912,64 @@ impl SpecRepository for PostgresSpecRepository {
             .into_iter()
             .map(|(system, resource)| PeripheralDependency { system, resource })
             .collect())
+    }
+
+    async fn list_member_versions(
+        &self,
+        track: MemberTrack,
+        at: Option<&str>,
+    ) -> Result<Vec<MemberVersion>, RepositoryError> {
+        type Row = (String, String, i32, i32, i32, String, Option<String>);
+        // Trunk binds a placeholder branch id it never reads, so both stores
+        // share one placeholder numbering.
+        let (table, last, filter, branch_id) = match track {
+            MemberTrack::Trunk => (
+                "trunk_member_versions",
+                "last_provided_at",
+                "$1::BIGINT IS NULL",
+                None,
+            ),
+            MemberTrack::Branch(id) => (
+                "branch_member_versions",
+                "NULL::TEXT",
+                "branch_id = $1",
+                Some(id),
+            ),
+        };
+        let base = format!(
+            "SELECT service_name, api_type, major, minor, patch, valid_from, {last} \
+             FROM {table} WHERE {filter}"
+        );
+        let order = "ORDER BY service_name, api_type";
+        let sql = match at {
+            Some(_) => format!(
+                "{base} AND valid_from <= $2 AND (valid_to IS NULL OR valid_to > $2) {order}"
+            ),
+            None => format!("{base} AND valid_to IS NULL {order}"),
+        };
+        let mut query = sqlx::query_as::<_, Row>(&sql).bind(branch_id);
+        if let Some(at) = at {
+            query = query.bind(at);
+        }
+        let rows = query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        rows.into_iter()
+            .map(
+                |(service, api_type, major, minor, patch, valid_from, last_provided_at)| {
+                    Ok(MemberVersion {
+                        service,
+                        api_type: api_type
+                            .parse()
+                            .map_err(|e: String| RepositoryError::Internal(e))?,
+                        version: SemVer::new(major as u32, minor as u32, patch as u32),
+                        valid_from,
+                        last_provided_at,
+                    })
+                },
+            )
+            .collect()
     }
 
     async fn insert_audit_log(

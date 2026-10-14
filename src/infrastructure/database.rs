@@ -756,4 +756,12 @@ impl SpecRepository for DatabaseRepo {
     ) -> Result<Vec<PeripheralDependency>, RepositoryError> {
         delegate!(self, list_periphery(track, at))
     }
+
+    async fn list_member_versions(
+        &self,
+        track: MemberTrack,
+        at: Option<&str>,
+    ) -> Result<Vec<MemberVersion>, RepositoryError> {
+        delegate!(self, list_member_versions(track, at))
+    }
 }

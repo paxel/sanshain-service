@@ -252,7 +252,9 @@ pub trait SpecRepository: Send + Sync {
 
     /// Stamp the entry as trunk's current version (ADR-0004): a real
     /// trunk-flagged Provide — including the idempotent no-op — refreshes
-    /// `trunk_provided_at`.
+    /// `trunk_provided_at` — and records the version as trunk's member version
+    /// of its line (append-only: a different version closes the open record
+    /// and inserts; the same version refreshes its `last_provided_at`).
     fn touch_spec_version_trunk(
         &self,
         spec_version_id: i64,
@@ -356,8 +358,8 @@ pub trait SpecRepository: Send + Sync {
     ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
     /// Trunk TTL cleanup (ADR-0004/0005): close open trunk pins not
-    /// re-required since the cutoff and clear stale trunk version markers.
-    /// Rows are closed, never deleted — history is the timeline. Returns how
+    /// re-required since the cutoff, clear stale trunk version markers and
+    /// close trunk member versions not provided since. Rows are closed, never deleted — history is the timeline. Returns how
     /// many pins were closed.
     fn close_expired_trunk_data(
         &self,
@@ -869,7 +871,8 @@ pub trait SpecRepository: Send + Sync {
 
     /// Close a Producer's open trunk pins for one API family (#7 retire): they
     /// leave the current main graph while the closed rows survive as timeline
-    /// history (the pins are by value, see #26B). Returns how many were closed.
+    /// history (the pins are by value, see #26B). The family's open trunk
+    /// member version is closed too. Returns how many pins were closed.
     fn close_trunk_pins_for_service_api(
         &self,
         service_id: i64,
@@ -993,4 +996,13 @@ pub trait SpecRepository: Send + Sync {
         track: PeripheryTrack,
         at: Option<&str>,
     ) -> impl Future<Output = Result<Vec<PeripheralDependency>, RepositoryError>> + Send;
+
+    /// The member versions of trunk or a branch — the open records, or the
+    /// records current at `at` — sorted by producer and API type. Trunk's
+    /// store is written by [`SpecRepository::touch_spec_version_trunk`].
+    fn list_member_versions(
+        &self,
+        track: MemberTrack,
+        at: Option<&str>,
+    ) -> impl Future<Output = Result<Vec<MemberVersion>, RepositoryError>> + Send;
 }

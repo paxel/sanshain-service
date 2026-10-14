@@ -670,6 +670,56 @@ pub enum PeripheryTrack {
     Branch(i64),
 }
 
+/// Which member-version store a read addresses: trunk's (every trunk-flagged
+/// Provide) or one sanshain-branch's (tag-flagged Provides, ADR-0005).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemberTrack {
+    Trunk,
+    Branch(i64),
+}
+
+/// One member-version record, as it was current at the read's instant: the
+/// version of a producer's line that trunk or a branch carries. The producer
+/// is by value (it may have been deleted since). `last_provided_at` is the
+/// latest trunk Provide of that version (trunk only; `None` for branches).
+#[derive(Clone, Debug, PartialEq)]
+pub struct MemberVersion {
+    pub service: String,
+    pub api_type: ApiType,
+    pub version: SemVer,
+    pub valid_from: String,
+    pub last_provided_at: Option<String>,
+}
+
+/// One version line of a producer in a graph scope at the scope's instant.
+/// `stability` is `None` when the version was deleted since (a dangling
+/// reference); `last_provided_at` is `None` when no provide at or before the
+/// instant is known.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct ScopeVersionLine {
+    pub api_type: ApiType,
+    pub version: SemVer,
+    pub stability: Option<Stability>,
+    pub last_provided_at: Option<String>,
+}
+
+/// A producer in a graph scope at the scope's instant, with its version lines
+/// there — one per API type.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct ScopeProducer {
+    pub name: String,
+    pub versions: Vec<ScopeVersionLine>,
+}
+
+/// What the graph needs of a scope beyond its pin set: the producers in it
+/// with their version lines, and the harvested subscriptions that belong to
+/// it (dev = all, live main = trunk-flagged, anything else = none).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct GraphScopeData {
+    pub producers: Vec<ScopeProducer>,
+    pub harvested_subscriptions: Vec<HarvestedSubscription>,
+}
+
 /// The answer to a catalog push (#46): the periphery now recorded for the
 /// system, so the build can show what Sanshain understood.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

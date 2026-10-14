@@ -828,6 +828,102 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/graph/scope:
+    get:
+      summary: "Read: graph scope"
+      description: |
+        Any signed-in caller.
+
+        What the dependency graph needs of one scope beyond its pins, for
+        `dev` (the default), `main[@rfc3339]` or `<branch>[@rfc3339]` — the
+        selector grammar of `/admin/graph/diff`:
+
+        - `producers`: the producers in the scope at its instant, each with
+          one version line per API type. dev: every producer with any version
+          (its newest per line). main: trunk's member versions — every
+          trunk-flagged provide records the version it provided, closed again
+          by the trunk TTL, a retire, or a version/producer delete. A branch:
+          its member versions (tag-flagged provides) and, for lines without
+          one, the highest version its pins name. `stability` is `null` when
+          the version was deleted since; `last_provided_at` is the latest
+          provide known at the instant (`null` when none is known).
+        - `harvested_subscriptions`: dev all, live main the trunk-flagged
+          ones, everything else none (there is no harvested timeline).
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The scope's producers and harvested subscriptions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [producers, harvested_subscriptions]
+                properties:
+                  producers:
+                    type: array
+                    items:
+                      type: object
+                      required: [name, versions]
+                      properties:
+                        name:
+                          type: string
+                        versions:
+                          type: array
+                          items:
+                            type: object
+                            required: [api_type, version, stability, last_provided_at]
+                            properties:
+                              api_type:
+                                type: string
+                                enum: [openapi, asyncapi, proto]
+                              version:
+                                type: string
+                              stability:
+                                type: string
+                                nullable: true
+                                enum: [snapshot, ga]
+                              last_provided_at:
+                                type: string
+                                nullable: true
+                  harvested_subscriptions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        client:
+                          type: string
+                        channel:
+                          type: string
+                        message_name:
+                          type: string
+                        owner:
+                          type: string
+                          nullable: true
+                        trunk:
+                          type: boolean
+        "400":
+          description: A selector instant that is not RFC 3339, or `dev@…`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: A named branch does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/producers:
     get:
       summary: "Read: producers"

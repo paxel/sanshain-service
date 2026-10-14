@@ -444,9 +444,25 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn delete_spec_version(&self, spec_version_id: i64) -> Result<bool, RepositoryError> {
+        let mut tx = self.write_tx().await?;
+        // A deleted version is no longer what trunk carries; its closed member
+        // record stays as history.
+        sqlx::query(
+            "UPDATE trunk_member_versions AS m SET valid_to = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') \
+             WHERE m.valid_to IS NULL AND EXISTS (SELECT 1 FROM spec_versions sv WHERE sv.id = ? \
+             AND sv.service_id = m.service_id AND sv.api_type = m.api_type \
+             AND sv.major = m.major AND sv.minor = m.minor AND sv.patch = m.patch)",
+        )
+        .bind(spec_version_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let result = sqlx::query("DELETE FROM spec_versions WHERE id = ?")
             .bind(spec_version_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        tx.commit()
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(result.rows_affected() > 0)
@@ -485,10 +501,49 @@ impl SpecRepository for SqliteSpecRepository {
         spec_version_id: i64,
         now_iso: &str,
     ) -> Result<(), RepositoryError> {
+        // Marker and member record are one act: a failure between them would
+        // leave the main view's live and historical answers disagreeing.
+        let mut tx = self.write_tx().await?;
         sqlx::query("UPDATE spec_versions SET trunk_provided_at = ? WHERE id = ?")
             .bind(now_iso)
             .bind(spec_version_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // The open record of this entry's line, compared with this entry.
+        let line = "m.valid_to IS NULL AND EXISTS (SELECT 1 FROM spec_versions sv WHERE sv.id = ? \
+                    AND sv.service_id = m.service_id AND sv.api_type = m.api_type";
+        let same = "AND sv.major = m.major AND sv.minor = m.minor AND sv.patch = m.patch)";
+        sqlx::query(&format!(
+            "UPDATE trunk_member_versions AS m SET valid_to = ? WHERE {line} AND NOT (sv.major = m.major AND sv.minor = m.minor AND sv.patch = m.patch))"
+        ))
+        .bind(now_iso)
+        .bind(spec_version_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let refreshed = sqlx::query(&format!(
+            "UPDATE trunk_member_versions AS m SET last_provided_at = ? WHERE {line} {same}"
+        ))
+        .bind(now_iso)
+        .bind(spec_version_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        if refreshed.rows_affected() == 0 {
+            sqlx::query(
+                "INSERT INTO trunk_member_versions (service_id, service_name, api_type, major, minor, patch, valid_from, last_provided_at) \
+                 SELECT sv.service_id, s.name, sv.api_type, sv.major, sv.minor, sv.patch, ?, ? \
+                 FROM spec_versions sv JOIN services s ON s.id = sv.service_id WHERE sv.id = ?",
+            )
+            .bind(now_iso)
+            .bind(now_iso)
+            .bind(spec_version_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        tx.commit()
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(())
@@ -796,6 +851,14 @@ impl SpecRepository for SqliteSpecRepository {
         sqlx::query(
             "UPDATE spec_versions SET trunk_provided_at = NULL WHERE trunk_provided_at IS NOT NULL AND trunk_provided_at < ?",
         )
+        .bind(cutoff_iso)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "UPDATE trunk_member_versions SET valid_to = ? WHERE valid_to IS NULL AND last_provided_at < ?",
+        )
+        .bind(now_iso)
         .bind(cutoff_iso)
         .execute(&self.pool)
         .await
@@ -1550,6 +1613,10 @@ impl SpecRepository for SqliteSpecRepository {
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM trunk_member_versions")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM channel_message_contracts")
             .execute(&mut *tx)
             .await
@@ -1646,6 +1713,15 @@ impl SpecRepository for SqliteSpecRepository {
         // stamp matches now_iso()'s shape so the lexicographic comparisons hold.
         sqlx::query(
             "UPDATE trunk_dependencies SET valid_to = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') \
+             WHERE service_id = ? AND valid_to IS NULL",
+        )
+        .bind(service_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // Its trunk member versions close the same way.
+        sqlx::query(
+            "UPDATE trunk_member_versions SET valid_to = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') \
              WHERE service_id = ? AND valid_to IS NULL",
         )
         .bind(service_id)
@@ -2539,6 +2615,16 @@ impl SpecRepository for SqliteSpecRepository {
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "UPDATE trunk_member_versions SET valid_to = ? \
+             WHERE service_id = ? AND api_type = ? AND valid_to IS NULL",
+        )
+        .bind(now_iso)
+        .bind(service_id)
+        .bind(api_type.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(res.rows_affected())
     }
 
@@ -2839,6 +2925,55 @@ impl SpecRepository for SqliteSpecRepository {
             .into_iter()
             .map(|(system, resource)| PeripheralDependency { system, resource })
             .collect())
+    }
+
+    async fn list_member_versions(
+        &self,
+        track: MemberTrack,
+        at: Option<&str>,
+    ) -> Result<Vec<MemberVersion>, RepositoryError> {
+        type Row = (String, String, i64, i64, i64, String, Option<String>);
+        let (table, last, filter) = match track {
+            MemberTrack::Trunk => ("trunk_member_versions", "last_provided_at", "1 = 1"),
+            MemberTrack::Branch(_) => ("branch_member_versions", "NULL", "branch_id = ?"),
+        };
+        let base = format!(
+            "SELECT service_name, api_type, major, minor, patch, valid_from, {last} \
+             FROM {table} WHERE {filter}"
+        );
+        let order = "ORDER BY service_name, api_type";
+        let sql = match at {
+            Some(_) => {
+                format!("{base} AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?) {order}")
+            }
+            None => format!("{base} AND valid_to IS NULL {order}"),
+        };
+        let mut query = sqlx::query_as::<_, Row>(&sql);
+        if let MemberTrack::Branch(id) = track {
+            query = query.bind(id);
+        }
+        if let Some(at) = at {
+            query = query.bind(at).bind(at);
+        }
+        let rows = query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        rows.into_iter()
+            .map(
+                |(service, api_type, major, minor, patch, valid_from, last_provided_at)| {
+                    Ok(MemberVersion {
+                        service,
+                        api_type: api_type
+                            .parse()
+                            .map_err(|e: String| RepositoryError::Internal(e))?,
+                        version: SemVer::new(major as u32, minor as u32, patch as u32),
+                        valid_from,
+                        last_provided_at,
+                    })
+                },
+            )
+            .collect()
     }
 
     async fn insert_audit_log(
@@ -3382,6 +3517,225 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(b_rows.0, 1);
+    }
+
+    #[tokio::test]
+    async fn trunk_member_versions_record_refresh_and_close() {
+        let repo = setup().await;
+        let sid = repo.ensure_service("orders").await.unwrap();
+        let (t1, t2, t3) = (
+            "2026-01-01T00:00:00Z",
+            "2026-02-01T00:00:00Z",
+            "2026-03-01T00:00:00Z",
+        );
+        let v1 = provide(&repo, sid, "1.0.0", Stability::Ga, vec![], t1).await;
+        let v2 = provide(&repo, sid, "2.0.0", Stability::Ga, vec![], t2).await;
+        repo.touch_spec_version_trunk(v1, t1).await.unwrap();
+        repo.touch_spec_version_trunk(v2, t2).await.unwrap();
+        // Same version again: refresh only, no new record.
+        repo.touch_spec_version_trunk(v2, t3).await.unwrap();
+
+        let member = |version: &str, from: &str, last: &str| MemberVersion {
+            service: "orders".to_string(),
+            api_type: ApiType::OpenApi,
+            version: version.parse().unwrap(),
+            valid_from: from.to_string(),
+            last_provided_at: Some(last.to_string()),
+        };
+        assert_eq!(
+            repo.list_member_versions(MemberTrack::Trunk, None)
+                .await
+                .unwrap(),
+            vec![member("2.0.0", t2, t3)]
+        );
+        assert_eq!(
+            repo.list_member_versions(MemberTrack::Trunk, Some("2026-01-15T00:00:00Z"))
+                .await
+                .unwrap(),
+            vec![member("1.0.0", t1, t1)]
+        );
+        assert!(
+            repo.list_member_versions(MemberTrack::Trunk, Some("2025-12-01T00:00:00Z"))
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        // Trunk TTL: not provided since the cutoff closes the record.
+        repo.close_expired_trunk_data("2026-04-01T00:00:00Z", "2026-04-02T00:00:00Z")
+            .await
+            .unwrap();
+        assert!(
+            repo.list_member_versions(MemberTrack::Trunk, None)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        // History survives the close.
+        assert_eq!(
+            repo.list_member_versions(MemberTrack::Trunk, Some("2026-03-15T00:00:00Z"))
+                .await
+                .unwrap(),
+            vec![member("2.0.0", t2, t3)]
+        );
+    }
+
+    #[tokio::test]
+    async fn trunk_member_versions_close_on_retire_and_deletes() {
+        let repo = setup().await;
+        let t1 = "2026-01-01T00:00:00Z";
+        let open_count = |repo: &SqliteSpecRepository| {
+            let repo = repo.clone();
+            async move {
+                repo.list_member_versions(MemberTrack::Trunk, None)
+                    .await
+                    .unwrap()
+                    .len()
+            }
+        };
+        let a = repo.ensure_service("a").await.unwrap();
+        let va = provide(&repo, a, "1.0.0", Stability::Ga, vec![], t1).await;
+        repo.touch_spec_version_trunk(va, t1).await.unwrap();
+        let b = repo.ensure_service("b").await.unwrap();
+        let vb = provide(&repo, b, "1.0.0", Stability::Ga, vec![], t1).await;
+        repo.touch_spec_version_trunk(vb, t1).await.unwrap();
+        let c = repo.ensure_service("c").await.unwrap();
+        let vc = provide(&repo, c, "1.0.0", Stability::Ga, vec![], t1).await;
+        repo.touch_spec_version_trunk(vc, t1).await.unwrap();
+        assert_eq!(open_count(&repo).await, 3);
+
+        repo.close_trunk_pins_for_service_api(a, ApiType::OpenApi, "2026-01-02T00:00:00Z")
+            .await
+            .unwrap();
+        assert_eq!(open_count(&repo).await, 2);
+        assert!(repo.delete_spec_version(vb).await.unwrap());
+        assert_eq!(open_count(&repo).await, 1);
+        assert!(repo.delete_producer("c").await.unwrap());
+        assert_eq!(open_count(&repo).await, 0);
+        // Closed, not erased: all three records are still history.
+        assert_eq!(
+            repo.list_member_versions(MemberTrack::Trunk, Some("2026-01-01T12:00:00Z"))
+                .await
+                .unwrap()
+                .iter()
+                .map(|m| m.service.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "b", "c"]
+        );
+    }
+
+    #[tokio::test]
+    async fn trunk_member_versions_migration_backfills_the_newest_marker_per_line() {
+        let repo = setup().await;
+        let sid = repo.ensure_service("orders").await.unwrap();
+        let v1 = provide(
+            &repo,
+            sid,
+            "1.0.0",
+            Stability::Ga,
+            vec![],
+            "2026-01-01T00:00:00Z",
+        )
+        .await;
+        let v2 = provide(
+            &repo,
+            sid,
+            "2.0.0",
+            Stability::Ga,
+            vec![],
+            "2026-01-01T00:00:00Z",
+        )
+        .await;
+        // Markers as an older service left them: no member records yet.
+        for (id, at) in [(v1, "2026-02-01T00:00:00Z"), (v2, "2026-01-15T00:00:00Z")] {
+            sqlx::query("UPDATE spec_versions SET trunk_provided_at = ? WHERE id = ?")
+                .bind(at)
+                .bind(id)
+                .execute(&repo.pool)
+                .await
+                .unwrap();
+        }
+        let migration = include_str!("migrations/sqlite/20261014000000_trunk_member_versions.sql");
+        let backfill = &migration[migration.find("INSERT INTO").unwrap()..];
+        sqlx::query(backfill).execute(&repo.pool).await.unwrap();
+        assert_eq!(
+            repo.list_member_versions(MemberTrack::Trunk, None)
+                .await
+                .unwrap(),
+            vec![MemberVersion {
+                service: "orders".to_string(),
+                api_type: ApiType::OpenApi,
+                version: "1.0.0".parse().unwrap(),
+                valid_from: "2026-02-01T00:00:00Z".to_string(),
+                last_provided_at: Some("2026-02-01T00:00:00Z".to_string()),
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn branch_member_versions_list_at_an_instant() {
+        let repo = setup().await;
+        let sid = repo.ensure_service("orders").await.unwrap();
+        let branch = repo
+            .insert_branch(
+                "rel",
+                "2026-01-01T00:00:00Z",
+                "alice",
+                "main",
+                "2026-01-01T00:00:00Z",
+            )
+            .await
+            .unwrap();
+        let other = repo
+            .insert_branch(
+                "rel2",
+                "2026-01-01T00:00:00Z",
+                "alice",
+                "main",
+                "2026-01-01T00:00:00Z",
+            )
+            .await
+            .unwrap();
+        repo.record_branch_member_version(
+            branch,
+            sid,
+            ApiType::AsyncApi,
+            "1.0.1".parse().unwrap(),
+            "2026-02-01T00:00:00Z",
+        )
+        .await
+        .unwrap();
+        let expected = vec![MemberVersion {
+            service: "orders".to_string(),
+            api_type: ApiType::AsyncApi,
+            version: "1.0.1".parse().unwrap(),
+            valid_from: "2026-02-01T00:00:00Z".to_string(),
+            last_provided_at: None,
+        }];
+        assert_eq!(
+            repo.list_member_versions(MemberTrack::Branch(branch), None)
+                .await
+                .unwrap(),
+            expected
+        );
+        assert_eq!(
+            repo.list_member_versions(MemberTrack::Branch(branch), Some("2026-03-01T00:00:00Z"))
+                .await
+                .unwrap(),
+            expected
+        );
+        assert!(
+            repo.list_member_versions(MemberTrack::Branch(branch), Some("2026-01-15T00:00:00Z"))
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            repo.list_member_versions(MemberTrack::Branch(other), None)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]

@@ -77,6 +77,18 @@ type ProducerMetadata = (Option<String>, Option<String>);
 /// (branch_id, service_id, api_type, version, valid_from, valid_to).
 type BranchMemberVersion = (i64, i64, ApiType, SemVer, String, Option<String>);
 
+/// One trunk member-version record, mirroring a `trunk_member_versions` row.
+#[derive(Clone, Debug)]
+pub struct MockTrunkMember {
+    pub service_id: i64,
+    pub service_name: String,
+    pub api_type: ApiType,
+    pub version: SemVer,
+    pub valid_from: String,
+    pub last_provided_at: String,
+    pub valid_to: Option<String>,
+}
+
 pub struct MockRepo {
     pub services: Mutex<HashMap<String, i64>>,
     pub producer_metadata: Mutex<HashMap<String, ProducerMetadata>>,
@@ -86,6 +98,7 @@ pub struct MockRepo {
     pub branches: Mutex<Vec<BranchInfo>>,
     pub branch_pins: Mutex<Vec<(i64, MockTrunkPin)>>,
     pub branch_member_versions: Mutex<Vec<BranchMemberVersion>>,
+    pub trunk_members: Mutex<Vec<MockTrunkMember>>,
     pub clients: Mutex<HashMap<String, i64>>,
     pub next_id: Mutex<i64>,
     pub users: Mutex<Vec<User>>,
@@ -151,6 +164,7 @@ impl MockRepo {
             branches: Mutex::new(Vec::new()),
             branch_pins: Mutex::new(Vec::new()),
             branch_member_versions: Mutex::new(Vec::new()),
+            trunk_members: Mutex::new(Vec::new()),
             clients: Mutex::new(HashMap::new()),
             next_id: Mutex::new(1),
             users: Mutex::new(Vec::new()),
@@ -449,9 +463,36 @@ impl SpecRepository for MockRepo {
             .spec_versions
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        if let Some(entry) = versions.iter_mut().find(|v| v.id == spec_version_id) {
-            entry.trunk_provided_at = Some(now_iso.to_string());
+        let Some(entry) = versions.iter_mut().find(|v| v.id == spec_version_id) else {
+            return Ok(());
+        };
+        entry.trunk_provided_at = Some(now_iso.to_string());
+        let (service_id, api_type, version) = (entry.service_id, entry.api_type, entry.version);
+        drop(versions);
+        let service_name = self.service_name(service_id).unwrap_or_default();
+        let mut members = self
+            .trunk_members
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(open) = members
+            .iter_mut()
+            .find(|m| m.service_id == service_id && m.api_type == api_type && m.valid_to.is_none())
+        {
+            if open.version == version {
+                open.last_provided_at = now_iso.to_string();
+                return Ok(());
+            }
+            open.valid_to = Some(now_iso.to_string());
         }
+        members.push(MockTrunkMember {
+            service_id,
+            service_name,
+            api_type,
+            version,
+            valid_from: now_iso.to_string(),
+            last_provided_at: now_iso.to_string(),
+            valid_to: None,
+        });
         Ok(())
     }
 
@@ -777,6 +818,16 @@ impl SpecRepository for MockRepo {
                 .is_some_and(|t| t < cutoff_iso)
             {
                 entry.trunk_provided_at = None;
+            }
+        }
+        for member in self
+            .trunk_members
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter_mut()
+        {
+            if member.valid_to.is_none() && member.last_provided_at.as_str() < cutoff_iso {
+                member.valid_to = Some(now_iso.to_string());
             }
         }
         Ok(closed)
@@ -2428,6 +2479,51 @@ impl SpecRepository for MockRepo {
             })
             .collect();
         result.sort();
+        Ok(result)
+    }
+
+    async fn list_member_versions(
+        &self,
+        track: MemberTrack,
+        at: Option<&str>,
+    ) -> Result<Vec<MemberVersion>, RepositoryError> {
+        let current = |from: &str, to: Option<&str>| match at {
+            Some(at) => from <= at && to.is_none_or(|to| to > at),
+            None => to.is_none(),
+        };
+        let mut result: Vec<MemberVersion> = match track {
+            MemberTrack::Trunk => self
+                .trunk_members
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .filter(|m| current(&m.valid_from, m.valid_to.as_deref()))
+                .map(|m| MemberVersion {
+                    service: m.service_name.clone(),
+                    api_type: m.api_type,
+                    version: m.version,
+                    valid_from: m.valid_from.clone(),
+                    last_provided_at: Some(m.last_provided_at.clone()),
+                })
+                .collect(),
+            MemberTrack::Branch(branch_id) => self
+                .branch_member_versions
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .filter(|r| r.0 == branch_id && current(&r.4, r.5.as_deref()))
+                .map(|r| MemberVersion {
+                    service: self.service_name(r.1).unwrap_or_default(),
+                    api_type: r.2,
+                    version: r.3,
+                    valid_from: r.4.clone(),
+                    last_provided_at: None,
+                })
+                .collect(),
+        };
+        result.sort_by(|a, b| {
+            (&a.service, a.api_type.as_str()).cmp(&(&b.service, b.api_type.as_str()))
+        });
         Ok(result)
     }
 }

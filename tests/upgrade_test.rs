@@ -16,6 +16,7 @@ const POST_2_0_MIGRATIONS: &[&str] = &[
     "20260810000000_denormalize_pin_participants.sql",
     "20260811000000_harvested_subscriptions.sql",
     "20261012000000_peripheral_dependencies.sql",
+    "20261014000000_trunk_member_versions.sql",
 ];
 
 /// Apply every SQLite migration file older than the 2.0 rework, in order —

@@ -2335,3 +2335,83 @@ async fn dry_run_retire_checks_permission_and_changes_nothing() {
             .unwrap();
     assert_eq!(audits, 0, "a dry run is not an event worth recording");
 }
+
+// ---------------------------------------------------------------------------
+// The graph scope: producers in a scope at an instant, with version lines
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+async fn scope_producers(ctx: &TestContext, scope: &str) -> Vec<Value> {
+    let (status, _, body) = send(
+        ctx,
+        "GET",
+        &format!("/admin/graph/scope?scope={}", scope.replace(':', "%3A")),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let data = as_json(&body);
+    assert!(data["harvested_subscriptions"].is_array(), "got: {data}");
+    data["producers"].as_array().unwrap().clone()
+}
+
+#[cfg(test)]
+fn names(producers: &[Value]) -> Vec<&str> {
+    producers
+        .iter()
+        .map(|p| p["name"].as_str().unwrap())
+        .collect()
+}
+
+#[tokio::test]
+async fn graph_scope_lists_the_producers_of_main_and_branches_live_and_past() {
+    let ctx = setup().await;
+    let trunk = [("trunk", json!(true))];
+    provide_with(&ctx, "early", "ga", &spec("1.4.0"), &trunk).await;
+    provide_with(&ctx, "dev-only", "snapshot", &spec("0.1.0"), &[]).await;
+    send(&ctx, "POST", "/admin/branches", Some(json!({"name": "R"}))).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    let mid = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    provide_with(&ctx, "late", "snapshot", &spec("2.0.0"), &trunk).await;
+    provide_with(&ctx, "hotfix", "ga", &spec("1.0.1"), &[("tag", json!("R"))]).await;
+
+    // Dev: every producer with any version.
+    assert_eq!(
+        names(&scope_producers(&ctx, "dev").await),
+        vec!["dev-only", "early", "hotfix", "late"]
+    );
+
+    // Live main: the trunk-provided ones, with their version lines.
+    let main = scope_producers(&ctx, "main").await;
+    assert_eq!(names(&main), vec!["early", "late"]);
+    let line = &main[0]["versions"][0];
+    assert_eq!(line["api_type"], "openapi");
+    assert_eq!(line["version"], "1.4.0");
+    assert_eq!(line["stability"], "ga");
+    assert!(line["last_provided_at"].is_string(), "got: {line}");
+    assert_eq!(main[1]["versions"][0]["stability"], "snapshot");
+
+    // Main at a past instant: only what trunk carried then.
+    assert_eq!(
+        names(&scope_producers(&ctx, &format!("main@{mid}")).await),
+        vec!["early"]
+    );
+
+    // A branch: its member versions, live and at an instant.
+    let branch = scope_producers(&ctx, "R").await;
+    assert_eq!(names(&branch), vec!["hotfix"]);
+    assert_eq!(branch[0]["versions"][0]["version"], "1.0.1");
+    assert!(scope_producers(&ctx, &format!("R@{mid}")).await.is_empty());
+
+    let (status, _, _) = send(&ctx, "GET", "/admin/graph/scope?scope=nope", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = send(
+        &ctx,
+        "GET",
+        "/admin/graph/scope?scope=dev@2026-01-01T00%3A00%3A00Z",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

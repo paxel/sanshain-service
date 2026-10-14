@@ -624,3 +624,107 @@ async fn test_postgres_periphery_append_only_and_at_an_instant() {
             .is_empty()
     );
 }
+
+#[tokio::test]
+async fn test_postgres_member_versions_record_close_and_read_at_an_instant() {
+    use sanshain_service::domain::models::{ApiType, MemberTrack, Stability};
+    use sanshain_service::domain::ports::{SpecRepository, UpsertSpecVersion};
+
+    let postgres_container = common::start_postgres().await;
+    let host = postgres_container.get_host().await.unwrap();
+    let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
+    let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .unwrap();
+    let repo = PostgresSpecRepository::new(pool.clone());
+    repo.run_migrations().await.unwrap();
+
+    let sid = repo.ensure_service("orders").await.unwrap();
+    let mut ids = Vec::new();
+    for (version, at) in [
+        ("1.0.0", "2026-01-01T00:00:00Z"),
+        ("2.0.0", "2026-02-01T00:00:00Z"),
+    ] {
+        let id = repo
+            .upsert_spec_version(UpsertSpecVersion {
+                service_id: sid,
+                api_type: ApiType::OpenApi,
+                version: version.parse().unwrap(),
+                stability: Stability::Ga,
+                content: "content",
+                content_hash: "sha256:x",
+                provided_by: "ci",
+                expected_prior_hash: None,
+                now_iso: at,
+                endpoints: vec![],
+            })
+            .await
+            .unwrap();
+        repo.touch_spec_version_trunk(id, at).await.unwrap();
+        ids.push(id);
+    }
+    repo.touch_spec_version_trunk(ids[1], "2026-03-01T00:00:00Z")
+        .await
+        .unwrap();
+
+    let live = repo
+        .list_member_versions(MemberTrack::Trunk, None)
+        .await
+        .unwrap();
+    assert_eq!(live.len(), 1);
+    assert_eq!(live[0].version.to_string(), "2.0.0");
+    assert_eq!(live[0].valid_from, "2026-02-01T00:00:00Z");
+    assert_eq!(
+        live[0].last_provided_at.as_deref(),
+        Some("2026-03-01T00:00:00Z")
+    );
+    let past = repo
+        .list_member_versions(MemberTrack::Trunk, Some("2026-01-15T00:00:00Z"))
+        .await
+        .unwrap();
+    assert_eq!(past.len(), 1);
+    assert_eq!(past[0].version.to_string(), "1.0.0");
+
+    repo.close_trunk_pins_for_service_api(sid, ApiType::OpenApi, "2026-04-01T00:00:00Z")
+        .await
+        .unwrap();
+    assert!(
+        repo.list_member_versions(MemberTrack::Trunk, None)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(repo.delete_spec_version(ids[0]).await.unwrap());
+    assert!(repo.delete_producer("orders").await.unwrap());
+
+    let branch = repo
+        .insert_branch(
+            "rel",
+            "2026-01-01T00:00:00Z",
+            "alice",
+            "main",
+            "2026-01-01T00:00:00Z",
+        )
+        .await
+        .unwrap();
+    let other = repo.ensure_service("hotfix").await.unwrap();
+    repo.record_branch_member_version(
+        branch,
+        other,
+        ApiType::AsyncApi,
+        "1.0.1".parse().unwrap(),
+        "2026-02-01T00:00:00Z",
+    )
+    .await
+    .unwrap();
+    let members = repo
+        .list_member_versions(MemberTrack::Branch(branch), Some("2026-03-01T00:00:00Z"))
+        .await
+        .unwrap();
+    assert_eq!(members.len(), 1);
+    assert_eq!(members[0].service, "hotfix");
+    assert_eq!(members[0].last_provided_at, None);
+}

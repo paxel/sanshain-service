@@ -1371,6 +1371,17 @@ pub async fn admin_periphery(
     Ok(Json(services::get_periphery(&state.repo, &scope).await?))
 }
 
+/// What the graph needs of one scope beyond its pins (`dev` default,
+/// `main[@rfc3339]` or `<branch>[@rfc3339]`): the producers in it at its
+/// instant with their version lines, and its harvested subscriptions.
+pub async fn admin_graph_scope(
+    State(state): State<AppState>,
+    Query(query): Query<PeripheryQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let scope = services::ReportScope::parse(query.scope.as_deref())?;
+    Ok(Json(services::get_graph_scope(&state.repo, &scope).await?))
+}
+
 /// The instants the main graph changed — the timeline slider's markers.
 pub async fn admin_trunk_timeline(
     State(state): State<AppState>,

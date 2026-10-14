@@ -1531,6 +1531,14 @@ impl SpecRepository for CachedSpecRepository {
     ) -> Result<Vec<PeripheralDependency>, RepositoryError> {
         self.inner.list_periphery(track, at).await
     }
+
+    async fn list_member_versions(
+        &self,
+        track: MemberTrack,
+        at: Option<&str>,
+    ) -> Result<Vec<MemberVersion>, RepositoryError> {
+        self.inner.list_member_versions(track, at).await
+    }
 }
 
 #[cfg(test)]
