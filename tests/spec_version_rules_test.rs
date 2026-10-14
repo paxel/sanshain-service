@@ -75,12 +75,27 @@ struct TestContext {
 // test code for clippy's `allow-unwrap-in-tests`.
 #[cfg(test)]
 async fn setup() -> TestContext {
+    setup_on(migrated_pool().await).await
+}
+
+/// An in-memory database with every migration applied, nothing else.
+#[cfg(test)]
+async fn migrated_pool() -> sqlx::SqlitePool {
     let pool = SqlitePoolOptions::new()
         .connect("sqlite::memory:")
         .await
         .unwrap();
+    SqliteSpecRepository::new(pool.clone())
+        .run_migrations()
+        .await
+        .unwrap();
+    pool
+}
+
+/// The app over an already migrated (and possibly seeded) database.
+#[cfg(test)]
+async fn setup_on(pool: sqlx::SqlitePool) -> TestContext {
     let repo = SqliteSpecRepository::new(pool.clone());
-    repo.run_migrations().await.unwrap();
 
     // A real seeded user with a real session token — no auth bypasses.
     let hash = services::hash_password("root-pass").unwrap();
@@ -529,6 +544,172 @@ async fn proto_crlf_splits_without_cr_in_snippets() {
     }
     let (content, _) = stored_content(&ctx, "grpc-svc").await;
     assert_eq!(content, proto);
+}
+
+#[cfg(test)]
+fn raw_sha256(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("sha256:{}", hex::encode(Sha256::digest(text.as_bytes())))
+}
+
+#[cfg(test)]
+const LEGACY_PROTO: &str = "syntax = \"proto3\";\n// sanshain-version: 1.0.0\npackage demo;\n\nmessage Req {\n  string id = 1;\n}\n\nservice Users {\n  rpc Get (Req) returns (Req);\n  rpc List (Req) returns (Req);\n}\n";
+
+/// Seed one version-line entry the way a pre-normalization release stored
+/// it: the raw submitted bytes, their raw hash, and the snippets the
+/// splitter cut from those raw bytes.
+#[cfg(test)]
+async fn seed_legacy_version(
+    pool: &sqlx::SqlitePool,
+    service: &str,
+    api_type: &str,
+    raw: &str,
+    snippets: &[(String, String)],
+) {
+    let sid: i64 = sqlx::query_scalar("INSERT INTO services (name) VALUES (?) RETURNING id")
+        .bind(service)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let vid: i64 = sqlx::query_scalar(
+        "INSERT INTO spec_versions (service_id, api_type, major, minor, patch, stability, \
+         content, content_hash, provided_by, created_at, updated_at) \
+         VALUES (?, ?, 1, 0, 0, 'ga', ?, ?, 'alice', '2026-01-01T00:00:00Z', \
+         '2026-01-02T00:00:00Z') RETURNING id",
+    )
+    .bind(sid)
+    .bind(api_type)
+    .bind(raw)
+    .bind(raw_sha256(raw))
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    for (path, snippet) in snippets {
+        sqlx::query(
+            "INSERT INTO endpoints (spec_version_id, api_type, path, normalized_path, method, \
+             yaml_content) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(vid)
+        .bind(api_type)
+        .bind(path)
+        .bind(path)
+        .bind(if api_type == "openapi" { "GET" } else { "Get" })
+        .bind(snippet)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn stored_crlf_and_bom_text_is_normalized_once() {
+    let pool = migrated_pool().await;
+    let repo = SqliteSpecRepository::new(pool.clone());
+
+    // An OpenAPI GA stored from a Windows checkout (its snippets were always
+    // re-serialized, so LF) and a proto GA with a BOM whose raw-sliced
+    // snippets carry the BOM and CRs.
+    let openapi_lf = spec_two_endpoints("1.0.0");
+    let openapi_crlf = openapi_lf.replace('\n', "\r\n");
+    seed_legacy_version(
+        &pool,
+        "legacy-rest",
+        "openapi",
+        &openapi_crlf,
+        &[("/users".to_string(), "get: {}\n".to_string())],
+    )
+    .await;
+    let proto_raw = format!("\u{feff}{}", LEGACY_PROTO.replace('\n', "\r\n"));
+    let legacy_snippets = sanshain_service::proto::split_proto(&proto_raw).unwrap();
+    assert!(legacy_snippets[0].content.contains('\r'));
+    let first = legacy_snippets[0].content.clone();
+    seed_legacy_version(
+        &pool,
+        "legacy-grpc",
+        "proto",
+        &proto_raw,
+        &[("Users".to_string(), first)],
+    )
+    .await;
+    sqlx::query(
+        "INSERT INTO channel_message_contracts (channel, message_name, owner_service_id, \
+         payload_yaml) VALUES ('orders', 'Created', 1, 'type: object\r\n')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let summary = services::normalize_stored_spec_text(&repo).await.unwrap();
+    assert_eq!(summary.versions, 2);
+    assert_eq!(summary.endpoints, 1);
+    assert_eq!(summary.contracts, 1);
+    assert!(!summary.already_done);
+
+    // Bytes are LF, hashes are those of the LF text, attribution and
+    // timestamps are untouched.
+    type Row = (String, String, String, String, String);
+    let rows: Vec<Row> = sqlx::query_as(
+        "SELECT s.name, v.content, v.content_hash, v.provided_by, v.updated_at \
+         FROM spec_versions v JOIN services s ON s.id = v.service_id ORDER BY s.name",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 2);
+    let expected = [
+        ("legacy-grpc", LEGACY_PROTO),
+        ("legacy-rest", openapi_lf.as_str()),
+    ];
+    for ((name, content, hash, by, updated), (want_name, want)) in rows.iter().zip(expected) {
+        assert_eq!(name, want_name);
+        assert_eq!(content, want);
+        assert_eq!(hash, &raw_sha256(want));
+        assert_eq!(by, "alice");
+        assert_eq!(updated, "2026-01-02T00:00:00Z");
+    }
+    let texts: Vec<String> = sqlx::query_scalar(
+        "SELECT yaml_content FROM endpoints UNION ALL SELECT payload_yaml FROM channel_message_contracts",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    for text in &texts {
+        assert!(
+            !text.contains('\r') && !text.contains('\u{feff}'),
+            "{text:?}"
+        );
+    }
+    // The rewritten proto snippet is exactly what splitting the LF text gives.
+    let fresh = sanshain_service::proto::split_proto(LEGACY_PROTO).unwrap();
+    assert!(texts.contains(&fresh[0].content), "{texts:?}");
+    assert!(texts.contains(&"type: object\n".to_string()));
+
+    // Recorded: a second start does nothing.
+    let again = services::normalize_stored_spec_text(&repo).await.unwrap();
+    assert!(again.already_done);
+    assert_eq!(again.versions, 0);
+
+    // A following provide of the same document — LF or CRLF — is the no-op,
+    // and reports the hash a fresh provide of the LF text gets.
+    let ctx = setup_on(pool).await;
+    let (status, body) = provide(&ctx, "legacy-rest", "ga", &openapi_crlf).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
+    assert_eq!(body["changes"]["updates"], 0);
+    assert_eq!(body["content_hash"], Value::String(raw_sha256(&openapi_lf)));
+    let (_, fresh_body) = provide(&ctx, "fresh-rest", "ga", &openapi_lf).await;
+    assert_eq!(fresh_body["content_hash"], body["content_hash"]);
+
+    let payload = json!({
+        "producername": "legacy-grpc",
+        "proto_content": LEGACY_PROTO,
+        "stability": "ga",
+    });
+    let (status, _, body) = send(&ctx, "POST", "/provide/grpc", Some(payload), &[]).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
+    assert_eq!(
+        as_json(&body)["content_hash"],
+        Value::String(raw_sha256(LEGACY_PROTO))
+    );
 }
 
 #[tokio::test]

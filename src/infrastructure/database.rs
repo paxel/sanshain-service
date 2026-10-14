@@ -1,7 +1,7 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
     EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
-    SpecRepository, UpsertSpecVersion,
+    RewriteSpecText, SpecRepository, UpsertSpecVersion,
 };
 use crate::infrastructure::postgres_repository::PostgresSpecRepository;
 use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
@@ -43,6 +43,10 @@ impl SpecRepository for DatabaseRepo {
         params: UpsertSpecVersion<'_>,
     ) -> Result<i64, RepositoryError> {
         delegate!(self, upsert_spec_version(params))
+    }
+
+    async fn rewrite_spec_text(&self, params: RewriteSpecText<'_>) -> Result<(), RepositoryError> {
+        delegate!(self, rewrite_spec_text(params))
     }
 
     async fn find_spec_version(

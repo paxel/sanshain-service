@@ -8,7 +8,7 @@
 
 use super::require_service::{method_for, resolve_pin};
 use crate::domain::models::*;
-use crate::domain::ports::SpecRepository;
+use crate::domain::ports::{RewriteSpecText, SpecRepository};
 use crate::openapi;
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
@@ -51,6 +51,91 @@ pub fn normalize_spec_text(content: &str) -> Cow<'_, str> {
         return Cow::Borrowed(without_bom);
     }
     Cow::Owned(without_bom.replace("\r\n", "\n").replace('\r', "\n"))
+}
+
+/// Settings key recording that the one-time normalization of stored spec text
+/// (ADR-0008) has run, so it never runs again.
+pub const SPEC_TEXT_NORMALIZED_SETTING: &str = "spec_text_normalized_at";
+
+/// What the one-time normalization rewrote.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct SpecTextNormalization {
+    /// True when an earlier run was recorded and nothing was looked at.
+    pub already_done: bool,
+    pub versions: usize,
+    pub endpoints: usize,
+    pub contracts: usize,
+}
+
+/// Bring every stored spec text in line with [`normalize_spec_text`], once:
+/// documents (with their `content_hash` recomputed), endpoint snippets and
+/// channel-message contract payloads. Without it a document stored with CRLF
+/// before normalization existed would answer a CRLF re-provide of its GA with
+/// a 409 forever. Rows keep their timestamps and attribution — this is a
+/// storage fix, not a provide. Recorded under
+/// [`SPEC_TEXT_NORMALIZED_SETTING`] only after everything succeeded; a failed
+/// run is simply repeated on the next start (every step is idempotent).
+#[instrument(skip_all)]
+pub async fn normalize_stored_spec_text(
+    repo: &impl SpecRepository,
+) -> Result<SpecTextNormalization, AppError> {
+    if repo
+        .get_setting(SPEC_TEXT_NORMALIZED_SETTING)
+        .await?
+        .is_some()
+    {
+        return Ok(SpecTextNormalization {
+            already_done: true,
+            ..Default::default()
+        });
+    }
+    let mut summary = SpecTextNormalization::default();
+    for (_, meta, _) in repo.list_all_spec_versions().await? {
+        let Some(content) = repo.get_spec_content(meta.id).await? else {
+            continue;
+        };
+        let normalized = normalize_spec_text(&content);
+        let hash = content_hash(&normalized);
+        let endpoint_texts: Vec<(i64, String)> = repo
+            .get_endpoints_for_version(meta.id)
+            .await?
+            .into_iter()
+            .filter_map(|e| {
+                let id = e.id?;
+                let text = normalize_spec_text(&e.yaml_content);
+                (text != e.yaml_content).then(|| (id, text.into_owned()))
+            })
+            .collect();
+        if normalized == content && hash == meta.content_hash && endpoint_texts.is_empty() {
+            continue;
+        }
+        repo.rewrite_spec_text(RewriteSpecText {
+            spec_version_id: meta.id,
+            content: &normalized,
+            content_hash: &hash,
+            endpoint_texts: &endpoint_texts,
+        })
+        .await?;
+        summary.versions += 1;
+        summary.endpoints += endpoint_texts.len();
+    }
+    for mut contract in repo.list_channel_message_contracts().await? {
+        let payload = normalize_spec_text(&contract.payload_yaml);
+        if payload != contract.payload_yaml {
+            contract.payload_yaml = payload.into_owned();
+            repo.upsert_channel_message_contract(&contract).await?;
+            summary.contracts += 1;
+        }
+    }
+    repo.set_setting(SPEC_TEXT_NORMALIZED_SETTING, &super::now_iso())
+        .await?;
+    tracing::info!(
+        "Normalized stored spec text (line endings, BOM): {} version(s), {} snippet(s), {} contract(s) rewritten",
+        summary.versions,
+        summary.endpoints,
+        summary.contracts
+    );
+    Ok(summary)
 }
 
 /// Resolve the declared stream (ADR-0004/0005): `trunk` and `tag` are
@@ -530,6 +615,7 @@ mod tests {
     use super::*;
     // These exercise the pure version-rule helpers (now in version_rules).
     use super::super::version_rules::{classify_change, diff_endpoints, ga_baseline, propose_free};
+    use crate::application::mock_repo::MockRepo;
 
     // The blocking-pool wrapper must give the same verdict as the sync
     // validator, for both a valid and an invalid document.
@@ -598,6 +684,95 @@ mod tests {
         assert!(report.valid, "got: {:?}", report.error);
         assert_eq!(report.version.map(|v| v.to_string()), Some("1.0.0".into()));
         assert_eq!(report.endpoints, vec!["GET /a".to_string()]);
+    }
+
+    async fn seed(repo: &MockRepo, service: &str, content: &str, snippet: &str) -> i64 {
+        let sid = repo.ensure_service(service).await.unwrap();
+        repo.upsert_spec_version(crate::domain::ports::UpsertSpecVersion {
+            service_id: sid,
+            api_type: ApiType::OpenApi,
+            version: "1.0.0".parse().unwrap(),
+            stability: Stability::Ga,
+            content,
+            content_hash: "sha256:raw",
+            provided_by: "alice",
+            expected_prior_hash: None,
+            now_iso: "2026-01-01T00:00:00Z",
+            endpoints: vec![EndpointRecord {
+                id: None,
+                api_type: ApiType::OpenApi,
+                path: "/a".into(),
+                normalized_path: "/a".into(),
+                method: "GET".into(),
+                yaml_content: snippet.into(),
+                deprecated: false,
+            }],
+        })
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn normalize_stored_spec_text_rewrites_once_and_records_it() {
+        let repo = MockRepo::new();
+        let crlf_id = seed(&repo, "crlf", "\u{feff}a: 1\r\nb: 2\r\n", "x\r\n").await;
+        let lf_id = seed(&repo, "lf", "a: 1\n", "x\n").await;
+        let lf_hash_before = content_hash("a: 1\n");
+        // The LF entry's hash is already right except for the seed's dummy.
+        repo.rewrite_spec_text(RewriteSpecText {
+            spec_version_id: lf_id,
+            content: "a: 1\n",
+            content_hash: &lf_hash_before,
+            endpoint_texts: &[],
+        })
+        .await
+        .unwrap();
+        repo.upsert_channel_message_contract(&ChannelMessageContract {
+            channel: "orders".into(),
+            message_name: "Created".into(),
+            owner_service_id: 1,
+            payload_yaml: "type: object\r\n".into(),
+        })
+        .await
+        .unwrap();
+
+        let summary = normalize_stored_spec_text(&repo).await.unwrap();
+        assert_eq!(
+            summary,
+            SpecTextNormalization {
+                already_done: false,
+                versions: 1,
+                endpoints: 1,
+                contracts: 1,
+            }
+        );
+        assert_eq!(
+            repo.get_spec_content(crlf_id).await.unwrap().as_deref(),
+            Some("a: 1\nb: 2\n")
+        );
+        let line = repo.list_spec_versions(1).await.unwrap();
+        assert_eq!(line[0].content_hash, content_hash("a: 1\nb: 2\n"));
+        assert_eq!(line[0].provided_by, "alice");
+        assert_eq!(
+            repo.get_endpoints_for_version(crlf_id).await.unwrap()[0].yaml_content,
+            "x\n"
+        );
+        assert_eq!(
+            repo.list_channel_message_contracts().await.unwrap()[0].payload_yaml,
+            "type: object\n"
+        );
+        assert!(
+            repo.get_setting(SPEC_TEXT_NORMALIZED_SETTING)
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        // Recorded: the next start does not look again, even at new CRs.
+        seed(&repo, "late", "c: 3\r\n", "y\r\n").await;
+        let again = normalize_stored_spec_text(&repo).await.unwrap();
+        assert!(again.already_done);
+        assert_eq!(again.versions, 0);
     }
 
     fn meta(version: &str, stability: Stability) -> SpecVersionMeta {

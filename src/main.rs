@@ -228,6 +228,16 @@ pub async fn main() {
         tracing::info!("In-memory cache disabled (CACHE_MEMORY_MB=0)");
     }
 
+    // One-time rewrite of spec text stored before provides normalized line
+    // endings and the BOM (ADR-0008). Fatal like a failed SQL migration: a
+    // half-normalized store would answer CRLF re-provides of old GA versions
+    // with immutability conflicts.
+    if let Err(e) = services::normalize_stored_spec_text(&repo).await {
+        tracing::error!("Can't normalize stored spec text: {}", e);
+        eprintln!("ERROR: Can't normalize stored spec text: {}", e);
+        std::process::exit(1);
+    }
+
     // Ensure initial admin user exists
     if let Err(e) = services::ensure_initial_admin(&repo).await {
         tracing::error!("Can't create initial admin: {}", e);

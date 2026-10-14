@@ -1,7 +1,7 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
     EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
-    SpecRepository, UpsertSpecVersion,
+    RewriteSpecText, SpecRepository, UpsertSpecVersion,
 };
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
@@ -297,6 +297,28 @@ impl SpecRepository for MockRepo {
             endpoints,
         });
         Ok(id)
+    }
+
+    async fn rewrite_spec_text(&self, params: RewriteSpecText<'_>) -> Result<(), RepositoryError> {
+        let mut versions = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let Some(entry) = versions.iter_mut().find(|v| v.id == params.spec_version_id) else {
+            return Ok(());
+        };
+        entry.content = params.content.to_string();
+        entry.content_hash = params.content_hash.to_string();
+        for (endpoint_id, text) in params.endpoint_texts {
+            if let Some(endpoint) = entry
+                .endpoints
+                .iter_mut()
+                .find(|e| e.id == Some(*endpoint_id))
+            {
+                endpoint.yaml_content = text.clone();
+            }
+        }
+        Ok(())
     }
 
     async fn find_spec_version(

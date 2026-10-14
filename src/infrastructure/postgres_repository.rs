@@ -87,7 +87,7 @@ use super::pin_rows::{PinRow, periphery_track_key, pin_row_to_info};
 use crate::domain::models::*;
 use crate::domain::ports::{
     EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
-    SpecRepository, UpsertSpecVersion,
+    RewriteSpecText, SpecRepository, UpsertSpecVersion,
 };
 
 struct ApiTokenRow {
@@ -282,6 +282,37 @@ impl SpecRepository for PostgresSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(id)
+    }
+
+    #[instrument(skip_all)]
+    async fn rewrite_spec_text(&self, params: RewriteSpecText<'_>) -> Result<(), RepositoryError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("UPDATE spec_versions SET content = $1, content_hash = $2 WHERE id = $3")
+            .bind(params.content)
+            .bind(params.content_hash)
+            .bind(params.spec_version_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        for (endpoint_id, text) in params.endpoint_texts {
+            sqlx::query(
+                "UPDATE endpoints SET yaml_content = $1 WHERE id = $2 AND spec_version_id = $3",
+            )
+            .bind(text)
+            .bind(endpoint_id)
+            .bind(params.spec_version_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
     }
 
     async fn find_spec_version(

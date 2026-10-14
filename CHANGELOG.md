@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - Provides normalize the uploaded document before hashing, checking and storing it: CRLF and lone CR line endings become LF and a leading UTF-8 BOM is removed. `content_hash` and the stored document are those of the normalized text, and `/validate` checks the same normalized text.
+- The first start of 2.4.0 rewrites spec text stored by earlier releases the same way, once (ADR-0008): stored documents, gRPC snippets and channel-message contract payloads lose their carriage returns and BOM, and `content_hash` is recomputed. GA versions keep their stability, attribution and timestamps.
 
 ### Fixed
 - Re-providing a GA spec from a Windows checkout (CRLF line endings) is the idempotent no-op instead of a `409` immutability conflict, and a document starting with a UTF-8 BOM is accepted instead of rejected as unparsable YAML.

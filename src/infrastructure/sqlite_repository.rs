@@ -86,7 +86,7 @@ use super::pin_rows::{PinRow, periphery_track_key, pin_row_to_info};
 use crate::domain::models::*;
 use crate::domain::ports::{
     EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
-    SpecRepository, UpsertSpecVersion,
+    RewriteSpecText, SpecRepository, UpsertSpecVersion,
 };
 
 struct ApiTokenRow {
@@ -291,6 +291,33 @@ impl SpecRepository for SqliteSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(id)
+    }
+
+    #[instrument(skip_all)]
+    async fn rewrite_spec_text(&self, params: RewriteSpecText<'_>) -> Result<(), RepositoryError> {
+        let mut tx = self.write_tx().await?;
+        sqlx::query("UPDATE spec_versions SET content = ?, content_hash = ? WHERE id = ?")
+            .bind(params.content)
+            .bind(params.content_hash)
+            .bind(params.spec_version_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        for (endpoint_id, text) in params.endpoint_texts {
+            sqlx::query(
+                "UPDATE endpoints SET yaml_content = ? WHERE id = ? AND spec_version_id = ?",
+            )
+            .bind(text)
+            .bind(endpoint_id)
+            .bind(params.spec_version_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
     }
 
     async fn find_spec_version(
@@ -3052,7 +3079,6 @@ impl SpecRepository for SqliteSpecRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::ports::UpsertSpecVersion;
 
     async fn setup() -> SqliteSpecRepository {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
@@ -3095,6 +3121,61 @@ mod tests {
         })
         .await
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn rewrite_spec_text_moves_only_text_and_hash() {
+        let repo = setup().await;
+        let sid = repo.ensure_service("svc").await.unwrap();
+        let id = provide(
+            &repo,
+            sid,
+            "1.0.0",
+            Stability::Ga,
+            vec![endpoint("/a", "GET", "a\r\n"), endpoint("/b", "GET", "b\n")],
+            "2026-01-01T00:00:00Z",
+        )
+        .await;
+        let endpoints = repo.get_endpoints_for_version(id).await.unwrap();
+        let a = endpoints.iter().find(|e| e.path == "/a").unwrap();
+
+        repo.rewrite_spec_text(RewriteSpecText {
+            spec_version_id: id,
+            content: "normalized",
+            content_hash: "sha256:normalized",
+            endpoint_texts: &[(a.id.unwrap(), "a\n".to_string())],
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(
+            repo.get_spec_content(id).await.unwrap().as_deref(),
+            Some("normalized")
+        );
+        let meta = repo
+            .find_spec_version(sid, ApiType::OpenApi, "1.0.0".parse().unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(meta.content_hash, "sha256:normalized");
+        assert_eq!(meta.stability, Stability::Ga);
+        assert_eq!(meta.provided_by, "ci");
+        assert_eq!(meta.updated_at, "2026-01-01T00:00:00Z");
+        let mut texts: Vec<(String, String)> = repo
+            .get_endpoints_for_version(id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|e| (e.path, e.yaml_content))
+            .collect();
+        texts.sort();
+        assert_eq!(
+            texts,
+            vec![
+                ("/a".to_string(), "a\n".to_string()),
+                ("/b".to_string(), "b\n".to_string())
+            ]
+        );
     }
 
     #[tokio::test]

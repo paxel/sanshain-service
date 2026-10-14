@@ -142,6 +142,17 @@ pub struct UpsertSpecVersion<'a> {
     pub endpoints: Vec<EndpointRecord>,
 }
 
+/// One version-line entry's stored text, rewritten in place by the one-time
+/// line-ending/BOM normalization (ADR-0008). Only text and hash move — the
+/// row's identity, stability, attribution and timestamps stay as they were.
+pub struct RewriteSpecText<'a> {
+    pub spec_version_id: i64,
+    pub content: &'a str,
+    pub content_hash: &'a str,
+    /// `(endpoint id, new snippet)` for every snippet that changed.
+    pub endpoint_texts: &'a [(i64, String)],
+}
+
 /// Content of a new audit-log entry — everything except the acting username,
 /// which the caller resolves from the request context.
 ///
@@ -180,6 +191,14 @@ pub trait SpecRepository: Send + Sync {
         &self,
         params: UpsertSpecVersion<'_>,
     ) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
+
+    /// Rewrite one entry's document, content hash and endpoint snippets in
+    /// place, atomically, without touching anything else on the row
+    /// (ADR-0008's one-time normalization).
+    fn rewrite_spec_text(
+        &self,
+        params: RewriteSpecText<'_>,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// The version-line entry for `(service, api_type, version)`, if any.
     fn find_spec_version(

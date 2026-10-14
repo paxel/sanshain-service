@@ -6,7 +6,7 @@ use moka::future::Cache;
 use crate::domain::models::*;
 use crate::domain::ports::{
     EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
-    SpecRepository, UpsertSpecVersion,
+    RewriteSpecText, SpecRepository, UpsertSpecVersion,
 };
 use crate::infrastructure::database::DatabaseRepo;
 
@@ -383,6 +383,14 @@ impl SpecRepository for CachedSpecRepository {
             // layer re-reads to diagnose the refusal — that re-read must see
             // the row as the database refused it, not the stale cached state
             // that made the write look viable.
+            self.invalidate_spec_caches();
+        }
+        result
+    }
+
+    async fn rewrite_spec_text(&self, params: RewriteSpecText<'_>) -> Result<(), RepositoryError> {
+        let result = self.inner.rewrite_spec_text(params).await;
+        if !self.is_disabled() {
             self.invalidate_spec_caches();
         }
         result
@@ -1699,6 +1707,52 @@ mod tests {
         let stats = repo.cache_stats().await;
         assert_eq!(stats.hit_count, 0);
         assert_eq!(stats.miss_count, 0);
+    }
+
+    #[tokio::test]
+    async fn rewrite_spec_text_invalidates_cached_reads() {
+        let repo = setup_cached_repo(256).await;
+        let sid = repo.ensure_service("svc").await.unwrap();
+        let version: SemVer = "1.0.0".parse().unwrap();
+        let id = provide(
+            &repo,
+            sid,
+            "1.0.0",
+            "hash-1",
+            vec![endpoint("/a", "GET", "a\r\n")],
+        )
+        .await;
+        // Populate the caches.
+        repo.find_spec_version(sid, ApiType::OpenApi, version)
+            .await
+            .unwrap();
+        let endpoint_id = repo.get_endpoints_for_version(id).await.unwrap()[0]
+            .id
+            .unwrap();
+
+        repo.rewrite_spec_text(RewriteSpecText {
+            spec_version_id: id,
+            content: "normalized",
+            content_hash: "hash-2",
+            endpoint_texts: &[(endpoint_id, "a\n".to_string())],
+        })
+        .await
+        .unwrap();
+
+        let meta = repo
+            .find_spec_version(sid, ApiType::OpenApi, version)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(meta.content_hash, "hash-2");
+        assert_eq!(
+            repo.get_spec_content(id).await.unwrap().as_deref(),
+            Some("normalized")
+        );
+        assert_eq!(
+            repo.get_endpoints_for_version(id).await.unwrap()[0].yaml_content,
+            "a\n"
+        );
     }
 
     #[tokio::test]

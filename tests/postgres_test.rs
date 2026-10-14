@@ -310,6 +310,86 @@ async fn test_postgres_upsert_compare_and_set_contract() {
     );
 }
 
+/// ADR-0008: the one-time normalization rewrites CRLF/BOM text stored by an
+/// earlier release in place on PostgreSQL — LF bytes, the LF text's hash,
+/// attribution and timestamps untouched — and records itself.
+#[tokio::test]
+async fn postgres_stored_spec_text_is_normalized_once() {
+    use sanshain_service::domain::models::{ApiType, EndpointRecord, Stability};
+    use sanshain_service::domain::ports::{SpecRepository, UpsertSpecVersion};
+
+    let postgres_container = common::start_postgres().await;
+    let host = postgres_container.get_host().await.unwrap();
+    let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
+    let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .unwrap();
+    let repo = PostgresSpecRepository::new(pool);
+    repo.run_migrations()
+        .await
+        .expect("Failed to run PostgreSQL migrations");
+
+    let sid = repo.ensure_service("legacy-grpc").await.unwrap();
+    let version: sanshain_service::domain::models::SemVer = "1.0.0".parse().unwrap();
+    let raw = "\u{feff}syntax = \"proto3\";\r\n// sanshain-version: 1.0.0\r\nservice S {\r\n  rpc Get (R) returns (R);\r\n}\r\n";
+    let lf = "syntax = \"proto3\";\n// sanshain-version: 1.0.0\nservice S {\n  rpc Get (R) returns (R);\n}\n";
+    let id = repo
+        .upsert_spec_version(UpsertSpecVersion {
+            service_id: sid,
+            api_type: ApiType::Proto,
+            version,
+            stability: Stability::Ga,
+            content: raw,
+            content_hash: "sha256:raw",
+            provided_by: "alice",
+            expected_prior_hash: None,
+            now_iso: "2026-01-01T00:00:00Z",
+            endpoints: vec![EndpointRecord {
+                id: None,
+                api_type: ApiType::Proto,
+                path: "S".to_string(),
+                normalized_path: "S".to_string(),
+                method: "Get".to_string(),
+                yaml_content: "syntax = \"proto3\";\r\n".to_string(),
+                deprecated: false,
+            }],
+        })
+        .await
+        .unwrap();
+
+    let summary = services::normalize_stored_spec_text(&repo).await.unwrap();
+    assert_eq!((summary.versions, summary.endpoints), (1, 1));
+    assert_eq!(
+        repo.get_spec_content(id).await.unwrap().as_deref(),
+        Some(lf)
+    );
+    let meta = repo
+        .find_spec_version(sid, ApiType::Proto, version)
+        .await
+        .unwrap()
+        .unwrap();
+    let expected_hash = {
+        use sha2::{Digest, Sha256};
+        format!("sha256:{}", hex::encode(Sha256::digest(lf.as_bytes())))
+    };
+    assert_eq!(meta.content_hash, expected_hash);
+    assert_eq!(meta.provided_by, "alice");
+    assert_eq!(meta.updated_at, "2026-01-01T00:00:00Z");
+    assert_eq!(
+        repo.get_endpoints_for_version(id).await.unwrap()[0].yaml_content,
+        "syntax = \"proto3\";\n"
+    );
+    assert!(
+        services::normalize_stored_spec_text(&repo)
+            .await
+            .unwrap()
+            .already_done
+    );
+}
+
 /// ADR-0004: trunk pins are append-only on PostgreSQL exactly as on SQLite —
 /// a re-pin closes the open record and inserts, an identical re-pin only
 /// refreshes, and the current view is the open rows.
