@@ -429,10 +429,10 @@ async fn ga_whitespace_only_difference_names_the_cosmetic_cause() {
     let ctx = setup().await;
     provide(&ctx, "svc", "ga", &spec_two_endpoints("1.0.0")).await;
 
-    // Same document with CRLF line endings: different bytes, identical
+    // Same document with an added comment: different bytes, identical
     // endpoint content — the refusal must say the difference may be cosmetic.
-    let crlf = spec_two_endpoints("1.0.0").replace('\n', "\r\n");
-    let (status, body) = provide(&ctx, "svc", "ga", &crlf).await;
+    let commented = format!("# a comment\n{}", spec_two_endpoints("1.0.0"));
+    let (status, body) = provide(&ctx, "svc", "ga", &commented).await;
     assert_eq!(status, StatusCode::CONFLICT);
     let message = body["error"].as_str().unwrap();
     assert!(message.contains("byte-for-byte"), "got: {message}");
@@ -441,6 +441,94 @@ async fn ga_whitespace_only_difference_names_the_cosmetic_cause() {
     let (_, body) = provide(&ctx, "svc", "ga", &spec_two_endpoints_reworded("1.0.0")).await;
     let message = body["error"].as_str().unwrap();
     assert!(!message.contains("byte-for-byte"), "got: {message}");
+}
+
+// ---------------------------------------------------------------------------
+// Normalize on arrival (ADR-0008): line endings and a leading BOM never count
+// as content.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+async fn stored_content(ctx: &TestContext, producer: &str) -> (String, String) {
+    let row: (String, String) = sqlx::query_as(
+        "SELECT v.content, v.content_hash FROM spec_versions v \
+         JOIN services s ON s.id = v.service_id WHERE s.name = ?",
+    )
+    .bind(producer)
+    .fetch_one(&ctx.pool)
+    .await
+    .unwrap();
+    row
+}
+
+#[tokio::test]
+async fn crlf_reprovide_of_an_lf_ga_is_a_no_op() {
+    let ctx = setup().await;
+    let lf = spec_two_endpoints("1.0.0");
+    let (status, first) = provide(&ctx, "svc", "ga", &lf).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {first}");
+
+    let crlf = format!("\u{feff}{}", lf.replace('\n', "\r\n"));
+    let (status, body) = provide(&ctx, "svc", "ga", &crlf).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
+    assert_eq!(body["changes"]["inserts"], 0);
+    assert_eq!(body["changes"]["updates"], 0);
+    assert_eq!(body["changes"]["deletes"], 0);
+    assert_eq!(body["content_hash"], first["content_hash"]);
+
+    // A lone-CR (classic Mac) upload is the same document too.
+    let (status, body) = provide(&ctx, "svc", "ga", &lf.replace('\n', "\r")).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
+    assert_eq!(body["content_hash"], first["content_hash"]);
+
+    let (content, hash) = stored_content(&ctx, "svc").await;
+    assert_eq!(content, lf);
+    assert_eq!(Value::String(hash), first["content_hash"]);
+}
+
+#[tokio::test]
+async fn bom_and_crlf_spec_is_accepted_and_stored_normalized() {
+    let ctx = setup().await;
+    let lf = spec_two_endpoints("1.0.0");
+    let windows = format!("\u{feff}{}", lf.replace('\n', "\r\n"));
+    let (status, body) = provide(&ctx, "win-svc", "snapshot", &windows).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
+    assert_eq!(body["version"], "1.0.0");
+    assert_eq!(body["changes"]["inserts"], 2);
+
+    let (content, hash) = stored_content(&ctx, "win-svc").await;
+    assert_eq!(content, lf);
+
+    // The hash is the one an LF upload of the same document gets.
+    let (_, lf_body) = provide(&ctx, "lf-svc", "snapshot", &lf).await;
+    assert_eq!(Value::String(hash), lf_body["content_hash"]);
+}
+
+#[tokio::test]
+async fn proto_crlf_splits_without_cr_in_snippets() {
+    let ctx = setup().await;
+    let proto = "syntax = \"proto3\";\n// sanshain-version: 1.0.0\npackage demo;\n\nmessage Req {\n  string id = 1;\n}\n\nservice Users {\n  rpc Get (Req) returns (Req);\n  rpc List (Req) returns (Req);\n}\n";
+    let crlf = proto.replace('\n', "\r\n");
+    let payload = json!({
+        "producername": "grpc-svc",
+        "proto_content": crlf,
+        "stability": "snapshot",
+    });
+    let (status, _, body) = send(&ctx, "POST", "/provide/grpc", Some(payload), &[]).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
+    assert_eq!(as_json(&body)["changes"]["inserts"], 2);
+
+    let snippets: Vec<String> = sqlx::query_scalar("SELECT yaml_content FROM endpoints")
+        .fetch_all(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(snippets.len(), 2);
+    for snippet in &snippets {
+        assert!(!snippet.contains('\r'), "CR in snippet: {snippet:?}");
+        assert!(snippet.contains("message Req {\n  string id = 1;\n}"));
+    }
+    let (content, _) = stored_content(&ctx, "grpc-svc").await;
+    assert_eq!(content, proto);
 }
 
 #[tokio::test]

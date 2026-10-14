@@ -121,10 +121,11 @@ Sanshain is designed so pipelines can provide and require unconditionally on eve
 
 Re-providing byte-identical content is a no-op regardless of stability or caller — the `changes` summary comes back all zero and nothing is stored. CI re-runs of the same commit never fight, and unconditional "provide on every build" causes no churn.
 
-The comparison is **byte-for-byte**: whitespace, line endings and comments all count as content.
-Upload with LF line endings so the same spec hashes the same from every platform — the official
-client libraries normalize line endings before uploading, and for raw HTTP uploads a
-`.gitattributes` rule keeps Windows checkouts from churning:
+The service normalizes every upload before comparing, hashing and storing it: CRLF and lone CR
+line endings become LF, and a leading UTF-8 BOM is removed. The same spec therefore hashes the
+same from every platform. The comparison is **byte-for-byte on the normalized text**: whitespace
+and comments still count as content. A `.gitattributes` rule is still good practice, so the
+files in your repository match what Sanshain stores:
 
 ```gitattributes
 *.yaml text eol=lf

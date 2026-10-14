@@ -11,6 +11,7 @@ use crate::domain::models::*;
 use crate::domain::ports::SpecRepository;
 use crate::openapi;
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 // Compat re-exports: the Provide use case moved to provide_service (#16);
@@ -36,6 +37,20 @@ pub(crate) fn content_hash(content: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
     format!("sha256:{}", hex::encode(hasher.finalize()))
+}
+
+/// The one normalization every spec document goes through on arrival, before
+/// it is hashed, validated, split or stored (ADR-0008): a leading UTF-8 BOM is
+/// dropped, and CRLF and lone CR line endings become LF. The same document
+/// therefore hashes the same from every platform, and a Windows checkout can
+/// no longer turn an identical GA re-provide into an immutability conflict.
+/// Borrows when there is nothing to change.
+pub fn normalize_spec_text(content: &str) -> Cow<'_, str> {
+    let without_bom = content.strip_prefix('\u{feff}').unwrap_or(content);
+    if !without_bom.contains('\r') {
+        return Cow::Borrowed(without_bom);
+    }
+    Cow::Owned(without_bom.replace("\r\n", "\n").replace('\r', "\n"))
 }
 
 /// Resolve the declared stream (ADR-0004/0005): `trunk` and `tag` are
@@ -263,8 +278,8 @@ pub async fn list_producer_endpoints(
     Ok(repo.get_endpoints_for_version(entry.id).await?)
 }
 
-/// The full provided document of one version-line entry — stored verbatim on
-/// provide, so this is exactly what the Producer submitted.
+/// The full provided document of one version-line entry — what the Producer
+/// submitted, with line endings and a leading BOM normalized on provide.
 pub async fn get_full_spec(
     repo: &impl SpecRepository,
     producername: &str,
@@ -471,6 +486,8 @@ pub async fn validate_spec_async(
 /// version extraction (strict semver) and splitting. No producer context, no
 /// version-line rules — those need a Provide.
 pub fn validate_spec(api_type: ApiType, content: &str) -> ValidationReport {
+    let content = normalize_spec_text(content);
+    let content: &str = &content;
     let version_result = match api_type {
         ApiType::OpenApi | ApiType::AsyncApi => openapi::extract_info_version(content),
         ApiType::Proto => crate::proto::extract_sanshain_version(content),
@@ -530,6 +547,57 @@ mod tests {
             .unwrap();
         assert!(!report.valid);
         assert!(report.error.is_some());
+    }
+
+    #[test]
+    fn normalize_spec_text_converts_crlf_and_lone_cr_to_lf() {
+        assert_eq!(normalize_spec_text("a\r\nb\rc\n"), "a\nb\nc\n");
+        // A CR immediately before a CRLF is a lone CR followed by a line end.
+        assert_eq!(normalize_spec_text("a\r\r\nb"), "a\n\nb");
+    }
+
+    #[test]
+    fn normalize_spec_text_strips_only_a_leading_bom() {
+        assert_eq!(normalize_spec_text("\u{feff}x: 1\r\n"), "x: 1\n");
+        assert_eq!(normalize_spec_text("\u{feff}x: 1\n"), "x: 1\n");
+        // A BOM anywhere else is content, not an encoding marker.
+        assert_eq!(normalize_spec_text("x: \u{feff}\n"), "x: \u{feff}\n");
+    }
+
+    #[test]
+    fn normalize_spec_text_borrows_when_nothing_changes() {
+        let lf = "openapi: 3.0.3\ninfo: {}\n";
+        assert!(matches!(normalize_spec_text(lf), Cow::Borrowed(s) if s == lf));
+        assert!(matches!(
+            normalize_spec_text("\u{feff}a\n"),
+            Cow::Borrowed("a\n")
+        ));
+        assert!(matches!(normalize_spec_text("a\r\n"), Cow::Owned(_)));
+    }
+
+    #[test]
+    fn normalized_documents_hash_the_same_from_every_platform() {
+        let lf = "openapi: 3.0.3\ninfo:\n  version: 1.0.0\n";
+        let windows = format!("\u{feff}{}", lf.replace('\n', "\r\n"));
+        let classic_mac = lf.replace('\n', "\r");
+        assert_eq!(
+            content_hash(&normalize_spec_text(&windows)),
+            content_hash(lf)
+        );
+        assert_eq!(
+            content_hash(&normalize_spec_text(&classic_mac)),
+            content_hash(lf)
+        );
+    }
+
+    #[test]
+    fn validate_spec_accepts_bom_and_crlf_documents() {
+        let lf = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.0\npaths:\n  /a:\n    get:\n      responses:\n        '200':\n          description: OK\n";
+        let windows = format!("\u{feff}{}", lf.replace('\n', "\r\n"));
+        let report = validate_spec(ApiType::OpenApi, &windows);
+        assert!(report.valid, "got: {:?}", report.error);
+        assert_eq!(report.version.map(|v| v.to_string()), Some("1.0.0".into()));
+        assert_eq!(report.endpoints, vec!["GET /a".to_string()]);
     }
 
     fn meta(version: &str, stability: Stability) -> SpecVersionMeta {

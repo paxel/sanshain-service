@@ -50,10 +50,11 @@ PORT=3080 ./sanshain_service
 **Issue**: Your Provide was rejected — the version already exists as GA with different content, the changes are breaking without a major bump, or you sent a snapshot for a number that has gone GA.
 **Solution**: Every rejection is self-service. The response body carries `proposed_version` — the next free version, bumped by what actually changed. Set your spec's version (`info.version`, or the `// sanshain-version:` comment for proto) to it and republish. See [**API Lifecycle**](api-lifecycle.md) for the full rules.
 
-If you are sure you changed nothing, the difference is probably whitespace: content is compared
-byte-for-byte, so CRLF line endings from a Windows checkout make an identical spec count as
-different content (the 409 message says so when no endpoint content changed). Upload with LF —
-a `.gitattributes` rule (`*.yaml text eol=lf`) fixes this at the source.
+If you are sure you changed nothing, the difference is probably whitespace or comments: content
+is compared byte-for-byte after the service has normalized line endings (CRLF and CR become LF)
+and removed a leading BOM, so a Windows checkout alone no longer makes a spec differ, but
+re-indentation, trailing spaces or an edited comment still do (the 409 message says so when no
+endpoint content changed). A `.gitattributes` rule (`*.yaml text eol=lf`) remains good practice.
 
 ### 404 on require: Unknown version
 **Issue**: `GET /require` returns 404 even though the Producer exists.

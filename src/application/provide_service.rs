@@ -6,7 +6,7 @@
 use super::now_iso;
 use super::require_service::count_branch_update;
 use super::spec_service::{
-    content_hash, extract_spec_version, parse_spec_endpoints, resolve_stream,
+    content_hash, extract_spec_version, normalize_spec_text, parse_spec_endpoints, resolve_stream,
 };
 use super::version_rules::{
     check_compatibility, classify_change, diff_endpoints, ga_baseline, propose_free,
@@ -178,6 +178,12 @@ pub async fn provide_spec(
     let username: Option<&str> = caller.as_ref().map(|a| a.username.as_str());
     let tag_branch = resolve_stream(repo, trunk, tag).await?;
 
+    // Everything below — hashing, the no-op and GA immutability checks,
+    // splitting, contracts and the stored bytes — sees the normalized text
+    // only (ADR-0008).
+    let content = normalize_spec_text(content);
+    let content: &str = &content;
+
     // Version extraction, hashing and splitting all scan the whole document —
     // CPU work that must not run on the async worker thread.
     let (version, hash, endpoints) = {
@@ -328,14 +334,14 @@ pub async fn provide_spec(
             let impact = classify_change(api_type, &old_content, content, changes.inserts);
             let proposed = propose_free(&line, version.increment(impact));
             // Bytes differ but no endpoint the splitter sees changed: the
-            // difference is almost certainly whitespace, line endings or
-            // comments — name that, or the refusal reads as gaslighting to a
-            // caller who changed nothing.
+            // difference is almost certainly whitespace or comments (line
+            // endings and a BOM were normalized away above) — name that, or
+            // the refusal reads as gaslighting to a caller who changed nothing.
             let cosmetic_hint = if changes.inserts == 0
                 && changes.updates == 0
                 && changes.deletes == 0
             {
-                " (no endpoint content changed — the difference may be whitespace, line endings or comments; documents are compared byte-for-byte)"
+                " (no endpoint content changed — the difference may be whitespace or comments; documents are compared byte-for-byte after line endings and a leading BOM are normalized)"
             } else {
                 ""
             };

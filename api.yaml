@@ -870,7 +870,9 @@ components:
           $ref: "#/components/schemas/Stability"
         content_hash:
           type: string
-          description: SHA-256 of the provided document (`sha256:` prefixed).
+          description: |
+            SHA-256 (`sha256:` prefixed) of the provided document after its
+            line endings were normalized to LF and a leading BOM was removed.
         changes:
           type: object
           description: |
