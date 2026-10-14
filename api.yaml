@@ -345,6 +345,11 @@ paths:
         Same resolution rules as `/require`. `path` is the channel name
         (AsyncAPI 2.x channel key / 3.x channel address); `method` is `PUB`
         or `SUB` from the provider's perspective.
+
+        With `format=openapi` the answer is not the AsyncAPI snippet but an
+        OpenAPI 3.0.3 document holding the payload schemas of the channel's
+        messages (see the `format` parameter). Its ETag never matches the
+        AsyncAPI answer's.
       parameters:
         - name: consumername
           in: query
@@ -380,14 +385,45 @@ paths:
           required: false
           schema: { type: string }
           description: See `tag` on `/require`.
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [openapi]
+          description: |
+            `openapi` answers an OpenAPI 3.0.3 document instead of the
+            AsyncAPI snippet: `openapi: 3.0.3`, `info.title`
+            `<producername> message schemas`, `info.version` the pinned
+            version, empty `paths`, and in `components.schemas` only the
+            payload schemas reachable from the kept messages (nested `$ref`s
+            included). A payload given as `$ref: '#/components/schemas/X'`
+            keeps the name `X`; an inline payload is named
+            `<MessageKey>Payload` (the message's component or channel
+            message key, else its `messageId` or `name`). Every `$ref` in the
+            answer resolves inside it. AsyncAPI 2.x and 3.x are supported.
+            Without the parameter the answer is unchanged.
       responses:
         "200":
-          description: The channel snippet as YAML.
+          description: |
+            The channel snippet as YAML, or with `format=openapi` the OpenAPI
+            3.0.3 document of its payload schemas.
           content:
             application/yaml:
               schema: { type: string }
         "304":
           description: Not modified (ETag match).
+        "400":
+          description: |
+            An unknown `format`, or the spec cannot be converted with
+            `format=openapi`: two different schemas would get the same name,
+            a message payload has a non-AsyncAPI `schemaFormat` (e.g. Avro),
+            a `$ref` is external or does not resolve, or an inline payload
+            has no message key to be named after.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "404":
           description: Unknown Producer or version.
           content:
@@ -475,6 +511,23 @@ paths:
         `/require`; if *any* requested endpoint is absent from the pinned
         version the whole bundle fails `410` naming the missing endpoints, and
         no dependency is recorded.
+
+        With `format=openapi` (query parameter, `api_type: asyncapi` only)
+        the answer is one OpenAPI 3.0.3 document holding the payload schemas
+        of all requested channels' messages, built as described on
+        `/require/asyncapi`.
+      parameters:
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [openapi]
+          description: |
+            `openapi` answers the payload schemas of the requested AsyncAPI
+            channels as an OpenAPI 3.0.3 document (see `format` on
+            `/require/asyncapi`). Only valid with `api_type: asyncapi`.
+            Without it the answer is unchanged.
       requestBody:
         required: true
         content:
@@ -483,12 +536,23 @@ paths:
               $ref: "#/components/schemas/RequireBundlePayload"
       responses:
         "200":
-          description: The merged specification as YAML.
+          description: |
+            The merged specification as YAML, or with `format=openapi` the
+            OpenAPI 3.0.3 document of the channels' payload schemas.
           content:
             application/yaml:
               schema: { type: string }
         "304":
           description: Not modified (ETag match).
+        "400":
+          description: |
+            `format` with an `api_type` other than `asyncapi` (the default is
+            `openapi`), an unknown `format`, or a spec `format=openapi` cannot
+            convert (see `/require/asyncapi`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "404":
           description: Unknown Producer or version.
           content:

@@ -156,13 +156,14 @@ provides:
 
 A list of service dependencies. Each entry results in a single `POST /require-bundle` call (or `GET /require` if only one endpoint is listed).
 
-| Field             | Type   | Required | Default   | Description                                                              |
-|-------------------|--------|----------|-----------|--------------------------------------------------------------------------|
-| `serviceName`     | string | **yes**  | —         | Name of the service to require endpoints from.                           |
-| `apiType`         | string | no       | `openapi` | Type of API: `openapi`, `asyncapi`, or `proto`.                          |
-| `version`         | string | **yes**  | —         | The exact pinned version (`MAJOR.MINOR.PATCH`). No ranges, no `latest`.  |
-| `outputDirectory` | string | **yes**  | —         | Directory where the merged specification file will be written.           |
-| `endpoints`       | list   | **yes**  | —         | List of endpoints/channels to require (see below).                       |
+| Field             | Type   | Required | Default   | Description                                                                                        |
+|-------------------|--------|----------|-----------|----------------------------------------------------------------------------------------------------|
+| `serviceName`     | string | **yes**  | —         | Name of the service to require endpoints from.                                                     |
+| `apiType`         | string | no       | `openapi` | Type of API: `openapi`, `asyncapi`, or `proto`.                                                    |
+| `version`         | string | **yes**  | —         | The exact pinned version (`MAJOR.MINOR.PATCH`). No ranges, no `latest`.                            |
+| `outputDirectory` | string | **yes**  | —         | Directory where the merged specification file will be written.                                     |
+| `endpoints`       | list   | **yes**  | —         | List of endpoints/channels to require (see below).                                                 |
+| `format`          | string | no       | —         | Only `openapi`, only with `apiType: asyncapi`: receive the payload schemas as OpenAPI (see below). |
 
 The **Pin** is the whole contract: what your build downloads changes only when someone edits `version`. A Pin that does not exist on the server fails the require with `404`.
 
@@ -219,6 +220,29 @@ requires:
 
 **Calling the endpoint:**
 "Calling" an AsyncAPI endpoint usually means subscribing to (`SUB`) or publishing to (`PUB`) a channel. In this example, `payment-service` requires the `orders.created` channel to listen for new orders. The client plugin will download a snippet containing only the relevant channel and its associated message/schema definitions.
+
+#### Payload schemas as OpenAPI (`format: openapi`)
+
+A Consumer whose code generator only speaks OpenAPI can ask for the message payloads of an AsyncAPI requirement as an OpenAPI document:
+
+```yaml
+requires:
+  - serviceName: order-service
+    apiType: asyncapi
+    format: openapi
+    version: 2.0.0
+    outputDirectory: generated/order-service-dtos
+    endpoints:
+      - method: SUB
+        path: orders.created
+```
+
+The client sends `format=openapi` as a query parameter, and the service answers an OpenAPI 3.0.3 document instead of the AsyncAPI snippet: `info.title` is `<serviceName> message schemas`, `info.version` the pinned version, `paths` is empty and `components.schemas` holds only the payload schemas of the required channels' messages, including the schemas they reference. A payload given as `$ref: '#/components/schemas/X'` keeps the name `X`; an inline payload is named `<MessageKey>Payload` (the message's component or channel message key, else its `messageId` or `name`). Every `$ref` in the file resolves inside it, so `openapi-generator` with `generateApis=false` produces the DTOs. AsyncAPI 2.x and 3.x are both supported.
+`scripts/openapi-generator-check.sh` checks this end to end against a running service (manual check, not part of CI).
+
+- The file name is unchanged. To get both formats, list the entry twice with different `outputDirectory`s.
+- The service answers `400` when two different schemas would get the same name, a payload uses a non-AsyncAPI `schemaFormat` (e.g. Avro), a `$ref` is external, or `format` is set on another `apiType`.
+- Older services do not know `format`: a bundle require answers plain AsyncAPI and a single-channel require rejects the parameter. Clients detect the missing `openapi` answer and fail with "needs Sanshain Service 2.4.0 or later".
 
 ### AsyncAPI Version Compatibility (v2 → v3)
 

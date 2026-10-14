@@ -762,6 +762,7 @@ async fn nuke_producers_and_consumers_require_exact_confirmation() {
             method: "GET",
             trunk: false,
             tag: None,
+            format: sanshain_service::application::require_service::RequireFormat::Native,
         },
     )
     .await
@@ -931,6 +932,7 @@ async fn report_markdown_and_isolation_render_the_seeded_producer() {
             method: "GET",
             trunk: false,
             tag: None,
+            format: sanshain_service::application::require_service::RequireFormat::Native,
         },
     )
     .await

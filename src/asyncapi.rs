@@ -1,6 +1,6 @@
 use crate::domain::models::Impact;
 use serde_yaml_ng::{Mapping, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 pub struct AsyncApiSpec {
     pub channel: String,
@@ -655,6 +655,336 @@ pub fn payloads_equal(a_yaml: &str, b_yaml: &str) -> bool {
     }
 }
 
+/// Convert the AsyncAPI channel snippets a require resolved into an OpenAPI
+/// 3.0.3 document that carries only their message payload schemas — the
+/// `format=openapi` answer, so a Consumer can generate DTOs with OpenAPI
+/// tooling.
+///
+/// Only messages of the given snippets are kept, and only the schemas their
+/// payloads reach (nested `$ref`s included), even though every snippet carries
+/// the Producer's whole `components`. A payload given as
+/// `$ref: '#/components/schemas/X'` keeps the name `X`; an inline payload
+/// becomes `<MessageKey>Payload`. Every `$ref` of the output resolves inside
+/// it: refs into `#/components/schemas/` stay, other local refs are hoisted
+/// into a schema of their own. A name used for two different schemas, a
+/// non-AsyncAPI `schemaFormat` (Avro, …) and an external `$ref` are errors —
+/// the caller answers them `400`.
+pub fn to_openapi_schemas(
+    snippets: &[String],
+    service: &str,
+    version: &str,
+) -> Result<String, String> {
+    let mut schemas: BTreeMap<String, Value> = BTreeMap::new();
+    for snippet in snippets {
+        let root: Value = serde_yaml_ng::from_str(snippet)
+            .map_err(|e| format!("Failed to parse AsyncAPI YAML: {}", e))?;
+        for message in kept_messages(&root)? {
+            add_message_payload(&root, &message, &mut schemas)?;
+        }
+    }
+
+    let schema_map: Mapping = schemas
+        .into_iter()
+        .map(|(name, schema)| (Value::String(name), schema))
+        .collect();
+    let mut components = Mapping::new();
+    components.insert("schemas".into(), Value::Mapping(schema_map));
+    let mut info = Mapping::new();
+    info.insert(
+        "title".into(),
+        Value::String(format!("{} message schemas", service)),
+    );
+    info.insert("version".into(), Value::String(version.to_string()));
+    let mut doc = Mapping::new();
+    doc.insert("openapi".into(), Value::String("3.0.3".to_string()));
+    doc.insert("info".into(), Value::Mapping(info));
+    doc.insert("paths".into(), Value::Mapping(Mapping::new()));
+    doc.insert("components".into(), Value::Mapping(components));
+    serde_yaml_ng::to_string(&Value::Mapping(doc))
+        .map_err(|e| format!("Failed to serialize OpenAPI document: {}", e))
+}
+
+/// A message a snippet keeps, with the key an inline payload is named after
+/// (`None` when the message has none) and where it was found, for errors.
+struct KeptMessage<'a> {
+    key: Option<String>,
+    node: &'a Value,
+    location: String,
+}
+
+/// The messages of a snippet's operations: AsyncAPI 3.x operation `messages`
+/// (or, without them, the referenced channel's `messages`), AsyncAPI 2.x
+/// `publish`/`subscribe` `message` (including `oneOf` variants).
+fn kept_messages(root: &Value) -> Result<Vec<KeptMessage<'_>>, String> {
+    let version = root.get("asyncapi").and_then(Value::as_str).unwrap_or("");
+    if version.starts_with("3.") {
+        kept_messages_v3(root)
+    } else {
+        kept_messages_v2(root)
+    }
+}
+
+fn kept_messages_v2(root: &Value) -> Result<Vec<KeptMessage<'_>>, String> {
+    let mut out = Vec::new();
+    let Some(channels) = root.get("channels").and_then(Value::as_mapping) else {
+        return Ok(out);
+    };
+    for (channel_name, channel) in channels {
+        let channel_name = channel_name.as_str().unwrap_or_default();
+        for op_key in ["publish", "subscribe"] {
+            let Some(message) = channel.get(op_key).and_then(|op| op.get("message")) else {
+                continue;
+            };
+            let variants: Vec<&Value> = match message.get("oneOf").and_then(Value::as_sequence) {
+                Some(one_of) => one_of.iter().collect(),
+                None => vec![message],
+            };
+            for variant in variants {
+                let location = format!("{} {}", channel_name, op_key);
+                let ref_key = ref_of(variant).map(last_pointer_segment);
+                let node = deref(root, variant, &location)?;
+                let key = ref_key.or_else(|| {
+                    node.get("messageId")
+                        .or_else(|| node.get("name"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                });
+                out.push(KeptMessage {
+                    key,
+                    node,
+                    location,
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn kept_messages_v3(root: &Value) -> Result<Vec<KeptMessage<'_>>, String> {
+    let mut out = Vec::new();
+    let Some(operations) = root.get("operations").and_then(Value::as_mapping) else {
+        return Ok(out);
+    };
+    for (op_name, op) in operations {
+        let op_name = op_name.as_str().unwrap_or_default();
+        if let Some(refs) = op.get("messages").and_then(Value::as_sequence) {
+            for message in refs {
+                let location = format!("operation {}", op_name);
+                let key = ref_of(message).map(last_pointer_segment);
+                let node = deref(root, message, &location)?;
+                out.push(KeptMessage {
+                    key,
+                    node,
+                    location,
+                });
+            }
+            continue;
+        }
+        let Some(channel) = op.get("channel") else {
+            continue;
+        };
+        let channel = deref(root, channel, &format!("operation {}", op_name))?;
+        if let Some(messages) = channel.get("messages").and_then(Value::as_mapping) {
+            for (key, message) in messages {
+                let key = key.as_str().unwrap_or_default().to_string();
+                let location = format!("operation {} message {}", op_name, key);
+                let node = deref(root, message, &location)?;
+                out.push(KeptMessage {
+                    key: Some(key),
+                    node,
+                    location,
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// The `$ref` string of a node, when it is a reference.
+fn ref_of(node: &Value) -> Option<&str> {
+    node.get("$ref").and_then(Value::as_str)
+}
+
+/// The unescaped last segment of a JSON pointer (`#/a/b~1c` → `b/c`).
+fn last_pointer_segment(pointer: &str) -> String {
+    let raw = pointer.rsplit('/').next().unwrap_or_default();
+    raw.replace("~1", "/").replace("~0", "~")
+}
+
+/// Follow `$ref`s (local only) until a non-reference node is reached.
+fn deref<'a>(root: &'a Value, node: &'a Value, location: &str) -> Result<&'a Value, String> {
+    let mut current = node;
+    // A bounded walk: a reference cycle is reported instead of looping.
+    for _ in 0..32 {
+        let Some(reference) = ref_of(current) else {
+            return Ok(current);
+        };
+        current = resolve_local_ref(root, reference, location)?;
+    }
+    Err(format!("{}: $ref chain is too long or cyclic", location))
+}
+
+fn resolve_local_ref<'a>(
+    root: &'a Value,
+    reference: &str,
+    location: &str,
+) -> Result<&'a Value, String> {
+    if !reference.starts_with("#/") {
+        return Err(format!(
+            "{}: external $ref '{}' is not supported by format=openapi",
+            location, reference
+        ));
+    }
+    resolve_json_pointer(root, reference)
+        .ok_or_else(|| format!("{}: $ref '{}' does not resolve", location, reference))
+}
+
+/// `schemaFormat` values that mean "an AsyncAPI schema" — the only ones an
+/// OpenAPI document can carry over (the 2.x default and its 3.x spellings).
+fn is_asyncapi_schema_format(format: &str) -> bool {
+    format.starts_with("application/vnd.aai.asyncapi")
+}
+
+fn check_schema_format(node: &Value, location: &str) -> Result<(), String> {
+    match node.get("schemaFormat").and_then(Value::as_str) {
+        Some(format) if !is_asyncapi_schema_format(format) => Err(format!(
+            "{}: payload schemaFormat '{}' cannot be converted, format=openapi supports AsyncAPI schemas only",
+            location, format
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// An OpenAPI component name (`^[A-Za-z0-9._-]+$`) for a message key.
+fn component_name(key: &str) -> String {
+    key.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn add_message_payload(
+    root: &Value,
+    message: &KeptMessage<'_>,
+    schemas: &mut BTreeMap<String, Value>,
+) -> Result<(), String> {
+    let location = &message.location;
+    check_schema_format(message.node, location)?;
+    let Some(mut payload) = message.node.get("payload") else {
+        return Ok(());
+    };
+    // AsyncAPI 3.x Multi Format Schema Object: `{schemaFormat, schema}`.
+    if payload.get("schemaFormat").is_some() && payload.get("schema").is_some() {
+        check_schema_format(payload, location)?;
+        if let Some(schema) = payload.get("schema") {
+            payload = schema;
+        }
+    }
+
+    if let Some(reference) = ref_of(payload)
+        && let Some(name) = reference.strip_prefix("#/components/schemas/")
+        && !name.contains('/')
+    {
+        let target = resolve_local_ref(root, reference, location)?;
+        let name = name.replace("~1", "/").replace("~0", "~");
+        return insert_schema(root, &name, target.clone(), schemas, location);
+    }
+
+    let Some(key) = &message.key else {
+        return Err(format!(
+            "{}: an inline payload needs a message key (component key, messageId or name) to be named",
+            location
+        ));
+    };
+    let name = format!("{}Payload", component_name(key));
+    insert_schema(root, &name, payload.clone(), schemas, location)
+}
+
+/// Add a schema under `name` after rewriting its refs, then the schemas they
+/// point at. The same name for an equal schema is a no-op (that also ends
+/// recursive schemas); for a different one it is a clash.
+fn insert_schema(
+    root: &Value,
+    name: &str,
+    mut schema: Value,
+    schemas: &mut BTreeMap<String, Value>,
+    location: &str,
+) -> Result<(), String> {
+    let mut pending = Vec::new();
+    rewrite_refs(root, &mut schema, &mut pending, location)?;
+    match schemas.get(name) {
+        Some(existing) if *existing == schema => return Ok(()),
+        Some(_) => {
+            return Err(format!(
+                "{}: two different schemas would both be named '{}' — rename one of them in the AsyncAPI spec to use format=openapi",
+                location, name
+            ));
+        }
+        None => {
+            schemas.insert(name.to_string(), schema);
+        }
+    }
+    for (pending_name, pending_schema) in pending {
+        insert_schema(root, &pending_name, pending_schema, schemas, location)?;
+    }
+    Ok(())
+}
+
+/// Collect every schema `node` references and rewrite refs that point outside
+/// `#/components/schemas/` to a hoisted schema of their own.
+fn rewrite_refs(
+    root: &Value,
+    node: &mut Value,
+    pending: &mut Vec<(String, Value)>,
+    location: &str,
+) -> Result<(), String> {
+    match node {
+        Value::Mapping(map) => {
+            if let Some(reference) = map.get("$ref").and_then(Value::as_str) {
+                let reference = reference.to_string();
+                let target = resolve_local_ref(root, &reference, location)?;
+                match reference.strip_prefix("#/components/schemas/") {
+                    Some(rest) => {
+                        // `#/components/schemas/X/properties/y` resolves once
+                        // the whole of `X` is carried over.
+                        let segment = rest.split('/').next().unwrap_or_default();
+                        let pointer = format!("#/components/schemas/{}", segment);
+                        let whole = resolve_local_ref(root, &pointer, location)?;
+                        let name = segment.replace("~1", "/").replace("~0", "~");
+                        pending.push((name, whole.clone()));
+                    }
+                    None => {
+                        let name = component_name(&last_pointer_segment(&reference));
+                        pending.push((name.clone(), target.clone()));
+                        map.insert(
+                            "$ref".into(),
+                            Value::String(format!("#/components/schemas/{}", name)),
+                        );
+                    }
+                }
+            }
+            for (key, value) in map.iter_mut() {
+                if key.as_str() != Some("$ref") {
+                    rewrite_refs(root, value, pending, location)?;
+                }
+            }
+            Ok(())
+        }
+        Value::Sequence(items) => {
+            for item in items {
+                rewrite_refs(root, item, pending, location)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Classify the SemVer impact of an AsyncAPI change between two endpoint
 /// snippets: breaking → `Major`, additive (new messages/properties) → `Minor`,
 /// other textual change → `Patch`, identical → `None`.
@@ -1234,5 +1564,360 @@ operations:
             err.contains('b'),
             "error should name the nested missing property: {err}"
         );
+    }
+
+    // ---- format=openapi (to_openapi_schemas) ----
+
+    const V2_EVENTS: &str = r#"
+asyncapi: 2.6.0
+info:
+  title: Events
+  version: 1.4.0
+channels:
+  user.created:
+    publish:
+      message:
+        $ref: '#/components/messages/UserCreated'
+  order.placed:
+    subscribe:
+      message:
+        messageId: OrderPlaced
+        payload:
+          type: object
+          properties:
+            order:
+              $ref: '#/components/schemas/Order'
+            orderId:
+              $ref: '#/components/schemas/Order/properties/id'
+components:
+  messages:
+    UserCreated:
+      payload:
+        $ref: '#/components/schemas/User'
+  schemas:
+    User:
+      type: object
+      properties:
+        address:
+          $ref: '#/components/schemas/Address'
+    Address:
+      type: object
+      properties:
+        street:
+          type: string
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+    Unused:
+      type: object
+"#;
+
+    const V3_EVENTS: &str = r#"
+asyncapi: 3.0.0
+info:
+  title: Events
+  version: 2.0.0
+channels:
+  userSignedUp:
+    address: user/signedup
+    messages:
+      UserSignedUp:
+        $ref: '#/components/messages/UserSignedUp'
+  orderShipped:
+    address: order/shipped
+    messages:
+      orderShipped:
+        payload:
+          schemaFormat: application/vnd.aai.asyncapi+json;version=3.0.0
+          schema:
+            type: object
+            properties:
+              parcel:
+                $ref: '#/components/schemas/Parcel'
+operations:
+  sendUserSignedUp:
+    action: send
+    channel:
+      $ref: '#/channels/userSignedUp'
+    messages:
+      - $ref: '#/channels/userSignedUp/messages/UserSignedUp'
+  receiveOrderShipped:
+    action: receive
+    channel:
+      $ref: '#/channels/orderShipped'
+components:
+  messages:
+    UserSignedUp:
+      payload:
+        $ref: '#/components/schemas/User'
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+    Parcel:
+      type: object
+      properties:
+        weight:
+          type: number
+    Unused:
+      type: object
+"#;
+
+    fn snippets_of(spec: &str) -> Vec<String> {
+        split_asyncapi(spec)
+            .unwrap()
+            .into_iter()
+            .map(|s| s.yaml_content)
+            .collect()
+    }
+
+    fn snippet_for(spec: &str, channel: &str) -> Vec<String> {
+        split_asyncapi(spec)
+            .unwrap()
+            .into_iter()
+            .filter(|s| s.channel == channel)
+            .map(|s| s.yaml_content)
+            .collect()
+    }
+
+    fn schema_names(doc: &Value) -> Vec<String> {
+        doc["components"]["schemas"]
+            .as_mapping()
+            .unwrap()
+            .keys()
+            .map(|k| k.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    /// Every `$ref` anywhere in `node`.
+    fn all_refs(node: &Value, out: &mut Vec<String>) {
+        match node {
+            Value::Mapping(map) => {
+                for (key, value) in map {
+                    if key.as_str() == Some("$ref") {
+                        out.push(value.as_str().unwrap().to_string());
+                    } else {
+                        all_refs(value, out);
+                    }
+                }
+            }
+            Value::Sequence(items) => items.iter().for_each(|i| all_refs(i, out)),
+            _ => {}
+        }
+    }
+
+    fn assert_refs_resolve(doc: &Value) {
+        let mut refs = Vec::new();
+        all_refs(doc, &mut refs);
+        for reference in refs {
+            assert!(
+                resolve_json_pointer(doc, &reference).is_some(),
+                "$ref '{reference}' does not resolve in {doc:?}"
+            );
+        }
+    }
+
+    fn convert(snippets: &[String]) -> Value {
+        let yaml = to_openapi_schemas(snippets, "events", "1.4.0").unwrap();
+        serde_yaml_ng::from_str(&yaml).unwrap()
+    }
+
+    #[test]
+    fn openapi_format_v2_has_the_openapi_header() {
+        let yaml = to_openapi_schemas(&snippets_of(V2_EVENTS), "events", "1.4.0").unwrap();
+        assert!(yaml.starts_with("openapi: 3.0.3\n"), "got: {yaml}");
+        let doc: Value = serde_yaml_ng::from_str(&yaml).unwrap();
+        assert_eq!(
+            doc["info"]["title"].as_str(),
+            Some("events message schemas")
+        );
+        assert_eq!(doc["info"]["version"].as_str(), Some("1.4.0"));
+        assert_eq!(doc["paths"], Value::Mapping(Mapping::new()));
+    }
+
+    #[test]
+    fn openapi_format_v2_keeps_ref_names_names_inline_payloads_and_follows_nested_refs() {
+        let doc = convert(&snippets_of(V2_EVENTS));
+        assert_eq!(
+            schema_names(&doc),
+            vec!["Address", "Order", "OrderPlacedPayload", "User"],
+            "Unused is not reachable from any message"
+        );
+        assert_eq!(
+            doc["components"]["schemas"]["OrderPlacedPayload"]["properties"]["order"]["$ref"]
+                .as_str(),
+            Some("#/components/schemas/Order")
+        );
+        assert_refs_resolve(&doc);
+    }
+
+    #[test]
+    fn openapi_format_filtered_require_keeps_only_reachable_schemas() {
+        let doc = convert(&snippet_for(V2_EVENTS, "user.created"));
+        assert_eq!(schema_names(&doc), vec!["Address", "User"]);
+        assert_refs_resolve(&doc);
+    }
+
+    #[test]
+    fn openapi_format_v3_reads_operation_and_channel_messages() {
+        let doc = convert(&snippets_of(V3_EVENTS));
+        assert_eq!(
+            schema_names(&doc),
+            vec!["Parcel", "User", "orderShippedPayload"]
+        );
+        // The default Multi Format Schema Object is unwrapped to its schema.
+        assert_eq!(
+            doc["components"]["schemas"]["orderShippedPayload"]["properties"]["parcel"]["$ref"]
+                .as_str(),
+            Some("#/components/schemas/Parcel")
+        );
+        assert_refs_resolve(&doc);
+
+        let filtered = convert(&snippet_for(V3_EVENTS, "user/signedup"));
+        assert_eq!(schema_names(&filtered), vec!["User"]);
+    }
+
+    #[test]
+    fn openapi_format_same_schema_reached_twice_is_not_a_clash() {
+        let mut snippets = snippets_of(V2_EVENTS);
+        snippets.extend(snippets_of(V2_EVENTS));
+        let doc = convert(&snippets);
+        assert_eq!(schema_names(&doc).len(), 4);
+    }
+
+    #[test]
+    fn openapi_format_name_clash_is_an_error_naming_the_schema() {
+        let spec = r#"
+asyncapi: 2.6.0
+info: {title: Clash, version: 1.0.0}
+channels:
+  user:
+    publish:
+      message:
+        name: User
+        payload:
+          type: object
+          properties:
+            id: {type: string}
+components:
+  schemas:
+    UserPayload:
+      type: string
+    Holder:
+      type: object
+      properties:
+        p: {$ref: '#/components/schemas/UserPayload'}
+  messages:
+    Other:
+      payload: {$ref: '#/components/schemas/Holder'}
+"#;
+        let mut snippets = snippets_of(spec);
+        snippets.push(
+            "asyncapi: 2.6.0\nchannels:\n  other:\n    publish:\n      message:\n        payload:\n          $ref: '#/components/schemas/Holder'\ncomponents:\n  schemas:\n    Holder:\n      type: object\n      properties:\n        p: {$ref: '#/components/schemas/UserPayload'}\n    UserPayload:\n      type: string\n"
+                .to_string(),
+        );
+        let err = to_openapi_schemas(&snippets, "clash", "1.0.0").unwrap_err();
+        assert!(err.contains("'UserPayload'"), "got: {err}");
+    }
+
+    #[test]
+    fn openapi_format_rejects_avro_payloads_in_v2_and_v3() {
+        let v2 = r#"
+asyncapi: 2.6.0
+info: {title: Avro, version: 1.0.0}
+channels:
+  user:
+    publish:
+      message:
+        name: User
+        schemaFormat: application/vnd.apache.avro;version=1.9.0
+        payload:
+          type: record
+          name: User
+          fields: []
+"#;
+        let err = to_openapi_schemas(&snippets_of(v2), "avro", "1.0.0").unwrap_err();
+        assert!(
+            err.contains("application/vnd.apache.avro;version=1.9.0"),
+            "got: {err}"
+        );
+
+        let v3 = r#"
+asyncapi: 3.0.0
+info: {title: Avro, version: 1.0.0}
+channels:
+  user:
+    messages:
+      User:
+        payload:
+          schemaFormat: application/vnd.apache.avro+json;version=1.9.0
+          schema: {type: record, name: User, fields: []}
+operations:
+  sendUser:
+    action: send
+    channel: {$ref: '#/channels/user'}
+"#;
+        let err = to_openapi_schemas(&snippets_of(v3), "avro", "1.0.0").unwrap_err();
+        assert!(err.contains("avro"), "got: {err}");
+    }
+
+    #[test]
+    fn openapi_format_hoists_refs_outside_components_schemas() {
+        let spec = r#"
+asyncapi: 2.6.0
+info: {title: Hoist, version: 1.0.0}
+channels:
+  pay:
+    publish:
+      message:
+        name: Payment
+        payload:
+          type: object
+          properties:
+            amount: {$ref: '#/x-shared/Money'}
+x-shared:
+  Money:
+    type: object
+    properties:
+      cents: {type: integer}
+"#;
+        let doc = convert(&snippets_of(spec));
+        assert_eq!(schema_names(&doc), vec!["Money", "PaymentPayload"]);
+        assert_eq!(
+            doc["components"]["schemas"]["PaymentPayload"]["properties"]["amount"]["$ref"].as_str(),
+            Some("#/components/schemas/Money")
+        );
+        assert_refs_resolve(&doc);
+    }
+
+    #[test]
+    fn openapi_format_rejects_external_and_dangling_refs() {
+        let external = "asyncapi: 2.6.0\nchannels:\n  a:\n    publish:\n      message:\n        name: A\n        payload: {$ref: 'common.yaml#/User'}\n";
+        let err = to_openapi_schemas(&[external.to_string()], "s", "1.0.0").unwrap_err();
+        assert!(
+            err.contains("external $ref 'common.yaml#/User'"),
+            "got: {err}"
+        );
+
+        let dangling = "asyncapi: 2.6.0\nchannels:\n  a:\n    publish:\n      message:\n        name: A\n        payload: {$ref: '#/components/schemas/Missing'}\n";
+        let err = to_openapi_schemas(&[dangling.to_string()], "s", "1.0.0").unwrap_err();
+        assert!(err.contains("does not resolve"), "got: {err}");
+    }
+
+    #[test]
+    fn openapi_format_inline_payload_without_a_key_is_an_error() {
+        let spec = "asyncapi: 2.6.0\nchannels:\n  a:\n    publish:\n      message:\n        payload: {type: string}\n";
+        let err = to_openapi_schemas(&[spec.to_string()], "s", "1.0.0").unwrap_err();
+        assert!(err.contains("needs a message key"), "got: {err}");
+    }
+
+    #[test]
+    fn openapi_format_component_names_are_sanitized() {
+        assert_eq!(component_name("user/signed up"), "user_signed_up");
+        assert_eq!(component_name("Order.v1-x_y"), "Order.v1-x_y");
     }
 }

@@ -25,6 +25,7 @@ Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and
 - **Web Dashboard**: Navigate services, version timelines, diffs and dependencies visually.
 - **Release Graphs**: A trunk ("main") stream and named sanshain-branches capture what production actually is — release cuts (retroactive if needed), a timeline over past graph states, structured graph diffs, and release-scoped reports (`?scope=main[@instant]` or `<branch>[@instant]`).
 - **Periphery from Backstage**: A build can push its Backstage `catalog-info.yaml` (`PUT /catalog/{systemname}`, or `catalogInfo` in `sanshain.yaml`); the databases, buckets and queues its Component lists under `dependsOn` appear in the graph as Peripheral Resources, shared between the systems that use them, and travel into release cuts and diffs.
+- **AsyncAPI payloads as OpenAPI**: An AsyncAPI requirement can ask for `format: openapi` and receive just its message payload schemas as an OpenAPI 3.0.3 document, ready for OpenAPI code generators. See [sanshain.yaml](docs/sanshain-yaml.md#payload-schemas-as-openapi-format-openapi).
 - **Free Spec Validator**: The landing page validates any OpenAPI, AsyncAPI or Protobuf spec against the exact rules a publish would face — no login, nothing stored.
 - **Auditing**: Full history of provides and administrative actions.
 - **Flexible Auth**: Local accounts, LDAP/Active Directory, or OpenID Connect SSO for human login; machine clients always use API tokens.

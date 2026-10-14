@@ -456,6 +456,9 @@ pub struct RequireQuery {
     /// ADR-0005: the pin updates this sanshain-branch instead of trunk.
     #[serde(default)]
     pub tag: Option<String>,
+    /// `openapi` answers an AsyncAPI require as OpenAPI payload schemas.
+    #[serde(default)]
+    pub format: Option<String>,
 }
 
 /// Name how a require was answered: the resolution state, the version (always
@@ -479,7 +482,17 @@ fn require_response(
     request_headers: &HeaderMap,
     res: services::RequireResponse,
 ) -> axum::response::Response {
-    let etag = format!("\"{}\"", hex::encode(Sha256::digest(res.yaml.as_bytes())));
+    // The native answer keeps its plain content hash; another format hashes
+    // its name in too, so the two never share an ETag.
+    let digest = match res.format {
+        services::RequireFormat::Native => Sha256::digest(res.yaml.as_bytes()),
+        format => Sha256::new()
+            .chain_update(format.as_str().as_bytes())
+            .chain_update(b"\n")
+            .chain_update(res.yaml.as_bytes())
+            .finalize(),
+    };
+    let etag = format!("\"{}\"", hex::encode(digest));
     let etag_value = HeaderValue::from_str(&etag).ok();
     if let Some(ev) = &etag_value
         && request_headers.get("if-none-match") == Some(ev)
@@ -505,6 +518,7 @@ async fn require_common(
     api_type: ApiType,
     request_headers: HeaderMap,
 ) -> Result<axum::response::Response, AppError> {
+    let format = services::RequireFormat::parse(api_type, query.format.as_deref())?;
     let params = services::RequireEndpointParams {
         consumername: &query.consumername,
         producername: &query.producername,
@@ -514,6 +528,7 @@ async fn require_common(
         method: &query.method,
         trunk: query.trunk,
         tag: query.tag.as_deref(),
+        format,
     };
     let res = if query.dry_run {
         services::require_endpoint_dry_run(&state.repo, params).await?
@@ -608,12 +623,24 @@ pub struct RequireBundleRequest {
     pub tag: Option<String>,
 }
 
+/// Query parameters of `POST /require-bundle`. Not `deny_unknown_fields`:
+/// the route ignored its query string before `format` existed.
+#[derive(Deserialize)]
+pub struct RequireBundleQuery {
+    /// See `RequireQuery::format`.
+    #[serde(default)]
+    pub format: Option<String>,
+}
+
 pub async fn require_bundle(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
     headers: HeaderMap,
+    Query(query): Query<RequireBundleQuery>,
     Json(payload): Json<RequireBundleRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    let api_type = payload.api_type.unwrap_or(ApiType::OpenApi);
+    let format = services::RequireFormat::parse(api_type, query.format.as_deref())?;
     let endpoints: Vec<(String, String)> = payload
         .endpoints
         .into_iter()
@@ -624,10 +651,11 @@ pub async fn require_bundle(
         consumername: &payload.consumername,
         producername: &payload.producername,
         version: payload.version,
-        api_type: payload.api_type.unwrap_or(ApiType::OpenApi),
+        api_type,
         endpoints: &endpoints,
         trunk: payload.trunk,
         tag: payload.tag.as_deref(),
+        format,
     };
     let res = if payload.dry_run {
         services::require_bundle_dry_run(&state.repo, params).await?

@@ -9,8 +9,63 @@ use super::now_iso;
 use super::spec_service::resolve_stream;
 use crate::domain::models::*;
 use crate::domain::ports::{RecordDependencyParams, RecordTrunkPinParams, SpecRepository};
-use crate::openapi;
+use crate::{asyncapi, openapi};
 use std::collections::HashSet;
+
+/// The shape a require answers in — the `format` query parameter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequireFormat {
+    /// The stored snippets in their own API type (no `format`).
+    Native,
+    /// `format=openapi`: an AsyncAPI require answered as an OpenAPI 3.0.3
+    /// document holding the kept messages' payload schemas.
+    OpenApi,
+}
+
+impl RequireFormat {
+    /// Read the `format` parameter of a require for `api_type`. Only
+    /// `openapi`, and only for AsyncAPI, is supported; anything else is a
+    /// `400` naming what is.
+    pub fn parse(api_type: ApiType, format: Option<&str>) -> Result<Self, AppError> {
+        match format {
+            None => Ok(RequireFormat::Native),
+            Some("openapi") if api_type == ApiType::AsyncApi => Ok(RequireFormat::OpenApi),
+            Some("openapi") => Err(AppError::BadRequest(format!(
+                "format=openapi is only supported for apiType asyncapi, not {}",
+                api_type.as_str()
+            ))),
+            Some(other) => Err(AppError::BadRequest(format!(
+                "Unknown format '{}': the only supported format is 'openapi' (for apiType asyncapi)",
+                other
+            ))),
+        }
+    }
+
+    /// The name keying this format's ETag apart from the native answer's.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RequireFormat::Native => "native",
+            RequireFormat::OpenApi => "openapi",
+        }
+    }
+}
+
+/// Convert resolved AsyncAPI snippets to the `format=openapi` document.
+/// Called before any Pin is recorded, so a spec that cannot be converted
+/// records nothing.
+async fn to_openapi(
+    producername: &str,
+    version: SemVer,
+    snippets: Vec<String>,
+) -> Result<String, AppError> {
+    let service = producername.to_string();
+    let version = version.to_string();
+    // Parses and walks every snippet — CPU work, off the async worker.
+    super::run_cpu_bound(move || {
+        asyncapi::to_openapi_schemas(&snippets, &service, &version).map_err(AppError::BadRequest)
+    })
+    .await
+}
 
 pub struct RequireEndpointParams<'a> {
     pub consumername: &'a str,
@@ -25,6 +80,8 @@ pub struct RequireEndpointParams<'a> {
     /// ADR-0005: the pin updates the named sanshain-branch's graph instead.
     /// Mutually exclusive with `trunk`.
     pub tag: Option<&'a str>,
+    /// The shape of the answer (see [`RequireFormat`]).
+    pub format: RequireFormat,
 }
 
 pub struct RequireBundleParams<'a> {
@@ -37,6 +94,8 @@ pub struct RequireBundleParams<'a> {
     pub trunk: bool,
     /// See [`RequireEndpointParams::tag`].
     pub tag: Option<&'a str>,
+    /// See [`RequireEndpointParams::format`].
+    pub format: RequireFormat,
 }
 
 /// Resolve a Producer's version-line entry for a Pin, or fail the way the
@@ -85,6 +144,8 @@ pub struct RequireResponse {
     pub version: SemVer,
     /// The stability it was served from, surfaced as `X-Sanshain-Stability`.
     pub stability: Stability,
+    /// The format `yaml` is in — keys the ETag apart per format.
+    pub format: RequireFormat,
 }
 
 pub async fn require_endpoint(
@@ -115,6 +176,7 @@ async fn require_endpoint_inner(
         method,
         trunk,
         tag,
+        format,
     } = params;
     let tag_branch = resolve_stream(repo, trunk, tag).await?;
 
@@ -135,6 +197,10 @@ async fn require_endpoint_inner(
             method,
             path
         )));
+    };
+    let yaml = match format {
+        RequireFormat::Native => yaml,
+        RequireFormat::OpenApi => to_openapi(producername, version, vec![yaml]).await?,
     };
 
     if !dry_run {
@@ -158,6 +224,7 @@ async fn require_endpoint_inner(
         state: ResolutionState::Served,
         version,
         stability: entry.stability,
+        format,
     })
 }
 
@@ -188,6 +255,7 @@ async fn require_bundle_inner(
         endpoints,
         trunk,
         tag,
+        format,
     } = params;
     let tag_branch = resolve_stream(repo, trunk, tag).await?;
 
@@ -234,15 +302,16 @@ async fn require_bundle_inner(
         }
     }
 
-    let yaml = match api_type {
+    let yaml = match (format, api_type) {
+        (RequireFormat::OpenApi, _) => to_openapi(producername, version, yamls).await?,
         // The merge re-parses every snippet — CPU work, off the async worker.
-        ApiType::OpenApi => {
+        (RequireFormat::Native, ApiType::OpenApi) => {
             super::run_cpu_bound(move || {
                 openapi::merge_endpoint_yamls(&yamls).map_err(AppError::Internal)
             })
             .await?
         }
-        _ => yamls.join("\n---\n"),
+        (RequireFormat::Native, _) => yamls.join("\n---\n"),
     };
 
     if !dry_run {
@@ -266,6 +335,7 @@ async fn require_bundle_inner(
         state: ResolutionState::Served,
         version,
         stability: entry.stability,
+        format,
     })
 }
 
@@ -341,4 +411,41 @@ async fn record_pins(
 /// observability surface graphs per branch.
 pub(crate) fn count_branch_update(branch: &str) {
     metrics::counter!("sanshain_branch_updates_total", "branch" => branch.to_string()).increment(1);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn require_format_defaults_to_native_and_accepts_openapi_for_asyncapi() {
+        assert_eq!(
+            RequireFormat::parse(ApiType::OpenApi, None).ok(),
+            Some(RequireFormat::Native)
+        );
+        assert_eq!(
+            RequireFormat::parse(ApiType::AsyncApi, Some("openapi")).ok(),
+            Some(RequireFormat::OpenApi)
+        );
+        assert_eq!(RequireFormat::Native.as_str(), "native");
+        assert_eq!(RequireFormat::OpenApi.as_str(), "openapi");
+    }
+
+    #[test]
+    fn require_format_rejects_other_api_types_and_unknown_formats() {
+        for api_type in [ApiType::OpenApi, ApiType::Proto] {
+            match RequireFormat::parse(api_type, Some("openapi")) {
+                Err(AppError::BadRequest(msg)) => {
+                    assert!(msg.contains("only supported for apiType asyncapi"), "{msg}")
+                }
+                other => panic!("expected 400, got {other:?}"),
+            }
+        }
+        match RequireFormat::parse(ApiType::AsyncApi, Some("json")) {
+            Err(AppError::BadRequest(msg)) => {
+                assert!(msg.contains("Unknown format 'json'"), "{msg}")
+            }
+            other => panic!("expected 400, got {other:?}"),
+        }
+    }
 }
