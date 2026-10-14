@@ -1351,6 +1351,23 @@ test.describe("Graph provides/requires badges", () => {
       }),
       "provide REST",
     );
+    // The REST service once had a messaging line: the provide left a sticky
+    // "messaging" row in service_tags that the delete never removes.
+    await ok(
+      await request.post("/provide/asyncapi", {
+        headers,
+        data: {
+          producername: REST,
+          stability: "snapshot",
+          asyncapi_yaml: asyncapi("S7R", "s7.r.events"),
+        },
+      }),
+      "provide REST's short-lived messaging line",
+    );
+    await ok(
+      await request.delete(`/admin/producers/${REST}/versions/asyncapi/1.0.0`, { headers }),
+      "delete REST's messaging line",
+    );
     await ok(
       await request.post("/provide/grpc", {
         headers,
@@ -1434,6 +1451,24 @@ test.describe("Graph provides/requires badges", () => {
       ),
       "trunk require",
     );
+    await ok(
+      await request.put(`/catalog/${ASYNC_A}`, {
+        headers,
+        data: {
+          catalog_info_yaml: [
+            "apiVersion: backstage.io/v1alpha1",
+            "kind: Component",
+            "metadata:",
+            `  name: ${ASYNC_A}`,
+            "spec:",
+            "  type: service",
+            "  dependsOn:",
+            "    - resource:s7-db",
+          ].join("\n"),
+        },
+      }),
+      "catalog push",
+    );
   });
 
   const openGraph = async (page) => {
@@ -1501,6 +1536,17 @@ test.describe("Graph provides/requires badges", () => {
     expect(geometry.rest.cx).toBeCloseTo(geometry.box.left + 4, 3);
     expect(geometry.grpc.cx).toBeCloseTo(geometry.box.left + 28, 3);
     expect(geometry.rest.cy).toBeCloseTo(geometry.box.bottom - 2, 3);
+  });
+
+  test("a Peripheral Resource provides the hexagon and adds no require", async ({ page }) => {
+    await openGraph(page);
+    const resource = page.locator(
+      '#custom-graph g.graph-node[data-role="peripheral"][data-node*="s7-db"]',
+    );
+    await expect(resource).toHaveCount(1, { timeout: 20000 });
+    await expect(resource.locator('[data-badge="provides-resource"]')).toHaveCount(1);
+    await expect(resource.locator('[data-badge^="requires-"]')).toHaveCount(0);
+    await expect(node(page, ASYNC_A)).toHaveAttribute("data-requires", "rest,grpc");
   });
 
   test("a gRPC-only service shows no REST badge", async ({ page }) => {

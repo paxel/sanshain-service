@@ -25,7 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The graph's virtual `BROKER` node and its "register" edges. A harvested subscription whose channel nobody provides points at a dashed missing node named `<channel> ?` instead, in both graph renderers.
 
 ### Fixed
-- A graph node no longer keeps a messaging or gRPC mark (and colour role) after the service stopped providing that API type; marks follow the view's current version lines.
+- A graph node no longer keeps a messaging or gRPC mark (and colour role) after that version line was deleted, and the main view no longer marks a node for a line that is not trunk-provided; marks follow the view's version lines.
 - The spec viewer's diff of large documents shows the real changes instead of marking most of the document as removed and re-added.
 - Re-providing a GA spec from a Windows checkout (CRLF line endings) is the idempotent no-op instead of a `409` immutability conflict, and a document starting with a UTF-8 BOM is accepted instead of rejected as unparsable YAML.
 - gRPC snippets split from a CRLF `.proto` no longer carry stray carriage returns.
