@@ -4,10 +4,10 @@ status: accepted
 
 # The graph's periphery comes from each system's Backstage catalog-info.yaml
 
-The network graph knows only Producers, Consumers and the virtual BROKER node. Nothing outside
-Sanshain — the databases, buckets and queues a system depends on — has a node, so the graph cannot
-show that two systems share a database. Architects asked for Backstage support to describe this
-periphery (#46).
+The network graph knows only Producers and Consumers (and, until 2.4.0, a virtual BROKER node).
+Nothing outside Sanshain — the databases, buckets and queues a system depends on — has a node, so the
+graph cannot show that two systems share a database. Architects asked for Backstage support to
+describe this periphery (#46).
 
 ## Data flows Backstage → Sanshain, through the build
 

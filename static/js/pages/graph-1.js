@@ -251,7 +251,7 @@ async function renderGraph(report, detailed) {
       .add(
         d.peripheral
           ? "depends on"
-          : `[${d.api_type || "REST"}] ${d.method} ${d.path} @${d.version}`,
+          : `[${d.api_type || "REST"}] ${d.method} ${d.path}${d.version ? ` @${d.version}` : ""}`,
       );
   });
 
@@ -271,6 +271,11 @@ async function renderGraph(report, detailed) {
     report.dependency_graph.filter((d) => d.peripheral).map((d) => d.service),
   );
 
+  // Unowned harvested subscriptions point at a missing `<channel> ?` node.
+  const missingChannelNodes = new Set(
+    report.dependency_graph.filter((d) => d.unfulfilled).map((d) => d.service),
+  );
+
   // Per-edge highlight flags (Outdated / Snapshot-pinned).
   const latestGaMap = graphLatestGaMap(report);
   const edgeFlags = graphEdgeFlags(report, latestGaMap);
@@ -283,6 +288,8 @@ async function renderGraph(report, detailed) {
   mmd += "  classDef cycleEdge stroke:#ef4444,stroke-width:3px\n";
   mmd +=
     "  classDef peripheral fill:#f1f5f9,stroke:#64748b,stroke-width:1.5px,stroke-dasharray:4 3,color:#334155\n";
+  mmd +=
+    "  classDef missing fill:#fff7ed,stroke:#f97316,stroke-width:2px,stroke-dasharray:6 3,color:#9a3412\n";
   mmd += "  linkStyle default stroke:#94a3b8,stroke-width:2px\n";
 
   for (const node of allNodes) {
@@ -306,6 +313,8 @@ async function renderGraph(report, detailed) {
     const isService = serviceNodes.has(node);
     if (peripheralNodes.has(node)) {
       mmd += `  class ${id} peripheral\n`;
+    } else if (missingChannelNodes.has(node)) {
+      mmd += `  class ${id} missing\n`;
     } else if (isClient && isService) {
       mmd += `  class ${id} both\n`;
     } else if (isService) {

@@ -1213,3 +1213,77 @@ test.describe("Blame blocks", () => {
     );
   });
 });
+
+test.describe("Graph without the BROKER node", () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+  const SUBSCRIBER = "s6-subscriber";
+  const CHANNEL = "s6.unowned.events";
+  const MISSING = `${CHANNEL} ?`;
+  const SPEC = [
+    "asyncapi: 2.6.0",
+    "info:",
+    "  title: S6 Subscriber",
+    "  version: 1.0.0",
+    "channels:",
+    `  ${CHANNEL}:`,
+    "    subscribe:",
+    "      message:",
+    "        name: Unowned",
+    "        payload:",
+    "          type: object",
+  ].join("\n");
+
+  test.beforeAll(async ({ request }) => {
+    if (!adminPassword) {
+      throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
+    }
+    const login = await request.post("/auth/login", {
+      data: { username: "root", password: adminPassword },
+    });
+    const { token } = await login.json();
+    const res = await request.post("/provide/asyncapi", {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { producername: SUBSCRIBER, stability: "snapshot", asyncapi_yaml: SPEC },
+    });
+    if (!res.ok()) throw new Error(`provide failed: ${res.status()} ${await res.text()}`);
+  });
+
+  const openGraph = async (page) => {
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await page.goto("/graph.html");
+    await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
+  };
+
+  test("an unowned subscription points at a missing channel node, no BROKER", async ({ page }) => {
+    await openGraph(page);
+    const node = page.locator(`#custom-graph g.graph-node[data-node="${MISSING}"]`);
+    await expect(node).toHaveCount(1, { timeout: 20000 });
+    await expect(node).toHaveAttribute("data-role", "missing");
+    await expect(node.locator("rect").first()).toHaveAttribute("stroke-dasharray", "6 3");
+    const edge = page.locator(
+      `#custom-graph path.graph-edge[data-from="${SUBSCRIBER}"][data-to="${MISSING}"]`,
+    );
+    await expect(edge).toHaveAttribute("data-edge-type", "missing");
+    await expect(page.locator('#custom-graph [data-node="BROKER"]')).toHaveCount(0);
+    await expect(
+      page.locator('#custom-graph path.graph-edge[data-edge-type="messaging-register"]'),
+    ).toHaveCount(0);
+    await expect(page.locator('[data-legend-highlight="edge-type:messaging-register"]')).toHaveCount(
+      0,
+    );
+  });
+
+  test("the mermaid renderer draws the same missing channel node", async ({ page }) => {
+    await openGraph(page);
+    await page.click("#graph-mode-mermaid");
+    await expect(page.locator("#mermaid-graph svg")).toContainText(MISSING, { timeout: 20000 });
+    await expect(page.locator("#mermaid-graph svg")).not.toContainText("BROKER");
+    const code = await page.evaluate(() => lastMermaidCode);
+    expect(code).toContain("class s6_unowned_events__ missing");
+  });
+});

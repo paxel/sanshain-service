@@ -122,7 +122,7 @@ already says you read. Each harvested subscription:
 
 - **resolves its provider** by looking up the `(channel, message name)` PUB contract. If no GA
   provider owns the channel yet, the subscription is recorded as **unfulfilled** and shown in the
-  graph as pending, rather than silently dropped.
+  graph as an edge to a dashed missing node named `<channel> ?`, rather than silently dropped.
 - **appears in the dependency graph** inheriting the provide's stream: a `trunk` provide's
   subscriptions show in the **main** view, a plain snapshot's only in the **dev** view.
 - **is validated against the provider's contract.** Because a subscription is an *expectation*, the

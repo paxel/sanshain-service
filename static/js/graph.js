@@ -287,6 +287,13 @@ function redrawGraph() {
 }
 window.redrawGraph = redrawGraph;
 
+// The node an unowned harvested subscription points at: the channel name with
+// a question mark, drawn in the missing-node style by both renderers.
+function graphUnownedChannelNode(channel) {
+  return `${channel} ?`;
+}
+window.graphUnownedChannelNode = graphUnownedChannelNode;
+
 function getFilteredReport(report) {
   if (!report) return null;
   let deps = [...(report.dependency_graph || [])];
@@ -337,12 +344,13 @@ function getFilteredReport(report) {
   // The server already scopes them to match the view (dev = all, main =
   // trunk-only, branch/other = none), so append them to whichever deps we
   // built. A subscription with no resolved owner (nobody provides the channel
-  // yet) points at the BROKER so the pending consumption stays visible.
+  // yet) points at a missing node named after the channel, so the pending
+  // consumption stays visible and every subscriber of that channel meets there.
   (report.harvested_subscriptions || []).forEach((h) => {
     deps.push({
       api_type: "asyncapi",
       client: h.client,
-      service: h.owner || "BROKER",
+      service: h.owner || graphUnownedChannelNode(h.channel),
       version: null,
       stability: null,
       path: h.channel,
@@ -935,36 +943,14 @@ function renderCustomGraph(report, svgElement, direction) {
   // involvement stays visible as the edge's api-type.
   if (!report.service_tags) report.service_tags = {};
 
-  // A virtual node standing for "these services talk over a broker". Named
-  // BROKER, not KAFKA: Sanshain has no evidence of which broker, and asserting
-  // a product in an architecture view is a claim it cannot support.
-  const BROKER_NODE = "BROKER";
-  const messagingRegisterEdges = new Set();
-  const asyncClients = new Set();
+  // An unowned harvested subscription points at a missing `<channel> ?` node:
+  // its edge is drawn as a missing dependency in every view, not only in dev.
+  const unownedChannelNodes = new Set();
   deps.forEach((d) => {
-    if ((d.api_type || "").toLowerCase() === "asyncapi") {
-      asyncClients.add(d.client);
-      asyncClients.add(d.service);
-    }
+    if (!d.unfulfilled) return;
+    unownedChannelNodes.add(d.service);
+    missingEdgeKeys.add(`${d.client}-->${d.service}`);
   });
-  if (asyncClients.size > 0) {
-    allNodes.add(BROKER_NODE);
-    serviceNodes.add(BROKER_NODE);
-    // Ensure service_tags includes messaging tag for the virtual node
-    if (!report.service_tags) report.service_tags = {};
-    report.service_tags[BROKER_NODE] = ["messaging"];
-    // Link all async-involved services to the broker node
-    for (const svc of asyncClients) {
-      if (!adjMap.has(svc)) adjMap.set(svc, []);
-      if (!adjMap.get(svc).includes(BROKER_NODE)) adjMap.get(svc).push(BROKER_NODE);
-      const key = `${svc}-->${BROKER_NODE}`;
-      if (!edgeLabels.has(key)) edgeLabels.set(key, []);
-      edgeLabels.get(key).push({ method: "PUB/SUB", path: "register", api_type: "AsyncAPI" });
-      // Mark these edges as messaging-register (grey dashed, no arrows)
-      messagingRegisterEdges.add(key);
-      clientNodes.add(svc);
-    }
-  }
 
   // Identify missing services: services where ALL inbound edges are missing
   const missingServices = new Set();
@@ -1341,7 +1327,6 @@ function renderCustomGraph(report, svgElement, direction) {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", d);
     const isBidirectionalPubSub = pubsubBidirectional.has(key);
-    const isMessagingRegister = messagingRegisterEdges.has(key);
     const hFlags = edgeHighlightFlags.get(key);
     // One decision for colour, width and dash together: they were previously
     // set in separate passes, and the later pass overwrote the dash the
@@ -1380,11 +1365,6 @@ function renderCustomGraph(report, svgElement, direction) {
       edgeWidth = "2";
       dashArray = "3 4";
       markerEnd = "url(#arrow)";
-    } else if (isMessagingRegister) {
-      edgeColor = "#3b82f6";
-      edgeWidth = "1.5";
-      dashArray = "6 3";
-      markerEnd = "";
     } else if (isBidirectionalPubSub) {
       edgeColor = "#94a3b8";
       edgeWidth = "2";
@@ -1410,7 +1390,6 @@ function renderCustomGraph(report, svgElement, direction) {
     if (isPeripheral) path.dataset.edgeType = "peripheral";
     else if (isCycle) path.dataset.edgeType = "circular";
     else if (isMissing) path.dataset.edgeType = "missing";
-    else if (isMessagingRegister) path.dataset.edgeType = "messaging-register";
     else if (isBidirectionalPubSub) path.dataset.edgeType = "pubsub-bidir";
     else path.dataset.edgeType = "normal";
     // Independent highlight flags + base styling, so the Outdated /
@@ -1676,14 +1655,13 @@ function renderCustomGraph(report, svgElement, direction) {
             const method = d.method || "GET";
             const path = d.path || "/";
             const type = d.api_type || "OpenAPI";
-            const isVirtual = path === "register";
 
             if (d.peripheral) {
               return `<div class="text-slate-300 text-[11px] py-1">depends on <span class="font-mono">${_graphEscapeHtml(path)}</span> <span class="text-slate-500">(Backstage)</span></div>`;
             }
 
-            if (isVirtual) {
-              return `<div class="text-slate-400 italic text-[11px] py-1 border-b border-slate-800/50 last:border-0">${_graphEscapeHtml(method)} ${_graphEscapeHtml(path)}</div>`;
+            if (d.unfulfilled) {
+              return `<div class="text-slate-300 text-[11px] py-1"><span class="font-mono text-indigo-400 font-bold">${_graphEscapeHtml(method)}</span> <span class="font-mono">${_graphEscapeHtml(path)}</span> <span class="text-slate-500">(nobody provides this channel yet)</span></div>`;
             }
 
             const url = `/yaml.html?service=${encodeURIComponent(to)}&api_type=${encodeURIComponent(type)}&version=${encodeURIComponent(d.version || "")}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}`;
@@ -1741,6 +1719,19 @@ function renderCustomGraph(report, svgElement, direction) {
     if (tooltipHideTimer) {
       clearTimeout(tooltipHideTimer);
       tooltipHideTimer = null;
+    }
+
+    if (unownedChannelNodes.has(name)) {
+      tooltip.innerHTML = `
+        <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Unprovided Channel</div>
+        <div class="font-bold text-white break-all">${_graphEscapeHtml(name)}</div>
+        <div class="text-[11px] text-slate-400 mt-1">Subscribed to in an AsyncAPI document, but no Producer publishes this channel yet.</div>
+      `;
+      tooltip.style.display = "block";
+      tooltip.style.left = Math.max(10, e.clientX + 8) + "px";
+      tooltip.style.top = Math.max(10, e.clientY + 8) + "px";
+      tooltip.style.opacity = "1";
+      return;
     }
 
     if (name.startsWith("resource:")) {
