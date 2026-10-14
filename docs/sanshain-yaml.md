@@ -233,7 +233,7 @@ requires:
     version: 2.0.0
     outputDirectory: generated/order-service-dtos
     endpoints:
-      - method: SUB
+      - method: PUB             # a channel order-service publishes
         path: orders.created
 ```
 
