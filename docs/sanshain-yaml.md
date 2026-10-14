@@ -214,7 +214,7 @@ requires:
     version: 2.0.0
     outputDirectory: generated/order-service
     endpoints:
-      - method: SUB
+      - method: PUB             # order-service publishes orders.created
         path: orders.created
 ```
 
@@ -282,7 +282,7 @@ requires:
     version: 2.0.0
     outputDirectory: generated/order-service
     endpoints:
-      - method: SUB
+      - method: PUB
         path: orders.created    # ✅ use the address, not the channel key
       # path: OrderCreated      # ❌ wrong — this is the key, not the address
 ```
