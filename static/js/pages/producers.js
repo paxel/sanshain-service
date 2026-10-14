@@ -362,26 +362,15 @@ async function showLineDiff(serviceName, apiType, from, to, output) {
     output.innerHTML = '<div class="text-sm text-slate-500 italic">Same version selected.</div>';
     return;
   }
-  output.innerHTML = '<div class="text-sm text-slate-500 italic">Loading diff...</div>';
-  try {
-    const res = await apiCall(
-      `/admin/producers/${encodeURIComponent(serviceName)}/diff?api_type=${encodeURIComponent(apiType)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-    );
-    if (!res.ok) {
-      output.innerHTML = `<div class="text-sm text-red-500">Failed to load diff (HTTP ${res.status}).</div>`;
-      return;
-    }
-    const diffText = await res.text();
-    if (!diffText.trim() || diffText.trim().split("\n").length <= 1) {
-      output.innerHTML = `<div class="text-sm text-slate-500 italic">No differences between ${escapeHtml(from)} and ${escapeHtml(to)}.</div>`;
-      return;
-    }
-    output.innerHTML = `
-                <div class="text-xs text-slate-500 mb-1">${escapeHtml(from)} → ${escapeHtml(to)}</div>
-                <pre class="diff-pre bg-slate-800 p-4 rounded-xl text-sm overflow-x-auto whitespace-pre-wrap leading-relaxed">${renderUnifiedDiffHtml(diffText)}</pre>`;
-  } catch (e) {
-    output.innerHTML = `<div class="text-sm text-red-500">Failed to load diff: ${escapeHtml(e.message)}</div>`;
-  }
+  await mountDiffView(output, {
+    caption: `${escapeHtml(from)} → ${escapeHtml(to)}`,
+    emptyHtml: `No differences between ${escapeHtml(from)} and ${escapeHtml(to)}.`,
+    load: (ignoreWhitespace) =>
+      fetchVersionDiff(serviceName, apiType, from, to, {
+        format: "json",
+        ignore_whitespace: String(ignoreWhitespace),
+      }),
+  });
 }
 
 // Delete-version is the sole escape hatch from GA immutability. Always

@@ -214,24 +214,6 @@ function simpleDiff(a, b) {
   const result = [];
   const m = aLines.length,
     n = bLines.length;
-  if (m + n > 5000) {
-    let ai = 0,
-      bi = 0;
-    while (ai < m || bi < n) {
-      if (ai < m && bi < n && aLines[ai] === bLines[bi]) {
-        result.push({ type: "ctx", line: aLines[ai] });
-        ai++;
-        bi++;
-      } else if (bi < n) {
-        result.push({ type: "add", line: bLines[bi] });
-        bi++;
-      } else {
-        result.push({ type: "del", line: aLines[ai] });
-        ai++;
-      }
-    }
-    return result;
-  }
   const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
   for (let i = m - 1; i >= 0; i--)
     for (let j = n - 1; j >= 0; j--)
@@ -266,21 +248,211 @@ function renderDiffHtml(diffLines) {
     .join("\n");
 }
 
-// Colorize a server-produced unified diff (text/plain from
-// /admin/producers/{name}/diff) for display in a dark <pre> block.
-function renderUnifiedDiffHtml(diffText) {
-  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return diffText
-    .split("\n")
-    .map((line) => {
-      if (line.startsWith("+++") || line.startsWith("---"))
-        return `<span class="text-slate-300 font-bold">${esc(line)}</span>`;
-      if (line.startsWith("@@")) return `<span class="text-indigo-400">${esc(line)}</span>`;
-      if (line.startsWith("+")) return `<span class="text-green-400">${esc(line)}</span>`;
-      if (line.startsWith("-")) return `<span class="text-red-400">${esc(line)}</span>`;
-      return `<span class="text-slate-400">${esc(line)}</span>`;
+// --- Diff views (Producers page line diff, yaml.html) ---------------------
+// Both views render the server's `similar` diff (format=json hunks from
+// /admin/producers/{name}/diff). Two switches: Ignore whitespace (off by
+// default, per view) and Unified / Side by side (side by side by default on
+// wide screens, remembered per browser; narrow screens always unified).
+
+const DIFF_LAYOUT_STORAGE_KEY = "sanshain.diffLayout";
+const DIFF_NARROW_QUERY = "(max-width: 767px)";
+const diffViewStates = new WeakMap();
+
+function storedDiffLayout() {
+  try {
+    return localStorage.getItem(DIFF_LAYOUT_STORAGE_KEY);
+  } catch (e) {
+    return null;
+  }
+}
+
+function storeDiffLayout(layout) {
+  try {
+    localStorage.setItem(DIFF_LAYOUT_STORAGE_KEY, layout);
+  } catch (e) {
+    // Storage unavailable: the choice lasts until the page is left.
+  }
+}
+
+function isNarrowDiffScreen() {
+  return window.matchMedia(DIFF_NARROW_QUERY).matches;
+}
+
+function effectiveDiffLayout() {
+  if (isNarrowDiffScreen()) return "unified";
+  return storedDiffLayout() === "unified" ? "unified" : "split";
+}
+
+function diffLineNo(n) {
+  return `<span class="diff-no w-10 shrink-0 text-right pr-2 text-slate-500 select-none">${n == null ? "" : n}</span>`;
+}
+
+const DIFF_LINE_STYLES = {
+  add: { cls: "bg-green-950/40 text-green-300", sign: "+" },
+  del: { cls: "bg-red-950/40 text-red-300", sign: "-" },
+  ctx: { cls: "text-slate-300", sign: " " },
+};
+
+function renderUnifiedDiffRows(hunks) {
+  return hunks
+    .map((h) => {
+      const header = `<div class="diff-hunk-header text-indigo-400 px-2 py-0.5 select-none">@@ -${h.old_start},${h.old_len} +${h.new_start},${h.new_len} @@</div>`;
+      const lines = h.lines
+        .map((l) => {
+          const style = DIFF_LINE_STYLES[l.op];
+          return `<div class="diff-line flex ${style.cls}" data-diff="${l.op}">${diffLineNo(l.old_no)}${diffLineNo(l.new_no)}<span class="w-4 shrink-0 select-none">${style.sign}</span><span class="whitespace-pre">${escapeHtml(l.text)}</span></div>`;
+        })
+        .join("");
+      return header + lines;
     })
-    .join("\n");
+    .join("");
+}
+
+function diffSideCell(side, no, text, op) {
+  if (no == null) {
+    return `<div class="diff-cell bg-slate-900/60" data-side="${side}"></div>`;
+  }
+  const style = DIFF_LINE_STYLES[op];
+  return `<div class="diff-cell flex min-w-0 ${style.cls}" data-side="${side}">${diffLineNo(no)}<span class="whitespace-pre-wrap break-all min-w-0">${escapeHtml(text)}</span></div>`;
+}
+
+// Pair each run of deletions with the following run of insertions so a
+// changed line sits next to its replacement.
+function renderSplitDiffRows(hunks) {
+  return hunks
+    .map((h) => {
+      const rows = [
+        `<div class="diff-hunk-header text-indigo-400 px-2 py-0.5 select-none">@@ -${h.old_start},${h.old_len} +${h.new_start},${h.new_len} @@</div>`,
+      ];
+      let i = 0;
+      while (i < h.lines.length) {
+        const l = h.lines[i];
+        if (l.op === "ctx") {
+          rows.push(
+            `<div class="diff-row grid grid-cols-2 divide-x divide-slate-800" data-diff="ctx">${diffSideCell("old", l.old_no, l.old_text ?? l.text, "ctx")}${diffSideCell("new", l.new_no, l.text, "ctx")}</div>`,
+          );
+          i++;
+          continue;
+        }
+        const dels = [];
+        const adds = [];
+        while (i < h.lines.length && h.lines[i].op !== "ctx") {
+          (h.lines[i].op === "del" ? dels : adds).push(h.lines[i]);
+          i++;
+        }
+        for (let k = 0; k < Math.max(dels.length, adds.length); k++) {
+          const d = dels[k];
+          const a = adds[k];
+          const kind = d && a ? "change" : d ? "del" : "add";
+          rows.push(
+            `<div class="diff-row grid grid-cols-2 divide-x divide-slate-800" data-diff="${kind}">${diffSideCell("old", d ? d.old_no : null, d ? d.text : "", "del")}${diffSideCell("new", a ? a.new_no : null, a ? a.text : "", "add")}</div>`,
+          );
+        }
+      }
+      return rows.join("");
+    })
+    .join("");
+}
+
+// Mount (or refresh) a diff view in `container`. `options.load(ignoreWhitespace)`
+// resolves to the JSON diff; `options.caption` is trusted HTML shown in the
+// toolbar; `options.emptyHtml` replaces the body when nothing differs. The
+// whitespace switch survives re-mounts into the same container.
+async function mountDiffView(container, options) {
+  const state = diffViewStates.get(container) || { ignoreWhitespace: false };
+  diffViewStates.set(container, state);
+  state.options = options;
+  const token = {};
+  state.token = token;
+
+  container.innerHTML = `
+    <div class="diff-view border border-slate-800 rounded-lg overflow-hidden bg-slate-950 font-mono text-xs">
+      <div class="diff-toolbar flex flex-wrap items-center justify-between gap-3 bg-slate-900 px-4 py-2 border-b border-slate-800 text-slate-400 font-sans">
+        <div class="diff-caption">${options.caption || ""}</div>
+        <div class="flex flex-wrap items-center gap-3">
+          <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
+            <input type="checkbox" class="diff-ignore-ws" ${state.ignoreWhitespace ? "checked" : ""} />
+            <span>Ignore whitespace</span>
+          </label>
+          <div class="diff-layout-switch inline-flex rounded-md bg-slate-800 p-0.5">
+            <button type="button" data-layout="unified" class="diff-layout-btn px-2 py-0.5 rounded">Unified</button>
+            <button type="button" data-layout="split" class="diff-layout-btn px-2 py-0.5 rounded">Side by side</button>
+          </div>
+        </div>
+      </div>
+      <div class="diff-body overflow-x-auto py-1"><div class="text-slate-500 italic px-4 py-2">Loading diff…</div></div>
+    </div>`;
+  const body = container.querySelector(".diff-body");
+  const view = container.querySelector(".diff-view");
+  const layoutSwitch = container.querySelector(".diff-layout-switch");
+
+  const renderBody = () => {
+    const layout = effectiveDiffLayout();
+    view.dataset.layout = layout;
+    layoutSwitch.classList.toggle("hidden", isNarrowDiffScreen());
+    layoutSwitch.querySelectorAll(".diff-layout-btn").forEach((btn) => {
+      const active = btn.dataset.layout === layout;
+      btn.classList.toggle("bg-slate-600", active);
+      btn.classList.toggle("text-white", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    if (!state.diff) return;
+    if (state.diff.hunks.length === 0) {
+      body.innerHTML = `<div class="diff-empty text-slate-400 italic px-4 py-2 font-sans">${options.emptyHtml || "No differences."}</div>`;
+      return;
+    }
+    body.innerHTML =
+      layout === "split"
+        ? renderSplitDiffRows(state.diff.hunks)
+        : renderUnifiedDiffRows(state.diff.hunks);
+  };
+
+  const load = async () => {
+    state.diff = null;
+    renderBody();
+    try {
+      const diff = await options.load(state.ignoreWhitespace);
+      if (state.token !== token) return; // a newer mount replaced this one
+      state.diff = diff;
+      renderBody();
+    } catch (e) {
+      if (state.token !== token) return;
+      body.innerHTML = `<div class="text-red-400 px-4 py-2 font-sans">Failed to load diff: ${escapeHtml(e.message)}</div>`;
+    }
+  };
+
+  container.querySelector(".diff-ignore-ws").addEventListener("change", (e) => {
+    state.ignoreWhitespace = e.target.checked;
+    load();
+  });
+  layoutSwitch.querySelectorAll(".diff-layout-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      storeDiffLayout(btn.dataset.layout);
+      renderBody();
+    });
+  });
+  const narrow = window.matchMedia(DIFF_NARROW_QUERY);
+  const onResize = () => {
+    if (!container.isConnected || state.token !== token) {
+      narrow.removeEventListener("change", onResize);
+      return;
+    }
+    renderBody();
+  };
+  narrow.addEventListener("change", onResize);
+
+  await load();
+}
+
+// Fetch one version-to-version diff of a Producer's line from the server.
+// `extra` adds query parameters (path, method, context, ...).
+async function fetchVersionDiff(serviceName, apiType, from, to, extra) {
+  const q = new URLSearchParams({ api_type: apiType, from, to, ...extra });
+  const res = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/diff?${q}`);
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  return extra && extra.format === "json" ? res.json() : res.text();
 }
 
 /// Resolve who the caller is, then hand that to `onSuccess`.

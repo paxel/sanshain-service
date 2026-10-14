@@ -855,3 +855,190 @@ test.describe("Graph node navigation", () => {
     await expect(page.locator("#clients-list")).toContainText("1.0.0");
   });
 });
+
+// Both diff views (Producers page line diff, yaml.html) render the server's
+// `similar` diff with an Ignore whitespace switch and a Unified / Side by side
+// switch (side by side by default on wide screens, remembered per browser,
+// always unified below 768px).
+test.describe("Diff views", () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+  const BIG = "diff-big-fixture";
+  const WS = "diff-ws-fixture";
+
+  // > 2500 lines; between the two versions only `info.version` differs.
+  const bigSpec = (version) => {
+    const props = [];
+    for (let i = 0; i < 1300; i++) {
+      props.push(`        p${i}:`, "          type: string");
+    }
+    return [
+      "openapi: 3.0.0",
+      "info:",
+      "  title: Big",
+      `  version: ${version}`,
+      "paths:",
+      "  /big:",
+      "    get:",
+      "      responses:",
+      "        '200':",
+      "          description: OK",
+      "components:",
+      "  schemas:",
+      "    Big:",
+      "      type: object",
+      "      properties:",
+      ...props,
+      "",
+    ].join("\n");
+  };
+
+  // 1.1.0 re-indents the tags list and adds trailing spaces — whitespace only,
+  // apart from `info.version`.
+  const wsSpec = (version, tagIndent, trailing) =>
+    [
+      "openapi: 3.0.0",
+      "info:",
+      "  title: Whitespace",
+      `  version: ${version}`,
+      "paths:",
+      "  /ws:",
+      "    get:",
+      "      tags:",
+      `${tagIndent}- alpha`,
+      `${tagIndent}- beta`,
+      `      responses:${trailing}`,
+      "        '200':",
+      `          description: OK${trailing}`,
+      "",
+    ].join("\n");
+
+  const login = async (page) => {
+    page.on("dialog", async (d) => await d.dismiss());
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await page.evaluate(() => localStorage.removeItem("sanshain.diffLayout"));
+  };
+
+  test.beforeAll(async ({ request }) => {
+    if (!adminPassword) {
+      throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
+    }
+    const loginRes = await request.post("/auth/login", {
+      data: { username: "root", password: adminPassword },
+    });
+    const { token } = await loginRes.json();
+    const provide = (producername, openapi_yaml) =>
+      request.post("/provide", {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { producername, stability: "snapshot", openapi_yaml },
+      });
+    await provide(BIG, bigSpec("1.0.0"));
+    await provide(BIG, bigSpec("1.1.0"));
+    await provide(WS, wsSpec("1.0.0", "      ", ""));
+    await provide(WS, wsSpec("1.1.0", "        ", "  "));
+  });
+
+  test("a big spec with one changed line shows exactly one change, in both layouts", async ({
+    page,
+  }) => {
+    await login(page);
+    await page.goto(`/yaml.html?service=${BIG}&api_type=openapi&compare_version=1.0.0&version=1.1.0`);
+    const view = page.locator("#viewer-container .diff-view");
+
+    // Wide screen: side by side by default, one changed row.
+    await expect(view).toHaveAttribute("data-layout", "split", { timeout: 20000 });
+    await expect(view.locator(".diff-row")).toHaveCount(2600 + 15, { timeout: 20000 });
+    await expect(view.locator('.diff-row[data-diff="change"]')).toHaveCount(1);
+    await expect(view.locator('.diff-row[data-diff="add"], .diff-row[data-diff="del"]')).toHaveCount(0);
+    await expect(view.locator('.diff-row[data-diff="change"] [data-side="new"]')).toContainText(
+      "version: 1.1.0",
+    );
+
+    // Unified: one deletion and one insertion.
+    await view.locator('.diff-layout-btn[data-layout="unified"]').click();
+    await expect(view).toHaveAttribute("data-layout", "unified");
+    await expect(view.locator('.diff-line[data-diff="del"]')).toHaveCount(1);
+    await expect(view.locator('.diff-line[data-diff="add"]')).toHaveCount(1);
+    await expect(view.locator('.diff-line[data-diff="add"]')).toContainText("version: 1.1.0");
+
+    // The layout choice is remembered across page loads.
+    await page.reload();
+    await expect(page.locator("#viewer-container .diff-view")).toHaveAttribute(
+      "data-layout",
+      "unified",
+      { timeout: 20000 },
+    );
+  });
+
+  test("yaml.html: Ignore whitespace hides re-indentation, also for one endpoint", async ({
+    page,
+  }) => {
+    await login(page);
+    // Endpoint snippets are re-serialized when split, so only the full
+    // document keeps the whitespace-only changes; the snippet diff shows the
+    // version line either way.
+    for (const [url, strictAdds] of [
+      [`/yaml.html?service=${WS}&api_type=openapi&compare_version=1.0.0&version=1.1.0`, 5],
+      [
+        `/yaml.html?service=${WS}&api_type=openapi&path=%2Fws&method=GET&compare_version=1.0.0&version=1.1.0`,
+        1,
+      ],
+    ]) {
+      await page.goto(url);
+      const view = page.locator("#viewer-container .diff-view");
+      await expect(view).toHaveAttribute("data-layout", "split", { timeout: 20000 });
+      const changed = view.locator('.diff-row:not([data-diff="ctx"])');
+      await expect(changed.first()).toBeVisible({ timeout: 20000 });
+
+      await view.locator(".diff-ignore-ws").check();
+      await expect(changed).toHaveCount(1);
+      await expect(changed).toContainText("version: 1.1.0");
+
+      await view.locator('.diff-layout-btn[data-layout="unified"]').click();
+      await expect(view.locator('.diff-line[data-diff="add"]')).toHaveCount(1);
+      await view.locator(".diff-ignore-ws").uncheck();
+      await expect(view.locator('.diff-line[data-diff="add"]')).toHaveCount(strictAdds);
+      await view.locator('.diff-layout-btn[data-layout="split"]').click();
+    }
+  });
+
+  test("Producers page: the line diff has both switches", async ({ page }) => {
+    await login(page);
+    await page.goto(`/producers.html?service=${WS}`);
+    await page.getByRole("button", { name: "Diff", exact: true }).click();
+    const view = page.locator(".diff-view");
+    await expect(view).toHaveAttribute("data-layout", "split", { timeout: 20000 });
+    const changed = view.locator('.diff-row:not([data-diff="ctx"])');
+    await expect(changed.first()).toBeVisible({ timeout: 20000 });
+    expect(await changed.count()).toBeGreaterThan(1);
+
+    await view.locator(".diff-ignore-ws").check();
+    await expect(changed).toHaveCount(1);
+    await expect(changed).toContainText("version: 1.1.0");
+
+    await view.locator('.diff-layout-btn[data-layout="unified"]').click();
+    await expect(view).toHaveAttribute("data-layout", "unified");
+    await expect(view.locator('.diff-line[data-diff="del"]')).toHaveCount(1);
+    await expect(view.locator('.diff-line[data-diff="add"]')).toHaveCount(1);
+  });
+
+  test("narrow screens are always unified, without a layout switch", async ({ page }) => {
+    await login(page);
+    await page.evaluate(() => localStorage.setItem("sanshain.diffLayout", "split"));
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto(`/yaml.html?service=${WS}&api_type=openapi&compare_version=1.0.0&version=1.1.0`);
+    const view = page.locator("#viewer-container .diff-view");
+    await expect(view).toHaveAttribute("data-layout", "unified", { timeout: 20000 });
+    await expect(view.locator(".diff-layout-switch")).toBeHidden();
+    await expect(view.locator('.diff-line[data-diff="add"]').first()).toBeVisible();
+
+    // Widening the window brings back the remembered side-by-side layout.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(view).toHaveAttribute("data-layout", "split");
+    await expect(view.locator(".diff-layout-switch")).toBeVisible();
+  });
+});

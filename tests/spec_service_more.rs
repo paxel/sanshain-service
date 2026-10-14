@@ -5,6 +5,7 @@
 use sanshain_service::application::mock_repo::MockRepo;
 use sanshain_service::application::require_service;
 use sanshain_service::application::spec_service;
+use sanshain_service::application::text_diff;
 use sanshain_service::domain::models::*;
 use sanshain_service::domain::ports::SpecRepository;
 
@@ -424,45 +425,199 @@ async fn list_versions_orders_newest_first_within_each_api_type() {
     assert!(versions.is_empty());
 }
 
+fn diff_request<'a>(
+    from: SemVer,
+    to: SemVer,
+    endpoint: Option<(&'a str, &'a str)>,
+    options: text_diff::DiffOptions,
+) -> spec_service::DiffRequest<'a> {
+    spec_service::DiffRequest {
+        api_type: ApiType::OpenApi,
+        from,
+        to,
+        endpoint,
+        options,
+    }
+}
+
+fn changed_lines(diff: &spec_service::VersionDiff) -> Vec<String> {
+    diff.hunks
+        .iter()
+        .flat_map(|h| h.lines.iter())
+        .filter(|l| l.op != text_diff::DiffLineOp::Ctx)
+        .map(|l| {
+            let sign = if l.op == text_diff::DiffLineOp::Add {
+                '+'
+            } else {
+                '-'
+            };
+            format!("{sign}{}", l.text)
+        })
+        .collect()
+}
+
+async fn provide_snapshots(repo: &MockRepo, contents: &[&str]) {
+    for content in contents {
+        let provided = spec_service::provide_spec(
+            repo,
+            provide_params("svc", ApiType::OpenApi, content, Stability::Snapshot, false),
+        )
+        .await;
+        assert!(provided.is_ok(), "{:?}", provided.err());
+    }
+}
+
 #[tokio::test]
-async fn diff_versions_produces_a_unified_diff_between_the_stored_documents() {
+async fn diff_versions_diffs_the_stored_documents() {
     let repo = MockRepo::new();
     let old = one_endpoint("1.0.0");
     let new = one_endpoint("1.1.0").replace("description: OK", "description: Fine");
-    for content in [&old, &new] {
-        spec_service::provide_spec(
-            &repo,
-            provide_params("svc", ApiType::OpenApi, content, Stability::Snapshot, false),
-        )
-        .await
-        .unwrap();
-    }
+    provide_snapshots(&repo, &[&old, &new]).await;
 
     let diff = spec_service::diff_versions(
         &repo,
         "svc",
-        ApiType::OpenApi,
-        SemVer::new(1, 0, 0),
-        SemVer::new(1, 1, 0),
+        &diff_request(
+            SemVer::new(1, 0, 0),
+            SemVer::new(1, 1, 0),
+            None,
+            Default::default(),
+        ),
     )
     .await
     .unwrap();
-    assert!(diff.contains("--- svc 1.0.0"), "{diff}");
-    assert!(diff.contains("+++ svc 1.1.0"), "{diff}");
-    assert!(diff.contains("-          description: OK"), "{diff}");
-    assert!(diff.contains("+          description: Fine"), "{diff}");
+    assert_eq!(diff.from, SemVer::new(1, 0, 0));
+    assert_eq!(diff.to, SemVer::new(1, 1, 0));
+    assert_eq!(
+        changed_lines(&diff),
+        vec![
+            "-  version: 1.0.0",
+            "+  version: 1.1.0",
+            "-          description: OK",
+            "+          description: Fine",
+        ]
+    );
 
     // Diffing against an unknown version is a NotFound, not an empty diff.
     let err = spec_service::diff_versions(
         &repo,
         "svc",
-        ApiType::OpenApi,
-        SemVer::new(1, 0, 0),
-        SemVer::new(9, 9, 9),
+        &diff_request(
+            SemVer::new(1, 0, 0),
+            SemVer::new(9, 9, 9),
+            None,
+            Default::default(),
+        ),
     )
     .await
     .unwrap_err();
     assert!(matches!(err, AppError::NotFound(_)), "{err:?}");
+}
+
+#[tokio::test]
+async fn diff_versions_can_ignore_whitespace_only_changes() {
+    let repo = MockRepo::new();
+    let old = openapi(
+        "1.0.0",
+        "  /x:\n    get:\n      tags:\n      - a\n      responses:\n        '200':\n          description: OK\n",
+    );
+    let new = openapi(
+        "1.1.0",
+        "  /x:\n    get:\n      tags:\n        - a\n      responses:   \n        '200':\n          description: OK\n",
+    );
+    provide_snapshots(&repo, &[&old, &new]).await;
+    let (from, to) = (SemVer::new(1, 0, 0), SemVer::new(1, 1, 0));
+
+    let strict = spec_service::diff_versions(
+        &repo,
+        "svc",
+        &diff_request(from, to, None, Default::default()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        changed_lines(&strict).len(),
+        6,
+        "{:?}",
+        changed_lines(&strict)
+    );
+
+    let lenient = spec_service::diff_versions(
+        &repo,
+        "svc",
+        &diff_request(
+            from,
+            to,
+            None,
+            text_diff::DiffOptions {
+                ignore_whitespace: true,
+                context: Some(3),
+            },
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        changed_lines(&lenient),
+        vec!["-  version: 1.0.0", "+  version: 1.1.0"]
+    );
+}
+
+#[tokio::test]
+async fn diff_versions_in_endpoint_mode_diffs_one_snippet_and_treats_absence_as_empty() {
+    let repo = MockRepo::new();
+    let v1 = openapi(
+        "1.0.0",
+        "  /x:\n    get:\n      responses:\n        '200':\n          description: OK\n",
+    );
+    let v2 = openapi(
+        "1.1.0",
+        "  /x:\n    get:\n      responses:\n        '200':\n          description: Fine\n  /y:\n    get:\n      responses:\n        '200':\n          description: Y\n",
+    );
+    provide_snapshots(&repo, &[&v1, &v2]).await;
+
+    let x = spec_service::diff_versions(
+        &repo,
+        "svc",
+        &diff_request(
+            SemVer::new(1, 0, 0),
+            SemVer::new(1, 1, 0),
+            Some(("/x", "get")),
+            Default::default(),
+        ),
+    )
+    .await
+    .unwrap();
+    // A snippet is a self-contained document, so it carries info.version too.
+    let x_changes = changed_lines(&x);
+    assert_eq!(x_changes.len(), 4, "{x_changes:?}");
+    assert!(x_changes[2].starts_with('-') && x_changes[2].ends_with("description: OK"));
+    assert!(x_changes[3].starts_with('+') && x_changes[3].ends_with("description: Fine"));
+    assert!(
+        x.hunks
+            .iter()
+            .flat_map(|h| h.lines.iter())
+            .all(|l| !l.text.contains("/y")),
+        "only the /x snippet is diffed"
+    );
+
+    // /y is absent in 1.0.0: its whole snippet is an addition.
+    let y = spec_service::diff_versions(
+        &repo,
+        "svc",
+        &diff_request(
+            SemVer::new(1, 0, 0),
+            SemVer::new(1, 1, 0),
+            Some(("/y", "GET")),
+            Default::default(),
+        ),
+    )
+    .await
+    .unwrap();
+    let y_lines: Vec<_> = y.hunks.iter().flat_map(|h| h.lines.iter()).collect();
+    assert!(!y_lines.is_empty());
+    assert!(y_lines.iter().all(|l| l.op == text_diff::DiffLineOp::Add));
+    assert_eq!(y.hunks[0].old_len, 0);
 }
 
 #[tokio::test]

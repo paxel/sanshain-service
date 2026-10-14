@@ -7,6 +7,7 @@
 //! entry points are also re-exported here for compatibility).
 
 use super::require_service::{method_for, resolve_pin};
+use super::text_diff::{DiffHunk, DiffOptions, diff_lines};
 use crate::domain::models::*;
 use crate::domain::ports::{RewriteSpecText, SpecRepository};
 use crate::openapi;
@@ -400,33 +401,68 @@ pub async fn list_versions(
     Ok(versions)
 }
 
-/// Unified diff between two versions of a line, oldest side first. Snapshots
-/// participate as a single entry ("what's coming" vs the last GA).
+/// What to diff: two versions of one line, either whole stored documents or
+/// one endpoint's snippet (`endpoint` = path and method).
+#[derive(Debug, Clone)]
+pub struct DiffRequest<'a> {
+    pub api_type: ApiType,
+    pub from: SemVer,
+    pub to: SemVer,
+    pub endpoint: Option<(&'a str, &'a str)>,
+    pub options: DiffOptions,
+}
+
+/// The line diff between two versions, oldest side first.
+#[derive(Debug, serde::Serialize)]
+pub struct VersionDiff {
+    pub from: SemVer,
+    pub to: SemVer,
+    pub hunks: Vec<DiffHunk>,
+}
+
+/// Diff two versions of a line with the service's `similar` diff. Snapshots
+/// participate as a single entry ("what's coming" vs the last GA). In
+/// endpoint mode a version without the endpoint diffs as an empty document,
+/// which shows the removal or introduction.
+#[instrument(skip_all)]
 pub async fn diff_versions(
     repo: &impl SpecRepository,
     producername: &str,
-    api_type: ApiType,
-    from: SemVer,
-    to: SemVer,
+    request: &DiffRequest<'_>,
+) -> Result<VersionDiff, AppError> {
+    let from_content = diff_side(repo, producername, request, request.from).await?;
+    let to_content = diff_side(repo, producername, request, request.to).await?;
+    let options = request.options;
+    let hunks =
+        super::run_cpu_bound(move || Ok(diff_lines(&from_content, &to_content, options))).await?;
+    Ok(VersionDiff {
+        from: request.from,
+        to: request.to,
+        hunks,
+    })
+}
+
+async fn diff_side(
+    repo: &impl SpecRepository,
+    producername: &str,
+    request: &DiffRequest<'_>,
+    version: SemVer,
 ) -> Result<String, AppError> {
-    let (_sid, from_entry) = resolve_pin(repo, producername, api_type, from).await?;
-    let (_sid2, to_entry) = resolve_pin(repo, producername, api_type, to).await?;
-    let from_content = repo
-        .get_spec_content(from_entry.id)
-        .await?
-        .unwrap_or_default();
-    let to_content = repo
-        .get_spec_content(to_entry.id)
-        .await?
-        .unwrap_or_default();
-    Ok(similar::TextDiff::from_lines(&from_content, &to_content)
-        .unified_diff()
-        .context_radius(3)
-        .header(
-            &format!("{} {}", producername, from),
-            &format!("{} {}", producername, to),
-        )
-        .to_string())
+    let (_sid, entry) = resolve_pin(repo, producername, request.api_type, version).await?;
+    match request.endpoint {
+        None => Ok(repo.get_spec_content(entry.id).await?.unwrap_or_default()),
+        Some((path, method)) => {
+            let method = method_for(request.api_type, method);
+            let normalized = openapi::lookup_path(request.api_type, path);
+            Ok(repo
+                .get_endpoints_for_version(entry.id)
+                .await?
+                .into_iter()
+                .find(|e| e.normalized_path == normalized && e.method == method)
+                .map(|e| e.yaml_content)
+                .unwrap_or_default())
+        }
+    }
 }
 
 /// One step of an endpoint's blame trail: the version that last changed it

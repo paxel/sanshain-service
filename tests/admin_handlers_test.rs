@@ -372,6 +372,127 @@ async fn diff_endpoint_returns_a_unified_diff() {
     );
 }
 
+// The diff endpoint's options: structured JSON hunks, whole-document context,
+// whitespace-insensitive comparison and the endpoint-snippet mode.
+#[tokio::test]
+async fn diff_endpoint_answers_json_hunks_with_the_requested_options() {
+    let (app, repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+    // 1.1.0 re-indents /hello's response and adds /extra.
+    let reindented = spec_with_paths("1.1.0", &["/hello", "/extra"]).replacen(
+        "      responses:\n        '200': { description: ok }\n",
+        "      responses:\n          '200': { description: ok }   \n",
+        1,
+    );
+    provide(&repo, "demo-svc", &reindented, Stability::Snapshot).await;
+    let base = "/admin/producers/demo-svc/diff?api_type=openapi&from=1.0.0&to=1.1.0";
+
+    let (status, diff) = get_json(&app, &format!("{base}&format=json&context=all"), &auth).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(diff["from"], "1.0.0");
+    assert_eq!(diff["to"], "1.1.0");
+    let hunks = diff["hunks"].as_array().unwrap();
+    assert_eq!(hunks.len(), 1, "context=all is one hunk: {diff}");
+    assert_eq!(hunks[0]["old_start"], 1);
+    let lines = hunks[0]["lines"].as_array().unwrap();
+    assert_eq!(lines[0]["op"], "ctx");
+    assert_eq!(lines[0]["text"], "openapi: 3.0.0");
+    let changes = |lines: &[serde_json::Value]| -> Vec<String> {
+        lines
+            .iter()
+            .filter(|l| l["op"] != "ctx")
+            .map(|l| {
+                format!(
+                    "{} {}",
+                    l["op"].as_str().unwrap_or(""),
+                    l["text"].as_str().unwrap_or("")
+                )
+            })
+            .collect()
+    };
+    let strict = changes(lines);
+    assert!(
+        strict.iter().any(|c| c.ends_with("ok }   ")),
+        "the re-indented line is a change by default: {strict:?}"
+    );
+
+    let (_, lenient) = get_json(
+        &app,
+        &format!("{base}&format=json&context=all&ignore_whitespace=true"),
+        &auth,
+    )
+    .await;
+    let lenient_lines = lenient["hunks"][0]["lines"].as_array().unwrap();
+    let lenient_changes = changes(lenient_lines);
+    assert!(
+        !lenient_changes.iter().any(|c| c.ends_with("ok }   ")),
+        "whitespace-only changes are ignored: {lenient_changes:?}"
+    );
+    assert!(lenient_changes.contains(&"del   version: 1.0.0".to_string()));
+    assert!(lenient_changes.contains(&"add   version: 1.1.0".to_string()));
+
+    // Endpoint mode: only /extra's snippet, absent in 1.0.0, so all added.
+    let (status, extra) = get_json(
+        &app,
+        &format!("{base}&format=json&path=%2Fextra&method=get"),
+        &auth,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let extra_lines = extra["hunks"][0]["lines"].as_array().unwrap();
+    assert!(!extra_lines.is_empty());
+    assert!(extra_lines.iter().all(|l| l["op"] == "add"), "{extra}");
+
+    // Text stays the default, with the same labels as before.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("{base}&context=0"))
+                .header(axum::http::header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let text = std::str::from_utf8(&body).unwrap();
+    assert!(
+        text.starts_with("--- demo-svc 1.0.0\n+++ demo-svc 1.1.0\n@@ "),
+        "{text}"
+    );
+    assert!(
+        !text.contains("\n openapi: 3.0.0"),
+        "context=0 keeps no context: {text}"
+    );
+}
+
+#[tokio::test]
+async fn diff_endpoint_rejects_malformed_options() {
+    let (app, repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+    provide(
+        &repo,
+        "demo-svc",
+        &spec_with_paths("1.1.0", &["/hello"]),
+        Stability::Snapshot,
+    )
+    .await;
+    let base = "/admin/producers/demo-svc/diff?api_type=openapi&from=1.0.0&to=1.1.0";
+    for bad in [
+        "&context=lots",
+        "&format=html",
+        "&path=%2Fhello",
+        "&method=get",
+    ] {
+        let (status, body) = get_json(&app, &format!("{base}{bad}"), &auth).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}: {body}");
+    }
+}
+
 // --- Delete-version: the sole escape hatch from GA immutability ---
 
 #[tokio::test]

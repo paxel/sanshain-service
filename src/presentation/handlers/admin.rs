@@ -75,30 +75,78 @@ pub struct DiffQuery {
     pub api_type: Option<ApiType>,
     pub from: crate::domain::models::SemVer,
     pub to: crate::domain::models::SemVer,
+    /// Diff one endpoint's snippet instead of the whole document; both or neither.
+    pub path: Option<String>,
+    pub method: Option<String>,
+    #[serde(default)]
+    pub ignore_whitespace: bool,
+    /// Unchanged lines around each change (default 3), or `all`.
+    pub context: Option<String>,
+    /// `text` (default, a unified-diff patch) or `json` (structured hunks).
+    pub format: Option<String>,
 }
 
-/// Unified diff between two versions of a line (default adjacent-semantic is
-/// the UI's business — the API takes the two explicit endpoints of the diff).
+/// Diff between two versions of a line (default adjacent-semantic is the UI's
+/// business — the API takes the two explicit endpoints of the diff).
 pub async fn admin_diff_versions(
     State(state): State<AppState>,
     Path(name): Path<String>,
     Query(query): Query<DiffQuery>,
-) -> Result<impl IntoResponse, AppError> {
-    let diff = services::diff_versions(
-        &state.repo,
-        &name,
-        query.api_type.unwrap_or(ApiType::OpenApi),
-        query.from,
-        query.to,
-    )
-    .await?;
+) -> Result<axum::response::Response, AppError> {
+    let endpoint = match (query.path.as_deref(), query.method.as_deref()) {
+        (Some(path), Some(method)) => Some((path, method)),
+        (None, None) => None,
+        _ => {
+            return Err(AppError::BadRequest(
+                "path and method go together: give both to diff an endpoint, or neither".into(),
+            ));
+        }
+    };
+    let context = match query.context.as_deref() {
+        None => Some(3),
+        Some("all") => None,
+        Some(n) => Some(n.parse::<usize>().map_err(|_| {
+            AppError::BadRequest(format!(
+                "context must be a non-negative number of lines or 'all', not '{n}'"
+            ))
+        })?),
+    };
+    let json = match query.format.as_deref() {
+        None | Some("text") => false,
+        Some("json") => true,
+        Some(other) => {
+            return Err(AppError::BadRequest(format!(
+                "format must be 'text' or 'json', not '{other}'"
+            )));
+        }
+    };
+    let request = services::DiffRequest {
+        api_type: query.api_type.unwrap_or(ApiType::OpenApi),
+        from: query.from,
+        to: query.to,
+        endpoint,
+        options: services::DiffOptions {
+            ignore_whitespace: query.ignore_whitespace,
+            context,
+        },
+    };
+    let diff = services::diff_versions(&state.repo, &name, &request).await?;
+    if json {
+        return Ok(Json(diff).into_response());
+    }
+    let patch = services::render_unified(
+        &diff.hunks,
+        &format!("{} {}", name, diff.from),
+        &format!("{} {}", name, diff.to),
+    );
     Ok((
         [(
             axum::http::header::CONTENT_TYPE,
             "text/plain; charset=utf-8",
         )],
-        diff,
-    ))
+        patch,
+    )
+        .into_response())
 }
 
 #[derive(Deserialize)]

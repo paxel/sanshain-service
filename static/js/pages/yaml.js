@@ -395,36 +395,36 @@ function renderYamlView() {
   }
 }
 
+// Query parameters selecting what the server diffs: one endpoint's snippet
+// in endpoint mode, the whole stored document in full-spec mode.
+function diffTarget() {
+  return isFullSpecMode ? {} : { path: endpointPath, method: endpointMethod };
+}
+
 function renderDiffView() {
   const fromVersion = diffFromSelect.value;
   const toVersion = diffToSelect.value;
+  if (!fromVersion || !toVersion) return;
 
-  const fromV = globalVersions.find((v) => v.version === fromVersion);
-  const toV = globalVersions.find((v) => v.version === toVersion);
+  mountDiffView(viewerContainer, {
+    caption: `Comparing <span class="text-indigo-400 font-bold">${escapeHtml(fromVersion)}</span> &rarr; <span class="text-indigo-400 font-bold">${escapeHtml(toVersion)}</span>`,
+    emptyHtml: `No differences between ${escapeHtml(fromVersion)} and ${escapeHtml(toVersion)}.`,
+    load: (ignoreWhitespace) =>
+      fetchVersionDiff(serviceName, apiType, fromVersion, toVersion, {
+        ...diffTarget(),
+        format: "json",
+        context: "all",
+        ignore_whitespace: String(ignoreWhitespace),
+      }),
+  });
+}
 
-  if (!fromV || !toV) return;
-
-  const diffLines = simpleDiff(contentOf(fromV), contentOf(toV));
-  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-  let html = `<div class="border border-slate-800 rounded-lg overflow-hidden bg-slate-950 font-mono text-xs select-text">`;
-  html += `<div class="bg-slate-900 px-4 py-2 border-b border-slate-800 text-slate-400 select-none">`;
-  html += `Comparing <span class="text-indigo-400 font-bold">${esc(fromVersion)}</span> &rarr; <span class="text-indigo-400 font-bold">${esc(toVersion)}</span>`;
-  html += `</div>`;
-  html += `<div class="p-4 overflow-x-auto">`;
-
-  for (const item of diffLines) {
-    if (item.type === "add") {
-      html += `<div class="bg-green-950/40 text-green-300 border-l-4 border-green-500 pl-2 py-0.5"><span class="select-none font-bold mr-2 text-green-500">+</span>${esc(item.line)}</div>`;
-    } else if (item.type === "del") {
-      html += `<div class="bg-red-950/40 text-red-300 border-l-4 border-red-500 pl-2 py-0.5"><span class="select-none font-bold mr-2 text-red-500">-</span>${esc(item.line)}</div>`;
-    } else {
-      html += `<div class="text-slate-300 pl-2 py-0.5"><span class="select-none opacity-40 mr-2">&nbsp;</span>${esc(item.line)}</div>`;
-    }
-  }
-
-  html += `</div></div>`;
-  viewerContainer.innerHTML = html;
+// The patch for Copy and Download: the server's unified diff, whitespace
+// included so it applies.
+function fetchPatch() {
+  return fetchVersionDiff(serviceName, apiType, diffFromSelect.value, diffToSelect.value, {
+    ...diffTarget(),
+  });
 }
 
 viewYamlBtn.onclick = () => {
@@ -460,15 +460,11 @@ compareBtn.onclick = () => {
 copyBtn.onclick = async () => {
   let textToCopy = "";
   if (isDiffMode) {
-    const fromV = globalVersions.find((v) => v.version === diffFromSelect.value);
-    const toV = globalVersions.find((v) => v.version === diffToSelect.value);
-    if (fromV && toV) {
-      const fileExt = isFullSpecMode && apiType === "proto" ? "proto" : "yaml";
-      textToCopy = formatUnifiedDiff(
-        contentOf(fromV).split("\n"),
-        contentOf(toV).split("\n"),
-        `${serviceName}.${fileExt}`,
-      );
+    try {
+      textToCopy = await fetchPatch();
+    } catch (e) {
+      showToast(`Could not load the diff: ${e.message}`);
+      return;
     }
   } else if (activeVersion) {
     textToCopy = contentOf(activeVersion);
@@ -492,23 +488,20 @@ copyBtn.onclick = async () => {
 };
 
 // Download / Export as file
-downloadBtn.onclick = () => {
+downloadBtn.onclick = async () => {
   // Endpoint snippets are always YAML; a full proto document is not.
   const fileExt = isFullSpecMode && apiType === "proto" ? "proto" : "yaml";
   let contentStr = "";
   let filename = `${serviceName}.${fileExt}`;
 
   if (isDiffMode) {
-    const fromV = globalVersions.find((v) => v.version === diffFromSelect.value);
-    const toV = globalVersions.find((v) => v.version === diffToSelect.value);
-    if (fromV && toV) {
-      contentStr = formatUnifiedDiff(
-        contentOf(fromV).split("\n"),
-        contentOf(toV).split("\n"),
-        `${serviceName}.${fileExt}`,
-      );
-      filename = `${serviceName}_${fromV.version}_to_${toV.version}.patch`;
+    try {
+      contentStr = await fetchPatch();
+    } catch (e) {
+      showToast(`Could not load the diff: ${e.message}`);
+      return;
     }
+    filename = `${serviceName}_${diffFromSelect.value}_to_${diffToSelect.value}.patch`;
   } else if (activeVersion) {
     contentStr = contentOf(activeVersion);
     filename = `${serviceName}_${activeVersion.version}.${fileExt}`;
@@ -576,101 +569,6 @@ function computeBlame(versions, targetVersion) {
   }
 
   return blameList;
-}
-
-// Git-like Unified Diff Formatter
-function formatUnifiedDiff(fromLines, toLines, filename) {
-  const diff = simpleDiff(fromLines.join("\n"), toLines.join("\n"));
-  let patch = `diff --git a/${filename} b/${filename}\n`;
-  patch += `--- a/${filename}\n+++ b/${filename}\n`;
-
-  const taggedDiff = [];
-  let oldLineNum = 1;
-  let newLineNum = 1;
-
-  for (const item of diff) {
-    if (item.type === "ctx") {
-      taggedDiff.push({ ...item, oldLineNum, newLineNum });
-      oldLineNum++;
-      newLineNum++;
-    } else if (item.type === "add") {
-      taggedDiff.push({ ...item, newLineNum });
-      newLineNum++;
-    } else if (item.type === "del") {
-      taggedDiff.push({ ...item, oldLineNum });
-      oldLineNum++;
-    }
-  }
-
-  const contextRadius = 3;
-  const modifiedIndices = [];
-  for (let i = 0; i < taggedDiff.length; i++) {
-    if (taggedDiff[i].type === "add" || taggedDiff[i].type === "del") {
-      modifiedIndices.push(i);
-    }
-  }
-
-  if (modifiedIndices.length === 0) {
-    return patch; // No changes
-  }
-
-  const hunkBlocks = [];
-  let start = Math.max(0, modifiedIndices[0] - contextRadius);
-  let end = Math.min(taggedDiff.length - 1, modifiedIndices[0] + contextRadius);
-
-  for (let i = 1; i < modifiedIndices.length; i++) {
-    const idx = modifiedIndices[i];
-    const nextStart = Math.max(0, idx - contextRadius);
-    const nextEnd = Math.min(taggedDiff.length - 1, idx + contextRadius);
-
-    if (nextStart <= end + 1) {
-      end = nextEnd;
-    } else {
-      hunkBlocks.push({ start, end });
-      start = nextStart;
-      end = nextEnd;
-    }
-  }
-  hunkBlocks.push({ start, end });
-
-  for (const block of hunkBlocks) {
-    const hunkLines = taggedDiff.slice(block.start, block.end + 1);
-
-    let oldStart = 0;
-    let oldLength = 0;
-    let newStart = 0;
-    let newLength = 0;
-
-    const firstOldLine = hunkLines.find((l) => l.oldLineNum !== undefined);
-    const firstNewLine = hunkLines.find((l) => l.newLineNum !== undefined);
-
-    if (firstOldLine) oldStart = firstOldLine.oldLineNum;
-    if (firstNewLine) newStart = firstNewLine.newLineNum;
-
-    for (const line of hunkLines) {
-      if (line.type === "ctx") {
-        oldLength++;
-        newLength++;
-      } else if (line.type === "add") {
-        newLength++;
-      } else if (line.type === "del") {
-        oldLength++;
-      }
-    }
-
-    patch += `@@ -${oldStart},${oldLength} +${newStart},${newLength} @@\n`;
-    for (const line of hunkLines) {
-      if (line.type === "ctx") {
-        patch += `  ${line.line}\n`;
-      } else if (line.type === "add") {
-        patch += `+${line.line}\n`;
-      } else if (line.type === "del") {
-        patch += `-${line.line}\n`;
-      }
-    }
-  }
-
-  return patch;
 }
 
 function updateUrlParams() {

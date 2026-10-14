@@ -256,9 +256,13 @@ async fn diff_versions_refuses_an_unknown_producer() {
     let err = spec_service::diff_versions(
         &repo,
         "ghost",
-        ApiType::OpenApi,
-        "1.0.0".parse().unwrap(),
-        "1.1.0".parse().unwrap(),
+        &spec_service::DiffRequest {
+            api_type: ApiType::OpenApi,
+            from: "1.0.0".parse().unwrap(),
+            to: "1.1.0".parse().unwrap(),
+            endpoint: None,
+            options: Default::default(),
+        },
     )
     .await
     .unwrap_err();

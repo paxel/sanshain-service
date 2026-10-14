@@ -936,16 +936,88 @@ paths:
       description: |
         Any signed-in caller.
 
-        Unified diff between two versions of a line (`api_type`, `from`, `to` query parameters).
+        Line diff between two versions of a line (`api_type`, `from`, `to` query parameters),
+        computed with the `similar` (Myers) diff. Both stored documents are compared, or, with
+        `path` and `method`, one endpoint's snippet (a version without the endpoint diffs as an
+        empty document).
       parameters:
         - name: name
           in: path
           required: true
           schema:
             type: string
+        - name: api_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [openapi, asyncapi, proto]
+            default: openapi
+        - name: from
+          in: query
+          required: true
+          description: The old side's version.
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: true
+          description: The new side's version.
+          schema:
+            type: string
+        - name: path
+          in: query
+          required: false
+          description: Diff this endpoint's snippet instead of the document; needs `method`.
+          schema:
+            type: string
+        - name: method
+          in: query
+          required: false
+          description: The endpoint's method (or RPC/operation); needs `path`.
+          schema:
+            type: string
+        - name: ignore_whitespace
+          in: query
+          required: false
+          description: Compare lines without leading and trailing whitespace, so indentation and trailing-whitespace differences are not changes.
+          schema:
+            type: boolean
+            default: false
+        - name: context
+          in: query
+          required: false
+          description: Unchanged lines kept around each change, or `all` for the whole document in one hunk.
+          schema:
+            type: string
+            default: "3"
+        - name: format
+          in: query
+          required: false
+          description: >-
+            `text` answers a unified-diff patch (empty when nothing differs). `json` answers
+            `{from, to, hunks}`; each hunk has `old_start`, `old_len`, `new_start`, `new_len` and
+            `lines` of `{op: ctx|add|del, old_no, new_no, text, old_text?}` (`old_text` only on a
+            context line whose old side differs in whitespace).
+          schema:
+            type: string
+            enum: [text, json]
+            default: text
       responses:
         "200":
-          description: Success.
+          description: The diff, as `text/plain` or JSON per `format`.
+        "400":
+          description: Only one of `path`/`method`, or a malformed `context` or `format`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: The Producer or one of the two versions does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "401":
           description: Not signed in.
           content:
