@@ -636,31 +636,187 @@
                 class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
                 data-legend-highlight="node-role:peripheral"
               >
-                <span
-                  class="w-4 h-3 rounded-sm bg-slate-100 text-[8px] leading-3 text-center text-slate-600"
-                  style="border: 1.5px dashed #64748b"
-                  >⬡</span
-                >
+                <svg width="16" height="16" viewBox="-1 -1 26 26" aria-hidden="true">
+                  <circle cx="12" cy="12" r="11" fill="#1e293b" stroke="#fff" stroke-width="2" />
+                  <g
+                    transform="translate(5.5,5.5) scale(0.5417)"
+                    fill="none"
+                    stroke="#fff"
+                    stroke-width="2.2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z" />
+                  </g>
+                </svg>
                 <span>Periphery</span>
               </div>
-              <div class="pt-2 border-t border-slate-100">
+              <div class="pt-2 border-t border-slate-100" id="graph-legend-badges">
                 <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">
-                  Producer Tags
+                  Badges
+                </p>
+                <p class="text-[10px] text-slate-500 mb-2">
+                  Solid, top edge: what a node provides. Outlined, bottom edge: how it requires
+                  others.
                 </p>
                 <div class="space-y-2">
                   <div
                     class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
-                    data-legend-highlight="node-role:tag-messaging"
+                    data-legend-highlight="node-badge:rest"
                   >
-                    <span class="w-4 text-center text-[10px]">✉</span>
-                    <span>Messaging</span>
+                    <span class="flex items-center gap-1">
+                      <svg width="16" height="16" viewBox="-1 -1 26 26" aria-hidden="true">
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="11"
+                          fill="#1e293b"
+                          stroke="#fff"
+                          stroke-width="2"
+                        />
+                        <g
+                          transform="translate(5.5,5.5) scale(0.5417)"
+                          fill="none"
+                          stroke="#fff"
+                          stroke-width="2.2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path
+                            d="M9 4c-2 0-3 1-3 3v2c0 1.5-1 2.5-2.5 3C5 12.5 6 13.5 6 15v2c0 2 1 3 3 3"
+                          />
+                          <path
+                            d="M15 4c2 0 3 1 3 3v2c0 1.5 1 2.5 2.5 3-1.5.5-2.5 1.5-2.5 3v2c0 2-1 3-3 3"
+                          />
+                        </g>
+                      </svg>
+                      <svg width="16" height="16" viewBox="-1 -1 26 26" aria-hidden="true">
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          fill="#fff"
+                          stroke="#1e293b"
+                          stroke-width="2"
+                        />
+                        <g
+                          transform="translate(6,6) scale(0.5)"
+                          fill="none"
+                          stroke="#1e293b"
+                          stroke-width="2.2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path
+                            d="M9 4c-2 0-3 1-3 3v2c0 1.5-1 2.5-2.5 3C5 12.5 6 13.5 6 15v2c0 2 1 3 3 3"
+                          />
+                          <path
+                            d="M15 4c2 0 3 1 3 3v2c0 1.5 1 2.5 2.5 3-1.5.5-2.5 1.5-2.5 3v2c0 2-1 3-3 3"
+                          />
+                        </g>
+                      </svg>
+                    </span>
+                    <span>REST</span>
                   </div>
                   <div
                     class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
-                    data-legend-highlight="node-role:tag-grpc"
+                    data-legend-highlight="node-badge:grpc"
                   >
-                    <span class="w-4 text-center text-[10px]">⛓️</span>
+                    <span class="flex items-center gap-1">
+                      <svg width="16" height="16" viewBox="-1 -1 26 26" aria-hidden="true">
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="11"
+                          fill="#1e293b"
+                          stroke="#fff"
+                          stroke-width="2"
+                        />
+                        <g
+                          transform="translate(5.5,5.5) scale(0.5417)"
+                          fill="none"
+                          stroke="#fff"
+                          stroke-width="2.2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path d="M4 9h14M14 5l4 4-4 4" />
+                          <path d="M20 15H6M10 11l-4 4 4 4" />
+                        </g>
+                      </svg>
+                      <svg width="16" height="16" viewBox="-1 -1 26 26" aria-hidden="true">
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          fill="#fff"
+                          stroke="#1e293b"
+                          stroke-width="2"
+                        />
+                        <g
+                          transform="translate(6,6) scale(0.5)"
+                          fill="none"
+                          stroke="#1e293b"
+                          stroke-width="2.2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path d="M4 9h14M14 5l4 4-4 4" />
+                          <path d="M20 15H6M10 11l-4 4 4 4" />
+                        </g>
+                      </svg>
+                    </span>
                     <span>gRPC</span>
+                  </div>
+                  <div
+                    class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                    data-legend-highlight="node-badge:msg"
+                  >
+                    <span class="flex items-center gap-1">
+                      <svg width="16" height="16" viewBox="-1 -1 26 26" aria-hidden="true">
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="11"
+                          fill="#1e293b"
+                          stroke="#fff"
+                          stroke-width="2"
+                        />
+                        <g
+                          transform="translate(5.5,5.5) scale(0.5417)"
+                          fill="none"
+                          stroke="#fff"
+                          stroke-width="2.2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <rect x="3" y="6" width="18" height="13" rx="2" />
+                          <path d="M3.5 7l8.5 6.5L20.5 7" />
+                        </g>
+                      </svg>
+                      <svg width="16" height="16" viewBox="-1 -1 26 26" aria-hidden="true">
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          fill="#fff"
+                          stroke="#1e293b"
+                          stroke-width="2"
+                        />
+                        <g
+                          transform="translate(6,6) scale(0.5)"
+                          fill="none"
+                          stroke="#1e293b"
+                          stroke-width="2.2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <rect x="3" y="6" width="18" height="13" rx="2" />
+                          <path d="M3.5 7l8.5 6.5L20.5 7" />
+                        </g>
+                      </svg>
+                    </span>
+                    <span>Messaging</span>
                   </div>
                 </div>
               </div>

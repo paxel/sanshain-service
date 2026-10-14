@@ -83,6 +83,8 @@ three views selected in the toolbar:
 
 All views share the focus filter (type a service name to spotlight its neighborhood), the Circular mode, the protocol filters (OpenAPI/AsyncAPI/Proto), and the **Outdated** / **Snapshot-pinned** highlight toggles.
 
+Badges on each node show its protocols for the current view and instant: solid dark badges on the top edge for what it **provides** (braces = REST, two-way arrows = gRPC, envelope = messaging, hexagon = Peripheral Resource), outlined badges on the bottom edge for how it **requires** others. Provides follow the producer's version lines in the view (any line in dev, trunk-provided lines in main), so a gRPC-only service shows no REST badge; requires follow the node's own edges, harvested subscriptions counting as messaging. The mermaid renderer writes the same as a second label line, e.g. `▲ REST · MSG   ▼ gRPC`. A subscription to a channel nobody provides points at a dashed missing node named `<channel> ?`.
+
 ### The Main View
 
 ![Main graph view with the trunk pin set](images/graph_main.png)

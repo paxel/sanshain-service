@@ -51,6 +51,8 @@ export default [
         graphEdgeFlags: "readonly",
         graphLatestGaMap: "readonly",
         graphPeripheralLabel: "readonly",
+        graphNodeBadges: "readonly",
+        graphBadgeLine: "readonly",
         hasPermission: "readonly",
         loadTimeline: "readonly",
         loadUserFavorites: "readonly",

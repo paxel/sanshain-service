@@ -1287,3 +1287,270 @@ test.describe("Graph without the BROKER node", () => {
     expect(code).toContain("class s6_unowned_events__ missing");
   });
 });
+
+test.describe("Graph provides/requires badges", () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+  const REST = "s7-rest-svc"; // provides REST only
+  const GRPC = "s7-grpc-svc"; // provides gRPC only
+  const ASYNC_A = "s7-async-a"; // provides messaging, requires REST and gRPC
+  const ASYNC_B = "s7-async-b"; // provides messaging, requires REST, subscribes
+  const TRUNK = "s7-trunk-svc"; // trunk REST line, dev-only messaging line
+  const TRUNK_CONSUMER = "s7-trunk-consumer";
+  const openapi = (title) =>
+    [
+      "openapi: 3.0.3",
+      "info:",
+      `  title: ${title}`,
+      "  version: 1.0.0",
+      "paths:",
+      "  /thing:",
+      "    get:",
+      "      responses:",
+      "        '200':",
+      "          description: OK",
+    ].join("\n");
+  const asyncapi = (title, channel, extra = []) =>
+    [
+      "asyncapi: 2.6.0",
+      "info:",
+      `  title: ${title}`,
+      "  version: 1.0.0",
+      "channels:",
+      `  ${channel}:`,
+      "    publish:",
+      "      message:",
+      `        name: ${title}Event`,
+      "        payload:",
+      "          type: object",
+      ...extra,
+    ].join("\n");
+  const PROTO = [
+    "// sanshain-version: 1.0.0",
+    'syntax = "proto3";',
+    "message Req {}",
+    "message Res {}",
+    "service S7Greeter { rpc Hello (Req) returns (Res); }",
+  ].join("\n");
+
+  test.beforeAll(async ({ request }) => {
+    if (!adminPassword) {
+      throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
+    }
+    const login = await request.post("/auth/login", {
+      data: { username: "root", password: adminPassword },
+    });
+    const { token } = await login.json();
+    const headers = { Authorization: `Bearer ${token}` };
+    const ok = async (res, what) => {
+      if (!res.ok()) throw new Error(`${what} failed: ${res.status()} ${await res.text()}`);
+    };
+    await ok(
+      await request.post("/provide", {
+        headers,
+        data: { producername: REST, stability: "snapshot", openapi_yaml: openapi(REST) },
+      }),
+      "provide REST",
+    );
+    await ok(
+      await request.post("/provide/grpc", {
+        headers,
+        data: { producername: GRPC, stability: "snapshot", proto_content: PROTO },
+      }),
+      "provide gRPC",
+    );
+    await ok(
+      await request.post("/provide/asyncapi", {
+        headers,
+        data: {
+          producername: ASYNC_A,
+          stability: "snapshot",
+          asyncapi_yaml: asyncapi("S7A", "s7.a.events"),
+        },
+      }),
+      "provide A",
+    );
+    await ok(
+      await request.post("/provide/asyncapi", {
+        headers,
+        data: {
+          producername: ASYNC_B,
+          stability: "snapshot",
+          asyncapi_yaml: asyncapi("S7B", "s7.b.events", [
+            "  s7.nobody.events:",
+            "    subscribe:",
+            "      message:",
+            "        name: S7Nobody",
+            "        payload:",
+            "          type: object",
+          ]),
+        },
+      }),
+      "provide B",
+    );
+    for (const client of [ASYNC_A, ASYNC_B]) {
+      await ok(
+        await request.get(
+          `/require?consumername=${client}&producername=${REST}&version=1.0.0&path=/thing&method=GET`,
+          { headers },
+        ),
+        `${client} requires REST`,
+      );
+    }
+    await ok(
+      await request.get(
+        `/require/grpc?consumername=${ASYNC_A}&producername=${GRPC}&version=1.0.0&path=S7Greeter&method=Hello`,
+        { headers },
+      ),
+      "A requires gRPC",
+    );
+    // Main view fixture: only the REST line is trunk-provided.
+    await ok(
+      await request.post("/provide", {
+        headers,
+        data: {
+          producername: TRUNK,
+          stability: "snapshot",
+          openapi_yaml: openapi(TRUNK),
+          trunk: true,
+        },
+      }),
+      "provide trunk REST",
+    );
+    await ok(
+      await request.post("/provide/asyncapi", {
+        headers,
+        data: {
+          producername: TRUNK,
+          stability: "snapshot",
+          asyncapi_yaml: asyncapi("S7T", "s7.t.events"),
+        },
+      }),
+      "provide dev-only messaging",
+    );
+    await ok(
+      await request.get(
+        `/require?consumername=${TRUNK_CONSUMER}&producername=${TRUNK}&version=1.0.0&path=/thing&method=GET&trunk=true`,
+        { headers },
+      ),
+      "trunk require",
+    );
+  });
+
+  const openGraph = async (page) => {
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await page.goto("/graph.html");
+    await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
+  };
+  const node = (page, name) => page.locator(`#custom-graph g.graph-node[data-node="${name}"]`);
+
+  test("a REST service required by async providers shows no messaging badge", async ({
+    page,
+  }) => {
+    await openGraph(page);
+    const rest = node(page, REST);
+    await expect(rest).toHaveCount(1, { timeout: 20000 });
+    await expect(rest).toHaveAttribute("data-provides", "rest");
+    await expect(rest.locator('[data-badge="provides-rest"]')).toHaveCount(1);
+    await expect(rest.locator('[data-badge="provides-msg"]')).toHaveCount(0);
+    await expect(rest).toHaveAttribute("data-role", "service");
+    for (const client of [ASYNC_A, ASYNC_B]) {
+      const n = node(page, client);
+      await expect(n.locator('[data-badge="provides-msg"]')).toHaveCount(1);
+      await expect(n.locator('[data-badge="requires-rest"]')).toHaveCount(1);
+    }
+    // Solid badge: dark circle with a white ring.
+    const solid = rest.locator('[data-badge="provides-rest"] circle');
+    await expect(solid).toHaveAttribute("fill", "#1e293b");
+    await expect(solid).toHaveAttribute("stroke", "#fff");
+    // Outlined badge: white circle with a dark ring.
+    const outlined = node(page, ASYNC_A).locator('[data-badge="requires-rest"] circle');
+    await expect(outlined).toHaveAttribute("fill", "#fff");
+    await expect(outlined).toHaveAttribute("stroke", "#1e293b");
+    // No node colour role comes from the tags table any more.
+    await expect(page.locator('#custom-graph g.graph-node[data-role^="tag-"]')).toHaveCount(0);
+  });
+
+  test("badges sit on the top-right and bottom-left edges in a fixed order", async ({
+    page,
+  }) => {
+    await openGraph(page);
+    const a = node(page, ASYNC_A);
+    await expect(a).toHaveCount(1, { timeout: 20000 });
+    await expect(a).toHaveAttribute("data-requires", "rest,grpc");
+    const geometry = await a.evaluate((g) => {
+      const rect = g.querySelector("rect");
+      const box = {
+        left: +rect.getAttribute("x"),
+        top: +rect.getAttribute("y"),
+        right: +rect.getAttribute("x") + +rect.getAttribute("width"),
+        bottom: +rect.getAttribute("y") + +rect.getAttribute("height"),
+      };
+      const at = (sel) => {
+        const c = g.querySelector(`[data-badge="${sel}"] circle`);
+        return { cx: +c.getAttribute("cx"), cy: +c.getAttribute("cy") };
+      };
+      return { box, msg: at("provides-msg"), rest: at("requires-rest"), grpc: at("requires-grpc") };
+    });
+    expect(geometry.msg.cx).toBeCloseTo(geometry.box.right - 4, 3);
+    expect(geometry.msg.cy).toBeCloseTo(geometry.box.top + 2, 3);
+    expect(geometry.rest.cx).toBeCloseTo(geometry.box.left + 4, 3);
+    expect(geometry.grpc.cx).toBeCloseTo(geometry.box.left + 28, 3);
+    expect(geometry.rest.cy).toBeCloseTo(geometry.box.bottom - 2, 3);
+  });
+
+  test("a gRPC-only service shows no REST badge", async ({ page }) => {
+    await openGraph(page);
+    const grpc = node(page, GRPC);
+    await expect(grpc).toHaveCount(1, { timeout: 20000 });
+    await expect(grpc).toHaveAttribute("data-provides", "grpc");
+    await expect(grpc.locator('[data-badge="provides-rest"]')).toHaveCount(0);
+  });
+
+  test("a harvested subscription is a messaging require", async ({ page }) => {
+    await openGraph(page);
+    const b = node(page, ASYNC_B);
+    await expect(b).toHaveCount(1, { timeout: 20000 });
+    await expect(b).toHaveAttribute("data-requires", "rest,msg");
+    await expect(b.locator('[data-badge="requires-msg"]')).toHaveCount(1);
+  });
+
+  test("the main view shows only trunk-provided lines", async ({ page }) => {
+    await openGraph(page);
+    await expect(node(page, TRUNK)).toHaveAttribute("data-provides", "rest,msg", {
+      timeout: 20000,
+    });
+    await page.click("#stream-main");
+    const trunk = node(page, TRUNK);
+    await expect(trunk).toHaveAttribute("data-provides", "rest", { timeout: 20000 });
+    await expect(trunk.locator('[data-badge="provides-msg"]')).toHaveCount(0);
+    await expect(node(page, TRUNK_CONSUMER)).toHaveAttribute("data-requires", "rest");
+  });
+
+  test("the legend explains the badges instead of producer tags", async ({ page }) => {
+    await openGraph(page);
+    await expect(page.locator("#graph-legend-badges")).toBeVisible();
+    await expect(page.locator("#graph-legend")).not.toContainText("Producer Tags");
+    await expect(node(page, REST)).toHaveCount(1, { timeout: 20000 });
+    await page.locator('[data-legend-highlight="node-badge:grpc"]').hover();
+    await expect(node(page, GRPC)).toHaveCSS("opacity", "1");
+    await expect(node(page, REST)).toHaveCSS("opacity", "0.12");
+  });
+
+  test("mermaid nodes carry a provides/requires line", async ({ page }) => {
+    await openGraph(page);
+    await expect(node(page, REST)).toHaveCount(1, { timeout: 20000 });
+    await page.click("#graph-mode-mermaid");
+    await expect(page.locator("#mermaid-graph svg")).toContainText(ASYNC_A, { timeout: 20000 });
+    const code = await page.evaluate(() => lastMermaidCode);
+    expect(code).toContain(`s7_rest_svc["${REST}<br/>▲ REST"]`);
+    expect(code).toContain(`s7_async_a("${ASYNC_A}<br/>▲ MSG   ▼ REST · gRPC")`);
+    expect(code).toContain(`s7_grpc_svc["${GRPC}<br/>▲ gRPC"]`);
+    const text = await page.locator("#mermaid-graph svg").textContent();
+    expect(text.replace(/\s+/g, " ")).toContain("▲ MSG ▼ REST · gRPC");
+  });
+});

@@ -276,6 +276,13 @@ async function renderGraph(report, detailed) {
     report.dependency_graph.filter((d) => d.unfulfilled).map((d) => d.service),
   );
 
+  // Second label line: what the node provides (▲) and requires (▼).
+  const nodeBadges = graphNodeBadges(report, report.dependency_graph);
+  const withBadges = (node, text) => {
+    const line = graphBadgeLine(nodeBadges.get(node));
+    return line ? `${text}<br/>${line}` : text;
+  };
+
   // Per-edge highlight flags (Outdated / Snapshot-pinned).
   const latestGaMap = graphLatestGaMap(report);
   const edgeFlags = graphEdgeFlags(report, latestGaMap);
@@ -299,11 +306,11 @@ async function renderGraph(report, detailed) {
     if (peripheralNodes.has(node)) {
       mmd += `  ${id}[("${graphPeripheralLabel(node)}")]\n`;
     } else if (isClient && isService) {
-      mmd += `  ${id}["${node}"]\n`;
+      mmd += `  ${id}["${withBadges(node, node)}"]\n`;
     } else if (isService) {
-      mmd += `  ${id}["${node}"]\n`;
+      mmd += `  ${id}["${withBadges(node, node)}"]\n`;
     } else {
-      mmd += `  ${id}("${node}")\n`;
+      mmd += `  ${id}("${withBadges(node, node)}")\n`;
     }
   }
 
@@ -526,10 +533,13 @@ document.getElementById("graph-download-png").onclick = () => {
 
     const [type, value] = filter.split(":");
 
-    if (type === "node-role") {
+    if (type === "node-role" || type === "node-badge") {
+      // node-badge:<kind> matches nodes that provide or require that kind.
+      const hasBadge = (el) =>
+        `${el.dataset.provides || ""},${el.dataset.requires || ""}`.split(",").includes(value);
       const matchedNodes = new Set();
       nodes.forEach((el, name) => {
-        const match = el.dataset.role === value;
+        const match = type === "node-role" ? el.dataset.role === value : hasBadge(el);
         el.style.opacity = match ? "1" : "0.12";
         el.style.transition = "opacity 0.2s";
         if (match) matchedNodes.add(name);

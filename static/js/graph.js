@@ -287,6 +287,131 @@ function redrawGraph() {
 }
 window.redrawGraph = redrawGraph;
 
+// ── Provides/requires badges ──────────────────────────────────────
+// One fixed reading order in both renderers: REST, gRPC, messaging.
+const GRAPH_BADGE_ORDER = ["rest", "grpc", "msg"];
+const GRAPH_BADGE_LABELS = { rest: "REST", grpc: "gRPC", msg: "MSG" };
+
+function graphBadgeKind(apiType) {
+  const t = (apiType || "openapi").toLowerCase();
+  if (t === "openapi") return "rest";
+  if (t === "proto") return "grpc";
+  if (t === "asyncapi") return "msg";
+  return null;
+}
+
+// Per node: what it provides and how it requires others, derived live for
+// the current view and instant — the sticky service_tags table plays no part.
+// Provides come from the producer's version lines in the view's scope: dev =
+// any line, live main = trunk-provided lines. Main at a past instant and
+// branch views have no scoped version lines on the client yet, so there a
+// producer provides what the scope's pins and harvested subscriptions require
+// of it. Requires come from the node's own outgoing edges (harvested
+// subscriptions are messaging); Peripheral Resources provide the hexagon.
+// Returns Map node -> { provides: [...], requires: [...] }.
+function graphNodeBadges(report, deps) {
+  const provides = new Map();
+  const requires = new Map();
+  const add = (map, node, kind) => {
+    if (!kind) return;
+    if (!map.has(node)) map.set(node, new Set());
+    map.get(node).add(kind);
+  };
+  const view = window.graphStreamView || "dev";
+  const fromVersionLines = view === "dev" || (view === "main" && !window.graphTimelineAt);
+  if (fromVersionLines) {
+    (report.services_detailed || []).forEach((svc) => {
+      (svc.versions || []).forEach((v) => {
+        if (view === "main" && !v.trunk_provided_at) return;
+        add(provides, svc.name, graphBadgeKind(v.api_type));
+      });
+    });
+  }
+  deps.forEach((d) => {
+    if (d.peripheral) {
+      add(provides, d.service, "resource");
+      return;
+    }
+    const kind = graphBadgeKind(d.api_type);
+    add(requires, d.client, kind);
+    if (!fromVersionLines && !d.unfulfilled) add(provides, d.service, kind);
+  });
+  const ordered = (set) =>
+    set ? [...GRAPH_BADGE_ORDER, "resource"].filter((k) => set.has(k)) : [];
+  const nodes = new Set([...provides.keys(), ...requires.keys()]);
+  const result = new Map();
+  nodes.forEach((n) =>
+    result.set(n, { provides: ordered(provides.get(n)), requires: ordered(requires.get(n)) }),
+  );
+  return result;
+}
+window.graphNodeBadges = graphNodeBadges;
+
+// The mermaid renderer's second label line: "▲ REST · MSG   ▼ gRPC"
+// (▲ provides, ▼ requires); a side without badges is left out.
+function graphBadgeLine(badges) {
+  if (!badges) return "";
+  const side = (arrow, kinds) => {
+    const labels = kinds.filter((k) => GRAPH_BADGE_LABELS[k]).map((k) => GRAPH_BADGE_LABELS[k]);
+    return labels.length ? `${arrow} ${labels.join(" · ")}` : "";
+  };
+  return [side("▲", badges.provides), side("▼", badges.requires)].filter(Boolean).join("   ");
+}
+window.graphBadgeLine = graphBadgeLine;
+
+// 24x24 line icons (stroke only) for the badges.
+const GRAPH_BADGE_ICONS = {
+  rest: [
+    ["path", { d: "M9 4c-2 0-3 1-3 3v2c0 1.5-1 2.5-2.5 3C5 12.5 6 13.5 6 15v2c0 2 1 3 3 3" }],
+    ["path", { d: "M15 4c2 0 3 1 3 3v2c0 1.5 1 2.5 2.5 3-1.5.5-2.5 1.5-2.5 3v2c0 2-1 3-3 3" }],
+  ],
+  msg: [
+    ["rect", { x: "3", y: "6", width: "18", height: "13", rx: "2" }],
+    ["path", { d: "M3.5 7l8.5 6.5L20.5 7" }],
+  ],
+  grpc: [
+    ["path", { d: "M4 9h14M14 5l4 4-4 4" }],
+    ["path", { d: "M20 15H6M10 11l-4 4 4 4" }],
+  ],
+  resource: [["path", { d: "M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z" }]],
+};
+
+// One badge: a provides badge is solid (dark circle, white ring and icon), a
+// requires badge outlined (white circle, dark ring and icon).
+function graphDrawBadge(parent, side, kind, cx, cy) {
+  const ns = "http://www.w3.org/2000/svg";
+  const solid = side === "provides";
+  const dark = "#1e293b";
+  const g = document.createElementNS(ns, "g");
+  g.dataset.badge = `${side}-${kind}`;
+  const circle = document.createElementNS(ns, "circle");
+  circle.setAttribute("cx", cx);
+  circle.setAttribute("cy", cy);
+  circle.setAttribute("r", solid ? "11" : "10");
+  circle.setAttribute("fill", solid ? dark : "#fff");
+  circle.setAttribute("stroke", solid ? "#fff" : dark);
+  circle.setAttribute("stroke-width", "2");
+  g.appendChild(circle);
+  const size = solid ? 13 : 12;
+  const icon = document.createElementNS(ns, "g");
+  icon.setAttribute(
+    "transform",
+    `translate(${cx - size / 2},${cy - size / 2}) scale(${size / 24})`,
+  );
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("stroke", solid ? "#fff" : dark);
+  icon.setAttribute("stroke-width", "2.2");
+  icon.setAttribute("stroke-linecap", "round");
+  icon.setAttribute("stroke-linejoin", "round");
+  (GRAPH_BADGE_ICONS[kind] || []).forEach(([tag, attrs]) => {
+    const el = document.createElementNS(ns, tag);
+    Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+    icon.appendChild(el);
+  });
+  g.appendChild(icon);
+  parent.appendChild(g);
+}
+
 // The node an unowned harvested subscription points at: the channel name with
 // a question mark, drawn in the missing-node style by both renderers.
 function graphUnownedChannelNode(channel) {
@@ -936,12 +1061,8 @@ function renderCustomGraph(report, svgElement, direction) {
     }
   }
 
-  // Node badges come from the server's service_tags only. Deriving them from a
-  // dependency's api_type marked every *consumer* of an async API as a
-  // messaging provider too, so one producer and three consumers all wore the
-  // badge and the view misstated who provides messaging. A consumer's async
-  // involvement stays visible as the edge's api-type.
-  if (!report.service_tags) report.service_tags = {};
+  // Provides/requires badges per node, derived live for this view.
+  const nodeBadges = graphNodeBadges(report, deps);
 
   // An unowned harvested subscription points at a missing `<channel> ?` node:
   // its edge is drawn as a missing dependency in every view, not only in dev.
@@ -1003,6 +1124,10 @@ function renderCustomGraph(report, svgElement, direction) {
     const meta = serviceMetaMap.get(node);
     const label = peripheralNodes.has(node) ? graphPeripheralLabel(node) : node;
     const m = _measureNode(label, !!(meta && meta.icon));
+    // Main view: the version label sits bottom-right, beside the requires
+    // badges on the bottom-left; keep both on the node.
+    const requiresCount = (nodeBadges.get(node) || { requires: [] }).requires.length;
+    if (isMainView && requiresCount > 0) m.width = Math.max(m.width, requiresCount * 24 + 70);
     nodeMetrics.set(node, m);
     g.setNode(node, { label: node, width: m.width, height: m.height });
     if (meta && meta.domain) {
@@ -1418,8 +1543,7 @@ function renderCustomGraph(report, svgElement, direction) {
     const isService = serviceNodes.has(node);
 
     const isMissingService = missingServices.has(node);
-    const nodeTags = (report.service_tags && report.service_tags[node]) || [];
-    const hasTag = (t) => nodeTags.includes(t);
+    const badges = nodeBadges.get(node) || { provides: [], requires: [] };
 
     // Determine node colors
     let fill, stroke, textColor;
@@ -1450,12 +1574,11 @@ function renderCustomGraph(report, svgElement, direction) {
     const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
     group.setAttribute("class", "graph-node");
     group.dataset.node = node;
-    if (nodeTags.length > 0) group.dataset.tags = nodeTags.join(",");
+    group.dataset.provides = badges.provides.join(",");
+    group.dataset.requires = badges.requires.join(",");
     // Set role for legend highlighting
     if (isPeripheralNode) group.dataset.role = "peripheral";
     else if (isMissingService) group.dataset.role = "missing";
-    else if (hasTag("messaging")) group.dataset.role = "tag-messaging";
-    else if (hasTag("grpc")) group.dataset.role = "tag-grpc";
     else if (isClient && isService) group.dataset.role = "both";
     else if (isService) group.dataset.role = "service";
     else group.dataset.role = "client";
@@ -1481,7 +1604,7 @@ function renderCustomGraph(report, svgElement, direction) {
     if (isPeripheralNode) rect.setAttribute("stroke-dasharray", "4 3");
     group.appendChild(rect);
 
-    // Add Symbols (Top-Left: ! for missing, Top-Right: ✉️ for AsyncAPI, 🔌 for gRPC)
+    // Top-left "!" for a missing service.
     if (isMissingService) {
       const sym = document.createElementNS("http://www.w3.org/2000/svg", "text");
       sym.setAttribute("x", cx - hw + 8);
@@ -1493,39 +1616,6 @@ function renderCustomGraph(report, svgElement, direction) {
       sym.textContent = "!";
       group.appendChild(sym);
     }
-
-    const trSymbols = [];
-    // A neutral envelope-over-wire glyph rather than the barrel emoji, which
-    // read as "oil". Deliberately not a vendor logo: the node no longer claims
-    // a specific broker, and a trademarked mark would contradict that.
-    if (hasTag("messaging")) trSymbols.push({ type: "text", text: "✉" });
-    if (hasTag("grpc")) trSymbols.push({ type: "text", text: "⛓️" });
-    // One generic symbol for every Peripheral Resource (#46): Sanshain reads
-    // no spec.type, so it claims no database/queue/bucket distinction.
-    if (isPeripheralNode) trSymbols.push({ type: "text", text: "⬡" });
-
-    trSymbols.forEach((s, i) => {
-      const x = cx + hw - 12 - i * 14;
-      const y = cy - hh + 13;
-      if (s.type === "text") {
-        const sym = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        sym.setAttribute("x", x);
-        sym.setAttribute("y", y);
-        sym.setAttribute("font-size", "10");
-        sym.setAttribute("text-anchor", "middle");
-        sym.textContent = s.text;
-        group.appendChild(sym);
-      } else if (s.type === "svg") {
-        const svgG = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        // Offset to center the 24x24 icon scaled by 0.45 (~11x11)
-        svgG.setAttribute("transform", `translate(${x - 5.5}, ${y - 9.5}) scale(${s.scale})`);
-        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        path.setAttribute("d", s.d);
-        path.setAttribute("fill", textColor);
-        svgG.appendChild(path);
-        group.appendChild(svgG);
-      }
-    });
 
     // Double border for "both" nodes
     if (isClient && isService && !isPeripheralNode) {
@@ -1598,9 +1688,11 @@ function renderCustomGraph(report, svgElement, direction) {
           .pop();
         const isStale = staleBefore && newestTrunkStamp && newestTrunkStamp < staleBefore;
         const vText = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        vText.setAttribute("x", nd.x);
+        // Bottom-right when requires badges take the bottom-left.
+        const besideBadges = badges.requires.length > 0;
+        vText.setAttribute("x", besideBadges ? nd.x + nd.width / 2 - 8 : nd.x);
         vText.setAttribute("y", nd.y + nd.height / 2 - 7);
-        vText.setAttribute("text-anchor", "middle");
+        vText.setAttribute("text-anchor", besideBadges ? "end" : "middle");
         vText.setAttribute("fill", isStale ? "#f59e0b" : textColor);
         vText.setAttribute("font-size", "10");
         vText.setAttribute("font-family", "ui-monospace, monospace");
@@ -1609,6 +1701,20 @@ function renderCustomGraph(report, svgElement, direction) {
         group.appendChild(vText);
       }
     }
+
+    // Badges straddle the node's edges, drawn last so they sit on top:
+    // provides solid on the top edge right-aligned, requires outlined on the
+    // bottom edge left-aligned, both in the fixed REST, gRPC, MSG order.
+    const nTop = nd.y - nd.height / 2;
+    const nRight = nd.x + nd.width / 2;
+    const nLeft = nd.x - nd.width / 2;
+    badges.provides.forEach((kind, i) => {
+      const fromRight = badges.provides.length - 1 - i;
+      graphDrawBadge(group, "provides", kind, nRight - 4 - fromRight * 24, nTop + 2);
+    });
+    badges.requires.forEach((kind, i) => {
+      graphDrawBadge(group, "requires", kind, nLeft + 4 + i * 24, nTop + nd.height - 2);
+    });
 
     mainG.appendChild(group);
     nodeElements.set(node, group);
