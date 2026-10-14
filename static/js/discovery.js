@@ -322,6 +322,10 @@ async function mountDiffView(container, options) {
   const state = diffViewStates.get(container) || { ignoreWhitespace: false };
   diffViewStates.set(container, state);
   state.options = options;
+  // `options.ignoreWhitespaceSwitch === false` omits the switch (and compares
+  // whitespace) where it could have no effect.
+  const wsSwitch = options.ignoreWhitespaceSwitch !== false;
+  if (!wsSwitch) state.ignoreWhitespace = false;
   const token = {};
   state.token = token;
 
@@ -329,10 +333,14 @@ async function mountDiffView(container, options) {
       <div class="diff-toolbar flex flex-wrap items-center justify-between gap-3 bg-slate-900 px-4 py-2 border-b border-slate-800 text-slate-400 font-sans">
         <div class="diff-caption">${options.caption || ""}</div>
         <div class="flex flex-wrap items-center gap-3">
-          <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
+          ${
+            wsSwitch
+              ? `<label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
             <input type="checkbox" class="diff-ignore-ws" ${state.ignoreWhitespace ? "checked" : ""} />
             <span>Ignore whitespace</span>
-          </label>
+          </label>`
+              : ""
+          }
           <div class="diff-layout-switch inline-flex rounded-md bg-slate-800 p-0.5">
             <button type="button" data-layout="unified" class="diff-layout-btn px-2 py-0.5 rounded">Unified</button>
             <button type="button" data-layout="split" class="diff-layout-btn px-2 py-0.5 rounded">Side by side</button>
@@ -379,10 +387,13 @@ async function mountDiffView(container, options) {
     }
   };
 
-  container.querySelector(".diff-ignore-ws").addEventListener("change", (e) => {
-    state.ignoreWhitespace = e.target.checked;
-    load();
-  });
+  const wsToggle = container.querySelector(".diff-ignore-ws");
+  if (wsToggle) {
+    wsToggle.addEventListener("change", (e) => {
+      state.ignoreWhitespace = e.target.checked;
+      load();
+    });
+  }
   layoutSwitch.querySelectorAll(".diff-layout-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       storeDiffLayout(btn.dataset.layout);

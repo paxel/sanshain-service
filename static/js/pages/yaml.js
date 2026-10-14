@@ -376,14 +376,52 @@ function diffTarget() {
   return isFullSpecMode ? {} : { path: endpointPath, method: endpointMethod };
 }
 
+// The patch for Copy and Download: the server's unified diff, whitespace
+// included so it applies. Fetched whenever the diff view renders, so the Copy
+// click can write it to the clipboard without awaiting anything first (a
+// browser may refuse clipboard writes once the click's user activation is
+// spent).
+let diffPatch = { key: "", text: null, error: null };
+
+function prefetchPatch(fromVersion, toVersion) {
+  const state = { key: `${fromVersion}|${toVersion}`, text: null, error: null };
+  diffPatch = state;
+  fetchVersionDiff(serviceName, apiType, fromVersion, toVersion, diffTarget())
+    .then((text) => {
+      state.text = text;
+    })
+    .catch((e) => {
+      state.error = e.message;
+    });
+}
+
+// The prefetched patch for the selected pair, or null (with a toast saying
+// why) when it is not available.
+function readyPatch() {
+  const key = `${diffFromSelect.value}|${diffToSelect.value}`;
+  if (diffPatch.key !== key || (diffPatch.text == null && !diffPatch.error)) {
+    showToast("The diff is still loading — try again in a moment.");
+    return null;
+  }
+  if (diffPatch.error) {
+    showToast(`Could not load the diff: ${diffPatch.error}`);
+    return null;
+  }
+  return diffPatch.text;
+}
+
 function renderDiffView() {
   const fromVersion = diffFromSelect.value;
   const toVersion = diffToSelect.value;
   if (!fromVersion || !toVersion) return;
 
+  prefetchPatch(fromVersion, toVersion);
   mountDiffView(viewerContainer, {
     caption: `Comparing <span class="text-indigo-400 font-bold">${escapeHtml(fromVersion)}</span> &rarr; <span class="text-indigo-400 font-bold">${escapeHtml(toVersion)}</span>`,
     emptyHtml: `No differences between ${escapeHtml(fromVersion)} and ${escapeHtml(toVersion)}.`,
+    // Endpoint snippets are re-serialized when a spec is split, so they never
+    // differ in whitespace alone: the switch would have no effect there.
+    ignoreWhitespaceSwitch: isFullSpecMode,
     load: (ignoreWhitespace) =>
       fetchVersionDiff(serviceName, apiType, fromVersion, toVersion, {
         ...diffTarget(),
@@ -391,14 +429,6 @@ function renderDiffView() {
         context: "all",
         ignore_whitespace: String(ignoreWhitespace),
       }),
-  });
-}
-
-// The patch for Copy and Download: the server's unified diff, whitespace
-// included so it applies.
-function fetchPatch() {
-  return fetchVersionDiff(serviceName, apiType, diffFromSelect.value, diffToSelect.value, {
-    ...diffTarget(),
   });
 }
 
@@ -432,50 +462,53 @@ compareBtn.onclick = () => {
 };
 
 // Copy Content to Clipboard
-copyBtn.onclick = async () => {
+// Copy Content to Clipboard. Synchronous up to the clipboard write; when the
+// Clipboard API is missing or refuses, fall back to selecting the text in a
+// temporary textarea and copying that.
+copyBtn.onclick = () => {
   let textToCopy = "";
   if (isDiffMode) {
-    try {
-      textToCopy = await fetchPatch();
-    } catch (e) {
-      showToast(`Could not load the diff: ${e.message}`);
+    const patch = readyPatch();
+    if (patch == null) return;
+    if (!patch) {
+      showToast("No differences to copy.");
       return;
     }
+    textToCopy = patch;
   } else if (activeVersion) {
     textToCopy = contentOf(activeVersion);
   }
-
-  if (textToCopy) {
-    try {
-      await navigator.clipboard.writeText(textToCopy);
-      showToast("Copied to clipboard!");
-    } catch (err) {
-      // fallback
-      const textarea = document.createElement("textarea");
-      textarea.value = textToCopy;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
-      showToast("Copied to clipboard!");
-    }
-  }
+  if (textToCopy) copyText(textToCopy);
 };
 
+function copyText(text) {
+  const fallback = () => {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    showToast(copied ? "Copied to clipboard!" : "Copy failed — select the text manually.");
+  };
+  if (!navigator.clipboard || !navigator.clipboard.writeText) {
+    fallback();
+    return;
+  }
+  navigator.clipboard.writeText(text).then(() => showToast("Copied to clipboard!"), fallback);
+}
+
 // Download / Export as file
-downloadBtn.onclick = async () => {
+downloadBtn.onclick = () => {
   // Endpoint snippets are always YAML; a full proto document is not.
   const fileExt = isFullSpecMode && apiType === "proto" ? "proto" : "yaml";
   let contentStr = "";
   let filename = `${serviceName}.${fileExt}`;
 
   if (isDiffMode) {
-    try {
-      contentStr = await fetchPatch();
-    } catch (e) {
-      showToast(`Could not load the diff: ${e.message}`);
-      return;
-    }
+    const patch = readyPatch();
+    if (patch == null) return;
+    contentStr = patch;
     filename = `${serviceName}_${diffFromSelect.value}_to_${diffToSelect.value}.patch`;
   } else if (activeVersion) {
     contentStr = contentOf(activeVersion);

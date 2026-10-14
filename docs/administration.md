@@ -322,9 +322,11 @@ The **Producers** section lists all Producers that have provided at least one sp
 Per version-line entry you can:
 
 - **View** its endpoints, the full provided document, and a diff between any two versions of the line.
-  Diffs (here and in the full-spec and endpoint viewer) can **Ignore whitespace** (indentation and
-  trailing spaces) and show **Unified** or **Side by side**; side by side is the default on wide
-  screens, the choice is remembered per browser, and screens narrower than 768px always show unified.
+  Diffs (here and in the full-spec viewer) can **Ignore whitespace** (indentation and trailing
+  spaces); endpoint snippets are re-serialized when a spec is split, so the endpoint viewer's diff
+  has no such switch. All diffs show **Unified** or **Side by side**; side by side is the default
+  on wide screens, the choice is remembered per browser, and screens narrower than 768px always
+  show unified.
 - **Delete** the version — see [Deleting a Version](#deleting-a-version); the dependents are shown before confirming.
 
 At the Producer level:

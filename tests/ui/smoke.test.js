@@ -974,36 +974,91 @@ test.describe("Diff views", () => {
     );
   });
 
-  test("yaml.html: Ignore whitespace hides re-indentation, also for one endpoint", async ({
+  test("yaml.html: Ignore whitespace hides re-indentation", async ({
     page,
   }) => {
     await login(page);
-    // Endpoint snippets are re-serialized when split, so only the full
-    // document keeps the whitespace-only changes; the snippet diff shows the
-    // version line either way.
-    for (const [url, strictAdds] of [
-      [`/yaml.html?service=${WS}&api_type=openapi&compare_version=1.0.0&version=1.1.0`, 5],
-      [
-        `/yaml.html?service=${WS}&api_type=openapi&path=%2Fws&method=GET&compare_version=1.0.0&version=1.1.0`,
-        1,
-      ],
-    ]) {
-      await page.goto(url);
-      const view = page.locator("#viewer-container .diff-view");
-      await expect(view).toHaveAttribute("data-layout", "split", { timeout: 20000 });
-      const changed = view.locator('.diff-row:not([data-diff="ctx"])');
-      await expect(changed.first()).toBeVisible({ timeout: 20000 });
+    await page.goto(`/yaml.html?service=${WS}&api_type=openapi&compare_version=1.0.0&version=1.1.0`);
+    const view = page.locator("#viewer-container .diff-view");
+    await expect(view).toHaveAttribute("data-layout", "split", { timeout: 20000 });
+    const changed = view.locator('.diff-row:not([data-diff="ctx"])');
+    await expect(changed.first()).toBeVisible({ timeout: 20000 });
 
-      await view.locator(".diff-ignore-ws").check();
-      await expect(changed).toHaveCount(1);
-      await expect(changed).toContainText("version: 1.1.0");
+    await view.locator(".diff-ignore-ws").check();
+    await expect(changed).toHaveCount(1);
+    await expect(changed).toContainText("version: 1.1.0");
 
-      await view.locator('.diff-layout-btn[data-layout="unified"]').click();
-      await expect(view.locator('.diff-line[data-diff="add"]')).toHaveCount(1);
-      await view.locator(".diff-ignore-ws").uncheck();
-      await expect(view.locator('.diff-line[data-diff="add"]')).toHaveCount(strictAdds);
-      await view.locator('.diff-layout-btn[data-layout="split"]').click();
-    }
+    await view.locator('.diff-layout-btn[data-layout="unified"]').click();
+    await expect(view.locator('.diff-line[data-diff="add"]')).toHaveCount(1);
+    await view.locator(".diff-ignore-ws").uncheck();
+    await expect(view.locator('.diff-line[data-diff="add"]')).toHaveCount(5);
+    await view.locator('.diff-layout-btn[data-layout="split"]').click();
+  });
+
+  // Endpoint snippets are re-serialized when a spec is split, so they never
+  // differ in whitespace alone: the endpoint diff offers no dead switch.
+  test("yaml.html endpoint diff has no Ignore whitespace switch", async ({ page }) => {
+    await login(page);
+    await page.goto(
+      `/yaml.html?service=${WS}&api_type=openapi&path=%2Fws&method=GET&compare_version=1.0.0&version=1.1.0`,
+    );
+    const view = page.locator("#viewer-container .diff-view");
+    await expect(view).toHaveAttribute("data-layout", "split", { timeout: 20000 });
+    const changed = view.locator('.diff-row:not([data-diff="ctx"])');
+    await expect(changed).toHaveCount(1, { timeout: 20000 });
+    await expect(changed).toContainText("version: 1.1.0");
+    await expect(view.locator(".diff-ignore-ws")).toHaveCount(0);
+    await expect(view.locator(".diff-layout-switch")).toBeVisible();
+  });
+
+  // Copy writes the prefetched patch without fetching on click, so the
+  // click's user activation is still valid when the clipboard is written.
+  test("Copy in diff mode writes the patch without a fetch on click", async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await login(page);
+    await page.goto(`/yaml.html?service=${WS}&api_type=openapi&compare_version=1.0.0&version=1.1.0`);
+    await expect(page.locator("#viewer-container .diff-row").first()).toBeVisible({
+      timeout: 20000,
+    });
+    await page.waitForLoadState("networkidle");
+
+    const diffRequests = [];
+    page.on("request", (r) => {
+      if (r.url().includes("/diff")) diffRequests.push(r.url());
+    });
+    await page.click("#copy-btn");
+    await expect(page.getByText("Copied to clipboard!")).toBeVisible();
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copied).toContain(`--- ${WS} 1.0.0`);
+    expect(copied).toContain("+  version: 1.1.0");
+    expect(copied).toContain("+        - alpha");
+    expect(diffRequests).toEqual([]);
+  });
+
+  test("Copy falls back to selecting the text when the clipboard refuses", async ({ page }) => {
+    await login(page);
+    await page.goto(`/yaml.html?service=${WS}&api_type=openapi&compare_version=1.0.0&version=1.1.0`);
+    await expect(page.locator("#viewer-container .diff-row").first()).toBeVisible({
+      timeout: 20000,
+    });
+    await page.waitForLoadState("networkidle");
+    await page.evaluate(() => {
+      window.__copied = null;
+      navigator.clipboard.writeText = () => Promise.reject(new Error("denied"));
+      document.execCommand = (cmd) => {
+        const el = document.activeElement;
+        window.__copied = cmd === "copy" && el ? el.value.slice(el.selectionStart, el.selectionEnd) : null;
+        return true;
+      };
+    });
+    await page.click("#copy-btn");
+    await expect(page.getByText("Copied to clipboard!")).toBeVisible();
+    const copied = await page.evaluate(() => window.__copied);
+    expect(copied).toContain(`--- ${WS} 1.0.0`);
+    expect(copied).toContain("+  version: 1.1.0");
   });
 
   test("Producers page: the line diff has both switches", async ({ page }) => {

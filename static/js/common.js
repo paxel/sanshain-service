@@ -345,8 +345,6 @@ async function sanshainLogout(options = {}) {
         html.dark .endpoint-card:hover { box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.4) !important; }
         /* Modal overlay */
         html.dark [class*="bg-black/"] { background: rgba(0,0,0,0.7) !important; }
-        /* Diff pre blocks — ensure text is always light on dark bg */
-        .diff-pre { background: #1e293b !important; color: #e2e8f0 !important; }
         /* Graph filter toolbar row — bg-slate-100/50 is not matched by .bg-slate-100 */
         html.dark #graph-toolbar-row { background: rgba(51,65,85,0.5) !important; }
         html.dark .bg-indigo-100 { background: #312e81 !important; }
