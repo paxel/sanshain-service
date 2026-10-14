@@ -208,46 +208,6 @@ function renderPaginatedYaml(container, yamlText, filename) {
   render();
 }
 
-function simpleDiff(a, b) {
-  const aLines = a.split("\n");
-  const bLines = b.split("\n");
-  const result = [];
-  const m = aLines.length,
-    n = bLines.length;
-  const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
-  for (let i = m - 1; i >= 0; i--)
-    for (let j = n - 1; j >= 0; j--)
-      dp[i][j] =
-        aLines[i] === bLines[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-  let i = 0,
-    j = 0;
-  while (i < m || j < n) {
-    if (i < m && j < n && aLines[i] === bLines[j]) {
-      result.push({ type: "ctx", line: aLines[i] });
-      i++;
-      j++;
-    } else if (j < n && (i >= m || dp[i][j + 1] >= dp[i + 1][j])) {
-      result.push({ type: "add", line: bLines[j] });
-      j++;
-    } else {
-      result.push({ type: "del", line: aLines[i] });
-      i++;
-    }
-  }
-  return result;
-}
-
-function renderDiffHtml(diffLines) {
-  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return diffLines
-    .map((d) => {
-      if (d.type === "add") return `<span class="text-green-400">+ ${esc(d.line)}</span>`;
-      if (d.type === "del") return `<span class="text-red-400">- ${esc(d.line)}</span>`;
-      return `<span class="text-slate-500">  ${esc(d.line)}</span>`;
-    })
-    .join("\n");
-}
-
 // --- Diff views (Producers page line diff, yaml.html) ---------------------
 // Both views render the server's `similar` diff (format=json hunks from
 // /admin/producers/{name}/diff). Two switches: Ignore whitespace (off by
@@ -365,8 +325,7 @@ async function mountDiffView(container, options) {
   const token = {};
   state.token = token;
 
-  container.innerHTML = `
-    <div class="diff-view border border-slate-800 rounded-lg overflow-hidden bg-slate-950 font-mono text-xs">
+  container.innerHTML = `<div class="diff-view flex flex-col border border-slate-800 rounded-lg overflow-hidden bg-slate-950 font-mono text-xs">
       <div class="diff-toolbar flex flex-wrap items-center justify-between gap-3 bg-slate-900 px-4 py-2 border-b border-slate-800 text-slate-400 font-sans">
         <div class="diff-caption">${options.caption || ""}</div>
         <div class="flex flex-wrap items-center gap-3">
@@ -380,8 +339,7 @@ async function mountDiffView(container, options) {
           </div>
         </div>
       </div>
-      <div class="diff-body overflow-x-auto py-1"><div class="text-slate-500 italic px-4 py-2">Loading diff…</div></div>
-    </div>`;
+      <div class="diff-body overflow-x-auto py-1"><div class="text-slate-500 italic px-4 py-2">Loading diff…</div></div></div>`;
   const body = container.querySelector(".diff-body");
   const view = container.querySelector(".diff-view");
   const layoutSwitch = container.querySelector(".diff-layout-switch");

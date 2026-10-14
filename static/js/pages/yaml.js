@@ -351,32 +351,7 @@ function renderYamlView() {
   const lines = activeVersion.yaml_content.split("\n");
 
   if (isBlameOn) {
-    const blameList = computeBlame(globalVersions, activeVersion.version);
-    let html = `<div class="grid grid-cols-1 border border-slate-800 rounded-lg overflow-hidden bg-slate-950 font-mono text-xs select-text">`;
-    for (let i = 0; i < lines.length; i++) {
-      const blame = blameList[i] || {
-        version: activeVersion.version,
-        username: "anonymous",
-        date: activeVersion.updated_at || "",
-      };
-      const uStr = blame.username.length > 12 ? blame.username.slice(0, 10) + ".." : blame.username;
-      const vStr = blame.version;
-      const dateStr = (blame.date || "").slice(0, 10);
-
-      html += `
-                    <div class="blame-line flex items-stretch hover:bg-slate-900 border-b border-slate-900/50">
-                        <div class="w-48 shrink-0 bg-slate-900 text-slate-400 px-3 py-0.5 border-r border-slate-800 text-[11px] flex items-center justify-between select-none">
-                            <span class="font-bold text-indigo-400 shrink-0 mr-1">${esc(vStr)}</span>
-                            <span class="truncate max-w-[70px]" title="${esc(blame.username)}">${esc(uStr)}</span>
-                            <span class="opacity-70 text-[10px] font-light shrink-0 ml-1">${esc(dateStr)}</span>
-                        </div>
-                        <div class="w-12 shrink-0 bg-slate-900/40 text-slate-500 text-right pr-2.5 py-0.5 border-r border-slate-800 select-none">${i + 1}</div>
-                        <div class="flex-grow pl-3 py-0.5 text-slate-200 overflow-x-auto whitespace-pre">${esc(lines[i])}</div>
-                    </div>
-                `;
-    }
-    html += `</div>`;
-    viewerContainer.innerHTML = html;
+    renderBlameView(activeVersion);
   } else {
     let html = `<div class="flex items-start bg-slate-950 p-4 border border-slate-800 rounded-lg overflow-x-auto select-text">`;
     // Line numbers column
@@ -520,55 +495,51 @@ downloadBtn.onclick = async () => {
   }
 };
 
-// Blame algorithm helper: walk the line up to the target version, carrying
-// line attribution forward. Absent versions contribute an empty document,
-// so a reintroduced endpoint is blamed on the version that brought it back.
-function computeBlame(versions, targetVersion) {
-  const sorted = [...versions].sort((a, b) => compareSemver(a.version, b.version));
-  const targetIdx = sorted.findIndex((v) => v.version === targetVersion);
-  const history = sorted.slice(0, targetIdx + 1);
-
-  if (history.length === 0) return [];
-
-  let currentLines = contentOf(history[0]).split("\n");
-  let blameList = currentLines.map(() => ({
-    version: history[0].version,
-    username: attribution(history[0]),
-    date: history[0].updated_at || "",
-  }));
-
-  for (let i = 1; i < history.length; i++) {
-    const nextContent = contentOf(history[i]);
-    const nextLines = nextContent.split("\n");
-    const nextBlame = new Array(nextLines.length);
-
-    const diff = simpleDiff(currentLines.join("\n"), nextContent);
-
-    let oldIdx = 0;
-    let newIdx = 0;
-
-    for (const item of diff) {
-      if (item.type === "ctx") {
-        nextBlame[newIdx] = blameList[oldIdx];
-        oldIdx++;
-        newIdx++;
-      } else if (item.type === "add") {
-        nextBlame[newIdx] = {
-          version: history[i].version,
-          username: attribution(history[i]),
-          date: history[i].updated_at || "",
-        };
-        newIdx++;
-      } else if (item.type === "del") {
-        oldIdx++;
-      }
+// Blame view: the server walks the line with the same diff as the diff views
+// and answers blocks of consecutive lines last changed in the same version.
+// Each block shows user, version and date once, on its first line; a thin
+// gutter bar spans the block and neighbouring blocks alternate background.
+async function renderBlameView(version) {
+  const q = new URLSearchParams({ api_type: apiType, version: version.version, ...diffTarget() });
+  let blocks;
+  try {
+    const res = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/blame?${q}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    blocks = await res.json();
+  } catch (e) {
+    if (activeVersion === version && isBlameOn && !isDiffMode) {
+      viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load blame: ${escapeHtml(e.message)}</div>`;
     }
-
-    currentLines = nextLines;
-    blameList = nextBlame;
+    return;
   }
+  // A newer selection or mode replaced this view while the request ran.
+  if (activeVersion !== version || !isBlameOn || isDiffMode) return;
 
-  return blameList;
+  const html = blocks
+    .map((b, bi) => {
+      const user = attribution(b);
+      const shortUser = user.length > 12 ? user.slice(0, 10) + ".." : user;
+      const shade = bi % 2 === 0 ? "bg-slate-950" : "bg-slate-900";
+      const meta = `
+          <span class="font-bold text-indigo-400 shrink-0 mr-1">${escapeHtml(b.version)}</span>
+          <span class="truncate max-w-[70px]" title="${escapeHtml(user)}">${escapeHtml(shortUser)}</span>
+          <span class="opacity-70 text-[10px] font-light shrink-0 ml-1">${escapeHtml((b.updated_at || "").slice(0, 10))}</span>`;
+      const lines = b.lines
+        .map(
+          (text, li) => `
+          <div class="blame-line flex items-stretch">
+            <div class="blame-meta w-48 shrink-0 text-slate-400 px-3 py-0.5 border-r border-slate-800 text-[11px] flex items-center justify-between select-none">${li === 0 ? meta : ""}</div>
+            <div class="w-12 shrink-0 text-slate-500 text-right pr-2.5 py-0.5 border-r border-slate-800 select-none">${b.start_line + li}</div>
+            <div class="flex-grow pl-3 py-0.5 text-slate-200 whitespace-pre">${escapeHtml(text)}</div>
+          </div>`,
+        )
+        .join("");
+      return `<div class="blame-block grid grid-cols-1 border-l-2 border-indigo-500/70 ${shade}" data-version="${escapeHtml(b.version)}">${lines}</div>`;
+    })
+    .join("");
+  viewerContainer.innerHTML = blocks.length
+    ? `<div class="border border-slate-800 rounded-lg overflow-x-auto bg-slate-950 font-mono text-xs select-text">${html}</div>`
+    : `<div class="text-slate-400 italic">Nothing to blame: this version's text is empty.</div>`;
 }
 
 function updateUrlParams() {

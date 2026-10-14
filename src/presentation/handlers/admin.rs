@@ -150,6 +150,41 @@ pub async fn admin_diff_versions(
 }
 
 #[derive(Deserialize)]
+pub struct BlameQuery {
+    pub api_type: Option<ApiType>,
+    pub version: crate::domain::models::SemVer,
+    /// Blame one endpoint's snippet instead of the whole document; both or neither.
+    pub path: Option<String>,
+    pub method: Option<String>,
+}
+
+/// Blame blocks of one version of a line (whole document or one endpoint).
+pub async fn admin_blame_version(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Query(query): Query<BlameQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let endpoint = match (query.path.as_deref(), query.method.as_deref()) {
+        (Some(path), Some(method)) => Some((path, method)),
+        (None, None) => None,
+        _ => {
+            return Err(AppError::BadRequest(
+                "path and method go together: give both to blame an endpoint, or neither".into(),
+            ));
+        }
+    };
+    let blocks = services::blame_version(
+        &state.repo,
+        &name,
+        query.api_type.unwrap_or(ApiType::OpenApi),
+        query.version,
+        endpoint,
+    )
+    .await?;
+    Ok(Json(blocks))
+}
+
+#[derive(Deserialize)]
 pub struct FullSpecQuery {
     pub api_type: Option<ApiType>,
 }

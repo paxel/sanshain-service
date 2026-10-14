@@ -7,7 +7,7 @@
 //! entry points are also re-exported here for compatibility).
 
 use super::require_service::{method_for, resolve_pin};
-use super::text_diff::{DiffHunk, DiffOptions, diff_lines};
+use super::text_diff::{DiffHunk, DiffOptions, blame_lines, diff_lines, group_blame};
 use crate::domain::models::*;
 use crate::domain::ports::{RewriteSpecText, SpecRepository};
 use crate::openapi;
@@ -449,13 +449,24 @@ async fn diff_side(
     version: SemVer,
 ) -> Result<String, AppError> {
     let (_sid, entry) = resolve_pin(repo, producername, request.api_type, version).await?;
-    match request.endpoint {
-        None => Ok(repo.get_spec_content(entry.id).await?.unwrap_or_default()),
+    version_text(repo, entry.id, request.api_type, request.endpoint).await
+}
+
+/// The text a version contributes to a diff or blame: its stored document,
+/// or one endpoint's snippet (empty when the version lacks the endpoint).
+async fn version_text(
+    repo: &impl SpecRepository,
+    entry_id: i64,
+    api_type: ApiType,
+    endpoint: Option<(&str, &str)>,
+) -> Result<String, AppError> {
+    match endpoint {
+        None => Ok(repo.get_spec_content(entry_id).await?.unwrap_or_default()),
         Some((path, method)) => {
-            let method = method_for(request.api_type, method);
-            let normalized = openapi::lookup_path(request.api_type, path);
+            let method = method_for(api_type, method);
+            let normalized = openapi::lookup_path(api_type, path);
             Ok(repo
-                .get_endpoints_for_version(entry.id)
+                .get_endpoints_for_version(entry_id)
                 .await?
                 .into_iter()
                 .find(|e| e.normalized_path == normalized && e.method == method)
@@ -463,6 +474,76 @@ async fn diff_side(
                 .unwrap_or_default())
         }
     }
+}
+
+/// Consecutive lines of a version last changed in the same version, with
+/// that version's attribution shown once for the block.
+#[derive(Debug, serde::Serialize)]
+pub struct BlameBlock {
+    pub version: SemVer,
+    pub stability: Stability,
+    pub provided_by: String,
+    pub updated_at: String,
+    /// 1-based number of the block's first line.
+    pub start_line: usize,
+    pub lines: Vec<String>,
+}
+
+/// Blame for one version of a line: its text split into blocks of lines
+/// last changed in the same version. The line is walked oldest-first up to
+/// `version` with the same `similar` diff as the diff views; in endpoint mode
+/// a version without the endpoint is an empty text, so a returning endpoint
+/// is blamed on the version that brought it back.
+#[instrument(skip_all)]
+pub async fn blame_version(
+    repo: &impl SpecRepository,
+    producername: &str,
+    api_type: ApiType,
+    version: SemVer,
+    endpoint: Option<(&str, &str)>,
+) -> Result<Vec<BlameBlock>, AppError> {
+    let (service_id, _target) = resolve_pin(repo, producername, api_type, version).await?;
+    let mut line: Vec<SpecVersionMeta> = repo
+        .list_spec_versions(service_id)
+        .await?
+        .into_iter()
+        .filter(|v| v.api_type == api_type && v.version <= version)
+        .collect();
+    line.sort_by_key(|v| v.version);
+    let mut texts = Vec::with_capacity(line.len());
+    for meta in &line {
+        texts.push(version_text(repo, meta.id, api_type, endpoint).await?);
+    }
+
+    let (owners, texts) = super::run_cpu_bound(move || {
+        let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+        let owners = blame_lines(&refs);
+        Ok((owners, texts))
+    })
+    .await?;
+    let last: Vec<&str> = texts
+        .last()
+        .map(|t| t.lines().collect())
+        .unwrap_or_default();
+    Ok(group_blame(&owners)
+        .into_iter()
+        .filter_map(|run| {
+            let meta = line.get(run.owner)?;
+            Some(BlameBlock {
+                version: meta.version,
+                stability: meta.stability,
+                provided_by: meta.provided_by.clone(),
+                updated_at: meta.updated_at.clone(),
+                start_line: run.start + 1,
+                lines: last
+                    .iter()
+                    .skip(run.start)
+                    .take(run.len)
+                    .map(|l| l.to_string())
+                    .collect(),
+            })
+        })
+        .collect())
 }
 
 /// One step of an endpoint's blame trail: the version that last changed it

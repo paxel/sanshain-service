@@ -62,7 +62,6 @@ export default [
         mountDiffView: "readonly",
         fetchVersionDiff: "readonly",
         sanshainToken: "readonly",
-        simpleDiff: "readonly",
         stabilityBadge: "readonly",
         toggleFavorite: "readonly",
         updateHighlightButtons: "readonly",

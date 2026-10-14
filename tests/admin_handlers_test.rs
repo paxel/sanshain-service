@@ -493,6 +493,73 @@ async fn diff_endpoint_rejects_malformed_options() {
     }
 }
 
+// The blame endpoint answers blocks of lines last changed in the same version.
+#[tokio::test]
+async fn blame_endpoint_answers_blocks_for_documents_and_endpoints() {
+    let (app, repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+    provide(
+        &repo,
+        "demo-svc",
+        &DEMO_SPEC_1_0_0.replace("version: 1.0.0", "version: 1.1.0"),
+        Stability::Snapshot,
+    )
+    .await;
+
+    let (status, blocks) = get_json(
+        &app,
+        "/admin/producers/demo-svc/blame?api_type=openapi&version=1.1.0",
+        &auth,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let summary: Vec<(String, u64, usize)> = blocks
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| {
+            (
+                b["version"].as_str().unwrap_or("").to_string(),
+                b["start_line"].as_u64().unwrap_or(0),
+                b["lines"].as_array().map_or(0, |l| l.len()),
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            ("1.0.0".to_string(), 1, 3),
+            ("1.1.0".to_string(), 4, 1),
+            ("1.0.0".to_string(), 5, 5),
+        ]
+    );
+    assert_eq!(blocks[1]["lines"][0], "  version: 1.1.0");
+    assert_eq!(blocks[0]["stability"], "ga");
+    assert!(blocks[0]["provided_by"].is_string());
+    assert!(blocks[0]["updated_at"].is_string());
+
+    let (status, endpoint) = get_json(
+        &app,
+        "/admin/producers/demo-svc/blame?version=1.1.0&path=%2Fhello&method=get",
+        &auth,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!endpoint.as_array().unwrap().is_empty());
+
+    let (status, _) = get_json(
+        &app,
+        "/admin/producers/demo-svc/blame?version=1.1.0&path=%2Fhello",
+        &auth,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = get_json(&app, "/admin/producers/demo-svc/blame?version=9.9.9", &auth).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = get_json(&app, "/admin/producers/demo-svc/blame?version=1.1.0", "").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
 // --- Delete-version: the sole escape hatch from GA immutability ---
 
 #[tokio::test]

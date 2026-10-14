@@ -1030,6 +1030,77 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/blame:
+    get:
+      summary: "Read: producers/name/blame"
+      description: |
+        Any signed-in caller.
+
+        Blame for one version of a line: the version's text (the stored document, or with
+        `path` and `method` one endpoint's snippet) as a JSON array of blocks of consecutive
+        lines last changed in the same version, oldest version first walked with the same
+        `similar` diff as `/diff`. Each block is `{version, stability, provided_by, updated_at,
+        start_line, lines}`; `start_line` is 1-based. A version with identical content (a
+        promotion) changes no line; in endpoint mode a version without the endpoint is an empty
+        text. An empty array means the version's text is empty.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [openapi, asyncapi, proto]
+            default: openapi
+        - name: version
+          in: query
+          required: true
+          description: The version to blame.
+          schema:
+            type: string
+        - name: path
+          in: query
+          required: false
+          description: Blame this endpoint's snippet instead of the document; needs `method`.
+          schema:
+            type: string
+        - name: method
+          in: query
+          required: false
+          description: The endpoint's method (or RPC/operation); needs `path`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The blame blocks.
+        "400":
+          description: Only one of `path`/`method`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: The Producer or the version does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/branches:
     get:
       summary: "Read: branches"

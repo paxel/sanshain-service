@@ -1042,3 +1042,119 @@ test.describe("Diff views", () => {
     await expect(view.locator(".diff-layout-switch")).toBeVisible();
   });
 });
+
+// Blame groups consecutive lines last changed in the same version into one
+// block: attribution once on the first line, a gutter bar along the block,
+// alternating backgrounds between neighbours.
+test.describe("Blame blocks", () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+  const SERVICE = "blame-fixture";
+
+  const spec = (version, description) =>
+    [
+      "openapi: 3.0.0",
+      "info:",
+      "  title: Blame",
+      `  version: ${version}`,
+      "paths:",
+      "  /blame:",
+      "    get:",
+      "      responses:",
+      "        '200':",
+      `          description: ${description}`,
+      "",
+    ].join("\n");
+
+  test.beforeAll(async ({ request }) => {
+    if (!adminPassword) {
+      throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
+    }
+    const loginRes = await request.post("/auth/login", {
+      data: { username: "root", password: adminPassword },
+    });
+    const { token } = await loginRes.json();
+    for (const [version, description] of [
+      ["1.0.0", "OK"],
+      ["1.1.0", "Fine"],
+      ["1.2.0", "Fine"],
+    ]) {
+      await request.post("/provide", {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { producername: SERVICE, stability: "snapshot", openapi_yaml: spec(version, description) },
+      });
+    }
+  });
+
+  const login = async (page) => {
+    page.on("dialog", async (d) => await d.dismiss());
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+  };
+
+  test("the full-spec blame shows one block per run of lines from the same version", async ({
+    page,
+  }) => {
+    await login(page);
+    await page.goto(`/yaml.html?service=${SERVICE}&api_type=openapi&version=1.2.0`);
+    await expect(page.locator("#versions-list-container .version-card")).toHaveCount(3, {
+      timeout: 20000,
+    });
+    await page.locator("#blame-toggle-container").click();
+
+    const blocks = page.locator("#viewer-container .blame-block");
+    await expect(blocks).toHaveCount(4, { timeout: 20000 });
+    const versions = await blocks.evaluateAll((els) => els.map((e) => e.dataset.version));
+    expect(versions).toEqual(["1.0.0", "1.2.0", "1.0.0", "1.1.0"]);
+
+    // Lines per block, and the attribution only on each block's first line.
+    const shape = await blocks.evaluateAll((els) =>
+      els.map((e) =>
+        [...e.querySelectorAll(".blame-meta")].map((m) => m.textContent.trim().length > 0),
+      ),
+    );
+    expect(shape).toEqual([
+      [true, false, false],
+      [true],
+      [true, false, false, false, false],
+      [true],
+    ]);
+    await expect(blocks.nth(1).locator(".blame-meta").first()).toContainText("1.2.0");
+    await expect(blocks.nth(1).locator(".blame-meta").first()).toContainText("root");
+    await expect(blocks.nth(3)).toContainText("description: Fine");
+
+    // A gutter bar along each block; neighbouring blocks alternate background.
+    const styles = await blocks.evaluateAll((els) =>
+      els.map((e) => {
+        const cs = getComputedStyle(e);
+        return { bar: cs.borderLeftWidth, bg: cs.backgroundColor };
+      }),
+    );
+    for (const s of styles) expect(s.bar).toBe("2px");
+    for (let i = 1; i < styles.length; i++) expect(styles[i].bg).not.toBe(styles[i - 1].bg);
+    expect(styles[0].bg).toBe(styles[2].bg);
+  });
+
+  test("the endpoint blame uses the same blocks", async ({ page }) => {
+    await login(page);
+    await page.goto(
+      `/yaml.html?service=${SERVICE}&api_type=openapi&path=%2Fblame&method=GET&version=1.2.0`,
+    );
+    await expect(page.locator("#versions-list-container .version-card")).toHaveCount(3, {
+      timeout: 20000,
+    });
+    await page.locator("#blame-toggle-container").click();
+    const blocks = page.locator("#viewer-container .blame-block");
+    await expect(blocks.first()).toBeVisible({ timeout: 20000 });
+    const versions = await blocks.evaluateAll((els) => els.map((e) => e.dataset.version));
+    expect(versions).toContain("1.1.0");
+    expect(versions).toContain("1.0.0");
+    await expect(blocks.filter({ hasText: "description: Fine" })).toHaveAttribute(
+      "data-version",
+      "1.1.0",
+    );
+  });
+});

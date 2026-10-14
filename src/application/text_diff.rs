@@ -207,6 +207,70 @@ pub fn render_unified(hunks: &[DiffHunk], from_label: &str, to_label: &str) -> S
     out
 }
 
+/// Line-level blame across a sequence of texts, oldest first: for each line
+/// of the last text, the index of the text that last introduced or changed
+/// it. Each step is diffed against the previous with the same `similar`
+/// diff as the diff views; a step with identical text changes nothing.
+pub fn blame_lines(texts: &[&str]) -> Vec<usize> {
+    let Some((first, rest)) = texts.split_first() else {
+        return Vec::new();
+    };
+    let mut owners: Vec<usize> = vec![0; first.lines().count()];
+    let mut previous = *first;
+    for (offset, text) in rest.iter().enumerate() {
+        let step = offset + 1;
+        let old_lines: Vec<&str> = previous.lines().collect();
+        let new_lines: Vec<&str> = text.lines().collect();
+        let diff = TextDiff::from_slices(&old_lines, &new_lines);
+        let mut next = vec![step; new_lines.len()];
+        for op in diff.ops() {
+            if let DiffOp::Equal {
+                old_index,
+                new_index,
+                len,
+            } = *op
+            {
+                for i in 0..len {
+                    if let (Some(slot), Some(owner)) =
+                        (next.get_mut(new_index + i), owners.get(old_index + i))
+                    {
+                        *slot = *owner;
+                    }
+                }
+            }
+        }
+        owners = next;
+        previous = text;
+    }
+    owners
+}
+
+/// A run of consecutive lines with the same blame owner: `start` is the
+/// 0-based index of its first line, `len` the number of lines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlameRun {
+    pub owner: usize,
+    pub start: usize,
+    pub len: usize,
+}
+
+/// Group per-line owners into runs. The same owner on two separated runs
+/// makes two runs.
+pub fn group_blame(owners: &[usize]) -> Vec<BlameRun> {
+    let mut runs: Vec<BlameRun> = Vec::new();
+    for (i, &owner) in owners.iter().enumerate() {
+        match runs.last_mut() {
+            Some(run) if run.owner == owner => run.len += 1,
+            _ => runs.push(BlameRun {
+                owner,
+                start: i,
+                len: 1,
+            }),
+        }
+    }
+    runs
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,5 +426,51 @@ mod tests {
         assert_eq!(json[0]["lines"][0]["op"], "del");
         assert_eq!(json[0]["lines"][1]["op"], "add");
         assert!(json[0]["lines"][0].get("old_text").is_none());
+    }
+    #[test]
+    fn blame_of_no_texts_is_empty() {
+        assert!(blame_lines(&[]).is_empty());
+        assert!(group_blame(&[]).is_empty());
+    }
+
+    #[test]
+    fn blame_credits_each_line_to_the_text_that_last_changed_it() {
+        let v0 = "a\nb\nc\n";
+        let v1 = "a\nB\nc\nd\n";
+        let v2 = "a\nB\nc\nd\n"; // identical, e.g. a promotion
+        let v3 = "x\na\nB\nc\nd\n";
+        assert_eq!(blame_lines(&[v0]), vec![0, 0, 0]);
+        assert_eq!(blame_lines(&[v0, v1, v2]), vec![0, 1, 0, 1]);
+        assert_eq!(blame_lines(&[v0, v1, v2, v3]), vec![3, 0, 1, 0, 1]);
+    }
+
+    #[test]
+    fn blame_through_an_empty_text_restarts_attribution() {
+        // An endpoint absent in the middle version comes back new.
+        assert_eq!(blame_lines(&["a\nb\n", "", "a\nb\n"]), vec![2, 2]);
+    }
+
+    #[test]
+    fn group_blame_merges_consecutive_lines_and_splits_separated_runs() {
+        assert_eq!(
+            group_blame(&[0, 0, 1, 1, 1, 0]),
+            vec![
+                BlameRun {
+                    owner: 0,
+                    start: 0,
+                    len: 2
+                },
+                BlameRun {
+                    owner: 1,
+                    start: 2,
+                    len: 3
+                },
+                BlameRun {
+                    owner: 0,
+                    start: 5,
+                    len: 1
+                },
+            ]
+        );
     }
 }

@@ -621,6 +621,96 @@ async fn diff_versions_in_endpoint_mode_diffs_one_snippet_and_treats_absence_as_
 }
 
 #[tokio::test]
+async fn blame_version_groups_lines_by_the_version_that_last_changed_them() {
+    let repo = MockRepo::new();
+    let v1 = one_endpoint("1.0.0");
+    let v2 = one_endpoint("1.1.0").replace("description: OK", "description: Fine");
+    let v3 = one_endpoint("1.2.0").replace("description: OK", "description: Fine");
+    provide_snapshots(&repo, &[&v1, &v2, &v3]).await;
+
+    let blocks =
+        spec_service::blame_version(&repo, "svc", ApiType::OpenApi, SemVer::new(1, 2, 0), None)
+            .await
+            .unwrap();
+    let summary: Vec<(String, usize, usize)> = blocks
+        .iter()
+        .map(|b| (b.version.to_string(), b.start_line, b.lines.len()))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            ("1.0.0".to_string(), 1, 3),
+            ("1.2.0".to_string(), 4, 1),
+            ("1.0.0".to_string(), 5, 5),
+            ("1.1.0".to_string(), 10, 1),
+        ]
+    );
+    assert_eq!(blocks[1].lines, vec!["  version: 1.2.0"]);
+    assert_eq!(blocks[3].lines, vec!["          description: Fine"]);
+    assert_eq!(blocks[0].provided_by, blocks[2].provided_by);
+
+    // Blaming an older version ignores everything after it.
+    let older =
+        spec_service::blame_version(&repo, "svc", ApiType::OpenApi, SemVer::new(1, 0, 0), None)
+            .await
+            .unwrap();
+    assert_eq!(older.len(), 1);
+    assert_eq!(older[0].version, SemVer::new(1, 0, 0));
+    assert_eq!(older[0].lines.len(), 10);
+
+    let err =
+        spec_service::blame_version(&repo, "svc", ApiType::OpenApi, SemVer::new(9, 9, 9), None)
+            .await
+            .unwrap_err();
+    assert!(matches!(err, AppError::NotFound(_)), "{err:?}");
+}
+
+#[tokio::test]
+async fn blame_version_in_endpoint_mode_blames_a_returning_endpoint_on_its_return() {
+    let repo = MockRepo::new();
+    let with_x = |v: &str| one_endpoint(v);
+    let without_x = |v: &str| {
+        openapi(
+            v,
+            "  /y:\n    get:\n      responses:\n        '200':\n          description: Y\n",
+        )
+    };
+    provide_snapshots(
+        &repo,
+        &[&with_x("1.0.0"), &without_x("1.1.0"), &with_x("1.2.0")],
+    )
+    .await;
+
+    let blocks = spec_service::blame_version(
+        &repo,
+        "svc",
+        ApiType::OpenApi,
+        SemVer::new(1, 2, 0),
+        Some(("/x", "get")),
+    )
+    .await
+    .unwrap();
+    assert!(!blocks.is_empty());
+    assert!(
+        blocks.iter().all(|b| b.version == SemVer::new(1, 2, 0)),
+        "{blocks:?}"
+    );
+    assert_eq!(blocks.len(), 1, "one version owns every line: one block");
+
+    // In the version that lacks the endpoint there is nothing to blame.
+    let absent = spec_service::blame_version(
+        &repo,
+        "svc",
+        ApiType::OpenApi,
+        SemVer::new(1, 1, 0),
+        Some(("/x", "GET")),
+    )
+    .await
+    .unwrap();
+    assert!(absent.is_empty());
+}
+
+#[tokio::test]
 async fn endpoint_history_walks_introduction_removal_and_return() {
     let repo = MockRepo::new();
     // 1.0.0 introduces /x, 1.1.0 removes it, 1.2.0 brings it back reworded.
