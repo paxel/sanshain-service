@@ -88,7 +88,7 @@
           <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
         <div class="flex items-center justify-end gap-4 text-sm">
-          <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+          <span id="version-badge-desktop" class="text-indigo-200 max-md:hidden"></span>
           <a
             id="banner-username"
             href="/account.html"
@@ -133,7 +133,7 @@
               type="text"
               id="service-search"
               placeholder="Search services..."
-              class="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              class="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
             />
             <div class="absolute left-3 top-2.5 text-slate-500">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -161,7 +161,7 @@
     <!-- Confirm Delete Modal -->
     <div
       id="confirm-modal"
-      class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50"
+      class="fixed inset-0 bg-black/50 hidden flex items-center justify-center p-4 z-50"
     >
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
         <h3 class="text-lg font-bold text-slate-800 mb-2">Confirm Deletion</h3>

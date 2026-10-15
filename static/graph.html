@@ -99,7 +99,7 @@
           <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
         <div class="flex items-center justify-end gap-4 text-sm">
-          <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+          <span id="version-badge-desktop" class="text-indigo-200 max-md:hidden"></span>
           <a
             id="banner-username"
             href="/account.html"
@@ -175,12 +175,12 @@
           id="graph-toolbar-row"
           class="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200"
         >
-          <div class="flex items-center gap-2 flex-grow">
+          <div class="flex items-center gap-2 grow">
             <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest"
               >Focus</span
             >
             <div id="focus-tags-container" class="flex flex-wrap items-center gap-1.5"></div>
-            <div class="relative flex-shrink-0" style="min-width: 140px">
+            <div class="relative shrink-0" style="min-width: 140px">
               <input
                 type="text"
                 id="graph-service-filter"
@@ -188,7 +188,7 @@
                 placeholder="Add service..."
                 data-keydown="applyGraphFocusOnEnter"
                 data-keydown-args='["$event"]'
-                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs focus:outline-hidden focus:ring-2 focus:ring-indigo-500 shadow-xs"
               />
               <datalist id="graph-services-list"></datalist>
             </div>
@@ -198,7 +198,7 @@
             <!-- Stream view (ADR-0004): Dev = latest recorded activity;
                      Main = the trunk pin set, producers at trunk version. -->
             <div
-              class="inline-flex flex-wrap max-w-full rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
+              class="inline-flex flex-wrap max-w-full rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-xs"
             >
               <button
                 id="stream-dev"
@@ -221,7 +221,7 @@
             </div>
             <select
               id="graph-branch-select"
-              class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white shadow-sm text-slate-600"
+              class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white shadow-xs text-slate-600"
               title="Show a sanshain-branch's graph"
               data-change="selectBranchView"
               data-change-args='["$value"]'
@@ -229,7 +229,7 @@
               <option value="">Branch…</option>
             </select>
             <div
-              class="inline-flex flex-wrap max-w-full rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
+              class="inline-flex flex-wrap max-w-full rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-xs"
             >
               <button
                 id="graph-redraw-all"
@@ -249,7 +249,7 @@
               </button>
             </div>
             <div
-              class="inline-flex flex-wrap max-w-full rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
+              class="inline-flex flex-wrap max-w-full rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-xs"
             >
               <button
                 id="filter-openapi"
@@ -298,7 +298,7 @@
                      line's latest GA) and Snapshot-pinned (Pin served from a
                      Snapshot). Display states, never resolution inputs. -->
             <div
-              class="inline-flex flex-wrap max-w-full rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
+              class="inline-flex flex-wrap max-w-full rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-xs"
             >
               <button
                 id="highlight-outdated"
@@ -330,7 +330,7 @@
             </div>
             <button
               id="graph-direction-toggle"
-              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
               data-click="toggleGraphDirection"
               title="Pivot graph direction (vertical ↔ horizontal)"
             >
@@ -346,7 +346,7 @@
             </button>
             <button
               id="graph-fit-view"
-              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
               data-click="graphFitToView"
               title="Fit & center graph"
             >
@@ -362,7 +362,7 @@
             </button>
             <button
               id="graph-copy"
-              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
               title="Copy code to clipboard"
             >
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -373,7 +373,7 @@
             </button>
             <button
               id="graph-download"
-              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
               title="Download SVG"
             >
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -388,7 +388,7 @@
             </button>
             <button
               id="graph-download-png"
-              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
               title="Download PNG"
             >
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -465,7 +465,7 @@
             max="0"
             value="0"
             step="1"
-            class="flex-grow accent-amber-600"
+            class="grow accent-amber-600"
           />
           <span
             id="graph-timeline-label"
@@ -494,7 +494,7 @@
           class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center"
         >
           <svg
-            class="w-5 h-5 mr-2 flex-shrink-0"
+            class="w-5 h-5 mr-2 shrink-0"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -511,7 +511,7 @@
         <div class="flex gap-6 items-start">
           <div
             id="graph-container"
-            class="flex-grow bg-white p-6 rounded-xl border border-slate-200 shadow-sm overflow-hidden"
+            class="grow bg-white p-6 rounded-xl border border-slate-200 shadow-xs overflow-hidden"
           >
             <svg id="custom-graph" class="w-full"></svg>
             <div id="mermaid-graph" class="mermaid hidden"></div>
@@ -519,7 +519,7 @@
 
           <div
             id="graph-legend"
-            class="w-48 flex-shrink-0 space-y-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm h-fit sticky top-6"
+            class="w-48 shrink-0 space-y-4 p-4 bg-white rounded-xl border border-slate-200 shadow-xs h-fit sticky top-6"
           >
             <h4
               class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 border-b border-slate-100 pb-2"
@@ -528,113 +528,113 @@
             </h4>
             <div class="space-y-3 text-[11px] font-medium text-slate-600">
               <div
-                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                 data-legend-highlight="node-role:client"
               >
                 <span
-                  class="w-3.5 h-3.5 rounded shadow-sm"
+                  class="w-3.5 h-3.5 rounded-sm shadow-xs"
                   style="background: #ccfbf1; border: 2px solid #14b8a6"
                 ></span>
                 <span>Consumer only</span>
               </div>
               <div
-                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                 data-legend-highlight="node-role:service"
               >
                 <span
-                  class="w-3.5 h-3.5 rounded shadow-sm"
+                  class="w-3.5 h-3.5 rounded-sm shadow-xs"
                   style="background: #e0e7ff; border: 2px solid #6366f1"
                 ></span>
                 <span>Producer only</span>
               </div>
               <div
-                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                 data-legend-highlight="node-role:both"
               >
                 <span
-                  class="w-3.5 h-3.5 rounded shadow-sm"
+                  class="w-3.5 h-3.5 rounded-sm shadow-xs"
                   style="background: #fef3c7; border: 2px solid #f59e0b"
                 ></span>
                 <span>Consumer &amp; Producer</span>
               </div>
               <div
-                class="flex items-center gap-2.5 pt-2 border-t border-slate-50 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                class="flex items-center gap-2.5 pt-2 border-t border-slate-50 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                 data-legend-highlight="edge-type:circular"
               >
-                <span class="w-6 h-0.5 rounded shadow-sm" style="background: #a855f7"></span>
+                <span class="w-6 h-0.5 rounded-sm shadow-xs" style="background: #a855f7"></span>
                 <span>Circular dep.</span>
               </div>
               <div
-                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                 data-legend-highlight="edge-type:missing"
                 data-stream-only="dev"
               >
                 <span
-                  class="w-6 h-0.5 rounded shadow-sm"
+                  class="w-6 h-0.5 rounded-sm shadow-xs"
                   style="background: #f97316; border-top: 2px dashed #f97316"
                 ></span>
                 <span>Missing dep.</span>
               </div>
               <div
-                class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                 data-legend-highlight="edge-flag:conflict"
                 data-stream-only="main"
               >
-                <span class="w-6 h-0.5 rounded shadow-sm" style="background: #dc2626"></span>
+                <span class="w-6 h-0.5 rounded-sm shadow-xs" style="background: #dc2626"></span>
                 <span>Major conflict</span>
               </div>
               <div
-                class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                 data-legend-highlight="edge-flag:stale"
                 data-stream-only="main"
               >
                 <span
-                  class="w-6 h-0.5 rounded shadow-sm"
+                  class="w-6 h-0.5 rounded-sm shadow-xs"
                   style="background: #f59e0b; border-top: 2px dashed #f59e0b"
                 ></span>
                 <span>Stale (forgotten)</span>
               </div>
               <div
-                class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                class="hidden flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                 data-legend-highlight="edge-flag:dangling"
                 data-stream-only="main branch"
               >
                 <span
-                  class="w-6 h-0.5 rounded shadow-sm"
+                  class="w-6 h-0.5 rounded-sm shadow-xs"
                   style="background: #ea580c; border-top: 2px dotted #ea580c"
                 ></span>
                 <span>Dangling version</span>
               </div>
               <div
-                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                 data-legend-highlight="edge-flag:outdated"
               >
-                <span class="w-6 h-0.5 rounded shadow-sm" style="background: #f43f5e"></span>
+                <span class="w-6 h-0.5 rounded-sm shadow-xs" style="background: #f43f5e"></span>
                 <span>Outdated Pin</span>
               </div>
               <div
-                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                 data-legend-highlight="edge-flag:breakingOutdated"
               >
-                <span class="w-6 h-0.5 rounded shadow-sm" style="background: #be123c"></span>
+                <span class="w-6 h-0.5 rounded-sm shadow-xs" style="background: #be123c"></span>
                 <span>Major behind</span>
               </div>
               <div
-                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                 data-legend-highlight="edge-flag:snapshot"
               >
-                <span class="w-6 h-0.5 rounded shadow-sm" style="background: #f59e0b"></span>
+                <span class="w-6 h-0.5 rounded-sm shadow-xs" style="background: #f59e0b"></span>
                 <span>Snapshot-pinned</span>
               </div>
               <div
-                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                 data-legend-highlight="edge-type:pubsub-bidir"
               >
                 <span class="w-6" style="border-top: 2px dashed #94a3b8"></span>
                 <span>PUB/SUB bidir.</span>
               </div>
               <div
-                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                 data-legend-highlight="node-role:missing"
                 data-stream-only="dev"
               >
@@ -642,7 +642,7 @@
                 <span>Missing svc.</span>
               </div>
               <div
-                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                 data-legend-highlight="node-role:peripheral"
               >
                 <svg width="16" height="16" viewBox="-1 -1 26 26" aria-hidden="true">
@@ -661,12 +661,12 @@
                 <span>Periphery</span>
               </div>
               <div
-                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                 data-legend-highlight="unrequired:box"
                 id="graph-legend-unrequired"
               >
                 <span
-                  class="w-4 h-3 rounded"
+                  class="w-4 h-3 rounded-sm"
                   style="background: #f8fafc; border: 1.5px dashed #94a3b8"
                 ></span>
                 <span>(unrequired): nobody requires them, they require nothing</span>
@@ -681,7 +681,7 @@
                 </p>
                 <div class="space-y-2">
                   <div
-                    class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                    class="flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                     data-legend-highlight="node-badge:rest"
                   >
                     <span class="flex items-center gap-1">
@@ -739,7 +739,7 @@
                     <span>REST</span>
                   </div>
                   <div
-                    class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                    class="flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                     data-legend-highlight="node-badge:grpc"
                   >
                     <span class="flex items-center gap-1">
@@ -789,7 +789,7 @@
                     <span>gRPC</span>
                   </div>
                   <div
-                    class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                    class="flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
                     data-legend-highlight="node-badge:msg"
                   >
                     <span class="flex items-center gap-1">

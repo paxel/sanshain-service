@@ -482,7 +482,7 @@ function graphBadgeSummaryHtml(badges) {
       ? `<div class="flex flex-wrap items-center gap-1.5 mt-1" data-panel="${title.toLowerCase()}"><span class="text-[10px] text-slate-400 w-14">${title}</span>${kinds
           .map(
             (k) =>
-              `<span class="px-1.5 py-0.5 rounded text-[10px] ${solid ? "bg-slate-200 text-slate-900" : "bg-slate-800 text-slate-200 border border-slate-500"}">${_graphEscapeHtml(label(k))}</span>`,
+              `<span class="px-1.5 py-0.5 rounded-sm text-[10px] ${solid ? "bg-slate-200 text-slate-900" : "bg-slate-800 text-slate-200 border border-slate-500"}">${_graphEscapeHtml(label(k))}</span>`,
           )
           .join("")}</div>`
       : "";
@@ -2217,11 +2217,11 @@ function renderCustomGraph(report, svgElement, direction) {
 
             const supersededBy = graphSupersededBy(d, latestGaMap);
             const deprecatedBadge = d.deprecated
-              ? '<span class="px-1 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[9px] font-bold ml-1">DEPRECATED</span>'
+              ? '<span class="px-1 py-0.5 rounded-sm bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[9px] font-bold ml-1">DEPRECATED</span>'
               : "";
 
             return `
-            <a href="${url}" class="group block p-1.5 rounded bg-white/5 hover:bg-indigo-500/20 border border-transparent hover:border-indigo-500/30 transition-all">
+            <a href="${url}" class="group block p-1.5 rounded-sm bg-white/5 hover:bg-indigo-500/20 border border-transparent hover:border-indigo-500/30 transition-all">
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-1">
                   <span class="font-mono text-[11px] ${methodClass} font-bold">${_graphEscapeHtml(method)}</span>

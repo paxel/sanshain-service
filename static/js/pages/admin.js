@@ -430,7 +430,7 @@ function roleControls(user) {
     )
     .join("");
   const grant = options
-    ? `<select id="grant-role-${user.id}" class="text-xs rounded border-slate-200">
+    ? `<select id="grant-role-${user.id}" class="text-xs rounded-sm border-slate-200">
                        <option value="">grant role…</option>${options}
                    </select>
                    <button data-click="grantRole" data-click-args="${attrJson([user.id])}" class="text-indigo-600 hover:text-indigo-800 text-sm">Grant</button>`
@@ -561,7 +561,7 @@ async function loadGroups() {
                             <div class="flex items-center space-x-2">
                                 ${
                                   addable
-                                    ? `<select id="group-role-${g.id}" class="text-xs rounded border-slate-200">
+                                    ? `<select id="group-role-${g.id}" class="text-xs rounded-sm border-slate-200">
                                     <option value="">add role…</option>${addable}
                                 </select>
                                 <button data-click="addGroupRole" data-click-args="${attrJson([g.id])}" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>`
@@ -578,7 +578,7 @@ async function loadGroups() {
                             ${memberChips || '<span class="text-xs text-slate-400 italic">no members</span>'}
                             ${
                               addableMembers
-                                ? `<select id="group-member-${g.id}" class="text-xs rounded border-slate-200">
+                                ? `<select id="group-member-${g.id}" class="text-xs rounded-sm border-slate-200">
                                 <option value="">add member…</option>${addableMembers}
                             </select>
                             <button data-click="addGroupMember" data-click-args="${attrJson([g.id])}" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>`
@@ -966,7 +966,7 @@ async function renderVersions(container, serviceName) {
     container.innerHTML = versions
       .map(
         (v) => `
-                    <div class="flex justify-between items-center bg-white px-3 py-1.5 rounded border border-slate-100 fade-in">
+                    <div class="flex justify-between items-center bg-white px-3 py-1.5 rounded-sm border border-slate-100 fade-in">
                         <span class="flex items-center gap-2">
                             <span class="text-[9px] font-bold uppercase tracking-wider text-slate-400">${escapeHtml(v.api_type)}</span>
                             <span class="text-sm font-mono text-slate-600">${escapeHtml(v.version)}</span>

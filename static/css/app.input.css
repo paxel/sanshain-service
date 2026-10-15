@@ -1,3 +1,48 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss' source(none);
+
+/*
+  Scan exactly the sources that emit classes: the static pages, the UI scripts
+  and the server-rendered templates. The vendored libraries in static/vendor are
+  not ours and must not add utilities.
+*/
+@source '../*.html';
+@source '../js/**/*.js';
+@source '../../templates/**/*.html';
+
+/*
+  Tailwind CSS v4 changed three defaults that this UI relies on. These blocks keep
+  the v3 look: grey borders, grey placeholders and a pointer cursor on buttons.
+  To drop one, give the affected elements an explicit utility instead.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--color-gray-400);
+  }
+
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+/*
+  Tailwind v3 emitted `hidden` after every other display utility, so toggling
+  `hidden` on an element that also has `inline`, `inline-block`, `inline-flex` or
+  `table` hid it. v4 sorts display utilities alphabetically and those four would
+  win. The doubled class keeps the v3 rule that `hidden` always hides; to show
+  something only from a breakpoint on, use `max-*:hidden` instead of `hidden md:*`.
+*/
+@layer utilities {
+  .hidden.hidden {
+    display: none;
+  }
+}

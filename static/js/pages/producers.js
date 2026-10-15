@@ -74,7 +74,7 @@ function renderServiceList(allServicesIn) {
     const domain = svc.domain || null;
     const card = document.createElement("div");
     card.className =
-      "bg-white p-5 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer";
+      "bg-white p-5 rounded-xl border border-slate-200 shadow-xs endpoint-card cursor-pointer";
     card.onclick = () => {
       history.pushState({ service: name }, "", `?service=${encodeURIComponent(name)}`);
       showProducerVersions(name);
@@ -96,7 +96,7 @@ function renderServiceList(allServicesIn) {
                             <div class="flex items-center gap-2">
                                 <h3 class="font-bold text-lg text-slate-800">${escapeHtml(name)}</h3>
                                 ${domain ? `<span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100 font-bold uppercase">${escapeHtml(domain)}</span>` : ""}
-                                <button type="button" data-toggle-favorite class="text-amber-400 hover:text-amber-500 p-1 focus:outline-none rounded transition-colors" title="${isFav ? "Remove from favorites" : "Mark as favorite"}">
+                                <button type="button" data-toggle-favorite class="text-amber-400 hover:text-amber-500 p-1 focus:outline-hidden rounded-sm transition-colors" title="${isFav ? "Remove from favorites" : "Mark as favorite"}">
                                     ${
                                       isFav
                                         ? `
@@ -209,7 +209,7 @@ async function showProducerVersions(serviceName) {
 
 function renderVersionLine(serviceName, apiType, line) {
   const section = document.createElement("div");
-  section.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-sm";
+  section.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs";
 
   const header = document.createElement("div");
   header.className = "flex flex-wrap items-center justify-between gap-3 mb-3";
@@ -288,7 +288,7 @@ function renderVersionEntry(serviceName, apiType, v, latestGa) {
 
   const card = document.createElement("div");
   card.className =
-    "bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer";
+    "bg-white p-4 rounded-xl border border-slate-200 shadow-xs endpoint-card cursor-pointer";
   card.onclick = () => {
     history.pushState(
       { service: serviceName, api_type: apiType, version: v.version },
@@ -521,7 +521,7 @@ async function showVersionEndpoints(serviceName, apiType, version) {
 
     const summary = document.createElement("div");
     summary.className =
-      "bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-2 flex items-center justify-between";
+      "bg-white p-4 rounded-xl border border-slate-200 shadow-xs mb-2 flex items-center justify-between";
     const usedCount = uniqueEndpoints.filter((e) => !unusedSet.has(`${e.method}:${e.path}`)).length;
     const unusedCount = uniqueEndpoints.length - usedCount;
     summary.innerHTML = `
@@ -539,7 +539,7 @@ async function showVersionEndpoints(serviceName, apiType, version) {
       const clients = clientsMap[key] ? [...clientsMap[key]] : [];
       const card = document.createElement("div");
       card.className =
-        "bg-white p-4 rounded-xl border border-slate-200 shadow-sm endpoint-card cursor-pointer";
+        "bg-white p-4 rounded-xl border border-slate-200 shadow-xs endpoint-card cursor-pointer";
       // Delegated (not a direct card.onclick) so the client badge nested inside
       // can be its own data-click: the dispatcher fires only the nearest
       // data-click ancestor, so a badge click opens its popover without also
@@ -552,7 +552,7 @@ async function showVersionEndpoints(serviceName, apiType, version) {
                             <span class="px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider mr-2 bg-slate-100 text-slate-500 border border-slate-200">
                                 ${escapeHtml(ep.api_type || "REST")}
                             </span>
-                            <span class="px-2 py-1 rounded text-[10px] font-bold uppercase mr-3 ${getMethodColor(ep.method)}">
+                            <span class="px-2 py-1 rounded-sm text-[10px] font-bold uppercase mr-3 ${getMethodColor(ep.method)}">
                                 ${escapeHtml(ep.method)}
                             </span>
                             <span class="font-mono text-sm text-slate-700">${escapeHtml(ep.path)}</span>

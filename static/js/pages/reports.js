@@ -47,12 +47,12 @@ async function loadReports() {
     window.location.href = `/report-viewer.html?src=${encodeURIComponent(src + scopeParam())}&title=${encodeURIComponent(label)}`;
   };
   grid.innerHTML = `
-            <div class="md:col-span-2 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3">
+            <div class="md:col-span-2 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-3">
                 <label for="report-scope" class="text-sm font-semibold text-slate-600">Graph scope</label>
-                <select id="report-scope" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500">${scopeOptions}</select>
+                <select id="report-scope" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-indigo-500">${scopeOptions}</select>
                 <span class="text-xs text-slate-400">dev = recorded activity · main = trunk pins · or a sanshain-branch</span>
             </div>
-            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-shadow">
                 <div class="bg-indigo-100 text-indigo-700 w-12 h-12 rounded-xl flex items-center justify-center mb-4">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 2v-6m-8-2h8a2 2 0 012 2v9a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2h8z"></path>
@@ -66,7 +66,7 @@ async function loadReports() {
                 </button>
             </div>
 
-            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-shadow">
                 <div class="bg-slate-100 text-slate-700 w-12 h-12 rounded-xl flex items-center justify-center mb-4">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>

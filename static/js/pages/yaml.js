@@ -55,7 +55,7 @@ if (serviceName && (isFullSpecMode || (endpointPath && endpointMethod))) {
     document.title = "Sanshain - Full Spec Viewer";
     endpointMethodEl.textContent = apiType;
     endpointMethodEl.className =
-      "px-2.5 py-0.5 rounded text-sm font-semibold uppercase bg-purple-100 text-purple-700";
+      "px-2.5 py-0.5 rounded-sm text-sm font-semibold uppercase bg-purple-100 text-purple-700";
     endpointPathEl.textContent = "Full specification";
   } else {
     endpointMethodEl.textContent = endpointMethod;
@@ -69,7 +69,7 @@ if (serviceName && (isFullSpecMode || (endpointPath && endpointMethod))) {
       PATCH: "bg-purple-100 text-purple-800",
     };
     const mClass = colors[endpointMethod.toUpperCase()] || "bg-slate-100 text-slate-800";
-    endpointMethodEl.className = `px-2.5 py-0.5 rounded text-sm font-semibold uppercase ${mClass}`;
+    endpointMethodEl.className = `px-2.5 py-0.5 rounded-sm text-sm font-semibold uppercase ${mClass}`;
   }
 } else {
   alert("Missing endpoint identity parameters.");
@@ -312,11 +312,11 @@ function updateToolbarState() {
     viewYamlBtn.className =
       "px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all text-slate-600 hover:text-slate-800";
     viewDiffBtn.className =
-      "px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all bg-white text-slate-800 shadow-sm";
+      "px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all bg-white text-slate-800 shadow-xs";
     blameToggleContainer.classList.add("hidden");
   } else {
     viewYamlBtn.className =
-      "px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all bg-white text-slate-800 shadow-sm";
+      "px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all bg-white text-slate-800 shadow-xs";
     viewDiffBtn.className =
       "px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all text-slate-600 hover:text-slate-800";
     blameToggleContainer.classList.remove("hidden");
@@ -563,7 +563,7 @@ async function renderBlameView(version) {
           <div class="blame-line flex items-stretch">
             <div class="blame-meta w-48 shrink-0 text-slate-400 px-3 py-0.5 border-r border-slate-800 text-[11px] flex items-center justify-between select-none">${li === 0 ? meta : ""}</div>
             <div class="w-12 shrink-0 text-slate-500 text-right pr-2.5 py-0.5 border-r border-slate-800 select-none">${b.start_line + li}</div>
-            <div class="flex-grow pl-3 py-0.5 text-slate-200 whitespace-pre">${escapeHtml(text)}</div>
+            <div class="grow pl-3 py-0.5 text-slate-200 whitespace-pre">${escapeHtml(text)}</div>
           </div>`,
         )
         .join("");

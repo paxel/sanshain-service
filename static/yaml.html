@@ -87,7 +87,7 @@
           <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
         <div class="flex items-center justify-end gap-4 text-sm">
-          <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+          <span id="version-badge-desktop" class="text-indigo-200 max-md:hidden"></span>
           <a
             id="banner-username"
             href="/account.html"
@@ -129,7 +129,7 @@
           <h1 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
             <span
               id="endpoint-method"
-              class="px-2.5 py-0.5 rounded text-sm font-semibold uppercase bg-indigo-100 text-indigo-800"
+              class="px-2.5 py-0.5 rounded-sm text-sm font-semibold uppercase bg-indigo-100 text-indigo-800"
               >GET</span
             >
             <span id="endpoint-path" class="font-mono text-slate-700">/path</span>
@@ -155,10 +155,10 @@
       </div>
 
       <!-- Main Workspace Split layout -->
-      <div class="flex-grow grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
+      <div class="grow grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
         <!-- Left Sidebar: Version History (blame trail) & Comparison -->
         <div
-          class="lg:col-span-1 bg-white border border-slate-200 rounded-2xl p-5 flex flex-col shadow-sm max-h-[80vh] overflow-y-auto"
+          class="lg:col-span-1 bg-white border border-slate-200 rounded-2xl p-5 flex flex-col shadow-xs max-h-[80vh] overflow-y-auto"
         >
           <h2 class="text-md font-bold text-slate-800 mb-4 flex items-center gap-2">
             <svg
@@ -176,7 +176,7 @@
             </svg>
             Version History
           </h2>
-          <div id="versions-list-container" class="space-y-3 flex-grow overflow-y-auto pr-1">
+          <div id="versions-list-container" class="space-y-3 grow overflow-y-auto pr-1">
             <!-- Loaded versions dynamically -->
           </div>
 
@@ -203,19 +203,19 @@
                 <label class="block text-xs font-semibold text-slate-500 mb-1">From Version</label>
                 <select
                   id="diff-from"
-                  class="w-full border border-slate-300 rounded-lg p-2 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  class="w-full border border-slate-300 rounded-lg p-2 text-sm bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
                 ></select>
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-500 mb-1">To Version</label>
                 <select
                   id="diff-to"
-                  class="w-full border border-slate-300 rounded-lg p-2 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  class="w-full border border-slate-300 rounded-lg p-2 text-sm bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
                 ></select>
               </div>
               <button
                 id="compare-btn"
-                class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm rounded-lg shadow transition-colors flex items-center justify-center gap-2"
+                class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2"
               >
                 View Diff View
               </button>
@@ -225,7 +225,7 @@
 
         <!-- Right Main View Panel -->
         <div
-          class="lg:col-span-3 bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col overflow-hidden max-h-[80vh]"
+          class="lg:col-span-3 bg-white border border-slate-200 rounded-2xl shadow-xs flex flex-col overflow-hidden max-h-[80vh]"
         >
           <!-- Action Toolbar -->
           <div
@@ -234,7 +234,7 @@
             <div class="flex items-center gap-2 bg-slate-200/60 p-1 rounded-lg">
               <button
                 id="view-yaml-btn"
-                class="px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all bg-white text-slate-800 shadow-sm"
+                class="px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all bg-white text-slate-800 shadow-xs"
               >
                 YAML Spec
               </button>
@@ -251,7 +251,7 @@
               <label id="blame-toggle-container" class="inline-flex items-center cursor-pointer">
                 <input type="checkbox" id="blame-toggle" class="sr-only peer" />
                 <div
-                  class="relative w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"
+                  class="relative w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"
                 ></div>
                 <span class="ms-2 text-xs font-bold text-slate-600">Blame ON</span>
               </label>
@@ -293,7 +293,7 @@
           <!-- Viewer Area (completely scrollable) -->
           <div
             id="viewer-container"
-            class="flex-grow overflow-auto scrolling-container bg-slate-900 text-slate-100 font-mono text-xs p-4 leading-relaxed whitespace-pre select-text"
+            class="grow overflow-auto scrolling-container bg-slate-900 text-slate-100 font-mono text-xs p-4 leading-relaxed whitespace-pre select-text"
           >
             <!-- Content injected dynamically -->
           </div>

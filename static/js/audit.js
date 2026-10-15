@@ -73,21 +73,21 @@ function renderTimeline(logs) {
 
       return `
             <div class="timeline-item">
-                <div class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                <div class="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
                     <div class="p-3 flex flex-wrap items-center justify-between gap-4">
                         <div class="flex items-center flex-wrap gap-x-4 gap-y-2 flex-1">
                             <span class="text-[11px] font-mono text-slate-400 min-w-[100px]">${shortDate}</span>
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${actionColor}">${escapeHtml(log.action)}</span>
+                            <span class="px-2 py-0.5 rounded-sm text-[10px] font-bold uppercase tracking-wider ${actionColor}">${escapeHtml(log.action)}</span>
                             <span class="font-semibold text-sm text-slate-800">${escapeHtml(log.username)}</span>
                             <div class="flex items-center gap-2">
                                 ${
                                   log.service
-                                    ? `<span class="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded text-[10px] font-bold border border-indigo-100">${escapeHtml(log.service)}</span>`
+                                    ? `<span class="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-sm text-[10px] font-bold border border-indigo-100">${escapeHtml(log.service)}</span>`
                                     : ""
                                 }
                                 ${
                                   log.version
-                                    ? `<span class="px-2 py-0.5 bg-slate-50 text-slate-600 rounded text-[10px] font-mono border border-slate-100">${escapeHtml(log.version)}</span>`
+                                    ? `<span class="px-2 py-0.5 bg-slate-50 text-slate-600 rounded-sm text-[10px] font-mono border border-slate-100">${escapeHtml(log.version)}</span>`
                                     : ""
                                 }
                             </div>

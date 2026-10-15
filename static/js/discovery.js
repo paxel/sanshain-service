@@ -342,8 +342,8 @@ async function mountDiffView(container, options) {
               : ""
           }
           <div class="diff-layout-switch inline-flex rounded-md bg-slate-800 p-0.5">
-            <button type="button" data-layout="unified" class="diff-layout-btn px-2 py-0.5 rounded">Unified</button>
-            <button type="button" data-layout="split" class="diff-layout-btn px-2 py-0.5 rounded">Side by side</button>
+            <button type="button" data-layout="unified" class="diff-layout-btn px-2 py-0.5 rounded-sm">Unified</button>
+            <button type="button" data-layout="split" class="diff-layout-btn px-2 py-0.5 rounded-sm">Side by side</button>
           </div>
         </div>
       </div>

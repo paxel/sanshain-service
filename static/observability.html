@@ -90,7 +90,7 @@
           <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
         </nav>
         <div class="flex items-center justify-end gap-4 text-sm">
-          <span id="version-badge-desktop" class="hidden text-indigo-200 md:inline"></span>
+          <span id="version-badge-desktop" class="text-indigo-200 max-md:hidden"></span>
           <a
             id="banner-username"
             href="/account.html"
@@ -116,7 +116,7 @@
 
     <main class="container mx-auto flex-1 p-6 space-y-8">
       <!-- System Observability -->
-      <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+      <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
         <div class="flex justify-between items-center mb-6">
           <div>
             <h2 class="text-lg font-semibold text-slate-800">System Observability</h2>
@@ -207,7 +207,7 @@
                 id="toggle-debug-logic"
                 data-click="toggleDebug"
                 data-click-args='["logic"]'
-                class="relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none bg-slate-200"
+                class="relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-hidden bg-slate-200"
               >
                 <span
                   id="dot-debug-logic"
@@ -229,7 +229,7 @@
                 id="toggle-debug-admin"
                 data-click="toggleDebug"
                 data-click-args='["admin"]'
-                class="relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none bg-slate-200"
+                class="relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-hidden bg-slate-200"
               >
                 <span
                   id="dot-debug-admin"
@@ -250,7 +250,7 @@
               <select
                 id="log-filter"
                 data-change="renderLogs"
-                class="text-xs border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none"
+                class="text-xs border border-slate-300 rounded-sm px-2 py-1 bg-white focus:outline-hidden"
               >
                 <option value="ALL">All Levels</option>
                 <option value="INFO">Info & Up</option>
@@ -260,14 +260,14 @@
               <button
                 data-click="copyLogs"
                 title="Copy logs to clipboard"
-                class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded border border-slate-200 transition-colors"
+                class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded-sm border border-slate-200 transition-colors"
               >
                 📋 Copy
               </button>
               <button
                 data-click="downloadLogs"
                 title="Download logs as text file"
-                class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded border border-slate-200 transition-colors"
+                class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded-sm border border-slate-200 transition-colors"
               >
                 📥 Download
               </button>
@@ -308,7 +308,7 @@
                   type="checkbox"
                   id="audit-hide-rejections"
                   data-change="loadAuditLogs"
-                  class="rounded border-slate-300"
+                  class="rounded-sm border-slate-300"
                 />
                 <span>Hide rejected provides</span>
                 <span id="audit-rejection-note" class="text-slate-400 italic"></span>
@@ -317,7 +317,7 @@
             <div>
               <button
                 data-click="exportAuditLogs"
-                class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition-colors border border-indigo-700 shadow-sm flex items-center gap-1"
+                class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition-colors border border-indigo-700 shadow-xs flex items-center gap-1"
               >
                 📥 Export CSV
               </button>
