@@ -149,6 +149,15 @@ async function loadGraph() {
       console.warn("Could not load branches:", e);
     }
 
+    // The scope data (producers with version lines, harvested subscriptions)
+    // of the view and instant on screen — badges, the "(unrequired)" box and
+    // the harvested edges all read it.
+    window.graphScopeData = await graphFetchScopeData(
+      window.graphStreamView,
+      window.graphBranchName,
+      window.graphTimelineAt,
+    );
+
     lastGraphReport = report;
 
     const datalist = document.getElementById("graph-services-list");
@@ -166,7 +175,8 @@ async function loadGraph() {
       });
     }
 
-    if (report.dependency_graph.length === 0) {
+    const anyProducer = ((window.graphScopeData && window.graphScopeData.producers) || []).length;
+    if (report.dependency_graph.length === 0 && !anyProducer) {
       customSvg.classList.add("hidden");
       graphDiv.classList.remove("hidden");
       graphDiv.innerHTML =
@@ -329,6 +339,19 @@ async function renderGraph(report, detailed) {
     } else {
       mmd += `  class ${id} clientOnly\n`;
     }
+  }
+
+  // The "(unrequired)" box: one subgraph holding the scope's producers nobody
+  // requires and that require nothing.
+  const unrequired = report.unrequired || [];
+  if (unrequired.length > 0) {
+    mmd += "  classDef unrequired fill:#e0e7ff,stroke:#6366f1,stroke-width:1px,color:#3730a3\n";
+    mmd += '  subgraph unrequired_box["(unrequired)"]\n';
+    for (const p of [...unrequired].sort((a, b) => a.name.localeCompare(b.name))) {
+      mmd += `    ${sanitizeId(p.name)}["${withBadges(p.name, p.name)}"]\n`;
+    }
+    mmd += "  end\n";
+    for (const p of unrequired) mmd += `  class ${sanitizeId(p.name)} unrequired\n`;
   }
 
   let edgeIndex = 0;
@@ -550,6 +573,16 @@ document.getElementById("graph-download-png").onclick = () => {
         els.path.style.opacity = connected ? "1" : "0.08";
         els.path.style.transition = "opacity 0.2s";
       });
+    } else if (type === "unrequired") {
+      // The box itself stays lit; the graph around it steps back.
+      nodes.forEach((el) => {
+        el.style.opacity = "0.12";
+        el.style.transition = "opacity 0.2s";
+      });
+      edges.forEach((els) => {
+        els.path.style.opacity = "0.08";
+        els.path.style.transition = "opacity 0.2s";
+      });
     } else if (type === "edge-type" || type === "edge-flag") {
       const connectedNodes = new Set();
       edges.forEach((els, key) => {
@@ -607,6 +640,7 @@ function updateGraphUrl(push = false) {
   if (!window.graphProtocolFilters.asyncapi) hiddenProtocols.push("asyncapi");
   if (!window.graphProtocolFilters.proto) hiddenProtocols.push("proto");
   if (!window.graphProtocolFilters.periphery) hiddenProtocols.push("periphery");
+  if (!window.graphProtocolFilters.unrequired) hiddenProtocols.push("unrequired");
   const hide_protocols = hiddenProtocols.join(",");
 
   const highlights = [];
@@ -653,9 +687,10 @@ function restoreGraphFiltersFromUrl() {
     asyncapi: !hiddenSet.has("asyncapi"),
     proto: !hiddenSet.has("proto"),
     periphery: !hiddenSet.has("periphery"),
+    unrequired: !hiddenSet.has("unrequired"),
   };
 
-  ["openapi", "asyncapi", "proto", "periphery"].forEach((p) => {
+  ["openapi", "asyncapi", "proto", "periphery", "unrequired"].forEach((p) => {
     const btn = document.getElementById(`filter-${p}`);
     if (btn) {
       if (window.graphProtocolFilters[p]) {

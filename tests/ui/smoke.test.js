@@ -655,7 +655,9 @@ test.describe("Release-graph regressions (ai/improvements.md #28)", () => {
         const answer = { ok: true, json: async () => [{ marker: key }] };
         // The periphery of the instant (#46) is fetched after its pins; answer
         // it at once so only the pin responses are raced.
-        if (url.includes("/admin/periphery")) return Promise.resolve(answer);
+        // So is the scope data fetched beside it.
+        if (url.includes("/admin/periphery") || url.includes("/admin/graph/scope"))
+          return Promise.resolve(answer);
         return new Promise((resolve) => {
           resolvers[key] = () => resolve(answer);
         });
@@ -678,6 +680,7 @@ test.describe("Release-graph regressions (ai/improvements.md #28)", () => {
         window.graphTimelineAt = null;
         window.graphTimelinePins = null;
         window.graphScopePeriphery = null;
+        window.graphScopeData = null;
       }
     });
     // …and must not win — neither its pins nor its periphery.
@@ -946,14 +949,18 @@ test.describe("Diff views", () => {
     page,
   }) => {
     await login(page);
-    await page.goto(`/yaml.html?service=${BIG}&api_type=openapi&compare_version=1.0.0&version=1.1.0`);
+    await page.goto(
+      `/yaml.html?service=${BIG}&api_type=openapi&compare_version=1.0.0&version=1.1.0`,
+    );
     const view = page.locator("#viewer-container .diff-view");
 
     // Wide screen: side by side by default, one changed row.
     await expect(view).toHaveAttribute("data-layout", "split", { timeout: 20000 });
     await expect(view.locator(".diff-row")).toHaveCount(2600 + 15, { timeout: 20000 });
     await expect(view.locator('.diff-row[data-diff="change"]')).toHaveCount(1);
-    await expect(view.locator('.diff-row[data-diff="add"], .diff-row[data-diff="del"]')).toHaveCount(0);
+    await expect(
+      view.locator('.diff-row[data-diff="add"], .diff-row[data-diff="del"]'),
+    ).toHaveCount(0);
     await expect(view.locator('.diff-row[data-diff="change"] [data-side="new"]')).toContainText(
       "version: 1.1.0",
     );
@@ -974,11 +981,11 @@ test.describe("Diff views", () => {
     );
   });
 
-  test("yaml.html: Ignore whitespace hides re-indentation", async ({
-    page,
-  }) => {
+  test("yaml.html: Ignore whitespace hides re-indentation", async ({ page }) => {
     await login(page);
-    await page.goto(`/yaml.html?service=${WS}&api_type=openapi&compare_version=1.0.0&version=1.1.0`);
+    await page.goto(
+      `/yaml.html?service=${WS}&api_type=openapi&compare_version=1.0.0&version=1.1.0`,
+    );
     const view = page.locator("#viewer-container .diff-view");
     await expect(view).toHaveAttribute("data-layout", "split", { timeout: 20000 });
     const changed = view.locator('.diff-row:not([data-diff="ctx"])');
@@ -1013,13 +1020,12 @@ test.describe("Diff views", () => {
 
   // Copy writes the prefetched patch without fetching on click, so the
   // click's user activation is still valid when the clipboard is written.
-  test("Copy in diff mode writes the patch without a fetch on click", async ({
-    page,
-    context,
-  }) => {
+  test("Copy in diff mode writes the patch without a fetch on click", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await login(page);
-    await page.goto(`/yaml.html?service=${WS}&api_type=openapi&compare_version=1.0.0&version=1.1.0`);
+    await page.goto(
+      `/yaml.html?service=${WS}&api_type=openapi&compare_version=1.0.0&version=1.1.0`,
+    );
     await expect(page.locator("#viewer-container .diff-row").first()).toBeVisible({
       timeout: 20000,
     });
@@ -1040,7 +1046,9 @@ test.describe("Diff views", () => {
 
   test("Copy falls back to selecting the text when the clipboard refuses", async ({ page }) => {
     await login(page);
-    await page.goto(`/yaml.html?service=${WS}&api_type=openapi&compare_version=1.0.0&version=1.1.0`);
+    await page.goto(
+      `/yaml.html?service=${WS}&api_type=openapi&compare_version=1.0.0&version=1.1.0`,
+    );
     await expect(page.locator("#viewer-container .diff-row").first()).toBeVisible({
       timeout: 20000,
     });
@@ -1050,7 +1058,8 @@ test.describe("Diff views", () => {
       navigator.clipboard.writeText = () => Promise.reject(new Error("denied"));
       document.execCommand = (cmd) => {
         const el = document.activeElement;
-        window.__copied = cmd === "copy" && el ? el.value.slice(el.selectionStart, el.selectionEnd) : null;
+        window.__copied =
+          cmd === "copy" && el ? el.value.slice(el.selectionStart, el.selectionEnd) : null;
         return true;
       };
     });
@@ -1085,7 +1094,9 @@ test.describe("Diff views", () => {
     await login(page);
     await page.evaluate(() => localStorage.setItem("sanshain.diffLayout", "split"));
     await page.setViewportSize({ width: 375, height: 800 });
-    await page.goto(`/yaml.html?service=${WS}&api_type=openapi&compare_version=1.0.0&version=1.1.0`);
+    await page.goto(
+      `/yaml.html?service=${WS}&api_type=openapi&compare_version=1.0.0&version=1.1.0`,
+    );
     const view = page.locator("#viewer-container .diff-view");
     await expect(view).toHaveAttribute("data-layout", "unified", { timeout: 20000 });
     await expect(view.locator(".diff-layout-switch")).toBeHidden();
@@ -1135,7 +1146,11 @@ test.describe("Blame blocks", () => {
     ]) {
       await request.post("/provide", {
         headers: { Authorization: `Bearer ${token}` },
-        data: { producername: SERVICE, stability: "snapshot", openapi_yaml: spec(version, description) },
+        data: {
+          producername: SERVICE,
+          stability: "snapshot",
+          openapi_yaml: spec(version, description),
+        },
       });
     }
   });
@@ -1273,9 +1288,9 @@ test.describe("Graph without the BROKER node", () => {
     await expect(
       page.locator('#custom-graph path.graph-edge[data-edge-type="messaging-register"]'),
     ).toHaveCount(0);
-    await expect(page.locator('[data-legend-highlight="edge-type:messaging-register"]')).toHaveCount(
-      0,
-    );
+    await expect(
+      page.locator('[data-legend-highlight="edge-type:messaging-register"]'),
+    ).toHaveCount(0);
   });
 
   test("the mermaid renderer draws the same missing channel node", async ({ page }) => {
@@ -1483,9 +1498,7 @@ test.describe("Graph provides/requires badges", () => {
   };
   const node = (page, name) => page.locator(`#custom-graph g.graph-node[data-node="${name}"]`);
 
-  test("a REST service required by async providers shows no messaging badge", async ({
-    page,
-  }) => {
+  test("a REST service required by async providers shows no messaging badge", async ({ page }) => {
     await openGraph(page);
     const rest = node(page, REST);
     await expect(rest).toHaveCount(1, { timeout: 20000 });
@@ -1510,9 +1523,7 @@ test.describe("Graph provides/requires badges", () => {
     await expect(page.locator('#custom-graph g.graph-node[data-role^="tag-"]')).toHaveCount(0);
   });
 
-  test("badges sit on the top-right and bottom-left edges in a fixed order", async ({
-    page,
-  }) => {
+  test("badges sit on the top-right and bottom-left edges in a fixed order", async ({ page }) => {
     await openGraph(page);
     const a = node(page, ASYNC_A);
     await expect(a).toHaveCount(1, { timeout: 20000 });
@@ -1598,5 +1609,372 @@ test.describe("Graph provides/requires badges", () => {
     expect(code).toContain(`s7_grpc_svc["${GRPC}<br/>▲ gRPC"]`);
     const text = await page.locator("#mermaid-graph svg").textContent();
     expect(text.replace(/\s+/g, " ")).toContain("▲ MSG ▼ REST · gRPC");
+  });
+});
+
+test.describe("Graph (unrequired) box", () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+  const LONE = "s8-lone-svc"; // REST, trunk-provided, nobody requires it
+  const ASYNC = "s8-async-svc"; // messaging only, nobody requires it
+  const ISLAND = "s8-island-svc"; // nobody requires it, but has a resource
+  const STALE = "s8-stale-svc"; // required; once had a messaging line
+  const STALE_CONSUMER = "s8-stale-consumer";
+  const DEV_SUB = "s8-dev-subscriber"; // dev-only subscription to nobody
+  const DEV_CHANNEL = "s8.dev.only.events";
+  const HOTFIX = "s8-hotfix-svc"; // only a tag-flagged member of BRANCH
+  const BRANCH = "s8-rel";
+  const openapi = (title, version = "1.0.0") =>
+    [
+      "openapi: 3.0.3",
+      "info:",
+      `  title: ${title}`,
+      `  version: ${version}`,
+      "paths:",
+      "  /thing:",
+      "    get:",
+      "      responses:",
+      "        '200':",
+      "          description: OK",
+    ].join("\n");
+  const asyncapi = (title, channel, op = "publish") =>
+    [
+      "asyncapi: 2.6.0",
+      "info:",
+      `  title: ${title}`,
+      "  version: 0.3.0",
+      "channels:",
+      `  ${channel}:`,
+      `    ${op}:`,
+      "      message:",
+      `        name: ${title}Event`,
+      "        payload:",
+      "          type: object",
+    ].join("\n");
+
+  test.beforeAll(async ({ request }) => {
+    if (!adminPassword) {
+      throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
+    }
+    const login = await request.post("/auth/login", {
+      data: { username: "root", password: adminPassword },
+    });
+    const { token } = await login.json();
+    const headers = { Authorization: `Bearer ${token}` };
+    const ok = async (res, what) => {
+      if (!res.ok()) throw new Error(`${what} failed: ${res.status()} ${await res.text()}`);
+    };
+    await ok(
+      await request.post("/provide", {
+        headers,
+        data: {
+          producername: LONE,
+          stability: "ga",
+          openapi_yaml: openapi(LONE, "1.4.0"),
+          trunk: true,
+        },
+      }),
+      "provide LONE",
+    );
+    await ok(
+      await request.post("/provide/asyncapi", {
+        headers,
+        data: {
+          producername: ASYNC,
+          stability: "snapshot",
+          asyncapi_yaml: asyncapi("S8Async", "s8.async.events"),
+        },
+      }),
+      "provide ASYNC",
+    );
+    await ok(
+      await request.post("/provide", {
+        headers,
+        data: { producername: ISLAND, stability: "snapshot", openapi_yaml: openapi(ISLAND) },
+      }),
+      "provide ISLAND",
+    );
+    await ok(
+      await request.put(`/catalog/${ISLAND}`, {
+        headers,
+        data: {
+          catalog_info_yaml: [
+            "apiVersion: backstage.io/v1alpha1",
+            "kind: Component",
+            "metadata:",
+            `  name: ${ISLAND}`,
+            "spec:",
+            "  type: service",
+            "  dependsOn:",
+            "    - resource:s8-island-db",
+          ].join("\n"),
+        },
+      }),
+      "catalog push",
+    );
+    // STALE's messaging line is deleted: only the sticky service tag remains.
+    await ok(
+      await request.post("/provide", {
+        headers,
+        data: { producername: STALE, stability: "snapshot", openapi_yaml: openapi(STALE) },
+      }),
+      "provide STALE",
+    );
+    await ok(
+      await request.post("/provide/asyncapi", {
+        headers,
+        data: {
+          producername: STALE,
+          stability: "snapshot",
+          asyncapi_yaml: asyncapi("S8Stale", "s8.stale.events"),
+        },
+      }),
+      "provide STALE messaging",
+    );
+    await ok(
+      await request.delete(`/admin/producers/${STALE}/versions/asyncapi/0.3.0`, { headers }),
+      "delete STALE messaging",
+    );
+    await ok(
+      await request.get(
+        `/require?consumername=${STALE_CONSUMER}&producername=${STALE}&version=1.0.0&path=/thing&method=GET&trunk=true`,
+        { headers },
+      ),
+      "require STALE",
+    );
+    // A dev-only (not trunk-flagged) subscription to a channel nobody owns.
+    await ok(
+      await request.post("/provide/asyncapi", {
+        headers,
+        data: {
+          producername: DEV_SUB,
+          stability: "snapshot",
+          asyncapi_yaml: asyncapi("S8DevSub", DEV_CHANNEL, "subscribe"),
+        },
+      }),
+      "provide DEV_SUB",
+    );
+    // A branch whose only own producer is a tag-flagged messaging hotfix.
+    await ok(
+      await request.post("/admin/branches", { headers, data: { name: BRANCH } }),
+      "create branch",
+    );
+    await ok(
+      await request.post("/provide/asyncapi", {
+        headers,
+        data: {
+          producername: HOTFIX,
+          stability: "ga",
+          asyncapi_yaml: asyncapi("S8Hotfix", "s8.hotfix.events"),
+          tag: BRANCH,
+        },
+      }),
+      "tagged provide HOTFIX",
+    );
+  });
+
+  const openGraph = async (page, query = "") => {
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await page.goto(`/graph.html${query}`);
+    await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
+  };
+  const box = (page) => page.locator("#custom-graph #graph-unrequired-box");
+  const chip = (page, name) =>
+    page.locator(`#custom-graph g.graph-unrequired-chip[data-chip="${name}"]`);
+  const node = (page, name) => page.locator(`#custom-graph g.graph-node[data-node="${name}"]`);
+
+  test("unrequired producers are chips in one box, not loose nodes", async ({ page }) => {
+    await openGraph(page);
+    await expect(chip(page, LONE)).toHaveCount(1, { timeout: 20000 });
+    await expect(box(page)).toHaveCount(1);
+    await expect(box(page)).toContainText("(unrequired)");
+    await expect(chip(page, ASYNC)).toHaveCount(1);
+    await expect(node(page, LONE)).toHaveCount(0);
+    // A producer with a resource edge stays a normal node.
+    await expect(node(page, ISLAND)).toHaveCount(1);
+    await expect(chip(page, ISLAND)).toHaveCount(0);
+    await expect(page.locator("#graph-legend-unrequired")).toBeVisible();
+  });
+
+  test("a chip click opens the node panel with its version lines", async ({ page }) => {
+    await openGraph(page);
+    await chip(page, LONE).click();
+    const tooltip = page.locator("#graph-tooltip");
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toContainText(LONE);
+    await expect(tooltip.locator('[data-panel="versions"]')).toHaveText("openapi 1.4.0 ga");
+    await expect(tooltip.locator('[data-panel="last-provided"]')).toContainText("last provided 20");
+    await expect(tooltip.locator('[data-panel="provides"]')).toContainText("REST");
+  });
+
+  test("the node panel shows derived provides/requires, not stale tags", async ({ page }) => {
+    await openGraph(page);
+    await expect(node(page, STALE)).toHaveCount(1, { timeout: 20000 });
+    await node(page, STALE).hover();
+    const tooltip = page.locator("#graph-tooltip");
+    await expect(tooltip.locator('[data-panel="provides"]')).toHaveText(/Provides\s*REST$/);
+    await expect(tooltip).not.toContainText("messaging");
+    await node(page, STALE_CONSUMER).hover();
+    await expect(tooltip.locator('[data-panel="requires"]')).toContainText("REST");
+  });
+
+  test("the Unrequired switch hides the box and is remembered in the URL", async ({ page }) => {
+    await openGraph(page);
+    await expect(box(page)).toHaveCount(1, { timeout: 20000 });
+    await page.click("#filter-unrequired");
+    await expect(box(page)).toHaveCount(0);
+    expect(page.url()).toContain("hide_protocols=unrequired");
+    await page.goto("/graph.html?hide_protocols=unrequired");
+    await expect(node(page, ISLAND)).toHaveCount(1, { timeout: 20000 });
+    await expect(box(page)).toHaveCount(0);
+    await expect(page.locator("#filter-unrequired")).toHaveClass(/bg-white/);
+  });
+
+  test("protocol, focus and circular filters narrow the box", async ({ page }) => {
+    await openGraph(page);
+    await expect(chip(page, ASYNC)).toHaveCount(1, { timeout: 20000 });
+    await page.click("#filter-asyncapi");
+    await expect(chip(page, ASYNC)).toHaveCount(0);
+    await expect(chip(page, LONE)).toHaveCount(1);
+    await page.click("#filter-asyncapi");
+    await page.fill("#graph-service-filter", LONE);
+    await page.press("#graph-service-filter", "Enter");
+    await expect(chip(page, ASYNC)).toHaveCount(0);
+    await expect(chip(page, LONE)).toHaveCount(1);
+    await page.click("#graph-redraw-circular");
+    await expect(box(page)).toHaveCount(0);
+  });
+
+  test("the box sits at the end of the flow in both directions", async ({ page }) => {
+    await openGraph(page);
+    await expect(box(page)).toHaveCount(1, { timeout: 20000 });
+    const measure = () =>
+      page.evaluate(() => {
+        const frame = document.querySelector("#graph-unrequired-box rect");
+        const nodes = [...document.querySelectorAll("#custom-graph g.graph-node > rect")];
+        return {
+          boxX: +frame.getAttribute("x"),
+          boxY: +frame.getAttribute("y"),
+          maxRight: Math.max(...nodes.map((r) => +r.getAttribute("x") + +r.getAttribute("width"))),
+          maxBottom: Math.max(
+            ...nodes.map((r) => +r.getAttribute("y") + +r.getAttribute("height")),
+          ),
+        };
+      });
+    const tb = await measure();
+    expect(tb.boxY).toBeGreaterThan(tb.maxBottom);
+    await page.click("#graph-direction-toggle");
+    await expect(page.locator("#graph-direction-label")).toHaveText("Horizontal");
+    const lr = await measure();
+    expect(lr.boxX).toBeGreaterThan(lr.maxRight);
+  });
+
+  test("islands pack into empty space without growing the graph", async ({ page }) => {
+    await openGraph(page);
+    await expect(node(page, ISLAND)).toHaveCount(1, { timeout: 20000 });
+    const packed = await page.evaluate(() => {
+      const box = { minX: 0, minY: 0, maxX: 1000, maxY: 600 };
+      // The left half is taken; the right half is free.
+      const obstacles = [{ x0: 0, y0: 0, x1: 450, y1: 600 }];
+      const inside = graphPackIslands(box, obstacles, [{ w: 200, h: 100 }], false);
+      const many = graphPackIslands(
+        box,
+        [{ x0: 0, y0: 0, x1: 1000, y1: 600 }],
+        [
+          { w: 400, h: 100 },
+          { w: 400, h: 100 },
+          { w: 400, h: 100 },
+        ],
+        false,
+      );
+      const lr = graphPackIslands(
+        box,
+        [{ x0: 0, y0: 0, x1: 1000, y1: 600 }],
+        [
+          { w: 100, h: 250 },
+          { w: 100, h: 250 },
+          { w: 100, h: 250 },
+        ],
+        true,
+      );
+      return { inside, many, lr };
+    });
+    expect(packed.inside[0].x).toBeGreaterThanOrEqual(480);
+    expect(packed.inside[0].x + 200).toBeLessThanOrEqual(1000);
+    expect(packed.inside[0].y + 100).toBeLessThanOrEqual(600);
+    // Overflow goes below (TB) / right (LR), never wider / taller.
+    for (const p of packed.many) {
+      expect(p.y).toBeGreaterThan(600);
+      expect(p.x + 400).toBeLessThanOrEqual(1000);
+    }
+    for (const p of packed.lr) {
+      expect(p.x).toBeGreaterThan(1000);
+      expect(p.y + 250).toBeLessThanOrEqual(600);
+    }
+    // In the real graph the island overlaps no other node.
+    const overlaps = await page.evaluate((island) => {
+      const rectOf = (g) => {
+        const r = g.querySelector("rect");
+        const x = +r.getAttribute("x");
+        const y = +r.getAttribute("y");
+        return {
+          x0: x,
+          y0: y,
+          x1: x + +r.getAttribute("width"),
+          y1: y + +r.getAttribute("height"),
+        };
+      };
+      const all = [...document.querySelectorAll("#custom-graph g.graph-node")];
+      const own = rectOf(all.find((g) => g.dataset.node === island));
+      return all
+        .filter((g) => g.dataset.node !== island)
+        .map(rectOf)
+        .filter((o) => o.x0 < own.x1 && own.x0 < o.x1 && o.y0 < own.y1 && own.y0 < o.y1).length;
+    }, ISLAND);
+    expect(overlaps).toBe(0);
+  });
+
+  test("the mermaid renderer draws the box as a subgraph", async ({ page }) => {
+    await openGraph(page);
+    await expect(chip(page, LONE)).toHaveCount(1, { timeout: 20000 });
+    await page.click("#graph-mode-mermaid");
+    await expect(page.locator("#mermaid-graph svg")).toContainText("(unrequired)", {
+      timeout: 20000,
+    });
+    const code = await page.evaluate(() => lastMermaidCode);
+    expect(code).toContain('subgraph unrequired_box["(unrequired)"]');
+    expect(code).toContain(`s8_lone_svc["${LONE}<br/>▲ REST"]`);
+    expect(code).toContain("class s8_lone_svc unrequired");
+  });
+
+  test("main replaces the injected trunk producers and scopes subscriptions", async ({ page }) => {
+    await openGraph(page);
+    // Dev: the dev-only subscription points at its missing channel node.
+    await expect(node(page, `${DEV_CHANNEL} ?`)).toHaveCount(1, { timeout: 20000 });
+    await page.click("#stream-main");
+    await expect(chip(page, LONE)).toHaveCount(1, { timeout: 20000 });
+    await expect(node(page, LONE)).toHaveCount(0);
+    // Not trunk-provided: not in main's box.
+    await expect(chip(page, ASYNC)).toHaveCount(0);
+    // Not trunk-flagged: not in main at all.
+    await expect(node(page, `${DEV_CHANNEL} ?`)).toHaveCount(0);
+    await expect(node(page, DEV_SUB)).toHaveCount(0);
+  });
+
+  test("a branch's own members are chips with their scoped lines", async ({ page }) => {
+    await openGraph(page);
+    await expect(box(page)).toHaveCount(1, { timeout: 20000 });
+    await page.selectOption("#graph-branch-select", BRANCH);
+    await expect(chip(page, HOTFIX)).toHaveCount(1, { timeout: 20000 });
+    await expect(chip(page, LONE)).toHaveCount(0);
+    await chip(page, HOTFIX).click();
+    await expect(page.locator('#graph-tooltip [data-panel="versions"]')).toHaveText(
+      "asyncapi 0.3.0 ga",
+    );
+    await expect(page.locator('#graph-tooltip [data-panel="provides"]')).toContainText("MSG");
   });
 });

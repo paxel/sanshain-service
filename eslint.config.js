@@ -52,6 +52,7 @@ export default [
         graphLatestGaMap: "readonly",
         graphPeripheralLabel: "readonly",
         graphNodeBadges: "readonly",
+        graphFetchScopeData: "readonly",
         graphBadgeLine: "readonly",
         hasPermission: "readonly",
         loadTimeline: "readonly",

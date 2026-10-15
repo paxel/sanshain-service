@@ -284,6 +284,15 @@
               >
                 Periphery
               </button>
+              <button
+                id="filter-unrequired"
+                class="px-2.5 py-1.5 bg-indigo-600 text-white font-medium"
+                data-click="toggleProtocolFilter"
+                data-click-args='["unrequired"]'
+                title="Show the (unrequired) box: producers of this view nobody requires and that require nothing"
+              >
+                Unrequired
+              </button>
             </div>
             <!-- Independent highlight toggles: Outdated (Pin below the
                      line's latest GA) and Snapshot-pinned (Pin served from a
@@ -650,6 +659,17 @@
                   </g>
                 </svg>
                 <span>Periphery</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="unrequired:box"
+                id="graph-legend-unrequired"
+              >
+                <span
+                  class="w-4 h-3 rounded"
+                  style="background: #f8fafc; border: 1.5px dashed #94a3b8"
+                ></span>
+                <span>(unrequired): nobody requires them, they require nothing</span>
               </div>
               <div class="pt-2 border-t border-slate-100" id="graph-legend-badges">
                 <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">

@@ -17,6 +17,9 @@ window.graphProtocolFilters = {
   proto: true,
   // Peripheral Resources (#46) — shown by default, hideable like a protocol.
   periphery: true,
+  // The "(unrequired)" box: producers of the scope nobody requires and that
+  // require nothing — shown by default, hideable like a protocol.
+  unrequired: true,
 };
 // Independent display-state highlights (never resolution inputs):
 // outdated = Pin below the line's latest GA within the same major;
@@ -43,6 +46,10 @@ window.graphUserPermissions = [];
 // Periphery (#46) of the main/branch view at the timeline position, fetched
 // per scope; the dev view reads the report's own set instead.
 window.graphScopePeriphery = null;
+// The scope's producers with their version lines and its harvested
+// subscriptions at the timeline position (GET /admin/graph/scope), fetched per
+// view and instant like the periphery.
+window.graphScopeData = null;
 
 // A Peripheral Resource node is keyed by its full Backstage ref; it is shown
 // as `name`, or `namespace/name` outside the default namespace.
@@ -67,6 +74,23 @@ async function graphFetchScopePeriphery(view, branchName, at) {
     return [];
   }
 }
+
+// Fetch the scope data of the current view at the current timeline position:
+// its producers with their version lines, and its harvested subscriptions
+// (dev = all, live main = trunk-flagged, anything else = none).
+async function graphFetchScopeData(view, branchName, at) {
+  let scope = view === "dev" ? "dev" : view === "main" ? "main" : branchName;
+  if (at && view !== "dev") scope += `@${at}`;
+  const empty = { producers: [], harvested_subscriptions: [] };
+  try {
+    const res = await apiCall(`/admin/graph/scope?scope=${encodeURIComponent(scope)}`);
+    return res.ok ? await res.json() : empty;
+  } catch (e) {
+    console.warn("Could not load the graph scope:", e);
+    return empty;
+  }
+}
+window.graphFetchScopeData = graphFetchScopeData;
 
 // Per (service, api_type): the newest trunk-marked version of the line —
 // what the main view labels producers with and checks conflicts against.
@@ -302,12 +326,11 @@ function graphBadgeKind(apiType) {
 
 // Per node: what it provides and how it requires others, derived live for
 // the current view and instant — the sticky service_tags table plays no part.
-// Provides come from the producer's version lines in the view's scope: dev =
-// any line, live main = trunk-provided lines. Main at a past instant and
-// branch views have no scoped version lines on the client yet, so there a
-// producer provides what the scope's pins and harvested subscriptions require
-// of it. Requires come from the node's own outgoing edges (harvested
-// subscriptions are messaging); Peripheral Resources provide the hexagon.
+// Provides come from the producer's version lines in the view's scope at the
+// viewed instant (GET /admin/graph/scope): dev = every line, main = trunk's
+// member versions, a branch = its member and pinned versions. Requires come
+// from the node's own outgoing edges (harvested subscriptions are messaging);
+// Peripheral Resources provide the hexagon.
 // Returns Map node -> { provides: [...], requires: [...] }.
 function graphNodeBadges(report, deps) {
   const provides = new Map();
@@ -317,24 +340,15 @@ function graphNodeBadges(report, deps) {
     if (!map.has(node)) map.set(node, new Set());
     map.get(node).add(kind);
   };
-  const view = window.graphStreamView || "dev";
-  const fromVersionLines = view === "dev" || (view === "main" && !window.graphTimelineAt);
-  if (fromVersionLines) {
-    (report.services_detailed || []).forEach((svc) => {
-      (svc.versions || []).forEach((v) => {
-        if (view === "main" && !v.trunk_provided_at) return;
-        add(provides, svc.name, graphBadgeKind(v.api_type));
-      });
-    });
-  }
+  ((window.graphScopeData && window.graphScopeData.producers) || []).forEach((p) => {
+    (p.versions || []).forEach((v) => add(provides, p.name, graphBadgeKind(v.api_type)));
+  });
   deps.forEach((d) => {
     if (d.peripheral) {
       add(provides, d.service, "resource");
       return;
     }
-    const kind = graphBadgeKind(d.api_type);
-    add(requires, d.client, kind);
-    if (!fromVersionLines && !d.unfulfilled) add(provides, d.service, kind);
+    add(requires, d.client, graphBadgeKind(d.api_type));
   });
   const ordered = (set) =>
     set ? [...GRAPH_BADGE_ORDER, "resource"].filter((k) => set.has(k)) : [];
@@ -419,6 +433,53 @@ function graphUnownedChannelNode(channel) {
 }
 window.graphUnownedChannelNode = graphUnownedChannelNode;
 
+// The "(unrequired)" box members: producers of the scope with no service edge
+// (nobody requires them, they require nothing, no harvested subscription) and
+// no resource edge. `deps` must be the scope's edges before any filter, or
+// hiding a protocol would push its producers into the box.
+function graphUnrequiredMembers(producers, deps) {
+  const connected = new Set();
+  deps.forEach((d) => {
+    connected.add(d.client);
+    if (!d.peripheral) connected.add(d.service);
+  });
+  return (producers || []).filter((p) => !connected.has(p.name));
+}
+window.graphUnrequiredMembers = graphUnrequiredMembers;
+
+// A chip's version-line line: "openapi 1.4.0 ga · asyncapi 0.3.0 snapshot".
+function graphVersionLinesText(versions) {
+  return (versions || [])
+    .map((v) => `${v.api_type} ${v.version} ${v.stability || "deleted"}`)
+    .join(" · ");
+}
+window.graphVersionLinesText = graphVersionLinesText;
+
+// When a producer was last provided: the latest of its lines' provides.
+function graphLastProvided(versions) {
+  const stamps = (versions || []).map((v) => v.last_provided_at).filter(Boolean);
+  return stamps.length ? stamps.sort().pop() : null;
+}
+window.graphLastProvided = graphLastProvided;
+
+// The node panel's provides/requires rows, from the same badges the renderer
+// draws (never from the sticky service_tags table).
+function graphBadgeSummaryHtml(badges) {
+  const label = (k) => (k === "resource" ? "Resource" : GRAPH_BADGE_LABELS[k]);
+  const row = (title, kinds, solid) =>
+    kinds.length
+      ? `<div class="flex flex-wrap items-center gap-1.5 mt-1" data-panel="${title.toLowerCase()}"><span class="text-[10px] text-slate-400 w-14">${title}</span>${kinds
+          .map(
+            (k) =>
+              `<span class="px-1.5 py-0.5 rounded text-[10px] ${solid ? "bg-slate-200 text-slate-900" : "bg-slate-800 text-slate-200 border border-slate-500"}">${_graphEscapeHtml(label(k))}</span>`,
+          )
+          .join("")}</div>`
+      : "";
+  const b = badges || { provides: [], requires: [] };
+  return row("Provides", b.provides, true) + row("Requires", b.requires, false);
+}
+window.graphBadgeSummaryHtml = graphBadgeSummaryHtml;
+
 function getFilteredReport(report) {
   if (!report) return null;
   let deps = [...(report.dependency_graph || [])];
@@ -466,12 +527,12 @@ function getFilteredReport(report) {
   }
 
   // Harvested AsyncAPI subscriptions (#6/ADR-0006): version-less consumer edges.
-  // The server already scopes them to match the view (dev = all, main =
-  // trunk-only, branch/other = none), so append them to whichever deps we
-  // built. A subscription with no resolved owner (nobody provides the channel
+  // The scope data carries them scoped by the server to match the view (dev =
+  // all, live main = trunk-only, anything else = none), so append them to
+  // whichever deps we built. A subscription with no resolved owner (nobody provides the channel
   // yet) points at a missing node named after the channel, so the pending
   // consumption stays visible and every subscriber of that channel meets there.
-  (report.harvested_subscriptions || []).forEach((h) => {
+  ((window.graphScopeData && window.graphScopeData.harvested_subscriptions) || []).forEach((h) => {
     deps.push({
       api_type: "asyncapi",
       client: h.client,
@@ -506,6 +567,13 @@ function getFilteredReport(report) {
     });
   });
 
+  // The "(unrequired)" box, decided on the scope's unfiltered edges; the
+  // filters below then narrow its members on their own terms.
+  let unrequired = graphUnrequiredMembers(
+    window.graphScopeData && window.graphScopeData.producers,
+    deps,
+  );
+
   // 1. Circular dependencies filter
   if (window.graphRedrawMode === "circular") {
     const adjMap = new Map();
@@ -522,11 +590,18 @@ function getFilteredReport(report) {
     });
     // Only keep edges where BOTH nodes are in a cycle
     deps = deps.filter((d) => cycleNodes.has(d.client) && cycleNodes.has(d.service));
+    // Nothing in the box is part of a cycle.
+    unrequired = [];
   }
 
   // 2. Focus filter (multi-service tag cloud)
   if (window.graphFocusTags && window.graphFocusTags.length > 0) {
     const focusNodes = new Set();
+    const tags = window.graphFocusTags.map((t) => t.toLowerCase());
+    // The box keeps only the members a focus tag names; a named member also
+    // narrows the edges like any other focused node.
+    unrequired = unrequired.filter((p) => tags.includes(p.name.toLowerCase()));
+    unrequired.forEach((p) => focusNodes.add(p.name));
     for (const tag of window.graphFocusTags) {
       const target = tag.toLowerCase();
       const exactMatch = deps.find(
@@ -556,8 +631,13 @@ function getFilteredReport(report) {
     if (type === "periphery" && !window.graphProtocolFilters.periphery) return false;
     return true;
   });
+  // A member stays while any of its API types is shown.
+  unrequired = unrequired.filter((p) =>
+    (p.versions || []).some((v) => window.graphProtocolFilters[v.api_type] !== false),
+  );
+  if (!window.graphProtocolFilters.unrequired) unrequired = [];
 
-  return { ...report, dependency_graph: deps, missing_endpoints: missing };
+  return { ...report, dependency_graph: deps, missing_endpoints: missing, unrequired };
 }
 window.getFilteredReport = getFilteredReport;
 
@@ -603,15 +683,21 @@ function setStreamView(view) {
   window.graphTimelineAt = null;
   window.graphTimelinePins = null;
   window.graphScopePeriphery = null;
+  window.graphScopeData = null;
   // A view switch outdates every timeline/periphery request still in flight.
   const token = (window._graphTimelineToken || 0) + 1;
   window._graphTimelineToken = token;
   initTimelineSlider();
   refreshTimeline();
-  redrawGraph();
-  graphFetchScopePeriphery(view, window.graphBranchName, null).then((periphery) => {
+  // One redraw once the scope's periphery and producers are both in: drawing
+  // the pins first would show the box and badges of no scope at all.
+  Promise.all([
+    graphFetchScopePeriphery(view, window.graphBranchName, null),
+    graphFetchScopeData(view, window.graphBranchName, null),
+  ]).then(([periphery, scopeData]) => {
     if (token !== window._graphTimelineToken) return;
     window.graphScopePeriphery = periphery;
+    window.graphScopeData = scopeData;
     redrawGraph();
   });
 }
@@ -656,18 +742,17 @@ async function setTimelinePosition(at) {
   if (at === null) {
     const token = (window._graphTimelineToken || 0) + 1;
     window._graphTimelineToken = token;
-    window.graphTimelineAt = null;
-    window.graphTimelinePins = null;
     slider.value = slider.max;
     label.textContent = "now";
-    redrawGraph();
-    const periphery = await graphFetchScopePeriphery(
-      window.graphStreamView,
-      window.graphBranchName,
-      null,
-    );
+    const [periphery, scopeData] = await Promise.all([
+      graphFetchScopePeriphery(window.graphStreamView, window.graphBranchName, null),
+      graphFetchScopeData(window.graphStreamView, window.graphBranchName, null),
+    ]);
     if (token !== window._graphTimelineToken) return;
+    window.graphTimelineAt = null;
+    window.graphTimelinePins = null;
     window.graphScopePeriphery = periphery;
+    window.graphScopeData = scopeData;
     redrawGraph();
     return;
   }
@@ -689,11 +774,15 @@ async function setTimelinePosition(at) {
     if (!res.ok || token !== window._graphTimelineToken) return;
     const pins = await res.json();
     if (token !== window._graphTimelineToken) return;
-    const periphery = await graphFetchScopePeriphery(view, window.graphBranchName, at);
+    const [periphery, scopeData] = await Promise.all([
+      graphFetchScopePeriphery(view, window.graphBranchName, at),
+      graphFetchScopeData(view, window.graphBranchName, at),
+    ]);
     if (token !== window._graphTimelineToken) return;
     window.graphTimelinePins = pins;
     window.graphTimelineAt = at;
     window.graphScopePeriphery = periphery;
+    window.graphScopeData = scopeData;
     redrawGraph();
   } catch (e) {
     console.warn("Could not load the graph at that instant:", e);
@@ -942,14 +1031,207 @@ function graphDetectCycles(adjMap) {
   return cycleEdges;
 }
 
+// ── Islands and the "(unrequired)" box ──────────────────────────────
+
+// Cubic Bezier control points of an edge from p0 to p1, rank-axis aware.
+//  - Normal cross-rank edges: control points pulled along the rank axis (Y in
+//    TB, X in LR) so curves leave/enter nodes perpendicular to their border —
+//    a smooth "river" flow.
+//  - Same-rank / reverse edges (tiny rank delta): S-curve that bows sideways
+//    along the flow axis so arrows don't cut through nodes.
+function graphEdgeControls(p0, p1, F, R) {
+  const dF = p1[F] - p0[F];
+  const dR = p1[R] - p0[R];
+  const absDR = Math.abs(dR);
+  const c1 = { x: p0.x, y: p0.y };
+  const c2 = { x: p1.x, y: p1.y };
+  if (absDR < 30) {
+    const bow = Math.max(40, Math.abs(dF) * 0.3);
+    const sign = dF >= 0 ? 1 : -1;
+    c1[F] = p0[F] + sign * bow;
+    c2[F] = p1[F] - sign * bow;
+    c1[R] = p0[R] + bow * 0.6;
+    c2[R] = p1[R] + bow * 0.6;
+  } else {
+    const tension = Math.min(Math.max(absDR * 0.5, 40), 140);
+    const dir = dR >= 0 ? 1 : -1;
+    c1[R] = p0[R] + dir * tension;
+    c2[R] = p1[R] - dir * tension;
+  }
+  return { c1, c2 };
+}
+
+// Disconnected islands: connected groups of nodes whose every edge is a
+// resource edge — a system nobody requires and that requires nothing, with
+// its Peripheral Resources. Returns one array of node names per island.
+function graphIslands(nodes, deps) {
+  const parent = new Map();
+  const find = (n) => {
+    while (parent.get(n) !== n) {
+      parent.set(n, parent.get(parent.get(n)));
+      n = parent.get(n);
+    }
+    return n;
+  };
+  nodes.forEach((n) => parent.set(n, n));
+  deps.forEach((d) => {
+    if (!parent.has(d.client) || !parent.has(d.service)) return;
+    parent.set(find(d.client), find(d.service));
+  });
+  const groups = new Map();
+  nodes.forEach((n) => {
+    const root = find(n);
+    if (!groups.has(root)) groups.set(root, { nodes: [], allPeripheral: true });
+    groups.get(root).nodes.push(n);
+  });
+  deps.forEach((d) => {
+    if (!d.peripheral && parent.has(d.client)) groups.get(find(d.client)).allPeripheral = false;
+  });
+  return [...groups.values()]
+    .filter((grp) => grp.allPeripheral && grp.nodes.length > 1)
+    .map((grp) => grp.nodes.sort());
+}
+window.graphIslands = graphIslands;
+
+// Pack islands ({w, h}) into the empty areas of the main graph's bounding box
+// (`box` = {minX, minY, maxX, maxY}, or null when there is no main graph),
+// avoiding the `obstacles` rects ({x0, y0, x1, y1}). Islands that do not fit
+// go to the end of the flow — below in TB, right in LR — wrapped inside the
+// box's width (TB) / height (LR), so the graph never grows across the flow.
+// Returns the top-left {x, y} of every island, in input order.
+function graphPackIslands(box, obstacles, islands, isLR) {
+  const CELL = 10;
+  const MARGIN = 30;
+  const widest = Math.max(0, ...islands.map((i) => i.w));
+  const tallest = Math.max(0, ...islands.map((i) => i.h));
+  const frame = box || {
+    minX: 0,
+    minY: 0,
+    maxX: isLR ? 0 : Math.max(widest, 900),
+    maxY: isLR ? Math.max(tallest, 600) : 0,
+  };
+  const cols = Math.max(0, Math.floor((frame.maxX - frame.minX) / CELL));
+  const rows = Math.max(0, Math.floor((frame.maxY - frame.minY) / CELL));
+  const used = new Uint8Array(cols * rows);
+  const mark = (x0, y0, x1, y1) => {
+    const c0 = Math.max(0, Math.floor((x0 - frame.minX) / CELL));
+    const c1 = Math.min(cols - 1, Math.floor((x1 - frame.minX) / CELL));
+    const r0 = Math.max(0, Math.floor((y0 - frame.minY) / CELL));
+    const r1 = Math.min(rows - 1, Math.floor((y1 - frame.minY) / CELL));
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) used[r * cols + c] = 1;
+  };
+  obstacles.forEach((o) => mark(o.x0 - MARGIN, o.y0 - MARGIN, o.x1 + MARGIN, o.y1 + MARGIN));
+  const fits = (r0, c0, rh, cw) => {
+    for (let r = r0; r < r0 + rh; r++)
+      for (let c = c0; c < c0 + cw; c++) if (used[r * cols + c]) return false;
+    return true;
+  };
+  const positions = new Array(islands.length).fill(null);
+  const order = islands
+    .map((_, i) => i)
+    .sort((a, b) => islands[b].w * islands[b].h - islands[a].w * islands[a].h);
+  const overflow = [];
+  if (box) {
+    for (const i of order) {
+      const cw = Math.ceil(islands[i].w / CELL);
+      const rh = Math.ceil(islands[i].h / CELL);
+      let spot = null;
+      for (let r = 0; r + rh <= rows && !spot; r++)
+        for (let c = 0; c + cw <= cols && !spot; c++) if (fits(r, c, rh, cw)) spot = { r, c };
+      if (!spot) {
+        overflow.push(i);
+        continue;
+      }
+      const x = frame.minX + spot.c * CELL;
+      const y = frame.minY + spot.r * CELL;
+      positions[i] = { x, y };
+      mark(x - MARGIN, y - MARGIN, x + islands[i].w + MARGIN, y + islands[i].h + MARGIN);
+    }
+  } else {
+    overflow.push(...islands.map((_, i) => i));
+  }
+  // The end of the flow, wrapped inside the frame across the flow.
+  overflow.sort((a, b) => a - b);
+  const GAP = 60;
+  let along = isLR ? (box ? frame.maxX + 80 : 0) : box ? frame.maxY + 80 : 0;
+  let across = isLR ? frame.minY : frame.minX;
+  let lane = 0;
+  const limit = isLR ? frame.maxY : frame.maxX;
+  overflow.forEach((i) => {
+    const size = isLR ? islands[i].h : islands[i].w;
+    const depth = isLR ? islands[i].w : islands[i].h;
+    const start = isLR ? frame.minY : frame.minX;
+    if (across > start && across + size > limit) {
+      along += lane + GAP;
+      across = start;
+      lane = 0;
+    }
+    positions[i] = isLR ? { x: along, y: across } : { x: across, y: along };
+    across += size + GAP;
+    lane = Math.max(lane, depth);
+  });
+  return positions;
+}
+window.graphPackIslands = graphPackIslands;
+
+// The "(unrequired)" box at the end of the flow — below the graph in TB,
+// right of it in LR — with one compact chip per member in a dense grid:
+// as wide as the graph in TB, as tall as the graph in LR.
+// `extent` = {minX, minY, maxX, maxY} of everything drawn before it.
+function graphLayoutUnrequiredBox(names, extent, isLR) {
+  const CHIP_H = 26;
+  const GAP = 8;
+  const PAD = 12;
+  const HEADER = 26;
+  const longest = Math.max(0, ...names.map((n) => n.length));
+  const cellW = Math.min(220, Math.max(90, longest * 7 + 20));
+  const e = extent || { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  let cols;
+  let x;
+  let y;
+  if (isLR) {
+    const height = Math.max(e.maxY - e.minY, HEADER + CHIP_H + 2 * PAD);
+    const rows = Math.max(
+      1,
+      Math.min(names.length, Math.floor((height - HEADER - 2 * PAD + GAP) / (CHIP_H + GAP))),
+    );
+    cols = Math.ceil(names.length / rows);
+    x = e.maxX + 80;
+    y = e.minY;
+  } else {
+    const width = Math.max(e.maxX - e.minX, cellW + 2 * PAD);
+    cols = Math.max(1, Math.min(names.length, Math.floor((width - 2 * PAD + GAP) / (cellW + GAP))));
+    x = e.minX;
+    y = e.maxY + 80;
+  }
+  const rowsUsed = Math.ceil(names.length / cols);
+  const chips = names.map((name, i) => ({
+    name,
+    x: x + PAD + (i % cols) * (cellW + GAP),
+    y: y + HEADER + PAD + Math.floor(i / cols) * (CHIP_H + GAP),
+    w: cellW,
+    h: CHIP_H,
+  }));
+  const innerW = cols * (cellW + GAP) - GAP + 2 * PAD;
+  return {
+    x,
+    y,
+    w: isLR ? innerW : Math.max(innerW, e.maxX - e.minX),
+    h: HEADER + 2 * PAD + rowsUsed * (CHIP_H + GAP) - GAP,
+    chips,
+  };
+}
+window.graphLayoutUnrequiredBox = graphLayoutUnrequiredBox;
+
 // ── Main renderer ────────────────────────────────────────────────────
 
 function renderCustomGraph(report, svgElement, direction) {
   // Clear previous content
   while (svgElement.firstChild) svgElement.removeChild(svgElement.firstChild);
 
-  const deps = report.dependency_graph;
-  if (!deps || deps.length === 0) {
+  const deps = report.dependency_graph || [];
+  const unrequired = report.unrequired || [];
+  if (deps.length === 0 && unrequired.length === 0) {
     const warningDiv = document.getElementById("graph-cycle-warning");
     if (warningDiv) warningDiv.classList.add("hidden");
     svgElement.setAttribute("viewBox", "0 0 400 120");
@@ -1020,24 +1302,8 @@ function renderCustomGraph(report, svgElement, direction) {
   const latestGaMap = graphLatestGaMap(report);
   const edgeHighlightFlags = graphEdgeFlags(report, latestGaMap, trunkVersionMap);
 
-  // Main view: a trunk-provided producer belongs in the picture even before
-  // anyone pins it — its trunk version is a statement on its own. But this map
-  // is built from the *unfiltered* report, so injecting it while the user has
-  // narrowed the view puts every trunk producer back on screen as an isolated
-  // node and makes the filters look broken. With a filter active the graph
-  // shows what the filter selected, nothing more.
-  const filtersNarrowing =
-    (window.graphFocusTags && window.graphFocusTags.length > 0) ||
-    window.graphRedrawMode === "circular" ||
-    (window.graphProtocolFilters &&
-      Object.values(window.graphProtocolFilters).some((enabled) => !enabled));
-  if (isMainView && trunkVersionMap && !filtersNarrowing) {
-    for (const key of trunkVersionMap.keys()) {
-      const name = key.split("|")[0];
-      allNodes.add(name);
-      serviceNodes.add(name);
-    }
-  }
+  // Main view: a trunk-provided producer nobody pins sits in the
+  // "(unrequired)" box with the rest of the scope's unrequired producers.
 
   // Detect bidirectional PUB/SUB edges (both directions between same pair)
   const pubsubBidirectional = new Set();
@@ -1084,6 +1350,12 @@ function renderCustomGraph(report, svgElement, direction) {
     }
   }
 
+  // Islands (a system with only its resource edges) are laid out on their own
+  // and packed into the main graph's empty areas afterwards.
+  const islands = graphIslands([...allNodes], deps);
+  const islandNodes = new Set(islands.flat());
+  const layoutNodes = [...allNodes].filter((n) => !islandNodes.has(n));
+
   // Show/hide cycle warning
   const warningDiv = document.getElementById("graph-cycle-warning");
   if (warningDiv) {
@@ -1110,7 +1382,7 @@ function renderCustomGraph(report, svgElement, direction) {
   }
 
   const domains = new Set();
-  for (const node of allNodes) {
+  for (const node of layoutNodes) {
     const meta = serviceMetaMap.get(node);
     if (meta && meta.domain) domains.add(meta.domain);
   }
@@ -1129,6 +1401,7 @@ function renderCustomGraph(report, svgElement, direction) {
     const requiresCount = (nodeBadges.get(node) || { requires: [] }).requires.length;
     if (isMainView && requiresCount > 0) m.width = Math.max(m.width, requiresCount * 24 + 70);
     nodeMetrics.set(node, m);
+    if (islandNodes.has(node)) continue;
     g.setNode(node, { label: node, width: m.width, height: m.height });
     if (meta && meta.domain) {
       g.setParent(node, `domain:${meta.domain}`);
@@ -1147,6 +1420,7 @@ function renderCustomGraph(report, svgElement, direction) {
   }
 
   for (const [from, tos] of adjMap) {
+    if (islandNodes.has(from)) continue;
     for (const to of tos) g.setEdge(from, to);
   }
   dagre.layout(g);
@@ -1165,7 +1439,7 @@ function renderCustomGraph(report, svgElement, direction) {
   const R = isLR ? "x" : "y";
 
   const nodeFOffsets = new Map(); // delta along flow axis
-  for (const node of allNodes) {
+  for (const node of layoutNodes) {
     nodeFOffsets.set(node, 0);
   }
 
@@ -1174,7 +1448,7 @@ function renderCustomGraph(report, svgElement, direction) {
 
   // Step 1 — group nodes by rank and calculate global lane metrics.
   const unitsByRank = new Map(); // rankR -> [{id, cf, width, role}]
-  for (const node of allNodes) {
+  for (const node of layoutNodes) {
     const nd = g.node(node);
     const key = Math.round(nd[R]);
     if (!unitsByRank.has(key)) unitsByRank.set(key, []);
@@ -1241,7 +1515,7 @@ function renderCustomGraph(report, svgElement, direction) {
     });
   });
 
-  for (const node of allNodes) {
+  for (const node of layoutNodes) {
     const nd = g.node(node);
     nd[F] += nodeFOffsets.get(node) || 0;
   }
@@ -1279,7 +1553,7 @@ function renderCustomGraph(report, svgElement, direction) {
 
   // Recompute edge endpoints from final node positions. Anchor on the
   // rank-axis border of each node (top/bottom for TB, left/right for LR).
-  g.edges().forEach((e) => {
+  const anchorEdge = (e) => {
     const edgeData = g.edge(e);
     const nv = g.node(e.v);
     const nw = g.node(e.w);
@@ -1301,7 +1575,116 @@ function renderCustomGraph(report, svgElement, direction) {
     p1[F] += (0.33 - 0.5) * wFExtent;
 
     edgeData.points = [p0, p1];
-  });
+  };
+  g.edges().forEach(anchorEdge);
+
+  // ── Islands: packed into the main graph's empty areas ─────────────
+  // The main graph's extent and what occupies it — nodes, domain clusters and
+  // the drawn edge curves — so an island never lands on any of them.
+  const extentOf = (ids) => {
+    let box = null;
+    ids.forEach((v) => {
+      const n = g.node(v);
+      if (!n || n.width === undefined) return;
+      const b = {
+        minX: n.x - n.width / 2,
+        minY: n.y - n.height / 2,
+        maxX: n.x + n.width / 2,
+        maxY: n.y + n.height / 2,
+      };
+      box = box
+        ? {
+            minX: Math.min(box.minX, b.minX),
+            minY: Math.min(box.minY, b.minY),
+            maxX: Math.max(box.maxX, b.maxX),
+            maxY: Math.max(box.maxY, b.maxY),
+          }
+        : b;
+    });
+    return box;
+  };
+  if (islands.length > 0) {
+    const mainBox = extentOf(g.nodes());
+    const obstacles = [];
+    g.nodes().forEach((v) => {
+      const n = g.node(v);
+      if (!n || n.width === undefined) return;
+      obstacles.push({
+        x0: n.x - n.width / 2,
+        y0: n.y - n.height / 2,
+        x1: n.x + n.width / 2,
+        y1: n.y + n.height / 2,
+      });
+    });
+    g.edges().forEach((e) => {
+      const [p0, p1] = g.edge(e).points;
+      const { c1, c2 } = graphEdgeControls(p0, p1, F, R);
+      for (let t = 0; t <= 1; t += 0.05) {
+        const u = 1 - t;
+        const x = u * u * u * p0.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * p1.x;
+        const y = u * u * u * p0.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * p1.y;
+        obstacles.push({ x0: x - 4, y0: y - 4, x1: x + 4, y1: y + 4 });
+      }
+    });
+    // Each island's own layout: its systems on one rank, their resources on
+    // the next, centred on each other.
+    const ISLAND_GAP = 30;
+    const ISLAND_RANK = isLR ? 90 : 70;
+    const shapes = islands.map((nodes) => {
+      const ranks = [
+        nodes.filter((n) => !peripheralNodes.has(n)),
+        nodes.filter((n) => peripheralNodes.has(n)),
+      ].map((members) => {
+        const sizes = members.map((n) => {
+          const m = nodeMetrics.get(n);
+          return { n, f: isLR ? m.height : m.width, r: isLR ? m.width : m.height };
+        });
+        const span =
+          sizes.reduce((a, b) => a + b.f, 0) + Math.max(0, sizes.length - 1) * ISLAND_GAP;
+        const depth = Math.max(0, ...sizes.map((x) => x.r));
+        return { sizes, span, depth };
+      });
+      const span = Math.max(ranks[0].span, ranks[1].span);
+      const depth = ranks[0].depth + ISLAND_RANK + ranks[1].depth;
+      return { ranks, span, depth, w: isLR ? depth : span, h: isLR ? span : depth };
+    });
+    const spots = graphPackIslands(mainBox, obstacles, shapes, isLR);
+    shapes.forEach((shape, i) => {
+      const spot = spots[i];
+      let rankStart = 0;
+      shape.ranks.forEach((rank) => {
+        let cursor = (shape.span - rank.span) / 2;
+        rank.sizes.forEach(({ n, f }) => {
+          const m = nodeMetrics.get(n);
+          const along = rankStart + rank.depth / 2; // rank axis, centred on the rank
+          const across = cursor + f / 2;
+          g.setNode(n, {
+            label: n,
+            width: m.width,
+            height: m.height,
+            x: spot.x + (isLR ? along : across),
+            y: spot.y + (isLR ? across : along),
+          });
+          cursor += f + ISLAND_GAP;
+        });
+        rankStart += rank.depth + ISLAND_RANK;
+      });
+    });
+    islands.forEach((nodes) => {
+      nodes.forEach((from) => {
+        (adjMap.get(from) || []).forEach((to) => {
+          g.setEdge(from, to);
+          anchorEdge({ v: from, w: to });
+        });
+      });
+    });
+  }
+
+  // ── The "(unrequired)" box, at the end of the flow ───────────────
+  const unrequiredBox =
+    unrequired.length > 0
+      ? graphLayoutUnrequiredBox(unrequired.map((p) => p.name).sort(), extentOf(g.nodes()), isLR)
+      : null;
 
   // Calculate the actual bounding box of all nodes and clusters after compaction
   let minX = Infinity,
@@ -1318,6 +1701,13 @@ function renderCustomGraph(report, svgElement, direction) {
     minY = Math.min(minY, node.y - hh);
     maxY = Math.max(maxY, node.y + hh);
   });
+
+  if (unrequiredBox) {
+    minX = Math.min(minX, unrequiredBox.x);
+    minY = Math.min(minY, unrequiredBox.y);
+    maxX = Math.max(maxX, unrequiredBox.x + unrequiredBox.w);
+    maxY = Math.max(maxY, unrequiredBox.y + unrequiredBox.h);
+  }
 
   // Fallback if empty
   if (minX === Infinity) {
@@ -1397,6 +1787,67 @@ function renderCustomGraph(report, svgElement, direction) {
     }
   });
 
+  // ── Render the "(unrequired)" box ────────────────────────────────
+  const unrequiredByName = new Map(unrequired.map((p) => [p.name, p]));
+  if (unrequiredBox) {
+    const ns = "http://www.w3.org/2000/svg";
+    const boxG = document.createElementNS(ns, "g");
+    boxG.setAttribute("id", "graph-unrequired-box");
+    boxG.dataset.unrequiredBox = "1";
+    const frame = document.createElementNS(ns, "rect");
+    frame.setAttribute("x", unrequiredBox.x);
+    frame.setAttribute("y", unrequiredBox.y);
+    frame.setAttribute("width", unrequiredBox.w);
+    frame.setAttribute("height", unrequiredBox.h);
+    frame.setAttribute("rx", "12");
+    frame.setAttribute("fill", "#f8fafc");
+    frame.setAttribute("stroke", "#94a3b8");
+    frame.setAttribute("stroke-width", "1.5");
+    frame.setAttribute("stroke-dasharray", "6 4");
+    boxG.appendChild(frame);
+    const title = document.createElementNS(ns, "text");
+    title.setAttribute("x", unrequiredBox.x + 12);
+    title.setAttribute("y", unrequiredBox.y + 20);
+    title.setAttribute("fill", "#64748b");
+    title.setAttribute("font-size", "12");
+    title.setAttribute("font-weight", "bold");
+    title.textContent = "(unrequired)";
+    boxG.appendChild(title);
+    unrequiredBox.chips.forEach((chip) => {
+      const chipG = document.createElementNS(ns, "g");
+      chipG.setAttribute("class", "graph-unrequired-chip");
+      chipG.dataset.chip = chip.name;
+      chipG.style.cursor = "pointer";
+      const r = document.createElementNS(ns, "rect");
+      r.setAttribute("x", chip.x);
+      r.setAttribute("y", chip.y);
+      r.setAttribute("width", chip.w);
+      r.setAttribute("height", chip.h);
+      r.setAttribute("rx", "6");
+      r.setAttribute("fill", "#e0e7ff");
+      r.setAttribute("stroke", "#6366f1");
+      r.setAttribute("stroke-width", "1");
+      chipG.appendChild(r);
+      const maxChars = Math.floor((chip.w - 16) / 7);
+      const t = document.createElementNS(ns, "text");
+      t.setAttribute("x", chip.x + chip.w / 2);
+      t.setAttribute("y", chip.y + chip.h / 2);
+      t.setAttribute("text-anchor", "middle");
+      t.setAttribute("dominant-baseline", "central");
+      t.setAttribute("fill", "#3730a3");
+      t.setAttribute("font-size", "12");
+      t.setAttribute("font-weight", "600");
+      t.textContent =
+        chip.name.length > maxChars ? `${chip.name.slice(0, maxChars - 1)}…` : chip.name;
+      chipG.appendChild(t);
+      const tip = document.createElementNS(ns, "title");
+      tip.textContent = chip.name;
+      chipG.appendChild(tip);
+      boxG.appendChild(chipG);
+    });
+    mainG.appendChild(boxG);
+  }
+
   // ── Render edges ─────────────────────────────────────────────────
   const edgeElements = new Map(); // "from-->to" -> { path, hitArea }
 
@@ -1408,32 +1859,8 @@ function renderCustomGraph(report, svgElement, direction) {
     const p0 = points[0];
     const p1 = points[points.length - 1];
 
-    // Elegant cubic Bezier routing, rank-axis aware.
-    //  - Normal cross-rank edges: control points pulled along the rank
-    //    axis (Y in TB, X in LR) so curves leave/enter nodes
-    //    perpendicular to their border — a smooth "river" flow.
-    //  - Same-rank / reverse edges (tiny rank delta): S-curve that bows
-    //    sideways along the flow axis so arrows don't cut through nodes.
-    const dF = p1[F] - p0[F];
-    const dR = p1[R] - p0[R];
-    const absDR = Math.abs(dR);
-    const c1 = { x: p0.x, y: p0.y };
-    const c2 = { x: p1.x, y: p1.y };
-    if (absDR < 30) {
-      // Sideways / same-rank: tangents along the flow axis.
-      const bow = Math.max(40, Math.abs(dF) * 0.3);
-      const sign = dF >= 0 ? 1 : -1;
-      c1[F] = p0[F] + sign * bow;
-      c2[F] = p1[F] - sign * bow;
-      c1[R] = p0[R] + bow * 0.6;
-      c2[R] = p1[R] + bow * 0.6;
-    } else {
-      // Cross-rank: tangents along the rank axis.
-      const tension = Math.min(Math.max(absDR * 0.5, 40), 140);
-      const dir = dR >= 0 ? 1 : -1;
-      c1[R] = p0[R] + dir * tension;
-      c2[R] = p1[R] - dir * tension;
-    }
+    // Elegant cubic Bezier routing, rank-axis aware (see graphEdgeControls).
+    const { c1, c2 } = graphEdgeControls(p0, p1, F, R);
     const d = `M ${p0.x} ${p0.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p1.x} ${p1.y}`;
 
     // Invisible wide hit area for hover
@@ -1821,7 +2248,9 @@ function renderCustomGraph(report, svgElement, direction) {
     tooltip.style.opacity = "1";
   }
 
-  function showNodeTooltip(e, name) {
+  // `member`: the scope producer behind an "(unrequired)" chip, whose panel
+  // adds its version lines and when it was last provided.
+  function showNodeTooltip(e, name, member) {
     if (tooltipHideTimer) {
       clearTimeout(tooltipHideTimer);
       tooltipHideTimer = null;
@@ -1853,7 +2282,16 @@ function renderCustomGraph(report, svgElement, direction) {
       return;
     }
 
-    const tags = report?.service_tags?.[name] || [];
+    // What the node provides and requires, as the badges show it — a chip's
+    // producer has no edges, so it only provides its scoped lines.
+    const badges = member
+      ? graphNodeBadges({}, []).get(name) || { provides: [], requires: [] }
+      : nodeBadges.get(name);
+    const lastProvided = member ? graphLastProvided(member.versions) : null;
+    const memberLines = member
+      ? `<div class="mt-2 text-[11px] text-slate-300 font-mono break-words" data-panel="versions">${_graphEscapeHtml(graphVersionLinesText(member.versions))}</div>
+         <div class="text-[10px] text-slate-400" data-panel="last-provided">${lastProvided ? `last provided ${_graphEscapeHtml(lastProvided.slice(0, 16).replace("T", " "))}` : "last provided: unknown at this instant"}</div>`
+      : "";
 
     // The graph draws Producers and Consumers as the same kind of node, but the
     // two have different pages. `services_detailed` lists Producers only, so a
@@ -1869,9 +2307,8 @@ function renderCustomGraph(report, svgElement, direction) {
       <div class="mb-3 pb-2 border-b border-slate-700/50">
         <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">${isProducer ? "Producer" : "Consumer"} Node</div>
         <div class="font-bold text-lg text-white truncate mb-1">${_graphEscapeHtml(name)}</div>
-        <div class="flex flex-wrap gap-1.5 mt-2">
-          ${tags.map((t) => `<span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[10px]">${_graphEscapeHtml(t)}</span>`).join("")}
-        </div>
+        ${graphBadgeSummaryHtml(badges)}
+        ${memberLines}
       </div>
       <div class="space-y-3">
         <a href="${href}" class="flex items-center justify-center gap-2 w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-all shadow-lg shadow-indigo-500/20">
@@ -1915,6 +2352,16 @@ function renderCustomGraph(report, svgElement, direction) {
   // Node hover
   mainG.querySelectorAll(".graph-node").forEach((el) => {
     el.addEventListener("mouseenter", (e) => showNodeTooltip(e, el.dataset.node));
+    el.addEventListener("mouseleave", hideTooltip);
+  });
+
+  // An "(unrequired)" chip opens the node panel on click.
+  mainG.querySelectorAll(".graph-unrequired-chip").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      showNodeTooltip(e, el.dataset.chip, unrequiredByName.get(el.dataset.chip));
+    });
+    el.addEventListener("mousedown", (e) => e.stopPropagation());
     el.addEventListener("mouseleave", hideTooltip);
   });
 
