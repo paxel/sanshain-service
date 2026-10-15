@@ -32,7 +32,7 @@ Upload a specification under its declared version.
 - `openapi_yaml` / `asyncapi_yaml` / `proto_content`: Spec content. The version is read from it — `info.version`, or a `// sanshain-version: MAJOR.MINOR.PATCH` comment for proto. `MAJOR[.MINOR[.PATCH]]` with an optional `v` prefix; omitted parts are zero, stored canonically as three-part. No suffixes.
 - `dry_run`: If `true`, validates and classifies without storing.
 - `trunk` (optional): `true` marks this as a trunk-stream build — the version entry is stamped as trunk's current version (main graph, ADR-0004). No effect on version rules or stability.
-- `tag` (optional): the sanshain-branch this build belongs to (release pipelines/hotfixes, ADR-0005). Mutually exclusive with `trunk`; an unknown tag answers `404` — no auto-create.
+- `tag` (optional): the sanshain-branch this build belongs to (release pipelines/hotfixes, ADR-0005). Mutually exclusive with `trunk`; an unknown tag, or both together, still succeeds but is recorded in the dev graph only, with a `Sanshain-Warning` response header — no auto-create.
 
 **Response (202 Accepted):** Returns `version`, `stability`, `content_hash`, and a summary of `changes` (`inserts`/`updates`/`deletes`).
 

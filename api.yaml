@@ -83,6 +83,9 @@ paths:
               $ref: "#/components/schemas/ProvidePayload"
       responses:
         "202":
+          headers:
+            Sanshain-Warning:
+              $ref: "#/components/headers/SanshainWarning"
           description: |
             Specification accepted and stored — or, for `retired: true`, the
             family retired. The two answer different objects; a caller knows
@@ -153,6 +156,9 @@ paths:
               $ref: "#/components/schemas/ProvideAsyncApiPayload"
       responses:
         "202":
+          headers:
+            Sanshain-Warning:
+              $ref: "#/components/headers/SanshainWarning"
           description: |
             Specification accepted and stored — or, for `retired: true`, the
             family retired. The two answer different objects; a caller knows
@@ -207,6 +213,9 @@ paths:
               $ref: "#/components/schemas/ProvideProtoPayload"
       responses:
         "202":
+          headers:
+            Sanshain-Warning:
+              $ref: "#/components/headers/SanshainWarning"
           description: |
             Specification accepted and stored — or, for `retired: true`, the
             family retired. The two answer different objects; a caller knows
@@ -308,15 +317,23 @@ paths:
           schema: { type: string }
           description: |
             The pin updates the named sanshain-branch's graph instead of
-            trunk (release-branch hotfix). Mutually exclusive with `trunk`
-            (both → `400`); an unknown tag answers `404`.
+            trunk (release-branch hotfix). Mutually exclusive with `trunk`:
+            both together, or a tag naming no existing sanshain-branch, still
+            answer normally but record the pin in the dev graph only, with a
+            `Sanshain-Warning` header. Branches are never auto-created.
       responses:
         "200":
+          headers:
+            Sanshain-Warning:
+              $ref: "#/components/headers/SanshainWarning"
           description: The endpoint snippet as YAML.
           content:
             application/yaml:
               schema: { type: string }
         "304":
+          headers:
+            Sanshain-Warning:
+              $ref: "#/components/headers/SanshainWarning"
           description: Not modified (ETag match).
         "404":
           description: |
@@ -405,6 +422,9 @@ paths:
             Without the parameter the answer is unchanged.
       responses:
         "200":
+          headers:
+            Sanshain-Warning:
+              $ref: "#/components/headers/SanshainWarning"
           description: |
             The channel snippet as YAML, or with `format=openapi` the OpenAPI
             3.0.3 document of its payload schemas.
@@ -412,6 +432,9 @@ paths:
             application/yaml:
               schema: { type: string }
         "304":
+          headers:
+            Sanshain-Warning:
+              $ref: "#/components/headers/SanshainWarning"
           description: Not modified (ETag match).
         "400":
           description: |
@@ -481,11 +504,17 @@ paths:
           description: See `tag` on `/require`.
       responses:
         "200":
+          headers:
+            Sanshain-Warning:
+              $ref: "#/components/headers/SanshainWarning"
           description: The .proto snippet.
           content:
             text/plain:
               schema: { type: string }
         "304":
+          headers:
+            Sanshain-Warning:
+              $ref: "#/components/headers/SanshainWarning"
           description: Not modified (ETag match).
         "404":
           description: Unknown Producer or version.
@@ -536,6 +565,9 @@ paths:
               $ref: "#/components/schemas/RequireBundlePayload"
       responses:
         "200":
+          headers:
+            Sanshain-Warning:
+              $ref: "#/components/headers/SanshainWarning"
           description: |
             The merged specification as YAML, or with `format=openapi` the
             OpenAPI 3.0.3 document of the channels' payload schemas.
@@ -543,6 +575,9 @@ paths:
             application/yaml:
               schema: { type: string }
         "304":
+          headers:
+            Sanshain-Warning:
+              $ref: "#/components/headers/SanshainWarning"
           description: Not modified (ETag match).
         "400":
           description: |
@@ -607,21 +642,23 @@ paths:
               $ref: "#/components/schemas/CatalogPushPayload"
       responses:
         "200":
-          description: The periphery now recorded for the system.
+          headers:
+            Sanshain-Warning:
+              $ref: "#/components/headers/SanshainWarning"
+          description: |
+            The periphery now recorded for the system (`recorded: true`).
+
+            When the file is not valid YAML, a document in it is not a
+            Backstage entity, it has no (or more than one) `Component` named
+            `systemname`, or its `dependsOn` is not a list of entity refs,
+            the answer is still `200`, with `resources: []` and
+            `recorded: false`: nothing is recorded, the system's previous
+            periphery stays as it was, and a `Sanshain-Warning` header names
+            the reason.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/CatalogPushResponse"
-        "400":
-          description: |
-            The file is not valid YAML, a document in it is not a Backstage
-            entity, it has no (or more than one) `Component` named
-            `systemname`, or its `dependsOn` is not a list of entity refs.
-            Nothing is recorded.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
         "422":
           description: Request body has the wrong shape (missing `catalog_info_yaml`, unknown fields).
         "413":
@@ -721,6 +758,19 @@ paths:
                   instance_id: { type: string }
 
 components:
+  headers:
+    SanshainWarning:
+      description: |
+        A warning the caller's build should print — the call itself
+        succeeded. Sent once per warning (the header may appear several
+        times), UTF-8. The graph is informational and never fails a build:
+        an unknown `tag` (`no sanshain-branch '<name>' — this build was not
+        recorded in a release graph`), `trunk` and `tag` together (`trunk
+        and tag are mutually exclusive — this build was recorded in
+        neither`), or a catalog push that recorded nothing (the reason).
+        Clients fail on it only in strict mode.
+      schema:
+        type: string
   schemas:
     ErrorBody:
       type: object
@@ -818,8 +868,10 @@ components:
           description: |
             Marks this build as a sanshain-branch's (release-branch hotfix):
             the producer's member version within that branch is updated.
-            Mutually exclusive with `trunk` (both → `400`); an unknown tag
-            answers `404` — a releaser must create the branch first.
+            Mutually exclusive with `trunk`: both together, or a tag naming no
+            existing sanshain-branch (a releaser must create it first), still
+            store the spec but record it in the dev graph only, with a
+            `Sanshain-Warning` header.
 
     ProvideAsyncApiPayload:
       type: object
@@ -1052,7 +1104,7 @@ components:
 
     CatalogPushResponse:
       type: object
-      required: [system, trunk, resources]
+      required: [system, trunk, resources, recorded]
       properties:
         system:
           type: string
@@ -1062,6 +1114,12 @@ components:
           type: array
           description: The recorded refs, `resource:<namespace>/<name>`, lower-cased and sorted.
           items: { type: string }
+        recorded:
+          type: boolean
+          description: |
+            Whether the push was recorded. `false` when Sanshain could not
+            read the file as the system's Component — the reason is in the
+            `Sanshain-Warning` header, and the previous periphery stays.
 
     ValidationReport:
       type: object

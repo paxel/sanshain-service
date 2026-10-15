@@ -73,3 +73,16 @@ current, a push closes what is gone and opens what is new, and closed rows are t
 Owner, description, lifecycle and links on system nodes; `System`/`Domain` grouping (a Producer's
 `domain` already groups); a node symbol by `spec.type`. Each can be added later without changing
 the push format.
+
+## Amendment (2026-10-15): a mismatch warns instead of failing the build
+
+The `400` for a file Sanshain cannot read as the system's Component is withdrawn. The periphery is
+informational and must never fail a build. Invalid YAML, a document that is no Backstage entity, no
+or more than one matching Component, and a malformed `dependsOn` now answer **`200` and record
+nothing** — the system's previous periphery stays exactly as it was, rather than being cleared as
+if the file had declared none. The body keeps the push response's shape with `resources: []` and
+`recorded: false` (a recorded push answers `recorded: true`), and a `Sanshain-Warning` header
+carries the reason. A body of the wrong shape (missing `catalog_info_yaml`, unknown fields) stays
+`422`; authentication, permission and size limits keep their status codes. Teams that want a
+mismatch to fail the build turn on **strict mode** in their client, which fails the command on any
+`Sanshain-Warning`.

@@ -100,3 +100,22 @@ bar than creation) frees its name.
   path can no longer reach; add a knob only when data shows a need.
 - **One unified `graph=` parameter with a reserved "trunk" value** — a magic name is a footgun;
   two explicit parameters keep the wire as clean as the model.
+
+## Amendment (2026-10-15): the graph never fails a build
+
+The `400` for `trunk` + `tag` and the `404` for an unknown tag are withdrawn. The graph is
+informational: what a pipeline builds and ships must not depend on whether Sanshain could file the
+call in the right release graph. Both cases now **succeed as if no stream had been declared** — the
+spec is stored and served, the dev graph records the activity as usual, trunk and every branch stay
+untouched — and the response carries a `Sanshain-Warning` header naming what was not recorded:
+
+- unknown tag: `no sanshain-branch '<name>' — this build was not recorded in a release graph`;
+- both: `trunk and tag are mutually exclusive — this build was recorded in neither`.
+
+This applies to provides of all three API types, `/require*` and `/require-bundle`, dry-runs
+included. The audit entry records no stream for such a call. Branches are still never
+auto-created, so the original concern — a typo'd pipeline minting a half-empty release graph —
+still holds; it now surfaces as a printed warning instead of a red build. A pipeline still sending
+a renamed branch's old name likewise warns rather than fails. Teams that want the loud failure
+back turn on **strict mode** in their client, which fails the command on any `Sanshain-Warning`.
+Retire requests keep their own rules (`trunk` or `tag` alongside `retired: true` stays a `400`).

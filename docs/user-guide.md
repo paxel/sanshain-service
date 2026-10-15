@@ -64,7 +64,7 @@ full rules.
 Both provide and require accept an optional stream marker:
 
 - `trunk: true` (provide) / `trunk=true` (require) — this build is your trunk CI. Provides stamp the version as *trunk's current version* (shown as a badge on the producers page); requires maintain the **main graph**'s pin set. Re-running an unchanged trunk build is exactly what keeps trunk fresh.
-- `tag: "<branch>"` — this build belongs to the named sanshain-branch (a release pipeline or hotfix). The call updates that branch's graph instead of trunk. `trunk` and `tag` together answer `400`; an unknown tag answers an instructive `404` — branches are never auto-created.
+- `tag: "<branch>"` — this build belongs to the named sanshain-branch (a release pipeline or hotfix). The call updates that branch's graph instead of trunk. Branches are never auto-created: an unknown tag, or `trunk` and `tag` together, still succeeds but is recorded in the dev graph only, and the response carries a `Sanshain-Warning` header saying what was not recorded. The graph never fails a build; clients print the warning, and fail on it only in strict mode.
 
 Trunk data ages: pins and markers not refreshed within the configurable trunk TTL (default 90 days) leave the main graph (they stay as history), and the graph highlights entries as stale once they pass half the TTL — forgotten producers surface before they vanish.
 

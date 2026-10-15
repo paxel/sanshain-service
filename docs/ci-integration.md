@@ -52,9 +52,22 @@ Every build provides as `snapshot` unless the pipeline sets the ga switch (`SANS
 Alongside stability, the pipeline declares the **stream** ([User Guide — Declaring the Stream](user-guide.md#declaring-the-stream)):
 
 - **Trunk CI** (the build of your default branch) adds `trunk: true` to provides and `trunk=true` to requires — this maintains the main graph. Nightly re-runs of an unchanged trunk build are wanted: they keep trunk data fresh instead of aging out.
-- **Release pipelines and hotfix builds** add `tag: "<sanshain-branch>"` — the calls update that release's graph instead of trunk. The branch must already exist (created by a releaser at cut time); an unknown tag fails the build with a `404`, which is the misconfiguration surfacing, not a nuisance.
+- **Release pipelines and hotfix builds** add `tag: "<sanshain-branch>"` — the calls update that release's graph instead of trunk. The branch must already exist (created by a releaser at cut time). An unknown tag — or `trunk` and `tag` together — does not fail the call: the build is recorded in the dev graph only and the response carries a `Sanshain-Warning` header (see below).
 
 Streams never change what is served or any version rule — they only decide which graph records the call.
+
+### The `Sanshain-Warning` header
+
+The graph is informational and never fails a build. When Sanshain cannot record a call the way it was
+declared, the call still succeeds and the response carries one `Sanshain-Warning` header line per
+problem — on provides, requires, bundles and catalog pushes, dry-runs and `304` answers included:
+
+- `no sanshain-branch '<name>' — this build was not recorded in a release graph`
+- `trunk and tag are mutually exclusive — this build was recorded in neither`
+- the reason a catalog push recorded nothing (`recorded: false`)
+
+The clients print each warning. Turn on **strict mode** to fail the build on any of them instead;
+raw `curl` pipelines can check the header themselves.
 
 ## Dry-Run Mode (PR Validation)
 

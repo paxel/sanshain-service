@@ -586,10 +586,13 @@ clients report as such. Once per build:
    ```
    `trunk` follows the same switch as provides and requires (ADR-0004).
 4. **Handle the response**: `200` returns the recorded resources, e.g.
-   `{"system": "orders-service", "trunk": true, "resources": ["resource:default/orders-db"]}`.
-   A `400` means Sanshain could not read the file as this project's Component. The usual cause is a
-   `metadata.name` that is not the `serviceName`. Fail the build so the mismatch is fixed —
-   unless the client runs best-effort, which warns and carries on, as for every other call.
+   `{"system": "orders-service", "trunk": true, "resources": ["resource:default/orders-db"], "recorded": true}`.
+   When Sanshain cannot read the file as this project's Component — invalid YAML, no Backstage
+   entity, no or more than one Component named `serviceName`, a malformed `dependsOn` — it still
+   answers `200`, but with `"resources": []` and `"recorded": false`, records nothing (the previous
+   periphery stays) and names the reason in a `Sanshain-Warning` header. The usual cause is a
+   `metadata.name` that is not the `serviceName`. Print the warning and carry on — or fail the build
+   when `strict` is on, so the mismatch is fixed.
 
 What Sanshain reads: only the `Component` whose `metadata.name` equals `serviceName`, and of it only
 `spec.dependsOn`. Only `resource:` refs become graph nodes; `component:` refs, `consumesApis` and
