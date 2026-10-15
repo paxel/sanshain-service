@@ -39,6 +39,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 - Updated `quinn-proto` to 0.11.19 (RUSTSEC-2026-0339, RUSTSEC-2026-0341, RUSTSEC-2026-0342).
+- Updated `rustls` to 0.23.46 (RUSTSEC-2026-0346, RUSTSEC-2026-0347, RUSTSEC-2026-0348, RUSTSEC-2026-0349).
 
 ---
 
