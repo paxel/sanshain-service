@@ -146,6 +146,9 @@ pub struct RequireResponse {
     pub stability: Stability,
     /// The format `yaml` is in — keys the ETag apart per format.
     pub format: RequireFormat,
+    /// The stream the pins were recorded in, and the warnings when the
+    /// declared one could not be honoured (`Sanshain-Warning` headers).
+    pub stream: ResolvedStream,
 }
 
 pub async fn require_endpoint(
@@ -178,7 +181,9 @@ async fn require_endpoint_inner(
         tag,
         format,
     } = params;
-    let tag_branch = resolve_stream(repo, trunk, tag).await?;
+    // Dev only when the declared stream cannot be honoured (ADR-0005).
+    let stream = resolve_stream(repo, trunk, tag).await?;
+    let trunk = stream.trunk;
 
     let (_sid, entry) = resolve_pin(repo, producername, api_type, version).await?;
     let method = method_for(api_type, method);
@@ -210,10 +215,10 @@ async fn require_endpoint_inner(
             &entry,
             &[(path.to_string(), method.clone())],
             trunk,
-            tag_branch.as_ref().map(|b| b.id),
+            stream.branch.as_ref().map(|b| b.id),
         )
         .await?;
-        if let Some(branch) = &tag_branch {
+        if let Some(branch) = &stream.branch {
             count_branch_update(&branch.name);
         }
     }
@@ -225,6 +230,7 @@ async fn require_endpoint_inner(
         version,
         stability: entry.stability,
         format,
+        stream,
     })
 }
 
@@ -257,7 +263,9 @@ async fn require_bundle_inner(
         tag,
         format,
     } = params;
-    let tag_branch = resolve_stream(repo, trunk, tag).await?;
+    // Dev only when the declared stream cannot be honoured (ADR-0005).
+    let stream = resolve_stream(repo, trunk, tag).await?;
+    let trunk = stream.trunk;
 
     if endpoints.is_empty() {
         return Err(AppError::BadRequest(
@@ -321,10 +329,10 @@ async fn require_bundle_inner(
             &entry,
             &normalized,
             trunk,
-            tag_branch.as_ref().map(|b| b.id),
+            stream.branch.as_ref().map(|b| b.id),
         )
         .await?;
-        if let Some(branch) = &tag_branch {
+        if let Some(branch) = &stream.branch {
             count_branch_update(&branch.name);
         }
     }
@@ -336,6 +344,7 @@ async fn require_bundle_inner(
         version,
         stability: entry.stability,
         format,
+        stream,
     })
 }
 

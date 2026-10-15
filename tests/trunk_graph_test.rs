@@ -543,59 +543,268 @@ async fn retroactive_branch_equals_the_main_graph_as_it_was() {
 // #36 — tag on the wire: hotfix builds update their sanshain-branch
 // ---------------------------------------------------------------------------
 
+/// Every `Sanshain-Warning` line of a response, decoded as UTF-8.
+#[cfg(test)]
+fn warnings(headers: &HeaderMap) -> Vec<String> {
+    headers
+        .get_all("sanshain-warning")
+        .iter()
+        .map(|v| String::from_utf8(v.as_bytes().to_vec()).unwrap())
+        .collect()
+}
+
+#[cfg(test)]
+const BOTH_WARNING: &str =
+    "trunk and tag are mutually exclusive — this build was recorded in neither";
+
+#[cfg(test)]
+fn unknown_tag_warning(tag: &str) -> String {
+    format!("no sanshain-branch '{tag}' — this build was not recorded in a release graph")
+}
+
+#[cfg(test)]
+async fn audit_streams(ctx: &TestContext, action: &str) -> Vec<Option<String>> {
+    sqlx::query_scalar("SELECT stream FROM audit_logs WHERE action = ? ORDER BY id")
+        .bind(action)
+        .fetch_all(&ctx.pool)
+        .await
+        .unwrap()
+}
+
+#[cfg(test)]
+async fn dev_edges(ctx: &TestContext) -> usize {
+    let (_, _, body) = send(ctx, "GET", "/report", None).await;
+    as_json(&body)["dependency_graph"].as_array().unwrap().len()
+}
+
+#[cfg(test)]
+async fn branch_names(ctx: &TestContext) -> Vec<String> {
+    let (status, _, body) = send(ctx, "GET", "/admin/branches", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    as_json(&body)
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["name"].as_str().unwrap().to_string())
+        .collect()
+}
+
 #[tokio::test]
-async fn trunk_and_tag_together_are_rejected() {
+async fn trunk_and_tag_together_succeed_record_neither_and_warn() {
     let ctx = setup().await;
     provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
     send(&ctx, "POST", "/admin/branches", Some(json!({"name": "R"}))).await;
 
-    let (status, body) = provide_with(
-        &ctx,
-        "svc",
-        "snapshot",
-        &spec("1.0.0"),
-        &[("trunk", json!(true)), ("tag", json!("R"))],
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "got: {body}");
-    let msg = body["error"].as_str().unwrap();
-    assert!(msg.contains("trunk") && msg.contains("tag"), "got: {msg}");
+    // Provide, real and dry-run: stored, but in neither stream.
+    for dry_run in [true, false] {
+        let (status, headers, body) = send(
+            &ctx,
+            "POST",
+            "/provide",
+            Some(json!({
+                "producername": "svc",
+                "openapi_yaml": spec("1.1.0"),
+                "stability": "snapshot",
+                "trunk": true,
+                "tag": "R",
+                "dry_run": dry_run,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
+        assert_eq!(warnings(&headers), vec![BOTH_WARNING.to_string()]);
+    }
+    let versions = versions_of(&ctx, "svc").await;
+    let v110 = versions.iter().find(|v| v["version"] == "1.1.0").unwrap();
+    assert!(v110["trunk_provided_at"].is_null(), "got: {v110}");
+    assert!(scope_producers(&ctx, "R").await.is_empty());
 
-    let (status, _, body) = send(
-        &ctx,
-        "GET",
-        "/require?consumername=c&producername=svc&version=1.0.0&path=/users&method=GET&trunk=true&tag=R",
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "got: {body}");
+    // Require and bundle, real and dry-run: the dev edge only.
+    for dry_run in [true, false] {
+        let (status, headers, body) = send(
+            &ctx,
+            "GET",
+            &format!(
+                "/require?consumername=c&producername=svc&version=1.1.0&path=/users&method=GET&trunk=true&tag=R&dry_run={dry_run}"
+            ),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "got: {body}");
+        assert_eq!(warnings(&headers), vec![BOTH_WARNING.to_string()]);
+
+        let (status, headers, body) = send(
+            &ctx,
+            "POST",
+            "/require-bundle",
+            Some(json!({
+                "consumername": "c",
+                "producername": "svc",
+                "version": "1.1.0",
+                "trunk": true,
+                "tag": "R",
+                "dry_run": dry_run,
+                "endpoints": [{"path": "/users", "method": "GET"}]
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "got: {body}");
+        assert_eq!(warnings(&headers), vec![BOTH_WARNING.to_string()]);
+    }
+    assert_eq!(dev_edges(&ctx).await, 1);
+    assert!(trunk_dependency_rows(&ctx).await.is_empty());
+    assert!(trunk_graph(&ctx).await.is_empty());
+    assert!(branch_graph(&ctx, "R").await.is_empty());
+    assert!(scope_producers(&ctx, "R").await.is_empty());
+
+    // The audit trail names no stream for any of it.
+    assert!(
+        audit_streams(&ctx, "PROVIDE_SPEC")
+            .await
+            .iter()
+            .all(Option::is_none)
+    );
+    assert!(
+        audit_streams(&ctx, "REQUIRE_SPEC")
+            .await
+            .iter()
+            .all(Option::is_none)
+    );
+    assert!(audit_streams(&ctx, "BRANCH_MEMBER_TAGGED").await.is_empty());
 }
 
 #[tokio::test]
-async fn unknown_tag_is_an_instructive_404() {
+async fn an_unknown_tag_succeeds_dev_only_and_warns_on_every_api_type() {
     let ctx = setup().await;
-    provide_with(&ctx, "svc", "snapshot", &spec("1.0.0"), &[]).await;
-
+    let async_spec = "asyncapi: '2.6.0'\n\
+info:\n  title: Notifier\n  version: 1.0.0\n\
+channels:\n  user/signup:\n    publish:\n      message:\n        name: UserSignedUp\n        payload:\n          type: object\n";
+    let proto = "syntax = \"proto3\";\n// sanshain-version: 1.0.0\npackage test;\n\nmessage Req {}\nmessage Res {}\n\nservice AService { rpc DoA (Req) returns (Res); }\n";
+    let calls = [
+        ("/provide", "svc", "openapi_yaml", spec("1.0.0")),
+        (
+            "/provide/asyncapi",
+            "notifier",
+            "asyncapi_yaml",
+            async_spec.to_string(),
+        ),
+        (
+            "/provide/grpc",
+            "grpcsvc",
+            "proto_content",
+            proto.to_string(),
+        ),
+    ];
+    for (uri, producer, field, content) in &calls {
+        for dry_run in [true, false] {
+            let mut payload = json!({
+                "producername": producer,
+                "stability": "snapshot",
+                "tag": "Release Mariboo",
+                "dry_run": dry_run,
+            });
+            payload[*field] = json!(content);
+            let (status, headers, body) = send(&ctx, "POST", uri, Some(payload)).await;
+            assert_eq!(status, StatusCode::ACCEPTED, "{uri}: {body}");
+            assert_eq!(
+                warnings(&headers),
+                vec![unknown_tag_warning("Release Mariboo")],
+                "{uri}"
+            );
+        }
+        // Stored as an ordinary dev provide.
+        let versions = versions_of(&ctx, producer).await;
+        assert_eq!(versions.len(), 1, "{uri}: {versions:?}");
+        assert!(versions[0]["trunk_provided_at"].is_null(), "{uri}");
+    }
+    // A no-op re-provide still warns, and still tags nothing.
     let (status, body) = provide_with(
         &ctx,
         "svc",
         "snapshot",
         &spec("1.0.0"),
-        &[("tag", json!("Release Mariboo"))],
+        &[("tag", json!("Ghost"))],
     )
     .await;
-    assert_eq!(status, StatusCode::NOT_FOUND, "got: {body}");
-    let msg = body["error"].as_str().unwrap();
-    assert!(msg.contains("releaser must create"), "got: {msg}");
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
 
-    let (status, _, _) = send(
+    for dry_run in [true, false] {
+        let (status, headers, body) = send(
+            &ctx,
+            "GET",
+            &format!(
+                "/require?consumername=c&producername=svc&version=1.0.0&path=/users&method=GET&tag=Ghost&dry_run={dry_run}"
+            ),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "got: {body}");
+        assert_eq!(warnings(&headers), vec![unknown_tag_warning("Ghost")]);
+
+        let (status, headers, body) = send(
+            &ctx,
+            "POST",
+            "/require-bundle",
+            Some(json!({
+                "consumername": "c",
+                "producername": "svc",
+                "version": "1.0.0",
+                "tag": "Ghost",
+                "dry_run": dry_run,
+                "endpoints": [{"path": "/users", "method": "GET"}]
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "got: {body}");
+        assert_eq!(warnings(&headers), vec![unknown_tag_warning("Ghost")]);
+    }
+
+    // The dev graph has the edge; no stream, no branch was touched or made.
+    assert_eq!(dev_edges(&ctx).await, 1);
+    assert!(trunk_dependency_rows(&ctx).await.is_empty());
+    assert!(branch_names(&ctx).await.is_empty());
+    assert!(
+        audit_streams(&ctx, "PROVIDE_SPEC")
+            .await
+            .iter()
+            .all(Option::is_none)
+    );
+    assert_eq!(audit_streams(&ctx, "REQUIRE_SPEC").await, vec![None, None]);
+    assert!(audit_streams(&ctx, "BRANCH_MEMBER_TAGGED").await.is_empty());
+
+    // A conditional require answered 304 still carries the warning.
+    let (_, headers, _) = send(
         &ctx,
         "GET",
-        "/require?consumername=c&producername=svc&version=1.0.0&path=/users&method=GET&tag=Ghost",
+        "/require?consumername=c&producername=svc&version=1.0.0&path=/users&method=GET&tag=Ghost&dry_run=true",
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
+    let etag = headers.get("etag").unwrap().clone();
+    let request = Request::builder()
+        .method("GET")
+        .uri("/require?consumername=c&producername=svc&version=1.0.0&path=/users&method=GET&tag=Ghost&dry_run=true")
+        .header("Authorization", format!("Bearer {}", ctx.token))
+        .header("If-None-Match", etag)
+        .body(Body::empty())
+        .unwrap();
+    let response = ctx.app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(
+        warnings(response.headers()),
+        vec![unknown_tag_warning("Ghost")]
+    );
+
+    // A plain call carries no warning at all.
+    let (status, headers, _) = send(
+        &ctx,
+        "GET",
+        "/require?consumername=c&producername=svc&version=1.0.0&path=/users&method=GET&dry_run=true",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(warnings(&headers).is_empty());
 }
 
 #[tokio::test]

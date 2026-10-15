@@ -373,6 +373,11 @@ pub struct ProvideResponse {
     /// provides. Omitted from the JSON when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub harvested_subscriptions: Vec<HarvestedSubscriptionResult>,
+    /// The stream this provide was recorded in, and the warnings when the
+    /// declared one could not be honoured. Not part of the body: the stream is
+    /// for the audit trail, the warnings travel as `Sanshain-Warning` headers.
+    #[serde(skip)]
+    pub stream: ResolvedStream,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -727,6 +732,13 @@ pub struct CatalogPushResult {
     pub system: String,
     pub trunk: bool,
     pub resources: Vec<String>,
+    /// Whether the push was recorded. A file Sanshain cannot read as the
+    /// system's Component records nothing (the previous periphery stays) and
+    /// answers `false` with the reason as a warning (ADR-0007 amendment).
+    pub recorded: bool,
+    /// Why nothing was recorded — travels as `Sanshain-Warning` headers.
+    #[serde(skip)]
+    pub warnings: Vec<String>,
 }
 
 /// One entry in a provide's `harvested_subscriptions` response: what the
@@ -812,6 +824,32 @@ pub struct BranchInfo {
     pub source: String,
     /// The instant of the source graph the branch was born from.
     pub as_of: String,
+}
+
+/// The stream a build is actually recorded in, after stream resolution
+/// looked at what it declared — plus the warnings for the caller when the
+/// declaration could not be honoured.
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedStream {
+    /// The build is recorded in the trunk stream.
+    pub trunk: bool,
+    /// The build is recorded in this sanshain-branch.
+    pub branch: Option<BranchInfo>,
+    /// Why the declared stream was not recorded, if it was not. Answered to
+    /// the caller as `Sanshain-Warning` headers.
+    pub warnings: Vec<String>,
+}
+
+impl ResolvedStream {
+    /// The stream label the audit trail records: `trunk`, the branch's name,
+    /// or none for a dev-only build.
+    pub fn label(&self) -> Option<&str> {
+        if self.trunk {
+            Some("trunk")
+        } else {
+            self.branch.as_ref().map(|b| b.name.as_str())
+        }
+    }
 }
 
 /// One reverse-lookup row (ADR-0005): a version of a producer that a

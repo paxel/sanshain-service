@@ -180,6 +180,7 @@ async fn any_authenticated_caller_may_push_and_gets_the_recorded_set_back() {
         .unwrap();
     let response = ctx.app.clone().oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+    assert!(response.headers().get("sanshain-warning").is_none());
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
@@ -189,6 +190,7 @@ async fn any_authenticated_caller_may_push_and_gets_the_recorded_set_back() {
             "system": "orders",
             "trunk": false,
             "resources": ["resource:default/cache", "resource:default/orders-db"],
+            "recorded": true,
         })
     );
 }
@@ -211,19 +213,85 @@ async fn an_unauthenticated_push_is_refused() {
 }
 
 #[tokio::test]
-async fn a_file_without_the_systems_component_is_a_400_and_records_nothing() {
+async fn an_unreadable_file_answers_200_records_nothing_and_warns() {
     let ctx = setup().await;
-    let (status, body) = push(&ctx, "orders", &catalog("billing", &["db"]), true).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "got: {body}");
-    assert!(
-        body.to_string().contains("no Component named 'orders'"),
-        "got: {body}"
+    let (status, _) = push(&ctx, "orders", &catalog("orders", &["orders-db"]), true).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let not_an_entity = "just a string";
+    let two_orders = format!(
+        "{}---\n{}",
+        catalog("orders", &["a"]),
+        catalog("orders", &["b"])
     );
-    let rows: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM peripheral_dependencies")
-        .fetch_one(&ctx.pool)
-        .await
-        .unwrap();
-    assert_eq!(rows.0, 0);
+    let malformed = "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: orders\nspec:\n  dependsOn: 42\n";
+    let cases: [(&str, &str); 5] = [
+        ("key: [unclosed", "not valid YAML"),
+        (not_an_entity, "not a Backstage entity"),
+        (&catalog("billing", &["db"]), "no Component named 'orders'"),
+        (&two_orders, "more than one Component named 'orders'"),
+        (malformed, "dependsOn of Component 'orders' is malformed"),
+    ];
+    for (yaml, reason) in cases {
+        let (status, headers, body) = send(
+            &ctx,
+            "PUT",
+            "/catalog/orders",
+            Some(json!({"catalog_info_yaml": yaml, "trunk": true})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{reason}: {body}");
+        assert_eq!(
+            as_json(&body),
+            json!({"system": "orders", "trunk": true, "resources": [], "recorded": false}),
+            "{reason}"
+        );
+        let warnings: Vec<String> = headers
+            .get_all("sanshain-warning")
+            .iter()
+            .map(|v| String::from_utf8(v.as_bytes().to_vec()).unwrap())
+            .collect();
+        assert_eq!(warnings.len(), 1, "{reason}: {warnings:?}");
+        assert!(warnings[0].contains(reason), "{reason}: {warnings:?}");
+    }
+
+    // The first push's periphery is untouched, and only it was audited.
+    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT track, resource_ref, valid_to FROM peripheral_dependencies ORDER BY track",
+    )
+    .fetch_all(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            (
+                "dev".to_string(),
+                "resource:default/orders-db".to_string(),
+                None
+            ),
+            (
+                "trunk".to_string(),
+                "resource:default/orders-db".to_string(),
+                None
+            ),
+        ]
+    );
+    let audited: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM audit_logs WHERE action = 'CATALOG_PUSHED'")
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(audited.0, 1);
+}
+
+#[tokio::test]
+async fn a_body_without_the_catalog_is_still_a_422() {
+    let ctx = setup().await;
+    let (status, headers, body) =
+        send(&ctx, "PUT", "/catalog/orders", Some(json!({"trunk": true}))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "got: {body}");
+    assert!(headers.get("sanshain-warning").is_none());
 }
 
 #[tokio::test]

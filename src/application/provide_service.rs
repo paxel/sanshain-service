@@ -176,7 +176,11 @@ pub async fn provide_spec(
     // One identity: authorization and audit attribution both come from the
     // Actor, so they cannot drift apart.
     let username: Option<&str> = caller.as_ref().map(|a| a.username.as_str());
-    let tag_branch = resolve_stream(repo, trunk, tag).await?;
+    // The stream actually recorded — dev only when the declared one cannot
+    // be honoured (the warning travels back to the caller instead).
+    let stream = resolve_stream(repo, trunk, tag).await?;
+    let trunk = stream.trunk;
+    let tag_branch = stream.branch.clone();
 
     // Everything below — hashing, the no-op and GA immutability checks,
     // splitting, contracts and the stored bytes — sees the normalized text
@@ -265,12 +269,13 @@ pub async fn provide_spec(
     let existing = line.iter().find(|v| v.version == version).cloned();
 
     // #6/ADR-0006: harvest this AsyncAPI provide's declared subscriptions as
-    // version-less consumer edges. Never on `tag` provides — branch graphs are
-    // cut artifacts (ADR-0005), not where development subscriptions accrue.
+    // version-less consumer edges. Never on provides recorded in a
+    // sanshain-branch — branch graphs are cut artifacts (ADR-0005), not where
+    // development subscriptions accrue.
     // Computed here (before the no-op fast path) so a byte-identical re-provide
     // still re-flags trunk-ness and reports the harvest. Read-only; on a GA
     // provide the drift check rejects (409) before any write happens.
-    let harvest_asyncapi = api_type == ApiType::AsyncApi && tag.is_none();
+    let harvest_asyncapi = api_type == ApiType::AsyncApi && tag_branch.is_none();
     let (harvest_inputs, harvest_results) = if harvest_asyncapi {
         plan_subscription_harvest(repo, content, stability).await?
     } else {
@@ -321,6 +326,7 @@ pub async fn provide_spec(
             changes: ProvideChanges::default(),
             promoted: false,
             harvested_subscriptions: harvest_results,
+            stream,
         });
     }
 
@@ -449,6 +455,7 @@ pub async fn provide_spec(
             promoted: promoting,
             // Harvest was planned before the no-op fast path above.
             harvested_subscriptions: harvest_results,
+            stream,
         });
     }
 
@@ -631,6 +638,7 @@ pub async fn provide_spec(
         changes,
         promoted: promoting,
         harvested_subscriptions: harvest_results,
+        stream,
     })
 }
 

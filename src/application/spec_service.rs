@@ -139,27 +139,41 @@ pub async fn normalize_stored_spec_text(
     Ok(summary)
 }
 
-/// Resolve the declared stream (ADR-0004/0005): `trunk` and `tag` are
-/// mutually exclusive, and a tag must name an existing sanshain-branch —
-/// no auto-create, so a typo'd pipeline cannot mint a half-empty release
-/// graph. Applies to dry-runs too: a misconfigured pipeline must hear it.
+/// Resolve the declared stream (ADR-0004/0005). The graph is informational
+/// and never fails a build: `trunk` with `tag`, or a tag naming no existing
+/// sanshain-branch, records the build as if no stream had been declared (dev
+/// only) and carries a warning instead of an error. Branches are still never
+/// auto-created, so a typo'd pipeline cannot mint a half-empty release graph.
+/// Applies to dry-runs too: a misconfigured pipeline must hear it.
 pub(crate) async fn resolve_stream(
     repo: &impl SpecRepository,
     trunk: bool,
     tag: Option<&str>,
-) -> Result<Option<BranchInfo>, AppError> {
-    if trunk && tag.is_some() {
-        return Err(AppError::BadRequest(
-            "`trunk` and `tag` are mutually exclusive — a build belongs to the trunk stream or to a named sanshain-branch, never both".to_string(),
-        ));
-    }
+) -> Result<ResolvedStream, AppError> {
+    let dev_only = |warning: String| ResolvedStream {
+        trunk: false,
+        branch: None,
+        warnings: vec![warning],
+    };
     match tag {
-        Some(name) => Ok(Some(repo.find_branch(name).await?.ok_or_else(|| {
-            AppError::NotFound(format!(
-                "no sanshain-branch '{name}' — a releaser must create it first"
-            ))
-        })?)),
-        None => Ok(None),
+        Some(_) if trunk => Ok(dev_only(
+            "trunk and tag are mutually exclusive — this build was recorded in neither".to_string(),
+        )),
+        Some(name) => match repo.find_branch(name).await? {
+            Some(branch) => Ok(ResolvedStream {
+                trunk: false,
+                branch: Some(branch),
+                warnings: Vec::new(),
+            }),
+            None => Ok(dev_only(format!(
+                "no sanshain-branch '{name}' — this build was not recorded in a release graph"
+            ))),
+        },
+        None => Ok(ResolvedStream {
+            trunk,
+            branch: None,
+            warnings: Vec::new(),
+        }),
     }
 }
 
@@ -989,5 +1003,74 @@ mod tests {
             classify_change(ApiType::OpenApi, old, new, 0),
             Impact::Major
         );
+    }
+
+    #[tokio::test]
+    async fn resolve_stream_honours_trunk_and_an_existing_tag() {
+        let repo = MockRepo::new();
+        let id = repo
+            .insert_branch(
+                "R",
+                "2026-01-01T00:00:00Z",
+                "rel",
+                "trunk",
+                "2026-01-01T00:00:00Z",
+            )
+            .await
+            .unwrap();
+
+        let plain = resolve_stream(&repo, false, None).await.unwrap();
+        assert!(!plain.trunk && plain.branch.is_none() && plain.warnings.is_empty());
+        assert_eq!(plain.label(), None);
+
+        let trunk = resolve_stream(&repo, true, None).await.unwrap();
+        assert!(trunk.trunk && trunk.branch.is_none() && trunk.warnings.is_empty());
+        assert_eq!(trunk.label(), Some("trunk"));
+
+        let tagged = resolve_stream(&repo, false, Some("R")).await.unwrap();
+        assert!(!tagged.trunk && tagged.warnings.is_empty());
+        assert_eq!(tagged.branch.as_ref().map(|b| b.id), Some(id));
+        assert_eq!(tagged.label(), Some("R"));
+    }
+
+    #[tokio::test]
+    async fn resolve_stream_records_dev_only_and_warns_instead_of_failing() {
+        let repo = MockRepo::new();
+        repo.insert_branch(
+            "R",
+            "2026-01-01T00:00:00Z",
+            "rel",
+            "trunk",
+            "2026-01-01T00:00:00Z",
+        )
+        .await
+        .unwrap();
+
+        let unknown = resolve_stream(&repo, false, Some("Ghost")).await.unwrap();
+        assert!(!unknown.trunk && unknown.branch.is_none());
+        assert_eq!(unknown.label(), None);
+        assert_eq!(
+            unknown.warnings,
+            vec![
+                "no sanshain-branch 'Ghost' — this build was not recorded in a release graph"
+                    .to_string()
+            ]
+        );
+        // Never auto-created.
+        assert!(repo.find_branch("Ghost").await.unwrap().is_none());
+
+        // Both declared: neither recorded — even when the tag exists.
+        for tag in ["R", "Ghost"] {
+            let both = resolve_stream(&repo, true, Some(tag)).await.unwrap();
+            assert!(!both.trunk && both.branch.is_none(), "{tag}");
+            assert_eq!(
+                both.warnings,
+                vec![
+                    "trunk and tag are mutually exclusive — this build was recorded in neither"
+                        .to_string()
+                ],
+                "{tag}"
+            );
+        }
     }
 }

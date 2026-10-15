@@ -10,8 +10,10 @@ use tracing::instrument;
 /// Record the periphery the system's `catalog-info.yaml` declares, replacing
 /// what the system pushed before. Always updates the dev set; a trunk push
 /// updates the trunk set too (the dev view is all activity, trunk included).
-/// A file Sanshain cannot read as the system's Component is rejected rather
-/// than recorded as "no periphery", so a name mismatch fails the build.
+/// A file Sanshain cannot read as the system's Component records nothing —
+/// not even "no periphery", so the previous set stays — and answers
+/// `recorded: false` with the reason as a warning: the graph is informational
+/// and never fails a build (ADR-0007 amendment).
 #[instrument(skip_all, fields(system = %system, trunk))]
 pub async fn push_catalog(
     repo: &impl SpecRepository,
@@ -27,11 +29,24 @@ pub async fn push_catalog(
     }
     let yaml = catalog_info_yaml.to_string();
     let parse_for = system.clone();
-    let resources = run_cpu_bound(move || {
-        crate::backstage::component_resource_dependencies(&yaml, &parse_for)
-            .map_err(|e| AppError::BadRequest(e.to_string()))
+    let parsed = run_cpu_bound(move || {
+        Ok(crate::backstage::component_resource_dependencies(
+            &yaml, &parse_for,
+        ))
     })
     .await?;
+    let resources = match parsed {
+        Ok(resources) => resources,
+        Err(e) => {
+            return Ok(CatalogPushResult {
+                system,
+                trunk,
+                resources: Vec::new(),
+                recorded: false,
+                warnings: vec![e.to_string()],
+            });
+        }
+    };
     repo.reconcile_periphery(&system, trunk, &resources, &now_iso())
         .await?;
     metrics::counter!("sanshain_catalog_pushes_total").increment(1);
@@ -39,6 +54,8 @@ pub async fn push_catalog(
         system,
         trunk,
         resources,
+        recorded: true,
+        warnings: Vec::new(),
     })
 }
 
@@ -96,6 +113,8 @@ mod tests {
                 system: "orders".to_string(),
                 trunk: false,
                 resources: vec!["resource:default/orders-db".to_string()],
+                recorded: true,
+                warnings: Vec::new(),
             }
         );
         let dev = repo
@@ -191,16 +210,44 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_mismatched_component_is_a_bad_request_and_records_nothing() {
+    async fn a_mismatched_component_records_nothing_and_warns() {
         let repo = MockRepo::new();
-        let err = push_catalog(&repo, "orders", &catalog("billing", &["db"]), false)
+        let result = push_catalog(&repo, "orders", &catalog("billing", &["db"]), false)
             .await
-            .unwrap_err();
-        match err {
-            AppError::BadRequest(msg) => assert!(msg.contains("no Component named 'orders'")),
-            other => panic!("expected BadRequest, got {other:?}"),
-        }
+            .unwrap();
+        assert!(!result.recorded);
+        assert!(result.resources.is_empty());
+        assert_eq!(result.warnings.len(), 1);
+        assert!(
+            result.warnings[0].contains("no Component named 'orders'"),
+            "{:?}",
+            result.warnings
+        );
         assert!(repo.periphery.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_file_keeps_the_previous_periphery() {
+        let repo = MockRepo::new();
+        push_catalog(&repo, "orders", &catalog("orders", &["orders-db"]), true)
+            .await
+            .unwrap();
+        for bad in [
+            "key: [unclosed",
+            "just a string",
+            &catalog("billing", &["x"]),
+        ] {
+            let result = push_catalog(&repo, "orders", bad, true).await.unwrap();
+            assert!(!result.recorded, "{bad}");
+            assert_eq!(result.warnings.len(), 1, "{bad}");
+        }
+        for track in [PeripheryTrack::Dev, PeripheryTrack::Trunk] {
+            let set = repo.list_periphery(track, None).await.unwrap();
+            assert_eq!(set.len(), 1, "{track:?}");
+            assert_eq!(set[0].resource, "resource:default/orders-db");
+        }
+        let rows = repo.periphery.lock().unwrap();
+        assert!(rows.iter().all(|r| r.valid_to.is_none()));
     }
 
     #[tokio::test]

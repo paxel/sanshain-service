@@ -87,19 +87,23 @@ fn missing_field(field: &str) -> axum::response::Response {
         .into_response()
 }
 
-/// The id behind a `tag`, for the audit row's branch identity. The stream was
-/// already validated upstream, so a miss here means the branch vanished between
-/// the write and this lookup — the row then keeps only its recorded label.
-async fn audit_branch_id(state: &AppState, tag: Option<&str>) -> Option<i64> {
-    match tag {
-        Some(tag) => state
-            .repo
-            .find_branch(tag)
-            .await
-            .ok()
-            .flatten()
-            .map(|b| b.id),
-        None => None,
+/// The response header that carries a warning the caller's build should
+/// print (ADR-0005/0007 amendments): a declared stream that was not recorded,
+/// a catalog that was not read. One header line per warning.
+pub const SANSHAIN_WARNING: &str = "Sanshain-Warning";
+
+/// Append every warning as its own `Sanshain-Warning` line. The text is UTF-8
+/// (it names user input such as a tag), sent as raw header bytes; control
+/// characters — a multi-line YAML error — become spaces so the line survives.
+pub fn append_warnings(headers: &mut HeaderMap, warnings: &[String]) {
+    for warning in warnings {
+        let line: String = warning
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect();
+        if let Ok(value) = HeaderValue::from_bytes(line.as_bytes()) {
+            headers.append(SANSHAIN_WARNING, value);
+        }
     }
 }
 
@@ -178,10 +182,10 @@ async fn provide_common(
         }
         if !res.changes.is_empty() {
             let version_str = res.version.to_string();
-            // ADR-0005: the audit entry names the declared stream, so a
+            // ADR-0005: the audit entry names the recorded stream, so a
             // release graph's history is one filtered query.
-            let stream = if trunk { Some("trunk") } else { tag };
-            let branch_id = audit_branch_id(state, tag).await;
+            let stream = res.stream.label();
+            let branch_id = res.stream.branch.as_ref().map(|b| b.id);
             record_audit_log(
                 &state.repo,
                 user,
@@ -206,7 +210,7 @@ async fn provide_common(
                 },
             )
             .await?;
-        } else if let Some(tag) = tag {
+        } else if let Some(branch) = &res.stream.branch {
             // A no-op provide changes no endpoint, but a *tagged* one still
             // marks the producer's member version in that release graph — a
             // real mutation of the branch, and the one ADR-0005 wants findable
@@ -221,21 +225,23 @@ async fn provide_common(
                     action: "BRANCH_MEMBER_TAGGED",
                     details: &format!(
                         "Tagged {:?} {} of '{}' into sanshain-branch '{}'",
-                        api_type, res.version, producername, tag
+                        api_type, res.version, producername, branch.name
                     ),
                     service: Some(producername),
                     version: Some(&version_str),
                     action_type: Some("WRITE"),
                     diff: None,
-                    stream: Some(tag),
-                    branch_id: audit_branch_id(state, Some(tag)).await,
+                    stream: Some(&branch.name),
+                    branch_id: Some(branch.id),
                 },
             )
             .await?;
         }
     }
 
-    Ok((StatusCode::ACCEPTED, Json(res)).into_response())
+    let mut headers = HeaderMap::new();
+    append_warnings(&mut headers, &res.stream.warnings);
+    Ok((StatusCode::ACCEPTED, headers, Json(res)).into_response())
 }
 
 /// The retire half of a provide call, split out so the publish path above reads
@@ -497,10 +503,13 @@ fn require_response(
     if let Some(ev) = &etag_value
         && request_headers.get("if-none-match") == Some(ev)
     {
-        return (StatusCode::NOT_MODIFIED, HeaderMap::new()).into_response();
+        let mut headers = HeaderMap::new();
+        append_warnings(&mut headers, &res.stream.warnings);
+        return (StatusCode::NOT_MODIFIED, headers).into_response();
     }
 
     let mut headers = HeaderMap::new();
+    append_warnings(&mut headers, &res.stream.warnings);
     if let Some(ev) = etag_value {
         headers.insert("ETag", ev);
     }
@@ -535,12 +544,8 @@ async fn require_common(
     } else {
         let res = services::require_endpoint(&state.repo, params).await?;
         let version_str = query.version.to_string();
-        let stream = if query.trunk {
-            Some("trunk")
-        } else {
-            query.tag.as_deref()
-        };
-        let branch_id = audit_branch_id(state, query.tag.as_deref()).await;
+        let stream = res.stream.label();
+        let branch_id = res.stream.branch.as_ref().map(|b| b.id);
         let _ = record_audit_log(
             &state.repo,
             user,
@@ -662,12 +667,8 @@ pub async fn require_bundle(
     } else {
         let res = services::require_bundle(&state.repo, params).await?;
         let version_str = payload.version.to_string();
-        let stream = if payload.trunk {
-            Some("trunk")
-        } else {
-            payload.tag.as_deref()
-        };
-        let branch_id = audit_branch_id(&state, payload.tag.as_deref()).await;
+        let stream = res.stream.label();
+        let branch_id = res.stream.branch.as_ref().map(|b| b.id);
         let _ = record_audit_log(
             &state.repo,
             user,
@@ -791,7 +792,9 @@ pub struct CatalogPushRequest {
     pub trunk: bool,
 }
 
-/// `PUT /catalog/{systemname}` — record the system's periphery (#46).
+/// `PUT /catalog/{systemname}` — record the system's periphery (#46). A
+/// file Sanshain cannot read answers `200` with `recorded: false` and a
+/// `Sanshain-Warning` (ADR-0007 amendment).
 pub async fn push_catalog(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
@@ -805,6 +808,12 @@ pub async fn push_catalog(
         payload.trunk,
     )
     .await?;
+    let mut headers = HeaderMap::new();
+    append_warnings(&mut headers, &result.warnings);
+    // Nothing recorded, nothing to audit — the warning goes to the build.
+    if !result.recorded {
+        return Ok((headers, Json(result)));
+    }
     let _ = record_audit_log(
         &state.repo,
         user,
@@ -823,7 +832,7 @@ pub async fn push_catalog(
         },
     )
     .await;
-    Ok(Json(result))
+    Ok((headers, Json(result)))
 }
 
 #[derive(Deserialize)]
@@ -953,5 +962,46 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lines(headers: &HeaderMap) -> Vec<String> {
+        headers
+            .get_all(SANSHAIN_WARNING)
+            .iter()
+            .map(|v| String::from_utf8_lossy(v.as_bytes()).into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn every_warning_is_its_own_utf8_header_line() {
+        let mut headers = HeaderMap::new();
+        append_warnings(
+            &mut headers,
+            &[
+                "no sanshain-branch 'Größe' — not recorded".to_string(),
+                "second".to_string(),
+            ],
+        );
+        assert_eq!(
+            lines(&headers),
+            vec![
+                "no sanshain-branch 'Größe' — not recorded".to_string(),
+                "second".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn control_characters_become_spaces_and_no_warning_adds_no_header() {
+        let mut headers = HeaderMap::new();
+        append_warnings(&mut headers, &[]);
+        assert!(headers.is_empty());
+        append_warnings(&mut headers, &["line one\r\nline two\tend".to_string()]);
+        assert_eq!(lines(&headers), vec!["line one  line two end".to_string()]);
     }
 }
