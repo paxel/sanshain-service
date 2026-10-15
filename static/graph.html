@@ -125,7 +125,7 @@
 
     <main class="container mx-auto flex-1 p-6">
       <div id="graph-section">
-        <div class="flex justify-between items-center mb-6">
+        <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
           <h2 class="text-xl font-semibold flex items-center">
             <span class="bg-purple-100 text-purple-700 p-2 rounded-lg mr-3">
               <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -194,11 +194,11 @@
             </div>
           </div>
 
-          <div class="flex items-center gap-2 ml-auto">
+          <div class="flex flex-wrap items-center gap-2 ml-auto">
             <!-- Stream view (ADR-0004): Dev = latest recorded activity;
                      Main = the trunk pin set, producers at trunk version. -->
             <div
-              class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
+              class="inline-flex flex-wrap max-w-full rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
             >
               <button
                 id="stream-dev"
@@ -229,7 +229,7 @@
               <option value="">Branch…</option>
             </select>
             <div
-              class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
+              class="inline-flex flex-wrap max-w-full rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
             >
               <button
                 id="graph-redraw-all"
@@ -249,7 +249,7 @@
               </button>
             </div>
             <div
-              class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
+              class="inline-flex flex-wrap max-w-full rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
             >
               <button
                 id="filter-openapi"
@@ -298,7 +298,7 @@
                      line's latest GA) and Snapshot-pinned (Pin served from a
                      Snapshot). Display states, never resolution inputs. -->
             <div
-              class="inline-flex rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
+              class="inline-flex flex-wrap max-w-full rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-sm"
             >
               <button
                 id="highlight-outdated"

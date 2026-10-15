@@ -2088,3 +2088,42 @@ test.describe("Superseded snapshots", () => {
     await expect(edge(OLD_PIN)).toHaveAttribute("stroke", "#f43f5e");
   });
 });
+
+test.describe("Graph toolbar layout", () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+
+  const openGraphAt = async (page, width) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await page.goto("/graph.html");
+    await expect(page.locator("#graph-download-png")).toBeVisible({ timeout: 10000 });
+  };
+  // The ids (or labels) of visible toolbar controls reaching outside the viewport.
+  const controlsOutside = (page) =>
+    page.evaluate(() =>
+      [...document.querySelectorAll("#graph-toolbar-row :is(button, select, input)")]
+        .filter((el) => el.offsetParent !== null)
+        .map((el) => ({ id: el.id || el.textContent.trim(), box: el.getBoundingClientRect() }))
+        .filter(({ box }) => box.left < 0 || box.right > window.innerWidth)
+        .map(({ id }) => id),
+    );
+  const pageScrollsSideways = (page) =>
+    page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+
+  test("every toolbar control fits the viewport at 1440px", async ({ page }) => {
+    await openGraphAt(page, 1440);
+    expect(await controlsOutside(page)).toEqual([]);
+    expect(await pageScrollsSideways(page)).toBe(false);
+  });
+
+  test("the toolbar wraps at phone width without a sideways page scroll", async ({ page }) => {
+    await openGraphAt(page, 375);
+    expect(await controlsOutside(page)).toEqual([]);
+    expect(await pageScrollsSideways(page)).toBe(false);
+  });
+});
