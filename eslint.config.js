@@ -55,6 +55,7 @@ export default [
         graphFetchScopeData: "readonly",
         graphBadgeLine: "readonly",
         hasPermission: "readonly",
+        latestGaVersion: "readonly",
         loadTimeline: "readonly",
         loadUserFavorites: "readonly",
         userFavorites: "writable",

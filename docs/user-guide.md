@@ -81,7 +81,7 @@ three views selected in the toolbar:
 - **Main**: the trunk stream — producers at their trunk version, edges are the current trunk pins.
 - **Branch…**: a sanshain-branch's pin set — what a release actually is.
 
-All views share the focus filter (type a service name to spotlight its neighborhood), the Circular mode, the protocol filters (OpenAPI/AsyncAPI/Proto), and the **Outdated** / **Snapshot-pinned** highlight toggles.
+All views share the focus filter (type a service name to spotlight its neighborhood), the Circular mode, the protocol filters (OpenAPI/AsyncAPI/Proto), and the **Outdated** / **Snapshot-pinned** highlight toggles. A pin to a superseded snapshot (a snapshot below the latest GA of its line) counts as outdated, and hovering the edge says `superseded by X ga`.
 
 Badges on each node show its protocols for the current view and instant: solid dark badges on the top edge for what it **provides** (braces = REST, two-way arrows = gRPC, envelope = messaging, hexagon = Peripheral Resource), outlined badges on the bottom edge for how it **requires** others. Provides follow the producer's version lines in the view at the viewed instant (any line in dev, trunk's member versions in main, a branch's member and pinned versions in a branch view), so a gRPC-only service shows no REST badge; requires follow the node's own edges, harvested subscriptions counting as messaging. The mermaid renderer writes the same as a second label line, e.g. `▲ REST · MSG   ▼ gRPC`. A subscription to a channel nobody provides points at a dashed missing node named `<channel> ?`. Harvested subscriptions follow the view too: dev shows all, live main the trunk-flagged ones, branch views and past instants none. Hovering a node shows what it provides and requires.
 
@@ -145,7 +145,7 @@ Architecture, isolation and dependency reports take a **graph scope**: `dev` (de
 ## Web Dashboard Features
 
 #### Producers (`/producers.html`)
-- Browse registered producers and their version lines (version, stability, snapshot expiry, trunk badge, branch chips).
+- Browse registered producers and their version lines (version, stability, snapshot expiry, trunk badge, branch chips). A snapshot below the latest GA of its line is marked `superseded by X ga`.
 - View endpoint usage and availability; "View spec" opens the full stored document with version history, diff and blame.
 - Copy or download endpoint specifications.
 

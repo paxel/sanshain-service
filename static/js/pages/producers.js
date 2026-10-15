@@ -261,15 +261,22 @@ function renderVersionLine(serviceName, apiType, line) {
 
   const entries = document.createElement("div");
   entries.className = "space-y-2";
+  const latestGa = latestGaVersion(line);
   for (const v of line) {
-    entries.appendChild(renderVersionEntry(serviceName, apiType, v));
+    entries.appendChild(renderVersionEntry(serviceName, apiType, v, latestGa));
   }
   section.appendChild(entries);
   return section;
 }
 
-function renderVersionEntry(serviceName, apiType, v) {
+// latestGa: the highest GA of the entry's line (or null). A snapshot below it
+// is superseded — consumers pinning it should move to that GA.
+function renderVersionEntry(serviceName, apiType, v, latestGa) {
   const isSnapshot = v.stability !== "ga";
+  const supersededBadge =
+    isSnapshot && latestGa && compareSemver(v.version, latestGa) < 0
+      ? `<span data-superseded class="text-[10px] text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full font-bold tracking-tighter" title="A higher GA of this line exists">superseded by ${escapeHtml(latestGa)} ga</span>`
+      : "";
   let expiryBadge = "";
   if (isSnapshot && v.expires_at) {
     const daysLeft = Math.ceil((new Date(v.expires_at).getTime() - Date.now()) / 86400000);
@@ -304,6 +311,7 @@ function renderVersionEntry(serviceName, apiType, v) {
                             ${stabilityBadge(v.stability)}
                             ${v.trunk_provided_at ? `<span class="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter" title="Trunk CI last provided this version ${escapeHtml(v.trunk_provided_at)}">trunk</span>` : ""}
                             ${(branchMembershipMap.get(`${apiType}|${v.version}`) || []).map((b) => `<span class="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-bold tracking-tighter" title="Referenced by sanshain-branch ${escapeHtml(b)}">${escapeHtml(b)}</span>`).join("")}
+                            ${supersededBadge}
                             ${expiryBadge}
                         </div>
                         <p class="text-xs text-slate-400 mt-0.5">

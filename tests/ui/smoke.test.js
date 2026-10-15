@@ -1978,3 +1978,113 @@ test.describe("Graph (unrequired) box", () => {
     await expect(page.locator('#graph-tooltip [data-panel="provides"]')).toContainText("MSG");
   });
 });
+
+test.describe("Superseded snapshots", () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+  const PRODUCER = "s9-producer"; // snapshot 1.0.0, GA 1.1.0, snapshot 1.2.0
+  const OLD_PIN = "s9-old-pin"; // pins the superseded snapshot 1.0.0
+  const NEW_PIN = "s9-new-pin"; // pins the snapshot 1.2.0, above the GA
+  const openapi = (version) =>
+    [
+      "openapi: 3.0.3",
+      "info:",
+      "  title: S9",
+      `  version: ${version}`,
+      "paths:",
+      "  /thing:",
+      "    get:",
+      "      responses:",
+      "        '200':",
+      "          description: OK",
+    ].join("\n");
+
+  test.beforeAll(async ({ request }) => {
+    if (!adminPassword) {
+      throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
+    }
+    const login = await request.post("/auth/login", {
+      data: { username: "root", password: adminPassword },
+    });
+    const { token } = await login.json();
+    const headers = { Authorization: `Bearer ${token}` };
+    const ok = async (res, what) => {
+      if (!res.ok()) throw new Error(`${what} failed: ${res.status()} ${await res.text()}`);
+    };
+    for (const [version, stability] of [
+      ["1.0.0", "snapshot"],
+      ["1.1.0", "ga"],
+      ["1.2.0", "snapshot"],
+    ]) {
+      await ok(
+        await request.post("/provide", {
+          headers,
+          data: { producername: PRODUCER, stability, openapi_yaml: openapi(version) },
+        }),
+        `provide ${version} ${stability}`,
+      );
+    }
+    for (const [client, version] of [
+      [OLD_PIN, "1.0.0"],
+      [NEW_PIN, "1.2.0"],
+    ]) {
+      await ok(
+        await request.get(
+          `/require?consumername=${client}&producername=${PRODUCER}&version=${version}&path=/thing&method=GET`,
+          { headers },
+        ),
+        `${client} requires ${version}`,
+      );
+    }
+  });
+
+  const login = async (page) => {
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+  };
+
+  test("the Producers page marks a snapshot below the latest GA as superseded", async ({
+    page,
+  }) => {
+    await login(page);
+    await page.goto(`/producers.html?service=${PRODUCER}`);
+    // Match the card's own version heading: the superseded text names a version too.
+    const card = (version) =>
+      page.locator(".endpoint-card", {
+        has: page.getByRole("heading", { name: version, exact: true }),
+      });
+    await expect(card("1.0.0")).toBeVisible({ timeout: 10000 });
+    await expect(card("1.0.0").locator("[data-superseded]")).toHaveText("superseded by 1.1.0 ga");
+    await expect(card("1.1.0").locator("[data-superseded]")).toHaveCount(0);
+    await expect(card("1.2.0").locator("[data-superseded]")).toHaveCount(0);
+  });
+
+  test("the graph shows a pin to a superseded snapshot as outdated with the text", async ({
+    page,
+  }) => {
+    await login(page);
+    await page.goto("/graph.html");
+    await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
+    const edge = (client) =>
+      page.locator(`#custom-graph path.graph-edge[data-from="${client}"][data-to="${PRODUCER}"]`);
+    await expect(edge(OLD_PIN)).toHaveAttribute("data-outdated", "1", { timeout: 20000 });
+    await expect(edge(OLD_PIN)).toHaveAttribute("data-snapshot", "1");
+    await expect(edge(NEW_PIN)).toHaveAttribute("data-outdated", "0");
+
+    const hit = (client) =>
+      page.locator(`#custom-graph path.edge-hit[data-from="${client}"][data-to="${PRODUCER}"]`);
+    const tooltip = page.locator("#graph-tooltip");
+    await hit(OLD_PIN).dispatchEvent("mouseenter");
+    await expect(tooltip.locator("[data-superseded]")).toHaveText("superseded by 1.1.0 ga");
+    await hit(NEW_PIN).dispatchEvent("mouseenter");
+    await expect(tooltip).toContainText("1.2.0");
+    await expect(tooltip.locator("[data-superseded]")).toHaveCount(0);
+
+    // The Outdated highlight lights the superseded pin in the outdated colour.
+    await page.click("#highlight-outdated");
+    await expect(edge(OLD_PIN)).toHaveAttribute("stroke", "#f43f5e");
+  });
+});

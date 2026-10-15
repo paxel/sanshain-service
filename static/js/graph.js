@@ -22,7 +22,8 @@ window.graphProtocolFilters = {
   unrequired: true,
 };
 // Independent display-state highlights (never resolution inputs):
-// outdated = Pin below the line's latest GA within the same major;
+// outdated = Pin below the line's latest GA within the same major (a Pin to a
+//   superseded Snapshot included);
 // breakingOutdated = Pin a whole major behind it — the same binary "outdated"
 //   before, which made one patch behind and three majors behind look identical;
 // snapshot = Pin currently served from a Snapshot.
@@ -143,6 +144,16 @@ function graphLatestGaMap(report) {
   });
   return map;
 }
+
+// A Pin to a Snapshot whose version is below the latest GA of its line is
+// "superseded": the GA it should move to, or null. Such a Pin is Outdated (or
+// Major behind) like any Pin below the latest GA, and says so in the tooltip.
+function graphSupersededBy(d, latestGaMap) {
+  if (d.stability !== "snapshot") return null;
+  const latestGa = latestGaMap.get(`${d.service}|${(d.api_type || "openapi").toLowerCase()}`);
+  return latestGa && _graphCompareSemver(d.version, latestGa) < 0 ? latestGa : null;
+}
+window.graphSupersededBy = graphSupersededBy;
 
 // Per aggregated edge ("client-->service"): does any dependency on it carry an
 // Outdated or Snapshot-pinned Pin? Map key -> { outdated, snapshot }.
@@ -2204,6 +2215,7 @@ function renderCustomGraph(report, svgElement, direction) {
             if (method === "DELETE") methodClass = "text-rose-400";
             if (method === "PUT") methodClass = "text-amber-400";
 
+            const supersededBy = graphSupersededBy(d, latestGaMap);
             const deprecatedBadge = d.deprecated
               ? '<span class="px-1 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[9px] font-bold ml-1">DEPRECATED</span>'
               : "";
@@ -2218,6 +2230,7 @@ function renderCustomGraph(report, svgElement, direction) {
                 <span class="text-[10px] text-slate-500 group-hover:text-indigo-300 transition-colors">${_graphEscapeHtml(type)} ${_graphEscapeHtml(String(d.version || ""))}${d.stability === "snapshot" ? ' <span class="text-amber-400 font-bold">SNAP</span>' : ""}</span>
               </div>
               <div class="font-mono text-[11px] text-slate-300 truncate group-hover:text-white transition-colors" title="${_graphEscapeHtml(path)}">${_graphEscapeHtml(path)}</div>
+              ${supersededBy ? `<div data-superseded class="text-[10px] text-rose-400 font-semibold">superseded by ${_graphEscapeHtml(supersededBy)} ga</div>` : ""}
             </a>
           `;
           })
