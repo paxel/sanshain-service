@@ -8,7 +8,7 @@ TW="../node_modules/.bin/tailwindcss"
 [ -x "$TW" ] || TW="node_modules/.bin/tailwindcss"
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
-"$TW" -c tailwind.config.js -i static/css/app.input.css -o "$TMP" --minify >/dev/null 2>&1
+"$TW" -i static/css/app.input.css -o "$TMP" --minify >/dev/null 2>&1
 if ! diff -q "$TMP" static/css/app.css >/dev/null; then
   echo "static/css/app.css is stale — run 'npm run build:css' and commit it." >&2
   exit 1
