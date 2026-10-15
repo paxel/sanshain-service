@@ -15,11 +15,11 @@ pub enum CatalogError {
     #[error("document {0} of catalog-info.yaml is not a Backstage entity: {1}")]
     NotAnEntity(usize, String),
     #[error(
-        "catalog-info.yaml has no Component named '{0}' — the Component's metadata.name must equal the serviceName in sanshain.yaml"
+        "catalog-info.yaml has no Component named '{0}' - the Component's metadata.name must equal the serviceName in sanshain.yaml"
     )]
     NoMatchingComponent(String),
     #[error(
-        "catalog-info.yaml has more than one Component named '{0}' — Sanshain cannot tell whose dependsOn to read"
+        "catalog-info.yaml has more than one Component named '{0}' - Sanshain cannot tell whose dependsOn to read"
     )]
     AmbiguousComponent(String),
     #[error("dependsOn of Component '{0}' is malformed: {1}")]

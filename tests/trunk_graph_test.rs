@@ -555,11 +555,11 @@ fn warnings(headers: &HeaderMap) -> Vec<String> {
 
 #[cfg(test)]
 const BOTH_WARNING: &str =
-    "trunk and tag are mutually exclusive — this build was recorded in neither";
+    "trunk and tag are mutually exclusive - this build was recorded in neither";
 
 #[cfg(test)]
 fn unknown_tag_warning(tag: &str) -> String {
-    format!("no sanshain-branch '{tag}' — this build was not recorded in a release graph")
+    format!("no sanshain-branch '{tag}' - this build was not recorded in a release graph")
 }
 
 #[cfg(test)]
@@ -805,6 +805,32 @@ channels:\n  user/signup:\n    publish:\n      message:\n        name: UserSigne
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(warnings(&headers).is_empty());
+}
+
+#[tokio::test]
+async fn a_non_ascii_tag_name_is_escaped_in_the_warning() {
+    let ctx = setup().await;
+    let (status, headers, body) = send(
+        &ctx,
+        "POST",
+        "/provide",
+        Some(json!({
+            "producername": "svc",
+            "openapi_yaml": spec("1.0.0"),
+            "stability": "snapshot",
+            "tag": "Größe",
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "got: {body}");
+    assert_eq!(
+        warnings(&headers),
+        vec![
+            "no sanshain-branch 'Gr\\u{00F6}\\u{00DF}e' - this build was not recorded in a release graph"
+                .to_string()
+        ]
+    );
+    assert!(headers["sanshain-warning"].to_str().is_ok(), "plain ASCII");
 }
 
 #[tokio::test]

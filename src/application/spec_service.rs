@@ -157,7 +157,7 @@ pub(crate) async fn resolve_stream(
     };
     match tag {
         Some(_) if trunk => Ok(dev_only(
-            "trunk and tag are mutually exclusive — this build was recorded in neither".to_string(),
+            "trunk and tag are mutually exclusive - this build was recorded in neither".to_string(),
         )),
         Some(name) => match repo.find_branch(name).await? {
             Some(branch) => Ok(ResolvedStream {
@@ -166,7 +166,7 @@ pub(crate) async fn resolve_stream(
                 warnings: Vec::new(),
             }),
             None => Ok(dev_only(format!(
-                "no sanshain-branch '{name}' — this build was not recorded in a release graph"
+                "no sanshain-branch '{name}' - this build was not recorded in a release graph"
             ))),
         },
         None => Ok(ResolvedStream {
@@ -1052,7 +1052,7 @@ mod tests {
         assert_eq!(
             unknown.warnings,
             vec![
-                "no sanshain-branch 'Ghost' — this build was not recorded in a release graph"
+                "no sanshain-branch 'Ghost' - this build was not recorded in a release graph"
                     .to_string()
             ]
         );
@@ -1066,7 +1066,7 @@ mod tests {
             assert_eq!(
                 both.warnings,
                 vec![
-                    "trunk and tag are mutually exclusive — this build was recorded in neither"
+                    "trunk and tag are mutually exclusive - this build was recorded in neither"
                         .to_string()
                 ],
                 "{tag}"

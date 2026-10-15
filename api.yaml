@@ -763,10 +763,12 @@ components:
       description: |
         A warning the caller's build should print — the call itself
         succeeded. Sent once per warning (the header may appear several
-        times), UTF-8. The graph is informational and never fails a build:
-        an unknown `tag` (`no sanshain-branch '<name>' — this build was not
-        recorded in a release graph`), `trunk` and `tag` together (`trunk
-        and tag are mutually exclusive — this build was recorded in
+        times). The value is plain ASCII: any other character, e.g. from a
+        tag name, is escaped as `\u{XXXX}` (its Unicode code point in hex,
+        at least four digits). The graph is informational and never fails a
+        build: an unknown `tag` (`no sanshain-branch '<name>' - this build
+        was not recorded in a release graph`), `trunk` and `tag` together
+        (`trunk and tag are mutually exclusive - this build was recorded in
         neither`), or a catalog push that recorded nothing (the reason).
         Clients fail on it only in strict mode.
       schema:

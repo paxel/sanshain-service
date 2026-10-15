@@ -62,9 +62,12 @@ The graph is informational and never fails a build. When Sanshain cannot record 
 declared, the call still succeeds and the response carries one `Sanshain-Warning` header line per
 problem — on provides, requires, bundles and catalog pushes, dry-runs and `304` answers included:
 
-- `no sanshain-branch '<name>' — this build was not recorded in a release graph`
-- `trunk and tag are mutually exclusive — this build was recorded in neither`
+- `no sanshain-branch '<name>' - this build was not recorded in a release graph`
+- `trunk and tag are mutually exclusive - this build was recorded in neither`
 - the reason a catalog push recorded nothing (`recorded: false`)
+
+The value is plain ASCII: any other character — from a tag name, say — is escaped as `\u{XXXX}`
+(the Unicode code point in hex, at least four digits), so `Größe` arrives as `Gr\u{00F6}\u{00DF}e`.
 
 The clients print each warning. Turn on **strict mode** to fail the build on any of them instead;
 raw `curl` pipelines can check the header themselves.

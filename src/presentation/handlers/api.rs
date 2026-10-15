@@ -92,19 +92,31 @@ fn missing_field(field: &str) -> axum::response::Response {
 /// a catalog that was not read. One header line per warning.
 pub const SANSHAIN_WARNING: &str = "Sanshain-Warning";
 
-/// Append every warning as its own `Sanshain-Warning` line. The text is UTF-8
-/// (it names user input such as a tag), sent as raw header bytes; control
+/// Append every warning as its own `Sanshain-Warning` line, as plain ASCII so
+/// every client reads it the same way: a non-ASCII character (a tag name, a
+/// YAML error quoting the file) is escaped as `\u{XXXX}`, and control
 /// characters — a multi-line YAML error — become spaces so the line survives.
 pub fn append_warnings(headers: &mut HeaderMap, warnings: &[String]) {
     for warning in warnings {
-        let line: String = warning
-            .chars()
-            .map(|c| if c.is_control() { ' ' } else { c })
-            .collect();
-        if let Ok(value) = HeaderValue::from_bytes(line.as_bytes()) {
+        if let Ok(value) = HeaderValue::from_str(&ascii_header_text(warning)) {
             headers.append(SANSHAIN_WARNING, value);
         }
     }
+}
+
+/// The header-safe ASCII form of a warning (see [`append_warnings`]).
+fn ascii_header_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if c.is_ascii_control() {
+            out.push(' ');
+        } else if c.is_ascii() {
+            out.push(c);
+        } else {
+            out.push_str(&format!("\\u{{{:04X}}}", u32::from(c)));
+        }
+    }
+    out
 }
 
 async fn provide_common(
@@ -978,20 +990,20 @@ mod tests {
     }
 
     #[test]
-    fn every_warning_is_its_own_utf8_header_line() {
+    fn every_warning_is_its_own_ascii_header_line() {
         let mut headers = HeaderMap::new();
         append_warnings(
             &mut headers,
             &[
-                "no sanshain-branch 'Größe' — not recorded".to_string(),
-                "second".to_string(),
+                "no sanshain-branch 'Größe' - not recorded".to_string(),
+                "dash — and emoji 🎉".to_string(),
             ],
         );
         assert_eq!(
             lines(&headers),
             vec![
-                "no sanshain-branch 'Größe' — not recorded".to_string(),
-                "second".to_string()
+                "no sanshain-branch 'Gr\\u{00F6}\\u{00DF}e' - not recorded".to_string(),
+                "dash \\u{2014} and emoji \\u{1F389}".to_string()
             ]
         );
     }
@@ -1001,7 +1013,13 @@ mod tests {
         let mut headers = HeaderMap::new();
         append_warnings(&mut headers, &[]);
         assert!(headers.is_empty());
-        append_warnings(&mut headers, &["line one\r\nline two\tend".to_string()]);
-        assert_eq!(lines(&headers), vec!["line one  line two end".to_string()]);
+        append_warnings(
+            &mut headers,
+            &["line one\r\nline two\tend\u{85}".to_string()],
+        );
+        assert_eq!(
+            lines(&headers),
+            vec!["line one  line two end\\u{0085}".to_string()]
+        );
     }
 }

@@ -109,8 +109,10 @@ call in the right release graph. Both cases now **succeed as if no stream had be
 spec is stored and served, the dev graph records the activity as usual, trunk and every branch stay
 untouched — and the response carries a `Sanshain-Warning` header naming what was not recorded:
 
-- unknown tag: `no sanshain-branch '<name>' — this build was not recorded in a release graph`;
-- both: `trunk and tag are mutually exclusive — this build was recorded in neither`.
+- unknown tag: `no sanshain-branch '<name>' - this build was not recorded in a release graph`;
+- both: `trunk and tag are mutually exclusive - this build was recorded in neither`.
+
+The header value is plain ASCII; any other character (a tag name, say) is escaped as `\u{XXXX}`.
 
 This applies to provides of all three API types, `/require*` and `/require-bundle`, dry-runs
 included. The audit entry records no stream for such a call. Branches are still never
