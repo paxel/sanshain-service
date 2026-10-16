@@ -29,6 +29,7 @@ Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and
 - **Free Spec Validator**: The landing page validates any OpenAPI, AsyncAPI or Protobuf spec against the exact rules a publish would face — no login, nothing stored.
 - **Auditing**: Full history of provides and administrative actions.
 - **Flexible Auth**: Local accounts, LDAP/Active Directory, or OpenID Connect SSO for human login; machine clients always use API tokens.
+- **API Tokens with a Scope**: Each user mints their own tokens on the account page. A token is `full` (everything its owner may do) or `read_only` — for AI / MCP clients, it answers reports and versions but is refused on every route that changes the catalog. See [API Usage](docs/api-usage.md#api-tokens).
 
 ![Dependency Graph](docs/images/graph.png)
 

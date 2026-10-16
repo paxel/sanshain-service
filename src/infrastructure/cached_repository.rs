@@ -5,8 +5,8 @@ use moka::future::Cache;
 
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
-    RewriteSpecText, SpecRepository, UpsertSpecVersion,
+    EndpointMap, NewApiToken, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams,
+    RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
 };
 use crate::infrastructure::database::DatabaseRepo;
 
@@ -1095,18 +1095,8 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
-    async fn create_api_token(
-        &self,
-        id: &str,
-        user_id: i64,
-        name: &str,
-        token_hash: &str,
-        created_at: &str,
-        expires_at: &str,
-    ) -> Result<(), RepositoryError> {
-        self.inner
-            .create_api_token(id, user_id, name, token_hash, created_at, expires_at)
-            .await
+    async fn create_api_token(&self, token: NewApiToken<'_>) -> Result<(), RepositoryError> {
+        self.inner.create_api_token(token).await
     }
 
     async fn list_api_tokens(&self, user_id: i64) -> Result<Vec<ApiToken>, RepositoryError> {
@@ -1121,8 +1111,15 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.delete_api_token(token_id, user_id).await
     }
 
-    async fn validate_api_token(&self, token_hash: &str) -> Result<Option<User>, RepositoryError> {
+    async fn validate_api_token(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<ApiTokenIdentity>, RepositoryError> {
         self.inner.validate_api_token(token_hash).await
+    }
+
+    async fn touch_api_token(&self, token_id: &str, used_at: &str) -> Result<(), RepositoryError> {
+        self.inner.touch_api_token(token_id, used_at).await
     }
 
     async fn delete_stale_dependencies(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {

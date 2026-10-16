@@ -82,6 +82,33 @@ test.describe('Sanshain 1.5.0 Features Integration Tests', () => {
     await expect(page.locator(`#tokens-list :text("${tokenName}")`)).not.toBeVisible();
   });
 
+  test('API Token Management - read-only scope', async ({ page }) => {
+    await page.goto('/account.html');
+    await ensureLoaderHidden(page);
+    await expect(page.locator('#tokens-list')).toBeVisible();
+
+    const tokenName = `ai-token-${Date.now()}`;
+    await page.fill('#token-name', tokenName);
+    await page.check('#token-read-only');
+    await page.click('button:has-text("Create")');
+    await expect(page.locator('#token-created')).toBeVisible();
+
+    // The list shows the scope and that the token was never used.
+    const tokenItem = page.locator('#tokens-list > div').filter({ hasText: tokenName });
+    await expect(tokenItem.locator('[data-token-scope="read_only"]')).toHaveText('read-only');
+    await expect(tokenItem).toContainText('Last used: never');
+
+    // The form resets to a full token for the next one.
+    await expect(page.locator('#token-read-only')).not.toBeChecked();
+
+    await tokenItem.locator('button:has-text("Revoke")').click();
+    const confirmBtn = page.locator('#confirm-yes');
+    if (await confirmBtn.isVisible()) {
+      await confirmBtn.click();
+    }
+    await expect(page.locator(`#tokens-list :text("${tokenName}")`)).not.toBeVisible();
+  });
+
   test('Admin Settings - Snapshot Max Age', async ({ page }) => {
     await page.goto('/admin.html');
     await ensureLoaderHidden(page);

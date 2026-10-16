@@ -1,6 +1,6 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
-use crate::domain::models::User;
+use crate::domain::models::{ApiTokenScope, User};
 use crate::domain::ports::{NewAuditLog, SpecRepository};
 use axum::{
     Json,
@@ -237,12 +237,16 @@ pub async fn list_tokens(
 pub struct CreateTokenRequest {
     pub name: String,
     pub expires_in_days: u64,
+    /// Immutable after creation; `full` when omitted.
+    #[serde(default)]
+    pub scope: ApiTokenScope,
 }
 
 #[derive(Serialize)]
 pub struct CreateTokenResponse {
     pub id: String,
     pub name: String,
+    pub scope: ApiTokenScope,
     pub token: String,
 }
 
@@ -272,9 +276,14 @@ pub async fn create_token(
     axum::Extension(user): axum::Extension<User>,
     Json(payload): Json<CreateTokenRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let (id, token) =
-        services::create_api_token(&state.repo, user.id, &payload.name, payload.expires_in_days)
-            .await?;
+    let (id, token) = services::create_api_token(
+        &state.repo,
+        user.id,
+        &payload.name,
+        payload.expires_in_days,
+        payload.scope,
+    )
+    .await?;
     record_audit_log(
         &state.repo,
         Some(&user),
@@ -289,6 +298,7 @@ pub async fn create_token(
     Ok(Json(CreateTokenResponse {
         id,
         name: payload.name.clone(),
+        scope: payload.scope,
         token,
     }))
 }

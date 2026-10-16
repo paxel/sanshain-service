@@ -7,7 +7,7 @@ This guide covers the admin dashboard at `/admin.html` and administrative tasks.
 - **Auth**: Configure **LDAP**, **OIDC** (SSO), **Local Users**, or **Dev Mode** in the Authentication section.
 - **Versions**: Delete a version (the escape hatch from GA immutability — check the dependents first) and tune snapshot cleanup in the settings.
 - **Cleanup**: Delete Producers, Consumers and stale dependencies in the management tabs.
-- **Tokens**: Users create their own API tokens at `/account.html`.
+- **Tokens**: Users create their own API tokens at `/account.html` — `full`, or `read_only` for AI / MCP clients (see [API Usage](api-usage.md#api-tokens)).
 
 ---
 

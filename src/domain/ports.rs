@@ -178,6 +178,18 @@ pub struct NewAuditLog<'a> {
     pub branch_id: Option<i64>,
 }
 
+/// An API token to store: the hash, never the raw token.
+#[derive(Clone, Copy, Debug)]
+pub struct NewApiToken<'a> {
+    pub id: &'a str,
+    pub user_id: i64,
+    pub name: &'a str,
+    pub token_hash: &'a str,
+    pub scope: ApiTokenScope,
+    pub created_at: &'a str,
+    pub expires_at: &'a str,
+}
+
 pub trait SpecRepository: Send + Sync {
     /// Liveness/readiness check against the backing store: runs a trivial query
     /// (`SELECT 1`) to confirm the connection pool can reach the database.
@@ -635,12 +647,7 @@ pub trait SpecRepository: Send + Sync {
     /// Create an API token (stores the hash, not the raw token).
     fn create_api_token(
         &self,
-        id: &str,
-        user_id: i64,
-        name: &str,
-        token_hash: &str,
-        created_at: &str,
-        expires_at: &str,
+        token: NewApiToken<'_>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// List all API tokens for a user (never includes raw token).
@@ -663,11 +670,21 @@ pub trait SpecRepository: Send + Sync {
         user_id: i64,
     ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
 
-    /// Validate an API token hash, returning the user if valid and not expired. Also updates last_used_at.
+    /// Validate an API token hash, returning the token's identity if it exists
+    /// and is not expired. Does not stamp `last_used_at` — that is
+    /// [`touch_api_token`](Self::touch_api_token), which the application layer
+    /// calls at most once a minute per token.
     fn validate_api_token(
         &self,
         token_hash: &str,
-    ) -> impl Future<Output = Result<Option<User>, RepositoryError>> + Send;
+    ) -> impl Future<Output = Result<Option<ApiTokenIdentity>, RepositoryError>> + Send;
+
+    /// Record that the token was used at `used_at` (ISO instant).
+    fn touch_api_token(
+        &self,
+        token_id: &str,
+        used_at: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Delete dependency rows whose `last_seen_at` is older than the given cutoff ISO timestamp.
     /// Returns the number of deleted rows.

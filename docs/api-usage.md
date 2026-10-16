@@ -115,6 +115,19 @@ fields.
 ### Reports and Graph Scopes
 - `GET /report` returns the dependency report; `?scope=main[@instant]` or `?scope=<branch>[@instant]` replaces the graph with that pin set (`dev`, the default, is the accumulated activity). The same scope applies to `/report/markdown` and `/report/isolation`. See the [User Guide](user-guide.md#reports-reportshtml).
 
+### API Tokens
+Machine clients authenticate with `Authorization: Bearer <token>`. Users mint their own tokens at
+`/account.html` (or `POST /auth/tokens` with a session). A token has a **scope**, decided at
+creation and immutable afterwards:
+
+| Scope       | May                                                                                                   | Refused                                                      |
+|-------------|-------------------------------------------------------------------------------------------------------|--------------------------------------------------------------|
+| `full`      | Everything its owner may do.                                                                          | —                                                            |
+| `read_only` | `GET /version`, `/report*`, `/producers/{producername}/versions`, `/endpoint-versions`, the SSE/WS update streams, the MCP endpoint. | Provide (all types), retire, `/require*`, `/require-bundle`, `PUT /catalog/*` — `403`, the body names the token's scope. |
+
+Tick **Read-only (for AI / MCP clients)** on the account page, or send `"scope": "read_only"`, to
+mint one. The token list shows each token's scope and when it last authenticated a request (to the
+minute). Expired tokens stop validating and are cleaned up in the background.
+
 ### Admin & Auth
-- **API Tokens**: Create tokens at `/account.html` for CI usage.
 - **Developer Mode**: Bypasses authentication for local testing. Requires both enabling it (Admin Panel or `SANSHAIN_DEV_MODE=true`) and the `ALLOW_INSECURE_DEV_MODE=true` safety gate; it fails closed otherwise. Never use in production — see [Developer Mode](administration.md#enabling-dev-mode-local-only).

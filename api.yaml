@@ -120,6 +120,9 @@ paths:
             Also `retired: true` without the `release_ga` permission and
             without a maintainer grant on this Producer. Retiring is a role for
             the same reason releasing is — see `ProvidePayload.retired`.
+
+            Also any request with a `read_only` API token — see the
+            `ReadOnlyToken` response.
           content:
             application/json:
               schema:
@@ -179,7 +182,8 @@ paths:
           description: |
             `stability: ga` without the `release_ga` permission, or
             `retired: true` without it and without a maintainer grant on this
-            Producer (see `/provide`).
+            Producer (see `/provide`), or a `read_only` API token (see the
+            `ReadOnlyToken` response).
           content:
             application/json:
               schema:
@@ -236,7 +240,8 @@ paths:
           description: |
             `stability: ga` without the `release_ga` permission, or
             `retired: true` without it and without a maintainer grant on this
-            Producer (see `/provide`).
+            Producer (see `/provide`), or a `read_only` API token (see the
+            `ReadOnlyToken` response).
           content:
             application/json:
               schema:
@@ -322,6 +327,8 @@ paths:
             answer normally but record the pin in the dev graph only, with a
             `Sanshain-Warning` header. Branches are never auto-created.
       responses:
+        "403":
+          $ref: "#/components/responses/ReadOnlyToken"
         "200":
           headers:
             Sanshain-Warning:
@@ -421,6 +428,8 @@ paths:
             answer resolves inside it. AsyncAPI 2.x and 3.x are supported.
             Without the parameter the answer is unchanged.
       responses:
+        "403":
+          $ref: "#/components/responses/ReadOnlyToken"
         "200":
           headers:
             Sanshain-Warning:
@@ -503,6 +512,8 @@ paths:
           schema: { type: string }
           description: See `tag` on `/require`.
       responses:
+        "403":
+          $ref: "#/components/responses/ReadOnlyToken"
         "200":
           headers:
             Sanshain-Warning:
@@ -564,6 +575,8 @@ paths:
             schema:
               $ref: "#/components/schemas/RequireBundlePayload"
       responses:
+        "403":
+          $ref: "#/components/responses/ReadOnlyToken"
         "200":
           headers:
             Sanshain-Warning:
@@ -641,6 +654,8 @@ paths:
             schema:
               $ref: "#/components/schemas/CatalogPushPayload"
       responses:
+        "403":
+          $ref: "#/components/responses/ReadOnlyToken"
         "200":
           headers:
             Sanshain-Warning:
@@ -757,7 +772,93 @@ paths:
                   version: { type: string }
                   instance_id: { type: string }
 
+  /auth/tokens:
+    get:
+      operationId: listApiTokens
+      summary: List the caller's API tokens
+      description: |
+        Every token the signed-in user owns, newest first, with its scope and
+        when it was last used. The raw token is never answered again after
+        creation. Session-authenticated: this is the account page's call, so
+        an API token cannot list or mint tokens.
+      responses:
+        "200":
+          description: The caller's tokens.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApiToken"
+        "401":
+          description: No valid session.
+    post:
+      operationId: createApiToken
+      summary: Create an API token
+      description: |
+        Mints a token for the signed-in user and answers it **once**. The
+        `scope` is decided here and is immutable afterwards: `full` (the
+        default) may do everything the user may; `read_only` is for AI / MCP
+        clients and is refused on every route that changes the catalog (see
+        the `ReadOnlyToken` response). Session-authenticated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateApiTokenPayload"
+      responses:
+        "200":
+          description: The new token. Copy `token` now; it is not stored and not shown again.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateApiTokenResponse"
+        "401":
+          description: No valid session.
+        "409":
+          description: The caller already has a token of that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+
+  /auth/tokens/{id}:
+    delete:
+      operationId: revokeApiToken
+      summary: Revoke an API token
+      description: Deletes one of the caller's tokens; it stops validating immediately. Session-authenticated.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+          description: The token id answered at creation and by the listing.
+      responses:
+        "200":
+          description: Revoked.
+        "401":
+          description: No valid session.
+        "404":
+          description: No such token owned by the caller.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+
 components:
+  responses:
+    ReadOnlyToken:
+      description: |
+        The request carried an API token with scope `read_only`. Such a token
+        may read — reports, `/producers/{producername}/versions`,
+        `/endpoint-versions`, the update streams and the MCP endpoint — but
+        never provide, retire, require or push a catalog. `error` names the
+        token's scope and the scope the call needs (`full`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
   headers:
     SanshainWarning:
       description: |
@@ -791,6 +892,71 @@ components:
           description: |
             The next free version the Producer should publish as instead.
             Present only on a 409 refusing a Provide by the version rules.
+
+    ApiTokenScope:
+      type: string
+      enum: [full, read_only]
+      default: full
+      description: |
+        What a token may do. Decided at creation, immutable afterwards. `full`
+        is everything its owner may do; `read_only` is for AI / MCP clients
+        and is refused on every catalog-changing route.
+
+    ApiToken:
+      type: object
+      required: [id, name, scope, created_at, expires_at]
+      properties:
+        id:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        scope:
+          $ref: "#/components/schemas/ApiTokenScope"
+        created_at:
+          type: string
+          description: RFC 3339 instant.
+        expires_at:
+          type: string
+          description: RFC 3339 instant; the token stops validating after it.
+        last_used_at:
+          type: string
+          nullable: true
+          description: |
+            When the token last authenticated a request (API or MCP), to the
+            minute — the stamp is refreshed at most once a minute. `null` when
+            never used.
+
+    CreateApiTokenPayload:
+      type: object
+      required: [name, expires_in_days]
+      properties:
+        name:
+          type: string
+          description: Unique per user.
+        expires_in_days:
+          type: integer
+          minimum: 1
+        scope:
+          allOf:
+            - $ref: "#/components/schemas/ApiTokenScope"
+          description: Omitted means `full`.
+
+    CreateApiTokenResponse:
+      type: object
+      required: [id, name, scope, token]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        scope:
+          $ref: "#/components/schemas/ApiTokenScope"
+        token:
+          type: string
+          description: The raw token (`san_` + 64 hex). Shown only here.
 
     Stability:
       type: string

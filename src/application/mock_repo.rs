@@ -1,7 +1,7 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
-    RewriteSpecText, SpecRepository, UpsertSpecVersion,
+    EndpointMap, NewApiToken, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams,
+    RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
 };
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
@@ -116,6 +116,7 @@ pub struct MockRepo {
     pub group_maintainers: Mutex<Vec<(i64, i64)>>,
     pub harvested_subscriptions: Mutex<Vec<MockHarvestedSub>>,
     pub periphery: Mutex<Vec<MockPeripheryRow>>,
+    pub api_tokens: Mutex<Vec<ApiToken>>,
 }
 
 /// In-memory `peripheral_dependencies` row (#46). Append-only: the open row
@@ -182,6 +183,7 @@ impl MockRepo {
             group_maintainers: Mutex::new(Vec::new()),
             harvested_subscriptions: Mutex::new(Vec::new()),
             periphery: Mutex::new(Vec::new()),
+            api_tokens: Mutex::new(Vec::new()),
         }
     }
 
@@ -1681,32 +1683,93 @@ impl SpecRepository for MockRepo {
         Ok(())
     }
 
-    async fn create_api_token(
-        &self,
-        _id: &str,
-        _user_id: i64,
-        _name: &str,
-        _hash: &str,
-        _created: &str,
-        _expires: &str,
-    ) -> Result<(), RepositoryError> {
+    async fn create_api_token(&self, token: NewApiToken<'_>) -> Result<(), RepositoryError> {
+        let mut tokens = self
+            .api_tokens
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if tokens.iter().any(|t| {
+            t.token_hash == token.token_hash || (t.user_id == token.user_id && t.name == token.name)
+        }) {
+            return Err(RepositoryError::Conflict);
+        }
+        tokens.push(ApiToken {
+            id: token.id.to_string(),
+            user_id: token.user_id,
+            name: token.name.to_string(),
+            token_hash: token.token_hash.to_string(),
+            scope: token.scope,
+            created_at: token.created_at.to_string(),
+            expires_at: token.expires_at.to_string(),
+            last_used_at: None,
+        });
         Ok(())
     }
 
-    async fn list_api_tokens(&self, _user_id: i64) -> Result<Vec<ApiToken>, RepositoryError> {
-        Ok(Vec::new())
+    async fn list_api_tokens(&self, user_id: i64) -> Result<Vec<ApiToken>, RepositoryError> {
+        Ok(self
+            .api_tokens
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|t| t.user_id == user_id)
+            .cloned()
+            .collect())
     }
 
     async fn delete_api_token(
         &self,
-        _token_id: &str,
-        _user_id: i64,
+        token_id: &str,
+        user_id: i64,
     ) -> Result<bool, RepositoryError> {
-        Ok(true)
+        let mut tokens = self
+            .api_tokens
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let before = tokens.len();
+        tokens.retain(|t| !(t.id == token_id && t.user_id == user_id));
+        Ok(tokens.len() < before)
     }
 
-    async fn validate_api_token(&self, _hash: &str) -> Result<Option<User>, RepositoryError> {
-        Ok(None)
+    async fn validate_api_token(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<ApiTokenIdentity>, RepositoryError> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let token = self
+            .api_tokens
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|t| t.token_hash == token_hash && t.expires_at > now)
+            .cloned();
+        let Some(token) = token else {
+            return Ok(None);
+        };
+        let user = self
+            .users
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|u| u.id == token.user_id)
+            .cloned();
+        Ok(user.map(|user| ApiTokenIdentity {
+            token_id: token.id,
+            scope: token.scope,
+            last_used_at: token.last_used_at,
+            user,
+        }))
+    }
+
+    async fn touch_api_token(&self, token_id: &str, used_at: &str) -> Result<(), RepositoryError> {
+        let mut tokens = self
+            .api_tokens
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(token) = tokens.iter_mut().find(|t| t.id == token_id) {
+            token.last_used_at = Some(used_at.to_string());
+        }
+        Ok(())
     }
 
     async fn delete_stale_dependencies(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {

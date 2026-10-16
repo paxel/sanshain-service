@@ -4,8 +4,8 @@
 //! cache pass-throughs and the enum dispatcher are exercised together with the
 //! SQLite implementation.
 
-use sanshain_service::domain::models::GroupSource;
-use sanshain_service::domain::ports::{NewAuditLog, SpecRepository};
+use sanshain_service::domain::models::{ApiTokenScope, GroupSource};
+use sanshain_service::domain::ports::{NewApiToken, NewAuditLog, SpecRepository};
 use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
 use sanshain_service::infrastructure::database::DatabaseRepo;
 use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
@@ -109,12 +109,28 @@ async fn api_token_repo_lifecycle_validates_and_deletes_by_owner() {
     let owner = repo.create_user("owner", "h", true).await.unwrap();
     let other = repo.create_user("other", "h", true).await.unwrap();
 
-    repo.create_api_token("tok-1", owner.id, "ci", "hash-1", PAST, FUTURE)
-        .await
-        .unwrap();
-    repo.create_api_token("tok-2", owner.id, "old", "hash-2", PAST, PAST)
-        .await
-        .unwrap();
+    repo.create_api_token(NewApiToken {
+        id: "tok-1",
+        user_id: owner.id,
+        name: "ci",
+        token_hash: "hash-1",
+        scope: ApiTokenScope::ReadOnly,
+        created_at: PAST,
+        expires_at: FUTURE,
+    })
+    .await
+    .unwrap();
+    repo.create_api_token(NewApiToken {
+        id: "tok-2",
+        user_id: owner.id,
+        name: "old",
+        token_hash: "hash-2",
+        scope: ApiTokenScope::Full,
+        created_at: PAST,
+        expires_at: PAST,
+    })
+    .await
+    .unwrap();
 
     let listed = repo.list_api_tokens(owner.id).await.unwrap();
     let mut names: Vec<&str> = listed.iter().map(|t| t.name.as_str()).collect();
@@ -122,19 +138,33 @@ async fn api_token_repo_lifecycle_validates_and_deletes_by_owner() {
     assert_eq!(names, vec!["ci", "old"]);
     let ci = listed.iter().find(|t| t.id == "tok-1").unwrap();
     assert_eq!(ci.user_id, owner.id);
+    assert_eq!(ci.scope, ApiTokenScope::ReadOnly);
     assert_eq!(ci.last_used_at, None);
 
-    // A live token resolves its user and stamps last_used_at; expired and
-    // unknown hashes resolve nothing.
+    // A live token resolves its identity without stamping last_used_at (the
+    // application layer throttles that); expired and unknown hashes resolve
+    // nothing.
     let resolved = repo
         .validate_api_token("hash-1")
         .await
         .unwrap()
         .expect("live token validates");
-    assert_eq!(resolved.username, "owner");
+    assert_eq!(resolved.user.username, "owner");
+    assert_eq!(resolved.token_id, "tok-1");
+    assert_eq!(resolved.scope, ApiTokenScope::ReadOnly);
+    assert_eq!(resolved.last_used_at, None);
     let listed = repo.list_api_tokens(owner.id).await.unwrap();
     let ci = listed.iter().find(|t| t.id == "tok-1").unwrap();
-    assert!(ci.last_used_at.is_some(), "validation stamps last_used_at");
+    assert_eq!(ci.last_used_at, None, "validation alone does not stamp");
+
+    repo.touch_api_token("tok-1", "2026-10-16T12:00:00+00:00")
+        .await
+        .unwrap();
+    let resolved = repo.validate_api_token("hash-1").await.unwrap().unwrap();
+    assert_eq!(
+        resolved.last_used_at.as_deref(),
+        Some("2026-10-16T12:00:00+00:00")
+    );
     assert!(repo.validate_api_token("hash-2").await.unwrap().is_none());
     assert!(repo.validate_api_token("nope").await.unwrap().is_none());
 

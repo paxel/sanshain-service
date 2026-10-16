@@ -176,6 +176,15 @@ document.getElementById("pw-form").addEventListener("submit", async (e) => {
 });
 
 // --- Tokens ---
+// The scope is decided at creation and immutable, so the list is the only
+// place a user can tell a read-only token from a full one.
+function tokenScopeBadge(scope) {
+  if (scope === "read_only") {
+    return '<span class="ml-2 text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full" data-token-scope="read_only">read-only</span>';
+  }
+  return '<span class="ml-2 text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full" data-token-scope="full">full</span>';
+}
+
 async function loadTokens() {
   const list = document.getElementById("tokens-list");
   try {
@@ -195,9 +204,10 @@ async function loadTokens() {
                     <div class="flex justify-between items-center bg-slate-50 px-4 py-3 rounded-lg fade-in">
                         <div>
                             <span class="font-medium text-slate-800">${escapeHtml(t.name)}</span>
+                            ${tokenScopeBadge(t.scope)}
                             <div class="text-xs text-slate-500 mt-0.5">
                                 Created: ${escapeHtml(t.created_at)} · Expires: ${escapeHtml(t.expires_at)}
-                                ${t.last_used_at ? " · Last used: " + escapeHtml(t.last_used_at) : ""}
+                                · Last used: ${t.last_used_at ? escapeHtml(t.last_used_at) : "never"}
                             </div>
                         </div>
                         <button data-click="confirmRevokeToken" data-click-args="${attrJson([t.name, t.id])}"
@@ -223,6 +233,7 @@ document.getElementById("token-form").addEventListener("submit", async (e) => {
       body: {
         name: document.getElementById("token-name").value,
         expires_in_days: parseInt(document.getElementById("token-expires").value, 10),
+        scope: document.getElementById("token-read-only").checked ? "read_only" : "full",
       },
     });
     if (res.ok) {

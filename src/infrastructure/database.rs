@@ -1,7 +1,7 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
-    RewriteSpecText, SpecRepository, UpsertSpecVersion,
+    EndpointMap, NewApiToken, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams,
+    RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
 };
 use crate::infrastructure::postgres_repository::PostgresSpecRepository;
 use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
@@ -442,19 +442,8 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, set_setting(key, value))
     }
 
-    async fn create_api_token(
-        &self,
-        id: &str,
-        user_id: i64,
-        name: &str,
-        token_hash: &str,
-        created_at: &str,
-        expires_at: &str,
-    ) -> Result<(), RepositoryError> {
-        delegate!(
-            self,
-            create_api_token(id, user_id, name, token_hash, created_at, expires_at)
-        )
+    async fn create_api_token(&self, token: NewApiToken<'_>) -> Result<(), RepositoryError> {
+        delegate!(self, create_api_token(token))
     }
 
     async fn list_api_tokens(&self, user_id: i64) -> Result<Vec<ApiToken>, RepositoryError> {
@@ -469,8 +458,15 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, delete_api_token(token_id, user_id))
     }
 
-    async fn validate_api_token(&self, token_hash: &str) -> Result<Option<User>, RepositoryError> {
+    async fn validate_api_token(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<ApiTokenIdentity>, RepositoryError> {
         delegate!(self, validate_api_token(token_hash))
+    }
+
+    async fn touch_api_token(&self, token_id: &str, used_at: &str) -> Result<(), RepositoryError> {
+        delegate!(self, touch_api_token(token_id, used_at))
     }
 
     async fn delete_stale_dependencies(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {

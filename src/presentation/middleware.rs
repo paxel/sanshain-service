@@ -259,8 +259,51 @@ pub async fn permission_auth(
     Ok(next.run(req).await.into_response())
 }
 
+/// What a route behind the API guard does to the catalog.
+///
+/// Declared per route rather than checked per handler, so a read-only token's
+/// refusal is one rule at the router and not an `if` every writer must
+/// remember.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ApiAccess {
+    /// Reads only — every API token may pass.
+    Read,
+    /// Changes the catalog — a `read_only` token is refused with `403`.
+    Write,
+}
+
+/// Guard for the Producer/Consumer API routes that only read.
 pub async fn api_auth(
     State(state): State<AppState>,
+    req: Request,
+    next: Next,
+) -> Result<axum::response::Response, axum::response::Response> {
+    authenticate_api(state, ApiAccess::Read, req, next).await
+}
+
+/// Guard for the Producer/Consumer API routes that change the catalog:
+/// provide (all types), retire, require, catalog push. Same authentication
+/// as [`api_auth`], plus the refusal of `read_only` tokens.
+pub async fn api_auth_write(
+    State(state): State<AppState>,
+    req: Request,
+    next: Next,
+) -> Result<axum::response::Response, axum::response::Response> {
+    authenticate_api(state, ApiAccess::Write, req, next).await
+}
+
+/// The refusal a read-only token gets on a write route.
+pub fn read_only_token_refusal() -> AppError {
+    AppError::ForbiddenWithReason(format!(
+        "this API token has scope '{}' and may not change the catalog; create a token with scope '{}' for provide, require and catalog pushes",
+        crate::domain::models::ApiTokenScope::ReadOnly.as_str(),
+        crate::domain::models::ApiTokenScope::Full.as_str(),
+    ))
+}
+
+async fn authenticate_api(
+    state: AppState,
+    access: ApiAccess,
     req: Request,
     next: Next,
 ) -> Result<axum::response::Response, axum::response::Response> {
@@ -293,9 +336,14 @@ pub async fn api_auth(
             return Ok(next.run(req).await);
         }
 
-        if let Ok(Some(user)) = services::validate_api_token(&state.repo, token).await {
+        if let Ok(Some(identity)) = services::validate_api_token(&state.repo, token).await {
+            if access == ApiAccess::Write
+                && identity.scope == crate::domain::models::ApiTokenScope::ReadOnly
+            {
+                return Err(read_only_token_refusal().into_response());
+            }
             let mut req = req;
-            attach_caller(&mut req, &state, user)
+            attach_caller(&mut req, &state, identity.user)
                 .await
                 .map_err(IntoResponse::into_response)?;
             return Ok(next.run(req).await);

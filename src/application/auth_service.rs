@@ -1,6 +1,6 @@
 use crate::domain::models::*;
 use crate::domain::permissions::Role;
-use crate::domain::ports::{AuthProvider, OidcFlow, SpecRepository};
+use crate::domain::ports::{AuthProvider, NewApiToken, OidcFlow, SpecRepository};
 use argon2::{
     Argon2,
     password_hash::{PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
@@ -500,6 +500,7 @@ pub async fn create_api_token(
     user_id: i64,
     name: &str,
     expires_in_days: u64,
+    scope: ApiTokenScope,
 ) -> Result<(String, String), AppError> {
     // 256 bits of CSPRNG entropy, matching session tokens. Storage and
     // validation are format-agnostic (SHA-256 of the raw string), so older
@@ -519,8 +520,16 @@ pub async fn create_api_token(
     let expires_at =
         (chrono::Utc::now() + chrono::Duration::days(expires_in_days as i64)).to_rfc3339();
 
-    repo.create_api_token(&id, user_id, name, &token_hash, &created_at, &expires_at)
-        .await?;
+    repo.create_api_token(NewApiToken {
+        id: &id,
+        user_id,
+        name,
+        token_hash: &token_hash,
+        scope,
+        created_at: &created_at,
+        expires_at: &expires_at,
+    })
+    .await?;
     Ok((id, raw_token))
 }
 
@@ -542,16 +551,58 @@ pub async fn revoke_api_token(
     Ok(repo.delete_api_token(token_id, user_id).await?)
 }
 
+/// How long a token's `last_used_at` stamp is left alone after a use.
+///
+/// A client polling every few seconds would otherwise turn every request into
+/// a write; a minute is precise enough for "when was this token last used?".
+pub const LAST_USED_STAMP_INTERVAL: chrono::Duration = chrono::Duration::minutes(1);
+
+/// Whether `last_used_at` is stale enough to be stamped again at `now`.
+///
+/// Accepts both spellings a stored stamp may have — RFC 3339 (what this code
+/// writes) and the bare `YYYY-MM-DD HH:MM:SS` UTC form older rows carry. An
+/// unreadable stamp is treated as due, so one bad row heals rather than sticks.
+pub fn last_used_stamp_due(last_used_at: Option<&str>, now: chrono::DateTime<chrono::Utc>) -> bool {
+    let Some(stamp) = last_used_at else {
+        return true;
+    };
+    let parsed = chrono::DateTime::parse_from_rfc3339(stamp)
+        .map(|t| t.with_timezone(&chrono::Utc))
+        .or_else(|_| {
+            chrono::NaiveDateTime::parse_from_str(stamp, "%Y-%m-%d %H:%M:%S").map(|t| t.and_utc())
+        });
+    match parsed {
+        Ok(stamped) => now - stamped >= LAST_USED_STAMP_INTERVAL,
+        Err(_) => true,
+    }
+}
+
+/// Resolve a raw API token to its identity, if it is live.
+///
+/// Stamps `last_used_at` at most once per [`LAST_USED_STAMP_INTERVAL`] per
+/// token. A failed stamp does not fail the request: the token is valid, and a
+/// missing "last used" is a cosmetic loss.
 #[instrument(skip_all)]
 pub async fn validate_api_token(
     repo: &impl SpecRepository,
     raw_token: &str,
-) -> Result<Option<User>, AppError> {
+) -> Result<Option<ApiTokenIdentity>, AppError> {
     let mut hasher = Sha256::new();
     hasher.update(raw_token.as_bytes());
     let token_hash = hex::encode(hasher.finalize());
 
-    Ok(repo.validate_api_token(&token_hash).await?)
+    let Some(identity) = repo.validate_api_token(&token_hash).await? else {
+        return Ok(None);
+    };
+    let now = chrono::Utc::now();
+    if last_used_stamp_due(identity.last_used_at.as_deref(), now)
+        && let Err(e) = repo
+            .touch_api_token(&identity.token_id, &now.to_rfc3339())
+            .await
+    {
+        tracing::warn!("Could not stamp last_used_at for an API token: {}", e);
+    }
+    Ok(Some(identity))
 }
 
 #[cfg(test)]
@@ -567,15 +618,95 @@ mod tests {
     #[tokio::test]
     async fn test_create_api_token_format_and_entropy() {
         let repo = MockRepo::new();
-        let (id, token) = create_api_token(&repo, 1, "ci", 30).await.unwrap();
+        let (id, token) = create_api_token(&repo, 1, "ci", 30, ApiTokenScope::Full)
+            .await
+            .unwrap();
         assert!(!id.is_empty());
         assert!(token.starts_with("san_"));
         let suffix = &token["san_".len()..];
         assert_eq!(suffix.len(), 64);
         assert_eq!(hex::decode(suffix).unwrap().len(), 32);
 
-        let (_, second_token) = create_api_token(&repo, 1, "ci", 30).await.unwrap();
+        let (_, second_token) = create_api_token(&repo, 1, "ci-2", 30, ApiTokenScope::Full)
+            .await
+            .unwrap();
         assert_ne!(token, second_token);
+    }
+
+    #[tokio::test]
+    async fn create_api_token_stores_the_requested_scope() {
+        let repo = MockRepo::new();
+        let user = repo.create_user("owner", "h", true).await.unwrap();
+        create_api_token(&repo, user.id, "ai", 30, ApiTokenScope::ReadOnly)
+            .await
+            .unwrap();
+        create_api_token(&repo, user.id, "ci", 30, ApiTokenScope::Full)
+            .await
+            .unwrap();
+        let listed = list_api_tokens(&repo, user.id).await.unwrap();
+        let scope_of = |name: &str| listed.iter().find(|t| t.name == name).unwrap().scope;
+        assert_eq!(scope_of("ai"), ApiTokenScope::ReadOnly);
+        assert_eq!(scope_of("ci"), ApiTokenScope::Full);
+    }
+
+    #[tokio::test]
+    async fn validate_api_token_resolves_identity_and_scope() {
+        let repo = MockRepo::new();
+        let user = repo.create_user("owner", "h", true).await.unwrap();
+        let (id, raw) = create_api_token(&repo, user.id, "ai", 30, ApiTokenScope::ReadOnly)
+            .await
+            .unwrap();
+        let identity = validate_api_token(&repo, &raw).await.unwrap().unwrap();
+        assert_eq!(identity.token_id, id);
+        assert_eq!(identity.scope, ApiTokenScope::ReadOnly);
+        assert_eq!(identity.user.username, "owner");
+        assert!(
+            validate_api_token(&repo, "san_nope")
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    // Spec: last_used_at is written on use, at most once a minute per token.
+    #[tokio::test]
+    async fn validate_api_token_stamps_last_used_once_per_minute() {
+        let repo = MockRepo::new();
+        let user = repo.create_user("owner", "h", true).await.unwrap();
+        let (_, raw) = create_api_token(&repo, user.id, "ci", 30, ApiTokenScope::Full)
+            .await
+            .unwrap();
+
+        let first = validate_api_token(&repo, &raw).await.unwrap().unwrap();
+        assert_eq!(first.last_used_at, None, "the stamp lands after validation");
+        let stamped = list_api_tokens(&repo, user.id).await.unwrap()[0]
+            .last_used_at
+            .clone()
+            .expect("first use stamps last_used_at");
+
+        let second = validate_api_token(&repo, &raw).await.unwrap().unwrap();
+        assert_eq!(second.last_used_at.as_deref(), Some(stamped.as_str()));
+        let after_second = list_api_tokens(&repo, user.id).await.unwrap()[0]
+            .last_used_at
+            .clone();
+        assert_eq!(
+            after_second.as_deref(),
+            Some(stamped.as_str()),
+            "a use within the minute must not write again"
+        );
+    }
+
+    #[test]
+    fn last_used_stamp_is_due_when_missing_old_or_unreadable() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-16T12:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        assert!(last_used_stamp_due(None, now));
+        assert!(last_used_stamp_due(Some("garbage"), now));
+        assert!(last_used_stamp_due(Some("2026-10-16T11:59:00Z"), now));
+        assert!(last_used_stamp_due(Some("2026-10-16 11:58:30"), now));
+        assert!(!last_used_stamp_due(Some("2026-10-16T11:59:01Z"), now));
+        assert!(!last_used_stamp_due(Some("2026-10-16 11:59:30"), now));
     }
 
     struct StubOidc;

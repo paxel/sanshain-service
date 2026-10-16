@@ -28,7 +28,8 @@ use infrastructure::cached_repository::CachedSpecRepository;
 
 pub use presentation::handlers::{admin, api, auth, pages, roles};
 pub use presentation::middleware::{
-    LogCaptureLayer, RouteGuard, api_auth, authenticated_auth, require, validate_csrf,
+    LogCaptureLayer, RouteGuard, api_auth, api_auth_write, authenticated_auth, require,
+    validate_csrf,
 };
 
 /// Default maximum request body size in bytes (4 MiB). Overridable at startup
@@ -79,17 +80,19 @@ pub fn create_app(state: AppState) -> Router {
         .route("/tokens", get(auth::list_tokens).post(auth::create_token).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/tokens/{id}", delete(auth::revoke_token).layer(from_fn_with_state(state.clone(), authenticated_auth)))
 
-        // API
-        .route("/provide", post(api::provide).layer(from_fn_with_state(state.clone(), api_auth)))
-        .route("/provide/asyncapi", post(api::provide_asyncapi).layer(from_fn_with_state(state.clone(), api_auth)))
-        .route("/provide/grpc", post(api::provide_proto).layer(from_fn_with_state(state.clone(), api_auth)))
-        .route("/require", get(api::require).layer(from_fn_with_state(state.clone(), api_auth)))
-        .route("/require/asyncapi", get(api::require_asyncapi).layer(from_fn_with_state(state.clone(), api_auth)))
-        .route("/require/grpc", get(api::require_proto).layer(from_fn_with_state(state.clone(), api_auth)))
-        .route("/require-bundle", post(api::require_bundle).layer(from_fn_with_state(state.clone(), api_auth)))
+        // API. Routes that change the catalog carry `api_auth_write`, which
+        // refuses read-only tokens; `write_api_routes_refuse_read_only_tokens`
+        // below keeps that list honest.
+        .route("/provide", post(api::provide).layer(from_fn_with_state(state.clone(), api_auth_write)))
+        .route("/provide/asyncapi", post(api::provide_asyncapi).layer(from_fn_with_state(state.clone(), api_auth_write)))
+        .route("/provide/grpc", post(api::provide_proto).layer(from_fn_with_state(state.clone(), api_auth_write)))
+        .route("/require", get(api::require).layer(from_fn_with_state(state.clone(), api_auth_write)))
+        .route("/require/asyncapi", get(api::require_asyncapi).layer(from_fn_with_state(state.clone(), api_auth_write)))
+        .route("/require/grpc", get(api::require_proto).layer(from_fn_with_state(state.clone(), api_auth_write)))
+        .route("/require-bundle", post(api::require_bundle).layer(from_fn_with_state(state.clone(), api_auth_write)))
         // #46: a build pushes its Backstage catalog-info.yaml; whoever may
         // require may describe its own periphery.
-        .route("/catalog/{systemname}", put(api::push_catalog).layer(from_fn_with_state(state.clone(), api_auth)))
+        .route("/catalog/{systemname}", put(api::push_catalog).layer(from_fn_with_state(state.clone(), api_auth_write)))
         .route("/report", get(api::report).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/report/markdown", get(api::report_markdown).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/report/isolation", get(api::report_isolation).layer(from_fn_with_state(state.clone(), api_auth)))
@@ -369,6 +372,40 @@ mod tests {
         );
     }
 
+    /// Every Producer/Consumer API route that changes the catalog must carry
+    /// the write guard, so a read-only token is refused at the router and not
+    /// by a check each handler has to remember.
+    #[test]
+    fn write_api_routes_refuse_read_only_tokens() {
+        let source = include_str!("lib.rs");
+        let writers = ["/provide", "/require", "/catalog/"];
+        let mut unguarded = Vec::new();
+
+        for line in source.lines() {
+            let trimmed = line.trim();
+            if !trimmed.starts_with(".route(\"") {
+                continue;
+            }
+            let path = trimmed
+                .strip_prefix(".route(\"")
+                .and_then(|s| s.split('"').next())
+                .unwrap_or("");
+            if !writers.iter().any(|w| path.starts_with(w)) {
+                continue;
+            }
+            if !trimmed.contains("api_auth_write") {
+                unguarded.push(path.to_string());
+            }
+        }
+
+        assert!(
+            unguarded.is_empty(),
+            "These catalog-changing routes do not refuse read-only tokens: {:?}\n\
+             Guard them with `api_auth_write`.",
+            unguarded
+        );
+    }
+
     /// Ensures the router and the maintenance contract in `maintenance.yaml`
     /// stay in sync.
     ///
@@ -466,8 +503,6 @@ mod tests {
             "/auth/logout",
             "/auth/me",
             "/auth/register",
-            "/auth/tokens",
-            "/auth/tokens/{id}",
             "/csrf-token",
             "/tokens",
             "/tokens/{id}",

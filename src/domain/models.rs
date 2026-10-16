@@ -451,15 +451,61 @@ pub struct AuthenticatedUser {
     pub username: String,
 }
 
+/// What an API token may do.
+///
+/// Decided at creation and immutable afterwards: a token handed to an AI or
+/// MCP client is minted read-only and stays so, whatever the client asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiTokenScope {
+    /// Everything the owning user may do through the API.
+    #[default]
+    Full,
+    /// Reading only: reports, versions, update streams and the MCP endpoint.
+    /// Every state-changing API route refuses it.
+    ReadOnly,
+}
+
+impl ApiTokenScope {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ApiTokenScope::Full => "full",
+            ApiTokenScope::ReadOnly => "read_only",
+        }
+    }
+
+    /// The stored spelling back to the scope; anything else is `None` rather
+    /// than a silent default, so a corrupt row cannot widen a token.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "full" => Some(ApiTokenScope::Full),
+            "read_only" => Some(ApiTokenScope::ReadOnly),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ApiToken {
     pub id: String,
     pub user_id: i64,
     pub name: String,
     pub token_hash: String,
+    pub scope: ApiTokenScope,
     pub created_at: String,
     pub expires_at: String,
     pub last_used_at: Option<String>,
+}
+
+/// The caller behind a validated API token: who it belongs to and what it may
+/// do. `last_used_at` is carried so the application layer can decide whether
+/// the stamp is due without a second read.
+#[derive(Clone, Debug)]
+pub struct ApiTokenIdentity {
+    pub token_id: String,
+    pub scope: ApiTokenScope,
+    pub last_used_at: Option<String>,
+    pub user: User,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

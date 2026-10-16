@@ -86,8 +86,8 @@ fn hash_session_token(token: &str) -> String {
 use super::pin_rows::{PinRow, periphery_track_key, pin_row_to_info};
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams, RepositoryError,
-    RewriteSpecText, SpecRepository, UpsertSpecVersion,
+    EndpointMap, NewApiToken, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams,
+    RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
 };
 
 struct ApiTokenRow {
@@ -95,6 +95,7 @@ struct ApiTokenRow {
     user_id: i64,
     name: String,
     token_hash: String,
+    scope: String,
     created_at: String,
     expires_at: String,
     last_used_at: Option<String>,
@@ -107,6 +108,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ApiTokenRow {
             user_id: row.try_get("user_id")?,
             name: row.try_get("name")?,
             token_hash: row.try_get("token_hash")?,
+            scope: row.try_get("scope")?,
             created_at: row.try_get("created_at")?,
             expires_at: row.try_get("expires_at")?,
             last_used_at: row.try_get("last_used_at")?,
@@ -121,6 +123,9 @@ impl From<ApiTokenRow> for ApiToken {
             user_id: row.user_id,
             name: row.name,
             token_hash: row.token_hash,
+            // An unknown spelling narrows rather than widens: a row this code
+            // cannot read is treated as read-only.
+            scope: ApiTokenScope::parse(&row.scope).unwrap_or(ApiTokenScope::ReadOnly),
             created_at: row.created_at,
             expires_at: row.expires_at,
             last_used_at: row.last_used_at,
@@ -2091,22 +2096,15 @@ impl SpecRepository for PostgresSpecRepository {
 
     // --- API Tokens ---
 
-    async fn create_api_token(
-        &self,
-        id: &str,
-        user_id: i64,
-        name: &str,
-        token_hash: &str,
-        created_at: &str,
-        expires_at: &str,
-    ) -> Result<(), RepositoryError> {
-        sqlx::query("INSERT INTO api_tokens (id, user_id, name, token_hash, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6)")
-            .bind(id)
-            .bind(user_id)
-            .bind(name)
-            .bind(token_hash)
-            .bind(created_at)
-            .bind(expires_at)
+    async fn create_api_token(&self, token: NewApiToken<'_>) -> Result<(), RepositoryError> {
+        sqlx::query("INSERT INTO api_tokens (id, user_id, name, token_hash, scope, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7)")
+            .bind(token.id)
+            .bind(token.user_id)
+            .bind(token.name)
+            .bind(token.token_hash)
+            .bind(token.scope.as_str())
+            .bind(token.created_at)
+            .bind(token.expires_at)
             .execute(&self.pool)
             .await
             .map_err(|e| {
@@ -2122,7 +2120,7 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn list_api_tokens(&self, user_id: i64) -> Result<Vec<ApiToken>, RepositoryError> {
         let rows: Vec<ApiTokenRow> = sqlx::query_as(
-            "SELECT id, user_id, name, token_hash, created_at, expires_at, last_used_at FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC"
+            "SELECT id, user_id, name, token_hash, scope, created_at, expires_at, last_used_at FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC"
         )
         .bind(user_id)
         .fetch_all(&self.pool)
@@ -2146,10 +2144,14 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn validate_api_token(&self, token_hash: &str) -> Result<Option<User>, RepositoryError> {
-        let row: Option<(i64, String, String, bool)> = sqlx::query_as(
+    async fn validate_api_token(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<ApiTokenIdentity>, RepositoryError> {
+        type Row = (String, String, Option<String>, i64, String, String, bool);
+        let row: Option<Row> = sqlx::query_as(
             r#"
-            SELECT u.id, u.username, u.password_hash, u.approved
+            SELECT t.id, t.scope, t.last_used_at, u.id, u.username, u.password_hash, u.approved
             FROM api_tokens t
             JOIN users u ON t.user_id = u.id
             WHERE t.token_hash = $1 AND t.expires_at > TO_CHAR(NOW(), 'YYYY-MM-DD HH24:MI:SS')
@@ -2160,20 +2162,31 @@ impl SpecRepository for PostgresSpecRepository {
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
-        if row.is_some() {
-            // Update last_used_at
-            let _ = sqlx::query("UPDATE api_tokens SET last_used_at = TO_CHAR(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE token_hash = $1")
-                .bind(token_hash)
-                .execute(&self.pool)
-                .await;
-        }
+        Ok(row.map(
+            |(token_id, scope, last_used_at, id, username, password_hash, approved)| {
+                ApiTokenIdentity {
+                    token_id,
+                    scope: ApiTokenScope::parse(&scope).unwrap_or(ApiTokenScope::ReadOnly),
+                    last_used_at,
+                    user: User {
+                        id,
+                        username,
+                        password_hash,
+                        approved,
+                    },
+                }
+            },
+        ))
+    }
 
-        Ok(row.map(|(id, username, password_hash, approved)| User {
-            id,
-            username,
-            password_hash,
-            approved,
-        }))
+    async fn touch_api_token(&self, token_id: &str, used_at: &str) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE api_tokens SET last_used_at = $1 WHERE id = $2")
+            .bind(used_at)
+            .bind(token_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
     }
 
     async fn delete_stale_dependencies(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
