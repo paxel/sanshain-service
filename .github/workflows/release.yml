@@ -73,6 +73,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # sbom-action writes output-file without creating its directory.
+      - name: Create the SBOM directory
+        run: mkdir -p sboms
+
       # Runs before the binaries and the docker context land in the workspace, so the SBOM
       # covers the source tree only (Cargo.lock and package-lock.json: what the binaries contain).
       - name: Generate the source SBOM (CycloneDX)
@@ -190,6 +194,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
+          # A release without its SBOM assets is a failed release, not a quiet one.
+          fail_on_unmatched_files: true
           files: |
             sboms/sanshain-service-${{ env.RELEASE_TAG }}.cdx.json
             sboms/sanshain-service-${{ env.RELEASE_TAG }}-source.cdx.json
