@@ -274,3 +274,7 @@ cosign verify-attestation --type cyclonedx ghcr.io/paxel/sanshain-service:v2.6.0
 
 A signature or attestation whose certificate names any other identity or issuer fails
 verification, so an admission policy can require exactly this identity.
+
+The weekly security workflow also scans the latest released image with grype; it fails only on
+high or critical findings that have a fix and attaches the full report, unfixed findings
+included, as a workflow artifact.

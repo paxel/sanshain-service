@@ -64,3 +64,21 @@ jobs:
         with:
           name: grype-report-${{ steps.latest.outputs.tag }}
           path: ${{ steps.grype.outputs.json }}
+
+      # Full picture for the record: every finding, unfixed ones included, never failing.
+      - name: grype (all findings)
+        id: grype-all
+        if: always()
+        uses: anchore/scan-action@v6
+        with:
+          image: ghcr.io/${{ github.repository }}:${{ steps.latest.outputs.tag }}
+          output-format: json
+          only-fixed: false
+          fail-build: false
+
+      - name: Upload the full scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grype-report-${{ steps.latest.outputs.tag }}-all
+          path: ${{ steps.grype-all.outputs.json }}
