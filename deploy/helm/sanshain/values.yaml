@@ -150,7 +150,7 @@ backup:
   # postgres:// URL, sqlite otherwise.
   engine: ""
   # How many backup files to keep on the volume; older ones are deleted after
-  # each successful run.
+  # each successful run. At least 1: the chart refuses to render otherwise.
   retain: 7
   # Mount this PersistentVolumeClaim instead of creating one.
   existingClaim: ""

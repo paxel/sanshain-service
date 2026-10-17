@@ -2,6 +2,9 @@
 {{- $isPostgres := or (hasPrefix "postgres://" .Values.secrets.databaseUrl) (hasPrefix "postgresql://" .Values.secrets.databaseUrl) -}}
 {{- $engine := .Values.backup.engine | default (ternary "postgres" "sqlite" $isPostgres) -}}
 {{- $claim := .Values.backup.existingClaim | default (printf "%s-backup" (include "sanshain.fullname" .)) -}}
+{{- if lt (int .Values.backup.retain) 1 -}}
+{{- fail "backup.retain must be at least 1 (0 would delete the backup just produced)" -}}
+{{- end -}}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -43,6 +46,7 @@ spec:
               command: ["/bin/sh", "-ec"]
               args:
                 - |
+                  rm -f /backup/*.part
                   out="/backup/sanshain-$(date -u +%Y%m%dT%H%M%SZ).db"
                   curl -fsS -H "Authorization: Bearer $SANSHAIN_TOKEN" \
                     -o "$out.part" "$SANSHAIN_URL/admin/backup/sqlite"
@@ -59,6 +63,7 @@ spec:
               command: ["/bin/sh", "-ec"]
               args:
                 - |
+                  rm -f /backup/*.part
                   out="/backup/sanshain-$(date -u +%Y%m%dT%H%M%SZ).dump"
                   pg_dump --format=custom --file="$out.part" "$DATABASE_URL"
                   mv "$out.part" "$out"

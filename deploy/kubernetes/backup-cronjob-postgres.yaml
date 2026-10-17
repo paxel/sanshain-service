@@ -45,6 +45,7 @@
 #               image: postgres:17-alpine
 #               env:
 #                 - name: RETAIN
+#                   # Must be at least 1: 0 deletes the backup just produced.
 #                   value: "7"
 #                 - name: DATABASE_URL
 #                   valueFrom:
@@ -54,6 +55,7 @@
 #               command: ["/bin/sh", "-ec"]
 #               args:
 #                 - |
+#                   rm -f /backup/*.part
 #                   out="/backup/sanshain-$(date -u +%Y%m%dT%H%M%SZ).dump"
 #                   pg_dump --format=custom --file="$out.part" "$DATABASE_URL"
 #                   mv "$out.part" "$out"

@@ -213,7 +213,7 @@ Kustomize: `deploy/kubernetes/backup-cronjob-postgres.yaml`.
 | `backup.enabled`       | Render the backup CronJob                                           | `false`       |
 | `backup.schedule`      | Cron schedule                                                       | `"0 2 * * *"` |
 | `backup.engine`        | `sqlite` or `postgres`; empty derives it from `secrets.databaseUrl` | `""`          |
-| `backup.retain`        | Backup files kept on the volume                                     | `7`           |
+| `backup.retain`        | Backup files kept on the volume (at least 1)                        | `7`           |
 | `backup.existingClaim` | Mount this claim instead of creating one                            | `""`          |
 | `backup.storage.size`  | Size of the claim the chart creates                                 | `5Gi`         |
 | `backup.tokenSecret`   | SQLite: Secret `name` and `key` holding the API token               | `key: token`  |

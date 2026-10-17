@@ -51,6 +51,7 @@
 #               image: curlimages/curl:8.11.1
 #               env:
 #                 - name: RETAIN
+#                   # Must be at least 1: 0 deletes the backup just produced.
 #                   value: "7"
 #                 - name: SANSHAIN_URL
 #                   # The Service's cluster DNS name and port (service.yaml).
@@ -63,6 +64,7 @@
 #               command: ["/bin/sh", "-ec"]
 #               args:
 #                 - |
+#                   rm -f /backup/*.part
 #                   out="/backup/sanshain-$(date -u +%Y%m%dT%H%M%SZ).db"
 #                   curl -fsS -H "Authorization: Bearer $SANSHAIN_TOKEN" \
 #                     -o "$out.part" "$SANSHAIN_URL/admin/backup/sqlite"

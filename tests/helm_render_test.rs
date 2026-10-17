@@ -273,6 +273,52 @@ fn sqlite_backup_requires_the_token_secret() {
 }
 
 #[test]
+fn backup_retain_below_one_fails_the_render() {
+    if !helm_available() {
+        eprintln!("skipping: helm is not installed");
+        return;
+    }
+
+    let err = render(&[
+        "--set",
+        "backup.enabled=true",
+        "--set",
+        "backup.engine=postgres",
+        "--set",
+        "backup.retain=0",
+    ])
+    .expect_err("retain 0 would delete the backup just produced");
+    assert!(
+        err.contains("backup.retain"),
+        "the failure names the value, got:\n{err}"
+    );
+}
+
+#[test]
+fn backup_cronjobs_remove_stale_partial_files_first() {
+    if !helm_available() {
+        eprintln!("skipping: helm is not installed");
+        return;
+    }
+
+    for engine in ["sqlite", "postgres"] {
+        let rendered = render(&[
+            "--set",
+            "backup.enabled=true",
+            "--set",
+            &format!("backup.engine={engine}"),
+            "--set",
+            "backup.tokenSecret.name=sanshain-backup-token",
+        ])
+        .expect("chart renders the backup CronJob");
+        assert!(
+            rendered.contains("rm -f /backup/*.part"),
+            "a failed {engine} run must not leave a .part file behind forever, got:\n{rendered}"
+        );
+    }
+}
+
+#[test]
 fn postgres_backup_cronjob_runs_pg_dump_against_the_database_url() {
     if !helm_available() {
         eprintln!("skipping: helm is not installed");
