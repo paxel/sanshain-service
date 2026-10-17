@@ -358,6 +358,31 @@ pub async fn main() {
         std::process::exit(1);
     }
 
+    // Webhooks (#47): the outbox is written at the sources only while
+    // enabled; the worker below delivers it.
+    let webhooks_enabled = env_choice("WEBHOOKS_ENABLED", &["true", "false"], "true") == "true";
+    sanshain_service::application::webhook_service::set_emission_enabled(webhooks_enabled);
+    let webhook_worker_interval_secs = env_number::<u64>("WEBHOOK_WORKER_INTERVAL_SECS", 5);
+    let webhook_delivery_timeout_secs = env_number::<u64>("WEBHOOK_DELIVERY_TIMEOUT_SECS", 10);
+    if webhook_worker_interval_secs == 0 || webhook_delivery_timeout_secs == 0 {
+        eprintln!(
+            "CONFIGURATION ERROR: WEBHOOK_WORKER_INTERVAL_SECS and WEBHOOK_DELIVERY_TIMEOUT_SECS must be greater than 0."
+        );
+        std::process::exit(1);
+    }
+    let public_base_url = std::env::var("PUBLIC_BASE_URL")
+        .ok()
+        .map(|u| u.trim().trim_end_matches('/').to_string())
+        .filter(|u| !u.is_empty());
+    if let Some(url) = &public_base_url
+        && !(url.starts_with("http://") || url.starts_with("https://"))
+    {
+        eprintln!(
+            "CONFIGURATION ERROR: PUBLIC_BASE_URL={url:?} must start with http:// or https://."
+        );
+        std::process::exit(1);
+    }
+
     let (spec_updated_tx, _) = tokio::sync::broadcast::channel(spec_updated_channel_size);
     let mut system = sysinfo::System::new_all();
     system.refresh_all();
@@ -424,6 +449,15 @@ pub async fn main() {
                 ),
                 Err(e) => tracing::warn!("Credential cleanup failed: {:?}", e),
             }
+            match sanshain_service::application::webhook_delivery::cleanup_webhook_data(
+                &cleanup_repo,
+            )
+            .await
+            {
+                Ok(0) => {}
+                Ok(n) => tracing::info!("Webhook cleanup: removed {} settled deliveries", n),
+                Err(e) => tracing::warn!("Webhook cleanup failed: {:?}", e),
+            }
 
             // Prune expired CSRF tokens
             {
@@ -442,6 +476,63 @@ pub async fn main() {
             }
         }
     });
+
+    // The webhook worker (#47): one pass per interval, each replica for
+    // itself — the claim is what keeps two replicas from sending one
+    // delivery twice.
+    if webhooks_enabled {
+        let worker_repo = state.repo.clone();
+        let sender =
+            match sanshain_service::infrastructure::webhook_sender::ReqwestWebhookSender::new(
+                std::time::Duration::from_secs(webhook_delivery_timeout_secs),
+            ) {
+                Ok(sender) => sender,
+                Err(e) => {
+                    tracing::error!("Can't build the webhook HTTP client: {}", e);
+                    eprintln!("ERROR: Can't build the webhook HTTP client: {}", e);
+                    std::process::exit(1);
+                }
+            };
+        let config = sanshain_service::application::webhook_delivery::WebhookDeliveryConfig {
+            public_base_url: public_base_url.clone(),
+            ..Default::default()
+        };
+        tracing::info!(
+            "Webhook worker enabled: every {} s, {} s delivery timeout, deep links {}",
+            webhook_worker_interval_secs,
+            webhook_delivery_timeout_secs,
+            public_base_url
+                .as_deref()
+                .map(|u| format!("on {u}"))
+                .unwrap_or_else(|| "from the OIDC redirect URL, if any".to_string())
+        );
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs(webhook_worker_interval_secs));
+            loop {
+                interval.tick().await;
+                match sanshain_service::application::webhook_delivery::deliver_due(
+                    &worker_repo,
+                    &sender,
+                    &config,
+                    Utc::now(),
+                )
+                .await
+                {
+                    Ok(summary) if summary == Default::default() => {}
+                    Ok(summary) => tracing::info!(
+                        "Webhook pass: {} delivered, {} failed, {} dead",
+                        summary.delivered,
+                        summary.failed,
+                        summary.dead
+                    ),
+                    Err(e) => tracing::warn!("Webhook pass failed: {:?}", e),
+                }
+            }
+        });
+    } else {
+        tracing::info!("Webhooks disabled (WEBHOOKS_ENABLED=false): no events are written or sent");
+    }
 
     let app = create_app(state).layer(prometheus_layer);
 

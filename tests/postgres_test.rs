@@ -882,3 +882,103 @@ async fn test_postgres_member_versions_record_close_and_read_at_an_instant() {
     assert_eq!(members[0].service, "hotfix");
     assert_eq!(members[0].last_provided_at, None);
 }
+
+/// Webhooks (#47): two worker passes claiming at the same instant — two
+/// replicas on one database — send a delivery once. `FOR UPDATE SKIP LOCKED`
+/// in the claim is what the test pins.
+#[tokio::test]
+async fn test_postgres_concurrent_worker_passes_send_a_delivery_once() {
+    use axum::extract::State;
+    use axum::http::StatusCode;
+    use axum::routing::post;
+    use sanshain_service::application::webhook_delivery::{WebhookDeliveryConfig, deliver_due};
+    use sanshain_service::domain::models::{
+        NewWebhookEvent, WebhookDeliveryStatus, WebhookEventType, WebhookFormat, WebhookScope,
+    };
+    use sanshain_service::domain::ports::{NewWebhook, SpecRepository};
+    use sanshain_service::infrastructure::webhook_sender::ReqwestWebhookSender;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let postgres_container = common::start_postgres().await;
+    let host = postgres_container.get_host().await.unwrap();
+    let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
+    let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .unwrap();
+    let repo = PostgresSpecRepository::new(pool.clone());
+    repo.run_migrations().await.unwrap();
+
+    // A throwaway receiver that counts what it gets and answers 200.
+    let hits = Arc::new(AtomicUsize::new(0));
+    async fn record(State(hits): State<Arc<AtomicUsize>>) -> StatusCode {
+        hits.fetch_add(1, Ordering::SeqCst);
+        StatusCode::OK
+    }
+    let app = axum::Router::new()
+        .route("/hook", post(record))
+        .with_state(hits.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/hook", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let scope = WebhookScope::Global;
+    let hook = repo
+        .create_webhook(NewWebhook {
+            scope: &scope,
+            url: &url,
+            format: WebhookFormat::Json,
+            event_types: &[],
+            producer_glob: None,
+            secret: "whsec_test",
+            secret_hint: "deadbeef",
+            allow_list_exempt: true,
+            created_by: "root",
+            created_at: "2026-01-01T00:00:00Z",
+        })
+        .await
+        .unwrap();
+    let now = Utc::now();
+    let occurred_at = now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let events: Vec<NewWebhookEvent> = (0..5)
+        .map(|i| NewWebhookEvent {
+            id: format!("evt-{i}"),
+            event_type: WebhookEventType::BranchCut,
+            producer: None,
+            occurred_at: occurred_at.clone(),
+            data: json!({"name": format!("rel-{i}")}),
+            hook_ids: vec![hook],
+        })
+        .collect();
+    repo.insert_webhook_events(&events).await.unwrap();
+
+    let sender = ReqwestWebhookSender::new(std::time::Duration::from_secs(5)).unwrap();
+    let config = WebhookDeliveryConfig::default();
+    let (a, b) = tokio::join!(
+        deliver_due(&repo, &sender, &config, now),
+        deliver_due(&repo, &sender, &config, now),
+    );
+    let (a, b) = (a.unwrap(), b.unwrap());
+    assert_eq!(
+        a.delivered + b.delivered,
+        5,
+        "every delivery once: {a:?} {b:?}"
+    );
+    assert_eq!(a.failed + b.failed + a.dead + b.dead, 0);
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        5,
+        "the receiver saw each delivery exactly once"
+    );
+    let rows = repo.list_webhook_deliveries(hook, 10).await.unwrap();
+    assert_eq!(rows.len(), 5);
+    assert!(
+        rows.iter()
+            .all(|d| d.status == WebhookDeliveryStatus::Delivered && d.attempts == 1)
+    );
+    assert_eq!(repo.count_pending_webhook_deliveries().await.unwrap(), 0);
+}

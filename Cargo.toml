@@ -58,6 +58,11 @@ url = "2"
 # feature; rustls-tls to match the existing rustls stack (no native-tls pull).
 openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
 base64 = "0.22"
+# Webhook deliveries (#47): the outbound POST and its HMAC-SHA256 signature.
+# Same reqwest spec as the dev-dependency below, so the two unify; hmac 0.13
+# is the digest-0.11 line sha2 0.11 is on.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+hmac = "0.13"
 # Feature set mirrors what ldap3's `tls-rustls-ring` enables, so both crates
 # resolve to the same `rustls` build and the same `ClientConfig` type.
 rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12", "ring"] }

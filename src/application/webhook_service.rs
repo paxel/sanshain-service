@@ -23,6 +23,110 @@ pub fn emission_enabled() -> bool {
     EMISSION_ENABLED.load(Ordering::Relaxed)
 }
 
+/// The setting holding the egress allow-list: a JSON array of host patterns.
+pub const ALLOWED_HOSTS_SETTING: &str = "webhook_allowed_hosts";
+
+/// The allow-list as stored: host patterns (`hooks.slack.com`,
+/// `*.webhook.office.com`), optionally prefixed `http://` to admit a plain
+/// HTTP receiver inside the cluster. Empty when never set.
+pub async fn webhook_allowed_hosts(repo: &impl SpecRepository) -> Result<Vec<String>, AppError> {
+    let Some(raw) = repo.get_setting(ALLOWED_HOSTS_SETTING).await? else {
+        return Ok(Vec::new());
+    };
+    serde_json::from_str(&raw).map_err(|e| {
+        AppError::Internal(format!(
+            "the stored {ALLOWED_HOSTS_SETTING} is not a list: {e}"
+        ))
+    })
+}
+
+/// Replace the allow-list. A pattern is a host with `*` and `?` globs, or
+/// `http://` plus such a host; anything else — a path, a port, another
+/// scheme — is refused, naming the pattern.
+pub async fn set_webhook_allowed_hosts(
+    repo: &impl SpecRepository,
+    patterns: &[String],
+) -> Result<Vec<String>, AppError> {
+    let mut cleaned = Vec::new();
+    for pattern in patterns {
+        let pattern = pattern.trim().to_ascii_lowercase();
+        if pattern.is_empty() {
+            continue;
+        }
+        let host = pattern.strip_prefix("http://").unwrap_or(&pattern);
+        let valid = !host.is_empty()
+            && host
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '*' | '?'));
+        if !valid {
+            return Err(AppError::BadRequest(format!(
+                "'{pattern}' is not a host pattern: use a host name with optional `*`/`?` wildcards, prefixed `http://` only to allow plain HTTP to it"
+            )));
+        }
+        if !cleaned.contains(&pattern) {
+            cleaned.push(pattern);
+        }
+    }
+    let json = serde_json::to_string(&cleaned).map_err(|e| AppError::Internal(e.to_string()))?;
+    repo.set_setting(ALLOWED_HOSTS_SETTING, &json).await?;
+    Ok(cleaned)
+}
+
+/// Whether a hook URL is admitted by the allow-list: `https://` to a host
+/// matching any pattern, or `http://` to a host matching a pattern that
+/// says `http://` itself. Ports are not part of the match.
+pub fn host_allowed(url: &str, patterns: &[String]) -> bool {
+    let Ok(parsed) = url::Url::parse(url) else {
+        return false;
+    };
+    let Some(host) = parsed.host_str() else {
+        return false;
+    };
+    let host = host.to_ascii_lowercase();
+    patterns.iter().any(|pattern| {
+        let pattern = pattern.to_ascii_lowercase();
+        match pattern.strip_prefix("http://") {
+            Some(plain) => glob_matches(plain, &host),
+            None => parsed.scheme() == "https" && glob_matches(&pattern, &host),
+        }
+    })
+}
+
+/// The registration-time check of a hook URL: well-formed and `http(s)`,
+/// then — unless the caller is exempt — on the allow-list, with the
+/// refusals the spec promises (an empty list says the admin has to allow
+/// hosts first).
+pub fn validate_hook_url(url: &str, patterns: &[String], exempt: bool) -> Result<(), AppError> {
+    let parsed = url::Url::parse(url)
+        .map_err(|e| AppError::BadRequest(format!("the hook URL is not a valid URL: {e}")))?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return Err(AppError::BadRequest(
+            "the hook URL must be an http:// or https:// URL with a host".to_string(),
+        ));
+    }
+    if exempt {
+        return Ok(());
+    }
+    if patterns.is_empty() {
+        return Err(AppError::ForbiddenWithReason(
+            "no hosts are allowed for webhooks yet — an administrator has to add the receiver's host to the allow-list (admin page, Webhooks) first".to_string(),
+        ));
+    }
+    if !host_allowed(url, patterns) {
+        let host = parsed.host_str().unwrap_or_default();
+        let hint = if parsed.scheme() == "http" {
+            " (plain http:// needs a pattern that says http:// itself)"
+        } else {
+            ""
+        };
+        return Err(AppError::ForbiddenWithReason(format!(
+            "the host '{host}' is not in the webhook allow-list{hint} — ask an administrator to allow it, or use one of: {}",
+            patterns.join(", ")
+        )));
+    }
+    Ok(())
+}
+
 /// Whether `name` matches a Producer-name glob: `*` matches any run of
 /// characters, `?` exactly one; everything else is literal.
 pub fn glob_matches(glob: &str, name: &str) -> bool {
@@ -458,6 +562,111 @@ mod tests {
         .unwrap();
         set_emission_enabled(true);
         assert!(off.is_none());
+    }
+
+    #[test]
+    fn the_allow_list_admits_https_to_listed_hosts_and_http_only_when_said_so() {
+        let patterns = vec![
+            "hooks.slack.com".to_string(),
+            "*.webhook.office.com".to_string(),
+            "http://n8n.corp.internal".to_string(),
+        ];
+        assert!(host_allowed(
+            "https://hooks.slack.com/services/T/B/x",
+            &patterns
+        ));
+        assert!(host_allowed("https://HOOKS.slack.com/x", &patterns));
+        assert!(host_allowed(
+            "https://corp.webhook.office.com/webhookb2/x",
+            &patterns
+        ));
+        assert!(
+            !host_allowed("https://webhook.office.com/x", &patterns),
+            "the glob needs a label"
+        );
+        assert!(
+            !host_allowed("http://hooks.slack.com/x", &patterns),
+            "plain http needs an http pattern"
+        );
+        assert!(
+            host_allowed("http://n8n.corp.internal:5678/hook", &patterns),
+            "ports are not matched"
+        );
+        assert!(
+            host_allowed("https://n8n.corp.internal/hook", &patterns),
+            "an http pattern admits https too"
+        );
+        assert!(!host_allowed("https://evil.example/x", &patterns));
+        assert!(!host_allowed(
+            "https://kubernetes.default.svc/api",
+            &patterns
+        ));
+        assert!(!host_allowed("not a url", &patterns));
+
+        assert!(
+            validate_hook_url("https://evil.example/x", &patterns, true).is_ok(),
+            "exempt"
+        );
+        match validate_hook_url("https://evil.example/x", &patterns, false) {
+            Err(AppError::ForbiddenWithReason(msg)) => assert!(
+                msg.contains("'evil.example' is not in the webhook allow-list"),
+                "{msg}"
+            ),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        match validate_hook_url("https://hooks.slack.com/x", &[], false) {
+            Err(AppError::ForbiddenWithReason(msg)) => {
+                assert!(msg.contains("no hosts are allowed"), "{msg}")
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        assert!(matches!(
+            validate_hook_url("ftp://x.example/y", &patterns, true),
+            Err(AppError::BadRequest(_))
+        ));
+        assert!(matches!(
+            validate_hook_url("nope", &patterns, true),
+            Err(AppError::BadRequest(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn the_allow_list_setting_round_trips_and_refuses_junk() {
+        let repo = MockRepo::new();
+        assert!(webhook_allowed_hosts(&repo).await.unwrap().is_empty());
+        let stored = set_webhook_allowed_hosts(
+            &repo,
+            &[
+                " Hooks.Slack.com ".to_string(),
+                "".to_string(),
+                "http://n8n.corp.internal".to_string(),
+                "hooks.slack.com".to_string(),
+            ],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            stored,
+            vec![
+                "hooks.slack.com".to_string(),
+                "http://n8n.corp.internal".to_string()
+            ]
+        );
+        assert_eq!(webhook_allowed_hosts(&repo).await.unwrap(), stored);
+        for junk in [
+            "https://hooks.slack.com",
+            "hooks.slack.com/path",
+            "hooks.slack.com:443",
+            "ho st",
+        ] {
+            assert!(
+                matches!(
+                    set_webhook_allowed_hosts(&repo, &[junk.to_string()]).await,
+                    Err(AppError::BadRequest(_))
+                ),
+                "{junk}"
+            );
+        }
     }
 
     #[test]

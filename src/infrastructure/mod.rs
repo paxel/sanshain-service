@@ -10,6 +10,7 @@ pub mod sqlite_snapshot;
 pub mod telemetry;
 pub mod tls;
 pub(crate) mod webhook_rows;
+pub mod webhook_sender;
 
 /// Turn a `find_endpoint` query into a case-insensitive SQL `LIKE` pattern:
 /// the query matches as a substring, `*` matches anything, and the `LIKE`

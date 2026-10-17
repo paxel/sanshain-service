@@ -821,3 +821,779 @@ async fn global_hooks_filter_by_event_type_and_producer_glob() {
         ]
     );
 }
+
+// --- Delivery: what a receiver sees ---
+
+use axum::extract::State;
+use axum::routing::post;
+use hmac::{Hmac, KeyInit, Mac};
+use sanshain_service::application::webhook_delivery::{WebhookDeliveryConfig, deliver_due};
+use sanshain_service::domain::models::{DeliveryPassSummary as PassSummary, WebhookDeliveryStatus};
+use sanshain_service::infrastructure::webhook_sender::ReqwestWebhookSender;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU16, Ordering};
+
+/// A throwaway receiver on an ephemeral port: records every request's
+/// headers and body, answers the configured status.
+#[cfg(test)]
+struct Receiver {
+    url: String,
+    requests: Arc<Mutex<Vec<(HeaderMap, String)>>>,
+    status: Arc<AtomicU16>,
+}
+
+#[cfg(test)]
+impl Receiver {
+    async fn start() -> Receiver {
+        let requests: Arc<Mutex<Vec<(HeaderMap, String)>>> = Arc::new(Mutex::new(Vec::new()));
+        let status = Arc::new(AtomicU16::new(200));
+        async fn record(
+            State((requests, status)): State<(
+                Arc<Mutex<Vec<(HeaderMap, String)>>>,
+                Arc<AtomicU16>,
+            )>,
+            headers: HeaderMap,
+            body: String,
+        ) -> StatusCode {
+            requests.lock().unwrap().push((headers, body));
+            StatusCode::from_u16(status.load(Ordering::SeqCst)).unwrap()
+        }
+        let app = axum::Router::new()
+            .route("/hook", post(record))
+            .with_state((requests.clone(), status.clone()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/hook", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        Receiver {
+            url,
+            requests,
+            status,
+        }
+    }
+
+    fn answer_with(&self, status: u16) {
+        self.status.store(status, Ordering::SeqCst);
+    }
+
+    fn requests(&self) -> Vec<(HeaderMap, String)> {
+        self.requests.lock().unwrap().clone()
+    }
+
+    fn last(&self) -> (HeaderMap, String) {
+        self.requests()
+            .last()
+            .cloned()
+            .expect("a request was received")
+    }
+}
+
+#[cfg(test)]
+fn header<'a>(headers: &'a HeaderMap, name: &str) -> &'a str {
+    headers
+        .get(name)
+        .unwrap_or_else(|| panic!("no {name} header"))
+        .to_str()
+        .unwrap()
+}
+
+/// Independent verification of `Sanshain-Signature`: HMAC-SHA256 of
+/// `<t>.<body>` under the secret, hex, as a receiver would compute it.
+#[cfg(test)]
+fn verify_signature(headers: &HeaderMap, body: &str, secret: &str) -> i64 {
+    let value = header(headers, "Sanshain-Signature");
+    let (t, v1) = value.split_once(',').unwrap();
+    let t: i64 = t.strip_prefix("t=").unwrap().parse().unwrap();
+    let v1 = v1.strip_prefix("v1=").unwrap();
+    let mut mac = <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(secret.as_bytes()).unwrap();
+    mac.update(format!("{t}.{body}").as_bytes());
+    assert_eq!(
+        hex::encode(mac.finalize().into_bytes()),
+        v1,
+        "signature mismatch"
+    );
+    t
+}
+
+#[cfg(test)]
+fn config(base_url: Option<&str>) -> WebhookDeliveryConfig {
+    WebhookDeliveryConfig {
+        public_base_url: base_url.map(str::to_string),
+        ..Default::default()
+    }
+}
+
+/// One worker pass at `now` — the single-pass function the worker loops over.
+#[cfg(test)]
+async fn pass(
+    ctx: &TestContext,
+    config: &WebhookDeliveryConfig,
+    now: chrono::DateTime<Utc>,
+) -> PassSummary {
+    let sender = ReqwestWebhookSender::new(std::time::Duration::from_secs(5)).unwrap();
+    deliver_due(&ctx.repo, &sender, config, now).await.unwrap()
+}
+
+#[cfg(test)]
+async fn add_format_hook(
+    ctx: &TestContext,
+    scope: WebhookScope,
+    url: &str,
+    format: WebhookFormat,
+    exempt: bool,
+) -> i64 {
+    ctx.repo
+        .create_webhook(NewWebhook {
+            scope: &scope,
+            url,
+            format,
+            event_types: &[],
+            producer_glob: None,
+            secret: "whsec_test",
+            secret_hint: "deadbeef",
+            allow_list_exempt: exempt,
+            created_by: "root",
+            created_at: "2026-01-01T00:00:00Z",
+        })
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn the_json_format_posts_the_signed_envelope_with_event_and_delivery_headers() {
+    let ctx = setup().await;
+    let receiver = Receiver::start().await;
+    let hook = add_format_hook(
+        &ctx,
+        producer("orders"),
+        &receiver.url,
+        WebhookFormat::Json,
+        true,
+    )
+    .await;
+    provide(
+        &ctx,
+        "orders",
+        "ga",
+        &spec("1.0.0", &["/a"], &[]),
+        json!({}),
+    )
+    .await;
+
+    let now = Utc::now();
+    let summary = pass(&ctx, &config(Some("https://sanshain.example/")), now).await;
+    assert_eq!(
+        summary,
+        PassSummary {
+            delivered: 1,
+            failed: 0,
+            dead: 0
+        }
+    );
+
+    let (headers, body) = receiver.last();
+    assert_eq!(header(&headers, "content-type"), "application/json");
+    assert_eq!(header(&headers, "sanshain-event"), "version.published");
+    assert!(header(&headers, "user-agent").starts_with("Sanshain/"));
+    let rows = deliveries(&ctx, hook).await;
+    assert_eq!(
+        header(&headers, "x-sanshain-delivery"),
+        rows[0].id.to_string()
+    );
+    let t = verify_signature(&headers, &body, "whsec_test");
+    assert_eq!(t, now.timestamp());
+
+    let envelope: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(envelope["id"], rows[0].event_id);
+    assert_eq!(envelope["type"], "version.published");
+    assert_eq!(envelope["occurred_at"], rows[0].occurred_at);
+    assert_eq!(envelope["sanshain_version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(envelope["data"]["producer"], "orders");
+    assert_eq!(envelope["data"]["version"], "1.0.0");
+    assert_eq!(
+        envelope["links"],
+        json!({
+            "producer": "https://sanshain.example/producers.html?service=orders",
+            "version": "https://sanshain.example/producers.html?service=orders&api_type=openapi&version=1.0.0",
+            "graph": "https://sanshain.example/graph.html",
+        })
+    );
+    assert_eq!(
+        envelope.as_object().unwrap().len(),
+        6,
+        "no undocumented envelope fields"
+    );
+
+    assert_eq!(rows[0].status, WebhookDeliveryStatus::Delivered);
+    assert_eq!(rows[0].attempts, 1);
+    assert_eq!(rows[0].last_response_code, Some(200));
+    assert!(rows[0].delivered_at.is_some());
+    assert_eq!(
+        pass(&ctx, &config(None), now).await,
+        PassSummary::default(),
+        "nothing left"
+    );
+    assert_eq!(receiver.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn links_fall_back_to_the_oidc_redirect_origin_or_are_omitted() {
+    let ctx = setup().await;
+    let receiver = Receiver::start().await;
+    add_format_hook(&ctx, global(), &receiver.url, WebhookFormat::Json, true).await;
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "rel"})),
+    )
+    .await;
+    pass(&ctx, &config(None), Utc::now()).await;
+    let envelope: Value = serde_json::from_str(&receiver.last().1).unwrap();
+    assert!(
+        envelope.get("links").is_none(),
+        "no base URL known: {envelope}"
+    );
+
+    services::set_oidc_config(
+        &ctx.repo,
+        &sanshain_service::domain::models::OidcConfig {
+            issuer_url: "https://idp.example".to_string(),
+            client_id: "sanshain".to_string(),
+            client_secret: None,
+            redirect_url: "https://sanshain.corp:8443/auth/oidc/callback".to_string(),
+            scopes: vec!["openid".to_string()],
+            username_claim: "preferred_username".to_string(),
+            groups_claim: "groups".to_string(),
+            admin_group: String::new(),
+        },
+    )
+    .await
+    .unwrap();
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "rel2"})),
+    )
+    .await;
+    pass(&ctx, &config(None), Utc::now()).await;
+    let envelope: Value = serde_json::from_str(&receiver.last().1).unwrap();
+    assert_eq!(
+        envelope["links"],
+        json!({"graph": "https://sanshain.corp:8443/graph.html"})
+    );
+}
+
+#[tokio::test]
+async fn the_slack_and_teams_formats_carry_the_facts_and_the_deep_link() {
+    let ctx = setup().await;
+    let slack = Receiver::start().await;
+    let teams = Receiver::start().await;
+    add_format_hook(
+        &ctx,
+        consumer("web"),
+        &slack.url,
+        WebhookFormat::Slack,
+        true,
+    )
+    .await;
+    add_format_hook(
+        &ctx,
+        consumer("web"),
+        &teams.url,
+        WebhookFormat::Teams,
+        true,
+    )
+    .await;
+    provide(
+        &ctx,
+        "orders",
+        "ga",
+        &spec("1.0.0", &["/a"], &[]),
+        json!({}),
+    )
+    .await;
+    assert_eq!(
+        require(&ctx, "web", "orders", "1.0.0", "/a", "").await,
+        StatusCode::OK
+    );
+    provide(
+        &ctx,
+        "orders",
+        "ga",
+        &spec("2.0.0", &["/b"], &[]),
+        json!({}),
+    )
+    .await;
+
+    let summary = pass(&ctx, &config(Some("https://sanshain.example")), Utc::now()).await;
+    assert_eq!(summary.delivered, 4);
+
+    let (headers, body) = slack.last();
+    verify_signature(&headers, &body, "whsec_test");
+    assert_eq!(header(&headers, "sanshain-event"), "version.published");
+    let message: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        message.as_object().unwrap().keys().collect::<Vec<_>>(),
+        vec!["text"]
+    );
+    let text = message["text"].as_str().unwrap();
+    assert!(text.contains("Producer orders published as GA: openapi 2.0.0 on dev (major change against 1.0.0), by root"), "{text}");
+    assert!(text.contains("<https://sanshain.example/producers.html?service=orders&api_type=openapi&version=2.0.0|Open in Sanshain>"), "{text}");
+
+    let (headers, body) = teams.last();
+    verify_signature(&headers, &body, "whsec_test");
+    let message: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(message["type"], "message");
+    let attachment = &message["attachments"][0];
+    assert_eq!(
+        attachment["contentType"],
+        "application/vnd.microsoft.card.adaptive"
+    );
+    let card = &attachment["content"];
+    assert_eq!(card["type"], "AdaptiveCard");
+    assert_eq!(
+        card["$schema"],
+        "http://adaptivecards.io/schemas/adaptive-card.json"
+    );
+    assert_eq!(card["version"], "1.4");
+    assert_eq!(card["body"][0]["text"], "version.published");
+    assert!(
+        card["body"][1]["text"]
+            .as_str()
+            .unwrap()
+            .contains("openapi 2.0.0")
+    );
+    assert_eq!(card["actions"][0]["type"], "Action.OpenUrl");
+    assert_eq!(
+        card["actions"][0]["url"],
+        "https://sanshain.example/producers.html?service=orders&api_type=openapi&version=2.0.0"
+    );
+
+    // The dependency.recorded message names the Consumer and links its page.
+    let dependency = slack
+        .requests()
+        .into_iter()
+        .find(|(h, _)| header(h, "sanshain-event") == "dependency.recorded")
+        .expect("web's own require reached its hook");
+    let text: Value = serde_json::from_str(&dependency.1).unwrap();
+    assert!(
+        text["text"]
+            .as_str()
+            .unwrap()
+            .contains("Consumer web now requires orders openapi 1.0.0 on dev: 1 endpoint(s)"),
+        "{text}"
+    );
+}
+
+#[tokio::test]
+async fn a_rotated_secret_signs_subsequent_deliveries() {
+    let ctx = setup().await;
+    let receiver = Receiver::start().await;
+    let hook = add_format_hook(&ctx, global(), &receiver.url, WebhookFormat::Json, true).await;
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "one"})),
+    )
+    .await;
+    pass(&ctx, &config(None), Utc::now()).await;
+    let (headers, body) = receiver.last();
+    verify_signature(&headers, &body, "whsec_test");
+
+    assert!(
+        ctx.repo
+            .rotate_webhook_secret(hook, "whsec_rotated", "cafebabe")
+            .await
+            .unwrap()
+    );
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "two"})),
+    )
+    .await;
+    pass(&ctx, &config(None), Utc::now()).await;
+    let (headers, body) = receiver.last();
+    verify_signature(&headers, &body, "whsec_rotated");
+    assert_eq!(receiver.requests().len(), 2);
+}
+
+#[tokio::test]
+async fn a_failing_receiver_is_retried_after_the_backoff_and_delivered_on_success() {
+    let ctx = setup().await;
+    let receiver = Receiver::start().await;
+    receiver.answer_with(500);
+    let hook = add_format_hook(&ctx, global(), &receiver.url, WebhookFormat::Json, true).await;
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "rel"})),
+    )
+    .await;
+
+    let t0 = Utc::now();
+    assert_eq!(
+        pass(&ctx, &config(None), t0).await,
+        PassSummary {
+            delivered: 0,
+            failed: 1,
+            dead: 0
+        }
+    );
+    let row = &deliveries(&ctx, hook).await[0];
+    assert_eq!(row.status, WebhookDeliveryStatus::Failed);
+    assert_eq!(row.attempts, 1);
+    assert_eq!(row.last_response_code, Some(500));
+    assert_eq!(
+        row.last_error.as_deref(),
+        Some("the receiver answered HTTP 500")
+    );
+    assert_eq!(
+        row.next_attempt_at,
+        (t0 + chrono::Duration::seconds(30)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    );
+
+    // Too early: no attempt.
+    receiver.answer_with(200);
+    assert_eq!(
+        pass(&ctx, &config(None), t0 + chrono::Duration::seconds(10)).await,
+        PassSummary::default()
+    );
+    assert_eq!(receiver.requests().len(), 1);
+
+    // After the backoff: delivered.
+    assert_eq!(
+        pass(&ctx, &config(None), t0 + chrono::Duration::seconds(31)).await,
+        PassSummary {
+            delivered: 1,
+            failed: 0,
+            dead: 0
+        }
+    );
+    let row = &deliveries(&ctx, hook).await[0];
+    assert_eq!(row.status, WebhookDeliveryStatus::Delivered);
+    assert_eq!(row.attempts, 2);
+    assert_eq!(receiver.requests().len(), 2);
+
+    // The backoff doubles: a second failure waits 60 s, a third 120 s.
+    receiver.answer_with(503);
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "rel2"})),
+    )
+    .await;
+    pass(&ctx, &config(None), t0).await;
+    pass(&ctx, &config(None), t0 + chrono::Duration::seconds(30)).await;
+    let row = &deliveries(&ctx, hook).await[0];
+    assert_eq!(row.attempts, 2);
+    assert_eq!(
+        row.next_attempt_at,
+        (t0 + chrono::Duration::seconds(90)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    );
+}
+
+#[tokio::test]
+async fn a_receiver_down_for_a_day_yields_a_dead_delivery_that_a_redeliver_sends_again() {
+    let ctx = setup().await;
+    let receiver = Receiver::start().await;
+    receiver.answer_with(500);
+    let hook = add_format_hook(&ctx, global(), &receiver.url, WebhookFormat::Json, true).await;
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "rel"})),
+    )
+    .await;
+    let t0 = Utc::now();
+    pass(&ctx, &config(None), t0).await;
+    // Still down, still inside the window: retried, not dead.
+    assert_eq!(
+        pass(&ctx, &config(None), t0 + chrono::Duration::hours(2)).await,
+        PassSummary {
+            delivered: 0,
+            failed: 1,
+            dead: 0
+        }
+    );
+    // A retry that lands past the cutoff is marked dead.
+    let later = t0
+        + chrono::Duration::hours(23)
+        + chrono::Duration::minutes(59)
+        + chrono::Duration::seconds(50);
+    assert_eq!(
+        pass(&ctx, &config(None), later).await,
+        PassSummary {
+            delivered: 0,
+            failed: 0,
+            dead: 1
+        }
+    );
+    let row = &deliveries(&ctx, hook).await[0];
+    assert_eq!(row.status, WebhookDeliveryStatus::Dead);
+    assert_eq!(row.attempts, 3);
+    assert_eq!(row.last_response_code, Some(500));
+
+    // A day later, nothing is attempted for it any more …
+    receiver.answer_with(200);
+    assert_eq!(
+        pass(&ctx, &config(None), t0 + chrono::Duration::hours(26)).await,
+        PassSummary::default()
+    );
+    assert_eq!(receiver.requests().len(), 3);
+
+    // … until it is redelivered by hand: one more attempt, attempts kept.
+    let redeliver_at = t0 + chrono::Duration::hours(27);
+    assert!(
+        ctx.repo
+            .reset_webhook_delivery(
+                row.id,
+                &redeliver_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+            )
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        deliveries(&ctx, hook).await[0].status,
+        WebhookDeliveryStatus::Pending
+    );
+    assert_eq!(
+        pass(&ctx, &config(None), redeliver_at).await,
+        PassSummary {
+            delivered: 1,
+            failed: 0,
+            dead: 0
+        }
+    );
+    let row = &deliveries(&ctx, hook).await[0];
+    assert_eq!(row.status, WebhookDeliveryStatus::Delivered);
+    assert_eq!(row.attempts, 4);
+    assert_eq!(receiver.requests().len(), 4);
+}
+
+#[tokio::test]
+async fn a_delivery_never_attempted_within_a_day_is_dead_without_an_attempt() {
+    let ctx = setup().await;
+    let receiver = Receiver::start().await;
+    let hook = add_format_hook(&ctx, global(), &receiver.url, WebhookFormat::Json, true).await;
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "rel"})),
+    )
+    .await;
+    // The worker only looks 25 hours later (a paused hook resumed, a long outage).
+    assert_eq!(
+        pass(
+            &ctx,
+            &config(None),
+            Utc::now() + chrono::Duration::hours(25)
+        )
+        .await,
+        PassSummary {
+            delivered: 0,
+            failed: 0,
+            dead: 1
+        }
+    );
+    let row = &deliveries(&ctx, hook).await[0];
+    assert_eq!(row.status, WebhookDeliveryStatus::Dead);
+    assert_eq!(row.attempts, 0);
+    assert!(row.last_error.as_deref().unwrap().contains("24 hours"));
+    assert!(receiver.requests().is_empty());
+}
+
+#[tokio::test]
+async fn a_paused_hook_makes_no_attempt_and_resumes_on_the_backoff_schedule() {
+    let ctx = setup().await;
+    let receiver = Receiver::start().await;
+    receiver.answer_with(500);
+    let hook = add_format_hook(&ctx, global(), &receiver.url, WebhookFormat::Json, true).await;
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "rel"})),
+    )
+    .await;
+    let t0 = Utc::now();
+    pass(&ctx, &config(None), t0).await;
+    assert_eq!(receiver.requests().len(), 1);
+
+    ctx.repo
+        .update_webhook(
+            hook,
+            &sanshain_service::domain::models::WebhookPatch {
+                paused: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    receiver.answer_with(200);
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "rel2"})),
+    )
+    .await;
+    assert_eq!(
+        pass(&ctx, &config(None), t0 + chrono::Duration::minutes(5)).await,
+        PassSummary::default()
+    );
+    assert_eq!(
+        receiver.requests().len(),
+        1,
+        "a paused hook is never attempted"
+    );
+    let rows = deliveries(&ctx, hook).await;
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows[0].status,
+        WebhookDeliveryStatus::Pending,
+        "kept, not dropped"
+    );
+    assert_eq!(rows[1].status, WebhookDeliveryStatus::Failed);
+
+    ctx.repo
+        .update_webhook(
+            hook,
+            &sanshain_service::domain::models::WebhookPatch {
+                paused: Some(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        pass(&ctx, &config(None), t0 + chrono::Duration::minutes(6)).await,
+        PassSummary {
+            delivered: 2,
+            failed: 0,
+            dead: 0
+        }
+    );
+    assert_eq!(receiver.requests().len(), 3);
+}
+
+#[tokio::test]
+async fn a_host_removed_from_the_allow_list_stops_delivery_with_a_reason() {
+    let ctx = setup().await;
+    let receiver = Receiver::start().await;
+    sanshain_service::application::webhook_service::set_webhook_allowed_hosts(
+        &ctx.repo,
+        &["http://127.0.0.1".to_string()],
+    )
+    .await
+    .unwrap();
+    let hook = add_format_hook(&ctx, global(), &receiver.url, WebhookFormat::Json, false).await;
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "rel"})),
+    )
+    .await;
+    assert_eq!(pass(&ctx, &config(None), Utc::now()).await.delivered, 1);
+
+    sanshain_service::application::webhook_service::set_webhook_allowed_hosts(&ctx.repo, &[])
+        .await
+        .unwrap();
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "rel2"})),
+    )
+    .await;
+    assert_eq!(
+        pass(&ctx, &config(None), Utc::now()).await,
+        PassSummary {
+            delivered: 0,
+            failed: 1,
+            dead: 0
+        }
+    );
+    assert_eq!(
+        receiver.requests().len(),
+        1,
+        "no POST to a host no longer allowed"
+    );
+    let row = &deliveries(&ctx, hook).await[0];
+    assert_eq!(row.status, WebhookDeliveryStatus::Failed);
+    assert_eq!(row.last_response_code, None);
+    assert!(
+        row.last_error
+            .as_deref()
+            .unwrap()
+            .contains("not in the allow-list"),
+        "{row:?}"
+    );
+
+    // An admin-registered hook is exempt, at delivery as at registration.
+    let exempt = add_format_hook(&ctx, global(), &receiver.url, WebhookFormat::Json, true).await;
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "rel3"})),
+    )
+    .await;
+    let summary = pass(
+        &ctx,
+        &config(None),
+        Utc::now() + chrono::Duration::minutes(2),
+    )
+    .await;
+    assert_eq!(summary.delivered, 1);
+    assert_eq!(
+        deliveries(&ctx, exempt).await[0].status,
+        WebhookDeliveryStatus::Delivered
+    );
+}
+
+#[tokio::test]
+async fn deliveries_are_counted_by_outcome_and_the_backlog_is_a_gauge() {
+    let ctx = setup().await;
+    let receiver = Receiver::start().await;
+    receiver.answer_with(500);
+    add_format_hook(&ctx, global(), &receiver.url, WebhookFormat::Json, true).await;
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "rel"})),
+    )
+    .await;
+    pass(&ctx, &config(None), Utc::now()).await;
+    let (status, _, body) = send(&ctx, "GET", "/metrics", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("sanshain_webhook_deliveries_total{outcome=\"failed\"}"),
+        "{body}"
+    );
+    assert!(body.contains("sanshain_webhook_outbox_pending 1"), "{body}");
+    receiver.answer_with(200);
+    pass(
+        &ctx,
+        &config(None),
+        Utc::now() + chrono::Duration::minutes(1),
+    )
+    .await;
+    let (_, _, body) = send(&ctx, "GET", "/metrics", None).await;
+    assert!(
+        body.contains("sanshain_webhook_deliveries_total{outcome=\"delivered\"}"),
+        "{body}"
+    );
+    assert!(body.contains("sanshain_webhook_outbox_pending 0"), "{body}");
+}
