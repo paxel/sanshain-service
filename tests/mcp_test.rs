@@ -406,3 +406,472 @@ async fn metrics_count_tool_calls_by_outcome() {
         "metrics must count the call: {text}"
     );
 }
+
+/// The tool's JSON answer; fails the test on a refusal.
+#[cfg(test)]
+async fn call_json(app: &axum::Router, token: &str, tool: &str, arguments: Value) -> Value {
+    let (is_error, text) = call(app, token, tool, arguments).await;
+    assert!(!is_error, "{tool} refused: {text}");
+    serde_json::from_str(&text).unwrap_or_else(|e| panic!("{tool} answered non-JSON ({e}): {text}"))
+}
+
+#[tokio::test]
+async fn tools_list_names_the_seven_tools_with_schemas() {
+    let seed = seed().await;
+    let (status, body) = rpc(&seed.app, Some(&seed.full), tools_list_request()).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let tools = body["result"]["tools"].as_array().unwrap();
+    let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+    assert_eq!(
+        names,
+        [
+            "list_services",
+            "describe_service",
+            "find_endpoint",
+            "get_spec",
+            "get_graph",
+            "diff_versions",
+            "blame"
+        ]
+    );
+    for tool in tools {
+        assert_eq!(tool["inputSchema"]["type"], "object", "{}", tool["name"]);
+        assert_eq!(
+            tool["inputSchema"]["additionalProperties"], false,
+            "{}",
+            tool["name"]
+        );
+        assert!(tool["description"].as_str().unwrap().len() > 200);
+    }
+}
+
+#[tokio::test]
+async fn list_services_and_describe_service_answer_the_catalog() {
+    let seed = seed().await;
+    let list = call_json(&seed.app, &seed.read_only, "list_services", json!({})).await;
+    assert_eq!(list["scope"], "dev");
+    assert_eq!(list["at"], Value::Null);
+    let orders = &list["producers"][0];
+    assert_eq!(orders["name"], "orders");
+    assert_eq!(orders["api_types"], json!(["openapi"]));
+    assert_eq!(orders["versions"][0]["version"], "1.1.0");
+    assert_eq!(orders["versions"][0]["stability"], "ga");
+    assert_eq!(orders["endpoints"], 3);
+    assert_eq!(orders["consumers"], 1);
+    assert_eq!(orders["unrequired"], false);
+    assert_eq!(list["consumers"][0]["name"], "web");
+    assert_eq!(list["consumers"][0]["producers"], json!(["orders"]));
+
+    // The main scope is the trunk pin set: 1.0.0 was the trunk provide.
+    let main = call_json(
+        &seed.app,
+        &seed.full,
+        "list_services",
+        json!({ "scope": "main" }),
+    )
+    .await;
+    assert_eq!(main["scope"], "main");
+    assert_eq!(main["producers"][0]["versions"][0]["version"], "1.0.0");
+
+    let d = call_json(
+        &seed.app,
+        &seed.full,
+        "describe_service",
+        json!({ "name": "orders" }),
+    )
+    .await;
+    assert_eq!(d["is_producer"], true);
+    let versions = d["versions"].as_array().unwrap();
+    assert_eq!(versions.len(), 2);
+    let v1 = versions.iter().find(|v| v["version"] == "1.0.0").unwrap();
+    assert_eq!(v1["superseded"], true);
+    assert!(v1["last_provided_at"].is_string());
+    let endpoints = d["endpoints"].as_array().unwrap();
+    assert_eq!(
+        endpoints.len(),
+        3,
+        "the latest version's endpoints: {endpoints:?}"
+    );
+    assert!(endpoints.iter().all(|e| e["version"] == "1.1.0"));
+    assert_eq!(d["consumers"][0]["name"], "web");
+    assert_eq!(d["consumers"][0]["version"], "1.0.0");
+    assert_eq!(d["consumers"][0]["endpoints"][0]["path"], "/orders/{id}");
+
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.full,
+        "describe_service",
+        json!({ "name": "ghost" }),
+    )
+    .await;
+    assert!(is_error && text.contains("ghost"), "{text}");
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.full,
+        "list_services",
+        json!({ "scope": "no-such-branch" }),
+    )
+    .await;
+    assert!(is_error && text.contains("no-such-branch"), "{text}");
+}
+
+#[tokio::test]
+async fn find_endpoint_searches_latest_versions_by_default() {
+    let seed = seed().await;
+    let found = call_json(
+        &seed.app,
+        &seed.full,
+        "find_endpoint",
+        json!({ "query": "orders/*" }),
+    )
+    .await;
+    assert_eq!(found["query"], "orders/*");
+    assert_eq!(found["total"], 1, "{found}");
+    let hit = &found["hits"][0];
+    assert_eq!(hit["producer"], "orders");
+    assert_eq!(hit["version"], "1.1.0");
+    assert_eq!(hit["method"], "GET");
+    assert_eq!(hit["path"], "/orders/{id}");
+    assert_eq!(hit["consumer_count"], 0, "the pin is on 1.0.0");
+
+    let all = call_json(
+        &seed.app,
+        &seed.full,
+        "find_endpoint",
+        json!({ "query": "ORDERS/", "all_versions": true, "method": "get" }),
+    )
+    .await;
+    assert_eq!(all["total"], 2, "{all}");
+    let pinned = all["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|h| h["version"] == "1.0.0")
+        .unwrap();
+    assert_eq!(pinned["consumer_count"], 1);
+    let deprecated = call_json(
+        &seed.app,
+        &seed.full,
+        "find_endpoint",
+        json!({ "query": "orders", "all_versions": true, "method": "DELETE" }),
+    )
+    .await;
+    assert_eq!(deprecated["hits"][0]["deprecated"], true);
+
+    let none = call_json(
+        &seed.app,
+        &seed.full,
+        "find_endpoint",
+        json!({ "query": "x", "api_type": "proto" }),
+    )
+    .await;
+    assert_eq!(none["total"], 0);
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.full,
+        "find_endpoint",
+        json!({ "query": " " }),
+    )
+    .await;
+    assert!(is_error && text.contains("query"), "{text}");
+    let (is_error, text) = call(&seed.app, &seed.full, "find_endpoint", json!({ "q": "x" })).await;
+    assert!(is_error && text.contains("invalid parameters"), "{text}");
+}
+
+#[tokio::test]
+async fn get_spec_answers_documents_snippets_and_pages() {
+    let seed = seed().await;
+    let doc = call_json(
+        &seed.app,
+        &seed.full,
+        "get_spec",
+        json!({ "service": "orders", "api_type": "openapi" }),
+    )
+    .await;
+    assert_eq!(doc["version"], "1.1.0", "latest when omitted");
+    assert_eq!(doc["stability"], "ga");
+    assert_eq!(doc["lines"], ORDERS_1_1_0.lines().count());
+    assert_eq!(doc["next_offset"], Value::Null);
+    assert!(doc["text"].as_str().unwrap().contains("version: 1.1.0"));
+
+    let page = call_json(
+        &seed.app,
+        &seed.full,
+        "get_spec",
+        json!({ "service": "orders", "api_type": "openapi", "version": "1.0.0", "offset": 2, "limit": 2 }),
+    )
+    .await;
+    assert_eq!(page["version"], "1.0.0");
+    assert_eq!(page["offset"], 2);
+    assert_eq!(page["next_offset"], 4);
+    assert_eq!(page["text"], "info:\n  title: orders");
+
+    let snippet = call_json(
+        &seed.app,
+        &seed.full,
+        "get_spec",
+        json!({ "service": "orders", "api_type": "openapi", "path": "/orders/{id}", "method": "get" }),
+    )
+    .await;
+    assert_eq!(snippet["path"], "/orders/{id}");
+    assert!(snippet["text"].as_str().unwrap().contains("responses"));
+
+    for (args, needle) in [
+        (
+            json!({ "service": "nobody", "api_type": "openapi" }),
+            "nobody",
+        ),
+        (
+            json!({ "service": "orders", "api_type": "openapi", "version": "9.9.9" }),
+            "9.9.9",
+        ),
+        (
+            json!({ "service": "orders", "api_type": "openapi", "path": "/nope", "method": "get" }),
+            "/nope",
+        ),
+        (
+            json!({ "service": "orders", "api_type": "openapi", "path": "/orders" }),
+            "path and method",
+        ),
+        (
+            json!({ "service": "orders", "api_type": "openapi", "version": "latest" }),
+            "MAJOR.MINOR.PATCH",
+        ),
+    ] {
+        let (is_error, text) = call(&seed.app, &seed.full, "get_spec", args).await;
+        assert!(
+            is_error && text.contains(needle),
+            "expected {needle:?} in {text:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn get_spec_over_budget_answers_a_summary_and_pages_fit() {
+    let seed = seed_with(McpConfig {
+        max_result_bytes: 300,
+        ..Default::default()
+    })
+    .await;
+    let summary = call_json(
+        &seed.app,
+        &seed.full,
+        "get_spec",
+        json!({ "service": "orders", "api_type": "openapi" }),
+    )
+    .await;
+    assert_eq!(
+        summary["hint"],
+        "use offset/limit (line numbers) or path+method"
+    );
+    assert_eq!(summary["summary"]["lines"], ORDERS_1_1_0.lines().count());
+    assert_eq!(summary["summary"]["bytes"], ORDERS_1_1_0.len());
+    let endpoints = summary["summary"]["endpoints"].as_array().unwrap();
+    assert_eq!(endpoints.len(), 3);
+    assert!(summary.get("text").is_none());
+
+    let page = call_json(
+        &seed.app,
+        &seed.full,
+        "get_spec",
+        json!({ "service": "orders", "api_type": "openapi", "offset": 1, "limit": 2 }),
+    )
+    .await;
+    assert_eq!(page["text"], "openapi: 3.0.0\ninfo:");
+    assert_eq!(page["next_offset"], 3);
+}
+
+#[tokio::test]
+async fn get_graph_answers_nodes_and_edges_and_narrows() {
+    let seed = seed().await;
+    let graph = call_json(&seed.app, &seed.read_only, "get_graph", json!({})).await;
+    assert_eq!(graph["scope"], "dev");
+    let nodes = graph["nodes"].as_array().unwrap();
+    let kind = |name: &str| {
+        nodes
+            .iter()
+            .find(|n| n["service"] == name)
+            .map(|n| n["kind"].clone())
+    };
+    assert_eq!(kind("orders"), Some(json!("producer")));
+    assert_eq!(kind("web"), Some(json!("consumer")));
+    let edge = &graph["edges"][0];
+    assert_eq!(edge["from"], "web");
+    assert_eq!(edge["to"], "orders");
+    assert_eq!(edge["version"], "1.0.0");
+    assert_eq!(edge["outdated"], true, "1.1.0 exists");
+    assert_eq!(edge["superseded"], false);
+
+    let narrowed = call_json(
+        &seed.app,
+        &seed.full,
+        "get_graph",
+        json!({ "scope": "main", "service": "web", "include_periphery": true }),
+    )
+    .await;
+    assert_eq!(narrowed["scope"], "main");
+    assert_eq!(narrowed["nodes"].as_array().unwrap().len(), 2);
+    assert_eq!(narrowed["edges"].as_array().unwrap().len(), 1);
+
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.full,
+        "get_graph",
+        json!({ "service": "ghost" }),
+    )
+    .await;
+    assert!(is_error && text.contains("ghost"), "{text}");
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.full,
+        "get_graph",
+        json!({ "at": "2026-01-01T00:00:00Z" }),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("dev"),
+        "dev has no timeline: {text}"
+    );
+
+    let seed = seed_with(McpConfig {
+        max_result_bytes: 64,
+        ..Default::default()
+    })
+    .await;
+    let summary = call_json(&seed.app, &seed.full, "get_graph", json!({})).await;
+    assert_eq!(summary["nodes"]["producer"], 1);
+    assert_eq!(summary["nodes"]["consumer"], 1);
+    assert_eq!(summary["edges"], 1);
+    assert!(summary["hint"].as_str().unwrap().contains("service"));
+}
+
+#[tokio::test]
+async fn diff_versions_and_blame_answer_text_and_blocks() {
+    let seed = seed().await;
+    let diff = call_json(
+        &seed.app,
+        &seed.full,
+        "diff_versions",
+        json!({ "service": "orders", "api_type": "openapi", "from": "1.0.0", "to": "1.1.0" }),
+    )
+    .await;
+    assert_eq!(diff["from"], "1.0.0");
+    assert_eq!(diff["to"], "1.1.0");
+    let text = diff["diff"].as_str().unwrap();
+    assert!(
+        text.contains("--- orders 1.0.0") && text.contains("+++ orders 1.1.0"),
+        "{text}"
+    );
+    assert!(text.contains("+    post:"), "{text}");
+    assert!(diff["added"].as_u64().unwrap() >= 3);
+    assert!(diff["removed"].as_u64().unwrap() >= 3);
+
+    let snippet = call_json(
+        &seed.app,
+        &seed.full,
+        "diff_versions",
+        json!({ "service": "orders", "api_type": "openapi", "from": "1.0.0", "to": "1.1.0", "path": "/orders/{id}", "method": "get", "ignore_whitespace": true }),
+    )
+    .await;
+    // An endpoint snippet carries its document header, so only the version
+    // line differs between the two.
+    assert_eq!(snippet["added"], 1, "{snippet}");
+    assert_eq!(snippet["removed"], 1, "{snippet}");
+    assert!(
+        snippet["diff"]
+            .as_str()
+            .unwrap()
+            .contains("+  version: 1.1.0")
+    );
+
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.full,
+        "diff_versions",
+        json!({ "service": "orders", "api_type": "openapi", "from": "1.0.0", "to": "2.0.0" }),
+    )
+    .await;
+    assert!(is_error && text.contains("2.0.0"), "{text}");
+
+    let blame = call_json(
+        &seed.app,
+        &seed.full,
+        "blame",
+        json!({ "service": "orders", "api_type": "openapi", "version": "1.1.0" }),
+    )
+    .await;
+    let blocks = blame["blocks"].as_array().unwrap();
+    assert!(blocks.len() >= 2, "{blame}");
+    assert!(blocks.iter().any(|b| b["version"] == "1.0.0"));
+    assert!(blocks.iter().any(|b| b["version"] == "1.1.0"));
+    assert_eq!(blocks[0]["start_line"], 1);
+    assert_eq!(blocks[0]["provided_by"], "test-releaser");
+    assert!(blocks[0]["lines"].is_array());
+    assert!(blocks[0]["date"].is_string());
+
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.full,
+        "blame",
+        json!({ "service": "orders", "api_type": "asyncapi", "version": "1.1.0" }),
+    )
+    .await;
+    assert!(is_error && text.contains("asyncapi"), "{text}");
+
+    let seed = seed_with(McpConfig {
+        max_result_bytes: 200,
+        ..Default::default()
+    })
+    .await;
+    let bare = call_json(
+        &seed.app,
+        &seed.full,
+        "blame",
+        json!({ "service": "orders", "api_type": "openapi", "version": "1.1.0" }),
+    )
+    .await;
+    assert!(bare["blocks"][0].get("lines").is_none());
+    assert!(bare["blocks"][0]["line_count"].as_u64().unwrap() >= 1);
+    assert!(bare["hint"].as_str().unwrap().contains("path + method"));
+    let counts = call_json(
+        &seed.app,
+        &seed.full,
+        "diff_versions",
+        json!({ "service": "orders", "api_type": "openapi", "from": "1.0.0", "to": "1.1.0" }),
+    )
+    .await;
+    assert!(counts.get("diff").is_none());
+    assert!(counts["added"].as_u64().unwrap() >= 3);
+}
+
+#[tokio::test]
+async fn tool_answers_are_compact_json_and_counted_in_metrics() {
+    let seed = seed().await;
+    let (is_error, text) = call(&seed.app, &seed.full, "list_services", json!({})).await;
+    assert!(!is_error);
+    assert!(!text.contains("\n  "), "no pretty-printing: {text}");
+    let res = seed
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/metrics")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let metrics = String::from_utf8_lossy(&bytes);
+    assert!(
+        metrics.contains("sanshain_mcp_tool_calls_total{")
+            && metrics.contains("tool=\"list_services\""),
+        "{metrics}"
+    );
+    assert!(
+        metrics.contains("sanshain_mcp_result_bytes_total{"),
+        "{metrics}"
+    );
+}

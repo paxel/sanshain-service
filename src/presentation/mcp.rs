@@ -298,7 +298,9 @@ impl ServerHandler for SanshainMcp {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
-        Ok(ListToolsResult::with_all_items(tools::catalog()))
+        tools::catalog()
+            .map(ListToolsResult::with_all_items)
+            .map_err(|e| McpError::internal_error(e, None))
     }
 
     async fn call_tool(
