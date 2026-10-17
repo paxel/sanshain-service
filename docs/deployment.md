@@ -273,7 +273,9 @@ cosign verify-attestation --type cyclonedx ghcr.io/paxel/sanshain-service:v2.6.0
 ```
 
 A signature or attestation whose certificate names any other identity or issuer fails
-verification, so an admission policy can require exactly this identity.
+verification, so an admission policy can require exactly this identity. Only a release built from
+a pushed tag (the normal release path) verifies with this command: a release started by hand
+through `workflow_dispatch` is signed with the branch it ran from (`@refs/heads/<branch>`) instead.
 
 The weekly security workflow also scans the latest released image with grype; it fails only on
 high or critical findings that have a fix and attaches the full report, unfixed findings
