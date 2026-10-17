@@ -9,7 +9,7 @@ A `sanshain.yaml` file lives in the root of a project and declares:
 1. **Connection settings** — Sanshain server URL (optional in file), compression.
 2. **Provide(s)** — Which API spec(s) this project publishes (OpenAPI, AsyncAPI, and/or Proto). The **version is never configured here** — it lives in the spec file itself (`info.version`, or a `// sanshain-version:` comment for proto). What the file configures is how the plugin decides the **stability** (`snapshot` or `ga`) of each Provide.
 3. **Requires** — Which endpoints/channels from other services this project depends on, each **pinned to an exact version**.
-4. **Catalog info** *(optional)* — The project's Backstage `catalog-info.yaml`, whose `dependsOn` tells Sanshain which **Peripheral Resources** (databases, buckets, queues…) the project depends on, so the network graph can show them.
+4. **Catalog info** *(optional)* — The project's Backstage `catalog-info.yaml`, whose `dependsOn` tells Sanshain which **Peripheral Resources** (databases, buckets, queues…) the project depends on, so the network graph can show them — and whose owner, description, source location and links introduce the system on its node and its page.
 
 Client plugins read this file and translate it into the appropriate `/provide`, `/provide/asyncapi`, `/provide/grpc`, `/require`, and `/require-bundle` API calls.
 
@@ -594,12 +594,22 @@ clients report as such. Once per build:
    `metadata.name` that is not the `serviceName`. Print the warning and carry on — or fail the build
    when `strict` is on, so the mismatch is fixed.
 
-What Sanshain reads: only the `Component` whose `metadata.name` equals `serviceName`, and of it only
-`spec.dependsOn`. Only `resource:` refs become graph nodes; `component:` refs, `consumesApis` and
-everything else are ignored, because connections between services are what `requires` already
-records. A ref without a kind counts as a `resource`, and a ref without a namespace takes the
-Component's namespace. Each push replaces the previous set, so removing a line from `dependsOn`
-removes the resource from the graph.
+What Sanshain reads: only the `Component` whose `metadata.name` equals `serviceName`, and of it
+only these fields:
+
+| Field                                                  | What becomes of it                                                                                                                                                               |
+|--------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `spec.dependsOn`                                       | Only `resource:` refs become graph nodes (Peripheral Resources). A ref without a kind counts as a `resource`; one without a namespace takes the Component's namespace.           |
+| `spec.owner`                                           | Shown as the system's owner, with the ref's kind and name: a bare `team-orders` is `group:default/team-orders`, shown as `team-orders (group)`.                                  |
+| `metadata.description`                                 | Shown under the title. Trimmed, at most 1000 characters (a longer one is cut with an ellipsis).                                                                                  |
+| `metadata.annotations["backstage.io/source-location"]` | The repository link, without the `url:` prefix. Kept only when it is an `http` or `https` URL; the chip's label is the URL's host.                                               |
+| `metadata.links`                                       | Link chips, by `title` (the URL's host when a link has none); `type` and `icon` are kept as free text. A link whose `url` is not `http` or `https` is dropped; at most 20 links. |
+
+`component:` refs, `consumesApis` and everything else (lifecycle, system, other entities in the
+file) are ignored, because connections between services are what `requires` already records. Each
+push replaces the previous state: removing a line from `dependsOn` removes the resource from the
+graph, and a file without an owner or links leaves those fields empty. A push whose content has not
+changed changes nothing.
 
 ### Require Phase
 

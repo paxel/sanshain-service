@@ -86,3 +86,13 @@ carries the reason. A body of the wrong shape (missing `catalog_info_yaml`, unkn
 `422`; authentication, permission and size limits keep their status codes. Teams that want a
 mismatch to fail the build turn on **strict mode** in their client, which fails the command on any
 `Sanshain-Warning`.
+
+## Amendment (2026-10-17): owner, description, source location and links are read too
+
+Decision 14 ("only the periphery: no owner, description, lifecycle or links on system nodes") is
+relaxed (#48): of the same Component, Sanshain now also reads `spec.owner`, `metadata.description`,
+the `backstage.io/source-location` annotation and `metadata.links`, and shows them on the system's
+node panel and on its Producer and Consumer pages. Nothing else is read; nothing becomes a node.
+The context is stored once per system (`system_context`), replaced on every push and removed when
+the system has no role left — a present-day fact about the system, not a graph fact, so it is not
+tracked per track or copied into sanshain-branches, and an unchanged push is no event.

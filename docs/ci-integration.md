@@ -56,6 +56,16 @@ Alongside stability, the pipeline declares the **stream** ([User Guide — Decla
 
 Streams never change what is served or any version rule — they only decide which graph records the call.
 
+### The catalog push
+
+A build with `catalogInfo` in its `sanshain.yaml` also pushes the project's Backstage
+`catalog-info.yaml` (`PUT /catalog/{systemname}`, once per build, `trunk` as above). Sanshain reads
+the `Component` named like the project and of it: `spec.dependsOn` (the Peripheral Resources drawn
+in the graph), `spec.owner`, `metadata.description`, the `backstage.io/source-location` annotation
+and `metadata.links` — the owner, description, repository and link chips shown on the system's node
+and page. Nothing else is read; see [sanshain.yaml — Catalog Phase](sanshain-yaml.md#catalog-phase)
+for the exact rules. Nightly re-runs of an unchanged file change nothing.
+
 ### The `Sanshain-Warning` header
 
 The graph is informational and never fails a build. When Sanshain cannot record a call the way it was

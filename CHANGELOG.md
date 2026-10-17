@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.6.0]
 
 ### Added
+- The catalog push also records the system's owner, description, source location and links from its Backstage `catalog-info.yaml`; the graph's node panel, the Producer and Consumer pages (`GET /admin/producers/{name}`, `GET /admin/consumers/{name}`), `/report` (`systems`), the graph scope payload and the MCP `describe_service` tool show them, and a push with unchanged content changes nothing.
 - On SQLite, admins can download a consistent snapshot of the database while the service runs (`GET /admin/backup/sqlite`, also a button on the admin page), the Helm chart renders an optional backup CronJob for SQLite or `pg_dump`, and the deployment guide documents backup and restore for both engines.
 - Every release ships CycloneDX SBOMs (as release assets and as a cosign attestation on the image), the image is signed keyless with cosign, and the weekly security run scans the released image with grype; the deployment guide explains how to verify a release.
 
