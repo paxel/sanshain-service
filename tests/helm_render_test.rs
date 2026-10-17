@@ -367,3 +367,24 @@ fn postgres_backup_cronjob_runs_pg_dump_against_the_database_url() {
         "a postgres:// URL selects the pg_dump variant, got:\n{derived}"
     );
 }
+
+#[test]
+fn default_render_pulls_the_release_image_of_this_version() {
+    if !helm_available() {
+        eprintln!("skipping: helm is not installed");
+        return;
+    }
+
+    let rendered = render(&[]).expect("chart renders with default values");
+
+    // Release tags carry a `v`, so the chart's default tag must too, and the
+    // chart's appVersion must follow the crate version at every bump.
+    let expected = format!(
+        "image: \"ghcr.io/paxel/sanshain-service:v{}\"",
+        env!("CARGO_PKG_VERSION")
+    );
+    assert!(
+        rendered.contains(&expected),
+        "the default image must be the release image of this version: {expected}"
+    );
+}

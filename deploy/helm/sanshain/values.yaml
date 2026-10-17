@@ -5,9 +5,9 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/sanshain/sanshain-service
+  repository: ghcr.io/paxel/sanshain-service
   pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the chart appVersion.
+  # Overrides the image tag whose default is "v" + the chart appVersion (release tags carry a v).
   tag: ""
 
 imagePullSecrets: []

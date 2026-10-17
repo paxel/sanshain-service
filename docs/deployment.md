@@ -80,7 +80,7 @@ See `deploy/helm/sanshain/values.yaml` for a complete list of parameters. Key op
 | Parameter                      | Description                                                  | Default              |
 |--------------------------------|--------------------------------------------------------------|----------------------|
 | `replicaCount`                 | Number of pods to run                                        | `1`                  |
-| `image.tag`                    | Image tag to deploy                                          | (Chart `appVersion`) |
+| `image.tag`                    | Image tag to deploy                                          | `v` + Chart `appVersion` |
 | `ingress.enabled`              | Enable Ingress resource                                      | `false`              |
 | `persistence.enabled`          | Enable persistent storage for SQLite                         | `true`               |
 | `persistence.size`             | Size of the persistent volume                                | `1Gi`                |
