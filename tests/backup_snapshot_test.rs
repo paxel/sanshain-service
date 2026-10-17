@@ -78,6 +78,9 @@ struct DataDir {
     dir: PathBuf,
 }
 
+// `cfg(test)` is always true in this crate; the attribute marks the helpers as
+// test code for clippy's `allow-expect-in-tests`.
+#[cfg(test)]
 impl DataDir {
     fn new(name: &str) -> Self {
         let dir = std::env::temp_dir().join(format!(
@@ -201,6 +204,7 @@ async fn world(data: &DataDir) -> World {
     }
 }
 
+#[cfg(test)]
 fn snapshot_request(token: &str) -> Request<Body> {
     Request::builder()
         .method("GET")
