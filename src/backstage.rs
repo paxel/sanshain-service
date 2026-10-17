@@ -51,6 +51,13 @@ const MAX_DESCRIPTION_CHARS: usize = 1000;
 /// Links beyond this many are ignored (#48).
 const MAX_LINKS: usize = 20;
 
+/// A link's `title`, `type` or `icon` longer than this is cut, ellipsis
+/// included (#48).
+const MAX_LINK_TEXT_CHARS: usize = 200;
+
+/// A link or source-location URL longer than this is dropped (#48).
+const MAX_URL_CHARS: usize = 2048;
+
 /// The entity envelope Sanshain reads. `apiVersion`/`kind`/`metadata.name` are
 /// what makes a document a Backstage entity at all; unknown fields are
 /// ignored so any valid descriptor is accepted.
@@ -232,12 +239,18 @@ fn bounded_description(raw: &str) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
-    if trimmed.chars().count() <= MAX_DESCRIPTION_CHARS {
-        return Some(trimmed.to_string());
+    Some(cut(trimmed, MAX_DESCRIPTION_CHARS))
+}
+
+/// `text` as is when it has at most `max` characters, otherwise cut to `max`
+/// with the last one an ellipsis.
+fn cut(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
     }
-    let mut cut: String = trimmed.chars().take(MAX_DESCRIPTION_CHARS - 1).collect();
+    let mut cut: String = text.chars().take(max - 1).collect();
     cut.push('…');
-    Some(cut)
+    cut
 }
 
 /// The `backstage.io/source-location` annotation (#48) without Backstage's
@@ -249,28 +262,34 @@ fn source_location(raw: &str) -> Option<String> {
 }
 
 /// One of `metadata.links` (#48): needs an `http`/`https` `url`; `title`
-/// defaults to the host; `type` and `icon` pass through as free text.
+/// defaults to the host; `type` and `icon` pass through as free text. Each
+/// text is cut at [`MAX_LINK_TEXT_CHARS`].
 fn link(item: &Value) -> Option<SystemLink> {
     let text = |key: &str| item.get(key).and_then(Value::as_str).map(str::trim);
+    let bounded = |key: &str| text(key).map(|t| cut(t, MAX_LINK_TEXT_CHARS));
     let url = text("url")?;
     let parsed = http_url(url)?;
     let title = text("title")
         .filter(|t| !t.is_empty())
-        .map(str::to_string)
-        .or_else(|| parsed.host_str().map(str::to_string))?;
+        .or_else(|| parsed.host_str())
+        .map(|t| cut(t, MAX_LINK_TEXT_CHARS))?;
     Some(SystemLink {
         url: url.to_string(),
         title,
-        link_type: text("type").map(str::to_string),
-        icon: text("icon").map(str::to_string),
+        link_type: bounded("type"),
+        icon: bounded("icon"),
     })
 }
 
-/// `raw` parsed as an absolute `http` or `https` URL with a host — the only
-/// shape a link or source location may have, so nothing else (a
-/// `javascript:` URL, say) ever reaches an `href`.
+/// `raw` parsed as an absolute `http` or `https` URL with a host of at most
+/// [`MAX_URL_CHARS`] — the only shape a link or source location may have, so
+/// nothing else (a `javascript:` URL, say) ever reaches an `href`.
 fn http_url(raw: &str) -> Option<url::Url> {
-    let parsed = url::Url::parse(raw.trim()).ok()?;
+    let raw = raw.trim();
+    if raw.chars().count() > MAX_URL_CHARS {
+        return None;
+    }
+    let parsed = url::Url::parse(raw).ok()?;
     (matches!(parsed.scheme(), "http" | "https") && parsed.host_str().is_some()).then_some(parsed)
 }
 
@@ -579,6 +598,39 @@ spec:
         let cut = describe(&long).unwrap();
         assert_eq!(cut.chars().count(), 1000);
         assert!(cut.ends_with('…'));
+    }
+
+    #[test]
+    fn link_texts_are_cut_and_overlong_urls_are_dropped() {
+        let exact = "ä".repeat(200);
+        let long = "ä".repeat(201);
+        let fits = format!("https://example.com/{}", "x".repeat(2048 - 20));
+        let too_long = format!("{fits}x");
+        assert_eq!(fits.len(), 2048);
+        let yaml = format!(
+            "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: svc\n  \
+             annotations:\n    backstage.io/source-location: url:{too_long}\n  links:\n    \
+             - url: {fits}\n      title: \"{long}\"\n      type: \"{exact}\"\n      icon: \"{long}\"\n    \
+             - url: {too_long}\n      title: dropped\n"
+        );
+        let context = read_component(&yaml, "svc").unwrap().context;
+        assert_eq!(
+            context.source_location, None,
+            "a 2049-character URL is dropped"
+        );
+        assert_eq!(
+            context.links.len(),
+            1,
+            "the link with the 2049-character URL is dropped"
+        );
+        let link = &context.links[0];
+        assert_eq!(link.url, fits);
+        assert_eq!(link.title.chars().count(), 200);
+        assert!(link.title.ends_with('…'));
+        assert_eq!(link.link_type.as_deref(), Some(exact.as_str()));
+        let icon = link.icon.as_deref().unwrap();
+        assert_eq!(icon.chars().count(), 200);
+        assert!(icon.ends_with('…'));
     }
 
     #[test]
