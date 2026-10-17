@@ -360,6 +360,16 @@ Sanshain supports two database backends: **SQLite** (default) and **PostgreSQL**
 
 The current database backend and a masked connection URL are visible in the admin dashboard under **Database Configuration**. This section is read-only — to switch backends, change the `DATABASE_URL` environment variable and restart the service.
 
+### Database Snapshot
+
+On SQLite the same section offers **Download database snapshot**: a consistent copy of the database
+produced by the engine while Sanshain runs (`GET /admin/backup/sqlite`). It is a whole-database export,
+so it requires `run_destructive_operations` — the permission admins and root hold — and a `read_only`
+API token is refused; every download lands in the audit log as `DATABASE_SNAPSHOT` with the Actor and
+the size. On PostgreSQL the button is absent and the route answers `409` naming `pg_dump`. Scheduled
+backups and the restore steps for both engines are in the
+[Deployment Guide — Backup and restore](deployment.md#backup-and-restore).
+
 For detailed setup instructions, see [Getting Started — PostgreSQL](getting-started.md#installation-with-docker-postgresql).
 
 ## Related Pages

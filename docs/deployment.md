@@ -125,6 +125,99 @@ ingress for the API routes (`/provide*`, `/require*`, `/require-bundle`,
 Otherwise, have the pipeline wait 10 seconds between the provide and the first
 require.
 
+## Backup and restore
+
+Sanshain keeps everything in one database, so a backup is a copy of that
+database and a restore is putting the copy back. How the copy is taken depends
+on the engine.
+
+### SQLite
+
+Do not copy `sanshain.db` from the volume while the service runs: with the
+write-ahead log open, a file copy can be inconsistent. Instead, Sanshain
+produces the copy itself:
+
+```
+GET /admin/backup/sqlite
+Authorization: Bearer <token>
+```
+
+answers a consistent snapshot made by the engine (`VACUUM INTO`) while the
+service keeps running, streamed as `application/vnd.sqlite3` and named
+`sanshain-<instance version>-<UTC timestamp>.db`. The route requires the
+`run_destructive_operations` permission (admins and root hold it); a `full`
+API token of such an account is accepted, a `read_only` token is refused with
+`403`. Only one snapshot runs at a time — a second request gets `409`. Every
+download is recorded in the audit log with the Actor and the size. The same
+snapshot is available as **Download database snapshot** on the admin page
+(Database Configuration), on SQLite only. On PostgreSQL the route answers `409`
+and names `pg_dump`.
+
+**Scheduled (Helm).** The chart renders a CronJob that fetches the snapshot to a
+backup volume and keeps the newest `retain` files:
+
+```yaml
+backup:
+  enabled: true
+  schedule: "0 2 * * *"
+  retain: 7
+  # existingClaim: nightly-backups   # otherwise the chart creates a 5Gi claim
+  tokenSecret:
+    name: sanshain-backup-token      # kubectl create secret generic sanshain-backup-token --from-literal=token=<api token>
+    key: token
+```
+
+Mint the token on `/account.html` as an admin with the **full** scope; it is
+the only credential the job holds. Kustomize users find the same job as a
+commented example in `deploy/kubernetes/backup-cronjob-sqlite.yaml`.
+
+**Restore.**
+
+1. Scale Sanshain to zero (`kubectl scale deployment sanshain --replicas=0`).
+2. On the data volume replace `sanshain.db` with the snapshot and delete
+   `sanshain.db-wal` and `sanshain.db-shm` if present.
+3. Scale back up. The migration runner brings the snapshot's schema up to the
+   running version, so a snapshot from an older instance version restores fine;
+   a snapshot from a *newer* version does not.
+
+### PostgreSQL
+
+Back up with `pg_dump`, as for any PostgreSQL database:
+
+```bash
+pg_dump --format=custom --file=sanshain.dump "$DATABASE_URL"
+```
+
+**Scheduled (Helm).** The same `backup` section renders a `pg_dump` CronJob
+instead when `backup.engine` is `postgres` or `secrets.databaseUrl` is a
+`postgres://` URL; it reads `DATABASE_URL` from the chart's own Secret, so no
+further credential is needed:
+
+```yaml
+backup:
+  enabled: true
+  schedule: "0 2 * * *"
+  retain: 7
+```
+
+Kustomize: `deploy/kubernetes/backup-cronjob-postgres.yaml`.
+
+**Restore.**
+
+1. Scale Sanshain to zero.
+2. `pg_restore --clean --if-exists --dbname="$DATABASE_URL" sanshain.dump`
+3. Scale back up; migrations run on start as above.
+
+| Parameter              | Description                                                         | Default       |
+|------------------------|---------------------------------------------------------------------|---------------|
+| `backup.enabled`       | Render the backup CronJob                                           | `false`       |
+| `backup.schedule`      | Cron schedule                                                       | `"0 2 * * *"` |
+| `backup.engine`        | `sqlite` or `postgres`; empty derives it from `secrets.databaseUrl` | `""`          |
+| `backup.retain`        | Backup files kept on the volume                                     | `7`           |
+| `backup.existingClaim` | Mount this claim instead of creating one                            | `""`          |
+| `backup.storage.size`  | Size of the claim the chart creates                                 | `5Gi`         |
+| `backup.tokenSecret`   | SQLite: Secret `name` and `key` holding the API token               | `key: token`  |
+
 ## Health and readiness probes
 
 - **Liveness** (`GET /health`): returns `OK` without touching the database, so a
