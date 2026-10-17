@@ -188,8 +188,7 @@ async fn record_version_rejection(
     let emitted = match webhooks::plan_event(
         repo,
         WebhookEventType::ProvideRejected,
-        Some(producername),
-        &[],
+        webhooks::EventAudience::producer(producername),
         data,
     )
     .await
@@ -334,7 +333,22 @@ pub async fn provide_spec(
     // provide the drift check rejects (409) before any write happens.
     let harvest_asyncapi = api_type == ApiType::AsyncApi && tag_branch.is_none();
     let (harvest_inputs, harvest_results) = if harvest_asyncapi {
-        plan_subscription_harvest(repo, content, stability).await?
+        match plan_subscription_harvest(repo, content, stability).await {
+            Ok(planned) => planned,
+            Err(e) => {
+                record_contract_rejection(
+                    repo,
+                    dry_run,
+                    username,
+                    producername,
+                    api_type,
+                    version,
+                    &e,
+                )
+                .await;
+                return Err(e);
+            }
+        }
     } else {
         (Vec::new(), Vec::new())
     };
@@ -503,7 +517,22 @@ pub async fn provide_spec(
     // claiming global topic ownership would let one developer's WIP block
     // another Producer's release.
     let contract_ops = if api_type == ApiType::AsyncApi && stability == Stability::Ga {
-        plan_channel_message_contracts(repo, sid, content).await?
+        match plan_channel_message_contracts(repo, sid, content).await {
+            Ok(ops) => ops,
+            Err(e) => {
+                record_contract_rejection(
+                    repo,
+                    dry_run,
+                    username,
+                    producername,
+                    api_type,
+                    version,
+                    &e,
+                )
+                .await;
+                return Err(e);
+            }
+        }
     } else {
         Vec::new()
     };
@@ -725,6 +754,40 @@ pub async fn provide_spec(
     })
 }
 
+/// An AsyncAPI message-contract refusal (a PUB message owned by another
+/// Producer with a different schema, or a SUB expectation the contract
+/// cannot satisfy) is a version-rule rejection like the others: audit row,
+/// counter and `provide.rejected` under the rule `message_contract_conflict`.
+/// Other errors (a malformed document) are not rejections.
+async fn record_contract_rejection(
+    repo: &impl SpecRepository,
+    dry_run: bool,
+    username: Option<&str>,
+    producername: &str,
+    api_type: ApiType,
+    version: SemVer,
+    error: &AppError,
+) {
+    let message = match error {
+        AppError::Conflict(message) | AppError::BreakingChange(message) => message,
+        _ => return,
+    };
+    record_version_rejection(
+        repo,
+        dry_run,
+        VersionRejection {
+            username,
+            producername,
+            api_type,
+            version,
+            reason: "message_contract_conflict",
+            message,
+            proposed: None,
+        },
+    )
+    .await;
+}
+
 /// What a successful Provide is about, for its webhook events (#47).
 struct ProvideFacts<'a> {
     producername: &'a str,
@@ -751,9 +814,14 @@ async fn plan_provide_events(
     if !webhooks::emission_enabled() {
         return Ok(Vec::new());
     }
+    let audience = webhooks::EventAudience::producer(facts.producername);
+    let published_to =
+        webhooks::fan_out(repo, WebhookEventType::VersionPublished, audience).await?;
     let baseline = ga_baseline(facts.line, facts.version);
-    let compatibility = match (&baseline, facts.stability) {
-        (Some(baseline), Stability::Ga) => match repo.get_spec_content(baseline.id).await? {
+    // The classification is a full diff against the previous GA — computed
+    // only when a hook will actually see it.
+    let compatibility = match (&baseline, facts.stability, published_to.is_empty()) {
+        (Some(baseline), Stability::Ga, false) => match repo.get_spec_content(baseline.id).await? {
             Some(old) => {
                 let (api_type, new, inserts) = (
                     facts.api_type,
@@ -781,16 +849,12 @@ async fn plan_provide_events(
         actor: facts.username,
         compatibility,
     });
-    events.extend(
-        webhooks::plan_event(
-            repo,
-            WebhookEventType::VersionPublished,
-            Some(facts.producername),
-            &[],
-            published,
-        )
-        .await?,
-    );
+    events.extend(webhooks::event_for(
+        WebhookEventType::VersionPublished,
+        Some(facts.producername),
+        published,
+        published_to,
+    ));
     let previous = match &baseline {
         Some(baseline) => Some(repo.get_endpoints_for_version(baseline.id).await?),
         None => None,
@@ -806,14 +870,7 @@ async fn plan_provide_events(
             whole,
         );
         events.extend(
-            webhooks::plan_event(
-                repo,
-                WebhookEventType::VersionDeprecated,
-                Some(facts.producername),
-                &[],
-                data,
-            )
-            .await?,
+            webhooks::plan_event(repo, WebhookEventType::VersionDeprecated, audience, data).await?,
         );
     }
     Ok(events)

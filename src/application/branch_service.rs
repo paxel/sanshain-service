@@ -101,8 +101,7 @@ pub async fn create_branch(
     let outbox = super::webhook_service::plan_event(
         repo,
         WebhookEventType::BranchCut,
-        None,
-        &[],
+        super::webhook_service::EventAudience::global(),
         super::webhook_service::branch_cut_data(
             name,
             &source_label,

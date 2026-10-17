@@ -508,8 +508,11 @@ async fn plan_dependency_event(
     Ok(webhooks::plan_event(
         repo,
         WebhookEventType::DependencyRecorded,
-        Some(producername),
-        &[consumername],
+        webhooks::EventAudience {
+            producer: Some(producername),
+            consumers: &[consumername],
+            follow_edges: true,
+        },
         data,
     )
     .await?

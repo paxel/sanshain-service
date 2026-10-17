@@ -1483,7 +1483,7 @@ components:
           description: The attempted Version.
         rule:
           type: string
-          enum: [immutable_ga, snapshot_on_ga, breaking_without_major, ga_requires_releaser]
+          enum: [immutable_ga, snapshot_on_ga, breaking_without_major, message_contract_conflict, ga_requires_releaser]
         message:
           type: string
         proposed_version:

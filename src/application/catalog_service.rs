@@ -82,7 +82,8 @@ pub async fn push_catalog(
 
 /// The outbox row of a catalog push (#47): the system's own hooks — as a
 /// Producer and as a Consumer, the push is about the system whatever its
-/// role — plus the global ones.
+/// role — plus the global ones. Not the system's Consumers: a catalog push
+/// is about the system, not about what it provides.
 async fn catalog_event(
     repo: &impl SpecRepository,
     system: &str,
@@ -91,8 +92,11 @@ async fn catalog_event(
     webhooks::plan_event(
         repo,
         WebhookEventType::CatalogRecorded,
-        Some(system),
-        &[system],
+        webhooks::EventAudience {
+            producer: Some(system),
+            consumers: &[system],
+            follow_edges: false,
+        },
         data,
     )
     .await

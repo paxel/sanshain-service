@@ -132,19 +132,34 @@ pub fn validate_hook_url(url: &str, patterns: &[String], exempt: bool) -> Result
 /// Whether `name` matches a Producer-name glob: `*` matches any run of
 /// characters, `?` exactly one; everything else is literal.
 pub fn glob_matches(glob: &str, name: &str) -> bool {
-    fn walk(pattern: &[char], text: &[char]) -> bool {
-        match pattern.split_first() {
-            None => text.is_empty(),
-            Some(('*', rest)) => (0..=text.len()).any(|skip| walk(rest, &text[skip..])),
-            Some(('?', rest)) => !text.is_empty() && walk(rest, &text[1..]),
-            Some((literal, rest)) => text
-                .split_first()
-                .is_some_and(|(first, tail)| first == literal && walk(rest, tail)),
-        }
-    }
+    // The two-pointer wildcard match: one backtrack point (the last `*`),
+    // O(len(name) × len(glob)) — a recursive match is exponential on
+    // `*a*a*a…`, and this runs on the request path of every provide.
     let pattern: Vec<char> = glob.chars().collect();
     let text: Vec<char> = name.chars().collect();
-    walk(&pattern, &text)
+    let (mut p, mut t) = (0usize, 0usize);
+    let mut star: Option<(usize, usize)> = None;
+    while t < text.len() {
+        match pattern.get(p) {
+            Some('*') => {
+                star = Some((p, t));
+                p += 1;
+            }
+            Some(&c) if c == '?' || c == text[t] => {
+                p += 1;
+                t += 1;
+            }
+            _ => match star {
+                Some((sp, st)) => {
+                    p = sp + 1;
+                    t = st + 1;
+                    star = Some((sp, t));
+                }
+                None => return false,
+            },
+        }
+    }
+    pattern[p..].iter().all(|&c| c == '*')
 }
 
 /// Whether one hook wants this event: the scope first — a global hook sees
@@ -176,47 +191,100 @@ fn hook_wants(
     }
 }
 
-/// Decide an event's fan-out now — the hooks that get it are those matching
-/// at the moment the fact is written, never re-evaluated at delivery — and
-/// hand back the outbox row to write with the fact. `None` when emission is
-/// off. `producer` is the Producer the event is about (for a catalog push,
-/// the system); `also_consumers` are Consumers to include beside the ones
-/// with a current require edge on that Producer (the Consumer whose require
-/// is being recorded right now, before its edge exists).
+/// Who an event is about, for its fan-out: the Producer (for a catalog push,
+/// the system), Consumers to include by name, and whether the Consumers
+/// with a current require edge on the Producer are included too.
+#[derive(Clone, Copy, Debug)]
+pub struct EventAudience<'a> {
+    pub producer: Option<&'a str>,
+    /// Named Consumers — the one whose require is being recorded right now
+    /// (its edge does not exist yet), or the system a catalog push is about.
+    pub consumers: &'a [&'a str],
+    /// Add every Consumer with a current require edge on `producer` (dev or
+    /// trunk graph). Off for `catalog.recorded` and `branch.cut`.
+    pub follow_edges: bool,
+}
+
+impl<'a> EventAudience<'a> {
+    /// A Producer's event: its own hooks, its current Consumers', the global ones.
+    pub fn producer(name: &'a str) -> Self {
+        Self {
+            producer: Some(name),
+            consumers: &[],
+            follow_edges: true,
+        }
+    }
+
+    /// Global hooks only.
+    pub fn global() -> Self {
+        Self {
+            producer: None,
+            consumers: &[],
+            follow_edges: false,
+        }
+    }
+}
+
+/// The hooks that want an event now — decided at the moment the fact is
+/// written, never re-evaluated at delivery. Empty when emission is off.
 #[instrument(skip_all, fields(event = event_type.as_str()))]
-pub async fn plan_event(
+pub async fn fan_out(
     repo: &impl SpecRepository,
     event_type: WebhookEventType,
-    producer: Option<&str>,
-    also_consumers: &[&str],
-    data: serde_json::Value,
-) -> Result<Option<NewWebhookEvent>, AppError> {
+    audience: EventAudience<'_>,
+) -> Result<Vec<i64>, AppError> {
     if !emission_enabled() {
-        return Ok(None);
+        return Ok(Vec::new());
     }
     let hooks = repo.list_webhooks(None).await?;
     if hooks.is_empty() {
-        return Ok(None);
+        return Ok(Vec::new());
     }
-    let mut consumers: Vec<String> = also_consumers.iter().map(|c| c.to_string()).collect();
-    if let Some(name) = producer
+    let mut consumers: Vec<String> = audience.consumers.iter().map(|c| c.to_string()).collect();
+    if audience.follow_edges
+        && let Some(name) = audience.producer
         && let Some(service_id) = repo.find_service(name).await?
     {
         consumers.extend(repo.list_current_consumers_of(service_id).await?);
     }
-    let hook_ids: Vec<i64> = hooks
+    Ok(hooks
         .iter()
-        .filter(|h| hook_wants(h, event_type, producer, &consumers))
+        .filter(|h| hook_wants(h, event_type, audience.producer, &consumers))
         .map(|h| h.id)
-        .collect();
-    Ok(Some(NewWebhookEvent {
+        .collect())
+}
+
+/// The outbox row for an event with a decided fan-out — `None` when no hook
+/// wants it, so the outbox never holds a row nobody will deliver.
+pub fn event_for(
+    event_type: WebhookEventType,
+    producer: Option<&str>,
+    data: serde_json::Value,
+    hook_ids: Vec<i64>,
+) -> Option<NewWebhookEvent> {
+    if hook_ids.is_empty() {
+        return None;
+    }
+    Some(NewWebhookEvent {
         id: uuid::Uuid::new_v4().to_string(),
         event_type,
         producer: producer.map(str::to_string),
         occurred_at: now_iso(),
         data,
         hook_ids,
-    }))
+    })
+}
+
+/// Decide an event's fan-out and hand back the outbox row to write with the
+/// fact — `None` when emission is off or no hook wants the event.
+pub async fn plan_event(
+    repo: &impl SpecRepository,
+    event_type: WebhookEventType,
+    audience: EventAudience<'_>,
+    data: serde_json::Value,
+) -> Result<Option<NewWebhookEvent>, AppError> {
+    let hook_ids = fan_out(repo, event_type, audience).await?;
+    Ok(event_for(event_type, audience.producer, data, hook_ids))
 }
 
 /// An event aimed at exactly one hook, filters and scope notwithstanding —
@@ -651,6 +719,11 @@ pub async fn send_test_event(
     id: i64,
 ) -> Result<String, AppError> {
     let hook = get_webhook_in(repo, scope, id).await?;
+    if !emission_enabled() {
+        return Err(AppError::Conflict(
+            "webhooks are disabled on this instance (WEBHOOKS_ENABLED=false): a test event would never be delivered".to_string(),
+        ));
+    }
     let event = test_event(&hook);
     let event_id = event.id.clone();
     repo.insert_webhook_events(&[event]).await?;
@@ -671,7 +744,9 @@ pub async fn list_deliveries_in(
 }
 
 /// Redeliver one delivery of this hook: pending again, due now, attempt
-/// count kept — one more attempt even past the 24 h cutoff.
+/// count kept — one more attempt even past the 24 h cutoff. A delivery a
+/// worker currently holds is refused with a `409`: resetting it would send
+/// it twice.
 #[instrument(skip_all, fields(scope = scope.kind(), id, delivery_id))]
 pub async fn redeliver(
     repo: &impl SpecRepository,
@@ -688,7 +763,11 @@ pub async fn redeliver(
             )));
         }
     }
-    repo.reset_webhook_delivery(delivery_id, &now_iso()).await?;
+    if !repo.reset_webhook_delivery(delivery_id, &now_iso()).await? {
+        return Err(AppError::Conflict(format!(
+            "delivery {delivery_id} is in flight — a worker is attempting it right now; try again after that attempt"
+        )));
+    }
     repo.get_webhook_delivery(delivery_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("no delivery {delivery_id}")))
@@ -794,8 +873,7 @@ mod tests {
         let none = plan_event(
             &repo,
             WebhookEventType::BranchCut,
-            None,
-            &[],
+            EventAudience::global(),
             serde_json::json!({}),
         )
         .await
@@ -820,11 +898,25 @@ mod tests {
             })
             .await
             .unwrap();
+        // A hook exists but wants none of this: no orphan outbox row.
+        let unwanted = plan_event(
+            &repo,
+            WebhookEventType::BranchCut,
+            EventAudience::global(),
+            serde_json::json!({}),
+        )
+        .await
+        .unwrap();
+        assert!(unwanted.is_none(), "no hook wants it, no outbox row");
+
         let planned = plan_event(
             &repo,
             WebhookEventType::DependencyRecorded,
-            Some("orders"),
-            &["web"],
+            EventAudience {
+                producer: Some("orders"),
+                consumers: &["web"],
+                follow_edges: true,
+            },
             serde_json::json!({"consumer": "web"}),
         )
         .await
@@ -839,14 +931,93 @@ mod tests {
         let off = plan_event(
             &repo,
             WebhookEventType::DependencyRecorded,
-            Some("orders"),
-            &["web"],
+            EventAudience {
+                producer: Some("orders"),
+                consumers: &["web"],
+                follow_edges: true,
+            },
             serde_json::json!({}),
         )
         .await
         .unwrap();
+        let test_refused = send_test_event(&repo, &scope, id).await;
         set_emission_enabled(true);
         assert!(off.is_none());
+        assert!(
+            matches!(test_refused, Err(AppError::Conflict(ref m)) if m.contains("WEBHOOKS_ENABLED=false")),
+            "a test event while disabled is refused, not queued forever: {test_refused:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn follow_edges_off_keeps_a_producers_consumers_out() {
+        let repo = MockRepo::new();
+        repo.ensure_service("orders").await.unwrap();
+        let web = WebhookScope::Consumer {
+            name: "web".to_string(),
+        };
+        let own = WebhookScope::Producer {
+            name: "orders".to_string(),
+        };
+        let mut ids = Vec::new();
+        for scope in [&web, &own] {
+            ids.push(
+                repo.create_webhook(NewWebhook {
+                    scope,
+                    url: "https://hooks.example/x",
+                    format: WebhookFormat::Json,
+                    event_types: &[],
+                    producer_glob: None,
+                    secret: "s",
+                    secret_hint: "h",
+                    allow_list_exempt: true,
+                    created_by: "root",
+                    created_at: "2026-01-01T00:00:00Z",
+                })
+                .await
+                .unwrap(),
+            );
+        }
+        // web is a current Consumer of orders (named, as a require would).
+        let with_edges = fan_out(
+            &repo,
+            WebhookEventType::VersionPublished,
+            EventAudience {
+                producer: Some("orders"),
+                consumers: &["web"],
+                follow_edges: true,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(with_edges, ids);
+        let catalog = fan_out(
+            &repo,
+            WebhookEventType::CatalogRecorded,
+            EventAudience {
+                producer: Some("orders"),
+                consumers: &["orders"],
+                follow_edges: false,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(catalog, vec![ids[1]], "the system's own hooks only");
+    }
+
+    #[test]
+    fn a_pathological_glob_matches_in_linear_time() {
+        let name = "a".repeat(200);
+        let glob = "*a".repeat(30) + "b";
+        let started = std::time::Instant::now();
+        assert!(!glob_matches(&glob, &name));
+        assert!(glob_matches(&"*a".repeat(30), &name));
+        assert!(glob_matches("*?*?*?*?*?*", &name));
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "took {:?}",
+            started.elapsed()
+        );
     }
 
     #[test]
@@ -1055,6 +1226,29 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(again.status, WebhookDeliveryStatus::Pending);
+        assert!(again.redelivered_at.is_some());
+        // A worker holds it now (the hook resumed first): redelivering would
+        // send it twice.
+        patch_webhook(
+            &repo,
+            &WebhookScope::Global,
+            id,
+            PatchWebhookRequest {
+                paused: Some(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let claimed = repo
+            .claim_due_webhook_deliveries("2999-01-01T00:00:00Z", "2999-01-01T00:05:00Z", 10)
+            .await
+            .unwrap();
+        assert_eq!(claimed.len(), 1);
+        assert!(matches!(
+            redeliver(&repo, &WebhookScope::Global, id, rows[0].id).await,
+            Err(AppError::Conflict(ref m)) if m.contains("in flight")
+        ));
         assert!(matches!(
             redeliver(&repo, &WebhookScope::Global, id, 999_999).await,
             Err(AppError::NotFound(_))
