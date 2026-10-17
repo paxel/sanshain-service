@@ -111,6 +111,20 @@ To run more than one replica, switch to PostgreSQL (set `DATABASE_URL` to a
 `postgres://...` URL and disable the SQLite PVC), then raise `replicas`
 (Kustomize) or `replicaCount` (Helm).
 
+Each replica keeps its own in-memory caches (see `CACHE_MEMORY_MB` in
+[Configuration](configuration.md)). A write invalidates the caches of the
+replica that handled it immediately; every other replica picks it up within
+**10 seconds**, when its cached entries expire. Consequently a build that
+provides a Version on one replica and requires it on another within the same
+10 seconds can still be answered with "version not found", the previous
+Snapshot content or the previous report.
+
+To close that window entirely, enable session affinity (sticky sessions) on the
+ingress for the API routes (`/provide*`, `/require*`, `/require-bundle`,
+`/catalog/*`, `/producers/*`), so one build's requests land on one replica.
+Otherwise, have the pipeline wait 10 seconds between the provide and the first
+require.
+
 ## Health and readiness probes
 
 - **Liveness** (`GET /health`): returns `OK` without touching the database, so a

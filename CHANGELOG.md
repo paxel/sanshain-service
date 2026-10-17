@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.6.0]
 
 ### Changed
+- Every in-memory data cache now expires its entries after 10 s, so on a multi-replica PostgreSQL install a provide handled by one replica is visible on the others within 10 s instead of until memory pressure evicts the old entry; a single replica behaves as before. See the Scaling section of the deployment guide for the session-affinity recommendation.
 - The container image now trusts public certificate authorities, so `ldaps://` against a publicly signed directory works without a certificate mount; private CAs still go through `EXTRA_CA_CERTS_DIR`.
 
 ### Fixed

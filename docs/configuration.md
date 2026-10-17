@@ -25,7 +25,7 @@ Sanshain Service can be configured using environment variables.
 | `SANSHAIN_DEV_MODE`            | `false`                                   | Requests dev mode (unauthenticated API). Only active when `ALLOW_INSECURE_DEV_MODE=true`. Local only.     |
 | `ALLOW_INSECURE_DEV_MODE`      | `false`                                   | Safety gate: dev mode only activates when this is `true`; fails closed otherwise. Not for production.     |
 | `INSTANCE_ID`                  | *random UUID*                             | Unique ID for this service instance.                                                                      |
-| `CACHE_MEMORY_MB`              | `256`                                     | In-memory cache size in MB. Set to `0` to disable caching entirely. Configurable at runtime via admin UI. |
+| `CACHE_MEMORY_MB`              | `256`                                     | In-memory cache size in MB. Set to `0` to disable caching entirely. Configurable at runtime via admin UI. Entries expire after 10 s; see below. |
 | `LOG_FORMAT`                   | `text`                                    | Log output format (`text` or `json`).                                                                     |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`  | `http://localhost:4317`                   | OTLP/gRPC collector endpoint for distributed tracing.                                                     |
 | `RUST_LOG`                     | `sanshain_service=info,tower_http=info`   | Log level filter (e.g., `sanshain_service=debug,tower_http=debug` for verbose output).                    |
@@ -80,7 +80,14 @@ directory-backed administrator to whatever Sanshain itself has granted them, and
 for the duration of the outage, would mean a revoked administrator kept their access exactly as long
 as the outage lasted.
 
-## Additional CA certificates
+## Data cache time to live
+
+Every data cache (resolved endpoints, endpoint lists per Version, spec content, reports, Producer and
+Consumer lists, version metadata) holds an entry for at most 10 seconds. The value is fixed, not a
+setting. A write through one process invalidates that process's caches immediately, so a
+single-replica install never notices the limit; it exists for multi-replica installs sharing one
+PostgreSQL database, where it bounds how long a replica can serve content that another replica has
+since replaced. See [Scaling](deployment.md#scaling) for what that means for a build.
 
 Set `EXTRA_CA_CERTS_DIR` to a directory of PEM certificates when Sanshain must
 trust a private or corporate certificate authority — typically for LDAPS against
