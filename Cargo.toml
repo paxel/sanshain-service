@@ -68,6 +68,8 @@ indexmap = "2"
 similar = "3"
 async-stream = "0.3"
 tokio-stream = { version = "0.1", features = ["sync"] }
+# Streams the SQLite snapshot file (#50) without buffering it in memory.
+tokio-util = { version = "0.7", features = ["io"] }
 axum-prometheus = "0.10"
 metrics = "0.24"
 metrics-exporter-prometheus = "0.18"

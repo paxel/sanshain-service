@@ -72,6 +72,7 @@ fn test_state(repo: SqliteSpecRepository) -> AppState {
         prometheus_handle: prometheus_handle(),
         system: Arc::new(std::sync::Mutex::new(system)),
         max_body_bytes: sanshain_service::DEFAULT_MAX_BODY_BYTES,
+        snapshot_in_progress: Arc::new(AtomicBool::new(false)),
         mcp: Default::default(),
         directory_roles: sanshain_service::application::directory_roles::DirectoryRoleCache::new(
             std::time::Duration::from_secs(300),
@@ -222,6 +223,7 @@ async fn an_administrator_still_reaches_every_admin_surface() {
         ("GET", "/admin/observability/audit-logs"),
         ("GET", "/admin/settings/snapshot-max-age"),
         ("GET", "/admin/producers/orders/maintainers"),
+        ("GET", "/admin/backup/sqlite"),
     ] {
         let got = status(&w.app, method, uri, &w.admin).await;
         assert_ne!(got, StatusCode::FORBIDDEN, "admin refused {method} {uri}");
@@ -439,16 +441,27 @@ async fn an_unauthenticated_caller_is_refused_everywhere() {
 #[tokio::test]
 async fn destructive_operations_need_their_permission() {
     let w = world().await;
-    for uri in ["/admin/nuke/producers", "/admin/nuke/users"] {
+    // The database snapshot (#50) is a whole-database export, so it sits
+    // behind the same permission as the nukes.
+    for (method, uri) in [
+        ("POST", "/admin/nuke/producers"),
+        ("POST", "/admin/nuke/users"),
+        ("GET", "/admin/backup/sqlite"),
+    ] {
         assert_eq!(
-            status(&w.app, "POST", uri, &w.plain).await,
+            status(&w.app, method, uri, &w.plain).await,
             StatusCode::FORBIDDEN,
             "a plain user must not reach {uri}"
         );
         assert_eq!(
-            status(&w.app, "POST", uri, &w.user_manager).await,
+            status(&w.app, method, uri, &w.user_manager).await,
             StatusCode::FORBIDDEN,
             "a user manager must not reach {uri}"
+        );
+        assert_eq!(
+            status(&w.app, method, uri, &w.maintainer).await,
+            StatusCode::FORBIDDEN,
+            "a maintainer must not reach {uri}"
         );
     }
 }

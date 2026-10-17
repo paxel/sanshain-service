@@ -180,9 +180,47 @@ pub fn require(
     axum::middleware::from_fn_with_state(
         state,
         move |State(state): State<AppState>, req: Request, next: Next| {
-            Box::pin(permission_auth(state, guard, req, next)) as GuardFuture
+            Box::pin(permission_auth_with(
+                state,
+                guard,
+                AdminCredentials::SessionOnly,
+                req,
+                next,
+            )) as GuardFuture
         },
     )
+}
+
+/// Like [`require`], additionally admitting a `full` API token as its owner.
+///
+/// For the administrative routes automation calls on a schedule (#50: the
+/// backup CronJob). A `read_only` token is refused with `403`, the same as on
+/// a catalog-changing API route; the permission check is unchanged.
+pub fn require_with_api_tokens(
+    state: AppState,
+    guard: RouteGuard,
+) -> GuardLayer<impl Fn(State<AppState>, Request, Next) -> GuardFuture + Clone> {
+    axum::middleware::from_fn_with_state(
+        state,
+        move |State(state): State<AppState>, req: Request, next: Next| {
+            Box::pin(permission_auth_with(
+                state,
+                guard,
+                AdminCredentials::SessionOrApiToken,
+                req,
+                next,
+            )) as GuardFuture
+        },
+    )
+}
+
+/// What a route behind [`require`] accepts as proof of identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AdminCredentials {
+    /// A session token only — the dashboard's routes.
+    SessionOnly,
+    /// A session token, or a `full` API token acting as its owner.
+    SessionOrApiToken,
 }
 
 /// Authenticate the caller and enforce the route's declared requirement.
@@ -194,6 +232,16 @@ pub fn require(
 pub async fn permission_auth(
     state: AppState,
     guard: RouteGuard,
+    req: Request,
+    next: Next,
+) -> Result<Response, Response> {
+    permission_auth_with(state, guard, AdminCredentials::SessionOnly, req, next).await
+}
+
+async fn permission_auth_with(
+    state: AppState,
+    guard: RouteGuard,
+    credentials: AdminCredentials,
     req: Request,
     next: Next,
 ) -> Result<Response, Response> {
@@ -210,6 +258,17 @@ pub async fn permission_auth(
             .ok_or_else(|| AppError::Unauthorized.into_response())?;
         match services::validate_session(&state.repo, token).await {
             Ok(Some((user, _session))) => user,
+            _ if credentials == AdminCredentials::SessionOrApiToken => {
+                match services::validate_api_token(&state.repo, token).await {
+                    Ok(Some(identity)) => {
+                        if identity.scope == crate::domain::models::ApiTokenScope::ReadOnly {
+                            return Err(read_only_admin_token_refusal().into_response());
+                        }
+                        identity.user
+                    }
+                    _ => return Err(AppError::Unauthorized.into_response()),
+                }
+            }
             _ => return Err(AppError::Unauthorized.into_response()),
         }
     };
@@ -290,6 +349,16 @@ pub async fn api_auth_write(
     next: Next,
 ) -> Result<axum::response::Response, axum::response::Response> {
     authenticate_api(state, ApiAccess::Write, req, next).await
+}
+
+/// The refusal a read-only token gets on an administrative route that admits
+/// API tokens.
+fn read_only_admin_token_refusal() -> AppError {
+    AppError::ForbiddenWithReason(format!(
+        "this API token has scope '{}' and may not call administrative routes; use a token with scope '{}' of an account holding the permission",
+        crate::domain::models::ApiTokenScope::ReadOnly.as_str(),
+        crate::domain::models::ApiTokenScope::Full.as_str(),
+    ))
 }
 
 /// The refusal a read-only token gets on a write route.

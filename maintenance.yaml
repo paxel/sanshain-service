@@ -90,6 +90,46 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/backup/sqlite:
+    get:
+      summary: "Read: backup/sqlite"
+      description: |
+        Requires the `run_destructive_operations` permission. A consistent
+        snapshot of the SQLite database, produced by `VACUUM INTO` while
+        Sanshain runs, streamed as `application/vnd.sqlite3` with a
+        `Content-Disposition` filename `sanshain-<instance version>-<UTC
+        timestamp>.db`. Only one snapshot runs at a time. Meant for the
+        scheduled backup: a `full` API token of an account holding the
+        permission is accepted beside a session, a `read_only` token is
+        refused with `403`. See the deployment guide, Backup and restore.
+      responses:
+        "200":
+          description: The database snapshot.
+          content:
+            application/vnd.sqlite3:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "409":
+          description: |
+            A snapshot is already being produced, or this instance runs
+            PostgreSQL — the message names `pg_dump`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/branches/{name}/timeline:
     get:
       summary: "Read: branches/name/timeline"

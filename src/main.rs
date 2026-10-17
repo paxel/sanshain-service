@@ -381,6 +381,7 @@ pub async fn main() {
         prometheus_handle,
         system: Arc::new(std::sync::Mutex::new(system)),
         max_body_bytes,
+        snapshot_in_progress: Arc::new(AtomicBool::new(false)),
         root_users,
         directory_roles:
             sanshain_service::application::directory_roles::DirectoryRoleCache::from_env(),

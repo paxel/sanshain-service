@@ -70,6 +70,7 @@ fn test_app_state(repo: PostgresSpecRepository, db_url: String) -> AppState {
         prometheus_handle,
         system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
         max_body_bytes: sanshain_service::DEFAULT_MAX_BODY_BYTES,
+        snapshot_in_progress: Arc::new(AtomicBool::new(false)),
         mcp: Default::default(),
         directory_roles: sanshain_service::application::directory_roles::DirectoryRoleCache::new(
             std::time::Duration::from_secs(300),
@@ -169,6 +170,56 @@ paths:
 /// The compare-and-set contract of the upsert, driven against the real
 /// Postgres statement: the SQLite twin's module tests cannot vouch for this
 /// copy of the guard.
+/// #50: the snapshot download is SQLite-only. On PostgreSQL the route must
+/// refuse in a way nobody mistakes for a backup, naming the tool to use.
+#[tokio::test]
+async fn snapshot_download_refuses_on_postgres_and_names_pg_dump() {
+    let postgres_container = common::start_postgres().await;
+    let host = postgres_container.get_host().await.unwrap();
+    let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
+    let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .unwrap();
+    let repo = PostgresSpecRepository::new(pool);
+    repo.run_migrations()
+        .await
+        .expect("Failed to run PostgreSQL migrations");
+
+    services::ensure_initial_admin(&repo).await.unwrap();
+    services::set_auth_mode(&repo, &AuthMode::Dev)
+        .await
+        .unwrap();
+    let dev_user = services::ensure_dev_user(&repo).await.ok();
+    let mut state = test_app_state(repo.clone(), db_url);
+    state.dev_user = dev_user;
+    let app = create_app(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin/backup/sqlite")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let message = body["error"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("PostgreSQL") && message.contains("pg_dump"),
+        "the refusal names the engine and the tool: {message}"
+    );
+}
+
 #[tokio::test]
 async fn test_postgres_upsert_compare_and_set_contract() {
     use sanshain_service::domain::models::{ApiType, EndpointRecord, Stability};

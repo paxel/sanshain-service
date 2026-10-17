@@ -874,6 +874,64 @@ pub async fn admin_nuke_database(
     Ok(StatusCode::OK)
 }
 
+/// `GET /admin/backup/sqlite` (#50): a consistent snapshot of the SQLite
+/// database, produced by `VACUUM INTO` and streamed from a temporary file in
+/// the data directory that is removed once the download ends — also when the
+/// client disconnects. One snapshot at a time; a PostgreSQL instance answers
+/// `409` and names `pg_dump`.
+#[tracing::instrument(skip_all)]
+pub async fn download_sqlite_snapshot(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+) -> Result<axum::response::Response, AppError> {
+    use crate::infrastructure::database::DatabaseRepo;
+    use crate::infrastructure::sqlite_snapshot::{self, SnapshotLease, SqliteSnapshot};
+
+    let DatabaseRepo::Sqlite(repo) = state.repo.inner() else {
+        return Err(AppError::Conflict(
+            "This instance runs PostgreSQL, which has no snapshot download; take backups with pg_dump (see the deployment guide, Backup and restore)".to_string(),
+        ));
+    };
+    let lease = SnapshotLease::acquire(&state.snapshot_in_progress).ok_or_else(|| {
+        AppError::Conflict(
+            "A database snapshot is already being produced; retry when it has finished".to_string(),
+        )
+    })?;
+    let snapshot =
+        SqliteSnapshot::create(&repo.pool, &sqlite_snapshot::data_dir(&state.db_url), lease)
+            .await?;
+    let size = snapshot.size();
+    let filename = format!(
+        "sanshain-{}-{}.db",
+        env!("CARGO_PKG_VERSION"),
+        chrono::Utc::now().format("%Y%m%dT%H%M%SZ")
+    );
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "DATABASE_SNAPSHOT",
+            details: &format!("Downloaded a database snapshot as {filename} ({size} bytes)"),
+            action_type: Some("ADMIN"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    let stream = snapshot.into_stream().await?;
+    let headers = [
+        (
+            axum::http::header::CONTENT_TYPE,
+            "application/vnd.sqlite3".to_string(),
+        ),
+        (axum::http::header::CONTENT_LENGTH, size.to_string()),
+        (
+            axum::http::header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{filename}\""),
+        ),
+    ];
+    Ok((headers, axum::body::Body::from_stream(stream)).into_response())
+}
+
 pub async fn export_audit_logs_csv(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {

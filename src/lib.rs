@@ -29,7 +29,7 @@ use infrastructure::cached_repository::CachedSpecRepository;
 pub use presentation::handlers::{admin, api, auth, pages, roles};
 pub use presentation::middleware::{
     LogCaptureLayer, RouteGuard, api_auth, api_auth_write, authenticated_auth, require,
-    validate_csrf,
+    require_with_api_tokens, validate_csrf,
 };
 
 /// Default maximum request body size in bytes (4 MiB). Overridable at startup
@@ -56,6 +56,9 @@ pub struct AppState {
     pub prometheus_handle: metrics_exporter_prometheus::PrometheusHandle,
     pub system: Arc<std::sync::Mutex<sysinfo::System>>,
     pub max_body_bytes: usize,
+    /// Set while a database snapshot (#50) is being produced or streamed, so
+    /// only one runs at a time; a second request is answered `409`.
+    pub snapshot_in_progress: Arc<AtomicBool>,
     /// Usernames holding every permission by configuration. Read once at
     /// startup and never stored, so nothing in the database can revoke root.
     pub root_users: Arc<domain::permissions::RootUsers>,
@@ -173,6 +176,9 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/nuke/producers", post(admin::admin_nuke_producers).layer(require(state.clone(), RouteGuard::Global(Permission::RunDestructiveOperations))))
         .route("/admin/nuke/consumers", post(admin::admin_nuke_consumers).layer(require(state.clone(), RouteGuard::Global(Permission::RunDestructiveOperations))))
         .route("/admin/nuke/users", post(admin::admin_nuke_users).layer(require(state.clone(), RouteGuard::Global(Permission::RunDestructiveOperations))))
+        // #50: the backup CronJob calls this with an API token, so it admits
+        // a full-scope token beside a session; read-only tokens are refused.
+        .route("/admin/backup/sqlite", get(admin::download_sqlite_snapshot).layer(require_with_api_tokens(state.clone(), RouteGuard::Global(Permission::RunDestructiveOperations))))
         .route("/admin/settings/snapshot-max-age", get(admin::get_snapshot_max_age).post(admin::set_snapshot_max_age).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/cleanup/snapshots", post(admin::trigger_snapshot_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/settings/dependency-max-age", get(admin::get_dependency_max_age).post(admin::set_dependency_max_age).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
@@ -363,7 +369,12 @@ mod tests {
     #[test]
     fn dangerous_admin_routes_are_not_merely_authenticated() {
         let source = include_str!("lib.rs");
-        let must_be_privileged = ["/admin/nuke/", "/admin/settings/", "/admin/auth-config"];
+        let must_be_privileged = [
+            "/admin/nuke/",
+            "/admin/settings/",
+            "/admin/auth-config",
+            "/admin/backup/",
+        ];
         let mut widened = Vec::new();
 
         for line in source.lines() {
