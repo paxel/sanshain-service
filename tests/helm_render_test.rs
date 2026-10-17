@@ -149,3 +149,175 @@ fn extra_volumes_render_without_persistence() {
         "the data mount must be absent when persistence is disabled"
     );
 }
+
+// --- Backup CronJobs (#50) ---
+
+#[test]
+fn no_backup_cronjob_unless_enabled() {
+    if !helm_available() {
+        eprintln!("skipping: helm is not installed");
+        return;
+    }
+
+    let rendered = render(&[]).expect("chart renders with default values");
+
+    assert!(
+        !rendered.contains("kind: CronJob"),
+        "an untouched installation gets no backup CronJob"
+    );
+    assert!(
+        !rendered.contains("-backup"),
+        "no backup claim either, got:\n{rendered}"
+    );
+}
+
+#[test]
+fn sqlite_backup_cronjob_curls_the_snapshot_with_the_token_secret() {
+    if !helm_available() {
+        eprintln!("skipping: helm is not installed");
+        return;
+    }
+
+    let rendered = render(&[
+        "--set",
+        "backup.enabled=true",
+        "--set",
+        "backup.schedule=30 3 * * *",
+        "--set",
+        "backup.retain=14",
+        "--set",
+        "backup.tokenSecret.name=sanshain-backup-token",
+        "--set",
+        "backup.tokenSecret.key=apiToken",
+    ])
+    .expect("chart renders the SQLite backup CronJob");
+
+    assert!(rendered.contains("kind: CronJob"), "got:\n{rendered}");
+    assert!(
+        rendered.contains(r#"schedule: "30 3 * * *""#),
+        "the schedule comes from values, got:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("/admin/backup/sqlite"),
+        "the job fetches the snapshot route"
+    );
+    assert!(
+        !rendered.contains("pg_dump"),
+        "the SQLite variant does not run pg_dump"
+    );
+    assert!(
+        rendered.contains("name: sanshain-backup-token") && rendered.contains("key: apiToken"),
+        "the bearer token is read from the referenced secret, got:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("http://t-sanshain:80"),
+        "the job talks to the service's cluster DNS name, got:\n{rendered}"
+    );
+    assert!(
+        rendered.contains(r#"value: "14""#),
+        "the retention count reaches the job"
+    );
+    // Without an existing claim the chart creates one and mounts it.
+    assert!(
+        rendered.contains("claimName: t-sanshain-backup"),
+        "the job mounts the chart's backup claim"
+    );
+    assert_eq!(
+        rendered.matches("kind: PersistentVolumeClaim").count(),
+        2,
+        "the backup PersistentVolumeClaim is rendered beside the data one"
+    );
+}
+
+#[test]
+fn backup_cronjob_uses_an_existing_claim_instead_of_creating_one() {
+    if !helm_available() {
+        eprintln!("skipping: helm is not installed");
+        return;
+    }
+
+    let rendered = render(&[
+        "--set",
+        "backup.enabled=true",
+        "--set",
+        "backup.existingClaim=nightly-backups",
+        "--set",
+        "backup.tokenSecret.name=sanshain-backup-token",
+    ])
+    .expect("chart renders with an existing backup claim");
+
+    assert!(
+        rendered.contains("claimName: nightly-backups"),
+        "the job mounts the operator's claim, got:\n{rendered}"
+    );
+    assert_eq!(
+        rendered.matches("kind: PersistentVolumeClaim").count(),
+        1,
+        "no backup claim is created when one is given"
+    );
+}
+
+#[test]
+fn sqlite_backup_requires_the_token_secret() {
+    if !helm_available() {
+        eprintln!("skipping: helm is not installed");
+        return;
+    }
+
+    let err = render(&["--set", "backup.enabled=true"])
+        .expect_err("the SQLite backup cannot authenticate without a token secret");
+    assert!(
+        err.contains("backup.tokenSecret.name"),
+        "the failure names the missing value, got:\n{err}"
+    );
+}
+
+#[test]
+fn postgres_backup_cronjob_runs_pg_dump_against_the_database_url() {
+    if !helm_available() {
+        eprintln!("skipping: helm is not installed");
+        return;
+    }
+
+    // Explicit engine.
+    let rendered = render(&[
+        "--set",
+        "backup.enabled=true",
+        "--set",
+        "backup.engine=postgres",
+        "--set",
+        "backup.schedule=0 4 * * *",
+    ])
+    .expect("chart renders the PostgreSQL backup CronJob");
+
+    assert!(rendered.contains("kind: CronJob"), "got:\n{rendered}");
+    assert!(
+        rendered.contains("pg_dump"),
+        "the PostgreSQL variant runs pg_dump"
+    );
+    assert!(
+        !rendered.contains("/admin/backup/sqlite"),
+        "the PostgreSQL variant does not call the snapshot route"
+    );
+    assert!(
+        rendered.contains(r#"schedule: "0 4 * * *""#),
+        "the schedule comes from values"
+    );
+    assert!(
+        rendered.contains("name: t-sanshain-secrets") && rendered.contains("key: DATABASE_URL"),
+        "DATABASE_URL is read from the chart's existing secret, got:\n{rendered}"
+    );
+
+    // Derived from the database URL when the engine is not set.
+    let derived = render(&[
+        "--set",
+        "backup.enabled=true",
+        "--set",
+        "secrets.databaseUrl=postgres://u:p@db:5432/sanshain",
+    ])
+    .expect("chart derives the engine from the database URL");
+    assert!(
+        derived.contains("pg_dump") && !derived.contains("/admin/backup/sqlite"),
+        "a postgres:// URL selects the pg_dump variant, got:\n{derived}"
+    );
+}

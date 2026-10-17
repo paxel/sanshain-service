@@ -131,3 +131,39 @@ persistence:
 #     readOnly: true
 extraVolumes: []
 extraVolumeMounts: []
+
+# Scheduled backups (see docs/deployment.md, "Backup and restore"). Off by
+# default. Renders one CronJob writing to a backup volume and keeping the
+# newest `retain` files:
+#   sqlite   — fetches GET /admin/backup/sqlite, a consistent snapshot produced
+#              by the engine, with a bearer token read from `tokenSecret`. The
+#              token must be a `full`-scope API token of an account holding
+#              `run_destructive_operations` (an admin); a `read_only` token is
+#              refused.
+#   postgres — runs `pg_dump --format=custom` with the DATABASE_URL from the
+#              chart's own Secret.
+backup:
+  enabled: false
+  # Daily at 02:00 (cluster time zone).
+  schedule: "0 2 * * *"
+  # "sqlite" or "postgres". Empty: postgres when secrets.databaseUrl is a
+  # postgres:// URL, sqlite otherwise.
+  engine: ""
+  # How many backup files to keep on the volume; older ones are deleted after
+  # each successful run.
+  retain: 7
+  # Mount this PersistentVolumeClaim instead of creating one.
+  existingClaim: ""
+  # The claim the chart creates when existingClaim is empty.
+  storage:
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 5Gi
+  # SQLite only: the Secret and key holding the API token.
+  #   kubectl create secret generic sanshain-backup-token --from-literal=token=<api token>
+  tokenSecret:
+    name: ""
+    key: token
+  images:
+    curl: "curlimages/curl:8.11.1"
+    postgres: "postgres:17-alpine"

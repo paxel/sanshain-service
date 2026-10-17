@@ -1,0 +1,17 @@
+{{- if and .Values.backup.enabled (not .Values.backup.existingClaim) -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "sanshain.fullname" . }}-backup
+  labels:
+    {{- include "sanshain.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.backup.storage.accessMode | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.backup.storage.size | quote }}
+  {{- if .Values.backup.storage.storageClass }}
+  storageClassName: {{ .Values.backup.storage.storageClass | quote }}
+  {{- end }}
+{{- end }}

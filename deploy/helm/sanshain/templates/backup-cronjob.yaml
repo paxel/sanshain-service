@@ -1,0 +1,75 @@
+{{- if .Values.backup.enabled -}}
+{{- $isPostgres := or (hasPrefix "postgres://" .Values.secrets.databaseUrl) (hasPrefix "postgresql://" .Values.secrets.databaseUrl) -}}
+{{- $engine := .Values.backup.engine | default (ternary "postgres" "sqlite" $isPostgres) -}}
+{{- $claim := .Values.backup.existingClaim | default (printf "%s-backup" (include "sanshain.fullname" .)) -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "sanshain.fullname" . }}-backup
+  labels:
+    {{- include "sanshain.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "sanshain.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: backup
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              env:
+                - name: RETAIN
+                  value: {{ .Values.backup.retain | quote }}
+              {{- if eq $engine "sqlite" }}
+                - name: SANSHAIN_URL
+                  value: "http://{{ include "sanshain.fullname" . }}:{{ .Values.service.port }}"
+                - name: SANSHAIN_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ required "backup.tokenSecret.name is required for the SQLite backup CronJob (a full-scope API token of an admin)" .Values.backup.tokenSecret.name }}
+                      key: {{ .Values.backup.tokenSecret.key }}
+              image: {{ .Values.backup.images.curl | quote }}
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  out="/backup/sanshain-$(date -u +%Y%m%dT%H%M%SZ).db"
+                  curl -fsS -H "Authorization: Bearer $SANSHAIN_TOKEN" \
+                    -o "$out.part" "$SANSHAIN_URL/admin/backup/sqlite"
+                  mv "$out.part" "$out"
+                  ls -1t /backup/*.db | tail -n +$((RETAIN + 1)) | xargs -r rm -f
+                  ls -l /backup
+              {{- else }}
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "sanshain.fullname" . }}-secrets
+                      key: DATABASE_URL
+              image: {{ .Values.backup.images.postgres | quote }}
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  out="/backup/sanshain-$(date -u +%Y%m%dT%H%M%SZ).dump"
+                  pg_dump --format=custom --file="$out.part" "$DATABASE_URL"
+                  mv "$out.part" "$out"
+                  ls -1t /backup/*.dump | tail -n +$((RETAIN + 1)) | xargs -r rm -f
+                  ls -l /backup
+              {{- end }}
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: {{ $claim }}
+{{- end }}
