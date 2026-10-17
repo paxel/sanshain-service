@@ -18,8 +18,11 @@ async fn wait_past_ttl() {
     tokio::time::sleep(TTL * 2).await;
 }
 
+// `cfg(test)` is always true in this crate; the attribute marks the helpers
+// as test code for clippy's `allow-unwrap-in-tests`.
 /// Two cached repositories ("replicas") over one shared in-memory database.
 /// The database is named per test so parallel tests never share one.
+#[cfg(test)]
 async fn two_replicas(db_name: &str) -> (CachedSpecRepository, CachedSpecRepository) {
     let url = format!("sqlite:file:{db_name}?mode=memory&cache=shared");
     let pool = SqlitePoolOptions::new()
@@ -50,6 +53,7 @@ fn endpoint(path: &str, method: &str, yaml: &str) -> EndpointRecord {
     }
 }
 
+#[cfg(test)]
 async fn provide(
     repo: &CachedSpecRepository,
     service_id: i64,
