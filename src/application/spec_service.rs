@@ -820,6 +820,7 @@ mod tests {
     async fn seed(repo: &MockRepo, service: &str, content: &str, snippet: &str) -> i64 {
         let sid = repo.ensure_service(service).await.unwrap();
         repo.upsert_spec_version(crate::domain::ports::UpsertSpecVersion {
+            outbox: Vec::new(),
             service_id: sid,
             api_type: ApiType::OpenApi,
             version: "1.0.0".parse().unwrap(),
@@ -1015,6 +1016,7 @@ mod tests {
                 "rel",
                 "trunk",
                 "2026-01-01T00:00:00Z",
+                Vec::new(),
             )
             .await
             .unwrap();
@@ -1042,6 +1044,7 @@ mod tests {
             "rel",
             "trunk",
             "2026-01-01T00:00:00Z",
+            Vec::new(),
         )
         .await
         .unwrap();

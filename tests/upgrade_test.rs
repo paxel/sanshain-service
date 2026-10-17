@@ -19,6 +19,7 @@ const POST_2_0_MIGRATIONS: &[&str] = &[
     "20261014000000_trunk_member_versions.sql",
     "20261016000000_api_token_scope.sql",
     "20261017000000_system_context.sql",
+    "20261017000001_webhooks.sql",
 ];
 
 /// Apply every SQLite migration file older than the 2.0 rework, in order —

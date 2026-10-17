@@ -87,10 +87,14 @@ use super::pin_rows::{
     PinRow, SystemContextRow, links_json, periphery_track_key, pin_row_to_info,
     system_context_from_row,
 };
+use super::webhook_rows::{
+    DELIVERY_COLUMNS, DeliveryRow, WEBHOOK_COLUMNS, WebhookRow, data_from_json, data_json,
+    delivery_from_row, encode_event_types, webhook_from_row,
+};
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewApiToken, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams,
-    RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
+    EndpointMap, NewApiToken, NewAuditLog, NewWebhook, RecordDependencyParams,
+    RecordTrunkPinParams, RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
 };
 
 struct ApiTokenRow {
@@ -286,6 +290,7 @@ impl SpecRepository for PostgresSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         }
 
+        write_outbox(&mut tx, &params.outbox).await?;
         tx.commit()
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -566,7 +571,13 @@ impl SpecRepository for PostgresSpecRepository {
         created_by: &str,
         source: &str,
         as_of: &str,
+        outbox: Vec<NewWebhookEvent>,
     ) -> Result<i64, RepositoryError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let res: Result<(i64,), sqlx::Error> = sqlx::query_as(
             "INSERT INTO sanshain_branches (name, created_at, created_by, source, as_of) VALUES ($1, $2, $3, $4, $5) RETURNING id",
         )
@@ -575,15 +586,20 @@ impl SpecRepository for PostgresSpecRepository {
         .bind(created_by)
         .bind(source)
         .bind(as_of)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await;
-        match res {
-            Ok((id,)) => Ok(id),
+        let id = match res {
+            Ok((id,)) => id,
             Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
-                Err(RepositoryError::Conflict)
+                return Err(RepositoryError::Conflict);
             }
-            Err(e) => Err(RepositoryError::Internal(e.to_string())),
-        }
+            Err(e) => return Err(RepositoryError::Internal(e.to_string())),
+        };
+        write_outbox(&mut tx, &outbox).await?;
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(id)
     }
 
     async fn find_branch(&self, name: &str) -> Result<Option<BranchInfo>, RepositoryError> {
@@ -1327,17 +1343,24 @@ impl SpecRepository for PostgresSpecRepository {
         &self,
         params: RecordDependencyParams<'_>,
     ) -> Result<(), RepositoryError> {
-        self.record_dependencies_bulk(vec![params]).await
+        self.record_dependencies_bulk(vec![params], Vec::new())
+            .await
     }
 
     #[instrument(skip_all)]
     async fn record_dependencies_bulk(
         &self,
         params: Vec<RecordDependencyParams<'_>>,
+        outbox: Vec<NewWebhookEvent>,
     ) -> Result<(), RepositoryError> {
         if params.is_empty() {
-            return Ok(());
+            return self.insert_webhook_events(&outbox).await;
         }
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
@@ -1358,7 +1381,11 @@ impl SpecRepository for PostgresSpecRepository {
         );
         query_builder
             .build()
-            .execute(&self.pool)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        write_outbox(&mut tx, &outbox).await?;
+        tx.commit()
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
@@ -1598,6 +1625,18 @@ impl SpecRepository for PostgresSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM system_context")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM webhook_deliveries")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM webhook_outbox")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM webhooks")
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -2913,6 +2952,7 @@ impl SpecRepository for PostgresSpecRepository {
         trunk: bool,
         resources: &[String],
         now_iso: &str,
+        outbox: Vec<NewWebhookEvent>,
     ) -> Result<bool, RepositoryError> {
         let mut tracks = vec![PeripheryTrack::Dev];
         if trunk {
@@ -2973,6 +3013,7 @@ impl SpecRepository for PostgresSpecRepository {
                 changed = true;
             }
         }
+        write_outbox(&mut tx, &outbox).await?;
         tx.commit()
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -3381,4 +3422,476 @@ impl SpecRepository for PostgresSpecRepository {
 
         Ok(())
     }
+
+    // --- Webhooks (#47, ADR-0009) ---
+
+    async fn insert_webhook_events(
+        &self,
+        events: &[NewWebhookEvent],
+    ) -> Result<(), RepositoryError> {
+        if events.is_empty() {
+            return Ok(());
+        }
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        write_outbox(&mut tx, events).await?;
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))
+    }
+
+    async fn list_current_consumers_of(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT c.name FROM dependencies d \
+             JOIN spec_versions sv ON sv.id = d.spec_version_id \
+             JOIN clients c ON c.id = d.client_id \
+             WHERE sv.service_id = $1 \
+             UNION \
+             SELECT DISTINCT t.client_name FROM trunk_dependencies t \
+             WHERE t.service_id = $1 AND t.valid_to IS NULL \
+             ORDER BY 1",
+        )
+        .bind(service_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn create_webhook(&self, hook: NewWebhook<'_>) -> Result<i64, RepositoryError> {
+        let (id,): (i64,) = sqlx::query_as(
+            "INSERT INTO webhooks (scope_kind, scope_name, url, format, event_types, producer_glob, secret, secret_hint, paused, allow_list_exempt, created_by, created_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, $9, $10, $11) RETURNING id",
+        )
+        .bind(hook.scope.kind())
+        .bind(hook.scope.name())
+        .bind(hook.url)
+        .bind(hook.format.as_str())
+        .bind(encode_event_types(hook.event_types))
+        .bind(hook.producer_glob)
+        .bind(hook.secret)
+        .bind(hook.secret_hint)
+        .bind(hook.allow_list_exempt)
+        .bind(hook.created_by)
+        .bind(hook.created_at)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(id)
+    }
+
+    async fn list_webhooks(
+        &self,
+        scope: Option<&WebhookScope>,
+    ) -> Result<Vec<Webhook>, RepositoryError> {
+        let rows: Vec<WebhookRow> = match scope {
+            Some(scope) => {
+                sqlx::query_as(&format!(
+                    "SELECT {WEBHOOK_COLUMNS} FROM webhooks h \
+                     WHERE h.scope_kind = $1 AND COALESCE(h.scope_name, '') = COALESCE($2, '') \
+                     ORDER BY h.id"
+                ))
+                .bind(scope.kind())
+                .bind(scope.name())
+                .fetch_all(&self.pool)
+                .await
+            }
+            None => {
+                sqlx::query_as(&format!(
+                    "SELECT {WEBHOOK_COLUMNS} FROM webhooks h ORDER BY h.id"
+                ))
+                .fetch_all(&self.pool)
+                .await
+            }
+        }
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        rows.into_iter().map(webhook_from_row).collect()
+    }
+
+    async fn get_webhook(&self, id: i64) -> Result<Option<Webhook>, RepositoryError> {
+        let row: Option<WebhookRow> = sqlx::query_as(&format!(
+            "SELECT {WEBHOOK_COLUMNS} FROM webhooks h WHERE h.id = $1"
+        ))
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        row.map(webhook_from_row).transpose()
+    }
+
+    async fn update_webhook(&self, id: i64, patch: &WebhookPatch) -> Result<bool, RepositoryError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let exists: Option<(i64,)> = sqlx::query_as("SELECT id FROM webhooks WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        if exists.is_none() {
+            return Ok(false);
+        }
+        if let Some(paused) = patch.paused {
+            sqlx::query("UPDATE webhooks SET paused = $1 WHERE id = $2")
+                .bind(paused)
+                .bind(id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        if let Some(types) = &patch.event_types {
+            sqlx::query("UPDATE webhooks SET event_types = $1 WHERE id = $2")
+                .bind(encode_event_types(types))
+                .bind(id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        if let Some(glob) = &patch.producer_glob {
+            sqlx::query("UPDATE webhooks SET producer_glob = $1 WHERE id = $2")
+                .bind(glob.as_deref())
+                .bind(id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(true)
+    }
+
+    async fn rotate_webhook_secret(
+        &self,
+        id: i64,
+        secret: &str,
+        secret_hint: &str,
+    ) -> Result<bool, RepositoryError> {
+        let done = sqlx::query("UPDATE webhooks SET secret = $1, secret_hint = $2 WHERE id = $3")
+            .bind(secret)
+            .bind(secret_hint)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(done.rows_affected() > 0)
+    }
+
+    async fn delete_webhook(&self, id: i64) -> Result<bool, RepositoryError> {
+        // The deliveries cascade; explicit anyway, so both engines read alike.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM webhook_deliveries WHERE hook_id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let done = sqlx::query("DELETE FROM webhooks WHERE id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(done.rows_affected() > 0)
+    }
+
+    async fn list_webhook_deliveries(
+        &self,
+        hook_id: i64,
+        limit: u32,
+    ) -> Result<Vec<WebhookDelivery>, RepositoryError> {
+        let rows: Vec<DeliveryRow<i32>> = sqlx::query_as(&format!(
+            "SELECT {DELIVERY_COLUMNS} FROM webhook_deliveries d \
+             JOIN webhook_outbox e ON e.id = d.event_id \
+             WHERE d.hook_id = $1 ORDER BY d.id DESC LIMIT $2"
+        ))
+        .bind(hook_id)
+        .bind(limit as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        rows.into_iter().map(delivery_from_row).collect()
+    }
+
+    async fn get_webhook_delivery(
+        &self,
+        delivery_id: i64,
+    ) -> Result<Option<WebhookDelivery>, RepositoryError> {
+        let row: Option<DeliveryRow<i32>> = sqlx::query_as(&format!(
+            "SELECT {DELIVERY_COLUMNS} FROM webhook_deliveries d \
+             JOIN webhook_outbox e ON e.id = d.event_id WHERE d.id = $1"
+        ))
+        .bind(delivery_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        row.map(delivery_from_row).transpose()
+    }
+
+    async fn reset_webhook_delivery(
+        &self,
+        delivery_id: i64,
+        now_iso: &str,
+    ) -> Result<bool, RepositoryError> {
+        let done = sqlx::query(
+            "UPDATE webhook_deliveries SET status = 'pending', next_attempt_at = $1, updated_at = $1 WHERE id = $2",
+        )
+        .bind(now_iso)
+        .bind(delivery_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(done.rows_affected() > 0)
+    }
+
+    async fn claim_due_webhook_deliveries(
+        &self,
+        now_iso: &str,
+        lease_until_iso: &str,
+        limit: u32,
+    ) -> Result<Vec<DueWebhookDelivery>, RepositoryError> {
+        // `FOR UPDATE SKIP LOCKED`: a row another replica's pass is claiming
+        // at this moment is skipped, not waited for, so two passes never
+        // send one delivery twice.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let ids: Vec<(i64,)> = sqlx::query_as(
+            "UPDATE webhook_deliveries SET next_attempt_at = $1 WHERE id IN ( \
+               SELECT d.id FROM webhook_deliveries d JOIN webhooks h ON h.id = d.hook_id \
+               WHERE d.status IN ('pending', 'failed') AND d.next_attempt_at <= $2 AND NOT h.paused \
+               ORDER BY d.next_attempt_at, d.id LIMIT $3 FOR UPDATE OF d SKIP LOCKED) \
+             RETURNING id",
+        )
+        .bind(lease_until_iso)
+        .bind(now_iso)
+        .bind(limit as i64)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let ids: Vec<i64> = ids.into_iter().map(|r| r.0).collect();
+        let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(&format!(
+            "SELECT {DELIVERY_COLUMNS}, {WEBHOOK_COLUMNS}, e.producer, e.data_json \
+             FROM webhook_deliveries d \
+             JOIN webhook_outbox e ON e.id = d.event_id \
+             JOIN webhooks h ON h.id = d.hook_id \
+             WHERE d.id = ANY($1) ORDER BY d.next_attempt_at, d.id"
+        ))
+        .bind(&ids)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let rows: Vec<DueRow> = rows.iter().map(due_row).collect::<Result<_, _>>()?;
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        rows.into_iter()
+            .map(|(delivery, hook, producer, data)| {
+                Ok(DueWebhookDelivery {
+                    delivery: delivery_from_row(delivery)?,
+                    hook: webhook_from_row(hook)?,
+                    producer,
+                    data: data_from_json(&data)?,
+                })
+            })
+            .collect()
+    }
+
+    async fn record_webhook_attempt(
+        &self,
+        delivery_id: i64,
+        now_iso: &str,
+        outcome: &WebhookAttemptOutcome,
+    ) -> Result<(), RepositoryError> {
+        let (status, attempted, next, code, error, delivered) = attempt_columns(outcome);
+        sqlx::query(
+            "UPDATE webhook_deliveries SET status = $1, attempts = attempts + $2, \
+             next_attempt_at = COALESCE($3, next_attempt_at), last_response_code = $4, \
+             last_error = $5, delivered_at = $6, updated_at = $7 WHERE id = $8",
+        )
+        .bind(status)
+        .bind(if attempted { 1i32 } else { 0i32 })
+        .bind(next)
+        .bind(code.map(|c| c as i32))
+        .bind(error)
+        .bind(delivered.then_some(now_iso))
+        .bind(now_iso)
+        .bind(delivery_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn count_pending_webhook_deliveries(&self) -> Result<u64, RepositoryError> {
+        let (n,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM webhook_deliveries WHERE status IN ('pending', 'failed')",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(n.max(0) as u64)
+    }
+
+    async fn delete_old_webhook_data(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let done = sqlx::query(
+            "DELETE FROM webhook_deliveries WHERE status IN ('delivered', 'dead') AND updated_at < $1",
+        )
+        .bind(cutoff_iso)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "DELETE FROM webhook_outbox WHERE occurred_at < $1 \
+             AND NOT EXISTS (SELECT 1 FROM webhook_deliveries d WHERE d.event_id = webhook_outbox.id)",
+        )
+        .bind(cutoff_iso)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(done.rows_affected())
+    }
+}
+
+/// A claimed delivery's row, read by index: the delivery and event columns,
+/// the hook columns, then the event's producer and data — too many columns
+/// for sqlx's tuple decoding.
+type DueRow = (DeliveryRow<i32>, WebhookRow, Option<String>, String);
+
+fn due_row(row: &sqlx::postgres::PgRow) -> Result<DueRow, RepositoryError> {
+    // A macro rather than a closure: each column decodes to its own type.
+    macro_rules! col {
+        ($i:expr) => {
+            row.try_get($i)
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?
+        };
+    }
+    Ok((
+        (
+            col!(0),
+            col!(1),
+            col!(2),
+            col!(3),
+            col!(4),
+            col!(5),
+            col!(6),
+            col!(7),
+            col!(8),
+            col!(9),
+            col!(10),
+            col!(11),
+        ),
+        (
+            col!(12),
+            col!(13),
+            col!(14),
+            col!(15),
+            col!(16),
+            col!(17),
+            col!(18),
+            col!(19),
+            col!(20),
+            col!(21),
+            col!(22),
+            col!(23),
+            col!(24),
+        ),
+        col!(25),
+        col!(26),
+    ))
+}
+
+/// `(status, counts as an attempt, next_attempt_at, response code, error,
+/// delivered)` — the columns one attempt outcome writes.
+type AttemptColumns<'a> = (
+    &'static str,
+    bool,
+    Option<&'a str>,
+    Option<u16>,
+    Option<&'a str>,
+    bool,
+);
+
+fn attempt_columns(outcome: &WebhookAttemptOutcome) -> AttemptColumns<'_> {
+    match outcome {
+        WebhookAttemptOutcome::Delivered { code } => {
+            ("delivered", true, None, Some(*code), None, true)
+        }
+        WebhookAttemptOutcome::Failed {
+            code,
+            error,
+            next_attempt_at,
+        } => (
+            "failed",
+            true,
+            Some(next_attempt_at.as_str()),
+            *code,
+            Some(error.as_str()),
+            false,
+        ),
+        WebhookAttemptOutcome::Dead { code, error } => {
+            ("dead", true, None, *code, Some(error.as_str()), false)
+        }
+        WebhookAttemptOutcome::Expired { error } => {
+            ("dead", false, None, None, Some(error.as_str()), false)
+        }
+    }
+}
+
+/// Insert outbox events and their fan-out rows inside the caller's
+/// transaction — the one place a fact and its event are written together.
+async fn write_outbox(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    events: &[NewWebhookEvent],
+) -> Result<(), RepositoryError> {
+    for event in events {
+        sqlx::query(
+            "INSERT INTO webhook_outbox (id, event_type, producer, occurred_at, data_json) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(&event.id)
+        .bind(event.event_type.as_str())
+        .bind(event.producer.as_deref())
+        .bind(&event.occurred_at)
+        .bind(data_json(&event.data)?)
+        .execute(&mut **tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        for hook_id in &event.hook_ids {
+            sqlx::query(
+                "INSERT INTO webhook_deliveries (hook_id, event_id, status, attempts, next_attempt_at, updated_at) \
+                 VALUES ($1, $2, 'pending', 0, $3, $4)",
+            )
+            .bind(hook_id)
+            .bind(&event.id)
+            .bind(&event.occurred_at)
+            .bind(&event.occurred_at)
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+    }
+    Ok(())
 }

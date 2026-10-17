@@ -97,7 +97,7 @@ pub async fn create_branch(
 
     let now = now_iso();
     let id = repo
-        .insert_branch(name, &now, params.created_by, &source_label, &as_of)
+        .insert_branch(name, &now, params.created_by, &source_label, &as_of, Vec::new())
         .await
         .map_err(|e| match e {
             RepositoryError::Conflict => AppError::Conflict(format!(

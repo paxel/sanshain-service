@@ -62,6 +62,7 @@ async fn provide(
     endpoints: Vec<EndpointRecord>,
 ) -> i64 {
     repo.upsert_spec_version(UpsertSpecVersion {
+        outbox: Vec::new(),
         service_id,
         api_type: ApiType::OpenApi,
         version: "1.0.0".parse().unwrap(),

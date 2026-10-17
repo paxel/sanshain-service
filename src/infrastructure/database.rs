@@ -1,7 +1,7 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewApiToken, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams,
-    RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
+    EndpointMap, NewApiToken, NewAuditLog, NewWebhook, RecordDependencyParams,
+    RecordTrunkPinParams, RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
 };
 use crate::infrastructure::postgres_repository::PostgresSpecRepository;
 use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
@@ -192,10 +192,11 @@ impl SpecRepository for DatabaseRepo {
         created_by: &str,
         source: &str,
         as_of: &str,
+        outbox: Vec<NewWebhookEvent>,
     ) -> Result<i64, RepositoryError> {
         delegate!(
             self,
-            insert_branch(name, created_at, created_by, source, as_of)
+            insert_branch(name, created_at, created_by, source, as_of, outbox)
         )
     }
 
@@ -306,8 +307,9 @@ impl SpecRepository for DatabaseRepo {
     async fn record_dependencies_bulk(
         &self,
         params: Vec<RecordDependencyParams<'_>>,
+        outbox: Vec<NewWebhookEvent>,
     ) -> Result<(), RepositoryError> {
-        delegate!(self, record_dependencies_bulk(params))
+        delegate!(self, record_dependencies_bulk(params, outbox))
     }
 
     async fn get_report(&self) -> Result<DependencyReport, RepositoryError> {
@@ -748,8 +750,12 @@ impl SpecRepository for DatabaseRepo {
         trunk: bool,
         resources: &[String],
         now_iso: &str,
+        outbox: Vec<NewWebhookEvent>,
     ) -> Result<bool, RepositoryError> {
-        delegate!(self, reconcile_periphery(system, trunk, resources, now_iso))
+        delegate!(
+            self,
+            reconcile_periphery(system, trunk, resources, now_iso, outbox)
+        )
     }
 
     async fn upsert_system_context(
@@ -792,5 +798,105 @@ impl SpecRepository for DatabaseRepo {
         at: Option<&str>,
     ) -> Result<Vec<MemberVersion>, RepositoryError> {
         delegate!(self, list_member_versions(track, at))
+    }
+
+    // --- Webhooks (#47) ---
+
+    async fn insert_webhook_events(
+        &self,
+        events: &[NewWebhookEvent],
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, insert_webhook_events(events))
+    }
+
+    async fn list_current_consumers_of(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<String>, RepositoryError> {
+        delegate!(self, list_current_consumers_of(service_id))
+    }
+
+    async fn create_webhook(&self, hook: NewWebhook<'_>) -> Result<i64, RepositoryError> {
+        delegate!(self, create_webhook(hook))
+    }
+
+    async fn list_webhooks(
+        &self,
+        scope: Option<&WebhookScope>,
+    ) -> Result<Vec<Webhook>, RepositoryError> {
+        delegate!(self, list_webhooks(scope))
+    }
+
+    async fn get_webhook(&self, id: i64) -> Result<Option<Webhook>, RepositoryError> {
+        delegate!(self, get_webhook(id))
+    }
+
+    async fn update_webhook(&self, id: i64, patch: &WebhookPatch) -> Result<bool, RepositoryError> {
+        delegate!(self, update_webhook(id, patch))
+    }
+
+    async fn rotate_webhook_secret(
+        &self,
+        id: i64,
+        secret: &str,
+        secret_hint: &str,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(self, rotate_webhook_secret(id, secret, secret_hint))
+    }
+
+    async fn delete_webhook(&self, id: i64) -> Result<bool, RepositoryError> {
+        delegate!(self, delete_webhook(id))
+    }
+
+    async fn list_webhook_deliveries(
+        &self,
+        hook_id: i64,
+        limit: u32,
+    ) -> Result<Vec<WebhookDelivery>, RepositoryError> {
+        delegate!(self, list_webhook_deliveries(hook_id, limit))
+    }
+
+    async fn get_webhook_delivery(
+        &self,
+        delivery_id: i64,
+    ) -> Result<Option<WebhookDelivery>, RepositoryError> {
+        delegate!(self, get_webhook_delivery(delivery_id))
+    }
+
+    async fn reset_webhook_delivery(
+        &self,
+        delivery_id: i64,
+        now_iso: &str,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(self, reset_webhook_delivery(delivery_id, now_iso))
+    }
+
+    async fn claim_due_webhook_deliveries(
+        &self,
+        now_iso: &str,
+        lease_until_iso: &str,
+        limit: u32,
+    ) -> Result<Vec<DueWebhookDelivery>, RepositoryError> {
+        delegate!(
+            self,
+            claim_due_webhook_deliveries(now_iso, lease_until_iso, limit)
+        )
+    }
+
+    async fn record_webhook_attempt(
+        &self,
+        delivery_id: i64,
+        now_iso: &str,
+        outcome: &WebhookAttemptOutcome,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, record_webhook_attempt(delivery_id, now_iso, outcome))
+    }
+
+    async fn count_pending_webhook_deliveries(&self) -> Result<u64, RepositoryError> {
+        delegate!(self, count_pending_webhook_deliveries())
+    }
+
+    async fn delete_old_webhook_data(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
+        delegate!(self, delete_old_webhook_data(cutoff_iso))
     }
 }

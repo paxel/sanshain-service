@@ -7,8 +7,8 @@ use moka::future::Cache;
 
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewApiToken, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams,
-    RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
+    EndpointMap, NewApiToken, NewAuditLog, NewWebhook, RecordDependencyParams,
+    RecordTrunkPinParams, RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
 };
 use crate::infrastructure::database::DatabaseRepo;
 
@@ -723,8 +723,9 @@ impl SpecRepository for CachedSpecRepository {
     async fn record_dependencies_bulk(
         &self,
         params: Vec<RecordDependencyParams<'_>>,
+        outbox: Vec<NewWebhookEvent>,
     ) -> Result<(), RepositoryError> {
-        self.inner.record_dependencies_bulk(params).await?;
+        self.inner.record_dependencies_bulk(params, outbox).await?;
         if !self.is_disabled() {
             self.report_cache.invalidate_all();
         }
@@ -832,9 +833,10 @@ impl SpecRepository for CachedSpecRepository {
         created_by: &str,
         source: &str,
         as_of: &str,
+        outbox: Vec<NewWebhookEvent>,
     ) -> Result<i64, RepositoryError> {
         self.inner
-            .insert_branch(name, created_at, created_by, source, as_of)
+            .insert_branch(name, created_at, created_by, source, as_of, outbox)
             .await
     }
 
@@ -1543,10 +1545,11 @@ impl SpecRepository for CachedSpecRepository {
         trunk: bool,
         resources: &[String],
         now_iso: &str,
+        outbox: Vec<NewWebhookEvent>,
     ) -> Result<bool, RepositoryError> {
         let changed = self
             .inner
-            .reconcile_periphery(system, trunk, resources, now_iso)
+            .reconcile_periphery(system, trunk, resources, now_iso, outbox)
             .await?;
         // Periphery edges ride the report payload, so a change stales it.
         if !self.is_disabled() {
@@ -1608,6 +1611,112 @@ impl SpecRepository for CachedSpecRepository {
     ) -> Result<Vec<MemberVersion>, RepositoryError> {
         self.inner.list_member_versions(track, at).await
     }
+
+    // --- Webhooks (#47): never cached — the worker and the hook pages must
+    // see every write at once, and none of this is on a hot path.
+
+    async fn insert_webhook_events(
+        &self,
+        events: &[NewWebhookEvent],
+    ) -> Result<(), RepositoryError> {
+        self.inner.insert_webhook_events(events).await
+    }
+
+    async fn list_current_consumers_of(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<String>, RepositoryError> {
+        self.inner.list_current_consumers_of(service_id).await
+    }
+
+    async fn create_webhook(&self, hook: NewWebhook<'_>) -> Result<i64, RepositoryError> {
+        self.inner.create_webhook(hook).await
+    }
+
+    async fn list_webhooks(
+        &self,
+        scope: Option<&WebhookScope>,
+    ) -> Result<Vec<Webhook>, RepositoryError> {
+        self.inner.list_webhooks(scope).await
+    }
+
+    async fn get_webhook(&self, id: i64) -> Result<Option<Webhook>, RepositoryError> {
+        self.inner.get_webhook(id).await
+    }
+
+    async fn update_webhook(&self, id: i64, patch: &WebhookPatch) -> Result<bool, RepositoryError> {
+        self.inner.update_webhook(id, patch).await
+    }
+
+    async fn rotate_webhook_secret(
+        &self,
+        id: i64,
+        secret: &str,
+        secret_hint: &str,
+    ) -> Result<bool, RepositoryError> {
+        self.inner
+            .rotate_webhook_secret(id, secret, secret_hint)
+            .await
+    }
+
+    async fn delete_webhook(&self, id: i64) -> Result<bool, RepositoryError> {
+        self.inner.delete_webhook(id).await
+    }
+
+    async fn list_webhook_deliveries(
+        &self,
+        hook_id: i64,
+        limit: u32,
+    ) -> Result<Vec<WebhookDelivery>, RepositoryError> {
+        self.inner.list_webhook_deliveries(hook_id, limit).await
+    }
+
+    async fn get_webhook_delivery(
+        &self,
+        delivery_id: i64,
+    ) -> Result<Option<WebhookDelivery>, RepositoryError> {
+        self.inner.get_webhook_delivery(delivery_id).await
+    }
+
+    async fn reset_webhook_delivery(
+        &self,
+        delivery_id: i64,
+        now_iso: &str,
+    ) -> Result<bool, RepositoryError> {
+        self.inner
+            .reset_webhook_delivery(delivery_id, now_iso)
+            .await
+    }
+
+    async fn claim_due_webhook_deliveries(
+        &self,
+        now_iso: &str,
+        lease_until_iso: &str,
+        limit: u32,
+    ) -> Result<Vec<DueWebhookDelivery>, RepositoryError> {
+        self.inner
+            .claim_due_webhook_deliveries(now_iso, lease_until_iso, limit)
+            .await
+    }
+
+    async fn record_webhook_attempt(
+        &self,
+        delivery_id: i64,
+        now_iso: &str,
+        outcome: &WebhookAttemptOutcome,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .record_webhook_attempt(delivery_id, now_iso, outcome)
+            .await
+    }
+
+    async fn count_pending_webhook_deliveries(&self) -> Result<u64, RepositoryError> {
+        self.inner.count_pending_webhook_deliveries().await
+    }
+
+    async fn delete_old_webhook_data(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
+        self.inner.delete_old_webhook_data(cutoff_iso).await
+    }
 }
 
 #[cfg(test)]
@@ -1647,6 +1756,7 @@ mod tests {
         endpoints: Vec<EndpointRecord>,
     ) -> i64 {
         repo.upsert_spec_version(UpsertSpecVersion {
+            outbox: Vec::new(),
             service_id,
             api_type: ApiType::OpenApi,
             version: version.parse().unwrap(),

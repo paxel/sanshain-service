@@ -509,10 +509,11 @@ mod tests {
             true,
             std::slice::from_ref(&db),
             "2026-01-01T00:00:00Z",
+            Vec::new(),
         )
         .await
         .unwrap();
-        repo.reconcile_periphery("svc", false, &[], "2026-02-01T00:00:00Z")
+        repo.reconcile_periphery("svc", false, &[], "2026-02-01T00:00:00Z", Vec::new())
             .await
             .unwrap();
         let edge = PeripheralDependency {
@@ -617,6 +618,7 @@ mod tests {
         let sid = repo.ensure_service(service).await.unwrap();
         let id = repo
             .upsert_spec_version(crate::domain::ports::UpsertSpecVersion {
+                outbox: Vec::new(),
                 service_id: sid,
                 api_type,
                 version: version.parse().unwrap(),
@@ -791,7 +793,7 @@ mod tests {
         .await;
         let client = repo.ensure_client("consumer").await.unwrap();
         let branch = repo
-            .insert_branch("rel", t1, "alice", "main", t1)
+            .insert_branch("rel", t1, "alice", "main", t1, Vec::new())
             .await
             .unwrap();
         repo.record_branch_pins(

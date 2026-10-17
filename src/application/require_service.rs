@@ -376,7 +376,7 @@ async fn record_pins(
             method,
         })
         .collect();
-    repo.record_dependencies_bulk(deps).await?;
+    repo.record_dependencies_bulk(deps, Vec::new()).await?;
     repo.touch_spec_version_required(entry.id, &now_iso())
         .await?;
     // A trunk build additionally maintains the append-only trunk pin set

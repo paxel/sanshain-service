@@ -256,6 +256,7 @@ async fn test_postgres_upsert_compare_and_set_contract() {
 
     // Seed the snapshot an ordinary provide would store.
     repo.upsert_spec_version(UpsertSpecVersion {
+        outbox: Vec::new(),
         service_id: sid,
         api_type: ApiType::OpenApi,
         version,
@@ -273,6 +274,7 @@ async fn test_postgres_upsert_compare_and_set_contract() {
     // A stale expected hash means the row moved since the caller read it.
     let err = repo
         .upsert_spec_version(UpsertSpecVersion {
+            outbox: Vec::new(),
             service_id: sid,
             api_type: ApiType::OpenApi,
             version,
@@ -297,6 +299,7 @@ async fn test_postgres_upsert_compare_and_set_contract() {
 
     // The matching hash releases in place, keeping the row's identity.
     repo.upsert_spec_version(UpsertSpecVersion {
+        outbox: Vec::new(),
         service_id: sid,
         api_type: ApiType::OpenApi,
         version,
@@ -320,6 +323,7 @@ async fn test_postgres_upsert_compare_and_set_contract() {
     // Once GA, the row is immutable even against a plain overwrite.
     let err = repo
         .upsert_spec_version(UpsertSpecVersion {
+            outbox: Vec::new(),
             service_id: sid,
             api_type: ApiType::OpenApi,
             version,
@@ -339,6 +343,7 @@ async fn test_postgres_upsert_compare_and_set_contract() {
     let gone: sanshain_service::domain::models::SemVer = "2.0.0".parse().unwrap();
     let err = repo
         .upsert_spec_version(UpsertSpecVersion {
+            outbox: Vec::new(),
             service_id: sid,
             api_type: ApiType::OpenApi,
             version: gone,
@@ -390,6 +395,7 @@ async fn postgres_stored_spec_text_is_normalized_once() {
     let lf = "syntax = \"proto3\";\n// sanshain-version: 1.0.0\nservice S {\n  rpc Get (R) returns (R);\n}\n";
     let id = repo
         .upsert_spec_version(UpsertSpecVersion {
+            outbox: Vec::new(),
             service_id: sid,
             api_type: ApiType::Proto,
             version,
@@ -579,16 +585,34 @@ async fn test_postgres_periphery_append_only_and_at_an_instant() {
     let names = |v: Vec<PeripheralDependency>| -> Vec<String> {
         v.into_iter().map(|p| p.resource).collect()
     };
-    repo.reconcile_periphery("orders", true, &[db("a"), db("b")], "2026-01-01T00:00:00Z")
-        .await
-        .unwrap();
-    repo.reconcile_periphery("orders", true, &[db("b"), db("c")], "2026-02-01T00:00:00Z")
-        .await
-        .unwrap();
+    repo.reconcile_periphery(
+        "orders",
+        true,
+        &[db("a"), db("b")],
+        "2026-01-01T00:00:00Z",
+        Vec::new(),
+    )
+    .await
+    .unwrap();
+    repo.reconcile_periphery(
+        "orders",
+        true,
+        &[db("b"), db("c")],
+        "2026-02-01T00:00:00Z",
+        Vec::new(),
+    )
+    .await
+    .unwrap();
     // The open-row index decides a racing duplicate instead of erroring.
-    repo.reconcile_periphery("orders", true, &[db("b"), db("c")], "2026-02-02T00:00:00Z")
-        .await
-        .unwrap();
+    repo.reconcile_periphery(
+        "orders",
+        true,
+        &[db("b"), db("c")],
+        "2026-02-02T00:00:00Z",
+        Vec::new(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(
         names(
@@ -624,6 +648,7 @@ async fn test_postgres_periphery_append_only_and_at_an_instant() {
             "root",
             "trunk",
             "2026-01-15T00:00:00Z",
+            Vec::new(),
         )
         .await
         .unwrap();
@@ -645,6 +670,7 @@ async fn test_postgres_periphery_append_only_and_at_an_instant() {
             "root",
             "rel",
             "2026-03-02T00:00:00Z",
+            Vec::new(),
         )
         .await
         .unwrap();
@@ -776,6 +802,7 @@ async fn test_postgres_member_versions_record_close_and_read_at_an_instant() {
     ] {
         let id = repo
             .upsert_spec_version(UpsertSpecVersion {
+                outbox: Vec::new(),
                 service_id: sid,
                 api_type: ApiType::OpenApi,
                 version: version.parse().unwrap(),
@@ -833,6 +860,7 @@ async fn test_postgres_member_versions_record_close_and_read_at_an_instant() {
             "alice",
             "main",
             "2026-01-01T00:00:00Z",
+            Vec::new(),
         )
         .await
         .unwrap();

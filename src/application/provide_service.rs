@@ -474,6 +474,7 @@ pub async fn provide_spec(
         username.unwrap_or("").to_string()
     };
     let record = UpsertSpecVersion {
+        outbox: Vec::new(),
         service_id: sid,
         api_type,
         version,

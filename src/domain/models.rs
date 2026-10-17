@@ -1183,6 +1183,273 @@ pub struct AuditLogFilter {
     pub limit: u32,
 }
 
+// --- Webhooks (#47) ---
+
+/// Who a hook belongs to. A global hook sees every event (narrowed by its
+/// filters); a system hook sees the events of one Producer, or — on a
+/// Consumer — of everything that Consumer currently requires.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum WebhookScope {
+    Global,
+    Producer { name: String },
+    Consumer { name: String },
+}
+
+impl WebhookScope {
+    /// The stored `(kind, name)` pair.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            WebhookScope::Global => "global",
+            WebhookScope::Producer { .. } => "producer",
+            WebhookScope::Consumer { .. } => "consumer",
+        }
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            WebhookScope::Global => None,
+            WebhookScope::Producer { name } | WebhookScope::Consumer { name } => Some(name),
+        }
+    }
+
+    /// The stored pair back to a scope; a kind nobody wrote is `None`.
+    pub fn from_stored(kind: &str, name: Option<String>) -> Option<Self> {
+        match (kind, name) {
+            ("global", _) => Some(WebhookScope::Global),
+            ("producer", Some(name)) => Some(WebhookScope::Producer { name }),
+            ("consumer", Some(name)) => Some(WebhookScope::Consumer { name }),
+            _ => None,
+        }
+    }
+}
+
+/// The body shape a hook receives: the envelope itself, or a ready-made chat
+/// message for a Slack or Teams incoming webhook. A shape, not a connector —
+/// every format is one signed POST to the hook's URL.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum WebhookFormat {
+    #[default]
+    Json,
+    Slack,
+    Teams,
+}
+
+impl WebhookFormat {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WebhookFormat::Json => "json",
+            WebhookFormat::Slack => "slack",
+            WebhookFormat::Teams => "teams",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "json" => Some(WebhookFormat::Json),
+            "slack" => Some(WebhookFormat::Slack),
+            "teams" => Some(WebhookFormat::Teams),
+            _ => None,
+        }
+    }
+}
+
+/// The event catalogue: graph facts and rejections only (ADR-0009). The
+/// wire names are a public contract (`docs/ci-integration.md`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum WebhookEventType {
+    #[serde(rename = "version.published")]
+    VersionPublished,
+    #[serde(rename = "provide.rejected")]
+    ProvideRejected,
+    #[serde(rename = "version.deprecated")]
+    VersionDeprecated,
+    #[serde(rename = "dependency.recorded")]
+    DependencyRecorded,
+    #[serde(rename = "branch.cut")]
+    BranchCut,
+    #[serde(rename = "catalog.recorded")]
+    CatalogRecorded,
+    /// Sent by a hook's "send test event" button only, to that hook alone.
+    #[serde(rename = "webhook.test")]
+    Test,
+}
+
+impl WebhookEventType {
+    pub const ALL: [WebhookEventType; 6] = [
+        WebhookEventType::VersionPublished,
+        WebhookEventType::ProvideRejected,
+        WebhookEventType::VersionDeprecated,
+        WebhookEventType::DependencyRecorded,
+        WebhookEventType::BranchCut,
+        WebhookEventType::CatalogRecorded,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WebhookEventType::VersionPublished => "version.published",
+            WebhookEventType::ProvideRejected => "provide.rejected",
+            WebhookEventType::VersionDeprecated => "version.deprecated",
+            WebhookEventType::DependencyRecorded => "dependency.recorded",
+            WebhookEventType::BranchCut => "branch.cut",
+            WebhookEventType::CatalogRecorded => "catalog.recorded",
+            WebhookEventType::Test => "webhook.test",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "version.published" => Some(WebhookEventType::VersionPublished),
+            "provide.rejected" => Some(WebhookEventType::ProvideRejected),
+            "version.deprecated" => Some(WebhookEventType::VersionDeprecated),
+            "dependency.recorded" => Some(WebhookEventType::DependencyRecorded),
+            "branch.cut" => Some(WebhookEventType::BranchCut),
+            "catalog.recorded" => Some(WebhookEventType::CatalogRecorded),
+            "webhook.test" => Some(WebhookEventType::Test),
+            _ => None,
+        }
+    }
+}
+
+/// A registered hook. The signing secret is carried for the worker and never
+/// serialized; the listing shows `secret_hint`, a prefix of its SHA-256.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Webhook {
+    pub id: i64,
+    pub scope: WebhookScope,
+    pub url: String,
+    pub format: WebhookFormat,
+    /// Empty means every event type.
+    pub event_types: Vec<WebhookEventType>,
+    /// `*` and `?` glob over the Producer name; `None` means every Producer.
+    pub producer_glob: Option<String>,
+    pub secret_hint: String,
+    pub paused: bool,
+    /// Registered by a caller with `manage_settings`: the egress allow-list
+    /// does not apply, at registration or at delivery.
+    pub allow_list_exempt: bool,
+    pub created_by: String,
+    pub created_at: String,
+    #[serde(skip)]
+    pub secret: String,
+}
+
+/// The changeable parts of a hook: pause/resume and the filters. `None`
+/// leaves a field as it is; `Some(empty)` clears a filter.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WebhookPatch {
+    pub paused: Option<bool>,
+    pub event_types: Option<Vec<WebhookEventType>>,
+    pub producer_glob: Option<Option<String>>,
+}
+
+/// One event for the outbox, with its fan-out already decided: one delivery
+/// row per hook id. Written in the same transaction as the fact it describes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NewWebhookEvent {
+    /// UUID, the envelope's `id`.
+    pub id: String,
+    pub event_type: WebhookEventType,
+    /// The Producer the event is about, when there is one.
+    pub producer: Option<String>,
+    pub occurred_at: String,
+    /// The envelope's `data`, per type.
+    pub data: serde_json::Value,
+    pub hook_ids: Vec<i64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WebhookDeliveryStatus {
+    /// Never attempted, or reset by a redeliver.
+    Pending,
+    Delivered,
+    /// The last attempt failed; another is scheduled.
+    Failed,
+    /// Given up: 24 hours after the event.
+    Dead,
+}
+
+impl WebhookDeliveryStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WebhookDeliveryStatus::Pending => "pending",
+            WebhookDeliveryStatus::Delivered => "delivered",
+            WebhookDeliveryStatus::Failed => "failed",
+            WebhookDeliveryStatus::Dead => "dead",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(WebhookDeliveryStatus::Pending),
+            "delivered" => Some(WebhookDeliveryStatus::Delivered),
+            "failed" => Some(WebhookDeliveryStatus::Failed),
+            "dead" => Some(WebhookDeliveryStatus::Dead),
+            _ => None,
+        }
+    }
+}
+
+/// One hook's delivery of one event — the delivery log row.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct WebhookDelivery {
+    pub id: i64,
+    pub hook_id: i64,
+    pub event_id: String,
+    pub event_type: WebhookEventType,
+    pub occurred_at: String,
+    pub status: WebhookDeliveryStatus,
+    pub attempts: u32,
+    pub next_attempt_at: String,
+    pub last_response_code: Option<u16>,
+    pub last_error: Option<String>,
+    pub delivered_at: Option<String>,
+    pub updated_at: String,
+}
+
+/// A delivery the worker claimed, with everything one attempt needs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DueWebhookDelivery {
+    pub delivery: WebhookDelivery,
+    pub hook: Webhook,
+    pub producer: Option<String>,
+    pub data: serde_json::Value,
+}
+
+/// How one attempt ended, as the worker records it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WebhookAttemptOutcome {
+    Delivered {
+        code: u16,
+    },
+    /// Try again at `next_attempt_at`.
+    Failed {
+        code: Option<u16>,
+        error: String,
+        next_attempt_at: String,
+    },
+    /// An attempt failed after the cutoff — give up.
+    Dead {
+        code: Option<u16>,
+        error: String,
+    },
+    /// Found past the cutoff before any attempt — give up without one
+    /// (attempts stay as they were).
+    Expired {
+        error: String,
+    },
+}
+
+/// What one worker pass did.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DeliveryPassSummary {
+    pub delivered: u64,
+    pub failed: u64,
+    pub dead: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

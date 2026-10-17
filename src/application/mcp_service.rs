@@ -824,6 +824,7 @@ mod tests {
         for version in ["1.0.0", "1.1.0"] {
             let content = format!("openapi: 3.0.0\ninfo:\n  version: {version}\n");
             repo.upsert_spec_version(UpsertSpecVersion {
+                outbox: Vec::new(),
                 service_id: sid,
                 api_type: ApiType::OpenApi,
                 version: version.parse().unwrap(),

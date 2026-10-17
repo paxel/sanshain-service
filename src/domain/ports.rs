@@ -140,6 +140,9 @@ pub struct UpsertSpecVersion<'a> {
     pub expected_prior_hash: Option<&'a str>,
     pub now_iso: &'a str,
     pub endpoints: Vec<EndpointRecord>,
+    /// Webhook events (#47) describing this Provide, written in the same
+    /// transaction as the version-line entry so a fact never lacks its event.
+    pub outbox: Vec<NewWebhookEvent>,
 }
 
 /// One version-line entry's stored text, rewritten in place by the one-time
@@ -188,6 +191,46 @@ pub struct NewApiToken<'a> {
     pub scope: ApiTokenScope,
     pub created_at: &'a str,
     pub expires_at: &'a str,
+}
+
+/// A hook to store, with its secret in full (the worker signs with it) and
+/// the hint the listing shows instead.
+#[derive(Clone, Debug)]
+pub struct NewWebhook<'a> {
+    pub scope: &'a WebhookScope,
+    pub url: &'a str,
+    pub format: WebhookFormat,
+    pub event_types: &'a [WebhookEventType],
+    pub producer_glob: Option<&'a str>,
+    pub secret: &'a str,
+    pub secret_hint: &'a str,
+    pub allow_list_exempt: bool,
+    pub created_by: &'a str,
+    pub created_at: &'a str,
+}
+
+/// One outbound webhook POST, as the worker hands it to the sender.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WebhookRequest {
+    pub url: String,
+    pub body: String,
+    pub headers: Vec<(String, String)>,
+}
+
+/// What came back: the status only — a receiver's body is never read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WebhookResponse {
+    pub status: u16,
+}
+
+/// Port for the outbound HTTP POST of a webhook delivery (#47). A transport
+/// error (connect, timeout, TLS) is the `Err` text; any answered status is
+/// `Ok`, and the worker decides what it means.
+pub trait WebhookSender: Send + Sync {
+    fn send(
+        &self,
+        request: WebhookRequest,
+    ) -> impl Future<Output = Result<WebhookResponse, String>> + Send;
 }
 
 pub trait SpecRepository: Send + Sync {
@@ -298,6 +341,7 @@ pub trait SpecRepository: Send + Sync {
         created_by: &str,
         source: &str,
         as_of: &str,
+        outbox: Vec<NewWebhookEvent>,
     ) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
 
     fn find_branch(
@@ -483,10 +527,12 @@ pub trait SpecRepository: Send + Sync {
         params: RecordDependencyParams,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
-    /// Record multiple client dependencies at once.
+    /// Record multiple client dependencies at once, with the webhook events
+    /// (#47) describing the require in the same transaction.
     fn record_dependencies_bulk(
         &self,
         params: Vec<RecordDependencyParams>,
+        outbox: Vec<NewWebhookEvent>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Get the full, instance-wide dependency report.
@@ -1012,6 +1058,7 @@ pub trait SpecRepository: Send + Sync {
         trunk: bool,
         resources: &[String],
         now_iso: &str,
+        outbox: Vec<NewWebhookEvent>,
     ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
 
     // --- Context from Backstage catalog-info (#48) ---
@@ -1060,4 +1107,107 @@ pub trait SpecRepository: Send + Sync {
         track: MemberTrack,
         at: Option<&str>,
     ) -> impl Future<Output = Result<Vec<MemberVersion>, RepositoryError>> + Send;
+
+    // --- Webhooks (#47, ADR-0009) ---
+
+    /// Write events to the outbox on their own — for facts that have no
+    /// transaction of their own to join (a rejection, an unreadable catalog
+    /// push). Each event's fan-out rows are written with it.
+    fn insert_webhook_events(
+        &self,
+        events: &[NewWebhookEvent],
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Names of the Consumers with a current require edge on a Producer, in
+    /// the dev or the trunk graph — the fan-out of that Producer's events.
+    fn list_current_consumers_of(
+        &self,
+        service_id: i64,
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    fn create_webhook(
+        &self,
+        hook: NewWebhook<'_>,
+    ) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
+
+    /// Every hook of one scope, or every hook at all (`None`), by id.
+    fn list_webhooks(
+        &self,
+        scope: Option<&WebhookScope>,
+    ) -> impl Future<Output = Result<Vec<Webhook>, RepositoryError>> + Send;
+
+    fn get_webhook(
+        &self,
+        id: i64,
+    ) -> impl Future<Output = Result<Option<Webhook>, RepositoryError>> + Send;
+
+    /// Apply a patch. Answers whether the hook existed.
+    fn update_webhook(
+        &self,
+        id: i64,
+        patch: &WebhookPatch,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    fn rotate_webhook_secret(
+        &self,
+        id: i64,
+        secret: &str,
+        secret_hint: &str,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Delete a hook and its deliveries. Answers whether it existed.
+    fn delete_webhook(&self, id: i64)
+    -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// The newest `limit` deliveries of one hook.
+    fn list_webhook_deliveries(
+        &self,
+        hook_id: i64,
+        limit: u32,
+    ) -> impl Future<Output = Result<Vec<WebhookDelivery>, RepositoryError>> + Send;
+
+    fn get_webhook_delivery(
+        &self,
+        delivery_id: i64,
+    ) -> impl Future<Output = Result<Option<WebhookDelivery>, RepositoryError>> + Send;
+
+    /// Redeliver: back to `pending`, due at `now_iso`, attempt count kept.
+    /// Answers whether the delivery existed.
+    fn reset_webhook_delivery(
+        &self,
+        delivery_id: i64,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Claim up to `limit` deliveries due at `now_iso` whose hook is not
+    /// paused, moving their `next_attempt_at` to `lease_until_iso` so no other
+    /// worker pass — in this or another replica — claims them meanwhile
+    /// (`FOR UPDATE SKIP LOCKED` on PostgreSQL, the single writer on SQLite).
+    fn claim_due_webhook_deliveries(
+        &self,
+        now_iso: &str,
+        lease_until_iso: &str,
+        limit: u32,
+    ) -> impl Future<Output = Result<Vec<DueWebhookDelivery>, RepositoryError>> + Send;
+
+    /// Record how a claimed delivery's attempt ended.
+    fn record_webhook_attempt(
+        &self,
+        delivery_id: i64,
+        now_iso: &str,
+        outcome: &WebhookAttemptOutcome,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Deliveries still to be made (`pending` or `failed`) — the backlog gauge.
+    fn count_pending_webhook_deliveries(
+        &self,
+    ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
+
+    /// Remove delivered and dead deliveries last updated before the cutoff,
+    /// and outbox events older than it that no delivery references any more.
+    /// Returns how many deliveries went.
+    fn delete_old_webhook_data(
+        &self,
+        cutoff_iso: &str,
+    ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
 }

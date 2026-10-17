@@ -49,7 +49,7 @@ pub async fn push_catalog(
     };
     let now = now_iso();
     let periphery_changed = repo
-        .reconcile_periphery(&system, trunk, &component.resources, &now)
+        .reconcile_periphery(&system, trunk, &component.resources, &now, Vec::new())
         .await?;
     let context_changed = repo
         .upsert_system_context(&system, &component.context, &now)
@@ -125,7 +125,8 @@ pub(crate) async fn close_catalog_of_departed(
     let now = now_iso();
     for system in candidates {
         if !remaining.contains(system) {
-            repo.reconcile_periphery(system, true, &[], &now).await?;
+            repo.reconcile_periphery(system, true, &[], &now, Vec::new())
+                .await?;
             repo.delete_system_context(system).await?;
         }
     }

@@ -1,7 +1,7 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewApiToken, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams,
-    RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
+    EndpointMap, NewApiToken, NewAuditLog, NewWebhook, RecordDependencyParams,
+    RecordTrunkPinParams, RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Mutex, PoisonError};
@@ -119,6 +119,19 @@ pub struct MockRepo {
     /// In-memory `system_context` rows (#48), by system name.
     pub system_contexts: Mutex<BTreeMap<String, SystemContext>>,
     pub api_tokens: Mutex<Vec<ApiToken>>,
+    pub webhooks: Mutex<Vec<Webhook>>,
+    pub webhook_events: Mutex<Vec<MockWebhookEvent>>,
+    pub webhook_deliveries: Mutex<Vec<WebhookDelivery>>,
+}
+
+/// One outbox row (#47): the event and its stored `data`.
+#[derive(Clone, Debug)]
+pub struct MockWebhookEvent {
+    pub id: String,
+    pub event_type: WebhookEventType,
+    pub producer: Option<String>,
+    pub occurred_at: String,
+    pub data: serde_json::Value,
 }
 
 /// In-memory `peripheral_dependencies` row (#46). Append-only: the open row
@@ -187,6 +200,9 @@ impl MockRepo {
             periphery: Mutex::new(Vec::new()),
             system_contexts: Mutex::new(BTreeMap::new()),
             api_tokens: Mutex::new(Vec::new()),
+            webhooks: Mutex::new(Vec::new()),
+            webhook_events: Mutex::new(Vec::new()),
+            webhook_deliveries: Mutex::new(Vec::new()),
         }
     }
 
@@ -229,6 +245,44 @@ impl MockRepo {
             })
             .collect();
         rows.extend(copied);
+    }
+
+    /// The in-memory twin of the repositories' `write_outbox` (#47): one
+    /// event row plus one pending delivery per hook id.
+    fn write_outbox(&self, events: Vec<NewWebhookEvent>) {
+        for event in events {
+            let mut deliveries = self
+                .webhook_deliveries
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            for hook_id in &event.hook_ids {
+                deliveries.push(WebhookDelivery {
+                    id: self.next_id(),
+                    hook_id: *hook_id,
+                    event_id: event.id.clone(),
+                    event_type: event.event_type,
+                    occurred_at: event.occurred_at.clone(),
+                    status: WebhookDeliveryStatus::Pending,
+                    attempts: 0,
+                    next_attempt_at: event.occurred_at.clone(),
+                    last_response_code: None,
+                    last_error: None,
+                    delivered_at: None,
+                    updated_at: event.occurred_at.clone(),
+                });
+            }
+            drop(deliveries);
+            self.webhook_events
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(MockWebhookEvent {
+                    id: event.id,
+                    event_type: event.event_type,
+                    producer: event.producer,
+                    occurred_at: event.occurred_at,
+                    data: event.data,
+                });
+        }
     }
 
     fn client_name(&self, client_id: i64) -> Option<String> {
@@ -289,7 +343,10 @@ impl SpecRepository for MockRepo {
             existing.provided_by = params.provided_by.to_string();
             existing.updated_at = params.now_iso.to_string();
             existing.endpoints = endpoints;
-            return Ok(existing.id);
+            let id = existing.id;
+            drop(versions);
+            self.write_outbox(params.outbox);
+            return Ok(id);
         }
 
         // Mirrors the SQL CAS UPDATE matching zero rows: a CAS caller asserted
@@ -315,6 +372,8 @@ impl SpecRepository for MockRepo {
             trunk_provided_at: None,
             endpoints,
         });
+        drop(versions);
+        self.write_outbox(params.outbox);
         Ok(id)
     }
 
@@ -508,6 +567,7 @@ impl SpecRepository for MockRepo {
         created_by: &str,
         source: &str,
         as_of: &str,
+        outbox: Vec<NewWebhookEvent>,
     ) -> Result<i64, RepositoryError> {
         let mut branches = self.branches.lock().unwrap_or_else(PoisonError::into_inner);
         if branches.iter().any(|b| b.name == name) {
@@ -522,6 +582,8 @@ impl SpecRepository for MockRepo {
             source: source.to_string(),
             as_of: as_of.to_string(),
         });
+        drop(branches);
+        self.write_outbox(outbox);
         Ok(id)
     }
 
@@ -1187,12 +1249,14 @@ impl SpecRepository for MockRepo {
         &self,
         params: RecordDependencyParams<'_>,
     ) -> Result<(), RepositoryError> {
-        self.record_dependencies_bulk(vec![params]).await
+        self.record_dependencies_bulk(vec![params], Vec::new())
+            .await
     }
 
     async fn record_dependencies_bulk(
         &self,
         params: Vec<RecordDependencyParams<'_>>,
+        outbox: Vec<NewWebhookEvent>,
     ) -> Result<(), RepositoryError> {
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         let mut dependencies = self
@@ -1220,6 +1284,8 @@ impl SpecRepository for MockRepo {
                 });
             }
         }
+        drop(dependencies);
+        self.write_outbox(outbox);
         Ok(())
     }
 
@@ -1382,6 +1448,18 @@ impl SpecRepository for MockRepo {
             .unwrap_or_else(PoisonError::into_inner)
             .clear();
         self.system_contexts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+        self.webhooks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+        self.webhook_events
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+        self.webhook_deliveries
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clear();
@@ -2566,6 +2644,7 @@ impl SpecRepository for MockRepo {
         trunk: bool,
         resources: &[String],
         now_iso: &str,
+        outbox: Vec<NewWebhookEvent>,
     ) -> Result<bool, RepositoryError> {
         let mut tracks = vec![PeripheryTrack::Dev];
         if trunk {
@@ -2606,6 +2685,8 @@ impl SpecRepository for MockRepo {
                 }
             }
         }
+        drop(rows);
+        self.write_outbox(outbox);
         Ok(changed)
     }
 
@@ -2726,6 +2807,327 @@ impl SpecRepository for MockRepo {
             (&a.service, a.api_type.as_str()).cmp(&(&b.service, b.api_type.as_str()))
         });
         Ok(result)
+    }
+
+    // --- Webhooks (#47) ---
+
+    async fn insert_webhook_events(
+        &self,
+        events: &[NewWebhookEvent],
+    ) -> Result<(), RepositoryError> {
+        self.write_outbox(events.to_vec());
+        Ok(())
+    }
+
+    async fn list_current_consumers_of(
+        &self,
+        service_id: i64,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let version_ids: Vec<i64> = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|v| v.service_id == service_id)
+            .map(|v| v.id)
+            .collect();
+        let mut client_ids: Vec<i64> = self
+            .dependencies
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|d| version_ids.contains(&d.spec_version_id))
+            .map(|d| d.client_id)
+            .collect();
+        client_ids.extend(
+            self.trunk_pins
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .filter(|p| p.service_id == service_id && p.valid_to.is_none())
+                .map(|p| p.client_id),
+        );
+        let mut names: Vec<String> = client_ids
+            .into_iter()
+            .filter_map(|id| self.client_name(id))
+            .collect();
+        names.sort();
+        names.dedup();
+        Ok(names)
+    }
+
+    async fn create_webhook(&self, hook: NewWebhook<'_>) -> Result<i64, RepositoryError> {
+        let id = self.next_id();
+        self.webhooks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Webhook {
+                id,
+                scope: hook.scope.clone(),
+                url: hook.url.to_string(),
+                format: hook.format,
+                event_types: hook.event_types.to_vec(),
+                producer_glob: hook.producer_glob.map(str::to_string),
+                secret_hint: hook.secret_hint.to_string(),
+                paused: false,
+                allow_list_exempt: hook.allow_list_exempt,
+                created_by: hook.created_by.to_string(),
+                created_at: hook.created_at.to_string(),
+                secret: hook.secret.to_string(),
+            });
+        Ok(id)
+    }
+
+    async fn list_webhooks(
+        &self,
+        scope: Option<&WebhookScope>,
+    ) -> Result<Vec<Webhook>, RepositoryError> {
+        Ok(self
+            .webhooks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|h| scope.is_none_or(|s| &h.scope == s))
+            .cloned()
+            .collect())
+    }
+
+    async fn get_webhook(&self, id: i64) -> Result<Option<Webhook>, RepositoryError> {
+        Ok(self
+            .webhooks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|h| h.id == id)
+            .cloned())
+    }
+
+    async fn update_webhook(&self, id: i64, patch: &WebhookPatch) -> Result<bool, RepositoryError> {
+        let mut hooks = self.webhooks.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(hook) = hooks.iter_mut().find(|h| h.id == id) else {
+            return Ok(false);
+        };
+        if let Some(paused) = patch.paused {
+            hook.paused = paused;
+        }
+        if let Some(types) = &patch.event_types {
+            hook.event_types = types.clone();
+        }
+        if let Some(glob) = &patch.producer_glob {
+            hook.producer_glob = glob.clone();
+        }
+        Ok(true)
+    }
+
+    async fn rotate_webhook_secret(
+        &self,
+        id: i64,
+        secret: &str,
+        secret_hint: &str,
+    ) -> Result<bool, RepositoryError> {
+        let mut hooks = self.webhooks.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(hook) = hooks.iter_mut().find(|h| h.id == id) else {
+            return Ok(false);
+        };
+        hook.secret = secret.to_string();
+        hook.secret_hint = secret_hint.to_string();
+        Ok(true)
+    }
+
+    async fn delete_webhook(&self, id: i64) -> Result<bool, RepositoryError> {
+        let mut hooks = self.webhooks.lock().unwrap_or_else(PoisonError::into_inner);
+        let before = hooks.len();
+        hooks.retain(|h| h.id != id);
+        self.webhook_deliveries
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|d| d.hook_id != id);
+        Ok(hooks.len() < before)
+    }
+
+    async fn list_webhook_deliveries(
+        &self,
+        hook_id: i64,
+        limit: u32,
+    ) -> Result<Vec<WebhookDelivery>, RepositoryError> {
+        let mut rows: Vec<WebhookDelivery> = self
+            .webhook_deliveries
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|d| d.hook_id == hook_id)
+            .cloned()
+            .collect();
+        rows.sort_by(|a, b| b.id.cmp(&a.id));
+        rows.truncate(limit as usize);
+        Ok(rows)
+    }
+
+    async fn get_webhook_delivery(
+        &self,
+        delivery_id: i64,
+    ) -> Result<Option<WebhookDelivery>, RepositoryError> {
+        Ok(self
+            .webhook_deliveries
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|d| d.id == delivery_id)
+            .cloned())
+    }
+
+    async fn reset_webhook_delivery(
+        &self,
+        delivery_id: i64,
+        now_iso: &str,
+    ) -> Result<bool, RepositoryError> {
+        let mut rows = self
+            .webhook_deliveries
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let Some(row) = rows.iter_mut().find(|d| d.id == delivery_id) else {
+            return Ok(false);
+        };
+        row.status = WebhookDeliveryStatus::Pending;
+        row.next_attempt_at = now_iso.to_string();
+        row.updated_at = now_iso.to_string();
+        Ok(true)
+    }
+
+    async fn claim_due_webhook_deliveries(
+        &self,
+        now_iso: &str,
+        lease_until_iso: &str,
+        limit: u32,
+    ) -> Result<Vec<DueWebhookDelivery>, RepositoryError> {
+        let hooks = self
+            .webhooks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let events = self
+            .webhook_events
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let mut rows = self
+            .webhook_deliveries
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut due: Vec<&mut WebhookDelivery> = rows
+            .iter_mut()
+            .filter(|d| {
+                matches!(
+                    d.status,
+                    WebhookDeliveryStatus::Pending | WebhookDeliveryStatus::Failed
+                ) && d.next_attempt_at.as_str() <= now_iso
+                    && hooks.iter().any(|h| h.id == d.hook_id && !h.paused)
+            })
+            .collect();
+        due.sort_by(|a, b| (&a.next_attempt_at, a.id).cmp(&(&b.next_attempt_at, b.id)));
+        due.truncate(limit as usize);
+        let mut claimed = Vec::new();
+        for delivery in due {
+            delivery.next_attempt_at = lease_until_iso.to_string();
+            let Some(hook) = hooks.iter().find(|h| h.id == delivery.hook_id) else {
+                continue;
+            };
+            let Some(event) = events.iter().find(|e| e.id == delivery.event_id) else {
+                continue;
+            };
+            claimed.push(DueWebhookDelivery {
+                delivery: delivery.clone(),
+                hook: hook.clone(),
+                producer: event.producer.clone(),
+                data: event.data.clone(),
+            });
+        }
+        Ok(claimed)
+    }
+
+    async fn record_webhook_attempt(
+        &self,
+        delivery_id: i64,
+        now_iso: &str,
+        outcome: &WebhookAttemptOutcome,
+    ) -> Result<(), RepositoryError> {
+        let mut rows = self
+            .webhook_deliveries
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let Some(row) = rows.iter_mut().find(|d| d.id == delivery_id) else {
+            return Ok(());
+        };
+        row.updated_at = now_iso.to_string();
+        match outcome {
+            WebhookAttemptOutcome::Delivered { code } => {
+                row.status = WebhookDeliveryStatus::Delivered;
+                row.attempts += 1;
+                row.last_response_code = Some(*code);
+                row.last_error = None;
+                row.delivered_at = Some(now_iso.to_string());
+            }
+            WebhookAttemptOutcome::Failed {
+                code,
+                error,
+                next_attempt_at,
+            } => {
+                row.status = WebhookDeliveryStatus::Failed;
+                row.attempts += 1;
+                row.last_response_code = *code;
+                row.last_error = Some(error.clone());
+                row.next_attempt_at = next_attempt_at.clone();
+            }
+            WebhookAttemptOutcome::Dead { code, error } => {
+                row.status = WebhookDeliveryStatus::Dead;
+                row.attempts += 1;
+                row.last_response_code = *code;
+                row.last_error = Some(error.clone());
+            }
+            WebhookAttemptOutcome::Expired { error } => {
+                row.status = WebhookDeliveryStatus::Dead;
+                row.last_response_code = None;
+                row.last_error = Some(error.clone());
+            }
+        }
+        Ok(())
+    }
+
+    async fn count_pending_webhook_deliveries(&self) -> Result<u64, RepositoryError> {
+        Ok(self
+            .webhook_deliveries
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|d| {
+                matches!(
+                    d.status,
+                    WebhookDeliveryStatus::Pending | WebhookDeliveryStatus::Failed
+                )
+            })
+            .count() as u64)
+    }
+
+    async fn delete_old_webhook_data(&self, cutoff_iso: &str) -> Result<u64, RepositoryError> {
+        let mut rows = self
+            .webhook_deliveries
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let before = rows.len();
+        rows.retain(|d| {
+            !(matches!(
+                d.status,
+                WebhookDeliveryStatus::Delivered | WebhookDeliveryStatus::Dead
+            ) && d.updated_at.as_str() < cutoff_iso)
+        });
+        let removed = (before - rows.len()) as u64;
+        let referenced: Vec<String> = rows.iter().map(|d| d.event_id.clone()).collect();
+        drop(rows);
+        self.webhook_events
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|e| e.occurred_at.as_str() >= cutoff_iso || referenced.contains(&e.id));
+        Ok(removed)
     }
 }
 
