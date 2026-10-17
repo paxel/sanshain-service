@@ -2,7 +2,10 @@ FROM alpine:3.21
 
 ARG TARGETARCH
 
-RUN apk add --no-cache sqlite-libs tini
+# ca-certificates: the platform trust store, so ldaps:// against a publicly
+# signed directory works without a certificate mount. Private CAs still go
+# through EXTRA_CA_CERTS_DIR.
+RUN apk add --no-cache sqlite-libs tini ca-certificates
 
 # Binary is placed as sanshain-${TARGETARCH} in the build context
 # (mapped from x86_64/aarch64 naming to Docker's amd64/arm64 convention)
