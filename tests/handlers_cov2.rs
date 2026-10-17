@@ -359,6 +359,58 @@ async fn auth_config_test_reports_unreachable_server() {
     );
 }
 
+/// The admin "Test connection" button shows whatever the `400` body says, so
+/// a directory that accepts the connection and never answers must produce the
+/// stalled message there, not an ingress "Bad Gateway" minutes later.
+#[tokio::test]
+async fn auth_config_test_reports_a_directory_that_accepts_and_never_answers() {
+    let (app, _repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+
+    // Accept and hold every connection, never read or write.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((socket, _)) = listener.accept().await {
+            held.push(socket);
+        }
+    });
+
+    // The handler builds the provider itself, so the override has to come
+    // from the environment. Whole seconds is the unit of every *_SECS variable.
+    unsafe {
+        std::env::set_var("LDAP_OPERATION_TIMEOUT_SECS", "1");
+    }
+    let url = format!("ldap://{addr}");
+    let (status, body) = send_json(
+        &app,
+        "POST",
+        "/admin/auth-config/test",
+        &auth,
+        &json!({
+            "server_url": url,
+            "bind_dn": "cn=admin,dc=example,dc=com",
+            "bind_password": "pw",
+            "base_dn": "dc=example,dc=com",
+        }),
+    )
+    .await;
+    unsafe {
+        std::env::remove_var("LDAP_OPERATION_TIMEOUT_SECS");
+    }
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let error = body["error"].as_str().unwrap();
+    assert!(
+        error.contains(&format!(
+            "LDAP server at {url} accepted the connection but did not respond within 1 s. \
+             Check that ldaps:// uses the TLS port and StartTLS the plain one."
+        )),
+        "unexpected error: {error}"
+    );
+}
+
 #[tokio::test]
 async fn snapshot_and_dependency_age_settings_and_cleanups() {
     let (app, _repo, token) = app_with_seed().await;

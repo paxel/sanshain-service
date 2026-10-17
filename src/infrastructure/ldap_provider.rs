@@ -1,7 +1,8 @@
 use crate::domain::models::{AuthenticatedUser, LdapConfig};
 use crate::domain::ports::{AuthProvider, AuthProviderError, DirectoryGroups};
-use ldap3::{LdapConnAsync, LdapConnSettings, Scope, SearchEntry};
+use ldap3::{LdapConnAsync, LdapConnSettings, LdapError, Scope, SearchEntry, StdStream};
 use std::time::Duration;
+use tokio::net::TcpStream;
 
 /// How long a connection attempt may take before it counts as down.
 ///
@@ -11,32 +12,35 @@ use std::time::Duration;
 /// directory-backed users for that long.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Open an LDAP connection using the trust store built at startup.
+/// How long any single exchange with the directory may take once the TCP
+/// connection is up: the TLS or StartTLS handshake, a bind, a search, the
+/// unbind.
 ///
-/// The configuration is supplied for every connection, not only when extra CA
-/// certificates were mounted. Leaving ldap3 to build its own means two things
-/// go wrong: it calls `ClientConfig::builder()`, which panics here because two
-/// crypto providers are linked in, and its root store collapses to *empty* if
-/// reading the platform certificates hiccups — trusting nothing, silently.
-async fn open_connection(
-    url: &str,
-    starttls: bool,
-) -> ldap3::result::Result<(LdapConnAsync, ldap3::Ldap)> {
-    let mut settings = LdapConnSettings::new().set_conn_timeout(CONNECT_TIMEOUT);
-    // StartTLS upgrades a plain `ldap://` connection to TLS in-band. `ldaps://`
-    // is already TLS from the scheme, so it never needs (or wants) this.
-    settings = settings.set_starttls(starttls);
-    match crate::infrastructure::tls::ldap_client_config() {
-        Some(config) => LdapConnAsync::with_settings(settings.set_config(config), url).await,
-        // Only when the configuration could not be built at all, which is
-        // already logged as an error. Plain LDAP still works on this path.
-        None => LdapConnAsync::with_settings(settings, url).await,
-    }
+/// The connect timeout does not help once the port answers. A scheme and port
+/// mismatch (`ldaps://` on 389, StartTLS on 636) or a firewall that accepts
+/// and then stalls gets past it, and without this bound the request hangs
+/// until the ingress gives up — the admin's "Test connection" then shows
+/// "Bad Gateway" instead of anything useful. Overridden by
+/// [`OPERATION_TIMEOUT_ENV`].
+const OPERATION_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Environment variable overriding [`OPERATION_TIMEOUT`], in whole seconds.
+pub const OPERATION_TIMEOUT_ENV: &str = "LDAP_OPERATION_TIMEOUT_SECS";
+
+/// The operation timeout from the environment, or the default when the
+/// variable is unset, not a number, or zero.
+fn operation_timeout_from_env() -> Duration {
+    std::env::var(OPERATION_TIMEOUT_ENV)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .map_or(OPERATION_TIMEOUT, Duration::from_secs)
 }
 
 /// LDAP authentication provider.
 pub struct LdapAuthProvider {
     config: LdapConfig,
+    operation_timeout: Duration,
 }
 
 fn escape_ldap_filter(val: &str) -> String {
@@ -54,9 +58,29 @@ fn escape_ldap_filter(val: &str) -> String {
     escaped
 }
 
+/// The `host:port` a TCP connect needs, with the scheme's default port when
+/// the URL names none — the same defaults ldap3 applies.
+fn host_port(url: &url::Url) -> String {
+    let default_port = if url.scheme() == "ldaps" { 636 } else { 389 };
+    let host = match url.host_str() {
+        Some("") | None => "localhost",
+        Some(host) => host,
+    };
+    format!("{}:{}", host, url.port().unwrap_or(default_port))
+}
+
 impl LdapAuthProvider {
     pub fn new(config: LdapConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            operation_timeout: operation_timeout_from_env(),
+        }
+    }
+
+    /// Replace the operation timeout read from the environment.
+    pub fn with_operation_timeout(mut self, timeout: Duration) -> Self {
+        self.operation_timeout = timeout;
+        self
     }
 
     /// StartTLS applies to a plain `ldap://` URL when the operator asked for
@@ -65,27 +89,107 @@ impl LdapAuthProvider {
         self.config.use_tls && self.config.server_url.starts_with("ldap://")
     }
 
-    async fn connect(&self) -> Result<ldap3::Ldap, AuthProviderError> {
-        let (conn, mut ldap) = open_connection(&self.config.server_url, self.use_starttls())
+    /// The error for a directory that accepted the TCP connection and then
+    /// never answered within the operation timeout.
+    fn stalled(&self) -> AuthProviderError {
+        AuthProviderError::ConnectionFailed(format!(
+            "LDAP server at {} accepted the connection but did not respond within {} s. \
+             Check that ldaps:// uses the TLS port and StartTLS the plain one.",
+            self.config.server_url,
+            self.operation_timeout.as_secs_f64()
+        ))
+    }
+
+    /// A timed-out operation is the stalled-directory error; anything else
+    /// is whatever `otherwise` makes of it.
+    fn map_operation_error(
+        &self,
+        error: LdapError,
+        otherwise: impl FnOnce(LdapError) -> AuthProviderError,
+    ) -> AuthProviderError {
+        match error {
+            LdapError::Timeout { .. } => self.stalled(),
+            other => otherwise(other),
+        }
+    }
+
+    /// Open an LDAP connection using the trust store built at startup.
+    ///
+    /// The TCP connect runs under [`CONNECT_TIMEOUT`] here rather than inside
+    /// ldap3, whose connect timeout would also cover the handshake and so
+    /// could not tell "nothing is listening" from "it accepted and went
+    /// quiet". Everything after the connect — the StartTLS or TLS handshake —
+    /// runs under the operation timeout and reports the stalled message.
+    ///
+    /// The TLS configuration is supplied for every connection, not only when
+    /// extra CA certificates were mounted. Leaving ldap3 to build its own
+    /// means two things go wrong: it calls `ClientConfig::builder()`, which
+    /// panics here because two crypto providers are linked in, and its root
+    /// store collapses to *empty* if reading the platform certificates
+    /// hiccups — trusting nothing, silently.
+    #[tracing::instrument(skip_all)]
+    async fn open(&self) -> Result<(LdapConnAsync, ldap3::Ldap), AuthProviderError> {
+        let url = &self.config.server_url;
+        let could_not_connect = |reason: String| {
+            AuthProviderError::ConnectionFailed(format!(
+                "Could not connect to LDAP server at {}: {}",
+                url, reason
+            ))
+        };
+
+        let parsed = url::Url::parse(url).map_err(|e| could_not_connect(e.to_string()))?;
+        let stream = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(host_port(&parsed)))
             .await
-            .map_err(|e| {
-                AuthProviderError::ConnectionFailed(format!(
-                    "Could not connect to LDAP server at {}: {}",
-                    self.config.server_url, e
+            .map_err(|_| {
+                could_not_connect(format!(
+                    "no answer within {} s",
+                    CONNECT_TIMEOUT.as_secs_f64()
                 ))
-            })?;
+            })?
+            .map_err(|e| could_not_connect(e.to_string()))?;
+        let stream = stream
+            .into_std()
+            .map_err(|e| could_not_connect(e.to_string()))?;
+
+        // StartTLS upgrades a plain `ldap://` connection to TLS in-band.
+        // `ldaps://` is already TLS from the scheme, so it never needs (or
+        // wants) this.
+        let mut settings = LdapConnSettings::new()
+            .set_starttls(self.use_starttls())
+            .set_std_stream(StdStream::Tcp(stream));
+        // `None` only when the configuration could not be built at all, which
+        // is already logged as an error. Plain LDAP still works on this path.
+        if let Some(config) = crate::infrastructure::tls::ldap_client_config() {
+            settings = settings.set_config(config);
+        }
+
+        tokio::time::timeout(
+            self.operation_timeout,
+            LdapConnAsync::with_settings(settings, url),
+        )
+        .await
+        .map_err(|_| self.stalled())?
+        .map_err(|e| could_not_connect(e.to_string()))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn connect(&self) -> Result<ldap3::Ldap, AuthProviderError> {
+        let (conn, mut ldap) = self.open().await?;
 
         ldap3::drive!(conn);
 
         // Bind with service account
         let bind_pw = self.config.bind_password.as_deref().unwrap_or("");
-        ldap.simple_bind(&self.config.bind_dn, bind_pw)
+        ldap.with_timeout(self.operation_timeout)
+            .simple_bind(&self.config.bind_dn, bind_pw)
             .await
             .map_err(|e| {
-                AuthProviderError::ConnectionFailed(format!(
-                    "LDAP bind request failed for {}: {}",
-                    self.config.bind_dn, e
-                ))
+                self.map_operation_error(e, |e| {
+                    AuthProviderError::ConnectionFailed(format!(
+                        "LDAP bind request failed for {}: {}",
+                        self.config.bind_dn, e
+                    ))
+                })
             })?
             .success()
             .map_err(|e| {
@@ -96,6 +200,38 @@ impl LdapAuthProvider {
             })?;
 
         Ok(ldap)
+    }
+
+    /// Search for the user's entry through the service-account connection.
+    async fn search_user(
+        &self,
+        ldap: &mut ldap3::Ldap,
+        username: &str,
+        attrs: Vec<&str>,
+    ) -> Result<Vec<ldap3::ResultEntry>, AuthProviderError> {
+        let escaped_username = escape_ldap_filter(username);
+        let filter = self
+            .config
+            .user_filter
+            .replace("{username}", &escaped_username);
+        let (rs, _result) = ldap
+            .with_timeout(self.operation_timeout)
+            .search(&self.config.base_dn, Scope::Subtree, &filter, attrs)
+            .await
+            .map_err(|e| {
+                self.map_operation_error(e, |e| {
+                    AuthProviderError::Internal(format!("LDAP search: {}", e))
+                })
+            })?
+            .success()
+            .map_err(|e| AuthProviderError::Internal(format!("LDAP search failed: {}", e)))?;
+        Ok(rs)
+    }
+
+    /// Close the connection; a directory that stalls on the unbind is not
+    /// worth waiting for, and the result is irrelevant either way.
+    async fn unbind(&self, ldap: &mut ldap3::Ldap) {
+        let _ = ldap.with_timeout(self.operation_timeout).unbind().await;
     }
 }
 
@@ -109,25 +245,12 @@ impl AuthProvider for LdapAuthProvider {
         let mut ldap = self.connect().await?;
 
         // Search for the user
-        let escaped_username = escape_ldap_filter(username);
-        let filter = self
-            .config
-            .user_filter
-            .replace("{username}", &escaped_username);
-        let (rs, _result) = ldap
-            .search(
-                &self.config.base_dn,
-                Scope::Subtree,
-                &filter,
-                vec!["dn", "cn", "memberOf"],
-            )
-            .await
-            .map_err(|e| AuthProviderError::Internal(format!("LDAP search: {}", e)))?
-            .success()
-            .map_err(|e| AuthProviderError::Internal(format!("LDAP search failed: {}", e)))?;
+        let rs = self
+            .search_user(&mut ldap, username, vec!["dn", "cn", "memberOf"])
+            .await?;
 
         if rs.is_empty() {
-            let _ = ldap.unbind().await;
+            self.unbind(&mut ldap).await;
             return Err(AuthProviderError::InvalidCredentials);
         }
 
@@ -138,20 +261,19 @@ impl AuthProvider for LdapAuthProvider {
         let user_dn = entry.dn;
 
         // Attempt bind as the user to verify password
-        let (conn2, mut user_ldap) = open_connection(&self.config.server_url, self.use_starttls())
-            .await
-            .map_err(|e| AuthProviderError::ConnectionFailed(format!("LDAP connect: {}", e)))?;
+        let (conn2, mut user_ldap) = self.open().await?;
         ldap3::drive!(conn2);
 
         user_ldap
+            .with_timeout(self.operation_timeout)
             .simple_bind(&user_dn, password)
             .await
-            .map_err(|_| AuthProviderError::InvalidCredentials)?
+            .map_err(|e| self.map_operation_error(e, |_| AuthProviderError::InvalidCredentials))?
             .success()
             .map_err(|_| AuthProviderError::InvalidCredentials)?;
 
-        let _ = user_ldap.unbind().await;
-        let _ = ldap.unbind().await;
+        self.unbind(&mut user_ldap).await;
+        self.unbind(&mut ldap).await;
 
         // Authentication ends here. What this user may do comes from their
         // directory groups, read through `groups_for` on every authorisation
@@ -164,7 +286,7 @@ impl AuthProvider for LdapAuthProvider {
 
     async fn test_connection(&self) -> Result<(), AuthProviderError> {
         let mut ldap = self.connect().await?;
-        let _ = ldap.unbind().await;
+        self.unbind(&mut ldap).await;
         Ok(())
     }
 }
@@ -178,22 +300,9 @@ impl DirectoryGroups for LdapAuthProvider {
     async fn groups_for(&self, username: &str) -> Result<Vec<String>, AuthProviderError> {
         let mut ldap = self.connect().await?;
 
-        let escaped_username = escape_ldap_filter(username);
-        let filter = self
-            .config
-            .user_filter
-            .replace("{username}", &escaped_username);
-        let (rs, _result) = ldap
-            .search(
-                &self.config.base_dn,
-                Scope::Subtree,
-                &filter,
-                vec!["dn", "memberOf"],
-            )
-            .await
-            .map_err(|e| AuthProviderError::Internal(format!("LDAP search: {}", e)))?
-            .success()
-            .map_err(|e| AuthProviderError::Internal(format!("LDAP search failed: {}", e)))?;
+        let rs = self
+            .search_user(&mut ldap, username, vec!["dn", "memberOf"])
+            .await?;
 
         let groups = rs
             .into_iter()
@@ -202,7 +311,7 @@ impl DirectoryGroups for LdapAuthProvider {
             .and_then(|entry| entry.attrs.get("memberOf").cloned())
             .unwrap_or_default();
 
-        let _ = ldap.unbind().await;
+        self.unbind(&mut ldap).await;
         Ok(groups)
     }
 }
@@ -223,5 +332,35 @@ mod tests {
             escape_ldap_filter("admin)(|(user=*"),
             "admin\\29\\28|\\28user=\\2a"
         );
+    }
+
+    fn parsed(url: &str) -> url::Url {
+        url::Url::parse(url).expect("valid test URL")
+    }
+
+    #[test]
+    fn host_port_applies_the_scheme_default_when_the_url_names_no_port() {
+        assert_eq!(
+            host_port(&parsed("ldap://directory.example")),
+            "directory.example:389"
+        );
+        assert_eq!(
+            host_port(&parsed("ldaps://directory.example")),
+            "directory.example:636"
+        );
+    }
+
+    #[test]
+    fn host_port_keeps_an_explicit_port_and_ipv6_brackets() {
+        assert_eq!(
+            host_port(&parsed("ldaps://directory.example:389")),
+            "directory.example:389"
+        );
+        assert_eq!(host_port(&parsed("ldap://[::1]:1389")), "[::1]:1389");
+    }
+
+    #[test]
+    fn host_port_falls_back_to_localhost_for_an_empty_host() {
+        assert_eq!(host_port(&parsed("ldap:///")), "localhost:389");
     }
 }
