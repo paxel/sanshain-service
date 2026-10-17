@@ -1597,3 +1597,532 @@ async fn deliveries_are_counted_by_outcome_and_the_backlog_is_a_gauge() {
     );
     assert!(body.contains("sanshain_webhook_outbox_pending 0"), "{body}");
 }
+
+// --- Hook management over the routes ---
+
+#[cfg(test)]
+fn as_json(body: &str) -> Value {
+    serde_json::from_str(body).unwrap_or_else(|e| panic!("expected JSON, got {e}: {body}"))
+}
+
+/// A Maintainer of `orders` and nothing else, with a session token.
+#[cfg(test)]
+async fn maintainer_token(ctx: &TestContext) -> String {
+    let hash = services::hash_password("maint-pass").unwrap();
+    let user = ctx.repo.create_user("maint", &hash, true).await.unwrap();
+    let orders = ctx
+        .repo
+        .find_service("orders")
+        .await
+        .unwrap()
+        .expect("orders exists");
+    ctx.repo.add_user_maintainer(orders, user.id).await.unwrap();
+    ctx.repo
+        .create_session(user.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap()
+        .token
+}
+
+#[cfg(test)]
+async fn set_allowed(ctx: &TestContext, hosts: &[&str]) {
+    let (status, _, body) = send(
+        ctx,
+        "POST",
+        "/admin/settings/webhook-allowed-hosts",
+        Some(json!({"hosts": hosts})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[cfg(test)]
+async fn audit_actions(ctx: &TestContext) -> Vec<String> {
+    ctx.repo
+        .get_recent_audit_logs(50)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| e.action)
+        .collect()
+}
+
+#[tokio::test]
+async fn creating_a_hook_shows_the_secret_once_and_lists_without_it() {
+    let ctx = setup().await;
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/webhooks",
+        Some(json!({
+            "url": "https://hooks.slack.com/services/T/B/x",
+            "format": "slack",
+            "event_types": ["version.published", "provide.rejected"],
+            "producer_glob": "pay*",
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let created = as_json(&body);
+    let secret = created["secret"].as_str().unwrap();
+    assert!(
+        secret.starts_with("whsec_") && secret.len() == 70,
+        "{secret}"
+    );
+    let hook = &created["webhook"];
+    assert_eq!(hook["scope"], json!({"kind": "global"}));
+    assert_eq!(hook["format"], "slack");
+    assert_eq!(
+        hook["event_types"],
+        json!(["provide.rejected", "version.published"])
+    );
+    assert_eq!(hook["producer_glob"], "pay*");
+    assert_eq!(hook["paused"], false);
+    assert_eq!(
+        hook["allow_list_exempt"], true,
+        "registered with manage_settings"
+    );
+    assert_eq!(hook["created_by"], "root");
+    assert_eq!(hook["secret_hint"].as_str().unwrap().len(), 8);
+    assert!(
+        hook.get("secret").is_none(),
+        "the hook never carries its secret"
+    );
+    let id = hook["id"].as_i64().unwrap();
+
+    let (status, _, body) = send(&ctx, "GET", "/admin/webhooks", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let listed = as_json(&body);
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+    assert!(listed[0].get("secret").is_none());
+    assert!(
+        !body.contains(secret),
+        "the listing never reveals the secret"
+    );
+    let (status, _, body) = send(&ctx, "GET", &format!("/admin/webhooks/{id}"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!body.contains(secret));
+
+    // The stored secret is the one shown: it signs the deliveries.
+    let stored = ctx.repo.get_webhook(id).await.unwrap().unwrap();
+    assert_eq!(stored.secret, secret);
+    assert_eq!(
+        audit_actions(&ctx).await,
+        vec!["WEBHOOK_CREATED".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn a_hook_is_refused_when_the_url_or_filter_is_junk() {
+    let ctx = setup().await;
+    for (body, why) in [
+        (json!({"url": "ftp://x.example/y"}), "scheme"),
+        (json!({"url": "nope"}), "not a URL"),
+        (
+            json!({"url": "https://x.example/y", "format": "carrier-pigeon"}),
+            "format",
+        ),
+        (
+            json!({"url": "https://x.example/y", "event_types": ["webhook.test"]}),
+            "test type",
+        ),
+        (
+            json!({"url": "https://x.example/y", "event_types": ["nope"]}),
+            "unknown type",
+        ),
+        (
+            json!({"url": "https://x.example/y", "headers": {"X": "y"}}),
+            "no custom headers",
+        ),
+    ] {
+        let (status, _, text) = send(&ctx, "POST", "/admin/webhooks", Some(body)).await;
+        assert!(
+            status == StatusCode::BAD_REQUEST || status == StatusCode::UNPROCESSABLE_ENTITY,
+            "{why}: {status} {text}"
+        );
+    }
+    assert!(ctx.repo.list_webhooks(None).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn system_hooks_obey_the_allow_list_for_maintainers_and_not_for_admins() {
+    let ctx = setup().await;
+    provide(
+        &ctx,
+        "orders",
+        "ga",
+        &spec("1.0.0", &["/a"], &[]),
+        json!({}),
+    )
+    .await;
+    let maint = maintainer_token(&ctx).await;
+    let hook = json!({"url": "https://hooks.slack.com/services/T/B/x"});
+
+    // An empty list: the Maintainer is told the admin has to allow hosts first.
+    let (status, _, body) = send_as(
+        &ctx,
+        &maint,
+        "POST",
+        "/admin/producers/orders/webhooks",
+        Some(hook.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(
+        body.contains("add the receiver's host to the allow-list"),
+        "{body}"
+    );
+
+    // The admin may register any host regardless.
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/producers/orders/webhooks",
+        Some(hook.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(as_json(&body)["webhook"]["allow_list_exempt"], true);
+
+    set_allowed(&ctx, &["*.webhook.office.com", "http://n8n.corp.internal"]).await;
+    let (status, _, body) = send_as(
+        &ctx,
+        &maint,
+        "POST",
+        "/admin/producers/orders/webhooks",
+        Some(hook.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(
+        body.contains("'hooks.slack.com' is not in the webhook allow-list"),
+        "{body}"
+    );
+    assert!(
+        body.contains("*.webhook.office.com"),
+        "the refusal names the allowed hosts: {body}"
+    );
+
+    let (status, _, body) = send_as(
+        &ctx,
+        &maint,
+        "POST",
+        "/admin/producers/orders/webhooks",
+        Some(json!({"url": "http://corp.webhook.office.com/x"})),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "plain http needs an http pattern: {body}"
+    );
+    assert!(body.contains("plain http://"), "{body}");
+
+    let (status, _, body) = send_as(
+        &ctx,
+        &maint,
+        "POST",
+        "/admin/producers/orders/webhooks",
+        Some(json!({"url": "https://corp.webhook.office.com/webhookb2/x", "format": "teams"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let created = as_json(&body);
+    assert_eq!(created["webhook"]["allow_list_exempt"], false);
+    assert_eq!(
+        created["webhook"]["scope"],
+        json!({"kind": "producer", "name": "orders"})
+    );
+    assert_eq!(created["webhook"]["created_by"], "maint");
+
+    // The same Maintainer manages the Consumer of the same name, and nobody else's.
+    let (status, _, body) = send_as(
+        &ctx,
+        &maint,
+        "POST",
+        "/admin/consumers/orders/webhooks",
+        Some(json!({"url": "http://n8n.corp.internal:5678/hook"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(
+        as_json(&body)["webhook"]["scope"],
+        json!({"kind": "consumer", "name": "orders"})
+    );
+    let (status, _, _) = send_as(
+        &ctx,
+        &maint,
+        "GET",
+        "/admin/producers/billing/webhooks",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = send_as(&ctx, &maint, "GET", "/admin/webhooks", None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // An unknown system is a 404, for the admin too.
+    let (status, _, _) = send(&ctx, "POST", "/admin/producers/nope/webhooks", Some(hook)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_system_route_never_reaches_a_hook_of_another_scope() {
+    let ctx = setup().await;
+    provide(
+        &ctx,
+        "orders",
+        "ga",
+        &spec("1.0.0", &["/a"], &[]),
+        json!({}),
+    )
+    .await;
+    provide(
+        &ctx,
+        "billing",
+        "ga",
+        &spec("1.0.0", &["/b"], &[]),
+        json!({}),
+    )
+    .await;
+    let (_, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/webhooks",
+        Some(json!({"url": "https://g.example/x"})),
+    )
+    .await;
+    let global_id = as_json(&body)["webhook"]["id"].as_i64().unwrap();
+    let (_, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/producers/billing/webhooks",
+        Some(json!({"url": "https://b.example/x"})),
+    )
+    .await;
+    let billing_id = as_json(&body)["webhook"]["id"].as_i64().unwrap();
+
+    let maint = maintainer_token(&ctx).await;
+    for id in [global_id, billing_id] {
+        for (method, path) in [
+            ("GET", String::new()),
+            ("PATCH", String::new()),
+            ("DELETE", String::new()),
+            ("POST", "/test".to_string()),
+            ("POST", "/rotate-secret".to_string()),
+            ("GET", "/deliveries".to_string()),
+            ("POST", "/deliveries/1/redeliver".to_string()),
+        ] {
+            let uri = format!("/admin/producers/orders/webhooks/{id}{path}");
+            let body = (method == "PATCH").then(|| json!({"paused": true}));
+            let (status, _, text) = send_as(&ctx, &maint, method, &uri, body).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{method} {uri}: {text}");
+        }
+    }
+    assert_eq!(
+        ctx.repo.list_webhooks(None).await.unwrap().len(),
+        2,
+        "nothing was touched"
+    );
+    let (status, _, _) = send(
+        &ctx,
+        "GET",
+        &format!("/admin/producers/orders/webhooks/{global_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "the admin is scoped by the route too"
+    );
+}
+
+#[tokio::test]
+async fn pause_resume_test_rotate_redeliver_and_delete_work_over_the_routes_and_are_audited() {
+    let ctx = setup().await;
+    let receiver = Receiver::start().await;
+    let (_, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/webhooks",
+        Some(json!({"url": receiver.url, "format": "json"})),
+    )
+    .await;
+    let created = as_json(&body);
+    let id = created["webhook"]["id"].as_i64().unwrap();
+    let secret = created["secret"].as_str().unwrap().to_string();
+
+    // Test event: queued, delivered by the worker, signed with the secret shown.
+    let (status, _, body) = send(&ctx, "POST", &format!("/admin/webhooks/{id}/test"), None).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let event_id = as_json(&body)["event_id"].as_str().unwrap().to_string();
+    assert_eq!(pass(&ctx, &config(None), Utc::now()).await.delivered, 1);
+    let (headers, body) = receiver.last();
+    verify_signature(&headers, &body, &secret);
+    assert_eq!(header(&headers, "sanshain-event"), "webhook.test");
+    let envelope = as_json(&body);
+    assert_eq!(envelope["id"], event_id);
+    assert_eq!(envelope["type"], "webhook.test");
+    assert_eq!(envelope["data"]["hook_id"], id);
+    assert!(
+        envelope["data"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("test event")
+    );
+
+    // The delivery log over the route.
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        &format!("/admin/webhooks/{id}/deliveries?limit=10"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let log = as_json(&body);
+    assert_eq!(log.as_array().unwrap().len(), 1);
+    assert_eq!(log[0]["status"], "delivered");
+    assert_eq!(log[0]["event_type"], "webhook.test");
+    assert_eq!(log[0]["attempts"], 1);
+    assert_eq!(log[0]["last_response_code"], 200);
+    let delivery_id = log[0]["id"].as_i64().unwrap();
+
+    // Pause: no attempt; resume: delivered.
+    let (status, _, body) = send(
+        &ctx,
+        "PATCH",
+        &format!("/admin/webhooks/{id}"),
+        Some(json!({"paused": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(as_json(&body)["paused"], true);
+    send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "rel"})),
+    )
+    .await;
+    assert_eq!(
+        pass(&ctx, &config(None), Utc::now()).await,
+        PassSummary::default()
+    );
+    let (_, _, body) = send(
+        &ctx,
+        "PATCH",
+        &format!("/admin/webhooks/{id}"),
+        Some(json!({"paused": false, "event_types": [], "producer_glob": null})),
+    )
+    .await;
+    assert_eq!(as_json(&body)["paused"], false);
+    assert_eq!(pass(&ctx, &config(None), Utc::now()).await.delivered, 1);
+
+    // Rotate: the new secret signs the next delivery, the old one no longer does.
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        &format!("/admin/webhooks/{id}/rotate-secret"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let rotated = as_json(&body);
+    let new_secret = rotated["secret"].as_str().unwrap().to_string();
+    assert_ne!(new_secret, secret);
+    assert_ne!(
+        rotated["webhook"]["secret_hint"],
+        created["webhook"]["secret_hint"]
+    );
+
+    // Redeliver the test delivery: sent again, signed with the rotated secret.
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        &format!("/admin/webhooks/{id}/deliveries/{delivery_id}/redeliver"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(as_json(&body)["status"], "pending");
+    assert_eq!(as_json(&body)["attempts"], 1, "the attempt count is kept");
+    assert_eq!(pass(&ctx, &config(None), Utc::now()).await.delivered, 1);
+    let (headers, body) = receiver.last();
+    verify_signature(&headers, &body, &new_secret);
+    assert_eq!(as_json(&body)["id"], event_id);
+    let (status, _, _) = send(
+        &ctx,
+        "POST",
+        &format!("/admin/webhooks/{id}/deliveries/999999/redeliver"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Delete: gone, with its log.
+    let (status, _, _) = send(&ctx, "DELETE", &format!("/admin/webhooks/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _, _) = send(&ctx, "GET", &format!("/admin/webhooks/{id}"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        ctx.repo.count_pending_webhook_deliveries().await.unwrap(),
+        0
+    );
+
+    let actions = audit_actions(&ctx).await;
+    for expected in [
+        "WEBHOOK_CREATED",
+        "WEBHOOK_PAUSED",
+        "WEBHOOK_RESUMED",
+        "WEBHOOK_SECRET_ROTATED",
+        "WEBHOOK_REDELIVERED",
+        "WEBHOOK_DELETED",
+    ] {
+        assert!(
+            actions.iter().any(|a| a == expected),
+            "{expected} missing from {actions:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_allow_list_setting_is_validated_stored_and_audited() {
+    let ctx = setup().await;
+    let (status, _, body) = send(&ctx, "GET", "/admin/settings/webhook-allowed-hosts", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(as_json(&body), json!({"hosts": []}));
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/settings/webhook-allowed-hosts",
+        Some(json!({"hosts": [" Hooks.Slack.com", "*.webhook.office.com", "http://n8n.corp.internal", "hooks.slack.com"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        as_json(&body),
+        json!({"hosts": ["hooks.slack.com", "*.webhook.office.com", "http://n8n.corp.internal"]})
+    );
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/settings/webhook-allowed-hosts",
+        Some(json!({"hosts": ["https://hooks.slack.com/x"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.contains("not a host pattern"), "{body}");
+    let (_, _, body) = send(&ctx, "GET", "/admin/settings/webhook-allowed-hosts", None).await;
+    assert_eq!(
+        as_json(&body)["hosts"].as_array().unwrap().len(),
+        3,
+        "a refused list changes nothing"
+    );
+    assert!(
+        audit_actions(&ctx)
+            .await
+            .contains(&"SET_WEBHOOK_ALLOWED_HOSTS".to_string())
+    );
+}

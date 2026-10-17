@@ -3,6 +3,7 @@ pub mod api;
 pub mod auth;
 pub mod pages;
 pub mod roles;
+pub mod webhooks;
 
 pub(super) use crate::domain::models::DEV_MODE_ACTOR;
 

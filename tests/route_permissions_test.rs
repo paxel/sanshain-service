@@ -224,6 +224,10 @@ async fn an_administrator_still_reaches_every_admin_surface() {
         ("GET", "/admin/settings/snapshot-max-age"),
         ("GET", "/admin/producers/orders/maintainers"),
         ("GET", "/admin/backup/sqlite"),
+        ("GET", "/admin/webhooks"),
+        ("GET", "/admin/producers/orders/webhooks"),
+        ("GET", "/admin/consumers/orders/webhooks"),
+        ("GET", "/admin/settings/webhook-allowed-hosts"),
     ] {
         let got = status(&w.app, method, uri, &w.admin).await;
         assert_ne!(got, StatusCode::FORBIDDEN, "admin refused {method} {uri}");
@@ -737,4 +741,91 @@ async fn the_maintainers_aggregate_answers_for_every_producer_at_once() {
         StatusCode::FORBIDDEN
     );
     assert_eq!(read(w.plain.clone()).await.status(), StatusCode::FORBIDDEN);
+}
+
+// --- Webhooks (#47) ---
+
+/// Global hooks and the allow-list are instance configuration
+/// (`ManageSettings`); a system's hooks follow the Maintainer scope — the
+/// same Producer rule for a Consumer of the same name.
+#[tokio::test]
+async fn webhook_routes_follow_the_settings_and_maintainer_scopes() {
+    let w = world().await;
+    for (method, uri) in [
+        ("GET", "/admin/webhooks"),
+        ("POST", "/admin/webhooks"),
+        ("GET", "/admin/webhooks/1"),
+        ("PATCH", "/admin/webhooks/1"),
+        ("DELETE", "/admin/webhooks/1"),
+        ("POST", "/admin/webhooks/1/test"),
+        ("POST", "/admin/webhooks/1/rotate-secret"),
+        ("GET", "/admin/webhooks/1/deliveries"),
+        ("POST", "/admin/webhooks/1/deliveries/1/redeliver"),
+        ("GET", "/admin/settings/webhook-allowed-hosts"),
+        ("POST", "/admin/settings/webhook-allowed-hosts"),
+    ] {
+        for (who, token) in [
+            ("plain", &w.plain),
+            ("maintainer", &w.maintainer),
+            ("user_manager", &w.user_manager),
+        ] {
+            assert_eq!(
+                status(&w.app, method, uri, token).await,
+                StatusCode::FORBIDDEN,
+                "{who} must be refused {method} {uri}"
+            );
+        }
+        let got = status(&w.app, method, uri, &w.admin).await;
+        assert_ne!(got, StatusCode::FORBIDDEN, "admin refused {method} {uri}");
+        assert_ne!(
+            got,
+            StatusCode::UNAUTHORIZED,
+            "admin unauthenticated for {method} {uri}"
+        );
+    }
+
+    for scope in ["producers", "consumers"] {
+        for (method, path) in [
+            ("GET", "webhooks"),
+            ("POST", "webhooks"),
+            ("GET", "webhooks/1"),
+            ("PATCH", "webhooks/1"),
+            ("DELETE", "webhooks/1"),
+            ("POST", "webhooks/1/test"),
+            ("POST", "webhooks/1/rotate-secret"),
+            ("GET", "webhooks/1/deliveries"),
+            ("POST", "webhooks/1/deliveries/1/redeliver"),
+        ] {
+            let own = format!("/admin/{scope}/orders/{path}");
+            let other = format!("/admin/{scope}/billing/{path}");
+            let got = status(&w.app, method, &own, &w.maintainer).await;
+            assert_ne!(
+                got,
+                StatusCode::FORBIDDEN,
+                "the maintainer of orders reaches {method} {own}"
+            );
+            assert_eq!(
+                status(&w.app, method, &other, &w.maintainer).await,
+                StatusCode::FORBIDDEN,
+                "the maintainer of orders must not reach {method} {other}"
+            );
+            assert_eq!(
+                status(&w.app, method, &own, &w.plain).await,
+                StatusCode::FORBIDDEN,
+                "a plain user must not reach {method} {own}"
+            );
+            assert_eq!(
+                status(&w.app, method, &own, &w.user_manager).await,
+                StatusCode::FORBIDDEN,
+                "a user manager must not reach {method} {own}"
+            );
+            let got = status(&w.app, method, &other, &w.admin).await;
+            assert_ne!(got, StatusCode::FORBIDDEN, "admin refused {method} {other}");
+        }
+    }
+    assert_eq!(
+        status(&w.app, "GET", "/admin/producers/orders/webhooks", &w.root).await,
+        StatusCode::OK,
+        "root reaches a system's hooks without a grant"
+    );
 }

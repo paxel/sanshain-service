@@ -26,7 +26,7 @@ use domain::models::LogEntry;
 use domain::permissions::Permission;
 use infrastructure::cached_repository::CachedSpecRepository;
 
-pub use presentation::handlers::{admin, api, auth, pages, roles};
+pub use presentation::handlers::{admin, api, auth, pages, roles, webhooks};
 pub use presentation::middleware::{
     LogCaptureLayer, RouteGuard, api_auth, api_auth_write, authenticated_auth, require,
     require_with_api_tokens, validate_csrf,
@@ -191,6 +191,28 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/users", get(admin::admin_list_users).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
         .route("/admin/users/{id}/approve", post(admin::admin_approve_user).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
         .route("/admin/users/{id}", delete(admin::admin_delete_user_handler).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
+        // Webhooks (#47): global hooks and the egress allow-list are instance
+        // configuration; a system's hooks are its Maintainers' to manage (a
+        // Consumer's by a Maintainer of the Producer of the same name).
+        .route("/admin/webhooks", get(webhooks::list_global).post(webhooks::create_global).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        .route("/admin/webhooks/{id}", get(webhooks::get_global).patch(webhooks::patch_global).delete(webhooks::delete_global).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        .route("/admin/webhooks/{id}/test", post(webhooks::test_global).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        .route("/admin/webhooks/{id}/rotate-secret", post(webhooks::rotate_global).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        .route("/admin/webhooks/{id}/deliveries", get(webhooks::deliveries_global).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        .route("/admin/webhooks/{id}/deliveries/{delivery_id}/redeliver", post(webhooks::redeliver_global).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        .route("/admin/producers/{name}/webhooks", get(webhooks::list_producer).post(webhooks::create_producer).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
+        .route("/admin/producers/{name}/webhooks/{id}", get(webhooks::get_producer).patch(webhooks::patch_producer).delete(webhooks::delete_producer).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
+        .route("/admin/producers/{name}/webhooks/{id}/test", post(webhooks::test_producer).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
+        .route("/admin/producers/{name}/webhooks/{id}/rotate-secret", post(webhooks::rotate_producer).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
+        .route("/admin/producers/{name}/webhooks/{id}/deliveries", get(webhooks::deliveries_producer).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
+        .route("/admin/producers/{name}/webhooks/{id}/deliveries/{delivery_id}/redeliver", post(webhooks::redeliver_producer).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
+        .route("/admin/consumers/{name}/webhooks", get(webhooks::list_consumer).post(webhooks::create_consumer).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
+        .route("/admin/consumers/{name}/webhooks/{id}", get(webhooks::get_consumer).patch(webhooks::patch_consumer).delete(webhooks::delete_consumer).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
+        .route("/admin/consumers/{name}/webhooks/{id}/test", post(webhooks::test_consumer).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
+        .route("/admin/consumers/{name}/webhooks/{id}/rotate-secret", post(webhooks::rotate_consumer).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
+        .route("/admin/consumers/{name}/webhooks/{id}/deliveries", get(webhooks::deliveries_consumer).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
+        .route("/admin/consumers/{name}/webhooks/{id}/deliveries/{delivery_id}/redeliver", post(webhooks::redeliver_consumer).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
+        .route("/admin/settings/webhook-allowed-hosts", get(webhooks::get_allowed_hosts).post(webhooks::set_allowed_hosts).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/settings/cache", get(admin::get_cache_config).post(admin::set_cache_config).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/settings/database", get(admin::get_database_info).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/cache/clear", post(admin::clear_cache).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))

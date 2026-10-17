@@ -5,7 +5,9 @@
 
 use super::now_iso;
 use crate::domain::models::*;
-use crate::domain::ports::SpecRepository;
+use crate::domain::permissions::{Actor, Permission};
+use crate::domain::ports::{NewWebhook, SpecRepository};
+use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::instrument;
 
@@ -409,6 +411,289 @@ pub fn catalog_recorded_data(
     })
 }
 
+// --- Hook management ---
+
+/// What a caller sends to register a hook.
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateWebhookRequest {
+    pub url: String,
+    #[serde(default)]
+    pub format: WebhookFormat,
+    /// Empty or absent: every event type.
+    #[serde(default)]
+    pub event_types: Vec<WebhookEventType>,
+    #[serde(default)]
+    pub producer_glob: Option<String>,
+}
+
+/// A registered hook with its secret — the one time the secret is shown.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct CreatedWebhook {
+    pub webhook: Webhook,
+    pub secret: String,
+}
+
+/// 32 random bytes as `whsec_<hex>`, and the hint the listing shows: the
+/// first 8 hex characters of the secret's SHA-256.
+fn new_secret() -> (String, String) {
+    let mut bytes = [0u8; 32];
+    {
+        use rand::RngExt;
+        rand::rng().fill(&mut bytes);
+    }
+    let secret = format!("whsec_{}", hex::encode(bytes));
+    (secret_hint(&secret), secret)
+}
+
+fn secret_hint(secret: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(secret.as_bytes());
+    hex::encode(hasher.finalize())[..8].to_string()
+}
+
+fn validate_glob(glob: Option<&str>) -> Result<Option<String>, AppError> {
+    let Some(glob) = glob.map(str::trim).filter(|g| !g.is_empty()) else {
+        return Ok(None);
+    };
+    if glob.len() > 200 {
+        return Err(AppError::BadRequest(
+            "the Producer glob is too long (200 characters at most)".to_string(),
+        ));
+    }
+    Ok(Some(glob.to_string()))
+}
+
+/// The scope must name a system that exists: the Producer, or — for a
+/// Consumer hook — the Consumer or a Producer of the same name (the system
+/// may not have required anything yet).
+async fn check_scope_exists(
+    repo: &impl SpecRepository,
+    scope: &WebhookScope,
+) -> Result<(), AppError> {
+    match scope {
+        WebhookScope::Global => Ok(()),
+        WebhookScope::Producer { name } => {
+            if repo.find_service(name).await?.is_none() {
+                return Err(AppError::NotFound(format!("Producer '{name}' is unknown")));
+            }
+            Ok(())
+        }
+        WebhookScope::Consumer { name } => {
+            let known = repo.list_consumers().await?.iter().any(|c| c == name)
+                || repo.find_service(name).await?.is_some();
+            if !known {
+                return Err(AppError::NotFound(format!("Consumer '{name}' is unknown")));
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Register a hook in `scope`. The URL is checked against the allow-list
+/// unless the Actor holds `manage_settings`, in which case the hook is
+/// exempt for good — at registration and at every delivery.
+#[instrument(skip_all, fields(scope = scope.kind()))]
+pub async fn create_webhook(
+    repo: &impl SpecRepository,
+    actor: &Actor,
+    scope: WebhookScope,
+    request: CreateWebhookRequest,
+) -> Result<CreatedWebhook, AppError> {
+    check_scope_exists(repo, &scope).await?;
+    let url = request.url.trim().to_string();
+    let exempt = actor.has_permission(Permission::ManageSettings);
+    let allowed = webhook_allowed_hosts(repo).await?;
+    validate_hook_url(&url, &allowed, exempt)?;
+    let producer_glob = validate_glob(request.producer_glob.as_deref())?;
+    let mut event_types = request.event_types;
+    event_types.sort_by_key(|t| t.as_str());
+    event_types.dedup();
+    if event_types.contains(&WebhookEventType::Test) {
+        return Err(AppError::BadRequest(
+            "webhook.test is sent by the test button only and cannot be subscribed to".to_string(),
+        ));
+    }
+    let (hint, secret) = new_secret();
+    let created_at = now_iso();
+    let id = repo
+        .create_webhook(NewWebhook {
+            scope: &scope,
+            url: &url,
+            format: request.format,
+            event_types: &event_types,
+            producer_glob: producer_glob.as_deref(),
+            secret: &secret,
+            secret_hint: &hint,
+            allow_list_exempt: exempt,
+            created_by: &actor.username,
+            created_at: &created_at,
+        })
+        .await?;
+    let webhook = repo
+        .get_webhook(id)
+        .await?
+        .ok_or_else(|| AppError::Internal("the hook vanished after creation".to_string()))?;
+    Ok(CreatedWebhook { webhook, secret })
+}
+
+pub async fn list_webhooks_in(
+    repo: &impl SpecRepository,
+    scope: &WebhookScope,
+) -> Result<Vec<Webhook>, AppError> {
+    Ok(repo.list_webhooks(Some(scope)).await?)
+}
+
+/// A hook by id, in this scope only: a system route never reaches a global
+/// hook or another system's, whatever the id says.
+pub async fn get_webhook_in(
+    repo: &impl SpecRepository,
+    scope: &WebhookScope,
+    id: i64,
+) -> Result<Webhook, AppError> {
+    match repo.get_webhook(id).await? {
+        Some(hook) if &hook.scope == scope => Ok(hook),
+        _ => Err(AppError::NotFound(format!("no webhook {id} in this scope"))),
+    }
+}
+
+/// The patch a caller sends: pause/resume, and the filters. `event_types:
+/// []` means every type; `producer_glob: null` clears the glob.
+#[derive(Clone, Debug, Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PatchWebhookRequest {
+    #[serde(default)]
+    pub paused: Option<bool>,
+    #[serde(default)]
+    pub event_types: Option<Vec<WebhookEventType>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub producer_glob: Option<Option<String>>,
+}
+
+fn double_option<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    <Option<String> as serde::Deserialize>::deserialize(deserializer).map(Some)
+}
+
+#[instrument(skip_all, fields(scope = scope.kind(), id))]
+pub async fn patch_webhook(
+    repo: &impl SpecRepository,
+    scope: &WebhookScope,
+    id: i64,
+    request: PatchWebhookRequest,
+) -> Result<Webhook, AppError> {
+    get_webhook_in(repo, scope, id).await?;
+    let event_types = match request.event_types {
+        Some(mut types) => {
+            if types.contains(&WebhookEventType::Test) {
+                return Err(AppError::BadRequest(
+                    "webhook.test is sent by the test button only and cannot be subscribed to"
+                        .to_string(),
+                ));
+            }
+            types.sort_by_key(|t| t.as_str());
+            types.dedup();
+            Some(types)
+        }
+        None => None,
+    };
+    let producer_glob = match request.producer_glob {
+        Some(glob) => Some(validate_glob(glob.as_deref())?),
+        None => None,
+    };
+    repo.update_webhook(
+        id,
+        &WebhookPatch {
+            paused: request.paused,
+            event_types,
+            producer_glob,
+        },
+    )
+    .await?;
+    get_webhook_in(repo, scope, id).await
+}
+
+/// A fresh secret, shown once like the first; deliveries from now on are
+/// signed with it.
+#[instrument(skip_all, fields(scope = scope.kind(), id))]
+pub async fn rotate_webhook_secret(
+    repo: &impl SpecRepository,
+    scope: &WebhookScope,
+    id: i64,
+) -> Result<CreatedWebhook, AppError> {
+    get_webhook_in(repo, scope, id).await?;
+    let (hint, secret) = new_secret();
+    repo.rotate_webhook_secret(id, &secret, &hint).await?;
+    let webhook = get_webhook_in(repo, scope, id).await?;
+    Ok(CreatedWebhook { webhook, secret })
+}
+
+#[instrument(skip_all, fields(scope = scope.kind(), id))]
+pub async fn delete_webhook_in(
+    repo: &impl SpecRepository,
+    scope: &WebhookScope,
+    id: i64,
+) -> Result<Webhook, AppError> {
+    let hook = get_webhook_in(repo, scope, id).await?;
+    repo.delete_webhook(id).await?;
+    Ok(hook)
+}
+
+/// Queue a `webhook.test` event for this hook alone; the worker delivers it
+/// like any other, so the signature, the format and the allow-list are all
+/// exercised. Answers the event id the delivery log will show.
+#[instrument(skip_all, fields(scope = scope.kind(), id))]
+pub async fn send_test_event(
+    repo: &impl SpecRepository,
+    scope: &WebhookScope,
+    id: i64,
+) -> Result<String, AppError> {
+    let hook = get_webhook_in(repo, scope, id).await?;
+    let event = test_event(&hook);
+    let event_id = event.id.clone();
+    repo.insert_webhook_events(&[event]).await?;
+    Ok(event_id)
+}
+
+/// The newest deliveries of a hook, at most 200.
+pub async fn list_deliveries_in(
+    repo: &impl SpecRepository,
+    scope: &WebhookScope,
+    id: i64,
+    limit: Option<u32>,
+) -> Result<Vec<WebhookDelivery>, AppError> {
+    get_webhook_in(repo, scope, id).await?;
+    Ok(repo
+        .list_webhook_deliveries(id, limit.unwrap_or(50).clamp(1, 200))
+        .await?)
+}
+
+/// Redeliver one delivery of this hook: pending again, due now, attempt
+/// count kept — one more attempt even past the 24 h cutoff.
+#[instrument(skip_all, fields(scope = scope.kind(), id, delivery_id))]
+pub async fn redeliver(
+    repo: &impl SpecRepository,
+    scope: &WebhookScope,
+    id: i64,
+    delivery_id: i64,
+) -> Result<WebhookDelivery, AppError> {
+    get_webhook_in(repo, scope, id).await?;
+    match repo.get_webhook_delivery(delivery_id).await? {
+        Some(delivery) if delivery.hook_id == id => {}
+        _ => {
+            return Err(AppError::NotFound(format!(
+                "no delivery {delivery_id} on webhook {id}"
+            )));
+        }
+    }
+    repo.reset_webhook_delivery(delivery_id, &now_iso()).await?;
+    repo.get_webhook_delivery(delivery_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("no delivery {delivery_id}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -667,6 +952,127 @@ mod tests {
                 "{junk}"
             );
         }
+    }
+
+    #[test]
+    fn a_new_secret_is_32_random_bytes_with_a_hash_prefix_hint() {
+        let (hint, secret) = new_secret();
+        assert!(secret.starts_with("whsec_"));
+        assert_eq!(secret.len(), "whsec_".len() + 64);
+        assert_eq!(hint.len(), 8);
+        assert_eq!(hint, secret_hint(&secret));
+        assert_ne!(new_secret().1, secret);
+    }
+
+    #[tokio::test]
+    async fn hook_management_round_trip_keeps_scopes_apart() {
+        let repo = MockRepo::new();
+        repo.ensure_service("orders").await.unwrap();
+        let admin = Actor {
+            user_id: 0,
+            username: "root".to_string(),
+            is_root: true,
+            roles: Vec::new(),
+            directory_groups: Vec::new(),
+        };
+        let request = || CreateWebhookRequest {
+            url: "https://hooks.example/x".to_string(),
+            format: WebhookFormat::Slack,
+            event_types: vec![
+                WebhookEventType::VersionPublished,
+                WebhookEventType::VersionPublished,
+            ],
+            producer_glob: Some(" pay* ".to_string()),
+        };
+        // Root holds manage_settings: exempt from the (empty) allow-list.
+        let created = create_webhook(&repo, &admin, WebhookScope::Global, request())
+            .await
+            .unwrap();
+        assert!(created.webhook.allow_list_exempt);
+        assert_eq!(
+            created.webhook.event_types,
+            vec![WebhookEventType::VersionPublished]
+        );
+        assert_eq!(created.webhook.producer_glob.as_deref(), Some("pay*"));
+        assert_eq!(created.webhook.format, WebhookFormat::Slack);
+        let id = created.webhook.id;
+
+        let producer_scope = WebhookScope::Producer {
+            name: "orders".to_string(),
+        };
+        assert!(matches!(
+            get_webhook_in(&repo, &producer_scope, id).await,
+            Err(AppError::NotFound(_))
+        ));
+        assert!(matches!(
+            patch_webhook(&repo, &producer_scope, id, PatchWebhookRequest::default()).await,
+            Err(AppError::NotFound(_))
+        ));
+        assert!(matches!(
+            delete_webhook_in(&repo, &producer_scope, id).await,
+            Err(AppError::NotFound(_))
+        ));
+        let unknown = WebhookScope::Producer {
+            name: "nope".to_string(),
+        };
+        assert!(matches!(
+            create_webhook(&repo, &admin, unknown, request()).await,
+            Err(AppError::NotFound(_))
+        ));
+
+        let patched = patch_webhook(
+            &repo,
+            &WebhookScope::Global,
+            id,
+            PatchWebhookRequest {
+                paused: Some(true),
+                event_types: Some(Vec::new()),
+                producer_glob: Some(None),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(patched.paused);
+        assert!(patched.event_types.is_empty());
+        assert_eq!(patched.producer_glob, None);
+
+        let rotated = rotate_webhook_secret(&repo, &WebhookScope::Global, id)
+            .await
+            .unwrap();
+        assert_ne!(rotated.secret, created.secret);
+        assert_ne!(rotated.webhook.secret_hint, created.webhook.secret_hint);
+
+        let event_id = send_test_event(&repo, &WebhookScope::Global, id)
+            .await
+            .unwrap();
+        let rows = list_deliveries_in(&repo, &WebhookScope::Global, id, None)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].event_id, event_id);
+        assert_eq!(rows[0].event_type, WebhookEventType::Test);
+        let again = redeliver(&repo, &WebhookScope::Global, id, rows[0].id)
+            .await
+            .unwrap();
+        assert_eq!(again.status, WebhookDeliveryStatus::Pending);
+        assert!(matches!(
+            redeliver(&repo, &WebhookScope::Global, id, 999_999).await,
+            Err(AppError::NotFound(_))
+        ));
+
+        assert_eq!(
+            delete_webhook_in(&repo, &WebhookScope::Global, id)
+                .await
+                .unwrap()
+                .id,
+            id
+        );
+        assert!(
+            list_webhooks_in(&repo, &WebhookScope::Global)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

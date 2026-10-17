@@ -2079,6 +2079,1006 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/webhooks:
+    get:
+      summary: "Read: webhooks/webhooks"
+      description: |
+        Requires the `manage_settings` permission.
+
+        The hooks of this scope, newest last, without their secrets (`secret_hint` is a prefix of the secret's SHA-256).
+      responses:
+        "200":
+          description: The hooks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookList"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    post:
+      summary: "Create or run: webhooks/webhooks"
+      description: |
+        Requires the `manage_settings` permission.
+
+        Register a hook (`WebhookCreate`). The URL must be `https://`, or `http://` to a host the allow-list
+        names with `http://`; callers without `manage_settings` are refused outside the allow-list (and with an
+        empty allow-list), callers with it are exempt for good. The answer carries the signing secret **once**.
+      responses:
+        "201":
+          description: Registered; the secret is shown once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookCreated"
+        "400":
+          description: Not a valid hook (URL, format, event type or glob).
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/webhooks/{id}:
+    get:
+      summary: "Read: webhooks/webhooks/id"
+      description: |
+        Requires the `manage_settings` permission.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The hook.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    patch:
+      summary: "Update: webhooks/webhooks/id"
+      description: |
+        Requires the `manage_settings` permission.
+
+        Pause or resume (`paused`), replace the event-type filter (`event_types`, `[]` = every type) or the Producer glob (`producer_glob`, `null` clears it). Fields left out stay as they are.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The hook after the patch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    delete:
+      summary: "Delete: webhooks/webhooks/id"
+      description: |
+        Requires the `manage_settings` permission.
+
+        Deletes the hook and its delivery log.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted.
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/webhooks/{id}/test:
+    post:
+      summary: "Create or run: webhooks/webhooks/id/test"
+      description: |
+        Requires the `manage_settings` permission.
+
+        Queue a `webhook.test` event for this hook alone; the worker delivers it like any other event, so the delivery log shows whether the receiver, the secret and the allow-list are in order.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "202":
+          description: Queued; `event_id` names the event the delivery log will show.
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/webhooks/{id}/rotate-secret:
+    post:
+      summary: "Create or run: webhooks/webhooks/id/rotate-secret"
+      description: |
+        Requires the `manage_settings` permission.
+
+        A fresh secret, shown once; deliveries from now on are signed with it.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The hook and its new secret.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookCreated"
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/webhooks/{id}/deliveries:
+    get:
+      summary: "Read: webhooks/webhooks/id/deliveries"
+      description: |
+        Requires the `manage_settings` permission.
+
+        The newest deliveries of the hook (`limit`, default 50, at most 200): status, attempts, next attempt, last response code and error.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The delivery log.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliveryList"
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/webhooks/{id}/deliveries/{delivery_id}/redeliver:
+    post:
+      summary: "Create or run: webhooks/webhooks/id/deliveries/delivery_id/redeliver"
+      description: |
+        Requires the `manage_settings` permission.
+
+        Reset one delivery to `pending`, due now, attempt count kept — one more attempt even for a dead delivery.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: delivery_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "202":
+          description: Reset; the delivery as it now is.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        "404":
+          description: No such delivery on this hook.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/webhooks:
+    get:
+      summary: "Read: producers/name/webhooks"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
+
+        The hooks of this scope, newest last, without their secrets (`secret_hint` is a prefix of the secret's SHA-256).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The hooks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookList"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    post:
+      summary: "Create or run: producers/name/webhooks"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
+
+        Register a hook (`WebhookCreate`). The URL must be `https://`, or `http://` to a host the allow-list
+        names with `http://`; callers without `manage_settings` are refused outside the allow-list (and with an
+        empty allow-list), callers with it are exempt for good. The answer carries the signing secret **once**.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Registered; the secret is shown once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookCreated"
+        "400":
+          description: Not a valid hook (URL, format, event type or glob).
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/webhooks/{id}:
+    get:
+      summary: "Read: producers/name/webhooks/id"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The hook.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    patch:
+      summary: "Update: producers/name/webhooks/id"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
+
+        Pause or resume (`paused`), replace the event-type filter (`event_types`, `[]` = every type) or the Producer glob (`producer_glob`, `null` clears it). Fields left out stay as they are.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The hook after the patch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    delete:
+      summary: "Delete: producers/name/webhooks/id"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
+
+        Deletes the hook and its delivery log.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted.
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/webhooks/{id}/test:
+    post:
+      summary: "Create or run: producers/name/webhooks/id/test"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
+
+        Queue a `webhook.test` event for this hook alone; the worker delivers it like any other event, so the delivery log shows whether the receiver, the secret and the allow-list are in order.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "202":
+          description: Queued; `event_id` names the event the delivery log will show.
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/webhooks/{id}/rotate-secret:
+    post:
+      summary: "Create or run: producers/name/webhooks/id/rotate-secret"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
+
+        A fresh secret, shown once; deliveries from now on are signed with it.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The hook and its new secret.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookCreated"
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/webhooks/{id}/deliveries:
+    get:
+      summary: "Read: producers/name/webhooks/id/deliveries"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
+
+        The newest deliveries of the hook (`limit`, default 50, at most 200): status, attempts, next attempt, last response code and error.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The delivery log.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliveryList"
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/webhooks/{id}/deliveries/{delivery_id}/redeliver:
+    post:
+      summary: "Create or run: producers/name/webhooks/id/deliveries/delivery_id/redeliver"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
+
+        Reset one delivery to `pending`, due now, attempt count kept — one more attempt even for a dead delivery.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: delivery_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "202":
+          description: Reset; the delivery as it now is.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        "404":
+          description: No such delivery on this hook.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/consumers/{name}/webhooks:
+    get:
+      summary: "Read: consumers/name/webhooks"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
+
+        The hooks of this scope, newest last, without their secrets (`secret_hint` is a prefix of the secret's SHA-256).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The hooks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookList"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    post:
+      summary: "Create or run: consumers/name/webhooks"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
+
+        Register a hook (`WebhookCreate`). The URL must be `https://`, or `http://` to a host the allow-list
+        names with `http://`; callers without `manage_settings` are refused outside the allow-list (and with an
+        empty allow-list), callers with it are exempt for good. The answer carries the signing secret **once**.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Registered; the secret is shown once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookCreated"
+        "400":
+          description: Not a valid hook (URL, format, event type or glob).
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/consumers/{name}/webhooks/{id}:
+    get:
+      summary: "Read: consumers/name/webhooks/id"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The hook.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    patch:
+      summary: "Update: consumers/name/webhooks/id"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
+
+        Pause or resume (`paused`), replace the event-type filter (`event_types`, `[]` = every type) or the Producer glob (`producer_glob`, `null` clears it). Fields left out stay as they are.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The hook after the patch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    delete:
+      summary: "Delete: consumers/name/webhooks/id"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
+
+        Deletes the hook and its delivery log.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted.
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/consumers/{name}/webhooks/{id}/test:
+    post:
+      summary: "Create or run: consumers/name/webhooks/id/test"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
+
+        Queue a `webhook.test` event for this hook alone; the worker delivers it like any other event, so the delivery log shows whether the receiver, the secret and the allow-list are in order.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "202":
+          description: Queued; `event_id` names the event the delivery log will show.
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/consumers/{name}/webhooks/{id}/rotate-secret:
+    post:
+      summary: "Create or run: consumers/name/webhooks/id/rotate-secret"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
+
+        A fresh secret, shown once; deliveries from now on are signed with it.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The hook and its new secret.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookCreated"
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/consumers/{name}/webhooks/{id}/deliveries:
+    get:
+      summary: "Read: consumers/name/webhooks/id/deliveries"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
+
+        The newest deliveries of the hook (`limit`, default 50, at most 200): status, attempts, next attempt, last response code and error.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The delivery log.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliveryList"
+        "404":
+          description: No such hook in this scope.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/consumers/{name}/webhooks/{id}/deliveries/{delivery_id}/redeliver:
+    post:
+      summary: "Create or run: consumers/name/webhooks/id/deliveries/delivery_id/redeliver"
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
+
+        Reset one delivery to `pending`, due now, attempt count kept — one more attempt even for a dead delivery.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: delivery_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "202":
+          description: Reset; the delivery as it now is.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        "404":
+          description: No such delivery on this hook.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/settings/webhook-allowed-hosts:
+    get:
+      summary: "Read: settings/webhook-allowed-hosts"
+      description: |
+        Requires the `manage_settings` permission.
+
+        The egress allow-list: host patterns a hook URL may point at.
+      responses:
+        "200":
+          description: "The list, as `{\"hosts\": [...]}`."
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    post:
+      summary: "Create or run: settings/webhook-allowed-hosts"
+      description: |
+        Requires the `manage_settings` permission.
+
+        Replace the allow-list (`{"hosts": [...]}`). A pattern is a host name with `*`/`?` wildcards
+        (`hooks.slack.com`, `*.webhook.office.com`); prefixed `http://` it also admits plain HTTP to that
+        host (`http://n8n.corp.internal`). Ports are not matched. An empty list means only callers with
+        `manage_settings` may register hooks. Evaluated at registration and again at every delivery.
+      responses:
+        "200":
+          description: The list as stored (trimmed, lower-cased, de-duplicated).
+        "400":
+          description: A pattern is not a host pattern.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/users:
     get:
       summary: "Read: users"
@@ -2329,6 +3329,125 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/SystemContext"
+    WebhookScope:
+      type: object
+      description: Who a hook belongs to (#47).
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [global, producer, consumer]
+        name:
+          type: string
+          description: The Producer or Consumer; absent for `global`.
+    Webhook:
+      type: object
+      description: |
+        A registered hook (#47). The signing secret is never part of it;
+        `secret_hint` is the first 8 hex characters of the secret's SHA-256,
+        to tell hooks apart.
+      required: [id, scope, url, format, event_types, producer_glob, secret_hint, paused, allow_list_exempt, created_by, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        scope:
+          $ref: "#/components/schemas/WebhookScope"
+        url:
+          type: string
+        format:
+          type: string
+          enum: [json, slack, teams]
+        event_types:
+          type: array
+          description: The event types the hook receives; empty means every type.
+          items:
+            type: string
+        producer_glob:
+          type: string
+          nullable: true
+          description: Only events about Producers whose name matches (`*` and `?`); `null` means every Producer.
+        secret_hint:
+          type: string
+        paused:
+          type: boolean
+        allow_list_exempt:
+          type: boolean
+          description: Registered by a caller with `manage_settings`; the allow-list does not apply.
+        created_by:
+          type: string
+        created_at:
+          type: string
+    WebhookList:
+      type: array
+      items:
+        $ref: "#/components/schemas/Webhook"
+    WebhookCreate:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+        format:
+          type: string
+          enum: [json, slack, teams]
+          default: json
+        event_types:
+          type: array
+          items:
+            type: string
+          description: Empty or absent means every type; `webhook.test` cannot be subscribed to.
+        producer_glob:
+          type: string
+          nullable: true
+    WebhookCreated:
+      type: object
+      required: [webhook, secret]
+      properties:
+        webhook:
+          $ref: "#/components/schemas/Webhook"
+        secret:
+          type: string
+          description: The signing secret, shown this once (`whsec_` + 64 hex characters).
+    WebhookDelivery:
+      type: object
+      description: One hook's delivery of one event — a delivery log row (#47).
+      required: [id, hook_id, event_id, event_type, occurred_at, status, attempts, next_attempt_at, last_response_code, last_error, delivered_at, updated_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        hook_id:
+          type: integer
+          format: int64
+        event_id:
+          type: string
+        event_type:
+          type: string
+        occurred_at:
+          type: string
+        status:
+          type: string
+          enum: [pending, delivered, failed, dead]
+        attempts:
+          type: integer
+        next_attempt_at:
+          type: string
+        last_response_code:
+          type: integer
+          nullable: true
+        last_error:
+          type: string
+          nullable: true
+        delivered_at:
+          type: string
+          nullable: true
+        updated_at:
+          type: string
+    WebhookDeliveryList:
+      type: array
+      items:
+        $ref: "#/components/schemas/WebhookDelivery"
     ErrorBody:
       type: object
       description: |
