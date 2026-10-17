@@ -804,9 +804,9 @@ pub struct CatalogPushRequest {
     pub trunk: bool,
 }
 
-/// `PUT /catalog/{systemname}` — record the system's periphery (#46). A
-/// file Sanshain cannot read answers `200` with `recorded: false` and a
-/// `Sanshain-Warning` (ADR-0007 amendment).
+/// `PUT /catalog/{systemname}` — record the system's periphery (#46) and
+/// its context (#48). A file Sanshain cannot read answers `200` with
+/// `recorded: false` and a `Sanshain-Warning` (ADR-0007 amendment).
 pub async fn push_catalog(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
@@ -823,7 +823,9 @@ pub async fn push_catalog(
     let mut headers = HeaderMap::new();
     append_warnings(&mut headers, &result.warnings);
     // Nothing recorded, nothing to audit — the warning goes to the build.
-    if !result.recorded {
+    // Nothing changed (a nightly rebuild of the same file), nothing to audit
+    // either: an unchanged push is no event (#48).
+    if !result.recorded || !result.changed {
         return Ok((headers, Json(result)));
     }
     let _ = record_audit_log(

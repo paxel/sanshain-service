@@ -178,6 +178,10 @@ const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
         "20261016000000_api_token_scope.sql",
         "b03a3ecbabdadffe76f0b58ac3915ac1b280f218c0710eadad5a6d1628714161",
     ),
+    (
+        "20261017000000_system_context.sql",
+        "835fa529d6990facffbd65b94db5ce1faf3999d8ddce6e88edddc7a45ccd22dc",
+    ),
 ];
 
 const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
@@ -308,6 +312,10 @@ const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
     (
         "20261016000000_api_token_scope.sql",
         "b03a3ecbabdadffe76f0b58ac3915ac1b280f218c0710eadad5a6d1628714161",
+    ),
+    (
+        "20261017000000_system_context.sql",
+        "835fa529d6990facffbd65b94db5ce1faf3999d8ddce6e88edddc7a45ccd22dc",
     ),
 ];
 

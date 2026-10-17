@@ -517,6 +517,61 @@ async fn list_services_and_describe_service_answer_the_catalog() {
 }
 
 #[tokio::test]
+async fn describe_service_carries_the_context_of_the_catalog_info() {
+    let seed = seed().await;
+    let before = call_json(
+        &seed.app,
+        &seed.full,
+        "describe_service",
+        json!({ "name": "orders" }),
+    )
+    .await;
+    assert_eq!(before["context"], Value::Null);
+
+    // The build pushes the catalog-info (#48) through the same router.
+    let catalog = "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: orders\n  description: Takes orders.\n  annotations:\n    backstage.io/source-location: url:https://github.com/acme/orders\n  links:\n    - url: https://wiki.acme.corp/orders\n      title: Wiki\n      type: docs\nspec:\n  owner: team-orders\n";
+    let res = seed
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/catalog/orders")
+                .header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {}", seed.session),
+                )
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({ "catalog_info_yaml": catalog, "trunk": true }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let d = call_json(
+        &seed.app,
+        &seed.read_only,
+        "describe_service",
+        json!({ "name": "orders" }),
+    )
+    .await;
+    assert_eq!(
+        d["context"],
+        json!({
+            "owner": { "kind": "group", "name": "team-orders" },
+            "description": "Takes orders.",
+            "source_location": "https://github.com/acme/orders",
+            "links": [
+                { "url": "https://wiki.acme.corp/orders", "title": "Wiki", "type": "docs", "icon": null }
+            ]
+        })
+    );
+}
+
+#[tokio::test]
 async fn find_endpoint_searches_latest_versions_by_default() {
     let seed = seed().await;
     let found = call_json(

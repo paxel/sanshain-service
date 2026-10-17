@@ -217,6 +217,7 @@ pub async fn get_graph_scope(
     Ok(GraphScopeData {
         producers,
         harvested_subscriptions,
+        systems: repo.list_system_contexts().await?,
     })
 }
 
@@ -342,6 +343,9 @@ pub async fn generate_report(repo: &impl SpecRepository) -> Result<DependencyRep
     // carries the full set; scoped views filter it below.
     report.harvested_subscriptions = repo.list_current_harvested_subscriptions().await?;
     report.peripheral_dependencies = repo.list_periphery(PeripheryTrack::Dev, None).await?;
+    // Owner, description, source location and links per system (#48): a
+    // present-day fact, so every scope carries the same map.
+    report.systems = repo.list_system_contexts().await?;
     // A pin on a deleted version must look broken in the main view too, not
     // only in branch view (ADR-0005: dangling, never silently healthy).
     super::branch_service::mark_dangling(repo, &mut report.trunk_graph).await?;
@@ -461,6 +465,7 @@ mod tests {
             trunk_graph: vec![],
             harvested_subscriptions: vec![],
             peripheral_dependencies: vec![],
+            systems: Default::default(),
             trunk_stale_before: None,
             scope_label: None,
         }

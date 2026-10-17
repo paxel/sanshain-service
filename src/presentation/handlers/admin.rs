@@ -32,6 +32,23 @@ pub async fn admin_list_consumers(
     Ok(Json(res))
 }
 
+/// `GET /admin/producers/{name}` — the Producer's context (#48): owner,
+/// description, source location and links from its catalog-info.
+pub async fn admin_get_producer(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(services::producer_context(&state.repo, &name).await?))
+}
+
+/// `GET /admin/consumers/{name}` — the Consumer's context (#48).
+pub async fn admin_get_consumer(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(services::consumer_context(&state.repo, &name).await?))
+}
+
 pub async fn admin_list_consumer_endpoints(
     State(state): State<AppState>,
     Path(name): Path<String>,

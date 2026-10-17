@@ -158,10 +158,13 @@ pub fn catalog() -> Result<Vec<Tool>, String> {
              stored version line entry (api_type, version, stability, who provided it, when it was last \
              provided, endpoint count, and `superseded` when a newer version of that line exists), the \
              endpoints of the latest version of each line (api_type, method, path, deprecated), and who \
-             requires what version of it. For any service: what it requires from others, and its \
+             requires what version of it. For any service: what it requires from others, its \
              periphery — the Backstage resources (databases, queues, buckets) it depends on and which \
-             other systems share each. Use it after `list_services`, before `get_spec` or \
-             `find_endpoint`. Unknown names are refused with a message. `scope` as in `list_services`.",
+             other systems share each — and its `context` from its Backstage catalog-info: owner \
+             (kind and name), description, source location (the repository) and links (wiki, \
+             dashboards, ticket board); `null` when the service pushed no catalog-info. Use it after \
+             `list_services`, before `get_spec` or `find_endpoint`. Unknown names are refused with a \
+             message. `scope` as in `list_services`.",
         )?,
         tool::<FindEndpointParams>(
             "find_endpoint",

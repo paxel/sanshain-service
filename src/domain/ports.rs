@@ -1,5 +1,5 @@
 use crate::domain::models::*;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use thiserror::Error;
 
@@ -1005,13 +1005,43 @@ pub trait SpecRepository: Send + Sync {
     /// Reconcile a system's periphery to exactly `resources`, append-only
     /// (ADR-0005): a resource no longer listed is closed, a new one opened, an
     /// unchanged one left. Always the dev set; with `trunk` the trunk set too,
-    /// in the same transaction.
+    /// in the same transaction. Answers whether any row was closed or opened.
     fn reconcile_periphery(
         &self,
         system: &str,
         trunk: bool,
         resources: &[String],
         now_iso: &str,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    // --- Context from Backstage catalog-info (#48) ---
+
+    /// Replace a system's context (owner, description, source location,
+    /// links) with `context`, creating the row when none exists. Answers
+    /// whether the stored context differs from before — an identical push
+    /// changes nothing.
+    fn upsert_system_context(
+        &self,
+        system: &str,
+        context: &SystemContext,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// One system's context, `None` when no push described it.
+    fn get_system_context(
+        &self,
+        system: &str,
+    ) -> impl Future<Output = Result<Option<SystemContext>, RepositoryError>> + Send;
+
+    /// Every system's context, by name.
+    fn list_system_contexts(
+        &self,
+    ) -> impl Future<Output = Result<BTreeMap<String, SystemContext>, RepositoryError>> + Send;
+
+    /// Forget a system's context — when it has no role left.
+    fn delete_system_context(
+        &self,
+        system: &str,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// The periphery edges of one set — current, or as it was at `at` —

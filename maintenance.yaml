@@ -304,6 +304,39 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
   /admin/consumers/{name}:
+    get:
+      summary: "Read: consumers/name"
+      description: |
+        Any signed-in caller.
+
+        The Consumer's context (#48): what its Backstage `catalog-info.yaml`
+        says about it — owner, description, source location and links.
+        `context` is `null` until a catalog push described the system.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The Consumer's name and context.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParticipantContext"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No such Consumer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
     delete:
       summary: "Delete: consumers/name"
       description: |
@@ -889,6 +922,10 @@ paths:
           provide known at the instant (`null` when none is known).
         - `harvested_subscriptions`: dev all, live main the trunk-flagged
           ones, everything else none (there is no harvested timeline).
+        - `systems`: the context (#48) of every system that pushed one, by
+          name — owner, description, source location and links from its
+          Backstage `catalog-info.yaml` — so the node panel needs no extra
+          request. A present-day fact, the same in every scope.
       parameters:
         - name: scope
           in: query
@@ -897,12 +934,12 @@ paths:
             type: string
       responses:
         "200":
-          description: The scope's producers and harvested subscriptions.
+          description: The scope's producers, harvested subscriptions and system contexts.
           content:
             application/json:
               schema:
                 type: object
-                required: [producers, harvested_subscriptions]
+                required: [producers, harvested_subscriptions, systems]
                 properties:
                   producers:
                     type: array
@@ -946,6 +983,10 @@ paths:
                           nullable: true
                         trunk:
                           type: boolean
+                  systems:
+                    type: object
+                    additionalProperties:
+                      $ref: "#/components/schemas/SystemContext"
         "400":
           description: A selector instant that is not RFC 3339, or `dev@…`.
           content:
@@ -1007,6 +1048,39 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
   /admin/producers/{name}:
+    get:
+      summary: "Read: producers/name"
+      description: |
+        Any signed-in caller.
+
+        The Producer's context (#48): what its Backstage `catalog-info.yaml`
+        says about it — owner, description, source location and links.
+        `context` is `null` until a catalog push described the system.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The Producer's name and context.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParticipantContext"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No such Producer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
     delete:
       summary: "Delete: producers/name"
       description: |
@@ -2199,6 +2273,62 @@ components:
       scheme: bearer
 
   schemas:
+    SystemContext:
+      type: object
+      description: |
+        What a system's Backstage `catalog-info.yaml` says about it (#48),
+        read from the Component named like the system: `spec.owner`,
+        `metadata.description`, the `backstage.io/source-location`
+        annotation and `metadata.links`. One per system, replaced on every
+        catalog push; a field the file does not have is `null` or empty.
+      required: [owner, description, source_location, links]
+      properties:
+        owner:
+          type: object
+          nullable: true
+          description: The owner ref's kind (`group` unless the ref says otherwise) and name, lower-cased.
+          required: [kind, name]
+          properties:
+            kind:
+              type: string
+            name:
+              type: string
+        description:
+          type: string
+          nullable: true
+          description: Trimmed, at most 1000 characters (a longer one is cut with an ellipsis).
+        source_location:
+          type: string
+          nullable: true
+          description: The annotation without its `url:` prefix; only an `http` or `https` URL is kept.
+        links:
+          type: array
+          description: At most 20; a link whose `url` is not `http` or `https` is dropped.
+          items:
+            type: object
+            required: [url, title, type, icon]
+            properties:
+              url:
+                type: string
+              title:
+                type: string
+                description: The link's title, or the URL's host when it has none.
+              type:
+                type: string
+                nullable: true
+              icon:
+                type: string
+                nullable: true
+    ParticipantContext:
+      type: object
+      required: [name, context]
+      properties:
+        name:
+          type: string
+        context:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/SystemContext"
     ErrorBody:
       type: object
       description: |

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -1542,11 +1543,50 @@ impl SpecRepository for CachedSpecRepository {
         trunk: bool,
         resources: &[String],
         now_iso: &str,
-    ) -> Result<(), RepositoryError> {
-        self.inner
+    ) -> Result<bool, RepositoryError> {
+        let changed = self
+            .inner
             .reconcile_periphery(system, trunk, resources, now_iso)
             .await?;
         // Periphery edges ride the report payload, so a change stales it.
+        if !self.is_disabled() {
+            self.report_cache.invalidate_all();
+        }
+        Ok(changed)
+    }
+
+    async fn upsert_system_context(
+        &self,
+        system: &str,
+        context: &SystemContext,
+        now_iso: &str,
+    ) -> Result<bool, RepositoryError> {
+        let changed = self
+            .inner
+            .upsert_system_context(system, context, now_iso)
+            .await?;
+        // The context rides the report payload (#48), so a change stales it.
+        if changed && !self.is_disabled() {
+            self.report_cache.invalidate_all();
+        }
+        Ok(changed)
+    }
+
+    async fn get_system_context(
+        &self,
+        system: &str,
+    ) -> Result<Option<SystemContext>, RepositoryError> {
+        self.inner.get_system_context(system).await
+    }
+
+    async fn list_system_contexts(
+        &self,
+    ) -> Result<BTreeMap<String, SystemContext>, RepositoryError> {
+        self.inner.list_system_contexts().await
+    }
+
+    async fn delete_system_context(&self, system: &str) -> Result<(), RepositoryError> {
+        self.inner.delete_system_context(system).await?;
         if !self.is_disabled() {
             self.report_cache.invalidate_all();
         }

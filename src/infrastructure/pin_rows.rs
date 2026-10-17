@@ -67,3 +67,45 @@ pub(crate) fn periphery_track_key(
         PeripheryTrack::Branch(id) => ("branch", Some(id)),
     }
 }
+
+/// `(system_name, owner_kind, owner_name, description, source_location,
+/// links_json)` — one `system_context` row (#48), shared by both engines.
+pub(crate) type SystemContextRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    String,
+);
+
+/// A `system_context` row into the domain's [`SystemContext`] and its name.
+pub(crate) fn system_context_from_row(
+    row: SystemContextRow,
+) -> Result<(String, crate::domain::models::SystemContext), RepositoryError> {
+    use crate::domain::models::{SystemContext, SystemOwner};
+    let (system, owner_kind, owner_name, description, source_location, links_json) = row;
+    let links = serde_json::from_str(&links_json).map_err(|e| {
+        RepositoryError::Internal(format!("links of system '{system}' are not JSON: {e}"))
+    })?;
+    let owner = match (owner_kind, owner_name) {
+        (Some(kind), Some(name)) => Some(SystemOwner { kind, name }),
+        _ => None,
+    };
+    Ok((
+        system,
+        SystemContext {
+            owner,
+            description,
+            source_location,
+            links,
+        },
+    ))
+}
+
+/// The `links_json` column value of a context.
+pub(crate) fn links_json(
+    context: &crate::domain::models::SystemContext,
+) -> Result<String, RepositoryError> {
+    serde_json::to_string(&context.links).map_err(|e| RepositoryError::Internal(e.to_string()))
+}

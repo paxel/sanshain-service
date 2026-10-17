@@ -678,6 +678,80 @@ async fn test_postgres_periphery_append_only_and_at_an_instant() {
 }
 
 #[tokio::test]
+async fn test_postgres_system_context_upsert_get_list_delete() {
+    use sanshain_service::domain::models::{SystemContext, SystemLink, SystemOwner};
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let postgres_container = common::start_postgres().await;
+    let host = postgres_container.get_host().await.unwrap();
+    let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
+    let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .unwrap();
+    let repo = PostgresSpecRepository::new(pool.clone());
+    repo.run_migrations().await.unwrap();
+
+    let context = SystemContext {
+        owner: Some(SystemOwner {
+            kind: "group".to_string(),
+            name: "team-orders".to_string(),
+        }),
+        description: Some("Orders.".to_string()),
+        source_location: Some("https://git.example/orders".to_string()),
+        links: vec![SystemLink {
+            url: "https://wiki.example/orders".to_string(),
+            title: "Wiki".to_string(),
+            link_type: Some("docs".to_string()),
+            icon: None,
+        }],
+    };
+    assert!(
+        repo.upsert_system_context("orders", &context, "2026-01-01T00:00:00Z")
+            .await
+            .unwrap()
+    );
+    // The same content again: nothing changes.
+    assert!(
+        !repo
+            .upsert_system_context("orders", &context, "2026-01-02T00:00:00Z")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        repo.get_system_context("orders").await.unwrap(),
+        Some(context.clone())
+    );
+    assert!(
+        repo.upsert_system_context("billing", &SystemContext::default(), "2026-01-03T00:00:00Z")
+            .await
+            .unwrap()
+    );
+    let all = repo.list_system_contexts().await.unwrap();
+    assert_eq!(
+        all.keys().cloned().collect::<Vec<_>>(),
+        vec!["billing".to_string(), "orders".to_string()]
+    );
+
+    // A different content replaces the row in place.
+    let emptied = SystemContext::default();
+    assert!(
+        repo.upsert_system_context("orders", &emptied, "2026-01-04T00:00:00Z")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        repo.get_system_context("orders").await.unwrap(),
+        Some(emptied)
+    );
+    repo.delete_system_context("orders").await.unwrap();
+    assert_eq!(repo.get_system_context("orders").await.unwrap(), None);
+    assert_eq!(repo.list_system_contexts().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn test_postgres_member_versions_record_close_and_read_at_an_instant() {
     use sanshain_service::domain::models::{ApiType, MemberTrack, Stability};
     use sanshain_service::domain::ports::{SpecRepository, UpsertSpecVersion};

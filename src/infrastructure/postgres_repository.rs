@@ -1,5 +1,5 @@
 use sqlx::{PgPool, Row};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 use tracing::instrument;
 
@@ -83,7 +83,10 @@ fn hash_session_token(token: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-use super::pin_rows::{PinRow, periphery_track_key, pin_row_to_info};
+use super::pin_rows::{
+    PinRow, SystemContextRow, links_json, periphery_track_key, pin_row_to_info,
+    system_context_from_row,
+};
 use crate::domain::models::*;
 use crate::domain::ports::{
     EndpointMap, NewApiToken, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams,
@@ -1490,6 +1493,7 @@ impl SpecRepository for PostgresSpecRepository {
             trunk_graph: Vec::new(),
             harvested_subscriptions: Vec::new(),
             peripheral_dependencies: Vec::new(),
+            systems: BTreeMap::new(),
             trunk_stale_before: None,
             scope_label: None,
             unused_endpoints,
@@ -1590,6 +1594,10 @@ impl SpecRepository for PostgresSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM peripheral_dependencies")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM system_context")
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -2905,11 +2913,12 @@ impl SpecRepository for PostgresSpecRepository {
         trunk: bool,
         resources: &[String],
         now_iso: &str,
-    ) -> Result<(), RepositoryError> {
+    ) -> Result<bool, RepositoryError> {
         let mut tracks = vec![PeripheryTrack::Dev];
         if trunk {
             tracks.push(PeripheryTrack::Trunk);
         }
+        let mut changed = false;
         let mut tx = self
             .pool
             .begin()
@@ -2940,6 +2949,7 @@ impl SpecRepository for PostgresSpecRepository {
                     .execute(&mut *tx)
                     .await
                     .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                    changed = true;
                 }
             }
             for resource in resources {
@@ -2960,12 +2970,13 @@ impl SpecRepository for PostgresSpecRepository {
                 .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                changed = true;
             }
         }
         tx.commit()
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
+        Ok(changed)
     }
 
     async fn list_periphery(
@@ -3000,6 +3011,75 @@ impl SpecRepository for PostgresSpecRepository {
             .into_iter()
             .map(|(system, resource)| PeripheralDependency { system, resource })
             .collect())
+    }
+
+    async fn upsert_system_context(
+        &self,
+        system: &str,
+        context: &SystemContext,
+        now_iso: &str,
+    ) -> Result<bool, RepositoryError> {
+        if self.get_system_context(system).await?.as_ref() == Some(context) {
+            return Ok(false);
+        }
+        sqlx::query(
+            "INSERT INTO system_context \
+                   (system_name, owner_kind, owner_name, description, source_location, links_json, updated_at) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7) \
+                 ON CONFLICT (system_name) DO UPDATE SET \
+                   owner_kind = EXCLUDED.owner_kind, owner_name = EXCLUDED.owner_name, \
+                   description = EXCLUDED.description, source_location = EXCLUDED.source_location, \
+                   links_json = EXCLUDED.links_json, updated_at = EXCLUDED.updated_at",
+        )
+        .bind(system)
+        .bind(context.owner.as_ref().map(|o| o.kind.as_str()))
+        .bind(context.owner.as_ref().map(|o| o.name.as_str()))
+        .bind(context.description.as_deref())
+        .bind(context.source_location.as_deref())
+        .bind(links_json(context)?)
+        .bind(now_iso)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(true)
+    }
+
+    async fn get_system_context(
+        &self,
+        system: &str,
+    ) -> Result<Option<SystemContext>, RepositoryError> {
+        let row: Option<SystemContextRow> = sqlx::query_as(
+            "SELECT system_name, owner_kind, owner_name, description, source_location, links_json \
+             FROM system_context WHERE system_name = $1",
+        )
+        .bind(system)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        row.map(|row| system_context_from_row(row).map(|(_, c)| c))
+            .transpose()
+    }
+
+    async fn list_system_contexts(
+        &self,
+    ) -> Result<BTreeMap<String, SystemContext>, RepositoryError> {
+        let rows: Vec<SystemContextRow> = sqlx::query_as(
+            "SELECT system_name, owner_kind, owner_name, description, source_location, links_json \
+             FROM system_context ORDER BY system_name",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        rows.into_iter().map(system_context_from_row).collect()
+    }
+
+    async fn delete_system_context(&self, system: &str) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM system_context WHERE system_name = $1")
+            .bind(system)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
     }
 
     async fn list_member_versions(

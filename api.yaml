@@ -617,26 +617,43 @@ paths:
   /catalog/{systemname}:
     put:
       operationId: pushCatalog
-      summary: Record a system's periphery from its Backstage catalog-info.yaml
+      summary: Record a system's periphery and context from its Backstage catalog-info.yaml
       description: |
         Optional. A Producer's or Consumer's build pushes its Backstage
         `catalog-info.yaml` so the network graph can show the **Peripheral
         Resources** the system depends on — databases, buckets, queues and
-        other things outside Sanshain.
+        other things outside Sanshain — and so the graph's node panel and the
+        system's page can say who owns it, what it is, where its code lives
+        and where its wiki, dashboards and ticket board are.
 
         Sanshain reads only the `Component` whose `metadata.name` equals
-        `systemname` (case-insensitive), and of it only `spec.dependsOn`. Only
-        `resource:` refs are kept; `component:` refs, `consumesApis` and all
-        other fields are ignored, because edges between systems are Sanshain's
-        own (`/require`). A ref without a kind is read as a `resource`, a ref
-        without a namespace takes the Component's namespace (`default` when it
-        declares none), and refs are lower-cased.
+        `systemname` (case-insensitive), and of it only:
 
-        Each push **replaces** the system's periphery: a resource no longer
-        listed is removed from the current graph (it stays in the timeline),
-        and an empty or missing `dependsOn` clears it. `trunk: true` updates the
-        main graph and the dev graph; otherwise only the dev graph.
-        Sanshain-branches get the periphery copied when they are cut.
+        - `spec.dependsOn`: only `resource:` refs are kept; `component:` refs
+          and `consumesApis` are ignored, because edges between systems are
+          Sanshain's own (`/require`). A ref without a kind is read as a
+          `resource`, a ref without a namespace takes the Component's
+          namespace (`default` when it declares none), and refs are
+          lower-cased.
+        - `spec.owner`, normalised like other refs (a bare `team-orders` is
+          `group:default/team-orders`) and kept as kind and name.
+        - `metadata.description`, trimmed, at most 1000 characters (a longer
+          one is cut with an ellipsis).
+        - the `backstage.io/source-location` annotation, without its `url:`
+          prefix, when it is an `http` or `https` URL.
+        - `metadata.links`: `url` (must be `http` or `https`, otherwise the
+          link is dropped), `title` (defaults to the URL's host), `type` and
+          `icon`; at most 20, further ones are ignored.
+
+        Everything else in the file is ignored. Each push **replaces** the
+        system's periphery and its context: a resource no longer listed is
+        removed from the current graph (it stays in the timeline), an empty
+        or missing `dependsOn` clears it, and a missing owner, description,
+        source location or link list leaves that field empty. `trunk: true`
+        updates the main graph and the dev graph; otherwise only the dev
+        graph. The context is one present-day fact per system, whatever the
+        stream. Sanshain-branches get the periphery copied when they are cut.
+        A push whose content matches what is recorded changes nothing.
 
         Any authenticated caller may push — the same bar as `/require`.
       parameters:
@@ -667,9 +684,9 @@ paths:
             Backstage entity, it has no (or more than one) `Component` named
             `systemname`, or its `dependsOn` is not a list of entity refs,
             the answer is still `200`, with `resources: []` and
-            `recorded: false`: nothing is recorded, the system's previous
-            periphery stays as it was, and a `Sanshain-Warning` header names
-            the reason.
+            `recorded: false`: nothing is recorded — neither periphery nor
+            context — the system's previous state stays as it was, and a
+            `Sanshain-Warning` header names the reason.
           content:
             application/json:
               schema:

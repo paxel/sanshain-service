@@ -5,7 +5,7 @@ use crate::domain::ports::{
 };
 use crate::infrastructure::postgres_repository::PostgresSpecRepository;
 use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Enum-based dispatch to avoid trait object limitations with RPITIT.
 #[derive(Clone)]
@@ -748,8 +748,34 @@ impl SpecRepository for DatabaseRepo {
         trunk: bool,
         resources: &[String],
         now_iso: &str,
-    ) -> Result<(), RepositoryError> {
+    ) -> Result<bool, RepositoryError> {
         delegate!(self, reconcile_periphery(system, trunk, resources, now_iso))
+    }
+
+    async fn upsert_system_context(
+        &self,
+        system: &str,
+        context: &SystemContext,
+        now_iso: &str,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(self, upsert_system_context(system, context, now_iso))
+    }
+
+    async fn get_system_context(
+        &self,
+        system: &str,
+    ) -> Result<Option<SystemContext>, RepositoryError> {
+        delegate!(self, get_system_context(system))
+    }
+
+    async fn list_system_contexts(
+        &self,
+    ) -> Result<BTreeMap<String, SystemContext>, RepositoryError> {
+        delegate!(self, list_system_contexts())
+    }
+
+    async fn delete_system_context(&self, system: &str) -> Result<(), RepositoryError> {
+        delegate!(self, delete_system_context(system))
     }
 
     async fn list_periphery(

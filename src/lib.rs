@@ -131,6 +131,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/producers/{name}/maintainers/groups/{group_id}", delete(roles::unassign_group_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/users/{id}/maintains", get(roles::list_maintained_producers).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/producers", get(admin::admin_list_producers).layer(require(state.clone(), RouteGuard::Authenticated)))
+        // #48: the Producer's context from its catalog-info, for its page.
+        .route("/admin/producers/{name}", get(admin::admin_get_producer).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}", delete(admin::admin_delete_producer).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
         .route("/admin/producers/metadata", post(admin::admin_update_producer_metadata).layer(require(state.clone(), RouteGuard::Global(Permission::ManageProducers))))
         .route("/admin/producers/{name}/versions", get(admin::admin_list_producer_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
@@ -165,6 +167,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/periphery", get(admin::admin_periphery).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/graph/scope", get(admin::admin_graph_scope).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers", get(admin::admin_list_consumers).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/consumers/{name}", get(admin::admin_get_consumer).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers/{name}", delete(admin::admin_delete_consumer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageConsumers))))
         .route("/admin/consumers/{name}/endpoints", get(admin::admin_list_consumer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/endpoint-yaml", get(admin::admin_get_endpoint_yaml).layer(require(state.clone(), RouteGuard::Authenticated)))

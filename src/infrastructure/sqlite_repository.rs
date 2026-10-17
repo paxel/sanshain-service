@@ -1,5 +1,5 @@
 use sqlx::{Row, SqlitePool};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 use tracing::instrument;
 
@@ -82,7 +82,10 @@ fn hash_session_token(token: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-use super::pin_rows::{PinRow, periphery_track_key, pin_row_to_info};
+use super::pin_rows::{
+    PinRow, SystemContextRow, links_json, periphery_track_key, pin_row_to_info,
+    system_context_from_row,
+};
 use crate::domain::models::*;
 use crate::domain::ports::{
     EndpointMap, NewApiToken, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams,
@@ -1517,6 +1520,7 @@ impl SpecRepository for SqliteSpecRepository {
             trunk_graph: Vec::new(),
             harvested_subscriptions: Vec::new(),
             peripheral_dependencies: Vec::new(),
+            systems: BTreeMap::new(),
             trunk_stale_before: None,
             scope_label: None,
             unused_endpoints,
@@ -1615,6 +1619,10 @@ impl SpecRepository for SqliteSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM peripheral_dependencies")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM system_context")
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -2921,11 +2929,12 @@ impl SpecRepository for SqliteSpecRepository {
         trunk: bool,
         resources: &[String],
         now_iso: &str,
-    ) -> Result<(), RepositoryError> {
+    ) -> Result<bool, RepositoryError> {
         let mut tracks = vec![PeripheryTrack::Dev];
         if trunk {
             tracks.push(PeripheryTrack::Trunk);
         }
+        let mut changed = false;
         let mut tx = self.write_tx().await?;
         for track in tracks {
             let (track, _) = periphery_track_key(track);
@@ -2952,6 +2961,7 @@ impl SpecRepository for SqliteSpecRepository {
                     .execute(&mut *tx)
                     .await
                     .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                    changed = true;
                 }
             }
             for resource in resources {
@@ -2972,12 +2982,13 @@ impl SpecRepository for SqliteSpecRepository {
                 .execute(&mut *tx)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+                changed = true;
             }
         }
         tx.commit()
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
+        Ok(changed)
     }
 
     async fn list_periphery(
@@ -3014,6 +3025,75 @@ impl SpecRepository for SqliteSpecRepository {
             .into_iter()
             .map(|(system, resource)| PeripheralDependency { system, resource })
             .collect())
+    }
+
+    async fn upsert_system_context(
+        &self,
+        system: &str,
+        context: &SystemContext,
+        now_iso: &str,
+    ) -> Result<bool, RepositoryError> {
+        if self.get_system_context(system).await?.as_ref() == Some(context) {
+            return Ok(false);
+        }
+        sqlx::query(
+            "INSERT INTO system_context \
+                   (system_name, owner_kind, owner_name, description, source_location, links_json, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?) \
+                 ON CONFLICT (system_name) DO UPDATE SET \
+                   owner_kind = excluded.owner_kind, owner_name = excluded.owner_name, \
+                   description = excluded.description, source_location = excluded.source_location, \
+                   links_json = excluded.links_json, updated_at = excluded.updated_at",
+        )
+        .bind(system)
+        .bind(context.owner.as_ref().map(|o| o.kind.as_str()))
+        .bind(context.owner.as_ref().map(|o| o.name.as_str()))
+        .bind(context.description.as_deref())
+        .bind(context.source_location.as_deref())
+        .bind(links_json(context)?)
+        .bind(now_iso)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(true)
+    }
+
+    async fn get_system_context(
+        &self,
+        system: &str,
+    ) -> Result<Option<SystemContext>, RepositoryError> {
+        let row: Option<SystemContextRow> = sqlx::query_as(
+            "SELECT system_name, owner_kind, owner_name, description, source_location, links_json \
+             FROM system_context WHERE system_name = ?",
+        )
+        .bind(system)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        row.map(|row| system_context_from_row(row).map(|(_, c)| c))
+            .transpose()
+    }
+
+    async fn list_system_contexts(
+        &self,
+    ) -> Result<BTreeMap<String, SystemContext>, RepositoryError> {
+        let rows: Vec<SystemContextRow> = sqlx::query_as(
+            "SELECT system_name, owner_kind, owner_name, description, source_location, links_json \
+             FROM system_context ORDER BY system_name",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        rows.into_iter().map(system_context_from_row).collect()
+    }
+
+    async fn delete_system_context(&self, system: &str) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM system_context WHERE system_name = ?")
+            .bind(system)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
     }
 
     async fn list_member_versions(
@@ -3606,6 +3686,71 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(b_rows.0, 1);
+    }
+
+    #[tokio::test]
+    async fn system_context_is_replaced_per_system_and_reports_whether_it_changed() {
+        let repo = setup().await;
+        let context = SystemContext {
+            owner: Some(SystemOwner {
+                kind: "group".to_string(),
+                name: "team-orders".to_string(),
+            }),
+            description: Some("Orders.".to_string()),
+            source_location: Some("https://git.example/orders".to_string()),
+            links: vec![SystemLink {
+                url: "https://wiki.example/orders".to_string(),
+                title: "Wiki".to_string(),
+                link_type: Some("docs".to_string()),
+                icon: None,
+            }],
+        };
+        assert!(
+            repo.upsert_system_context("orders", &context, "2026-01-01T00:00:00Z")
+                .await
+                .unwrap()
+        );
+        // The same content again: nothing changes.
+        assert!(
+            !repo
+                .upsert_system_context("orders", &context, "2026-01-02T00:00:00Z")
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            repo.get_system_context("orders").await.unwrap(),
+            Some(context.clone())
+        );
+        assert!(
+            repo.upsert_system_context(
+                "billing",
+                &SystemContext::default(),
+                "2026-01-03T00:00:00Z"
+            )
+            .await
+            .unwrap()
+        );
+        let all = repo.list_system_contexts().await.unwrap();
+        assert_eq!(
+            all.keys().cloned().collect::<Vec<_>>(),
+            vec!["billing".to_string(), "orders".to_string()]
+        );
+        assert_eq!(all["billing"], SystemContext::default());
+
+        // A different content replaces the row in place.
+        let emptied = SystemContext::default();
+        assert!(
+            repo.upsert_system_context("orders", &emptied, "2026-01-04T00:00:00Z")
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            repo.get_system_context("orders").await.unwrap(),
+            Some(emptied)
+        );
+        repo.delete_system_context("orders").await.unwrap();
+        assert_eq!(repo.get_system_context("orders").await.unwrap(), None);
+        assert_eq!(repo.list_system_contexts().await.unwrap().len(), 1);
     }
 
     #[tokio::test]

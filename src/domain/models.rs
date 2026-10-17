@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -743,6 +743,51 @@ pub struct PeripheralDependency {
     pub resource: String,
 }
 
+/// Who owns a system per its Backstage `spec.owner` (#48): the ref's kind
+/// (`group` unless the ref says otherwise, Backstage's default for owners)
+/// and name, both lower-cased like every other ref. The namespace is not
+/// kept — the owner is shown, never resolved.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct SystemOwner {
+    pub kind: String,
+    pub name: String,
+}
+
+/// One of a system's Backstage `metadata.links` (#48). `url` is always
+/// `http` or `https`; `title` defaults to the URL's host; `type` and `icon`
+/// are free text passed through for the UI.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct SystemLink {
+    pub url: String,
+    pub title: String,
+    #[serde(rename = "type")]
+    pub link_type: Option<String>,
+    pub icon: Option<String>,
+}
+
+/// What a system's `catalog-info.yaml` says about it beyond its periphery
+/// (#48): owner, description, where its code lives and its links. A
+/// present-day fact about the system, not a graph fact: one per system,
+/// replaced on every push, never tracked per stream or branch. Every field
+/// may be absent — a partial catalog-info records what it has.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+pub struct SystemContext {
+    pub owner: Option<SystemOwner>,
+    pub description: Option<String>,
+    /// The `backstage.io/source-location` annotation without its `url:`
+    /// prefix; only kept when it is an `http` or `https` URL.
+    pub source_location: Option<String>,
+    pub links: Vec<SystemLink>,
+}
+
+/// A Producer's or Consumer's context answer (#48): the name as asked for,
+/// and its context — `None` when no catalog push described it yet.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct ParticipantContext {
+    pub name: String,
+    pub context: Option<SystemContext>,
+}
+
 /// Which periphery set a read or a write addresses (#46). A trunk push
 /// updates both `Trunk` and `Dev` — the dev view is all activity, trunk
 /// included; a sanshain-branch gets its set only as a copy at the cut.
@@ -801,6 +846,9 @@ pub struct ScopeProducer {
 pub struct GraphScopeData {
     pub producers: Vec<ScopeProducer>,
     pub harvested_subscriptions: Vec<HarvestedSubscription>,
+    /// The context (#48) of every system that pushed one, by name, so the
+    /// node panel needs no extra request. Not scoped: a present-day fact.
+    pub systems: BTreeMap<String, SystemContext>,
 }
 
 /// The answer to a catalog push (#46): the periphery now recorded for the
@@ -817,6 +865,10 @@ pub struct CatalogPushResult {
     /// Why nothing was recorded — travels as `Sanshain-Warning` headers.
     #[serde(skip)]
     pub warnings: Vec<String>,
+    /// Whether the push changed anything (periphery or context, #48). An
+    /// unchanged nightly rebuild is no event: nothing to audit.
+    #[serde(skip)]
+    pub changed: bool,
 }
 
 /// One entry in a provide's `harvested_subscriptions` response: what the
@@ -856,6 +908,11 @@ pub struct DependencyReport {
     /// instant — for a scoped one. Application-populated.
     #[serde(default)]
     pub peripheral_dependencies: Vec<PeripheralDependency>,
+    /// The context (#48) of every system that pushed one, by name: owner,
+    /// description, source location and links. Present-day, so every scope
+    /// carries the same map. Application-populated.
+    #[serde(default)]
+    pub systems: BTreeMap<String, SystemContext>,
     /// Trunk entries not refreshed since this instant are stale (half the
     /// trunk TTL). `None` when the TTL is disabled. Application-populated.
     #[serde(default, skip_serializing_if = "Option::is_none")]

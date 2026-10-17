@@ -266,6 +266,9 @@ pub struct ServiceDescription {
     pub consumers: Vec<DescribedConsumer>,
     pub requires: Vec<DescribedRequirement>,
     pub periphery: Vec<DescribedResource>,
+    /// Owner, description, source location and links from the service's
+    /// catalog-info (#48); `None` when no push described it.
+    pub context: Option<SystemContext>,
 }
 
 /// Tool `describe_service`: everything about one Producer or Consumer.
@@ -411,6 +414,7 @@ pub async fn describe_service(
         consumers,
         requires,
         periphery,
+        context: repo.get_system_context(name).await?,
     })
 }
 

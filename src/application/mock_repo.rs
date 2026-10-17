@@ -3,7 +3,7 @@ use crate::domain::ports::{
     EndpointMap, NewApiToken, NewAuditLog, RecordDependencyParams, RecordTrunkPinParams,
     RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Mutex, PoisonError};
 
 /// One stored version-line entry: `SpecVersionMeta` plus the provided document
@@ -116,6 +116,8 @@ pub struct MockRepo {
     pub group_maintainers: Mutex<Vec<(i64, i64)>>,
     pub harvested_subscriptions: Mutex<Vec<MockHarvestedSub>>,
     pub periphery: Mutex<Vec<MockPeripheryRow>>,
+    /// In-memory `system_context` rows (#48), by system name.
+    pub system_contexts: Mutex<BTreeMap<String, SystemContext>>,
     pub api_tokens: Mutex<Vec<ApiToken>>,
 }
 
@@ -183,6 +185,7 @@ impl MockRepo {
             group_maintainers: Mutex::new(Vec::new()),
             harvested_subscriptions: Mutex::new(Vec::new()),
             periphery: Mutex::new(Vec::new()),
+            system_contexts: Mutex::new(BTreeMap::new()),
             api_tokens: Mutex::new(Vec::new()),
         }
     }
@@ -1295,6 +1298,7 @@ impl SpecRepository for MockRepo {
             trunk_graph: Vec::new(),
             harvested_subscriptions: Vec::new(),
             peripheral_dependencies: Vec::new(),
+            systems: BTreeMap::new(),
             trunk_stale_before: None,
             scope_label: None,
             unused_endpoints,
@@ -1374,6 +1378,10 @@ impl SpecRepository for MockRepo {
             .unwrap_or_else(PoisonError::into_inner)
             .clear();
         self.periphery
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+        self.system_contexts
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clear();
@@ -2558,11 +2566,12 @@ impl SpecRepository for MockRepo {
         trunk: bool,
         resources: &[String],
         now_iso: &str,
-    ) -> Result<(), RepositoryError> {
+    ) -> Result<bool, RepositoryError> {
         let mut tracks = vec![PeripheryTrack::Dev];
         if trunk {
             tracks.push(PeripheryTrack::Trunk);
         }
+        let mut changed = false;
         let mut rows = self
             .periphery
             .lock()
@@ -2575,6 +2584,7 @@ impl SpecRepository for MockRepo {
                     && !resources.contains(&row.resource)
                 {
                     row.valid_to = Some(now_iso.to_string());
+                    changed = true;
                 }
             }
             for resource in resources {
@@ -2592,9 +2602,57 @@ impl SpecRepository for MockRepo {
                         valid_from: now_iso.to_string(),
                         valid_to: None,
                     });
+                    changed = true;
                 }
             }
         }
+        Ok(changed)
+    }
+
+    async fn upsert_system_context(
+        &self,
+        system: &str,
+        context: &SystemContext,
+        _now_iso: &str,
+    ) -> Result<bool, RepositoryError> {
+        let mut rows = self
+            .system_contexts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if rows.get(system) == Some(context) {
+            return Ok(false);
+        }
+        rows.insert(system.to_string(), context.clone());
+        Ok(true)
+    }
+
+    async fn get_system_context(
+        &self,
+        system: &str,
+    ) -> Result<Option<SystemContext>, RepositoryError> {
+        Ok(self
+            .system_contexts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(system)
+            .cloned())
+    }
+
+    async fn list_system_contexts(
+        &self,
+    ) -> Result<BTreeMap<String, SystemContext>, RepositoryError> {
+        Ok(self
+            .system_contexts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone())
+    }
+
+    async fn delete_system_context(&self, system: &str) -> Result<(), RepositoryError> {
+        self.system_contexts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(system);
         Ok(())
     }
 
