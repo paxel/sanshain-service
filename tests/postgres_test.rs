@@ -18,8 +18,8 @@ use sanshain_service::{AppState, create_app};
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::{Arc, OnceLock};
 
 mod common;
 use tokio::sync::RwLock;
@@ -46,10 +46,16 @@ fn test_app_state(repo: PostgresSpecRepository, db_url: String) -> AppState {
     );
     let (spec_updated_tx, _) = tokio::sync::broadcast::channel(100);
 
-    let prometheus_handle = {
-        let (_, handle) = axum_prometheus::PrometheusMetricLayer::pair();
-        handle
-    };
+    // `pair()` installs the process-wide metrics recorder and panics on a
+    // second call, so every test in this binary shares one handle.
+    static PROMETHEUS_HANDLE: OnceLock<metrics_exporter_prometheus::PrometheusHandle> =
+        OnceLock::new();
+    let prometheus_handle = PROMETHEUS_HANDLE
+        .get_or_init(|| {
+            let (_, handle) = axum_prometheus::PrometheusMetricLayer::pair();
+            handle
+        })
+        .clone();
 
     AppState {
         repo: CachedSpecRepository::new(DatabaseRepo::Postgres(repo), 256),
