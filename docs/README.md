@@ -25,6 +25,7 @@ Detailed guides for users, administrators, and developers.
 - [**CI Integration**](ci-integration.md) — Automating contract validation in pipelines.
 - [**`sanshain.yaml`**](sanshain-yaml.md) — Standard client configuration format.
 - [**AI Migration**](ai-migration.md) — Using AI to migrate existing services to Sanshain.
+- [**MCP**](mcp.md) — Letting AI assistants query the catalog over the Model Context Protocol: token setup, client configuration, the seven tools, limits.
 
 ### Administration & Operations
 - [**Administration**](administration.md) — Managing users, versions, and LDAP.

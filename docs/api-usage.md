@@ -126,7 +126,7 @@ creation and immutable afterwards:
 | `read_only` | `GET /version`, `/report*`, `/producers/{producername}/versions`, `/endpoint-versions`, the SSE/WS update streams, the MCP endpoint. | Provide (all types), retire, `/require*`, `/require-bundle`, `PUT /catalog/*` — `403`, the body names the token's scope. |
 
 Tick **Read-only (for AI / MCP clients)** on the account page, or send `"scope": "read_only"`, to
-mint one. The token list shows each token's scope and when it last authenticated a request (to the
+mint one — that is the token an AI assistant uses on the [MCP endpoint](mcp.md). The token list shows each token's scope and when it last authenticated a request (to the
 minute). Expired tokens stop validating and are cleaned up in the background.
 
 ### Admin & Auth

@@ -30,6 +30,7 @@ Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and
 - **Auditing**: Full history of provides and administrative actions.
 - **Flexible Auth**: Local accounts, LDAP/Active Directory, or OpenID Connect SSO for human login; machine clients always use API tokens.
 - **API Tokens with a Scope**: Each user mints their own tokens on the account page. A token is `full` (everything its owner may do) or `read_only` — for AI / MCP clients, it answers reports and versions but is refused on every route that changes the catalog. See [API Usage](docs/api-usage.md#api-tokens).
+- **MCP for AI Assistants**: `/mcp` serves the catalog over the Model Context Protocol — list and describe services, find an endpoint, read a spec, walk the graph, diff and blame versions — behind a read-only API token, rate-limited and size-budgeted. See [MCP](docs/mcp.md).
 
 ![Dependency Graph](docs/images/graph.png)
 
@@ -45,6 +46,7 @@ Detailed instructions: [**Getting Started**](docs/getting-started.md).
 - [**Client Ecosystem**](docs/clients.md) — Detailed guide for Maven, Cargo, Go, JS, and Conan.
 - [**API Lifecycle**](docs/api-lifecycle.md) — How to handle breaking changes and versioning.
 - [**API Usage**](docs/api-usage.md) — Authentication and detailed endpoint reference.
+- [**MCP**](docs/mcp.md) — Connecting AI assistants (Claude Code, Cursor, VS Code) to the catalog: token setup, the tools, limits.
 - [**Administration**](docs/administration.md) — LDAP and OIDC (SSO) setup, version administration, and user management.
 - [**Troubleshooting**](docs/troubleshooting.md) — Common issues and how to solve them.
 - [**AI Migration**](docs/ai-migration.md) — Guide for using AI to migrate your services to Sanshain.
