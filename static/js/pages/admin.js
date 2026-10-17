@@ -89,8 +89,41 @@ async function loadDatabaseInfo() {
       document.getElementById("db-backend").textContent =
         data.backend === "postgres" ? "PostgreSQL" : "SQLite";
       document.getElementById("db-url").textContent = data.url;
+      // The snapshot is SQLite-only and a whole-database export, so the
+      // button shows only where the route would answer (#50).
+      if (data.backend === "sqlite" && hasPermission(adminActor, "run_destructive_operations")) {
+        document.getElementById("db-snapshot").classList.remove("hidden");
+      }
     }
   } catch (_) {}
+}
+
+async function downloadDatabaseSnapshot() {
+  const btn = document.getElementById("db-snapshot-btn");
+  btn.disabled = true;
+  try {
+    const res = await apiCall("/admin/backup/sqlite");
+    if (!res.ok) {
+      alert("Snapshot failed: " + (await errorMessage(res)));
+      return;
+    }
+    // The server names the file after the instance version and the time.
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const named = disposition.match(/filename="([^"]+)"/);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = named ? named[1] : "sanshain.db";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert("Snapshot failed: " + friendlyError(e));
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // --- Cache Config ---

@@ -235,7 +235,23 @@
               >
               and restart.<br />
               <strong>SQLite (default):</strong>
-              <code class="bg-blue-100 px-1 rounded-sm">DATABASE_URL=sqlite:sanshain.db?mode=rwc</code>
+              <code class="bg-blue-100 px-1 rounded-sm"
+                >DATABASE_URL=sqlite:sanshain.db?mode=rwc</code
+              >
+            </div>
+            <!-- SQLite only (#50): a consistent copy produced by the engine while the service runs. -->
+            <div id="db-snapshot" class="hidden">
+              <button
+                id="db-snapshot-btn"
+                data-click="downloadDatabaseSnapshot"
+                class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition-colors border border-indigo-700 shadow-xs flex items-center gap-1"
+              >
+                📥 Download database snapshot
+              </button>
+              <p class="text-xs text-slate-500 mt-1">
+                A consistent copy of the SQLite database, taken while Sanshain runs. For scheduled
+                backups and restore steps see the deployment guide.
+              </p>
             </div>
           </div>
         </section>
