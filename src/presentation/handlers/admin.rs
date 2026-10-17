@@ -928,7 +928,7 @@ pub async fn download_sqlite_snapshot(
         user,
         NewAuditLog {
             action: "DATABASE_SNAPSHOT",
-            details: &format!("Downloaded a database snapshot as {filename} ({size} bytes)"),
+            details: &format!("Produced database snapshot {filename} ({size} bytes)"),
             action_type: Some("ADMIN"),
             ..Default::default()
         },
