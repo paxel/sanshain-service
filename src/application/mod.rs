@@ -11,6 +11,7 @@ pub mod require_service;
 pub mod spec_service;
 pub mod text_diff;
 pub mod version_rules;
+pub mod webhook_service;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod mock_repo;

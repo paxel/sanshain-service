@@ -11,6 +11,7 @@ use super::spec_service::{
 use super::version_rules::{
     check_compatibility, classify_change, diff_endpoints, ga_baseline, propose_free,
 };
+use super::webhook_service as webhooks;
 use crate::asyncapi;
 use crate::domain::models::*;
 use crate::domain::permissions::{Actor, Permission};
@@ -103,9 +104,11 @@ async fn record_version_rejection(
     dry_run: bool,
     username: Option<&str>,
     producername: &str,
+    api_type: ApiType,
     version: SemVer,
     reason: &'static str,
     message: &str,
+    proposed: Option<SemVer>,
 ) {
     if dry_run {
         return;
@@ -152,6 +155,41 @@ async fn record_version_rejection(
         tracing::warn!(
             service = producername,
             "Could not record the version rejection in the audit log: {}",
+            e
+        );
+    }
+    // `provide.rejected` (#47): a rejection writes nothing else, so the event
+    // has no transaction to join and goes to the outbox on its own —
+    // best-effort like the audit entry.
+    let data = webhooks::provide_rejected_data(&webhooks::ProvideRejected {
+        producer: producername,
+        api_type,
+        version,
+        rule: reason,
+        message,
+        proposed_version: proposed,
+        actor: username,
+    });
+    let emitted = match webhooks::plan_event(
+        repo,
+        WebhookEventType::ProvideRejected,
+        Some(producername),
+        &[],
+        data,
+    )
+    .await
+    {
+        Ok(Some(event)) => repo
+            .insert_webhook_events(&[event])
+            .await
+            .map_err(Into::into),
+        Ok(None) => Ok(()),
+        Err(e) => Err(e),
+    };
+    if let Err(e) = emitted {
+        tracing::warn!(
+            service = producername,
+            "Could not write the provide.rejected webhook event: {}",
             e
         );
     }
@@ -225,9 +263,11 @@ pub async fn provide_spec(
             dry_run,
             username,
             producername,
+            api_type,
             version,
             "ga_requires_releaser",
             &message,
+            None,
         )
         .await;
         return Err(AppError::ForbiddenWithReason(message));
@@ -380,9 +420,11 @@ pub async fn provide_spec(
                 dry_run,
                 username,
                 producername,
+                api_type,
                 version,
                 reason,
                 &message,
+                Some(proposed),
             )
             .await;
             return Err(AppError::VersionConflict { message, proposed });
@@ -414,9 +456,11 @@ pub async fn provide_spec(
             dry_run,
             username,
             producername,
+            api_type,
             version,
             "breaking_without_major",
             &message,
+            Some(proposed),
         )
         .await;
         return Err(AppError::VersionConflict { message, proposed });
@@ -473,8 +517,35 @@ pub async fn provide_spec(
     } else {
         username.unwrap_or("").to_string()
     };
+    let endpoint_records: Vec<EndpointRecord> = endpoints
+        .into_iter()
+        .map(|e| EndpointRecord {
+            id: None,
+            api_type,
+            path: e.path,
+            normalized_path: e.normalized_path,
+            method: e.method,
+            yaml_content: e.yaml_content,
+            deprecated: e.deprecated,
+        })
+        .collect();
+    let outbox = plan_provide_events(
+        repo,
+        ProvideFacts {
+            producername,
+            api_type,
+            version,
+            stability,
+            promoting,
+            stream: &stream,
+            username,
+            line: &line,
+            content,
+            endpoints: &endpoint_records,
+        },
+    )
+    .await?;
     let record = UpsertSpecVersion {
-        outbox: Vec::new(),
         service_id: sid,
         api_type,
         version,
@@ -484,18 +555,8 @@ pub async fn provide_spec(
         provided_by: &credited,
         expected_prior_hash,
         now_iso: &now_iso(),
-        endpoints: endpoints
-            .into_iter()
-            .map(|e| EndpointRecord {
-                id: None,
-                api_type,
-                path: e.path,
-                normalized_path: e.normalized_path,
-                method: e.method,
-                yaml_content: e.yaml_content,
-                deprecated: e.deprecated,
-            })
-            .collect(),
+        endpoints: endpoint_records,
+        outbox,
     };
     let entry_id = match repo.upsert_spec_version(record).await {
         Ok(id) => id,
@@ -641,6 +702,100 @@ pub async fn provide_spec(
         harvested_subscriptions: harvest_results,
         stream,
     })
+}
+
+/// What a successful Provide is about, for its webhook events (#47).
+struct ProvideFacts<'a> {
+    producername: &'a str,
+    api_type: ApiType,
+    version: SemVer,
+    stability: Stability,
+    promoting: bool,
+    stream: &'a ResolvedStream,
+    username: Option<&'a str>,
+    line: &'a [SpecVersionMeta],
+    content: &'a str,
+    endpoints: &'a [EndpointRecord],
+}
+
+/// The outbox rows a Provide writes with its version-line entry (#47):
+/// `version.published` always, with the classification against the previous
+/// GA on a GA release; `version.deprecated` when it marks an element
+/// deprecated that the previous GA did not have deprecated. Read-only here
+/// — the rows land in the Provide's own transaction.
+async fn plan_provide_events(
+    repo: &impl SpecRepository,
+    facts: ProvideFacts<'_>,
+) -> Result<Vec<NewWebhookEvent>, AppError> {
+    if !webhooks::emission_enabled() {
+        return Ok(Vec::new());
+    }
+    let baseline = ga_baseline(facts.line, facts.version);
+    let compatibility = match (&baseline, facts.stability) {
+        (Some(baseline), Stability::Ga) => match repo.get_spec_content(baseline.id).await? {
+            Some(old) => {
+                let (api_type, new, inserts) = (
+                    facts.api_type,
+                    facts.content.to_string(),
+                    facts.endpoints.len(),
+                );
+                let impact = super::run_cpu_bound(move || {
+                    Ok(classify_change(api_type, &old, &new, inserts))
+                })
+                .await?;
+                Some((baseline.version, impact))
+            }
+            None => None,
+        },
+        _ => None,
+    };
+    let mut events = Vec::new();
+    let published = webhooks::version_published_data(&webhooks::VersionPublished {
+        producer: facts.producername,
+        api_type: facts.api_type,
+        version: facts.version,
+        stability: facts.stability,
+        promoted: facts.promoting,
+        stream: facts.stream,
+        actor: facts.username,
+        compatibility,
+    });
+    events.extend(
+        webhooks::plan_event(
+            repo,
+            WebhookEventType::VersionPublished,
+            Some(facts.producername),
+            &[],
+            published,
+        )
+        .await?,
+    );
+    let previous = match &baseline {
+        Some(baseline) => Some(repo.get_endpoints_for_version(baseline.id).await?),
+        None => None,
+    };
+    let (elements, whole) = webhooks::newly_deprecated(facts.endpoints, previous.as_deref());
+    if !elements.is_empty() {
+        let data = webhooks::version_deprecated_data(
+            facts.producername,
+            facts.api_type,
+            facts.version,
+            facts.stability,
+            &elements,
+            whole,
+        );
+        events.extend(
+            webhooks::plan_event(
+                repo,
+                WebhookEventType::VersionDeprecated,
+                Some(facts.producername),
+                &[],
+                data,
+            )
+            .await?,
+        );
+    }
+    Ok(events)
 }
 
 /// Reconcile the harvested subscription set for this Producer (#6/ADR-0006):

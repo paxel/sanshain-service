@@ -7,6 +7,7 @@
 
 use super::now_iso;
 use super::spec_service::resolve_stream;
+use super::webhook_service as webhooks;
 use crate::domain::models::*;
 use crate::domain::ports::{RecordDependencyParams, RecordTrunkPinParams, SpecRepository};
 use crate::{asyncapi, openapi};
@@ -183,7 +184,6 @@ async fn require_endpoint_inner(
     } = params;
     // Dev only when the declared stream cannot be honoured (ADR-0005).
     let stream = resolve_stream(repo, trunk, tag).await?;
-    let trunk = stream.trunk;
 
     let (_sid, entry) = resolve_pin(repo, producername, api_type, version).await?;
     let method = method_for(api_type, method);
@@ -212,10 +212,10 @@ async fn require_endpoint_inner(
         record_pins(
             repo,
             consumername,
+            producername,
             &entry,
             &[(path.to_string(), method.clone())],
-            trunk,
-            stream.branch.as_ref().map(|b| b.id),
+            &stream,
         )
         .await?;
         if let Some(branch) = &stream.branch {
@@ -265,7 +265,6 @@ async fn require_bundle_inner(
     } = params;
     // Dev only when the declared stream cannot be honoured (ADR-0005).
     let stream = resolve_stream(repo, trunk, tag).await?;
-    let trunk = stream.trunk;
 
     if endpoints.is_empty() {
         return Err(AppError::BadRequest(
@@ -326,10 +325,10 @@ async fn require_bundle_inner(
         record_pins(
             repo,
             consumername,
+            producername,
             &entry,
             &normalized,
-            trunk,
-            stream.branch.as_ref().map(|b| b.id),
+            &stream,
         )
         .await?;
         if let Some(branch) = &stream.branch {
@@ -354,16 +353,31 @@ async fn require_bundle_inner(
 async fn record_pins(
     repo: &impl SpecRepository,
     consumername: &str,
+    producername: &str,
     entry: &SpecVersionMeta,
     endpoints: &[(String, String)],
-    trunk: bool,
-    tag_branch_id: Option<i64>,
+    stream: &ResolvedStream,
 ) -> Result<(), AppError> {
-    let client_id = repo.ensure_client(consumername).await?;
+    let trunk = stream.trunk;
+    let tag_branch_id = stream.branch.as_ref().map(|b| b.id);
     let normalized: Vec<String> = endpoints
         .iter()
         .map(|(path, _)| openapi::lookup_path(entry.api_type, path))
         .collect();
+    // `dependency.recorded` (#47): decided against the edges current before
+    // this write — a re-recorded edge is no event — and written with the
+    // dev-graph rows in their transaction.
+    let outbox = plan_dependency_event(
+        repo,
+        consumername,
+        producername,
+        entry,
+        endpoints,
+        &normalized,
+        stream,
+    )
+    .await?;
+    let client_id = repo.ensure_client(consumername).await?;
     let deps: Vec<RecordDependencyParams> = endpoints
         .iter()
         .zip(normalized.iter())
@@ -376,7 +390,7 @@ async fn record_pins(
             method,
         })
         .collect();
-    repo.record_dependencies_bulk(deps, Vec::new()).await?;
+    repo.record_dependencies_bulk(deps, outbox).await?;
     repo.touch_spec_version_required(entry.id, &now_iso())
         .await?;
     // A trunk build additionally maintains the append-only trunk pin set
@@ -414,6 +428,93 @@ async fn record_pins(
         }
     }
     Ok(())
+}
+
+/// The `dependency.recorded` event of a require (#47), when it records an
+/// edge the Consumer did not hold yet in the stream it declares: for the
+/// dev stream against the dev graph, for trunk against the open trunk pins,
+/// for a Sanshain-branch against that branch's open pins. The edge is
+/// `(Consumer, Producer, endpoint, pinned version, stream)`; only the
+/// endpoints new to it are carried.
+async fn plan_dependency_event(
+    repo: &impl SpecRepository,
+    consumername: &str,
+    producername: &str,
+    entry: &SpecVersionMeta,
+    endpoints: &[(String, String)],
+    normalized: &[String],
+    stream: &ResolvedStream,
+) -> Result<Vec<NewWebhookEvent>, AppError> {
+    if !webhooks::emission_enabled() {
+        return Ok(Vec::new());
+    }
+    let held: HashSet<(String, String)> = match (&stream.branch, stream.trunk) {
+        (Some(branch), _) => repo
+            .list_branch_pins(branch.id, None)
+            .await?
+            .into_iter()
+            .filter(|p| {
+                p.client == consumername
+                    && p.service == producername
+                    && p.api_type == entry.api_type
+                    && p.version == entry.version
+            })
+            .map(|p| (p.normalized_path, p.method))
+            .collect(),
+        (None, true) => repo
+            .list_current_trunk_pins()
+            .await?
+            .into_iter()
+            .filter(|p| {
+                p.client == consumername
+                    && p.service == producername
+                    && p.api_type == entry.api_type
+                    && p.version == entry.version
+            })
+            .map(|p| (p.normalized_path, p.method))
+            .collect(),
+        (None, false) => repo
+            .list_consumer_endpoints(consumername)
+            .await?
+            .into_iter()
+            .filter(|e| {
+                e.service == producername
+                    && e.api_type == entry.api_type
+                    && e.version == entry.version
+            })
+            .map(|e| (openapi::lookup_path(entry.api_type, &e.path), e.method))
+            .collect(),
+    };
+    let new_edges: Vec<(String, String)> = endpoints
+        .iter()
+        .zip(normalized.iter())
+        .filter(|((_, method), normalized_path)| {
+            !held.contains(&((*normalized_path).clone(), method.clone()))
+        })
+        .map(|((path, method), _)| (path.clone(), method.clone()))
+        .collect();
+    if new_edges.is_empty() {
+        return Ok(Vec::new());
+    }
+    let data = webhooks::dependency_recorded_data(&webhooks::DependencyRecorded {
+        consumer: consumername,
+        producer: producername,
+        api_type: entry.api_type,
+        version: entry.version,
+        stability: entry.stability,
+        endpoints: &new_edges,
+        stream,
+    });
+    Ok(webhooks::plan_event(
+        repo,
+        WebhookEventType::DependencyRecorded,
+        Some(producername),
+        &[consumername],
+        data,
+    )
+    .await?
+    .into_iter()
+    .collect())
 }
 
 /// One branch update happened (tagged provide or require) — the counter the

@@ -3,6 +3,7 @@
 //! drawn in the network graph, and its context — owner, description, source
 //! location and links (#48) — shown on its node and its page.
 
+use super::webhook_service as webhooks;
 use super::{now_iso, run_cpu_bound};
 use crate::domain::models::*;
 use crate::domain::ports::SpecRepository;
@@ -37,19 +38,33 @@ pub async fn push_catalog(
     let component = match parsed {
         Ok(component) => component,
         Err(e) => {
+            // `catalog.recorded` with `recorded: false` (#47): nothing else
+            // is written, so the event goes to the outbox on its own.
+            let warning = e.to_string();
+            let data = webhooks::catalog_recorded_data(&system, trunk, false, Some(&warning), 0);
+            if let Some(event) = catalog_event(repo, &system, data).await? {
+                repo.insert_webhook_events(&[event]).await?;
+            }
             return Ok(CatalogPushResult {
                 system,
                 trunk,
                 resources: Vec::new(),
                 recorded: false,
-                warnings: vec![e.to_string()],
+                warnings: vec![warning],
                 changed: false,
             });
         }
     };
     let now = now_iso();
+    // `catalog.recorded` (#47) rides the periphery's transaction.
+    let data =
+        webhooks::catalog_recorded_data(&system, trunk, true, None, component.resources.len());
+    let outbox = catalog_event(repo, &system, data)
+        .await?
+        .into_iter()
+        .collect();
     let periphery_changed = repo
-        .reconcile_periphery(&system, trunk, &component.resources, &now, Vec::new())
+        .reconcile_periphery(&system, trunk, &component.resources, &now, outbox)
         .await?;
     let context_changed = repo
         .upsert_system_context(&system, &component.context, &now)
@@ -63,6 +78,24 @@ pub async fn push_catalog(
         warnings: Vec::new(),
         changed: periphery_changed || context_changed,
     })
+}
+
+/// The outbox row of a catalog push (#47): the system's own hooks — as a
+/// Producer and as a Consumer, the push is about the system whatever its
+/// role — plus the global ones.
+async fn catalog_event(
+    repo: &impl SpecRepository,
+    system: &str,
+    data: serde_json::Value,
+) -> Result<Option<NewWebhookEvent>, AppError> {
+    webhooks::plan_event(
+        repo,
+        WebhookEventType::CatalogRecorded,
+        Some(system),
+        &[system],
+        data,
+    )
+    .await
 }
 
 /// A Producer's context (#48), `None` inside when no push described it;

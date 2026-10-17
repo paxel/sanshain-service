@@ -96,8 +96,26 @@ pub async fn create_branch(
         .unwrap_or_else(|| "trunk".to_string());
 
     let now = now_iso();
+    // `branch.cut` (#47) rides the branch row's transaction; global hooks
+    // only, since a cut is about no Producer.
+    let outbox = super::webhook_service::plan_event(
+        repo,
+        WebhookEventType::BranchCut,
+        None,
+        &[],
+        super::webhook_service::branch_cut_data(
+            name,
+            &source_label,
+            &as_of,
+            &now,
+            params.created_by,
+        ),
+    )
+    .await?
+    .into_iter()
+    .collect();
     let id = repo
-        .insert_branch(name, &now, params.created_by, &source_label, &as_of, Vec::new())
+        .insert_branch(name, &now, params.created_by, &source_label, &as_of, outbox)
         .await
         .map_err(|e| match e {
             RepositoryError::Conflict => AppError::Conflict(format!(
