@@ -31,6 +31,7 @@ Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and
 - **Backup**: On SQLite, a consistent database snapshot is one authenticated `GET` away — and a Helm CronJob fetches it nightly; PostgreSQL gets a `pg_dump` CronJob. Restore is documented for both. See [Deployment — Backup and restore](docs/deployment.md#backup-and-restore).
 - **Flexible Auth**: Local accounts, LDAP/Active Directory, or OpenID Connect SSO for human login; machine clients always use API tokens.
 - **API Tokens with a Scope**: Each user mints their own tokens on the account page. A token is `full` (everything its owner may do) or `read_only` — for AI / MCP clients, it answers reports and versions but is refused on every route that changes the catalog. See [API Usage](docs/api-usage.md#api-tokens).
+- **Webhooks**: Signed outbound events — a Version published or deprecated, a Provide rejected, a new Consumer, a Sanshain-branch cut, a catalog push — to any URL on the admin's allow-list, as a JSON envelope or a ready-made Slack/Teams message; written with the fact in an outbox and retried for 24 hours. See [CI Integration — Webhooks](docs/ci-integration.md#webhooks).
 - **MCP for AI Assistants**: `/mcp` serves the catalog over the Model Context Protocol — list and describe services, find an endpoint, read a spec, walk the graph, diff and blame versions — behind a read-only API token, rate-limited and size-budgeted. See [MCP](docs/mcp.md).
 
 ![Dependency Graph](docs/images/graph.png)

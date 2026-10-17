@@ -32,6 +32,10 @@ Sanshain Service can be configured using environment variables.
 | `EXTRA_CA_CERTS_DIR`           | *unset*                                   | Directory of additional CA certificates to trust for outbound TLS. See below.                             |
 | `LDAP_OPERATION_TIMEOUT_SECS`  | `10`                                      | How long one LDAP exchange (handshake, bind, search, unbind) may take after the TCP connect, in seconds. Must be > 0. |
 | `MCP_ENABLED`                  | `true`                                    | Mount the MCP endpoint at `/mcp` for AI clients. `false` leaves the route unmounted (404). See [MCP](mcp.md). |
+| `WEBHOOKS_ENABLED`             | `true`                                    | Write webhook events to the outbox and run the delivery worker. `false` writes and sends nothing; hooks can still be managed. See [Administration](administration.md#webhooks). |
+| `WEBHOOK_WORKER_INTERVAL_SECS` | `5`                                       | How often each replica's worker looks for due webhook deliveries.                                        |
+| `WEBHOOK_DELIVERY_TIMEOUT_SECS` | `10`                                     | How long one webhook `POST` may take before it counts as a failed attempt.                               |
+| `PUBLIC_BASE_URL`              | *(unset)*                                 | The URL users open Sanshain at (`https://sanshain.corp`), for the deep links in webhook messages. Unset: the origin of the OIDC redirect URL is used; with neither, the links are omitted. |
 | `MCP_CALLS_PER_MINUTE`         | `60`                                      | Tool calls one API token may make per minute (token bucket); over it, the call answers a tool error. Must be > 0. |
 | `MCP_MAX_RESULT_BYTES`         | `65536`                                   | A tool answer above this size is replaced by that tool's summary and a hint on how to narrow it. Must be > 0. |
 

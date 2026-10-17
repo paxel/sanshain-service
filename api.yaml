@@ -1377,3 +1377,224 @@ components:
           description: |
             Use-based expiry for snapshots when cleanup is enabled; absent for
             GA (never age-culled) or when cleanup is off.
+
+    WebhookEnvelope:
+      type: object
+      description: |
+        The JSON a webhook receiver gets (#47) — the body of the `json`
+        format, and the facts behind the `slack` and `teams` bodies. No path
+        serves it: Sanshain POSTs it to the URL a hook was registered with,
+        signed with `Sanshain-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256
+        of "<t>.<body>">` under the hook's secret, with `Sanshain-Event` (the
+        type) and `X-Sanshain-Delivery` (the delivery id) alongside. See the
+        CI integration guide for the receiver's side.
+      required: [id, type, occurred_at, sanshain_version, data]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique per event; a redelivery carries the same id.
+        type:
+          $ref: "#/components/schemas/WebhookEventType"
+        occurred_at:
+          type: string
+          format: date-time
+          description: RFC 3339, UTC, second precision.
+        sanshain_version:
+          type: string
+          description: The instance version that emitted the event.
+        data:
+          description: Per type — see the `Webhook*Data` schemas.
+          oneOf:
+            - $ref: "#/components/schemas/WebhookVersionPublishedData"
+            - $ref: "#/components/schemas/WebhookProvideRejectedData"
+            - $ref: "#/components/schemas/WebhookVersionDeprecatedData"
+            - $ref: "#/components/schemas/WebhookDependencyRecordedData"
+            - $ref: "#/components/schemas/WebhookBranchCutData"
+            - $ref: "#/components/schemas/WebhookCatalogRecordedData"
+            - $ref: "#/components/schemas/WebhookTestData"
+        links:
+          type: object
+          description: |
+            Deep links into the UI, keyed `producer`, `version`, `consumer`,
+            `graph`, `audit` or `admin` as the type warrants. Omitted when the
+            instance does not know its public base URL.
+          additionalProperties:
+            type: string
+            format: uri
+    WebhookEventType:
+      type: string
+      enum:
+        - version.published
+        - provide.rejected
+        - version.deprecated
+        - dependency.recorded
+        - branch.cut
+        - catalog.recorded
+        - webhook.test
+    WebhookStream:
+      type: string
+      description: "`dev`, `trunk`, or a Sanshain-branch's name."
+    WebhookVersionPublishedData:
+      type: object
+      description: A Provide succeeded. The idempotent no-op emits nothing.
+      required: [producer, api_type, version, stability, promoted, stream, actor, compatibility]
+      properties:
+        producer:
+          type: string
+        api_type:
+          type: string
+          enum: [openapi, asyncapi, proto]
+        version:
+          type: string
+        stability:
+          $ref: "#/components/schemas/Stability"
+        promoted:
+          type: boolean
+          description: A Snapshot was promoted to GA in place.
+        stream:
+          $ref: "#/components/schemas/WebhookStream"
+        actor:
+          type: string
+          nullable: true
+        compatibility:
+          type: object
+          nullable: true
+          description: On a GA Provide with a previous GA on the line — the classification against it.
+          required: [against, impact]
+          properties:
+            against:
+              type: string
+            impact:
+              type: string
+              enum: [none, patch, minor, major]
+    WebhookProvideRejectedData:
+      type: object
+      description: A Provide was refused by a version rule. Dry-runs emit nothing.
+      required: [producer, api_type, version, rule, message, proposed_version, actor]
+      properties:
+        producer:
+          type: string
+        api_type:
+          type: string
+          enum: [openapi, asyncapi, proto]
+        version:
+          type: string
+          description: The attempted Version.
+        rule:
+          type: string
+          enum: [immutable_ga, snapshot_on_ga, breaking_without_major, ga_requires_releaser]
+        message:
+          type: string
+        proposed_version:
+          type: string
+          nullable: true
+          description: The next free Version to publish as instead, where one exists.
+        actor:
+          type: string
+          nullable: true
+    WebhookVersionDeprecatedData:
+      type: object
+      description: A Provide newly marked elements deprecated (not deprecated in the previous GA).
+      required: [producer, api_type, version, stability, elements, document_deprecated]
+      properties:
+        producer:
+          type: string
+        api_type:
+          type: string
+          enum: [openapi, asyncapi, proto]
+        version:
+          type: string
+        stability:
+          $ref: "#/components/schemas/Stability"
+        elements:
+          type: array
+          items:
+            type: object
+            required: [path, method]
+            properties:
+              path:
+                type: string
+              method:
+                type: string
+        document_deprecated:
+          type: boolean
+          description: Every element of the document is deprecated.
+    WebhookDependencyRecordedData:
+      type: object
+      description: A require recorded an edge the Consumer did not hold yet in the declared stream.
+      required: [consumer, producer, api_type, version, stability, snapshot_pinned, stream, endpoints]
+      properties:
+        consumer:
+          type: string
+        producer:
+          type: string
+        api_type:
+          type: string
+          enum: [openapi, asyncapi, proto]
+        version:
+          type: string
+          description: The Pin.
+        stability:
+          $ref: "#/components/schemas/Stability"
+        snapshot_pinned:
+          type: boolean
+        stream:
+          $ref: "#/components/schemas/WebhookStream"
+        endpoints:
+          type: array
+          description: The endpoints new to the edge.
+          items:
+            type: object
+            required: [path, method]
+            properties:
+              path:
+                type: string
+              method:
+                type: string
+    WebhookBranchCutData:
+      type: object
+      description: A Sanshain-branch was created. Global hooks only.
+      required: [name, source, as_of, cut_at, actor]
+      properties:
+        name:
+          type: string
+        source:
+          type: string
+          description: "`trunk`, or the source branch's name."
+        as_of:
+          type: string
+          format: date-time
+        cut_at:
+          type: string
+          format: date-time
+        actor:
+          type: string
+    WebhookCatalogRecordedData:
+      type: object
+      description: A catalog push ran, readable or not.
+      required: [system, trunk, recorded, warning, resources]
+      properties:
+        system:
+          type: string
+        trunk:
+          type: boolean
+        recorded:
+          type: boolean
+        warning:
+          type: string
+          nullable: true
+          description: Why nothing was recorded, when `recorded` is false.
+        resources:
+          type: integer
+          description: The number of Peripheral Resources recorded.
+    WebhookTestData:
+      type: object
+      description: The "send test event" button, to one hook alone.
+      required: [hook_id, message]
+      properties:
+        hook_id:
+          type: integer
+          format: int64
+        message:
+          type: string

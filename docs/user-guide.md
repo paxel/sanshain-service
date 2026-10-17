@@ -150,9 +150,15 @@ Architecture, isolation and dependency reports take a **graph scope**: `dev` (de
 - Browse registered producers and their version lines (version, stability, snapshot expiry, trunk badge, branch chips). A snapshot below the latest GA of its line is marked `superseded by X ga`.
 - View endpoint usage and availability; "View spec" opens the full stored document with version history, diff and blame.
 - Copy or download endpoint specifications.
+- A **Webhooks** card, shown to the Producer's Maintainers and administrators: register a receiver
+  for this Producer's events (new Versions, rejected Provides, deprecations, new Consumers, catalog
+  pushes), with the delivery log. See [Administration — Webhooks](administration.md#webhooks).
 
 #### Consumers (`/consumers.html`)
 - Browse consumers and the exact pins they hold.
+- A **Webhooks** card for the Consumer's hooks: they receive the events of every Producer the
+  Consumer currently requires, so "tell me when what I depend on changes" needs no routing of its
+  own. Managed by a Maintainer of the Producer of the same name or an administrator.
 
 #### Audit Timeline (`/audit.html`)
 - **Administrators only.** The page and the data behind it are restricted, and

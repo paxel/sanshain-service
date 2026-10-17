@@ -259,6 +259,155 @@ sanshainToken=san_xxxxxxxxxxxx
 
 > **Note:** Dedicated build tool plugins are under development. Check the [Sanshain GitHub organisation](https://github.com/paxel) for updates.
 
+## Webhooks
+
+Sanshain emits events over generic webhooks: a signed `POST` to a URL you register, for every
+fact the registry records and every Provide it rejects. A Producer's events go to the hooks
+registered on that Producer, to the hooks of every Consumer that currently requires it (in the
+dev or trunk graph), and to the global hooks an administrator registers. Hooks are managed on
+the admin page (global), and on the Producer and Consumer pages (a system's own hooks) — see
+[Administration — Webhooks](administration.md#webhooks). This section is what a receiver has
+to know.
+
+### Event catalogue
+
+Every event is a graph fact or a rejection; there are no admin or audit events.
+
+| Type                  | When                                                                                                                                                                      | `data` fields                                                                                                                                                                                                                                                                                            |
+|-----------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `version.published`   | A Provide succeeded (a new Version, an overwritten Snapshot, or a Promotion). The idempotent no-op re-provide of identical content emits nothing.                          | `producer`, `api_type` (`openapi`/`asyncapi`/`proto`), `version`, `stability` (`snapshot`/`ga`), `promoted` (bool), `stream` (`dev`, `trunk` or a Sanshain-branch name), `actor` (username or `null`), `compatibility` (`null`, or `{"against": "<previous GA>", "impact": "none|patch|minor|major"}` on a GA Provide with a previous GA) |
+| `provide.rejected`    | A Provide was refused by a version rule.                                                                                                                                  | `producer`, `api_type`, `version` (the attempted one), `rule` (`immutable_ga`, `snapshot_on_ga`, `breaking_without_major`, `ga_requires_releaser`), `message`, `proposed_version` (the next free Version, or `null`), `actor`                                                                                |
+| `version.deprecated`  | A Provide marked an element deprecated that was not deprecated in the previous GA (every deprecated element when there is no previous GA).                                | `producer`, `api_type`, `version`, `stability`, `elements` (list of `{"path", "method"}`), `document_deprecated` (true when every element of the document is deprecated)                                                                                                                                  |
+| `dependency.recorded` | A require recorded an edge the Consumer did not hold yet — `(Consumer, Producer, endpoint, pinned Version, stream)`. Re-recording an existing edge emits nothing.          | `consumer`, `producer`, `api_type`, `version`, `stability`, `snapshot_pinned` (bool), `stream`, `endpoints` (the endpoints new to the edge, `{"path", "method"}`)                                                                                                                                         |
+| `branch.cut`          | A Sanshain-branch was created. Global hooks only — a cut is about no Producer.                                                                                            | `name`, `source` (`trunk` or the source branch), `as_of`, `cut_at`, `actor`                                                                                                                                                                                                                              |
+| `catalog.recorded`    | A catalog push ran, whether or not Sanshain could read the file. Delivered to the system's hooks (as a Producer and as a Consumer) and to global hooks.                    | `system`, `trunk` (bool), `recorded` (bool), `warning` (the reason when `recorded` is false, else `null`), `resources` (the number of Peripheral Resources recorded)                                                                                                                                       |
+| `webhook.test`        | The hook's "Send test" button. Sent to that hook alone; cannot be subscribed to.                                                                                          | `hook_id`, `message`                                                                                                                                                                                                                                                                                     |
+
+Dry-runs emit nothing. A global hook may be narrowed to an event-type set and to a
+Producer-name glob (`*` and `?`); a glob admits only events about a matching Producer, so a
+hook narrowed to a domain never receives `branch.cut`.
+
+### The envelope
+
+Every delivery carries the same JSON envelope; the `json` format sends it as the body:
+
+```json
+{
+  "id": "6f1c0c7e-8d3a-4b86-9e8e-2f3c0a1d5b77",
+  "type": "version.published",
+  "occurred_at": "2026-10-17T09:12:44Z",
+  "sanshain_version": "2.6.0",
+  "data": {
+    "producer": "orders",
+    "api_type": "openapi",
+    "version": "2.0.0",
+    "stability": "ga",
+    "promoted": false,
+    "stream": "trunk",
+    "actor": "alice",
+    "compatibility": { "against": "1.4.0", "impact": "major" }
+  },
+  "links": {
+    "producer": "https://sanshain.corp/producers.html?service=orders",
+    "version": "https://sanshain.corp/producers.html?service=orders&api_type=openapi&version=2.0.0",
+    "graph": "https://sanshain.corp/graph.html"
+  }
+}
+```
+
+- `id` is a UUID, unique per event; a redelivery carries the same `id`, so receivers can
+  de-duplicate on it.
+- `occurred_at` is RFC 3339, UTC, second precision.
+- `links` holds deep links into the UI and is **omitted** when Sanshain does not know its public
+  base URL (`PUBLIC_BASE_URL`, or the origin of the OIDC redirect URL — see
+  [Configuration](configuration.md)). Per type: `producer`, `version` and `graph` for
+  `version.published` and `version.deprecated`; `producer` and `audit` for `provide.rejected`;
+  `consumer`, `producer`, `version` and `graph` for `dependency.recorded`; `graph` for
+  `branch.cut`; `producer`, `consumer` and `graph` for `catalog.recorded`; `admin` for
+  `webhook.test`.
+
+Three headers accompany every delivery, in every format:
+
+| Header                | Value                                                                       |
+|-----------------------|-----------------------------------------------------------------------------|
+| `Sanshain-Event`      | The event type (`version.published`, …).                                    |
+| `X-Sanshain-Delivery` | The delivery id — one per hook per event; a redelivery reuses it.           |
+| `Sanshain-Signature`  | `t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">` under the hook's secret. |
+
+The `Content-Type` is `application/json` and the `User-Agent` is `Sanshain/<version>`. There are
+no custom headers and no bearer tokens: the signature is the authentication.
+
+### Verifying the signature
+
+The secret (`whsec_` + 64 hex characters) is shown once when the hook is created or its secret
+is rotated. Compute HMAC-SHA256 over the timestamp, a dot and the **raw** request body, compare
+in constant time, and reject timestamps older than five minutes to defeat replays:
+
+```js
+// Node.js receiver (Express with the raw body kept)
+const crypto = require("node:crypto");
+
+function verify(req, secret) {
+  const header = req.get("Sanshain-Signature") || "";
+  const parts = Object.fromEntries(header.split(",").map((p) => p.split("=")));
+  const t = Number(parts.t);
+  if (!t || Math.abs(Date.now() / 1000 - t) > 300) return false; // older than 5 minutes
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(`${t}.${req.rawBody}`)
+    .digest("hex");
+  const given = Buffer.from(parts.v1 || "", "hex");
+  return given.length === 32 && crypto.timingSafeEqual(given, Buffer.from(expected, "hex"));
+}
+```
+
+The same in Python:
+
+```python
+import hmac, hashlib, time
+
+def verify(headers, raw_body: bytes, secret: str) -> bool:
+    parts = dict(p.split("=", 1) for p in headers["Sanshain-Signature"].split(","))
+    t = int(parts["t"])
+    if abs(time.time() - t) > 300:
+        return False
+    expected = hmac.new(secret.encode(), f"{t}.".encode() + raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, parts.get("v1", ""))
+```
+
+Sign the body bytes exactly as received — do not re-serialize the JSON first.
+
+### Formats
+
+A hook's `format` picks the body shape; the headers and the signature are the same for all three.
+Formats are body shapes, not connectors: every one is a signed `POST` to the URL you give.
+
+- `json` — the envelope above.
+- `slack` — `{"text": "..."}`, the shape a Slack incoming webhook accepts, with the fact in one
+  line of mrkdwn and, when links are known, an `<url|Open in Sanshain>` link.
+- `teams` — the Adaptive Card message a Teams incoming webhook (Workflows) accepts:
+  `{"type": "message", "attachments": [{"contentType": "application/vnd.microsoft.card.adaptive",
+  "content": {...}}]}`, with the event type as the title, the fact as text and, when links are
+  known, an `Action.OpenUrl` button.
+
+### Retries, the delivery log and the allow-list
+
+- A `2xx` answer is a delivery; the body of the answer is never read. Anything else — another
+  status, a connection error, the 10 s timeout — is a failed attempt.
+- Failed attempts are retried with exponential backoff: 30 s after the first failure, doubling
+  up to one hour between attempts, **until 24 hours after the event occurred**; then the delivery
+  is `dead`. The window is measured from the event, not from the first attempt, so a hook paused
+  for a day finds its deliveries dead on resume. An operator can redeliver a dead delivery by hand
+  — one more attempt, same `id`.
+- Redirects are not followed.
+- Each hook has a delivery log (status `pending`, `delivered`, `failed` or `dead`, attempts,
+  next attempt, last response code, last error) on its page. The Prometheus exposition carries
+  `sanshain_webhook_deliveries_total{outcome}` and `sanshain_webhook_outbox_pending`.
+- Receivers must be on the administrator's allow-list of hosts; hooks registered by an
+  administrator are exempt. The list is checked at registration and again at every delivery, so
+  a host removed later stops receiving (the log says why). Plain `http://` is only possible to a
+  host the list names with `http://` itself.
+
 ## Related Pages
 
 - [User Guide](user-guide.md) — Day-to-day usage: providing specs, requiring endpoints, browsing the UI.

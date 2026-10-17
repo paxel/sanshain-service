@@ -343,6 +343,70 @@ The **Consumers** section lists all Consumers that have recorded at least one de
 
 - **Delete** — removes the Consumer and all its recorded dependencies. A confirmation dialog appears before deletion.
 
+## Webhooks
+
+Sanshain can tell other systems what happened: a Producer published or deprecated a Version, a
+Provide was rejected, a new Consumer started requiring a Producer, a Sanshain-branch was cut, a
+catalog push ran. Each is a signed `POST` to a URL — a Slack or Teams incoming webhook, n8n,
+Jenkins, a Jira automation. What a receiver gets, and how it verifies the signature, is in
+[CI Integration — Webhooks](ci-integration.md#webhooks).
+
+### Hooks and where they live
+
+- **Global hooks** (admin page, *Webhooks* section) receive every event, narrowed by an optional
+  event-type set and an optional Producer-name glob (`payments-*`). `manage_settings` manages them.
+- **System hooks** live on a Producer's page and on a Consumer's page (*Webhooks* card). A
+  Producer's hooks receive that Producer's events; a Consumer's hooks receive the events of every
+  Producer the Consumer currently requires — the hook follows the require graph, so a new
+  dependency needs no hook change. A Maintainer of the Producer manages both (for a Consumer: the
+  Maintainer of the Producer of the same name, the "same system" rule), as does anyone with
+  `manage_producers`. The card is only shown to callers who may manage it.
+
+Registering a hook asks for the receiver URL, the body format (`json`, `slack` or `teams`), the
+event types (none checked = every event) and, optionally, a Producer glob. The answer shows the
+signing secret **once**, with a copy button — it is stored for signing but never readable again.
+*Rotate secret* issues a new one (shown once) and signs every later delivery with it. *Pause*
+keeps a noisy receiver quiet without deleting the configuration: its deliveries stay pending and
+go out on resume. *Send test* queues a `webhook.test` event for that hook alone, delivered like
+any other, so the receiver, the secret and the allow-list are all exercised. *Delete* removes the
+hook and its delivery log.
+
+Hook creation, deletion, pause, resume, secret rotation and manual redelivery are recorded in the
+audit log (`WEBHOOK_*`, type `ADMIN`); changes to the allow-list as `SET_WEBHOOK_ALLOWED_HOSTS`.
+
+### The allow-list
+
+A hook can only point at a host the administrator approved: the *Allowed receiver hosts* list on
+the admin page (setting `webhook_allowed_hosts`, `GET`/`POST /admin/settings/webhook-allowed-hosts`).
+A pattern is a host name with `*` and `?` wildcards — `hooks.slack.com`, `*.webhook.office.com` —
+and admits `https://` to matching hosts; prefixed with `http://` (`http://n8n.corp.internal`) it
+also admits plain HTTP to that host, for in-cluster receivers. Ports are not part of the match.
+
+- A hook URL outside the list is refused at registration with a message naming the allowed hosts.
+- With an **empty** list, only administrators may register hooks: a Maintainer is told that the
+  admin has to allow hosts first. A fresh install is therefore safe by default — nothing inside the
+  cluster can be targeted until an administrator says so.
+- Hooks registered by a caller with `manage_settings` are exempt from the list, at registration and
+  at delivery (the listing marks them *exempt*).
+- The list is evaluated again at every delivery: removing a host stops deliveries to it, with a
+  `failed` status and the reason in the delivery log; the attempts continue on the backoff schedule
+  until the host is allowed again or the 24-hour window closes.
+
+### The delivery log
+
+*Deliveries* on a hook opens its log: the newest deliveries with the event type, when it occurred,
+the status (`pending`, `delivered`, `failed`, `dead`), the attempt count, the next attempt, the
+last response code and the last error. Failed deliveries are retried with exponential backoff (30 s,
+doubling, at most one hour apart) until 24 hours after the event, then marked dead. *Redeliver*
+resets one delivery — a dead one included — for one more attempt, keeping its attempt count.
+Delivered and dead rows older than 30 days are removed by the cleanup cycle.
+
+Every event is written to an outbox in the same database transaction as the fact it describes, so a
+receiver outage loses nothing, and a background worker in each replica delivers it; on PostgreSQL
+two replicas never send one delivery twice. `WEBHOOKS_ENABLED`, `WEBHOOK_WORKER_INTERVAL_SECS`,
+`WEBHOOK_DELIVERY_TIMEOUT_SECS` and `PUBLIC_BASE_URL` (for the deep links the messages carry) are
+in [Configuration](configuration.md).
+
 ## Changing Your Password
 
 Click the **Change Password** button in the top navigation bar to open the password dialog.
