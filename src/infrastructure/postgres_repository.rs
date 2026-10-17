@@ -3646,8 +3646,12 @@ impl SpecRepository for PostgresSpecRepository {
         delivery_id: i64,
         now_iso: &str,
     ) -> Result<bool, RepositoryError> {
+        // Not while a worker holds it: a leased row is `pending`/`failed`
+        // with `next_attempt_at` in the future.
         let done = sqlx::query(
-            "UPDATE webhook_deliveries SET status = 'pending', next_attempt_at = $1, updated_at = $1 WHERE id = $2",
+            "UPDATE webhook_deliveries SET status = 'pending', next_attempt_at = $1, \
+             redelivered_at = $1, updated_at = $1 \
+             WHERE id = $2 AND (status IN ('delivered', 'dead') OR next_attempt_at <= $1)",
         )
         .bind(now_iso)
         .bind(delivery_id)
@@ -3717,12 +3721,16 @@ impl SpecRepository for PostgresSpecRepository {
         delivery_id: i64,
         now_iso: &str,
         outcome: &WebhookAttemptOutcome,
-    ) -> Result<(), RepositoryError> {
+        lease_until_iso: &str,
+    ) -> Result<bool, RepositoryError> {
         let (status, attempted, next, code, error, delivered) = attempt_columns(outcome);
-        sqlx::query(
+        // The lease guard: a row re-claimed by another pass carries that
+        // pass's lease, and this (stale) outcome must not overwrite it.
+        let done = sqlx::query(
             "UPDATE webhook_deliveries SET status = $1, attempts = attempts + $2, \
              next_attempt_at = COALESCE($3, next_attempt_at), last_response_code = $4, \
-             last_error = $5, delivered_at = $6, updated_at = $7 WHERE id = $8",
+             last_error = $5, delivered_at = $6, updated_at = $7 \
+             WHERE id = $8 AND next_attempt_at = $9",
         )
         .bind(status)
         .bind(if attempted { 1i32 } else { 0i32 })
@@ -3732,10 +3740,11 @@ impl SpecRepository for PostgresSpecRepository {
         .bind(delivered.then_some(now_iso))
         .bind(now_iso)
         .bind(delivery_id)
+        .bind(lease_until_iso)
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
+        Ok(done.rows_affected() > 0)
     }
 
     async fn count_pending_webhook_deliveries(&self) -> Result<u64, RepositoryError> {
@@ -3803,9 +3812,9 @@ fn due_row(row: &sqlx::postgres::PgRow) -> Result<DueRow, RepositoryError> {
             col!(9),
             col!(10),
             col!(11),
+            col!(12),
         ),
         (
-            col!(12),
             col!(13),
             col!(14),
             col!(15),
@@ -3818,9 +3827,10 @@ fn due_row(row: &sqlx::postgres::PgRow) -> Result<DueRow, RepositoryError> {
             col!(22),
             col!(23),
             col!(24),
+            col!(25),
         ),
-        col!(25),
         col!(26),
+        col!(27),
     ))
 }
 

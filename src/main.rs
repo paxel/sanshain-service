@@ -495,6 +495,7 @@ pub async fn main() {
             };
         let config = sanshain_service::application::webhook_delivery::WebhookDeliveryConfig {
             public_base_url: public_base_url.clone(),
+            delivery_timeout_secs: webhook_delivery_timeout_secs,
             ..Default::default()
         };
         tracing::info!(

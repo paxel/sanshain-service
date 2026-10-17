@@ -398,7 +398,8 @@ also admits plain HTTP to that host, for in-cluster receivers. Ports are not par
 the status (`pending`, `delivered`, `failed`, `dead`), the attempt count, the next attempt, the
 last response code and the last error. Failed deliveries are retried with exponential backoff (30 s,
 doubling, at most one hour apart) until 24 hours after the event, then marked dead. *Redeliver*
-resets one delivery — a dead one included — for one more attempt, keeping its attempt count.
+resets one delivery — a dead one included — for one more attempt, keeping its attempt count; a
+delivery a worker is attempting at that moment answers `409` (try again after the attempt).
 Delivered and dead rows older than 30 days are removed by the cleanup cycle.
 
 Every event is written to an outbox in the same database transaction as the fact it describes, so a

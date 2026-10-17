@@ -1171,8 +1171,10 @@ pub trait SpecRepository: Send + Sync {
         delivery_id: i64,
     ) -> impl Future<Output = Result<Option<WebhookDelivery>, RepositoryError>> + Send;
 
-    /// Redeliver: back to `pending`, due at `now_iso`, attempt count kept.
-    /// Answers whether the delivery existed.
+    /// Redeliver: back to `pending`, due at `now_iso`, attempt count kept,
+    /// `redelivered_at` stamped. Only a settled row (`delivered`/`dead`) or
+    /// one that is due — not one a worker currently holds under its lease —
+    /// is reset; answers whether it was.
     fn reset_webhook_delivery(
         &self,
         delivery_id: i64,
@@ -1190,13 +1192,17 @@ pub trait SpecRepository: Send + Sync {
         limit: u32,
     ) -> impl Future<Output = Result<Vec<DueWebhookDelivery>, RepositoryError>> + Send;
 
-    /// Record how a claimed delivery's attempt ended.
+    /// Record how a claimed delivery's attempt ended — only while the row
+    /// still carries this worker's lease (`next_attempt_at ==
+    /// lease_until_iso`); a worker whose lease expired and whose row another
+    /// pass re-claimed answers `false` and changes nothing.
     fn record_webhook_attempt(
         &self,
         delivery_id: i64,
         now_iso: &str,
         outcome: &WebhookAttemptOutcome,
-    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+        lease_until_iso: &str,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
 
     /// Deliveries still to be made (`pending` or `failed`) — the backlog gauge.
     fn count_pending_webhook_deliveries(

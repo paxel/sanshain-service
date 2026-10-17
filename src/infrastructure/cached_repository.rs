@@ -1704,9 +1704,10 @@ impl SpecRepository for CachedSpecRepository {
         delivery_id: i64,
         now_iso: &str,
         outcome: &WebhookAttemptOutcome,
-    ) -> Result<(), RepositoryError> {
+        lease_until_iso: &str,
+    ) -> Result<bool, RepositoryError> {
         self.inner
-            .record_webhook_attempt(delivery_id, now_iso, outcome)
+            .record_webhook_attempt(delivery_id, now_iso, outcome, lease_until_iso)
             .await
     }
 

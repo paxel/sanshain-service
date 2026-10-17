@@ -268,6 +268,7 @@ impl MockRepo {
                     last_response_code: None,
                     last_error: None,
                     delivered_at: None,
+                    redelivered_at: None,
                     updated_at: event.occurred_at.clone(),
                 });
             }
@@ -2988,8 +2989,16 @@ impl SpecRepository for MockRepo {
         let Some(row) = rows.iter_mut().find(|d| d.id == delivery_id) else {
             return Ok(false);
         };
+        let settled = matches!(
+            row.status,
+            WebhookDeliveryStatus::Delivered | WebhookDeliveryStatus::Dead
+        );
+        if !settled && row.next_attempt_at.as_str() > now_iso {
+            return Ok(false);
+        }
         row.status = WebhookDeliveryStatus::Pending;
         row.next_attempt_at = now_iso.to_string();
+        row.redelivered_at = Some(now_iso.to_string());
         row.updated_at = now_iso.to_string();
         Ok(true)
     }
@@ -3050,14 +3059,18 @@ impl SpecRepository for MockRepo {
         delivery_id: i64,
         now_iso: &str,
         outcome: &WebhookAttemptOutcome,
-    ) -> Result<(), RepositoryError> {
+        lease_until_iso: &str,
+    ) -> Result<bool, RepositoryError> {
         let mut rows = self
             .webhook_deliveries
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         let Some(row) = rows.iter_mut().find(|d| d.id == delivery_id) else {
-            return Ok(());
+            return Ok(false);
         };
+        if row.next_attempt_at != lease_until_iso {
+            return Ok(false);
+        }
         row.updated_at = now_iso.to_string();
         match outcome {
             WebhookAttemptOutcome::Delivered { code } => {
@@ -3090,7 +3103,7 @@ impl SpecRepository for MockRepo {
                 row.last_error = Some(error.clone());
             }
         }
-        Ok(())
+        Ok(true)
     }
 
     async fn count_pending_webhook_deliveries(&self) -> Result<u64, RepositoryError> {

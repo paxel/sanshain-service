@@ -184,7 +184,7 @@ const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
     ),
     (
         "20261017000001_webhooks.sql",
-        "e5017e8651197a5f9d736796534082ba825f7a1ecfa2ee94b06628f66fac312b",
+        "3bd1026c2efa6df5f5adac83e75af9eaa1f288c922eee8fe57c43272d2464da1",
     ),
 ];
 
@@ -323,7 +323,7 @@ const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
     ),
     (
         "20261017000001_webhooks.sql",
-        "184ab8f536492c971e313bc0afb3fa906b90963304a329579052ebdb80834856",
+        "a7ee90a6b7c1a5ad68574942224de2c59207463a5b9802393e275d2f5c5065f4",
     ),
 ];
 

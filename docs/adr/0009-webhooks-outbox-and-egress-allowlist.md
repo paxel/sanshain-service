@@ -47,7 +47,11 @@ The worker is a plain function with an injectable clock (`deliver_due(repo, send
 so retries, backoff and the 24-hour cutoff are tested without sleeping, and `main` only loops over
 it. On PostgreSQL the claim is `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)`, which is
 what makes two replicas safe; SQLite has one writer. A claim moves the row's next attempt forward
-as a lease, so a pass that dies mid-send loses nothing for good.
+as a lease sized for the worst-case pass (batch × delivery timeout, plus a margin), so a pass that
+dies mid-send loses nothing for good and a slow one is never overtaken; an outcome is recorded only
+while the row still carries the recording pass's lease, so a pass that did lose its lease cannot
+overwrite the re-claiming pass's result. A manual redeliver is explicit (`redelivered_at`), not
+inferred, and is refused while a worker holds the row.
 
 **Generic webhooks.** A Slack app token, a Jira REST credential or a Confluence page would each be a
 connector with its own secret, its own API surface and its own failure modes to carry in the

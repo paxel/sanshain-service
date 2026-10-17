@@ -3624,10 +3624,13 @@ impl SpecRepository for SqliteSpecRepository {
         delivery_id: i64,
         now_iso: &str,
     ) -> Result<bool, RepositoryError> {
+        // Not while a worker holds it: a leased row is `pending`/`failed`
+        // with `next_attempt_at` in the future.
         let done = sqlx::query(
-            "UPDATE webhook_deliveries SET status = 'pending', next_attempt_at = ?, updated_at = ? WHERE id = ?",
+            "UPDATE webhook_deliveries SET status = 'pending', next_attempt_at = ?1, \
+             redelivered_at = ?1, updated_at = ?1 \
+             WHERE id = ?2 AND (status IN ('delivered', 'dead') OR next_attempt_at <= ?1)",
         )
-        .bind(now_iso)
         .bind(now_iso)
         .bind(delivery_id)
         .execute(&self.pool)
@@ -3689,12 +3692,16 @@ impl SpecRepository for SqliteSpecRepository {
         delivery_id: i64,
         now_iso: &str,
         outcome: &WebhookAttemptOutcome,
-    ) -> Result<(), RepositoryError> {
+        lease_until_iso: &str,
+    ) -> Result<bool, RepositoryError> {
         let (status, attempted, next, code, error, delivered) = attempt_columns(outcome);
-        sqlx::query(
+        // The lease guard: a row re-claimed by another pass carries that
+        // pass's lease, and this (stale) outcome must not overwrite it.
+        let done = sqlx::query(
             "UPDATE webhook_deliveries SET status = ?, attempts = attempts + ?, \
              next_attempt_at = COALESCE(?, next_attempt_at), last_response_code = ?, \
-             last_error = ?, delivered_at = ?, updated_at = ? WHERE id = ?",
+             last_error = ?, delivered_at = ?, updated_at = ? \
+             WHERE id = ? AND next_attempt_at = ?",
         )
         .bind(status)
         .bind(if attempted { 1 } else { 0 })
@@ -3704,10 +3711,11 @@ impl SpecRepository for SqliteSpecRepository {
         .bind(delivered.then_some(now_iso))
         .bind(now_iso)
         .bind(delivery_id)
+        .bind(lease_until_iso)
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(())
+        Ok(done.rows_affected() > 0)
     }
 
     async fn count_pending_webhook_deliveries(&self) -> Result<u64, RepositoryError> {
@@ -3771,9 +3779,9 @@ fn due_row(row: &sqlx::sqlite::SqliteRow) -> Result<DueRow, RepositoryError> {
             col!(9),
             col!(10),
             col!(11),
+            col!(12),
         ),
         (
-            col!(12),
             col!(13),
             col!(14),
             col!(15),
@@ -3786,9 +3794,10 @@ fn due_row(row: &sqlx::sqlite::SqliteRow) -> Result<DueRow, RepositoryError> {
             col!(22),
             col!(23),
             col!(24),
+            col!(25),
         ),
-        col!(25),
         col!(26),
+        col!(27),
     ))
 }
 
@@ -4959,17 +4968,20 @@ mod tests {
         assert!(again.is_empty(), "a leased row is not claimed twice");
 
         let id = claimed[0].delivery.id;
-        repo.record_webhook_attempt(
-            id,
-            "2026-01-01T00:00:06Z",
-            &WebhookAttemptOutcome::Failed {
-                code: Some(500),
-                error: "HTTP 500".to_string(),
-                next_attempt_at: "2026-01-01T00:00:36Z".to_string(),
-            },
-        )
-        .await
-        .unwrap();
+        assert!(
+            repo.record_webhook_attempt(
+                id,
+                "2026-01-01T00:00:06Z",
+                &WebhookAttemptOutcome::Failed {
+                    code: Some(500),
+                    error: "HTTP 500".to_string(),
+                    next_attempt_at: "2026-01-01T00:00:36Z".to_string(),
+                },
+                "2026-01-01T00:02:05Z",
+            )
+            .await
+            .unwrap()
+        );
         let rows = repo.list_webhook_deliveries(a, 10).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status, WebhookDeliveryStatus::Failed);
@@ -4977,13 +4989,34 @@ mod tests {
         assert_eq!(rows[0].last_response_code, Some(500));
         assert_eq!(rows[0].next_attempt_at, "2026-01-01T00:00:36Z");
 
-        repo.record_webhook_attempt(
-            id,
-            "2026-01-01T00:00:40Z",
-            &WebhookAttemptOutcome::Delivered { code: 204 },
-        )
-        .await
-        .unwrap();
+        // Not leased now: the claim is the only way to the next attempt.
+        assert!(
+            !repo
+                .record_webhook_attempt(
+                    id,
+                    "2026-01-01T00:00:40Z",
+                    &WebhookAttemptOutcome::Delivered { code: 204 },
+                    "2026-01-01T00:02:05Z",
+                )
+                .await
+                .unwrap(),
+            "a stale lease records nothing"
+        );
+        let claimed = repo
+            .claim_due_webhook_deliveries("2026-01-01T00:00:40Z", "2026-01-01T00:02:40Z", 10)
+            .await
+            .unwrap();
+        assert_eq!(claimed.len(), 1);
+        assert!(
+            repo.record_webhook_attempt(
+                id,
+                "2026-01-01T00:00:40Z",
+                &WebhookAttemptOutcome::Delivered { code: 204 },
+                "2026-01-01T00:02:40Z",
+            )
+            .await
+            .unwrap()
+        );
         let row = repo.get_webhook_delivery(id).await.unwrap().unwrap();
         assert_eq!(row.status, WebhookDeliveryStatus::Delivered);
         assert_eq!(row.attempts, 2);
@@ -5003,6 +5036,98 @@ mod tests {
         assert!(repo.delete_webhook(b).await.unwrap());
         assert_eq!(repo.count_pending_webhook_deliveries().await.unwrap(), 0);
         assert!(repo.get_webhook(b).await.unwrap().is_none());
+    }
+
+    /// Two passes on one row (#47): when the first pass's lease expires and
+    /// a second pass re-claims the row, the first pass's late outcome is
+    /// dropped — the row shows the second pass's outcome only. And a row a
+    /// worker holds cannot be redelivered by hand; a settled one can, and is
+    /// stamped.
+    #[tokio::test]
+    async fn a_stale_workers_outcome_is_ignored_and_a_leased_row_is_not_redelivered() {
+        let repo = setup().await;
+        let scope = WebhookScope::Global;
+        let hook = repo
+            .create_webhook(new_hook(&scope, "https://a.example/h"))
+            .await
+            .unwrap();
+        repo.insert_webhook_events(&[NewWebhookEvent {
+            id: "evt-1".to_string(),
+            event_type: WebhookEventType::BranchCut,
+            producer: None,
+            occurred_at: "2026-01-01T00:00:00Z".to_string(),
+            data: serde_json::json!({}),
+            hook_ids: vec![hook],
+        }])
+        .await
+        .unwrap();
+
+        // Pass A claims with a 10 s lease and is slow.
+        let a = repo
+            .claim_due_webhook_deliveries("2026-01-01T00:00:01Z", "2026-01-01T00:00:11Z", 10)
+            .await
+            .unwrap();
+        let id = a[0].delivery.id;
+        assert!(
+            !repo
+                .reset_webhook_delivery(id, "2026-01-01T00:00:02Z")
+                .await
+                .unwrap(),
+            "a leased row is in flight"
+        );
+        // The lease expires; pass B re-claims the row.
+        let b = repo
+            .claim_due_webhook_deliveries("2026-01-01T00:00:12Z", "2026-01-01T00:00:22Z", 10)
+            .await
+            .unwrap();
+        assert_eq!(b.len(), 1);
+        // A's late outcome under A's lease: ignored.
+        assert!(
+            !repo
+                .record_webhook_attempt(
+                    id,
+                    "2026-01-01T00:00:13Z",
+                    &WebhookAttemptOutcome::Delivered { code: 200 },
+                    "2026-01-01T00:00:11Z",
+                )
+                .await
+                .unwrap()
+        );
+        let row = repo.get_webhook_delivery(id).await.unwrap().unwrap();
+        assert_eq!(row.status, WebhookDeliveryStatus::Pending);
+        assert_eq!(row.attempts, 0);
+        assert_eq!(
+            row.next_attempt_at, "2026-01-01T00:00:22Z",
+            "B's lease stands"
+        );
+        // B's outcome under B's lease: applied.
+        assert!(
+            repo.record_webhook_attempt(
+                id,
+                "2026-01-01T00:00:14Z",
+                &WebhookAttemptOutcome::Dead {
+                    code: Some(500),
+                    error: "HTTP 500".to_string(),
+                },
+                "2026-01-01T00:00:22Z",
+            )
+            .await
+            .unwrap()
+        );
+        let row = repo.get_webhook_delivery(id).await.unwrap().unwrap();
+        assert_eq!(row.status, WebhookDeliveryStatus::Dead);
+        assert_eq!(row.attempts, 1);
+        assert_eq!(row.redelivered_at, None);
+        // Settled: a redeliver resets and stamps it.
+        assert!(
+            repo.reset_webhook_delivery(id, "2026-01-02T00:00:00Z")
+                .await
+                .unwrap()
+        );
+        let row = repo.get_webhook_delivery(id).await.unwrap().unwrap();
+        assert_eq!(row.status, WebhookDeliveryStatus::Pending);
+        assert_eq!(row.redelivered_at.as_deref(), Some("2026-01-02T00:00:00Z"));
+        assert_eq!(row.attempts, 1);
     }
 
     /// The fan-out query (#47): Consumers with a current edge in the dev

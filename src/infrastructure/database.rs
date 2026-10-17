@@ -888,8 +888,12 @@ impl SpecRepository for DatabaseRepo {
         delivery_id: i64,
         now_iso: &str,
         outcome: &WebhookAttemptOutcome,
-    ) -> Result<(), RepositoryError> {
-        delegate!(self, record_webhook_attempt(delivery_id, now_iso, outcome))
+        lease_until_iso: &str,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(
+            self,
+            record_webhook_attempt(delivery_id, now_iso, outcome, lease_until_iso)
+        )
     }
 
     async fn count_pending_webhook_deliveries(&self) -> Result<u64, RepositoryError> {

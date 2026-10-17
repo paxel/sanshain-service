@@ -1406,6 +1406,9 @@ pub struct WebhookDelivery {
     pub last_response_code: Option<u16>,
     pub last_error: Option<String>,
     pub delivered_at: Option<String>,
+    /// When an operator last redelivered it by hand — grants one more
+    /// attempt even past the cutoff.
+    pub redelivered_at: Option<String>,
     pub updated_at: String,
 }
 

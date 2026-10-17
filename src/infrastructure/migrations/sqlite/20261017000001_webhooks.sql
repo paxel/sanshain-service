@@ -46,6 +46,9 @@ CREATE TABLE webhook_deliveries (
     last_response_code INTEGER NULL,
     last_error TEXT NULL,
     delivered_at TEXT NULL,
+    -- Set by a manual redeliver: the row gets one more attempt even past
+    -- the 24 h cutoff.
+    redelivered_at TEXT NULL,
     updated_at TEXT NOT NULL
 );
 CREATE INDEX idx_webhook_deliveries_due ON webhook_deliveries(status, next_attempt_at);

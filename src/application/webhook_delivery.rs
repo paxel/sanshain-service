@@ -19,19 +19,23 @@ const MAX_BACKOFF_SECS: i64 = 3600;
 /// event, not from the first attempt, so a hook paused for a day finds its
 /// deliveries dead on resume.
 const CUTOFF_HOURS: i64 = 24;
-/// A claimed delivery is invisible to other passes for this long — longer
-/// than the delivery timeout, so a crashed pass loses nothing for good.
-const LEASE_SECS: i64 = 120;
+/// Added to the longest a pass can take (batch × delivery timeout) for the
+/// lease a claim holds: long enough that a slow pass never loses its rows
+/// to another replica, short enough that a crashed pass loses nothing for
+/// good.
+const LEASE_MARGIN_SECS: i64 = 60;
 /// Delivered and dead rows are kept this long for the delivery log.
 pub const RETENTION_DAYS: i64 = 30;
 
 /// What the worker needs beyond the repository: the public base URL for
-/// deep links (`PUBLIC_BASE_URL`, or the OIDC redirect URL's origin, or none)
-/// and how many deliveries one pass claims.
+/// deep links (`PUBLIC_BASE_URL`, or the OIDC redirect URL's origin, or none),
+/// how many deliveries one pass claims, and the sender's timeout — the two
+/// bound how long a pass can take, which sizes the claim's lease.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WebhookDeliveryConfig {
     pub public_base_url: Option<String>,
     pub batch_size: u32,
+    pub delivery_timeout_secs: u64,
 }
 
 impl Default for WebhookDeliveryConfig {
@@ -39,8 +43,41 @@ impl Default for WebhookDeliveryConfig {
         Self {
             public_base_url: None,
             batch_size: 50,
+            delivery_timeout_secs: 10,
         }
     }
+}
+
+impl WebhookDeliveryConfig {
+    /// How long a claim holds its rows: the worst-case pass plus a margin.
+    pub fn lease_secs(&self) -> i64 {
+        i64::from(self.batch_size)
+            .saturating_mul(self.delivery_timeout_secs.min(i64::MAX as u64) as i64)
+            .saturating_add(LEASE_MARGIN_SECS)
+    }
+}
+
+/// Slack reads `&`, `<` and `>` as markup in message text; a Producer named
+/// `<https://evil|orders>` would render as a link. Escaped in the summary,
+/// never in the link Sanshain builds itself.
+pub fn slack_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// Adaptive Card text blocks read a markdown subset (`**bold**`, `_italic_`,
+/// `[text](url)`); a backslash escapes those characters, so caller-supplied
+/// names cannot smuggle a link into the card.
+pub fn teams_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if matches!(c, '\\' | '*' | '_' | '[' | ']') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// Seconds to wait before the next attempt, given how many were made.
@@ -332,6 +369,7 @@ pub fn render_body(format: WebhookFormat, envelope: &serde_json::Value) -> Strin
     let body = match format {
         WebhookFormat::Json => envelope.clone(),
         WebhookFormat::Slack => {
+            let text = slack_escape(&text);
             let text = match &link {
                 Some(url) => format!(
                     "*{}* — {text} <{url}|Open in Sanshain>",
@@ -348,7 +386,7 @@ pub fn render_body(format: WebhookFormat, envelope: &serde_json::Value) -> Strin
                 "version": "1.4",
                 "body": [
                     { "type": "TextBlock", "text": event_type.as_str(), "weight": "Bolder", "size": "Medium" },
-                    { "type": "TextBlock", "text": text, "wrap": true },
+                    { "type": "TextBlock", "text": teams_escape(&text), "wrap": true },
                 ],
             });
             if let Some(url) = &link {
@@ -424,12 +462,9 @@ pub async fn deliver_due(
     config: &WebhookDeliveryConfig,
     now: DateTime<Utc>,
 ) -> Result<DeliveryPassSummary, AppError> {
+    let lease_until = iso(now + Duration::seconds(config.lease_secs()));
     let due = repo
-        .claim_due_webhook_deliveries(
-            &iso(now),
-            &iso(now + Duration::seconds(LEASE_SECS)),
-            config.batch_size,
-        )
+        .claim_due_webhook_deliveries(&iso(now), &lease_until, config.batch_size)
         .await?;
     let mut summary = DeliveryPassSummary::default();
     if !due.is_empty() {
@@ -451,8 +486,15 @@ pub async fn deliver_due(
                     count("dead");
                 }
             }
-            repo.record_webhook_attempt(item.delivery.id, &iso(now), &outcome)
+            let recorded = repo
+                .record_webhook_attempt(item.delivery.id, &iso(now), &outcome, &lease_until)
                 .await?;
+            if !recorded {
+                tracing::warn!(
+                    delivery = item.delivery.id,
+                    "Webhook delivery outcome discarded: the lease expired and another pass re-claimed the row"
+                );
+            }
         }
     }
     let pending = repo.count_pending_webhook_deliveries().await?;
@@ -473,10 +515,11 @@ async fn attempt(
             .unwrap_or(now)
     };
     let cutoff = parse(&item.delivery.occurred_at) + Duration::hours(CUTOFF_HOURS);
-    // A row touched after the cutoff was redelivered by hand — that grants
-    // exactly one more attempt; everything else past the cutoff is dead
-    // without one (a paused hook resumed a day later included).
-    let redelivered = parse(&item.delivery.updated_at) > cutoff;
+    // A row redelivered by hand gets one more attempt whatever the clock
+    // says; everything else past the cutoff is dead without one (a paused
+    // hook resumed a day later included). A failure past the cutoff is dead
+    // again, so the grant is exactly one attempt.
+    let redelivered = item.delivery.redelivered_at.is_some();
     if now >= cutoff && !redelivered {
         return WebhookAttemptOutcome::Expired {
             error: format!("given up: {CUTOFF_HOURS} hours have passed since the event"),
@@ -666,6 +709,63 @@ mod tests {
                 .unwrap(),
             env
         );
+    }
+
+    #[test]
+    fn chat_bodies_escape_caller_supplied_text_but_not_the_link() {
+        let data = serde_json::json!({
+            "producer": "<https://evil.example|orders>", "api_type": "openapi", "version": "1.0.0",
+            "stability": "ga", "promoted": false, "stream": "dev", "actor": "a&b", "compatibility": null,
+        });
+        let env = envelope(
+            "e1",
+            WebhookEventType::VersionPublished,
+            "2026-01-01T00:00:00Z",
+            &data,
+            Some("https://s.example"),
+        );
+        let slack: serde_json::Value =
+            serde_json::from_str(&render_body(WebhookFormat::Slack, &env)).unwrap();
+        let text = slack["text"].as_str().unwrap();
+        assert!(
+            text.contains("&lt;https://evil.example|orders&gt;"),
+            "{text}"
+        );
+        assert!(text.contains("by a&amp;b"), "{text}");
+        assert!(!text.contains("<https://evil.example|orders>"), "{text}");
+        assert!(text.contains("<https://s.example/producers.html?service=%3Chttps%3A%2F%2Fevil.example%7Corders%3E&api_type=openapi&version=1.0.0|Open in Sanshain>"), "the deep link itself stays a link: {text}");
+
+        let data = serde_json::json!({"name": "[click](https://evil.example) *now*", "source": "trunk", "as_of": "x", "actor": "bob"});
+        let env = envelope(
+            "e1",
+            WebhookEventType::BranchCut,
+            "2026-01-01T00:00:00Z",
+            &data,
+            None,
+        );
+        let teams: serde_json::Value =
+            serde_json::from_str(&render_body(WebhookFormat::Teams, &env)).unwrap();
+        let text = teams["attachments"][0]["content"]["body"][1]["text"]
+            .as_str()
+            .unwrap();
+        assert!(
+            text.contains("\\[click\\](https://evil.example) \\*now\\*"),
+            "{text}"
+        );
+        assert_eq!(teams_escape("a_b"), "a\\_b");
+        assert_eq!(slack_escape("a<b>&c"), "a&lt;b&gt;&amp;c");
+    }
+
+    #[test]
+    fn the_lease_covers_the_worst_case_pass() {
+        let config = WebhookDeliveryConfig::default();
+        assert_eq!(config.lease_secs(), 50 * 10 + 60);
+        let config = WebhookDeliveryConfig {
+            batch_size: 5,
+            delivery_timeout_secs: 3,
+            ..Default::default()
+        };
+        assert_eq!(config.lease_secs(), 15 + 60);
     }
 
     #[test]
