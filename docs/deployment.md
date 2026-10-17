@@ -125,3 +125,7 @@ To run more than one replica, switch to PostgreSQL (set `DATABASE_URL` to a
 - **Non-Root**: The container is configured to run as a non-root user (UID 1000).
 - **Security Context**: Standard Pod and Container security contexts are applied in both Kustomize and Helm templates.
 - **TLS**: Ingress templates support TLS termination.
+- **Outbound TLS trust**: The image ships the system CA bundle, so `ldaps://` against a directory
+  with a publicly trusted certificate works out of the box. A private or corporate CA still goes
+  through the `EXTRA_CA_CERTS_DIR` mount, exactly as before — see
+  [Additional CA certificates](configuration.md#additional-ca-certificates).

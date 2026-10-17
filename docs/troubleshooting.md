@@ -42,6 +42,32 @@ PORT=3080 ./sanshain_service
 1. Create an **API Token** in your Account settings (`/account.html`) and include it in your request: `Authorization: Bearer san_...` (recommended).
 2. OR, for local development only, enable **Developer Mode** for unauthenticated access. Dev Mode fails closed unless you **also** start the service with the safety gate `ALLOW_INSECURE_DEV_MODE=true`; without it, requests stay locked and a `SECURITY:` error is logged at startup. See [Developer Mode](administration.md#enabling-dev-mode-local-only) for details. Never set this gate in production.
 
+### LDAP "Test connection" shows Bad Gateway or times out
+**Issue**: On the admin page, **Test connection** for LDAP answers `502 Bad Gateway`, or
+"LDAP server at ... accepted the connection but did not respond within 10 s".
+**Cause**: The directory accepted the TCP connection and then never answered. Sanshain itself
+never answers 502 — its own LDAP failures are a `400` with the text `LDAP connection failed: ...`.
+A 502 came from the ingress, which gave up on the request before Sanshain did; since 2.6.0
+Sanshain gives up first (10 s per operation, `LDAP_OPERATION_TIMEOUT_SECS`) and names the URL.
+By far the most common reason is a scheme and port mismatch:
+
+| Server URL         | Use TLS   | What happens                                                                 |
+|--------------------|-----------|------------------------------------------------------------------------------|
+| `ldaps://host:636` | any       | Correct: TLS from the first byte on the TLS port.                            |
+| `ldap://host:389`  | on        | Correct: StartTLS upgrades the plain connection in-band.                     |
+| `ldap://host:389`  | off       | Correct, but unencrypted. Fine for a lab, not for a directory of people.     |
+| `ldaps://host:389` | any       | Stalls: the TLS handshake is sent to a port that expects plain LDAP.         |
+| `ldap://host:636`  | on or off | Stalls: a plain LDAP message is sent to a port that expects a TLS handshake. |
+
+**Solution**:
+1. Match the scheme to the port: `ldaps://` needs the TLS port (636 by default), StartTLS
+   (`ldap://` with **Use TLS** on) needs the plain port (389 by default).
+2. If both are right, a firewall between Sanshain and the directory may accept the connection and
+   drop the traffic. Test the port from inside the Sanshain pod or container, not from your laptop.
+3. If the ingress still answers 502 before Sanshain's own message appears, its upstream timeout is
+   below 10 s. Sanshain's timeout is the one that should fire; raise the ingress timeout above it or
+   lower `LDAP_OPERATION_TIMEOUT_SECS`.
+
 ---
 
 ## Specification Management
