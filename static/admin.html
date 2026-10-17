@@ -7,6 +7,7 @@
     <title>Sanshain - Admin Dashboard</title>
     <link rel="stylesheet" href="/css/app.css" />
     <script src="/js/common.js"></script>
+    <script src="/js/webhooks.js"></script>
     <style>
       .fade-in {
         animation: fadeIn 0.2s ease-in;
@@ -286,6 +287,45 @@
             </button>
           </div>
           <div id="branches-list" class="space-y-2 text-sm"></div>
+        </section>
+
+        <!-- Webhooks (#47) -->
+        <section
+          id="webhooks-section"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6 hidden"
+        >
+          <div class="mb-4">
+            <h2 class="text-lg font-semibold text-slate-800">Webhooks</h2>
+            <p class="text-sm text-slate-500 mt-1">
+              Signed outbound events for every Producer (global hooks, optionally filtered by event
+              type and Producer glob). A hook URL must point at a host on the allow-list below;
+              administrators are exempt. Maintainers register their own system's hooks on the
+              Producer and Consumer pages. Deliveries are retried with backoff for 24 hours.
+            </p>
+          </div>
+          <div class="bg-slate-50 rounded-lg p-4 mb-4">
+            <label class="block text-xs font-medium text-slate-500 mb-1" for="webhook-allowed-hosts"
+              >Allowed receiver hosts (one per line; <code>*</code> and <code>?</code> wildcards;
+              prefix <code>http://</code> to allow plain HTTP to an in-cluster host). Empty: only
+              administrators may register hooks.</label
+            >
+            <textarea
+              id="webhook-allowed-hosts"
+              rows="3"
+              placeholder="hooks.slack.com&#10;*.webhook.office.com&#10;http://n8n.corp.internal"
+              class="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            ></textarea>
+            <div class="flex items-center gap-3 mt-2">
+              <button
+                data-click="saveWebhookAllowedHosts"
+                class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                Save allow-list
+              </button>
+              <span id="webhook-allowed-hosts-result" class="text-sm text-slate-500"></span>
+            </div>
+          </div>
+          <div id="webhooks-panel"></div>
         </section>
 
         <!-- Trunk TTL (ADR-0004) -->

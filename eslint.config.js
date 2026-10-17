@@ -32,6 +32,8 @@ export default [
         apiCall: "readonly",
         getSanshainToken: "readonly",
         systemContextHtml: "readonly",
+        // webhooks.js (#47)
+        renderWebhookPanel: "readonly",
         // discovery.js globals
         loadAllProducers: "readonly",
         getMethodColor: "readonly",

@@ -170,6 +170,84 @@ test.describe('Sanshain 1.5.0 Features Integration Tests', () => {
     expect(await page.locator('[data-context="links"] script').count()).toBe(0);
   });
 
+  test('Admin Webhooks section creates a hook and shows the secret once', async ({ page, request }) => {
+    await page.goto('/admin.html');
+    await ensureLoaderHidden(page);
+    const section = page.locator('#webhooks-section');
+    await section.scrollIntoViewIfNeeded();
+    await expect(section).toBeVisible();
+    await expect(page.locator('#webhook-allowed-hosts')).toBeVisible();
+    const panel = page.locator('#webhooks-panel [data-webhook-form]');
+    await expect(panel).toBeVisible();
+
+    const url = `https://hooks.example/${Date.now()}`;
+    await panel.locator('[data-webhook-url]').fill(url);
+    await panel.locator('[data-webhook-format]').selectOption('slack');
+    await panel.locator('[data-webhook-create]').click();
+
+    // The secret is shown once, with a copy button, and never in the list.
+    const secret = page.locator('#webhooks-panel [data-webhook-secret]');
+    await expect(secret).toBeVisible();
+    const value = await secret.textContent();
+    expect(value).toMatch(/^whsec_[0-9a-f]{64}$/);
+    await expect(page.locator('#webhooks-panel [data-webhook-copy]')).toBeVisible();
+    const row = page.locator('#webhooks-panel [data-webhook-row]').filter({ hasText: url });
+    await expect(row).toBeVisible();
+    await expect(row).toContainText('slack');
+    expect(await row.textContent()).not.toContain(value);
+
+    await page.reload();
+    await ensureLoaderHidden(page);
+    await expect(page.locator('#webhooks-panel [data-webhook-row]').filter({ hasText: url })).toBeVisible();
+    await expect(page.locator('#webhooks-panel [data-webhook-secret]')).toBeHidden();
+    expect(await page.locator('#webhooks-section').textContent()).not.toContain(value);
+
+    // Clean up through the API so the listing does not grow run over run.
+    const login = await request.post('/auth/login', {
+      data: { username: 'root', password: adminPassword },
+    });
+    const { token } = await login.json();
+    const id = await row.getAttribute('data-webhook-row');
+    const csrf = await (await request.get('/csrf-token')).json();
+    const deleted = await request.delete(`/admin/webhooks/${id}`, {
+      headers: { Authorization: `Bearer ${token}`, 'X-CSRF-Token': csrf.csrf_token },
+    });
+    expect(deleted.ok()).toBeTruthy();
+  });
+
+  test('Producer page shows the Webhooks card to an administrator', async ({ page, request }) => {
+    const login = await request.post('/auth/login', {
+      data: { username: 'root', password: adminPassword },
+    });
+    const { token } = await login.json();
+    const name = `hook-producer-${Date.now()}`;
+    const spec = [
+      'openapi: 3.0.3',
+      'info:',
+      '  title: Hooks',
+      '  version: 1.0.0',
+      'paths:',
+      '  /ping:',
+      '    get:',
+      '      responses:',
+      "        '200':",
+      '          description: OK',
+      '',
+    ].join('\n');
+    const provided = await request.post('/provide', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { producername: name, stability: 'snapshot', openapi_yaml: spec },
+    });
+    expect(provided.ok()).toBeTruthy();
+
+    await page.goto(`/producers.html?service=${encodeURIComponent(name)}`);
+    await ensureLoaderHidden(page);
+    const panel = page.locator(`[data-webhook-panel="/admin/producers/${name}/webhooks"]`);
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('[data-webhook-form]')).toBeVisible();
+    await expect(panel).toContainText('No hooks registered yet.');
+  });
+
   test('Admin Settings - Snapshot Max Age', async ({ page }) => {
     await page.goto('/admin.html');
     await ensureLoaderHidden(page);

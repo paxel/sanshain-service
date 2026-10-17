@@ -196,6 +196,22 @@ async function showProducerVersions(serviceName) {
     /* the context is optional */
   }
 
+  // The Producer's webhooks (#47): shown to its Maintainers and to
+  // administrators — the server decides, the card stays away for others.
+  const webhooks = document.createElement("div");
+  webhooks.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs hidden";
+  webhooks.innerHTML =
+    '<h3 class="font-semibold text-slate-800 mb-1">Webhooks</h3><p class="text-xs text-slate-500 mb-3">Signed POSTs for this Producer\'s events: new versions, rejected provides, deprecations, new Consumers, catalog pushes.</p>';
+  const webhooksPanel = document.createElement("div");
+  webhooks.appendChild(webhooksPanel);
+  list.appendChild(webhooks);
+  renderWebhookPanel(
+    webhooksPanel,
+    `/admin/producers/${encodeURIComponent(serviceName)}/webhooks`,
+  ).then((visible) => {
+    if (visible) webhooks.classList.remove("hidden");
+  });
+
   if (!versions || versions.length === 0) {
     const empty = document.createElement("div");
     empty.className = "text-center py-10 text-slate-500 italic";

@@ -51,6 +51,11 @@ async function checkSession() {
       if (hasPermission(data, "manage_producers")) {
         document.getElementById("paste-spec-section").classList.remove("hidden");
       }
+      // Global hooks and the allow-list are instance configuration (#47).
+      if (hasPermission(data, "manage_settings")) {
+        document.getElementById("webhooks-section").classList.remove("hidden");
+        loadWebhooks();
+      }
     } else {
       window.location.href = "/account.html";
     }
@@ -78,6 +83,50 @@ async function loadAll() {
   await loadUsers();
   await loadGroups();
   await loadMaintainers();
+}
+
+// --- Webhooks (#47) ---
+async function loadWebhooks() {
+  loadWebhookAllowedHosts();
+  renderWebhookPanel(document.getElementById("webhooks-panel"), "/admin/webhooks");
+}
+
+async function loadWebhookAllowedHosts() {
+  try {
+    const res = await apiCall("/admin/settings/webhook-allowed-hosts");
+    if (!res.ok) return;
+    const data = await res.json();
+    document.getElementById("webhook-allowed-hosts").value = (data.hosts || []).join("\n");
+  } catch (_) {
+    /* the textarea stays as it is */
+  }
+}
+
+async function saveWebhookAllowedHosts() {
+  const result = document.getElementById("webhook-allowed-hosts-result");
+  const hosts = document
+    .getElementById("webhook-allowed-hosts")
+    .value.split("\n")
+    .map((h) => h.trim())
+    .filter(Boolean);
+  try {
+    const res = await apiCall("/admin/settings/webhook-allowed-hosts", {
+      method: "POST",
+      body: { hosts },
+    });
+    if (!res.ok) {
+      result.textContent = "Not saved: " + (await errorMessage(res));
+      result.className = "text-sm text-red-600";
+      return;
+    }
+    const data = await res.json();
+    document.getElementById("webhook-allowed-hosts").value = (data.hosts || []).join("\n");
+    result.textContent = `Saved (${data.hosts.length} host pattern(s)).`;
+    result.className = "text-sm text-green-600";
+  } catch (err) {
+    result.textContent = "Not saved: " + err.message;
+    result.className = "text-sm text-red-600";
+  }
 }
 
 // --- Database Info ---
