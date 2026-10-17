@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use moka::future::Cache;
 
@@ -60,6 +61,14 @@ const EFFECTIVE_ROLES_TTL_SECS: u64 = 10;
 /// instance* sharing the database (or direct SQL) can go unnoticed here.
 const SETTINGS_TTL_SECS: u64 = 10;
 
+/// Safety net for the data caches (resolved endpoints, endpoint lists per
+/// version, spec content, reports, Producer and Consumer lists, version
+/// metadata), same contract as [`EFFECTIVE_ROLES_TTL_SECS`]: a Provide through
+/// this repository invalidates immediately; the TTL bounds how long a write on
+/// *another replica* sharing the database can go unnoticed here. The window is
+/// part of the multi-replica contract in `docs/deployment.md` (Scaling).
+const DATA_TTL_SECS: u64 = 10;
+
 struct RepoCaches {
     endpoint_cache: Cache<EndpointKey, Arc<(i64, String, bool)>>,
     version_endpoints_cache: Cache<i64, Arc<Vec<EndpointRecord>>>,
@@ -78,7 +87,14 @@ struct RepoCaches {
 
 impl CachedSpecRepository {
     pub fn new(inner: DatabaseRepo, memory_limit_mb: u64) -> Self {
-        let caches = Self::build_caches(memory_limit_mb);
+        Self::with_data_ttl(inner, memory_limit_mb, Duration::from_secs(DATA_TTL_SECS))
+    }
+
+    /// Like [`Self::new`], with the data caches' time to live overridden.
+    /// Production uses [`DATA_TTL_SECS`] through `new`; tests use a short
+    /// value to exercise the multi-replica safety net without waiting 10 s.
+    pub fn with_data_ttl(inner: DatabaseRepo, memory_limit_mb: u64, data_ttl: Duration) -> Self {
+        let caches = Self::build_caches(memory_limit_mb, data_ttl);
         Self {
             inner: Box::new(inner),
             endpoint_cache: caches.endpoint_cache,
@@ -100,7 +116,7 @@ impl CachedSpecRepository {
         }
     }
 
-    fn build_caches(memory_limit_mb: u64) -> RepoCaches {
+    fn build_caches(memory_limit_mb: u64, data_ttl: Duration) -> RepoCaches {
         let total = mb_to_bytes(memory_limit_mb);
         let spec_budget = total * 60 / 100;
         let report_budget = total * 20 / 100;
@@ -110,11 +126,13 @@ impl CachedSpecRepository {
         // Spec data caches (60%)
         let endpoint_cache = Cache::builder()
             .max_capacity(spec_budget / 3)
+            .time_to_live(data_ttl)
             .weigher(|_k: &EndpointKey, v: &Arc<(i64, String, bool)>| (v.1.len() + 80) as u32)
             .build();
 
         let version_endpoints_cache = Cache::builder()
             .max_capacity(spec_budget / 3)
+            .time_to_live(data_ttl)
             .weigher(|_k: &i64, v: &Arc<Vec<EndpointRecord>>| {
                 let size: usize = v
                     .iter()
@@ -132,12 +150,14 @@ impl CachedSpecRepository {
 
         let spec_content_cache = Cache::builder()
             .max_capacity(spec_budget / 3)
+            .time_to_live(data_ttl)
             .weigher(|_k: &i64, v: &Arc<String>| (v.len() + 40) as u32)
             .build();
 
         // Report caches (20%)
         let report_cache = Cache::builder()
             .max_capacity(report_budget / 2)
+            .time_to_live(data_ttl)
             .weigher(|_k: &String, v: &Arc<DependencyReport>| {
                 let size = v.unused_endpoints.len() * 120
                     + v.missing_endpoints.len() * 150
@@ -150,6 +170,7 @@ impl CachedSpecRepository {
 
         let services_cache = Cache::builder()
             .max_capacity(report_budget / 2)
+            .time_to_live(data_ttl)
             .weigher(|_k: &String, v: &Arc<Vec<ProducerSummary>>| {
                 let size: usize = v
                     .iter()
@@ -168,11 +189,13 @@ impl CachedSpecRepository {
         // ID / metadata lookup caches (10%)
         let service_id_cache = Cache::builder()
             .max_capacity(id_budget / 2)
+            .time_to_live(data_ttl)
             .weigher(|k: &String, _v: &i64| (k.len() + 32) as u32)
             .build();
 
         let spec_version_cache = Cache::builder()
             .max_capacity(id_budget / 2)
+            .time_to_live(data_ttl)
             .weigher(|k: &SpecVersionKey, v: &Arc<SpecVersionMeta>| {
                 (k.2.len() + v.content_hash.len() + v.provided_by.len() + 160) as u32
             })
@@ -181,6 +204,7 @@ impl CachedSpecRepository {
         // Listing caches (10%)
         let services_list_cache = Cache::builder()
             .max_capacity(list_budget / 2)
+            .time_to_live(data_ttl)
             .weigher(|_k: &String, v: &Arc<Vec<String>>| {
                 let size: usize = v.iter().map(|s| s.len() + 24).sum();
                 (size + 24) as u32
@@ -189,6 +213,7 @@ impl CachedSpecRepository {
 
         let clients_list_cache = Cache::builder()
             .max_capacity(list_budget / 2)
+            .time_to_live(data_ttl)
             .weigher(|_k: &String, v: &Arc<Vec<String>>| {
                 let size: usize = v.iter().map(|s| s.len() + 24).sum();
                 (size + 24) as u32
