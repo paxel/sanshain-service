@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - On SQLite, admins can download a consistent snapshot of the database while the service runs (`GET /admin/backup/sqlite`, also a button on the admin page), the Helm chart renders an optional backup CronJob for SQLite or `pg_dump`, and the deployment guide documents backup and restore for both engines.
+- Every release ships CycloneDX SBOMs (as release assets and as a cosign attestation on the image), the image is signed keyless with cosign, and the weekly security run scans the released image with grype; the deployment guide explains how to verify a release.
 
 ### Changed
 - Every in-memory data cache now expires its entries after 10 s, so on a multi-replica PostgreSQL install a provide handled by one replica is visible on the others within 10 s instead of until memory pressure evicts the old entry; a single replica behaves as before. See the Scaling section of the deployment guide for the session-affinity recommendation.

@@ -56,6 +56,7 @@ For production usage, ensure your Sanshain instance is robust.
 - **Database**: Use a managed PostgreSQL instance instead of the default SQLite for better concurrency and backups.
 - **Monitoring**: Enable the built-in Prometheus/OpenTelemetry metrics to track service health and API usage.
 - **High Availability**: Run Sanshain in a container orchestrator (Kubernetes/Nomad) with at least two replicas and a load balancer.
+- **Supply Chain**: Verify the image signature and SBOM before rolling out a release; see [Verifying a release](deployment.md#verifying-a-release).
 
 ---
 

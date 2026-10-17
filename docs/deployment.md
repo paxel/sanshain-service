@@ -236,3 +236,41 @@ Kustomize: `deploy/kubernetes/backup-cronjob-postgres.yaml`.
   with a publicly trusted certificate works out of the box. A private or corporate CA still goes
   through the `EXTRA_CA_CERTS_DIR` mount, exactly as before — see
   [Additional CA certificates](configuration.md#additional-ca-certificates).
+
+## Verifying a release
+
+Every release carries three supply-chain artifacts, all produced by the release workflow of
+this repository (`.github/workflows/release.yml`):
+
+- The image `ghcr.io/paxel/sanshain-service:<tag>` is signed keyless with
+  [cosign](https://docs.sigstore.dev/cosign/) through the workflow's GitHub OIDC identity on
+  the public Sigstore instance. No key to distribute: the certificate names the workflow.
+- A CycloneDX SBOM of the image is attached to the image as a cosign attestation and to the
+  GitHub release as the asset `sanshain-service-<tag>.cdx.json`.
+- A CycloneDX SBOM of the dependencies compiled into the binaries (from `Cargo.lock` and
+  `package-lock.json`) is on the GitHub release as `sanshain-service-<tag>-source.cdx.json`.
+
+Both SBOM assets are listed under **Assets** on the release page
+(`https://github.com/paxel/sanshain-service/releases/tag/<tag>`).
+
+Verify the signature with `cosign` (replace `v2.6.0` with the tag or the `@sha256:…` digest
+you deploy):
+
+```sh
+cosign verify ghcr.io/paxel/sanshain-service:v2.6.0 \
+  --certificate-identity-regexp '^https://github.com/paxel/sanshain-service/.github/workflows/release.yml@refs/tags/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Verify the SBOM attestation the same way; the attested SBOM is the `predicate` of the printed
+in-toto statement, so this also extracts it without the GitHub release:
+
+```sh
+cosign verify-attestation --type cyclonedx ghcr.io/paxel/sanshain-service:v2.6.0 \
+  --certificate-identity-regexp '^https://github.com/paxel/sanshain-service/.github/workflows/release.yml@refs/tags/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  | jq -r .payload | base64 -d | jq .predicate > sanshain-service.cdx.json
+```
+
+A signature or attestation whose certificate names any other identity or issuer fails
+verification, so an admission policy can require exactly this identity.
