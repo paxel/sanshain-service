@@ -37,4 +37,4 @@ Thumbs.db
 
 # Coverage and Logs
 cobertura.xml
-verify_service.log
+*.log
