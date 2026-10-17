@@ -492,6 +492,10 @@ pub struct ApiToken {
     pub id: String,
     pub user_id: i64,
     pub name: String,
+    /// The SHA-256 of the raw token, compared on every request. Never
+    /// serialized: it is a server-side secret, and the token listing is what
+    /// the account page receives.
+    #[serde(skip_serializing)]
     pub token_hash: String,
     pub scope: ApiTokenScope,
     pub created_at: String,

@@ -13,6 +13,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - An MCP endpoint at `/mcp` (Streamable HTTP, stateless) for AI clients, authenticated with an API token of either scope; `MCP_ENABLED`, `MCP_CALLS_PER_MINUTE` and `MCP_MAX_RESULT_BYTES` configure it, and `sanshain_mcp_tool_calls_total` / `sanshain_mcp_result_bytes_total` count its tool calls.
 - Seven read-only MCP tools over the catalog: `list_services`, `describe_service`, `find_endpoint` (a new endpoint search by path, channel or method name), `get_spec` (with line paging), `get_graph`, `diff_versions` and `blame`; answers too large for the size budget come back as a summary with a hint.
 
+### Fixed
+- `GET /auth/tokens` no longer sends each token's SHA-256 hash to the browser; the listing carries id, name, scope and dates only, as `api.yaml` always documented.
+
 ---
 
 Historical changes have been moved to [OLDER_CHANGES.md](OLDER_CHANGES.md).

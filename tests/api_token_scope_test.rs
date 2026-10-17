@@ -15,6 +15,7 @@ use sanshain_service::infrastructure::database::DatabaseRepo;
 use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
 use sanshain_service::{AppState, create_app};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use sqlx::sqlite::SqlitePoolOptions;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64};
@@ -208,6 +209,40 @@ async fn token_creation_takes_a_scope_and_the_listing_shows_it() {
         .find(|t| t["name"] == "mcp")
         .unwrap();
     assert_eq!(never_used["last_used_at"], Value::Null);
+}
+
+#[tokio::test]
+async fn the_token_listing_never_carries_the_token_hash() {
+    let seed = seed().await;
+
+    let (status, created) = call(
+        &seed.app,
+        "POST",
+        "/auth/tokens",
+        &seed.session,
+        Some(&json!({ "name": "listed", "expires_in_days": 7 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let raw = created["token"].as_str().unwrap();
+    let mut hasher = Sha256::new();
+    hasher.update(raw.as_bytes());
+    let hash = hex::encode(hasher.finalize());
+
+    let (status, listed) = call(&seed.app, "GET", "/auth/tokens", &seed.session, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let body = listed.to_string();
+    assert!(
+        !body.contains("token_hash"),
+        "the listing must not expose the hash field: {body}"
+    );
+    assert!(
+        !body.contains(&hash) && !body.contains(raw),
+        "neither the hash nor the raw token may appear in the listing: {body}"
+    );
+    for entry in listed.as_array().unwrap() {
+        assert!(entry.get("token_hash").is_none());
+    }
 }
 
 #[tokio::test]
