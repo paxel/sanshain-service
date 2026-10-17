@@ -1,0 +1,78 @@
+# Example: nightly SQLite backup (docs/deployment.md, "Backup and restore").
+#
+# Fetches GET /admin/backup/sqlite — a consistent snapshot produced by the
+# engine itself while Sanshain runs — onto a backup volume and keeps the newest
+# RETAIN files. Not part of kustomization.yaml: uncomment, create the token
+# secret, and add this file to `resources` to enable it.
+#
+# The token must be a `full`-scope API token of an account holding
+# `run_destructive_operations` (an admin), minted at /account.html. A
+# `read_only` token is refused with 403.
+#
+#   kubectl create secret generic sanshain-backup-token \
+#     --from-literal=token=<api token> -n sanshain
+#
+# ---
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: sanshain-backup
+#   labels:
+#     app: sanshain
+# spec:
+#   accessModes:
+#     - ReadWriteOnce
+#   resources:
+#     requests:
+#       storage: 5Gi
+# ---
+# apiVersion: batch/v1
+# kind: CronJob
+# metadata:
+#   name: sanshain-backup
+#   labels:
+#     app: sanshain
+# spec:
+#   schedule: "0 2 * * *"
+#   concurrencyPolicy: Forbid
+#   successfulJobsHistoryLimit: 3
+#   failedJobsHistoryLimit: 3
+#   jobTemplate:
+#     spec:
+#       template:
+#         spec:
+#           restartPolicy: OnFailure
+#           securityContext:
+#             runAsNonRoot: true
+#             runAsUser: 1000
+#             fsGroup: 1000
+#           containers:
+#             - name: backup
+#               image: curlimages/curl:8.11.1
+#               env:
+#                 - name: RETAIN
+#                   value: "7"
+#                 - name: SANSHAIN_URL
+#                   # The Service's cluster DNS name and port (service.yaml).
+#                   value: "http://sanshain:80"
+#                 - name: SANSHAIN_TOKEN
+#                   valueFrom:
+#                     secretKeyRef:
+#                       name: sanshain-backup-token
+#                       key: token
+#               command: ["/bin/sh", "-ec"]
+#               args:
+#                 - |
+#                   out="/backup/sanshain-$(date -u +%Y%m%dT%H%M%SZ).db"
+#                   curl -fsS -H "Authorization: Bearer $SANSHAIN_TOKEN" \
+#                     -o "$out.part" "$SANSHAIN_URL/admin/backup/sqlite"
+#                   mv "$out.part" "$out"
+#                   ls -1t /backup/*.db | tail -n +$((RETAIN + 1)) | xargs -r rm -f
+#                   ls -l /backup
+#               volumeMounts:
+#                 - name: backup
+#                   mountPath: /backup
+#           volumes:
+#             - name: backup
+#               persistentVolumeClaim:
+#                 claimName: sanshain-backup

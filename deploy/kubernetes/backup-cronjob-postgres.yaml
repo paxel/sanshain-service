@@ -1,0 +1,68 @@
+# Example: nightly PostgreSQL backup (docs/deployment.md, "Backup and restore").
+#
+# Runs `pg_dump --format=custom` with the DATABASE_URL from secret.yaml onto a
+# backup volume and keeps the newest RETAIN dumps. Not part of
+# kustomization.yaml: uncomment and add this file to `resources` to enable it.
+# Restore with `pg_restore --clean --if-exists -d "$DATABASE_URL" <file>`.
+#
+# ---
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: sanshain-backup
+#   labels:
+#     app: sanshain
+# spec:
+#   accessModes:
+#     - ReadWriteOnce
+#   resources:
+#     requests:
+#       storage: 5Gi
+# ---
+# apiVersion: batch/v1
+# kind: CronJob
+# metadata:
+#   name: sanshain-backup
+#   labels:
+#     app: sanshain
+# spec:
+#   schedule: "0 2 * * *"
+#   concurrencyPolicy: Forbid
+#   successfulJobsHistoryLimit: 3
+#   failedJobsHistoryLimit: 3
+#   jobTemplate:
+#     spec:
+#       template:
+#         spec:
+#           restartPolicy: OnFailure
+#           securityContext:
+#             runAsNonRoot: true
+#             runAsUser: 1000
+#             fsGroup: 1000
+#           containers:
+#             - name: backup
+#               # Match the major version of the server you dump from.
+#               image: postgres:17-alpine
+#               env:
+#                 - name: RETAIN
+#                   value: "7"
+#                 - name: DATABASE_URL
+#                   valueFrom:
+#                     secretKeyRef:
+#                       name: sanshain-secrets
+#                       key: DATABASE_URL
+#               command: ["/bin/sh", "-ec"]
+#               args:
+#                 - |
+#                   out="/backup/sanshain-$(date -u +%Y%m%dT%H%M%SZ).dump"
+#                   pg_dump --format=custom --file="$out.part" "$DATABASE_URL"
+#                   mv "$out.part" "$out"
+#                   ls -1t /backup/*.dump | tail -n +$((RETAIN + 1)) | xargs -r rm -f
+#                   ls -l /backup
+#               volumeMounts:
+#                 - name: backup
+#                   mountPath: /backup
+#           volumes:
+#             - name: backup
+#               persistentVolumeClaim:
+#                 claimName: sanshain-backup

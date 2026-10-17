@@ -7,3 +7,5 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
+  # Scheduled backups are opt-in: see backup-cronjob-sqlite.yaml and
+  # backup-cronjob-postgres.yaml (commented examples, docs/deployment.md).
