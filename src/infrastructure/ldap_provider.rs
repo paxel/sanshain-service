@@ -163,6 +163,11 @@ impl LdapAuthProvider {
             settings = settings.set_config(config);
         }
 
+        // No `set_conn_timeout`: ldap3 would wrap the very same future in the
+        // very same `tokio::time::timeout`. For StartTLS, ldap3 drives the
+        // exchange from a task it spawns; dropping this future drops the
+        // `Ldap` handle, the task's request channel closes, the task ends and
+        // the socket with it (`ldap_timeout_test` checks the close).
         tokio::time::timeout(
             self.operation_timeout,
             LdapConnAsync::with_settings(settings, url),

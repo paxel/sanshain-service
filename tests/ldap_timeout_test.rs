@@ -43,6 +43,24 @@ async fn listener_that_never_answers() -> String {
     addr.to_string()
 }
 
+/// Accepts one connection, never writes, and resolves the returned receiver
+/// once the client has closed that connection (read returns end of stream).
+#[cfg(test)]
+async fn listener_that_reports_the_close() -> (String, tokio::sync::oneshot::Receiver<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (closed_tx, closed_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let Ok((mut socket, _)) = listener.accept().await else {
+            return;
+        };
+        let mut buf = [0u8; 512];
+        while matches!(socket.read(&mut buf).await, Ok(n) if n > 0) {}
+        let _ = closed_tx.send(());
+    });
+    (addr.to_string(), closed_rx)
+}
+
 /// Accepts one connection, answers the first message (the service-account
 /// bind) with a success BindResponse carrying the request's message id, and
 /// then goes quiet for good.
@@ -137,6 +155,24 @@ async fn test_connection_with_starttls_gives_up_when_the_handshake_is_never_answ
         started.elapsed()
     );
     assert_stalled(result, &url);
+}
+
+/// ldap3 drives the StartTLS exchange from a task it spawns, which the
+/// timeout cannot cancel. The task must still end — and close the socket —
+/// once the provider has given up, or every stalled attempt would pin a
+/// connection until the directory closes it.
+#[tokio::test]
+async fn a_timed_out_starttls_handshake_releases_the_socket() {
+    let (addr, closed) = listener_that_reports_the_close().await;
+    let url = format!("ldap://{addr}");
+
+    let result = provider(&url, true).test_connection().await;
+    assert_stalled(result, &url);
+
+    tokio::time::timeout(MUST_RETURN_WITHIN, closed)
+        .await
+        .expect("the server must see the connection closed once the provider gave up")
+        .expect("the listener task reports the close");
 }
 
 #[tokio::test]
