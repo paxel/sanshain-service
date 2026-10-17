@@ -15,7 +15,10 @@ RUN cargo build --release
 # Stage 2: Runtime
 FROM alpine:3.21
 
-RUN apk add --no-cache sqlite-libs tini
+# ca-certificates: the platform trust store, so ldaps:// against a publicly
+# signed directory works without a certificate mount. Private CAs still go
+# through EXTRA_CA_CERTS_DIR.
+RUN apk add --no-cache sqlite-libs tini ca-certificates
 
 COPY --from=builder /app/target/release/sanshain_service /usr/local/bin/sanshain
 COPY static/ /app/static/
