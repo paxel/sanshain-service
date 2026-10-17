@@ -552,6 +552,14 @@ pub trait SpecRepository: Send + Sync {
         client_name: &str,
     ) -> impl Future<Output = Result<Vec<ConsumerEndpointInfo>, RepositoryError>> + Send;
 
+    /// Endpoints across all Producers matching `search` (see
+    /// [`EndpointSearch`]), ordered by Producer, API type, version, path and
+    /// method. Feeds the MCP `find_endpoint` tool.
+    fn search_endpoints(
+        &self,
+        search: &EndpointSearch,
+    ) -> impl Future<Output = Result<Vec<EndpointSearchHit>, RepositoryError>> + Send;
+
     // --- Auth ---
 
     /// Count total users.

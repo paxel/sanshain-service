@@ -1878,6 +1878,81 @@ impl SpecRepository for PostgresSpecRepository {
             .collect()
     }
 
+    async fn search_endpoints(
+        &self,
+        search: &EndpointSearch,
+    ) -> Result<Vec<EndpointSearchHit>, RepositoryError> {
+        type HitRow = (
+            String,
+            String,
+            i32,
+            i32,
+            i32,
+            String,
+            String,
+            String,
+            bool,
+            i64,
+        );
+        let pattern = crate::infrastructure::like_pattern(&search.query);
+        let method = search.method.as_ref().map(|m| m.to_uppercase());
+        let api_type = search.api_type.map(|t| t.as_str());
+        let rows: Vec<HitRow> = sqlx::query_as(
+            "SELECT s.name, v.api_type, v.major, v.minor, v.patch, v.stability, e.method, e.path, \
+             e.deprecated, \
+             (SELECT COUNT(DISTINCT d.client_id) FROM dependencies d \
+              WHERE d.spec_version_id = v.id AND d.api_type = e.api_type \
+                AND d.normalized_path = e.normalized_path AND d.method = e.method) \
+             FROM endpoints e \
+             JOIN spec_versions v ON v.id = e.spec_version_id \
+             JOIN services s ON s.id = v.service_id \
+             WHERE (LOWER(e.path) LIKE $1 ESCAPE '\\' OR LOWER(e.method) LIKE $1 ESCAPE '\\') \
+               AND ($2::text IS NULL OR UPPER(e.method) = $2) \
+               AND ($3::text IS NULL OR v.api_type = $3) \
+               AND ($4 OR NOT EXISTS (SELECT 1 FROM spec_versions o \
+                    WHERE o.service_id = v.service_id AND o.api_type = v.api_type \
+                      AND (o.major > v.major OR (o.major = v.major AND o.minor > v.minor) \
+                           OR (o.major = v.major AND o.minor = v.minor AND o.patch > v.patch)))) \
+             ORDER BY s.name, v.api_type, v.major, v.minor, v.patch, e.path, e.method",
+        )
+        .bind(&pattern)
+        .bind(&method)
+        .bind(api_type)
+        .bind(search.all_versions)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        rows.into_iter()
+            .map(
+                |(
+                    producer,
+                    api_type,
+                    major,
+                    minor,
+                    patch,
+                    stability,
+                    method,
+                    path,
+                    deprecated,
+                    consumer_count,
+                )| {
+                    Ok(EndpointSearchHit {
+                        producer,
+                        api_type: ApiType::from_str(&api_type).unwrap_or_default(),
+                        version: SemVer::new(major as u32, minor as u32, patch as u32),
+                        stability: stability
+                            .parse()
+                            .map_err(|e: String| RepositoryError::Internal(e))?,
+                        method,
+                        path,
+                        deprecated,
+                        consumer_count,
+                    })
+                },
+            )
+            .collect()
+    }
+
     async fn user_count(&self) -> Result<i64, RepositoryError> {
         let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
             .fetch_one(&self.pool)

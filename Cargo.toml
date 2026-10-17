@@ -76,6 +76,8 @@ opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic"] }
 tracing-opentelemetry = "0.33"
 opentelemetry-semantic-conventions = "0.32"
+rmcp = { version = "=3.4.1", default-features = false, features = ["server", "transport-streamable-http-server"] }
+schemars = "1"
 
 [dev-dependencies]
 # Self-dependency so `tests/` and benches link the library with `test-support`

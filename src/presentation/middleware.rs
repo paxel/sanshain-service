@@ -513,6 +513,12 @@ pub async fn validate_csrf(
     if path == "/validate" {
         return Ok(next.run(req).await);
     }
+    // The MCP endpoint accepts API tokens only — never a session or cookie —
+    // so there is no ambient credential a cross-site request could ride; its
+    // own guard answers a missing token with the 401 the protocol expects.
+    if path == "/mcp" {
+        return Ok(next.run(req).await);
+    }
 
     let csrf_header = req
         .headers()

@@ -62,6 +62,7 @@ fn test_app_state(repo: SqliteSpecRepository) -> AppState {
         prometheus_handle: get_test_prometheus_handle(),
         system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
         max_body_bytes: sanshain_service::DEFAULT_MAX_BODY_BYTES,
+        mcp: Default::default(),
         directory_roles: sanshain_service::application::directory_roles::DirectoryRoleCache::new(
             std::time::Duration::from_secs(300),
         ),

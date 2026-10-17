@@ -49,7 +49,9 @@ impl From<crate::domain::ports::RepositoryError> for AppError {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum ApiType {
     #[default]
@@ -574,6 +576,32 @@ pub struct EndpointRecord {
     pub yaml_content: String,
     #[serde(default)]
     pub deprecated: bool,
+}
+
+/// What `find_endpoint` looks for: a case-insensitive substring of an
+/// endpoint's path, channel or method name, `*` matching anything, narrowed
+/// by method and API type, in the latest version of every line unless
+/// `all_versions`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EndpointSearch {
+    pub query: String,
+    pub method: Option<String>,
+    pub api_type: Option<ApiType>,
+    pub all_versions: bool,
+}
+
+/// One endpoint found by `find_endpoint`, with how many distinct Consumers
+/// pin it at that version.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct EndpointSearchHit {
+    pub producer: String,
+    pub api_type: ApiType,
+    pub version: SemVer,
+    pub stability: Stability,
+    pub method: String,
+    pub path: String,
+    pub deprecated: bool,
+    pub consumer_count: i64,
 }
 
 /// How a request for an endpoint at a Pin was answered.

@@ -309,6 +309,35 @@ pub async fn main() {
 
     let spec_updated_channel_size = env_number::<usize>("SPEC_UPDATED_CHANNEL_SIZE", 100);
 
+    let mcp = sanshain_service::presentation::mcp::McpConfig {
+        enabled: env_choice("MCP_ENABLED", &["true", "false"], "true") == "true",
+        calls_per_minute: env_number::<u32>(
+            "MCP_CALLS_PER_MINUTE",
+            sanshain_service::presentation::mcp::DEFAULT_MCP_CALLS_PER_MINUTE,
+        ),
+        max_result_bytes: env_number::<usize>(
+            "MCP_MAX_RESULT_BYTES",
+            sanshain_service::presentation::mcp::DEFAULT_MCP_MAX_RESULT_BYTES,
+        ),
+    };
+    if mcp.calls_per_minute == 0 {
+        eprintln!("CONFIGURATION ERROR: MCP_CALLS_PER_MINUTE=0 would refuse every MCP call.");
+        std::process::exit(1);
+    }
+    if mcp.max_result_bytes == 0 {
+        eprintln!("CONFIGURATION ERROR: MCP_MAX_RESULT_BYTES=0 would summarise every MCP answer.");
+        std::process::exit(1);
+    }
+    if mcp.enabled {
+        tracing::info!(
+            "MCP endpoint enabled at /mcp ({} calls/minute per token, {} byte answers)",
+            mcp.calls_per_minute,
+            mcp.max_result_bytes
+        );
+    } else {
+        tracing::info!("MCP endpoint disabled (MCP_ENABLED=false)");
+    }
+
     // Root is resolved from configuration and never stored, so no stored grant
     // can revoke it. Falling back to the bootstrap administrator's name keeps an
     // existing deployment with a root account without being reconfigured.
@@ -355,6 +384,7 @@ pub async fn main() {
         root_users,
         directory_roles:
             sanshain_service::application::directory_roles::DirectoryRoleCache::from_env(),
+        mcp,
     };
 
     // Spawn background cleanup task (snapshots, dependencies, CSRF tokens)

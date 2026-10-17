@@ -999,6 +999,13 @@ impl SpecRepository for CachedSpecRepository {
 
     // --- Non-cached pass-through (auth/session/settings/user) ---
 
+    async fn search_endpoints(
+        &self,
+        search: &EndpointSearch,
+    ) -> Result<Vec<EndpointSearchHit>, RepositoryError> {
+        self.inner.search_endpoints(search).await
+    }
+
     async fn user_count(&self) -> Result<i64, RepositoryError> {
         self.inner.user_count().await
     }

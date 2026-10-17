@@ -369,6 +369,13 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, list_consumer_endpoints(client_name))
     }
 
+    async fn search_endpoints(
+        &self,
+        search: &EndpointSearch,
+    ) -> Result<Vec<EndpointSearchHit>, RepositoryError> {
+        delegate!(self, search_endpoints(search))
+    }
+
     async fn user_count(&self) -> Result<i64, RepositoryError> {
         delegate!(self, user_count())
     }

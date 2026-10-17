@@ -1,4 +1,5 @@
 pub mod handlers;
+pub mod mcp;
 pub mod middleware;
 
 use crate::application::services::AppError;

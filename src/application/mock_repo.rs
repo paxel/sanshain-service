@@ -1534,6 +1534,86 @@ impl SpecRepository for MockRepo {
         Ok(result)
     }
 
+    async fn search_endpoints(
+        &self,
+        search: &EndpointSearch,
+    ) -> Result<Vec<EndpointSearchHit>, RepositoryError> {
+        let versions = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let dependencies = self
+            .dependencies
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let wanted_method = search.method.as_ref().map(|m| m.to_uppercase());
+        let mut hits = Vec::new();
+        for v in &versions {
+            if search.api_type.is_some_and(|t| t != v.api_type) {
+                continue;
+            }
+            let superseded = versions.iter().any(|o| {
+                o.service_id == v.service_id && o.api_type == v.api_type && o.version > v.version
+            });
+            if !search.all_versions && superseded {
+                continue;
+            }
+            let producer = self.service_name(v.service_id).unwrap_or_default();
+            for e in &v.endpoints {
+                if wanted_method
+                    .as_ref()
+                    .is_some_and(|m| *m != e.method.to_uppercase())
+                {
+                    continue;
+                }
+                if !glob_contains(&e.path.to_lowercase(), &search.query)
+                    && !glob_contains(&e.method.to_lowercase(), &search.query)
+                {
+                    continue;
+                }
+                let consumers: std::collections::BTreeSet<i64> = dependencies
+                    .iter()
+                    .filter(|d| {
+                        d.spec_version_id == v.id
+                            && d.api_type == e.api_type
+                            && d.normalized_path == e.normalized_path
+                            && d.method == e.method
+                    })
+                    .map(|d| d.client_id)
+                    .collect();
+                hits.push(EndpointSearchHit {
+                    producer: producer.clone(),
+                    api_type: v.api_type,
+                    version: v.version,
+                    stability: v.stability,
+                    method: e.method.clone(),
+                    path: e.path.clone(),
+                    deprecated: e.deprecated,
+                    consumer_count: consumers.len() as i64,
+                });
+            }
+        }
+        hits.sort_by(|a, b| {
+            (
+                &a.producer,
+                a.api_type.as_str(),
+                a.version,
+                &a.path,
+                &a.method,
+            )
+                .cmp(&(
+                    &b.producer,
+                    b.api_type.as_str(),
+                    b.version,
+                    &b.path,
+                    &b.method,
+                ))
+        });
+        Ok(hits)
+    }
+
     async fn user_count(&self) -> Result<i64, RepositoryError> {
         Ok(self
             .users
@@ -2589,4 +2669,18 @@ impl SpecRepository for MockRepo {
         });
         Ok(result)
     }
+}
+
+/// Case-insensitive "contains" with `*` matching anything — the in-memory
+/// twin of the SQL `LIKE` pattern the real repositories build.
+fn glob_contains(haystack: &str, query: &str) -> bool {
+    let query = query.trim().to_lowercase();
+    let mut rest = haystack;
+    for part in query.split('*') {
+        let Some(at) = rest.find(part) else {
+            return false;
+        };
+        rest = &rest[at + part.len()..];
+    }
+    true
 }

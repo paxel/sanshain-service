@@ -62,6 +62,8 @@ pub struct AppState {
     /// Caches directory group membership, so a change in the directory takes
     /// effect within the cache lifetime rather than at the next login.
     pub directory_roles: application::directory_roles::DirectoryRoleCache,
+    /// The MCP endpoint's configuration (docs/mcp.md).
+    pub mcp: presentation::mcp::McpConfig,
 }
 
 /// Content-Security-Policy served with every response (ai/improvements.md #11).
@@ -215,6 +217,10 @@ pub fn create_app(state: AppState) -> Router {
         .route("/LICENSE", get(pages::license_text))
         .route("/version", get(|State(s): State<AppState>| async move { axum::Json(serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "instance_id": s.instance_id})) }))
 
+        // The MCP endpoint (docs/mcp.md): JSON-RPC for AI clients, mounted
+        // only when enabled.
+        .merge(mcp_routes(state.clone()))
+
         .fallback_service(ServeDir::new(std::env::var("STATIC_DIR").unwrap_or_else(|_| "static".to_string())))
         // Requests whose body exceeds this limit are rejected with `413 Payload
         // Too Large` when the handler extracts the body. The limit counts the
@@ -256,6 +262,19 @@ pub fn create_app(state: AppState) -> Router {
             HeaderValue::from_static(CONTENT_SECURITY_POLICY),
         ))
         .with_state(state)
+}
+
+/// `/mcp` when `MCP_ENABLED` is true; nothing at all — a 404, not a refusal
+/// — when it is false. Bearer API tokens only, see `presentation::mcp`.
+// Not formatted: the contract and guard lints below read `.route("` at the
+// start of a line, the shape `create_app` keeps for the same reason.
+#[rustfmt::skip]
+fn mcp_routes(state: AppState) -> Router<AppState> {
+    if !state.mcp.enabled {
+        return Router::new();
+    }
+    Router::new()
+        .route("/mcp", presentation::mcp::method_router(state.clone()).layer(from_fn_with_state(state, presentation::mcp::mcp_auth)))
 }
 
 #[cfg(test)]
@@ -511,6 +530,8 @@ mod tests {
             "/api/sse/updates",
             "/api/ws/updates",
             "/endpoint-versions",
+            // JSON-RPC for AI clients (docs/mcp.md), not REST
+            "/mcp",
             "/report",
             "/report/isolation",
             "/report/markdown",

@@ -30,6 +30,9 @@ Sanshain Service can be configured using environment variables.
 | `OTEL_EXPORTER_OTLP_ENDPOINT`  | `http://localhost:4317`                   | OTLP/gRPC collector endpoint for distributed tracing.                                                     |
 | `RUST_LOG`                     | `sanshain_service=info,tower_http=info`   | Log level filter (e.g., `sanshain_service=debug,tower_http=debug` for verbose output).                    |
 | `EXTRA_CA_CERTS_DIR`           | *unset*                                   | Directory of additional CA certificates to trust for outbound TLS. See below.                             |
+| `MCP_ENABLED`                  | `true`                                    | Mount the MCP endpoint at `/mcp` for AI clients. `false` leaves the route unmounted (404). See [MCP](mcp.md). |
+| `MCP_CALLS_PER_MINUTE`         | `60`                                      | Tool calls one API token may make per minute (token bucket); over it, the call answers a tool error. Must be > 0. |
+| `MCP_MAX_RESULT_BYTES`         | `65536`                                   | A tool answer above this size is replaced by that tool's summary and a hint on how to narrow it. Must be > 0. |
 
 Invalid values are refused at startup rather than silently replaced by the default: a numeric
 setting that is not a number, or a fixed-vocabulary setting (`LOG_FORMAT`, `OTEL_ENABLED`) with an
