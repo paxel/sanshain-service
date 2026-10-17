@@ -53,9 +53,16 @@ async fn audit(
     .await
 }
 
+/// The audit log is readable by every `view_audit` holder, and for a Slack
+/// or Teams incoming webhook the URL's path *is* the credential — so an
+/// entry names the hook, its scope and the receiver's host, never the URL.
 fn describe(hook: &Webhook) -> String {
+    let host = url::Url::parse(&hook.url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_string))
+        .unwrap_or_else(|| "?".to_string());
     format!(
-        "webhook {} ({} {}, {} format)",
+        "webhook {} ({} {}, {} format, host {host})",
         hook.id,
         hook.scope.kind(),
         hook.scope.name().unwrap_or("instance-wide"),
@@ -82,11 +89,7 @@ async fn create_in(
         &state.repo,
         user,
         "WEBHOOK_CREATED",
-        &format!(
-            "Registered {} for {}",
-            describe(&created.webhook),
-            created.webhook.url
-        ),
+        &format!("Registered {}", describe(&created.webhook)),
         &scope,
     )
     .await?;
@@ -144,7 +147,7 @@ async fn delete_in(
         &state.repo,
         user,
         "WEBHOOK_DELETED",
-        &format!("Deleted {} for {}", describe(&hook), hook.url),
+        &format!("Deleted {}", describe(&hook)),
         &scope,
     )
     .await?;

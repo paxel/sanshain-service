@@ -2126,3 +2126,168 @@ async fn the_allow_list_setting_is_validated_stored_and_audited() {
             .contains(&"SET_WEBHOOK_ALLOWED_HOSTS".to_string())
     );
 }
+
+// --- Review follow-ups ---
+
+#[tokio::test]
+async fn a_catalog_push_does_not_reach_the_systems_consumers() {
+    let ctx = setup().await;
+    provide(
+        &ctx,
+        "orders",
+        "ga",
+        &spec("1.0.0", &["/a"], &[]),
+        json!({}),
+    )
+    .await;
+    assert_eq!(
+        require(&ctx, "web", "orders", "1.0.0", "/a", "").await,
+        StatusCode::OK
+    );
+    let web = add_hook(&ctx, consumer("web"), "https://hooks.example/web").await;
+    let own = add_hook(&ctx, producer("orders"), "https://hooks.example/orders").await;
+    let good = "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: orders\nspec:\n  dependsOn:\n    - resource:default/orders-db\n";
+    let (status, _, _) = send(
+        &ctx,
+        "PUT",
+        "/catalog/orders",
+        Some(json!({"catalog_info_yaml": good})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        event_types(&deliveries(&ctx, own).await),
+        vec![WebhookEventType::CatalogRecorded]
+    );
+    assert!(
+        deliveries(&ctx, web).await.is_empty(),
+        "a catalog push is about the system, not about what it provides"
+    );
+}
+
+#[tokio::test]
+async fn a_consumer_hook_follows_a_trunk_only_edge() {
+    let ctx = setup().await;
+    provide(
+        &ctx,
+        "orders",
+        "ga",
+        &spec("1.0.0", &["/a"], &[]),
+        json!({}),
+    )
+    .await;
+    // cli requires orders on trunk; its dev-graph edge is then pruned, so
+    // only the open trunk pin remains.
+    assert_eq!(
+        require(&ctx, "cli", "orders", "1.0.0", "/a", "&trunk=true").await,
+        StatusCode::OK
+    );
+    ctx.repo
+        .delete_stale_dependencies("2999-01-01T00:00:00Z")
+        .await
+        .unwrap();
+    let cli = add_hook(&ctx, consumer("cli"), "https://hooks.example/cli").await;
+    provide(
+        &ctx,
+        "orders",
+        "ga",
+        &spec("1.1.0", &["/a"], &[]),
+        json!({}),
+    )
+    .await;
+    assert_eq!(
+        event_types(&deliveries(&ctx, cli).await),
+        vec![WebhookEventType::VersionPublished]
+    );
+}
+
+#[cfg(test)]
+async fn provide_asyncapi(ctx: &TestContext, producer: &str, yaml: &str) -> (StatusCode, String) {
+    let (status, _, body) = send(
+        ctx,
+        "POST",
+        "/provide/asyncapi",
+        Some(json!({"producername": producer, "asyncapi_yaml": yaml, "stability": "ga"})),
+    )
+    .await;
+    (status, body)
+}
+
+#[cfg(test)]
+fn asyncapi_user_created(producer: &str, id_type: &str) -> String {
+    format!(
+        "asyncapi: 2.6.0\ninfo:\n  title: {producer}\n  version: 1.0.0\nchannels:\n  user-created:\n    publish:\n      message:\n        name: UserCreated\n        payload:\n          type: object\n          properties:\n            id: {{ type: {id_type} }}\n"
+    )
+}
+
+#[tokio::test]
+async fn a_message_contract_conflict_is_a_rejected_provide() {
+    let ctx = setup().await;
+    let (status, body) =
+        provide_asyncapi(&ctx, "svc-a", &asyncapi_user_created("svc-a", "string")).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    // svc-b must exist as a Producer for its rejection to be recorded (the
+    // telemetry rule), so it publishes something unrelated first.
+    let (status, _) = provide_asyncapi(
+        &ctx,
+        "svc-b",
+        "asyncapi: 2.6.0\ninfo:\n  title: b\n  version: 0.1.0\nchannels:\n  other:\n    publish:\n      message:\n        name: Other\n        payload:\n          type: string\n",
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let hook = add_hook(&ctx, producer("svc-b"), "https://hooks.example/b").await;
+
+    let (status, body) =
+        provide_asyncapi(&ctx, "svc-b", &asyncapi_user_created("svc-b", "integer")).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let rows = deliveries(&ctx, hook).await;
+    assert_eq!(event_types(&rows), vec![WebhookEventType::ProvideRejected]);
+    let data = event_data(&ctx, &rows[0]).await;
+    assert_eq!(data["rule"], "message_contract_conflict");
+    assert_eq!(data["producer"], "svc-b");
+    assert_eq!(data["api_type"], "asyncapi");
+    assert_eq!(data["version"], "1.0.0");
+    assert_eq!(data["proposed_version"], Value::Null);
+    assert!(
+        data["message"]
+            .as_str()
+            .unwrap()
+            .contains("owned by service 'svc-a'"),
+        "{data}"
+    );
+    let actions = audit_actions(&ctx).await;
+    assert!(
+        actions.iter().any(|a| a == "VERSION_REJECTED"),
+        "{actions:?}"
+    );
+}
+
+#[tokio::test]
+async fn audit_entries_name_the_host_and_never_the_hook_url() {
+    let ctx = setup().await;
+    let url = "https://hooks.slack.com/services/T000/B000/secretpathpart";
+    let (status, _, body) = send(&ctx, "POST", "/admin/webhooks", Some(json!({"url": url}))).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let id = as_json(&body)["webhook"]["id"].as_i64().unwrap();
+    let (status, _, _) = send(&ctx, "DELETE", &format!("/admin/webhooks/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let entries = ctx.repo.get_recent_audit_logs(10).await.unwrap();
+    let hook_entries: Vec<_> = entries
+        .iter()
+        .filter(|e| e.action.starts_with("WEBHOOK_"))
+        .collect();
+    assert_eq!(hook_entries.len(), 2);
+    for entry in hook_entries {
+        assert!(
+            entry.details.contains("host hooks.slack.com"),
+            "{}",
+            entry.details
+        );
+        assert!(
+            !entry.details.contains("secretpathpart"),
+            "{}",
+            entry.details
+        );
+        assert!(!entry.details.contains("/services/"), "{}", entry.details);
+    }
+}
