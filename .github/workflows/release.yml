@@ -65,8 +65,24 @@ jobs:
   release:
     needs: build-binary
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: read
+      id-token: write # keyless cosign signing through GitHub's OIDC identity
     steps:
       - uses: actions/checkout@v4
+
+      # Runs before the binaries and the docker context land in the workspace, so the SBOM
+      # covers the source tree only (Cargo.lock and package-lock.json: what the binaries contain).
+      - name: Generate the source SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sboms/sanshain-service-${{ env.RELEASE_TAG }}-source.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
 
       - name: Download all binary artifacts
         uses: actions/download-artifact@v4
@@ -133,6 +149,7 @@ jobs:
           cp -r src/infrastructure/migrations docker-context/migrations
 
       - name: Build and push multi-platform Docker image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: docker-context
@@ -140,3 +157,39 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      # Everything below addresses the pushed image by digest, never by a mutable tag.
+      - name: Generate the image SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          format: cyclonedx-json
+          output-file: sboms/sanshain-service-${{ env.RELEASE_TAG }}.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Attach the image SBOM as a cosign attestation
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign attest --yes --type cyclonedx \
+            --predicate "sboms/sanshain-service-${RELEASE_TAG}.cdx.json" \
+            "${REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}"
+
+      - name: Sign the image (keyless)
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}"
+
+      - name: Upload the SBOMs to the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            sboms/sanshain-service-${{ env.RELEASE_TAG }}.cdx.json
+            sboms/sanshain-service-${{ env.RELEASE_TAG }}-source.cdx.json
