@@ -31,6 +31,7 @@ export default [
         hideLoader: "readonly",
         apiCall: "readonly",
         getSanshainToken: "readonly",
+        systemContextHtml: "readonly",
         // discovery.js globals
         loadAllProducers: "readonly",
         getMethodColor: "readonly",

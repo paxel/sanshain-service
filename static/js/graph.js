@@ -77,12 +77,13 @@ async function graphFetchScopePeriphery(view, branchName, at) {
 }
 
 // Fetch the scope data of the current view at the current timeline position:
-// its producers with their version lines, and its harvested subscriptions
-// (dev = all, live main = trunk-flagged, anything else = none).
+// its producers with their version lines, its harvested subscriptions
+// (dev = all, live main = trunk-flagged, anything else = none) and the
+// context of every system that pushed a catalog-info (#48).
 async function graphFetchScopeData(view, branchName, at) {
   let scope = view === "dev" ? "dev" : view === "main" ? "main" : branchName;
   if (at && view !== "dev") scope += `@${at}`;
-  const empty = { producers: [], harvested_subscriptions: [] };
+  const empty = { producers: [], harvested_subscriptions: [], systems: {} };
   try {
     const res = await apiCall(`/admin/graph/scope?scope=${encodeURIComponent(scope)}`);
     return res.ok ? await res.json() : empty;
@@ -2305,6 +2306,11 @@ function renderCustomGraph(report, svgElement, direction) {
       ? `<div class="mt-2 text-[11px] text-slate-300 font-mono break-words" data-panel="versions">${_graphEscapeHtml(graphVersionLinesText(member.versions))}</div>
          <div class="text-[10px] text-slate-400" data-panel="last-provided">${lastProvided ? `last provided ${_graphEscapeHtml(lastProvided.slice(0, 16).replace("T", " "))}` : "last provided: unknown at this instant"}</div>`
       : "";
+    // Owner, description and link chips from the system's catalog-info
+    // (#48), below the version lines; rides the scope payload.
+    const systems = (window.graphScopeData && window.graphScopeData.systems) || {};
+    const contextBlock = systemContextHtml(systems[name], true);
+    const contextLines = contextBlock ? `<div class="mt-2">${contextBlock}</div>` : "";
 
     // The graph draws Producers and Consumers as the same kind of node, but the
     // two have different pages. `services_detailed` lists Producers only, so a
@@ -2322,6 +2328,7 @@ function renderCustomGraph(report, svgElement, direction) {
         <div class="font-bold text-lg text-white truncate mb-1">${_graphEscapeHtml(name)}</div>
         ${graphBadgeSummaryHtml(badges)}
         ${memberLines}
+        ${contextLines}
       </div>
       <div class="space-y-3">
         <a href="${href}" class="flex items-center justify-center gap-2 w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-all shadow-lg shadow-indigo-500/20">

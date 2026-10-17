@@ -777,3 +777,53 @@ function togglePasswordVisibility(inputId, btn) {
     document.addEventListener(type, (event) => dispatch(type, event));
   }
 })();
+
+// The context block (#48) a system's Backstage catalog-info gives it: owner,
+// description, then one row of link chips — the repository first (labelled
+// by the host of the source location), then the Backstage links by title.
+// Every string is caller-supplied and reaches here hostile, so all of it is
+// escaped; chips open in a new tab with rel="noopener noreferrer". `dark`
+// picks the palette of the graph's node panel. Empty for a system without a
+// context, or one whose context has nothing to show.
+function systemContextHtml(context, dark) {
+  if (!context) return "";
+  const text = dark ? "text-slate-300" : "text-slate-700";
+  const muted = dark ? "text-slate-400" : "text-slate-500";
+  const chip = dark
+    ? "bg-slate-800 text-slate-200 border border-slate-500 hover:bg-slate-700"
+    : "bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-200";
+  const rows = [];
+  if (context.owner) {
+    rows.push(
+      `<div class="text-xs ${text}" data-context="owner"><span class="${muted}">Owner</span> <span class="font-semibold">${escapeHtml(context.owner.name)}</span> <span class="${muted}">(${escapeHtml(context.owner.kind)})</span></div>`,
+    );
+  }
+  if (context.description) {
+    rows.push(
+      `<p class="text-xs ${text} break-words" data-context="description">${escapeHtml(context.description)}</p>`,
+    );
+  }
+  const chips = [];
+  if (context.source_location) {
+    let host = context.source_location;
+    try {
+      host = new URL(context.source_location).host || host;
+    } catch (_) {
+      /* validated server-side as http(s); the URL itself is a fine label */
+    }
+    chips.push(linkChip(context.source_location, host, "repository", chip));
+  }
+  for (const link of context.links || []) {
+    chips.push(linkChip(link.url, link.title, "link", chip));
+  }
+  if (chips.length) {
+    rows.push(
+      `<div class="flex flex-wrap items-center gap-1.5" data-context="links">${chips.join("")}</div>`,
+    );
+  }
+  return rows.length ? `<div class="space-y-1" data-context>${rows.join("")}</div>` : "";
+}
+
+function linkChip(url, label, kind, chipClass) {
+  return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" data-context-link="${kind}" class="px-2 py-0.5 rounded-full text-[11px] ${chipClass}">${escapeHtml(label)}</a>`;
+}

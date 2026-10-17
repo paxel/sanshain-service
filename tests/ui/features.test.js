@@ -109,6 +109,67 @@ test.describe('Sanshain 1.5.0 Features Integration Tests', () => {
     await expect(page.locator(`#tokens-list :text("${tokenName}")`)).not.toBeVisible();
   });
 
+  test('Producer page shows owner and link chips from catalog-info, escaped', async ({ page, request }) => {
+    const login = await request.post('/auth/login', {
+      data: { username: 'root', password: adminPassword },
+    });
+    const { token } = await login.json();
+    const name = `ctx-producer-${Date.now()}`;
+    const spec = [
+      'openapi: 3.0.3',
+      'info:',
+      '  title: Context',
+      '  version: 1.0.0',
+      'paths:',
+      '  /ping:',
+      '    get:',
+      '      responses:',
+      "        '200':",
+      '          description: OK',
+      '',
+    ].join('\n');
+    const provided = await request.post('/provide', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { producername: name, stability: 'snapshot', openapi_yaml: spec },
+    });
+    expect(provided.ok()).toBeTruthy();
+
+    // A link title that is markup must land on the page as text (#48).
+    const catalog = [
+      'apiVersion: backstage.io/v1alpha1',
+      'kind: Component',
+      'metadata:',
+      `  name: ${name}`,
+      '  description: Takes orders.',
+      '  annotations:',
+      '    backstage.io/source-location: url:https://github.com/acme/orders',
+      '  links:',
+      '    - url: https://wiki.acme.corp/orders',
+      '      title: "<script>alert(1)</script>"',
+      'spec:',
+      '  owner: team-orders',
+      '',
+    ].join('\n');
+    const pushed = await request.put(`/catalog/${name}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { catalog_info_yaml: catalog },
+    });
+    expect(pushed.ok()).toBeTruthy();
+
+    await page.goto(`/producers.html?service=${encodeURIComponent(name)}`);
+    await ensureLoaderHidden(page);
+    await expect(page.locator('[data-context="owner"]')).toContainText('team-orders');
+    await expect(page.locator('[data-context="description"]')).toHaveText('Takes orders.');
+    const repository = page.locator('[data-context-link="repository"]');
+    await expect(repository).toHaveText('github.com');
+    await expect(repository).toHaveAttribute('href', 'https://github.com/acme/orders');
+    await expect(repository).toHaveAttribute('rel', 'noopener noreferrer');
+    const chip = page.locator('[data-context-link="link"]');
+    await expect(chip).toHaveText('<script>alert(1)</script>');
+    await expect(chip).toHaveAttribute('href', 'https://wiki.acme.corp/orders');
+    expect(await page.locator('[data-context="links"] script').count()).toBe(0);
+  });
+
   test('Admin Settings - Snapshot Max Age', async ({ page }) => {
     await page.goto('/admin.html');
     await ensureLoaderHidden(page);

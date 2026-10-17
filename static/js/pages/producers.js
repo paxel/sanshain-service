@@ -181,9 +181,26 @@ async function showProducerVersions(serviceName) {
   }
   list.innerHTML = "";
 
+  // Owner, description, repository and links from the Producer's
+  // catalog-info (#48), under the title. Optional: the page reads without it.
+  try {
+    const { context } = await fetchJSON(`/admin/producers/${encodeURIComponent(serviceName)}`);
+    const block = systemContextHtml(context, false);
+    if (block) {
+      const card = document.createElement("div");
+      card.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs";
+      card.innerHTML = block;
+      list.appendChild(card);
+    }
+  } catch (_) {
+    /* the context is optional */
+  }
+
   if (!versions || versions.length === 0) {
-    list.innerHTML =
-      '<div class="text-center py-10 text-slate-500 italic">No versions found for this Producer.</div>';
+    const empty = document.createElement("div");
+    empty.className = "text-center py-10 text-slate-500 italic";
+    empty.textContent = "No versions found for this Producer.";
+    list.appendChild(empty);
     return;
   }
 
