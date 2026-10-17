@@ -833,25 +833,25 @@ use sanshain_service::infrastructure::webhook_sender::ReqwestWebhookSender;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU16, Ordering};
 
+/// What the receiver records per request: the headers and the raw body.
+type Recorded = Arc<Mutex<Vec<(HeaderMap, String)>>>;
+
 /// A throwaway receiver on an ephemeral port: records every request's
 /// headers and body, answers the configured status.
 #[cfg(test)]
 struct Receiver {
     url: String,
-    requests: Arc<Mutex<Vec<(HeaderMap, String)>>>,
+    requests: Recorded,
     status: Arc<AtomicU16>,
 }
 
 #[cfg(test)]
 impl Receiver {
     async fn start() -> Receiver {
-        let requests: Arc<Mutex<Vec<(HeaderMap, String)>>> = Arc::new(Mutex::new(Vec::new()));
+        let requests: Recorded = Arc::new(Mutex::new(Vec::new()));
         let status = Arc::new(AtomicU16::new(200));
         async fn record(
-            State((requests, status)): State<(
-                Arc<Mutex<Vec<(HeaderMap, String)>>>,
-                Arc<AtomicU16>,
-            )>,
+            State((requests, status)): State<(Recorded, Arc<AtomicU16>)>,
             headers: HeaderMap,
             body: String,
         ) -> StatusCode {

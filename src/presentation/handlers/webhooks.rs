@@ -90,7 +90,7 @@ async fn create_in(
         &scope,
     )
     .await?;
-    Ok(((StatusCode::CREATED, Json(created))).into_response())
+    Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
 async fn get_in(state: &AppState, scope: WebhookScope, id: i64) -> Result<Response, AppError> {
@@ -153,7 +153,7 @@ async fn delete_in(
 
 async fn test_in(state: &AppState, scope: WebhookScope, id: i64) -> Result<Response, AppError> {
     let event_id = service::send_test_event(&state.repo, &scope, id).await?;
-    Ok(((StatusCode::ACCEPTED, Json(json!({ "event_id": event_id })))).into_response())
+    Ok((StatusCode::ACCEPTED, Json(json!({ "event_id": event_id }))).into_response())
 }
 
 async fn rotate_in(
@@ -209,7 +209,7 @@ async fn redeliver_in(
         &scope,
     )
     .await?;
-    Ok(((StatusCode::ACCEPTED, Json(delivery))).into_response())
+    Ok((StatusCode::ACCEPTED, Json(delivery)).into_response())
 }
 
 // --- Global hooks: /admin/webhooks ---

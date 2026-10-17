@@ -99,20 +99,35 @@ pub async fn promote_version(
 /// exposition a `sanshain_version_rejected_total` counter. Dry runs are
 /// previews and record neither. Best-effort — a failed audit write must not
 /// turn a clean 409 into a 500.
-async fn record_version_rejection(
-    repo: &impl SpecRepository,
-    dry_run: bool,
-    username: Option<&str>,
-    producername: &str,
+/// What a version-rule rejection is about — the audit row, the counter and
+/// the `provide.rejected` event all read from it.
+struct VersionRejection<'a> {
+    username: Option<&'a str>,
+    producername: &'a str,
     api_type: ApiType,
     version: SemVer,
     reason: &'static str,
-    message: &str,
+    message: &'a str,
     proposed: Option<SemVer>,
+}
+
+async fn record_version_rejection(
+    repo: &impl SpecRepository,
+    dry_run: bool,
+    rejection: VersionRejection<'_>,
 ) {
     if dry_run {
         return;
     }
+    let VersionRejection {
+        username,
+        producername,
+        api_type,
+        version,
+        reason,
+        message,
+        proposed,
+    } = rejection;
     // The producer name becomes a Prometheus label and an audit row, so only
     // Producers that exist are recorded — otherwise any authenticated caller
     // could mint unbounded label cardinality out of made-up names. The check
@@ -261,13 +276,15 @@ pub async fn provide_spec(
         record_version_rejection(
             repo,
             dry_run,
-            username,
-            producername,
-            api_type,
-            version,
-            "ga_requires_releaser",
-            &message,
-            None,
+            VersionRejection {
+                username,
+                producername,
+                api_type,
+                version,
+                reason: "ga_requires_releaser",
+                message: &message,
+                proposed: None,
+            },
         )
         .await;
         return Err(AppError::ForbiddenWithReason(message));
@@ -418,13 +435,15 @@ pub async fn provide_spec(
             record_version_rejection(
                 repo,
                 dry_run,
-                username,
-                producername,
-                api_type,
-                version,
-                reason,
-                &message,
-                Some(proposed),
+                VersionRejection {
+                    username,
+                    producername,
+                    api_type,
+                    version,
+                    reason,
+                    message: &message,
+                    proposed: Some(proposed),
+                },
             )
             .await;
             return Err(AppError::VersionConflict { message, proposed });
@@ -454,13 +473,15 @@ pub async fn provide_spec(
         record_version_rejection(
             repo,
             dry_run,
-            username,
-            producername,
-            api_type,
-            version,
-            "breaking_without_major",
-            &message,
-            Some(proposed),
+            VersionRejection {
+                username,
+                producername,
+                api_type,
+                version,
+                reason: "breaking_without_major",
+                message: &message,
+                proposed: Some(proposed),
+            },
         )
         .await;
         return Err(AppError::VersionConflict { message, proposed });

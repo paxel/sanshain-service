@@ -2958,7 +2958,7 @@ impl SpecRepository for MockRepo {
             .filter(|d| d.hook_id == hook_id)
             .cloned()
             .collect();
-        rows.sort_by(|a, b| b.id.cmp(&a.id));
+        rows.sort_by_key(|d| std::cmp::Reverse(d.id));
         rows.truncate(limit as usize);
         Ok(rows)
     }
