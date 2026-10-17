@@ -1,4 +1,5 @@
-# Fails only when a dependency has a known vulnerability (RustSec and npm advisories). Runs weekly and
+# Fails only when a dependency has a known vulnerability (RustSec and npm advisories) or the latest
+# released image carries a fixable high/critical CVE in its OS packages (grype). Runs weekly and
 # on demand, because new advisories appear without any change in this repo.
 # Warnings such as unmaintained or yanked packages are reported but never fail it.
 name: Security
@@ -33,3 +34,33 @@ jobs:
           node-version: '24'
       - name: npm audit
         run: npm audit
+
+  image-scan:
+    name: Vulnerable image packages (grype)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve the latest release tag
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: echo "tag=$(gh release view --json tagName --jq .tagName)" >> "$GITHUB_OUTPUT"
+
+      # Scans the image users run (pulled from the registry), not a rebuild. Fails only on
+      # high/critical findings that have a fix, consistent with the source audits above.
+      - name: grype
+        id: grype
+        uses: anchore/scan-action@v6
+        with:
+          image: ghcr.io/${{ github.repository }}:${{ steps.latest.outputs.tag }}
+          output-format: json
+          severity-cutoff: high
+          only-fixed: true
+          fail-build: true
+
+      - name: Upload the scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grype-report-${{ steps.latest.outputs.tag }}
+          path: ${{ steps.grype.outputs.json }}
