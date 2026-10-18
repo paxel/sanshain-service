@@ -32,3 +32,11 @@ ui-test:
 # overwrites the images in place — nothing else is touched.
 screenshots:
     ./scripts/update_screenshots.sh
+
+# Build the documentation site (site/ -> site-dist/)
+site:
+    node scripts/build-site.js
+
+# Build the documentation site and preview it at http://localhost:8080/
+site-serve:
+    node scripts/build-site.js --serve 8080

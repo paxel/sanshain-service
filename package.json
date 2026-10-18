@@ -10,8 +10,10 @@
     "test:ui": "npx playwright test tests/ui/smoke.test.js tests/ui/no_console_errors.test.js tests/ui/de_inlined.test.js tests/ui/link_crawl.test.js",
     "screenshots": "./scripts/update_screenshots.sh",
     "test": "cargo test",
-    "check": "npm run fmt:check && npm run lint && npm run test",
-    "build:css": "tailwindcss -i static/css/app.input.css -o static/css/app.css --minify"
+    "check": "npm run fmt:check && npm run lint && npm run test && npm run site:test",
+    "build:css": "tailwindcss -i static/css/app.input.css -o static/css/app.css --minify",
+    "site": "node scripts/build-site.js",
+    "site:test": "node --test tests/site/*.test.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",

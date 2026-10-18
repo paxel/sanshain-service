@@ -11,6 +11,9 @@ yarn-error.log*
 test-results/
 playwright-report/
 
+# Documentation site build output (deployed to Pages as an artifact)
+site-dist/
+
 # SQLite
 *.db
 *.db-shm

@@ -85,5 +85,31 @@ export default [
       "no-undef": "error",
     },
   },
+  {
+    // Documentation site build script and its tests: Node, ES modules.
+    files: ["scripts/build-site.js", "tests/site/*.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: { ...globals.node },
+    },
+    rules: {
+      "no-unused-vars": "error",
+      "no-undef": "error",
+    },
+  },
+  {
+    // Documentation site client script: browser, classic script.
+    files: ["site/assets/site.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "script",
+      globals: { ...globals.browser },
+    },
+    rules: {
+      "no-unused-vars": "error",
+      "no-undef": "error",
+    },
+  },
   eslintConfigPrettier,
 ];
