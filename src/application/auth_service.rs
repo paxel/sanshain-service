@@ -64,7 +64,7 @@ pub async fn claim_root_usernames(
             let hash = hash_password(&generate_random_password())?;
             repo.create_user(username, &hash, true).await?;
             tracing::info!(
-                "Claimed root username '{}' with a locked account (log in via SANSHAIN_ROOT_USERS credentials flow or reset the password)",
+                "Claimed root username '{}' with a placeholder account: it has no usable local password; the first LDAP or OIDC login under this name signs in as it and it becomes that directory user's shadow account",
                 username
             );
         }
@@ -974,5 +974,47 @@ mod tests {
             .await
             .unwrap();
         login(&repo, "u", "new").await.unwrap();
+    }
+    /// A directory that accepts every bind must still not let an empty
+    /// password through the provider path.
+    struct AcceptingProvider;
+
+    impl AuthProvider for AcceptingProvider {
+        async fn authenticate(
+            &self,
+            username: &str,
+            _password: &str,
+        ) -> Result<AuthenticatedUser, crate::domain::ports::AuthProviderError> {
+            Ok(AuthenticatedUser {
+                username: username.to_string(),
+            })
+        }
+
+        async fn test_connection(&self) -> Result<(), crate::domain::ports::AuthProviderError> {
+            Ok(())
+        }
+    }
+
+    /// What the claim log line promises: the first directory login under a
+    /// claimed root name signs in as the placeholder row, which becomes that
+    /// user's shadow account; the random local password stays unusable.
+    #[tokio::test]
+    async fn directory_login_signs_in_as_the_claimed_root_placeholder() {
+        let repo = MockRepo::new();
+        let root_users = crate::domain::permissions::RootUsers::resolve(Some("ops-root"), None);
+        claim_root_usernames(&repo, &root_users).await.unwrap();
+        let placeholder = repo.find_user("ops-root").await.unwrap().unwrap();
+
+        let session = login_with_provider(&repo, &AcceptingProvider, "ops-root", "dir-pass")
+            .await
+            .unwrap();
+
+        assert_eq!(session.user_id, placeholder.id);
+        assert_eq!(repo.user_count().await.unwrap(), 1, "no second account");
+        let err = login(&repo, "ops-root", "dir-pass").await.unwrap_err();
+        assert!(
+            matches!(err, AppError::Unauthorized),
+            "the directory password is not a local one"
+        );
     }
 }

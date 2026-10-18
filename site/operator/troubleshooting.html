@@ -150,7 +150,7 @@
   </dd>
   <dt><code>ERROR: Can't claim root usernames: …</code></dt>
   <dd>
-    Creating the locked accounts for unclaimed <code>SANSHAIN_ROOT_USERS</code> names failed; a
+    Creating the placeholder accounts for unclaimed <code>SANSHAIN_ROOT_USERS</code> names failed; a
     database error.
   </dd>
 </dl>
@@ -160,15 +160,16 @@
   <dt>Lost the initial root password</dt>
   <dd>
     There is no password reset, and <code>SANSHAIN_ROOT_USERS</code> does not help: a name added
-    there is claimed at startup as a locked account with a random, unknown password, and registering
-    it is refused. The initial admin is created only while the <code>users</code> table is empty, so
-    the options are: restore a <a href="backup.html">backup</a> taken while the password was known;
-    or delete every row of <code>users</code> (<code>DELETE FROM users;</code> with
-    <code>sqlite3</code> on the stopped service's file, or <code>psql</code>), which removes
-    <strong>every</strong> account, session and API token, so the next start creates the initial
-    admin again with <code>INITIAL_ADMIN_PASSWORD</code> or a new random password on stderr. The
-    Danger Zone's <strong>Nuke Users</strong> is not a way out: it spares every effective
-    administrator, root included, and needs a working admin session anyway.
+    there is claimed at startup as a placeholder account with a random, unknown password (only a
+    directory login under that name can use it), and registering it is refused. The initial admin is
+    created only while the <code>users</code> table is empty, so the options are: restore a
+    <a href="backup.html">backup</a> taken while the password was known; or delete every row of
+    <code>users</code> (<code>DELETE FROM users;</code> with <code>sqlite3</code> on the stopped
+    service's file, or <code>psql</code>), which removes <strong>every</strong> account, session and
+    API token, so the next start creates the initial admin again with
+    <code>INITIAL_ADMIN_PASSWORD</code> or a new random password on stderr. The Danger Zone's
+    <strong>Nuke Users</strong> is not a way out: it spares every effective administrator, root
+    included, and needs a working admin session anyway.
   </dd>
   <dt><code>POST /auth/login</code> answers <code>401</code></dt>
   <dd>
@@ -562,4 +563,4 @@
   <dd>The session is older than 7 days or was revoked. Sign in again.</dd>
 </dl>
 
-<p class="checked">Checked against v2.6.0.</p>
+<p class="checked">Checked against v2.6.1.</p>

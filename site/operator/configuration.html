@@ -391,9 +391,13 @@ CONFIGURATION ERROR: LOG_FORMAT="yaml" is not recognised. Valid values: json, te
 <p>
   Naming an account grants full authority whether or not it exists, is approved or holds a role, so
   keep the list short. Because the grant is a pure username match, an unclaimed root name would be a
-  standing invitation: startup therefore creates a locked account (random password) for every
-  configured name that has none, and registration refuses reserved names with <code>409</code>
-  <code>This username is reserved</code>.
+  standing invitation: startup therefore creates a placeholder account for every configured name
+  that has none, and registration refuses reserved names with <code>409</code>
+  <code>This username is reserved</code>. The placeholder has no usable local password; the first
+  <a href="authentication.html#ldap-and-active-directory">LDAP</a> or
+  <a href="authentication.html#openid-connect">OIDC</a> login under that name signs in as it, and it
+  becomes that directory user's shadow account. The log says so:
+  <code>Claimed root username 'breakglass' with a placeholder account: …</code>.
 </p>
 <pre><code>SANSHAIN_ROOT_USERS=root,breakglass</code></pre>
 

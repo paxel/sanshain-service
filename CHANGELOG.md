@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The Helm chart and the Kustomize manifests no longer set `PROMETHEUS_ENDPOINT` and `LOGIN_SESSION_DURATION_HOURS`, two variables the service never read.
 - `autoscaling.enabled` in the Helm chart now renders a HorizontalPodAutoscaler from `minReplicas`, `maxReplicas` and the CPU and memory targets; before, those values existed but no autoscaler was created.
 - The Helm chart gained `extraEnv` for every variable its ConfigMap does not render (`PUBLIC_BASE_URL`, the webhook, MCP, OTEL and LDAP timeout settings and more), as `name`/`value` or `valueFrom` entries.
+- The startup log line for a claimed `SANSHAIN_ROOT_USERS` name no longer tells the operator to reset a password that does not exist; it says the placeholder is taken over by the first LDAP or OIDC login under that name.
 
 ---
 
