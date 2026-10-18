@@ -37,8 +37,8 @@
 <text x="64.5" y="143.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">store</text>
 <rect x="237.9" y="237.0" width="67.1" height="16.0" rx="3.0" fill="#ffffff"/>
 <text x="240.9" y="249.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">miss / write</text>
-<rect x="168.4" y="7.6" width="56.5" height="16.8" rx="0.0" fill="#ffffff"/>
-<text x="224.9" y="20.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="end" fill="#8a939e">Webhooks</text>
+<rect x="168.4" y="25.6" width="56.5" height="16.8" rx="0.0" fill="#ffffff"/>
+<text x="224.9" y="38.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="end" fill="#8a939e">Webhooks</text>
 <rect x="237.9" y="47.0" width="44.4" height="16.0" rx="3.0" fill="#ffffff"/>
 <text x="240.9" y="59.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">outbox</text>
 <rect x="410.3" y="7.6" width="75.6" height="16.8" rx="0.0" fill="#ffffff"/>

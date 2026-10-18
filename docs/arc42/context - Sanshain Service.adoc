@@ -22,7 +22,7 @@ Hexagonal layering: the HTTP API and the MCP Server translate requests into use 
 |Axum router, handlers and middleware (src/presentation, src/lib.rs): REST endpoints for provide/require/catalog/report/admin/auth, token and session authentication with full or read-only token scope, permission guards per route, SSE/WebSocket live updates, webhook management and the /metrics endpoint.
 
 |MCP Server
-|Model Context Protocol endpoint for AI clients (src/presentation/mcp.rs, src/application/mcp_service.rs, docs/mcp.md): POST /mcp, Streamable HTTP, stateless, behind a read-only API token; tools list_services, describe_service, find_endpoint, get_spec, get_graph, diff_versions and blame answer from the catalog only, rate-limited per token and size-budgeted per answer.
+|Model Context Protocol endpoint for AI clients (src/presentation/mcp.rs, src/application/mcp_service.rs; documented in the Developer track, MCP chapter): POST /mcp, Streamable HTTP, stateless, behind a read-only API token; tools list_services, describe_service, find_endpoint, get_spec, get_graph, diff_versions and blame answer from the catalog only, rate-limited per token and size-budgeted per answer.
 
 |Persistence
 |Implements the SpecRepository port: a Moka cache with a 10 s data TTL in front of interchangeable sqlx repositories for SQLite and PostgreSQL, including schema migrations, the webhook outbox tables and the SQLite snapshot.

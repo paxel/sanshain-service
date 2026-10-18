@@ -62,8 +62,8 @@
 <polyline points="380.0,388.0 312.0,388.0 309.7,387.9 307.7,387.5 305.9,386.9 304.3,386.1 303.0,385.0 301.9,383.7 301.1,382.1 300.5,380.3 300.1,378.3 300.0,376.0 300.0,220.0 299.9,217.7 299.5,215.7 298.9,213.9 298.1,212.3 297.0,211.0 295.7,209.9 294.1,209.1 292.3,208.5 290.3,208.1 288.0,208.0 260.0,208.0" fill="none" stroke="#444b55" stroke-width="2" stroke-linejoin="round"/>
 <svg x="347.0" y="462.0" width="33.0" height="12.0" viewBox="0.2 1.2 26.7 9.7" preserveAspectRatio="xMidYMid meet" color="#444b55"><circle cx="5" cy="6" r="4" fill="none" stroke="currentColor" stroke-width="1.6"></circle><circle cx="5" cy="6" r="1.2" fill="currentColor"></circle><path d="M9 6 H26 M20 6 V10 M23.5 6 V9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>
 <polyline points="347.0,468.0 343.5,468.0 342.8,468.0 342.2,468.1 341.7,468.3 341.3,468.6 340.9,468.9 340.6,469.3 340.3,469.7 340.1,470.2 340.0,470.8 340.0,471.5 340.0,626.0 339.9,628.3 339.5,630.3 338.9,632.1 338.1,633.7 337.0,635.0 335.7,636.1 334.1,636.9 332.3,637.5 330.3,637.9 328.0,638.0 260.0,638.0" fill="none" stroke="#444b55" stroke-width="1" stroke-linejoin="round"/>
-<rect x="425.0" y="270.5" width="62.6" height="16.0" rx="3.0" fill="#ffffff"/>
-<text x="428.0" y="282.7" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">dashboard</text>
+<rect x="352.4" y="270.5" width="62.6" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="355.4" y="282.7" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">dashboard</text>
 <rect x="303.6" y="409.0" width="32.9" height="16.0" rx="3.0" fill="#ffffff"/>
 <text x="306.6" y="421.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">REST</text>
 <rect x="590.0" y="409.0" width="29.7" height="16.0" rx="3.0" fill="#ffffff"/>
