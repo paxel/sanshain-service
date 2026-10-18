@@ -414,3 +414,66 @@ fn default_render_has_no_env_and_no_dead_keys() {
         "got:\n{rendered}"
     );
 }
+
+#[test]
+fn no_hpa_unless_autoscaling_is_enabled() {
+    if !helm_available() {
+        eprintln!("skipping: helm is not installed");
+        return;
+    }
+
+    let rendered = render(&[]).expect("chart renders with default values");
+
+    assert!(
+        !rendered.contains("HorizontalPodAutoscaler"),
+        "an untouched installation gets no HPA"
+    );
+    assert!(
+        rendered.contains("replicas: 1"),
+        "the Deployment keeps its replica count without an HPA"
+    );
+}
+
+#[test]
+fn autoscaling_renders_an_hpa_from_the_values() {
+    if !helm_available() {
+        eprintln!("skipping: helm is not installed");
+        return;
+    }
+
+    let rendered = render(&[
+        "--set",
+        "autoscaling.enabled=true",
+        "--set",
+        "autoscaling.minReplicas=2",
+        "--set",
+        "autoscaling.maxReplicas=6",
+        "--set",
+        "autoscaling.targetCPUUtilizationPercentage=70",
+        "--set",
+        "autoscaling.targetMemoryUtilizationPercentage=85",
+    ])
+    .expect("chart renders with autoscaling enabled");
+
+    assert!(
+        rendered.contains("apiVersion: autoscaling/v2"),
+        "got:\n{rendered}"
+    );
+    assert!(rendered.contains("kind: HorizontalPodAutoscaler"));
+    assert!(
+        rendered.contains("name: t-sanshain\n  minReplicas: 2\n  maxReplicas: 6"),
+        "the HPA targets the Deployment with the configured bounds, got:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("name: cpu\n        target:\n          type: Utilization\n          averageUtilization: 70"),
+        "the CPU target, got:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("name: memory\n        target:\n          type: Utilization\n          averageUtilization: 85"),
+        "the memory target, got:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("replicas: 1"),
+        "the Deployment leaves the replica count to the HPA"
+    );
+}

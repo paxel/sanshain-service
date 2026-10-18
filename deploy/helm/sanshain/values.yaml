@@ -60,6 +60,8 @@ resources:
     cpu: 100m
     memory: 128Mi
 
+# A HorizontalPodAutoscaler (autoscaling/v2) on the Deployment. Only for
+# PostgreSQL: SQLite needs a single replica.
 autoscaling:
   enabled: false
   minReplicas: 1
