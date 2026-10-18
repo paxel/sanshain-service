@@ -1,23 +1,101 @@
-<!-- page: title="Reference" track="reference" order=1 summary="The REST reference generated from api.yaml and maintenance.yaml, and the arc42 architecture." -->
+<!-- page: title="Reference" track="reference" order=0 summary="The Reference track: the REST and Maintenance contracts generated from api.yaml and maintenance.yaml, the prose around them, the arc42 architecture, the benchmarks, corporate best practices, and where the configuration and permission tables live." -->
 <p class="lede">
-  This track is not written yet. The REST reference is generated from
-  <code>api.yaml</code> and <code>maintenance.yaml</code> in issue
-  <a href="https://github.com/paxel/sanshain-service/issues/54">#54</a>; the arc42 architecture
-  chapter with clickable diagrams is issue
-  <a href="https://github.com/paxel/sanshain-service/issues/55">#55</a>.
+  Lookups, not reading: every route and schema of the two contracts, the architecture box by box,
+  the benchmarks and the practices that scale. Two of these pages are generated from the contracts
+  at every build and cannot drift from them; the rest carry the version they were checked against.
 </p>
 
-<h2>What this track will cover</h2>
-<ul>
-  <li>The Producer/Consumer API (provide, require, report) with every route and its permission.</li>
-  <li>The <code>/admin/*</code> maintenance surface.</li>
-  <li>The architecture in arc42 form, whitebox by whitebox.</li>
+<ul class="cards">
+  <li>
+    <a class="card" href="api.html">
+      <p class="eyebrow">Generated</p>
+      <p class="card-title">REST API</p>
+      <p>
+        Every Producer and Consumer endpoint of <code>api.yaml</code>: parameters, bodies,
+        responses, authentication.
+      </p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="maintenance.html">
+      <p class="eyebrow">Generated</p>
+      <p class="card-title">Maintenance API</p>
+      <p>
+        Every <code>/admin/*</code> route of <code>maintenance.yaml</code> with the permission and
+        scope it requires.
+      </p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="api-usage.html">
+      <p class="eyebrow">Prose</p>
+      <p class="card-title">Using the API</p>
+      <p>
+        Sessions versus API tokens, the two scopes and where a read-only token is refused, error
+        shapes, limits, caching.
+      </p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="architecture.html">
+      <p class="eyebrow">Generated</p>
+      <p class="card-title">Architecture</p>
+      <p>
+        The arc42 building-block view: the context, then every whitebox with its blocks, lines and
+        the ADRs behind them.
+      </p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="benchmarking.html">
+      <p class="eyebrow">Contributors</p>
+      <p class="card-title">Benchmarking</p>
+      <p>
+        The Criterion micro-benchmarks of the spec-processing path, the last measured results, and
+        how to compare before and after a change.
+      </p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="corporate-best-practices.html">
+      <p class="eyebrow">At scale</p>
+      <p class="card-title">Corporate best practices</p>
+      <p>
+        Configuration from the environment, tokens with a scope and an expiry, releases gated by
+        pipeline and role, ownership from the catalog, webhooks on an allow-list.
+      </p>
+    </a>
+  </li>
 </ul>
 
-<h2>Until then</h2>
+<h2>The two tables</h2>
 <p>
-  The contracts are
-  <a href="https://github.com/paxel/sanshain-service/blob/summer/api.yaml">api.yaml</a> and
-  <a href="https://github.com/paxel/sanshain-service/blob/summer/maintenance.yaml">maintenance.yaml</a>
-  on GitHub.
+  The tables an operator looks up most live in the Operator track, next to the prose that explains
+  them, and each is held in step with the code by a test:
 </p>
+<ul>
+  <li>
+    <a href="../operator/configuration.html#environment-variables">Environment variables</a>: every
+    variable the service reads, with its default and effect. A cargo test fails when the service
+    reads a variable the table does not list, or the table lists one the service does not read.
+  </li>
+  <li>
+    <a href="../operator/roles.html#permissions">Permissions</a>: the ten permissions, what each
+    allows and which roles hold it. A cargo test fails when the table and the
+    <code>Permission</code> enum disagree.
+  </li>
+</ul>
+
+<h2>The contracts themselves</h2>
+<p>
+  The sources of the generated pages are
+  <a href="https://github.com/paxel/sanshain-service/blob/summer/api.yaml">api.yaml</a> and
+  <a href="https://github.com/paxel/sanshain-service/blob/summer/maintenance.yaml"
+    >maintenance.yaml</a
+  >
+  on GitHub, both OpenAPI 3.0.3 documents that a code generator can consume. The architecture
+  decision records are in
+  <a href="https://github.com/paxel/sanshain-service/tree/summer/docs/adr">docs/adr</a>.
+</p>
+
+<p class="checked">Checked against v2.6.0.</p>

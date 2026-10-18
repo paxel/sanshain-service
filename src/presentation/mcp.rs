@@ -1,4 +1,4 @@
-//! The MCP endpoint (docs/mcp.md): the Streamable HTTP transport at `/mcp`,
+//! The MCP endpoint (https://paxel.github.io/sanshain-service/developer/mcp.html): the Streamable HTTP transport at `/mcp`,
 //! its bearer-token guard, the per-token rate limit, the result-size budget
 //! and the Prometheus counters. The answers themselves come from
 //! [`crate::application::mcp_service`]; this module only frames them.

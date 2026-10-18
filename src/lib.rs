@@ -65,7 +65,7 @@ pub struct AppState {
     /// Caches directory group membership, so a change in the directory takes
     /// effect within the cache lifetime rather than at the next login.
     pub directory_roles: application::directory_roles::DirectoryRoleCache,
-    /// The MCP endpoint's configuration (docs/mcp.md).
+    /// The MCP endpoint's configuration (https://paxel.github.io/sanshain-service/developer/mcp.html).
     pub mcp: presentation::mcp::McpConfig,
 }
 
@@ -248,7 +248,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/LICENSE", get(pages::license_text))
         .route("/version", get(|State(s): State<AppState>| async move { axum::Json(serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "instance_id": s.instance_id})) }))
 
-        // The MCP endpoint (docs/mcp.md): JSON-RPC for AI clients, mounted
+        // The MCP endpoint (https://paxel.github.io/sanshain-service/developer/mcp.html): JSON-RPC for AI clients, mounted
         // only when enabled.
         .merge(mcp_routes(state.clone()))
 
@@ -566,7 +566,7 @@ mod tests {
             "/api/sse/updates",
             "/api/ws/updates",
             "/endpoint-versions",
-            // JSON-RPC for AI clients (docs/mcp.md), not REST
+            // JSON-RPC for AI clients (https://paxel.github.io/sanshain-service/developer/mcp.html), not REST
             "/mcp",
             "/report",
             "/report/isolation",

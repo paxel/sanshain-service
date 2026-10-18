@@ -28,7 +28,7 @@ Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and
 - **Auditing**: Full history of provides and administrative actions.
 - **Backup**: On SQLite, a consistent database snapshot is one authenticated `GET` away — and a Helm CronJob fetches it nightly; PostgreSQL gets a `pg_dump` CronJob. Restore is documented for both. See [Backup and restore](https://paxel.github.io/sanshain-service/operator/backup.html).
 - **Flexible Auth**: Local accounts, LDAP/Active Directory, or OpenID Connect SSO for human login; machine clients always use API tokens.
-- **API Tokens with a Scope**: Each user mints their own tokens on the account page. A token is `full` (everything its owner may do) or `read_only` — for AI / MCP clients, it answers reports and versions but is refused on every route that changes the catalog. See [API Usage](docs/api-usage.md#api-tokens).
+- **API Tokens with a Scope**: Each user mints their own tokens on the account page. A token is `full` (everything its owner may do) or `read_only` — for AI / MCP clients, it answers reports and versions but is refused on every route that changes the catalog. See [Using the API](https://paxel.github.io/sanshain-service/reference/api-usage.html#scopes-full-and-read-only).
 - **Webhooks**: Signed outbound events — a Version published or deprecated, a Provide rejected, a new Consumer, a Sanshain-branch cut, a catalog push — to any URL on the admin's allow-list, as a JSON envelope or a ready-made Slack/Teams message; written with the fact in an outbox and retried for 24 hours. See [Webhooks](https://paxel.github.io/sanshain-service/operator/webhooks.html).
 - **MCP for AI Assistants**: `/mcp` serves the catalog over the Model Context Protocol — list and describe services, find an endpoint, read a spec, walk the graph, diff and blame versions — behind a read-only API token, rate-limited and size-budgeted. See [MCP](https://paxel.github.io/sanshain-service/developer/mcp.html).
 
@@ -37,20 +37,18 @@ Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and
 ## Quick Start
 1. **Launch**: `docker run -p 3000:3000 -v sanshain-data:/data ghcr.io/paxel/sanshain-service:latest`
 2. **Setup**: Access `http://localhost:3000/admin.html` with the random password printed in the logs.
-3. **Demo**: Run `./demo.sh` to populate the service with sample data.
+3. **Demo**: Run `./scripts/demo.sh` to populate the service with sample data.
 
 Detailed instructions: [**Getting Started**](https://paxel.github.io/sanshain-service/start/getting-started.html).
 
 ## Documentation
-- [**User Guide**](https://paxel.github.io/sanshain-service/developer/web-ui.html) — Day-to-day usage: providing and requiring APIs.
-- [**Client Ecosystem**](https://paxel.github.io/sanshain-service/developer/clients.html) — Detailed guide for Maven, Cargo, Go, JS, and Conan.
-- [**API Lifecycle**](https://paxel.github.io/sanshain-service/developer/api-lifecycle.html) — How to handle breaking changes and versioning.
-- [**API Usage**](docs/api-usage.md) — Authentication and detailed endpoint reference.
-- [**MCP**](https://paxel.github.io/sanshain-service/developer/mcp.html) — Connecting AI assistants (Claude Code, Cursor, VS Code) to the catalog: token setup, the tools, limits.
-- [**Operator track**](https://paxel.github.io/sanshain-service/operator/index.html) — Deployment, configuration, authentication (LDAP, OIDC), roles, administration, webhooks, backup, observability.
-- [**Troubleshooting**](https://paxel.github.io/sanshain-service/operator/troubleshooting.html) — Every error message, with cause and fix.
-- [**AI Migration**](docs/ai-migration.md) — Guide for using AI to migrate your services to Sanshain.
-- [**Corporate Best Practices**](docs/corporate-best-practices.md) — Recommendations for enterprise usage.
+The documentation is the site at **https://paxel.github.io/sanshain-service/**, in four tracks:
+- [**Start**](https://paxel.github.io/sanshain-service/start/index.html) — run it in a few minutes, the concepts, the glossary.
+- [**Developer**](https://paxel.github.io/sanshain-service/developer/index.html) — the web UI, `sanshain.yaml`, the clients, the API lifecycle, release graphs, CI integration, MCP.
+- [**Operator**](https://paxel.github.io/sanshain-service/operator/index.html) — deployment, configuration, authentication, roles, administration, webhooks, backup, observability, troubleshooting.
+- [**Reference**](https://paxel.github.io/sanshain-service/reference/index.html) — the REST and Maintenance contracts, the architecture, benchmarks, corporate best practices.
+
+Architecture decision records stay in the repository: [docs/adr](docs/adr/).
 
 ## Clients & Plugins
 Integrate Sanshain directly into your build process:

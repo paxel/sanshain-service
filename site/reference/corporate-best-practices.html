@@ -1,0 +1,293 @@
+<!-- page: title="Corporate best practices" track="reference" order=7 summary="Running Sanshain across many teams: configuration from the environment, tokens with a scope and an expiry, releases gated by role and pipeline, honest versions, ownership from the catalog, webhooks on an allow-list, a backed-up PostgreSQL instance behind the corporate directory." -->
+<p class="lede">
+  Sanshain's rules are the same for one team and for two hundred. What changes at scale is how much
+  of the setup is decided once, centrally, so that no repository has to be touched when the server
+  moves, a token expires or a release policy changes. These are the practices that keep a large
+  installation flexible, safe and maintainable.
+</p>
+
+<div class="callout">
+  <p class="eyebrow">What changed in 2.6.0</p>
+  <ul>
+    <li>
+      <a href="../operator/webhooks.html">Webhooks</a> notify teams of publishes, rejections and
+      cuts; receivers must be on an admin-managed allow-list.
+    </li>
+    <li>
+      The <a href="../start/glossary.html#catalog-push">catalog push</a> also records the owner,
+      description and links of a system, so the graph shows who owns what.
+    </li>
+    <li>
+      <a href="../operator/backup.html">Backup</a>: a consistent SQLite snapshot on request and a
+      Helm CronJob for either engine.
+    </li>
+  </ul>
+</div>
+
+<h2>In short</h2>
+<ol>
+  <li>
+    <strong>Environment over hardcoding</strong>: leave <code>sanshainUrl</code> out of
+    <code>sanshain.yaml</code>; the URL and the token come from CI variables.
+  </li>
+  <li>
+    <strong>Tokens with a scope and an expiry</strong>: <code>full</code> for pipelines,
+    <code>read_only</code> for AI assistants, never in version control.
+  </li>
+  <li>
+    <strong>Releases gated twice</strong>: the ga switch only on the protected-branch pipeline, the
+    <code>releaser</code> role only on the accounts that pipeline uses.
+  </li>
+  <li>
+    <strong>Honest versions</strong>: take the server's proposed version on a <code>409</code>,
+    never work around it.
+  </li>
+  <li>
+    <strong>The directory decides who is who</strong>: LDAP/AD or OIDC for people, groups mirrored
+    to roles, a root account outside the database.
+  </li>
+  <li>
+    <strong>Production infrastructure</strong>: PostgreSQL, backups, metrics, webhooks on an
+    allow-list, a verified image.
+  </li>
+</ol>
+
+<h2>Configuration from the environment</h2>
+<p>
+  Hardcoding the server URL in every project's <code>sanshain.yaml</code> means editing hundreds of
+  repositories when the instance moves. Every client reads the URL and the token from the
+  environment instead:
+</p>
+<ul>
+  <li>
+    Leave <code>sanshainUrl</code> out of the file (see
+    <a href="../developer/sanshain-yaml.html#top-level-fields">top-level fields</a>) and provide
+    <code>SANSHAIN_URL</code> as an organisation- or group-level CI variable.
+  </li>
+  <li>
+    Provide the token as <code>SANSHAIN_TOKEN</code>, stored as a CI secret at the same level, so
+    rotation is one change.
+  </li>
+  <li>
+    For local development, developers set the two variables in their shell profile, or in the build
+    tool's own settings where the client supports it (Maven's <code>settings.xml</code>; see
+    <a href="../developer/clients.html">Clients</a>).
+  </li>
+</ul>
+
+<h2>Tokens with a scope and an expiry</h2>
+<p>
+  Machine clients authenticate with an <a href="../start/glossary.html#api-token">API token</a>, a
+  credential a user mints for themselves on the account page. Three properties matter at scale:
+</p>
+<ul>
+  <li>
+    <strong>Expiry is mandatory.</strong> Every token is created with <code>expires_in_days</code>,
+    so a rotation policy is enforced by the service rather than remembered: pick the period your
+    security policy prescribes (a year is common), and the token list shows when each token last
+    authenticated a request, which finds the ones nobody uses.
+  </li>
+  <li>
+    <strong>The <a href="../start/glossary.html#scope">scope</a> matches the client.</strong> A
+    pipeline that provides and requires needs <code>full</code>. An AI assistant on the
+    <a href="../developer/mcp.html">MCP endpoint</a>, a dashboard or a report job gets
+    <code>read_only</code>: it answers reports and version listings and is refused with
+    <code>403</code> on every route that changes the catalog. The scope is fixed at creation, so a
+    leaked read-only token cannot be upgraded.
+  </li>
+  <li>
+    <strong>A token carries its owner's permissions, no more.</strong> Publishing a GA needs the
+    owner to hold <code>release_ga</code>; a token minted by an ordinary developer cannot release,
+    whatever its scope. Mint the release pipeline's token from a releaser account and nobody else's.
+  </li>
+</ul>
+<p>
+  Tokens never travel in a URL; the <code>Authorization</code> header is the only place the service
+  reads them from, so they do not end up in proxy logs or referrers. See
+  <a href="api-usage.html#scopes-full-and-read-only">Using the API</a>.
+</p>
+
+<h2>Releases gated by pipeline and role</h2>
+<p>
+  Sanshain never sees a git repository. Whether a build publishes a
+  <a href="../start/glossary.html#snapshot">snapshot</a> or a
+  <a href="../start/glossary.html#ga">GA</a> is declared by the build, and two independent gates
+  keep that declaration honest:
+</p>
+<ul>
+  <li>
+    <strong>The pipeline.</strong> Set the ga switch (<code>SANSHAIN_GA=true</code>,
+    <code>--ga</code>, <code>-Dsanshain.ga=true</code>) in the protected-branch pipeline and nowhere
+    else. Every other build, CI or local, publishes a snapshot: overwritable, never
+    compatibility-checked, expiring when unused. No branch detection, no per-project configuration;
+    the pipeline is the release authority. See
+    <a href="../developer/ci-integration.html#stability-from-the-pipeline"
+      >Stability from the pipeline</a
+    >.
+  </li>
+  <li>
+    <strong>The role.</strong> A GA provide is refused unless the token's owner holds the
+    <a href="../start/glossary.html#releaser"><code>releaser</code></a> role (or is an admin), with
+    the message <code>publishing GA for '…' requires the 'releaser' role</code>. Grant the role to
+    the release pipeline's account, and a misconfigured feature branch cannot publish a GA even with
+    the switch set. See <a href="../operator/roles.html#roles">Roles</a>.
+  </li>
+</ul>
+<p>
+  Consumers can opt into a snapshot by pinning its number; the
+  <a href="../start/glossary.html#dependency-graph">dependency graph</a> flags them as
+  <a href="../start/glossary.html#snapshot-pinned">snapshot-pinned</a>, so a release review can find
+  every system that would ship against unreleased work.
+</p>
+
+<h2>Honest versions and breaking changes</h2>
+<p>
+  A pinned Consumer can never be broken by a new version; Sanshain's job is to keep the numbers
+  honest, so that a Consumer deciding on an upgrade can trust what they claim. A GA whose changes
+  are breaking without a major bump, or that reuses a number with different content, is refused with
+  <code>409</code> and a <a href="../start/glossary.html#proposed-version">proposed version</a>.
+</p>
+<ul>
+  <li>
+    Take the proposed version and republish. Never work around a rejection by publishing a snapshot
+    "for now" or deleting the old GA; the check caught a real forgotten bump.
+  </li>
+  <li>
+    Publish breaking changes as a new major GA. The old majors remain immutable and keep serving
+    their pinned Consumers; see <a href="../developer/api-lifecycle.html">API lifecycle</a> for the
+    deprecate-then-remove sequence.
+  </li>
+  <li>
+    Use the graph's <a href="../start/glossary.html#outdated">Outdated</a> highlight and a
+    Producer's dependents listing to see which teams still pin old versions, and talk to them before
+    a removal.
+  </li>
+  <li>
+    Deleting a GA version is an audited admin escape hatch, not a workflow step; do it only when the
+    dependents listing shows no pinned Consumer. See
+    <a href="../operator/administration.html#deleting-a-version">Deleting a version</a>.
+  </li>
+</ul>
+
+<h2>Ownership from the catalog</h2>
+<p>
+  In a large graph the question is rarely "what depends on this" but "whom do I call". Let every
+  build push its Backstage <code>catalog-info.yaml</code> (<code>catalogInfo</code> in
+  <code>sanshain.yaml</code>, or <code>PUT /catalog/{systemname}</code>): the owner, description,
+  source location and links appear as the system's
+  <a href="../start/glossary.html#catalog-context">catalog context</a> on its page and in the
+  graph's node panel, and the databases, buckets and queues it lists under
+  <code>dependsOn</code> appear as
+  <a href="../start/glossary.html#peripheral-resource">peripheral resources</a> shared between the
+  systems that use them. Teams that already maintain a catalog file get this for free; for the
+  others, the file is a few lines. See
+  <a href="../developer/sanshain-yaml.html#the-catalog-phase">The catalog phase</a>.
+</p>
+
+<h2>Notifications through webhooks</h2>
+<p>
+  Instead of polling the graph, let the service tell the teams: a
+  <a href="../start/glossary.html#webhook">webhook</a> delivers signed events (a version published
+  or deprecated, a provide rejected, a new Consumer recorded, a
+  <a href="../start/glossary.html#sanshain-branch">sanshain-branch</a> cut, a catalog push) as a
+  JSON envelope or a ready-made Slack or Teams message.
+</p>
+<ul>
+  <li>
+    <strong>The allow-list is the control point.</strong> A hook can only target a host an admin has
+    put on the allow-list, so a hook created by a maintainer cannot exfiltrate catalog facts to an
+    arbitrary URL. Keep the list to the corporate chat and ticketing hosts.
+  </li>
+  <li>
+    <strong>Global hooks for platform teams, scoped hooks for product teams.</strong> A global hook
+    with an event-type and Producer-glob filter feeds a platform channel; a Producer's own hook,
+    managed by its <a href="../start/glossary.html#maintainer">maintainers</a>, feeds the team
+    channel; a Consumer's hook follows its require graph, so the team hears when something it pins
+    changes.
+  </li>
+  <li>
+    <strong>Verify the signature</strong> on the receiving side with the secret shown once at
+    creation, and rotate it from the hook's page when a receiver changes hands.
+  </li>
+</ul>
+<p>
+  Events are written to an outbox with the fact they describe and retried for 24 hours, so a
+  receiver that is down over a weekend still gets its events. See
+  <a href="../operator/webhooks.html">Webhooks</a>.
+</p>
+
+<h2>People from the directory, roles from groups</h2>
+<ul>
+  <li>
+    Delegate human login to the corporate directory:
+    <a href="../operator/authentication.html#ldap-and-active-directory">LDAP or Active Directory</a>
+    or <a href="../operator/authentication.html#openid-connect">OpenID Connect</a>. Machine clients
+    always use API tokens, whatever the mode.
+  </li>
+  <li>
+    Attach roles to
+    <a href="../operator/roles.html#groups">groups mirrored from the directory</a> rather than to
+    individual accounts, so a team change in the directory is a role change in Sanshain. Keep
+    <code>admin</code> and <code>releaser</code> on small, named groups.
+  </li>
+  <li>
+    Name <a href="../start/glossary.html#maintainer">maintainers</a> per Producer: they manage its
+    versions, retirements and webhooks without holding instance-wide permissions.
+  </li>
+  <li>
+    Keep a break-glass <a href="../start/glossary.html#root">root</a> account in
+    <code>SANSHAIN_ROOT_USERS</code>, held outside the database so that no stored grant can revoke
+    it, and watch its use in the
+    <a href="../operator/administration.html#the-audit-log">audit log</a>.
+  </li>
+</ul>
+
+<h2>Production infrastructure</h2>
+<ul>
+  <li>
+    <strong>PostgreSQL</strong>, managed, instead of the default SQLite: more concurrent writers and
+    the backups you already have. With more than one replica read the
+    <a href="../operator/deployment.html#scaling">Scaling</a> section: caches expire within 10 s and
+    session affinity is recommended.
+  </li>
+  <li>
+    <strong>Backups</strong>: the Helm chart renders a CronJob that stores a <code>pg_dump</code>,
+    or on SQLite fetches the consistent snapshot the service serves while running. The SQLite
+    CronJob needs a <code>full</code>-scope token of an admin holding
+    <code>run_destructive_operations</code>; a <code>read_only</code> token is refused. Test the
+    restore once; see <a href="../operator/backup.html">Backup and restore</a>.
+  </li>
+  <li>
+    <strong>Observability</strong>: scrape the Prometheus metrics (provides, requires, rejections,
+    webhook deliveries and the outbox backlog) and export traces over OTLP; see
+    <a href="../operator/observability.html">Observability</a>.
+  </li>
+  <li>
+    <strong>Egress</strong>: the service makes outbound calls only to the directory, the OIDC
+    provider, the OTLP collector and the webhook allow-list; a network policy can be that strict.
+    Private certificate authorities go through <code>EXTRA_CA_CERTS_DIR</code>.
+  </li>
+  <li>
+    <strong>Supply chain</strong>: the image is signed with cosign and ships a CycloneDX SBOM;
+    verify both before rolling out. See
+    <a href="../operator/deployment.html#verifying-a-release">Verifying a release</a>.
+  </li>
+</ul>
+
+<h2>Related chapters</h2>
+<ul>
+  <li><a href="../developer/sanshain-yaml.html">sanshain.yaml</a>: the file every client reads.</li>
+  <li>
+    <a href="../developer/ci-integration.html">CI integration</a>: tokens, stability and streams
+    from the pipeline.
+  </li>
+  <li>
+    <a href="../developer/api-lifecycle.html">API lifecycle</a>: versions, deprecation, retirement.
+  </li>
+  <li>
+    <a href="../operator/authentication.html">Authentication</a> and
+    <a href="../operator/roles.html">Roles and permissions</a>: who may log in and what they may do.
+  </li>
+</ul>
+
+<p class="checked">Checked against v2.6.0.</p>

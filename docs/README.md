@@ -1,52 +1,19 @@
 # Sanshain Service — Documentation
 
-Detailed guides for users, administrators, and developers.
+The user documentation is the site: **https://paxel.github.io/sanshain-service/** (Start,
+Developer, Operator and Reference tracks; source under `site/`, built with `just site`).
 
-### TL;DR
-- **New Users**: Start with [**Getting Started**](https://paxel.github.io/sanshain-service/start/getting-started.html).
-- **Producers**: Learn how to [**Provide Specs**](https://paxel.github.io/sanshain-service/start/getting-started.html#the-first-provide-by-hand).
-- **Consumers**: Learn how to [**Require Endpoints**](https://paxel.github.io/sanshain-service/start/getting-started.html#the-first-require-by-hand).
-- **Automation**: Use [**CI Integration**](https://paxel.github.io/sanshain-service/developer/ci-integration.html) and [**`sanshain.yaml`**](https://paxel.github.io/sanshain-service/developer/sanshain-yaml.html).
+What remains in `docs/` is not for the site:
 
----
+- [`adr/`](adr/) — architecture decision records, one file per decision, numbered.
+- [`arc42/`](arc42/) and [`architecture.yaml`](architecture.yaml) — the arc42 model and its
+  whiteboxed export; the site's Architecture page is generated from them.
+- [`agents/`](agents/) — instructions for coding agents: the issue tracker, triage labels, the
+  domain docs layout.
+- [`ai/`](ai/) — the longer-term roadmap (`plan.md`) and the client 2.2 rollout notes.
+- [`ai-migration.md`](ai-migration.md) — using an AI assistant to migrate a service to Sanshain.
+- [`developer-guide.md`](developer-guide.md) — service internals for contributors and auditors.
+- [`reports/demo.md`](reports/demo.md) — a sample dependency report.
 
-## Guide Index
-
-### Fundamentals
-- [**Getting Started**](https://paxel.github.io/sanshain-service/start/getting-started.html) — Installation, first launch, and initial setup.
-- [**User Guide**](https://paxel.github.io/sanshain-service/developer/web-ui.html) — Day-to-day usage: providing and requiring APIs.
-- [**Client Ecosystem**](https://paxel.github.io/sanshain-service/developer/clients.html) — Detailed guide for Maven, Cargo, Go, JS, and Conan.
-- [**API Lifecycle**](https://paxel.github.io/sanshain-service/developer/api-lifecycle.html) — Handling breaking changes and versioning.
-- [**API Usage**](api-usage.md) — Authentication and detailed endpoint reference.
-- [**Troubleshooting**](https://paxel.github.io/sanshain-service/operator/troubleshooting.html) — Every error message, with cause and fix.
-- [**Corporate Best Practices**](corporate-best-practices.md) — Recommendations for enterprise usage and [Maven-specific patterns](../../SanshainMaven/docs/corporate-usage.md).
-
-### Integration & Configuration
-- [**CI Integration**](https://paxel.github.io/sanshain-service/developer/ci-integration.html) — Automating contract validation in pipelines.
-- [**`sanshain.yaml`**](https://paxel.github.io/sanshain-service/developer/sanshain-yaml.html) — Standard client configuration format.
-- [**AI Migration**](ai-migration.md) — Using AI to migrate existing services to Sanshain.
-- [**MCP**](https://paxel.github.io/sanshain-service/developer/mcp.html) — Letting AI assistants query the catalog over the Model Context Protocol: token setup, client configuration, the seven tools, limits.
-
-### Administration & Operations
-- [**Operator track**](https://paxel.github.io/sanshain-service/operator/index.html) — Deployment, configuration, authentication, roles, administration, webhooks, backup, observability.
-- [**Configuration**](https://paxel.github.io/sanshain-service/operator/configuration.html) — Environment variables and system settings.
-- [**Benchmarking**](benchmarking.md) — Performance results and how to run benchmarks.
-
-### For Contributors
-- [**Developer Guide**](developer-guide.md) — Internal architecture, splitting logic, and contributing.
-
----
-
-## Client Ecosystem
-Integrate Sanshain directly into your build tools:
-- [**Maven Plugin**](https://github.com/paxel/sanshain-maven-plugin)
-- [**Gradle Plugin**](https://github.com/paxel/sanshain-gradle-plugin)
-- [**Cargo Plugin**](https://github.com/paxel/sanshain-cargo-plugin)
-- [**CLI**](https://github.com/paxel/sanshain-cli)
-
-## API contracts
-
-- **`api.yaml`** — the contract Producers and Consumers speak: providing specifications and requiring
-  endpoint snippets. This is what build plugins and CLIs are written against.
-- **`maintenance.yaml`** — the `/admin/*` administrative surface, including the permission each
-  endpoint requires. See [Roles and permissions](https://paxel.github.io/sanshain-service/operator/roles.html).
+The two API contracts are at the repository root: `api.yaml` (Producers and Consumers) and
+`maintenance.yaml` (the `/admin/*` surface).

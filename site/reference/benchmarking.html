@@ -1,0 +1,145 @@
+<!-- page: title="Benchmarking" track="reference" order=6 summary="The Criterion micro-benchmarks of the spec-processing hot path: how to run them, what each one measures, the last measured results, and how to compare before and after a change." -->
+<p class="lede">
+  The parts of the service that run on every
+  <a href="../start/glossary.html#provide">provide</a> and
+  <a href="../start/glossary.html#require">require</a>, splitting a spec, merging
+  <a href="../start/glossary.html#snippet">snippets</a> into a
+  <a href="../start/glossary.html#bundle">bundle</a>, checking compatibility, are micro-benchmarked
+  with <a href="https://github.com/bheisler/criterion.rs">Criterion.rs</a>. This page is for a
+  contributor touching that code; an operator sizing an instance needs the
+  <a href="../operator/deployment.html#scaling">Scaling</a> section instead.
+</p>
+
+<h2>Running the benchmarks</h2>
+<pre><code class="language-bash">cargo bench</code></pre>
+<p>
+  This compiles the project in release mode and runs every benchmark in
+  <code>benches/openapi_bench.rs</code>. Criterion prints the statistics to the terminal and writes
+  an HTML report to <code>target/criterion/report/index.html</code>. One bench binary exists, so
+  <code>cargo bench --bench openapi_bench</code> is the same run by name.
+</p>
+
+<h2>What is measured</h2>
+<p>
+  The OpenAPI benchmarks take the service's own <code>api.yaml</code> as their input, so the size of
+  the document grows with the contract; the AsyncAPI and proto benchmarks use small inline fixtures.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Benchmark</th>
+      <th>Function</th>
+      <th>Input</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>split_openapi</code></td>
+      <td>Splitting an OpenAPI document into one snippet per endpoint.</td>
+      <td><code>api.yaml</code></td>
+    </tr>
+    <tr>
+      <td><code>merge_endpoint_yamls</code></td>
+      <td>
+        Merging endpoint snippets back into one document with shared components, what a bundle
+        require answers.
+      </td>
+      <td>The snippets of <code>api.yaml</code></td>
+    </tr>
+    <tr>
+      <td><code>split_asyncapi</code></td>
+      <td>Splitting an AsyncAPI document into one snippet per channel.</td>
+      <td>Inline fixture</td>
+    </tr>
+    <tr>
+      <td><code>split_proto</code></td>
+      <td>Splitting a proto file into one snippet per method.</td>
+      <td>Inline fixture</td>
+    </tr>
+    <tr>
+      <td><code>normalize_path</code></td>
+      <td>
+        Normalising four endpoint paths (collapsing slashes, unifying path variables), the step that
+        makes <code>sanshain.yaml</code> paths match the spec.
+      </td>
+      <td>Four inline paths</td>
+    </tr>
+    <tr>
+      <td><code>generate_diff</code></td>
+      <td>A unified diff between two endpoint snippets, what the spec viewer shows.</td>
+      <td>Two snippets of <code>api.yaml</code></td>
+    </tr>
+    <tr>
+      <td><code>check_backward_compatibility</code></td>
+      <td>
+        The compatibility check between two OpenAPI documents that decides whether a GA needs a
+        major bump.
+      </td>
+      <td><code>api.yaml</code> against itself</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Last measured results</h2>
+<p>
+  Measured on 24 June 2026 against version 1.4.0 of the service on a developer laptop. The seven
+  benchmarks still exist in 2.6.0 (verified on 18 October 2026; the bench file changed once since
+  1.4.0, for its error handling, not for what it measures), but the numbers were not re-measured and
+  <code>api.yaml</code> has grown since, so treat them as an order of magnitude: the whole
+  spec-processing path stays below a millisecond.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Benchmark</th>
+      <th>Time</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>split_openapi</code></td>
+      <td>~900 µs</td>
+    </tr>
+    <tr>
+      <td><code>merge_endpoint_yamls</code></td>
+      <td>~850 µs</td>
+    </tr>
+    <tr>
+      <td><code>split_asyncapi</code></td>
+      <td>~119 µs</td>
+    </tr>
+    <tr>
+      <td><code>split_proto</code></td>
+      <td>~8 µs</td>
+    </tr>
+    <tr>
+      <td><code>normalize_path</code></td>
+      <td>~2.5 µs</td>
+    </tr>
+    <tr>
+      <td><code>generate_diff</code></td>
+      <td>~22 µs</td>
+    </tr>
+    <tr>
+      <td><code>check_backward_compatibility</code></td>
+      <td>~913 µs</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  Sub-millisecond processing means the version rules and the compatibility check never dominate a
+  provide; the round trip to the database and the network do.
+</p>
+
+<h2>Comparing before and after a change</h2>
+<p>
+  Run the benchmarks once before touching the code, so Criterion stores a baseline, and again after.
+  The second run reports the change of every benchmark against the stored baseline as a percentage
+  with its confidence interval, and names it an improvement or a regression when the difference is
+  significant.
+</p>
+<pre><code class="language-bash">cargo bench --bench openapi_bench   # baseline
+# … change the code …
+cargo bench --bench openapi_bench   # compared against the baseline</code></pre>
+
+<p class="checked">Checked against v2.6.0.</p>

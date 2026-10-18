@@ -954,11 +954,11 @@ changed. Refactor-only: full Rust suite green before and after, clippy `-D warni
 
 - `tests/`
 - `src/presentation/handlers.rs`
-- `docs/api-usage.md`
+- `site/reference/api-usage.html`
 
 **Implementation instructions:**
 
-1. Build a test matrix from `docs/api-usage.md`.
+1. Build a test matrix from `site/reference/api-usage.html`.
 2. Cover auth required/forbidden/success cases for each protected group.
 3. Include negative tests for invalid API type, missing service/branch/path, invalid YAML, stale `base_version`, and protected-branch breaking change.
 4. Use real auth/session/token paths in tests; do not add production bypasses.

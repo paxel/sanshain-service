@@ -1,4 +1,4 @@
-//! The seven tools the MCP server offers (docs/mcp.md). Their names,
+//! The seven tools the MCP server offers (https://paxel.github.io/sanshain-service/developer/mcp.html). Their names,
 //! parameters and JSON schemas are the contract AI clients are written
 //! against; the answers are compact JSON carrying the scope they were
 //! computed for, and only catalog data.

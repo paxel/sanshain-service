@@ -27,7 +27,7 @@ itest:
 ui-test:
     npx playwright test tests/ui/smoke.test.js tests/ui/no_console_errors.test.js tests/ui/de_inlined.test.js
 
-# Regenerate the README/docs screenshots (docs/images/*.png). Builds a release
+# Regenerate the README/docs screenshots (site/assets/images/*.png). Builds a release
 # binary, seeds demo data, drives Playwright against a real instance, and
 # overwrites the images in place — nothing else is touched.
 screenshots:

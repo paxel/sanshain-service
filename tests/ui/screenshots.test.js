@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import path from "path";
 
 test.describe("Sanshain Screenshot Capture", () => {
-  const screenshotDir = "docs/images";
+  const screenshotDir = "site/assets/images";
   const token = process.env.SANSHAIN_TOKEN;
 
   test.beforeEach(async ({ page, context }, testInfo) => {

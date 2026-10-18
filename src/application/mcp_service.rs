@@ -1,4 +1,4 @@
-//! The catalog answers an AI client gets over MCP (docs/mcp.md): services,
+//! The catalog answers an AI client gets over MCP (https://paxel.github.io/sanshain-service/developer/mcp.html): services,
 //! one service in depth, endpoint search, stored documents, the graph, diffs
 //! and blame. Only catalog data — never users, roles, settings, auth
 //! configuration, audit or observability data.

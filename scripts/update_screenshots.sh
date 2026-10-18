@@ -9,7 +9,7 @@ PORT=3000
 echo "Starting Sanshain Service Release Screenshot Capture..."
 
 # Ensure directories exist
-mkdir -p docs/images
+mkdir -p site/assets/images
 mkdir -p test-results
 
 # Cleanup old database and stale processes. `pkill` truncates comm names to 15
@@ -103,10 +103,10 @@ curl -s -X POST http://localhost:$PORT/admin/producers/metadata \
 
 echo "Running Playwright screenshot tests..."
 # Ensure screenshots directory exists
-mkdir -p docs/images
+mkdir -p site/assets/images
 
 # Run the screenshot test
 # We pass the token via env var
 INITIAL_ADMIN_PASSWORD=$INITIAL_ADMIN_PASSWORD SANSHAIN_TOKEN=$TOKEN npx playwright test tests/ui/screenshots.test.js --project=chromium
 
-echo "Screenshots updated successfully in docs/images/"
+echo "Screenshots updated successfully in site/assets/images/"

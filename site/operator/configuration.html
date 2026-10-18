@@ -144,6 +144,75 @@
       <td>The collector the traces go to.</td>
     </tr>
     <tr>
+      <td><code>OTEL_EXPORTER_OTLP_HEADERS</code></td>
+      <td>unset</td>
+      <td>
+        Read by the OpenTelemetry SDK, not by the service. Headers sent with every export,
+        <code>key=value,…</code> (an auth token for the collector, for example).
+      </td>
+    </tr>
+    <tr>
+      <td><code>OTEL_EXPORTER_OTLP_COMPRESSION</code></td>
+      <td>unset</td>
+      <td>
+        Read by the OpenTelemetry SDK, not by the service. <code>gzip</code> or
+        <code>zstd</code> compresses the export.
+      </td>
+    </tr>
+    <tr>
+      <td><code>OTEL_EXPORTER_OTLP_TIMEOUT</code></td>
+      <td><code>10000</code></td>
+      <td>Read by the OpenTelemetry SDK, not by the service. Export timeout in milliseconds.</td>
+    </tr>
+    <tr>
+      <td><code>OTEL_EXPORTER_OTLP_PROTOCOL</code></td>
+      <td><code>grpc</code></td>
+      <td>
+        Read by the OpenTelemetry SDK, not by the service. The exporter is built for gRPC; another
+        value is ignored by this build.
+      </td>
+    </tr>
+    <tr>
+      <td><code>OTEL_EXPORTER_OTLP_TRACES_ENDPOINT</code></td>
+      <td>unset</td>
+      <td>
+        Read by the OpenTelemetry SDK, not by the service. Trace-specific endpoint, overrides
+        <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>OTEL_EXPORTER_OTLP_TRACES_HEADERS</code></td>
+      <td>unset</td>
+      <td>
+        Read by the OpenTelemetry SDK, not by the service. Trace-specific headers, override
+        <code>OTEL_EXPORTER_OTLP_HEADERS</code>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>OTEL_EXPORTER_OTLP_TRACES_COMPRESSION</code></td>
+      <td>unset</td>
+      <td>
+        Read by the OpenTelemetry SDK, not by the service. Trace-specific compression, overrides
+        <code>OTEL_EXPORTER_OTLP_COMPRESSION</code>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>OTEL_EXPORTER_OTLP_TRACES_TIMEOUT</code></td>
+      <td>unset</td>
+      <td>
+        Read by the OpenTelemetry SDK, not by the service. Trace-specific timeout, overrides
+        <code>OTEL_EXPORTER_OTLP_TIMEOUT</code>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>OTEL_EXPORTER_OTLP_TRACES_PROTOCOL</code></td>
+      <td>unset</td>
+      <td>
+        Read by the OpenTelemetry SDK, not by the service. Trace-specific protocol, overrides
+        <code>OTEL_EXPORTER_OTLP_PROTOCOL</code>.
+      </td>
+    </tr>
+    <tr>
       <td><code>STATIC_DIR</code></td>
       <td><code>static</code></td>
       <td>Directory of the web UI's files, served as the fallback route.</td>
