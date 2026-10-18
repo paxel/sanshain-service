@@ -1,67 +1,114 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="956" height="899" viewBox="-12.0 -12.0 955.6 899.0">
-<rect x="-12.0" y="-12.0" width="955.6" height="899.0" fill="#ffffff"/>
-<rect x="370.0" y="300.0" width="150.0" height="120.0" rx="4.0" fill="#ffffff" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
-<text x="445.0" y="358.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Sanshain Service</text>
-<text x="445.0" y="375.9" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«component»</text>
-<rect x="498.0" y="402.0" width="14.0" height="10.0" rx="1.0" fill="none" stroke="#666666" stroke-width="1" stroke-linejoin="round"/>
-<rect x="501.0" y="405.0" width="4.0" height="4.0" rx="0.0" fill="#666666"/>
-<rect x="370.0" y="110.0" width="150.0" height="80.0" rx="40.0" fill="#e6e6e6" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
-<circle cx="396.0" cy="141.0" r="6.0" fill="none" stroke="#222222" stroke-width="1.2" stroke-linejoin="round"/>
-<polyline points="385.0,161.0 385.1,159.7 385.4,158.4 385.8,157.2 386.5,156.0 387.3,154.9 388.2,153.9 389.3,153.1 390.5,152.3 391.8,151.8 393.2,151.3 394.6,151.1 396.0,151.0 397.4,151.1 398.8,151.3 400.2,151.8 401.5,152.3 402.7,153.1 403.8,153.9 404.7,154.9 405.5,156.0 406.2,157.2 406.6,158.4 406.9,159.7 407.0,161.0" fill="none" stroke="#222222" stroke-width="1.2" stroke-linejoin="round"/>
-<text x="445.0" y="148.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">User</text>
-<text x="445.0" y="165.9" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«person»</text>
-<rect x="110.0" y="320.0" width="150.0" height="80.0" rx="0.0" fill="#e6e6e6" stroke="#222222" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
-<text x="185.0" y="358.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Build Tooling</text>
-<text x="185.0" y="375.9" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«external system»</text>
-<rect x="630.0" y="320.0" width="191.6" height="80.0" rx="0.0" fill="#e6e6e6" stroke="#222222" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
-<text x="725.8" y="358.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">LDAP / Active Directory</text>
-<text x="725.8" y="375.9" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«external system»</text>
-<rect x="650.8" y="110.0" width="150.0" height="80.0" rx="0.0" fill="#e6e6e6" stroke="#222222" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
-<text x="725.8" y="148.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">OIDC Provider</text>
-<text x="725.8" y="165.9" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«external system»</text>
-<polygon points="370.0,540.0 370.0,600.0 370.6,601.3 372.6,602.6 375.7,603.8 380.0,605.0 385.5,606.1 392.0,607.1 399.3,607.9 407.5,608.7 416.3,609.2 425.6,609.7 435.2,609.9 445.0,610.0 454.8,609.9 464.4,609.7 473.7,609.2 482.5,608.7 490.7,607.9 498.0,607.1 504.5,606.1 510.0,605.0 514.3,603.8 517.4,602.6 519.4,601.3 520.0,600.0 520.0,540.0 520.0,540.0 519.4,538.7 517.4,537.4 514.3,536.2 510.0,535.0 504.5,533.9 498.0,532.9 490.7,532.1 482.5,531.3 473.7,530.8 464.4,530.3 454.8,530.1 445.0,530.0 435.2,530.1 425.6,530.3 416.3,530.8 407.5,531.3 399.3,532.1 392.0,532.9 385.5,533.9 380.0,535.0 375.7,536.2 372.6,537.4 370.6,538.7 370.0,540.0" fill="#ffffff" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
-<polyline points="520.0,540.0 517.4,542.6 510.0,545.0 498.0,547.1 482.5,548.7 464.4,549.7 445.0,550.0 425.6,549.7 407.5,548.7 392.0,547.1 380.0,545.0 372.6,542.6 370.0,540.0 372.6,537.4 380.0,535.0 392.0,532.9 407.5,531.3 425.6,530.3 445.0,530.0 464.4,530.3 482.5,531.3 498.0,532.9 510.0,535.0 517.4,537.4 520.0,540.0 520.0,540.0" fill="none" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
-<text x="445.0" y="568.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Database Server</text>
-<text x="445.0" y="585.8" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«database»</text>
-<rect x="644.3" y="530.0" width="163.0" height="80.0" rx="0.0" fill="#e6e6e6" stroke="#222222" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
-<text x="725.8" y="568.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Observability Stack</text>
-<text x="725.8" y="585.8" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«external system»</text>
-<polyline points="445.0,300.0 445.0,190.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
-<polygon points="445.0,300.0 440.0,289.0 450.0,289.0" fill="#444b55"/>
-<polyline points="370.0,360.0 260.0,360.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
-<polygon points="370.0,360.0 359.0,365.0 359.0,355.0" fill="#444b55"/>
-<polyline points="520.0,360.0 630.0,360.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
-<polygon points="630.0,360.0 619.0,365.0 619.0,355.0" fill="#444b55"/>
-<polyline points="520.0,320.0 563.0,320.0 565.3,319.9 567.3,319.5 569.1,318.9 570.7,318.1 572.0,317.0 573.1,315.7 573.9,314.1 574.5,312.3 574.9,310.3 575.0,308.0 575.0,182.0 575.1,179.7 575.5,177.7 576.1,175.9 576.9,174.3 578.0,173.0 579.3,171.9 580.9,171.1 582.7,170.5 584.7,170.1 587.0,170.0 650.8,170.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
-<polygon points="650.8,170.0 639.8,175.0 639.8,165.0" fill="#444b55"/>
-<polyline points="445.0,420.0 445.0,530.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
-<polygon points="445.0,530.0 440.0,519.0 450.0,519.0" fill="#444b55"/>
-<polyline points="500.0,420.0 500.0,463.0 500.1,465.3 500.5,467.3 501.1,469.1 501.9,470.7 503.0,472.0 504.3,473.1 505.9,473.9 507.7,474.5 509.7,474.9 512.0,475.0 652.3,475.0 654.6,475.1 656.6,475.5 658.4,476.1 660.0,476.9 661.3,478.0 662.4,479.3 663.2,480.9 663.8,482.7 664.2,484.7 664.3,487.0 664.3,530.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
-<polygon points="500.0,420.0 505.0,431.0 495.0,431.0" fill="#444b55"/>
-<polygon points="664.3,530.0 659.3,519.0 669.3,519.0" fill="#444b55"/>
-<rect x="450.0" y="237.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
-<text x="453.0" y="249.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[1]</text>
-<rect x="304.9" y="341.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
-<text x="307.9" y="353.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[2]</text>
-<rect x="564.9" y="341.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
-<text x="567.9" y="353.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[3]</text>
-<rect x="602.8" y="151.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
-<text x="605.8" y="163.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[4]</text>
-<rect x="450.0" y="467.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
-<text x="453.0" y="479.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[5]</text>
-<rect x="572.0" y="456.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
-<text x="575.0" y="468.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[6]</text>
-<text x="18.0" y="750.7" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#666666">Legend</text>
-<text x="18.0" y="776.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[1]</text>
-<text x="44.2" y="776.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">web dashboard, graph, admin (HTTPS)</text>
-<text x="18.0" y="793.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[2]</text>
-<text x="44.2" y="793.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">provide / require / report (REST, API token)</text>
-<text x="18.0" y="810.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[3]</text>
-<text x="44.2" y="810.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">bind + group lookup (LDAP/LDAPS)</text>
-<text x="18.0" y="827.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[4]</text>
-<text x="44.2" y="827.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">authorization code flow (HTTPS)</text>
-<text x="18.0" y="844.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[5]</text>
-<text x="44.2" y="844.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">SQL (SQLite file or PostgreSQL)</text>
-<text x="18.0" y="861.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[6]</text>
-<text x="44.2" y="861.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">OTLP traces (gRPC) / Prometheus scrape /metrics</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1272" height="1144" viewBox="-12.0 -12.0 1272.4 1144.0">
+<rect x="-12.0" y="-12.0" width="1272.4" height="1144.0" fill="#ffffff"/>
+<rect x="380.0" y="348.0" width="160.0" height="160.0" rx="4.0" fill="#ffffff" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="460.0" y="426.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Sanshain Service</text>
+<text x="460.0" y="443.9" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«component»</text>
+<rect x="518.0" y="490.0" width="14.0" height="10.0" rx="1.0" fill="none" stroke="#666666" stroke-width="1" stroke-linejoin="round"/>
+<rect x="521.0" y="493.0" width="4.0" height="4.0" rx="0.0" fill="#666666"/>
+<rect x="385.0" y="129.0" width="150.0" height="80.0" rx="40.0" fill="#e6e6e6" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<circle cx="411.0" cy="160.0" r="6.0" fill="none" stroke="#222222" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="400.0,180.0 400.1,178.7 400.4,177.4 400.8,176.2 401.5,175.0 402.3,173.9 403.2,172.9 404.3,172.1 405.5,171.3 406.8,170.8 408.2,170.3 409.6,170.1 411.0,170.0 412.4,170.1 413.8,170.3 415.2,170.8 416.5,171.3 417.7,172.1 418.8,172.9 419.7,173.9 420.5,175.0 421.2,176.2 421.6,177.4 421.9,178.7 422.0,180.0" fill="none" stroke="#222222" stroke-width="1.2" stroke-linejoin="round"/>
+<text x="460.0" y="167.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">User</text>
+<text x="460.0" y="184.9" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«person»</text>
+<rect x="110.0" y="369.0" width="150.0" height="118.0" rx="0.0" fill="#e6e6e6" stroke="#222222" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<svg x="159.1" y="378.0" width="51.7" height="32.0" viewBox="4.8 6.8 45.89 28.4" preserveAspectRatio="xMidYMid meet"><circle cx="19" cy="21" r="9" fill="#e2e8f0" stroke="#334155" stroke-width="2"></circle><circle cx="19" cy="21" r="3.5" fill="#ffffff" stroke="#334155" stroke-width="2"></circle><path d="M19 8 V12 M19 30 V34 M6 21 H10 M28 21 H32 M9.8 11.8 L12.6 14.6 M25.4 27.4 L28.2 30.2 M9.8 30.2 L12.6 27.4 M25.4 14.6 L28.2 11.8" stroke="#334155" stroke-width="2.4" stroke-linecap="round"></path><path d="M33 33 L44 22 M42 18 a4 4 0 1 1 2 6" fill="none" stroke="#334155" stroke-width="2.4" stroke-linecap="round"></path></svg>
+<text x="185.0" y="449.8" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Build Tooling</text>
+<text x="185.0" y="467.4" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«external system»</text>
+<rect x="669.6" y="369.0" width="191.6" height="118.0" rx="0.0" fill="#e6e6e6" stroke="#222222" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<svg x="745.3" y="378.0" width="40.2" height="32.0" viewBox="2 2 44 35" preserveAspectRatio="xMidYMid meet"><rect x="18" y="3" width="12" height="9" rx="2" fill="#e2e8f0" stroke="#334155" stroke-width="2"></rect><rect x="3" y="27" width="12" height="9" rx="2" fill="#ffffff" stroke="#334155" stroke-width="2"></rect><rect x="18" y="27" width="12" height="9" rx="2" fill="#ffffff" stroke="#334155" stroke-width="2"></rect><rect x="33" y="27" width="12" height="9" rx="2" fill="#ffffff" stroke="#334155" stroke-width="2"></rect><path d="M24 12 V19 M9 27 V19 H39 V27 M24 19 V27" fill="none" stroke="#334155" stroke-width="2"></path></svg>
+<text x="765.4" y="449.8" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">LDAP / Active Directory</text>
+<text x="765.4" y="467.4" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«external system»</text>
+<rect x="690.4" y="110.0" width="150.0" height="118.0" rx="0.0" fill="#e6e6e6" stroke="#222222" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<svg x="749.4" y="119.0" width="32.0" height="32.0" viewBox="6 1 36 36" preserveAspectRatio="xMidYMid meet"><rect x="7" y="6" width="34" height="30" rx="3" fill="#ffffff" stroke="#334155" stroke-width="2"></rect><path d="M19 6 V2 H29 V6" fill="none" stroke="#334155" stroke-width="2"></path><circle cx="17" cy="19" r="4.5" fill="#e2e8f0" stroke="#334155" stroke-width="2"></circle><path d="M10 31 a7 7 0 0 1 14 0" fill="#e2e8f0" stroke="#334155" stroke-width="2"></path><path d="M27 17 H36 M27 23 H36 M27 29 H33" stroke="#334155" stroke-width="2" stroke-linecap="round"></path></svg>
+<text x="765.4" y="190.8" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">OIDC Provider</text>
+<text x="765.4" y="208.4" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«external system»</text>
+<polygon points="385.0,628.0 385.0,726.0 385.6,727.3 387.6,728.6 390.7,729.8 395.0,731.0 400.5,732.1 407.0,733.1 414.3,733.9 422.5,734.7 431.3,735.2 440.6,735.7 450.2,735.9 460.0,736.0 469.8,735.9 479.4,735.7 488.7,735.2 497.5,734.7 505.7,733.9 513.0,733.1 519.5,732.1 525.0,731.0 529.3,729.8 532.4,728.6 534.4,727.3 535.0,726.0 535.0,628.0 535.0,628.0 534.4,626.7 532.4,625.4 529.3,624.2 525.0,623.0 519.5,621.9 513.0,620.9 505.7,620.1 497.5,619.3 488.7,618.8 479.4,618.3 469.8,618.1 460.0,618.0 450.2,618.1 440.6,618.3 431.3,618.8 422.5,619.3 414.3,620.1 407.0,620.9 400.5,621.9 395.0,623.0 390.7,624.2 387.6,625.4 385.6,626.7 385.0,628.0" fill="#ffffff" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<polyline points="535.0,628.0 532.4,630.6 525.0,633.0 513.0,635.1 497.5,636.7 479.4,637.7 460.0,638.0 440.6,637.7 422.5,636.7 407.0,635.1 395.0,633.0 387.6,630.6 385.0,628.0 387.6,625.4 395.0,623.0 407.0,620.9 422.5,619.3 440.6,618.3 460.0,618.0 479.4,618.3 497.5,619.3 513.0,620.9 525.0,623.0 532.4,625.4 535.0,628.0 535.0,628.0" fill="none" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<svg x="440.8" y="627.0" width="38.4" height="32.0" viewBox="4 3.5 42 35" preserveAspectRatio="xMidYMid meet"><ellipse cx="17" cy="9" rx="12" ry="4.5" fill="#e2e8f0" stroke="#334155" stroke-width="2"></ellipse><path d="M5 9 V31 a12 4.5 0 0 0 24 0 V9" fill="#ffffff" stroke="#334155" stroke-width="2"></path><path d="M5 20 a12 4.5 0 0 0 24 0" fill="none" stroke="#334155" stroke-width="2"></path><ellipse cx="36" cy="16" rx="9" ry="3.5" fill="#e2e8f0" stroke="#334155" stroke-width="2"></ellipse><path d="M27 16 V34 a9 3.5 0 0 0 18 0 V16" fill="#ffffff" stroke="#334155" stroke-width="2"></path></svg>
+<text x="460.0" y="698.8" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Database Server</text>
+<text x="460.0" y="716.3" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«database»</text>
+<rect x="683.9" y="618.0" width="163.0" height="118.0" rx="0.0" fill="#e6e6e6" stroke="#222222" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<svg x="737.4" y="627.0" width="56.0" height="32.0" viewBox="3 13 42 24" preserveAspectRatio="xMidYMid meet"><path d="M4 34 A20 20 0 0 1 44 34" fill="#ffffff" stroke="#334155" stroke-width="2"></path><path d="M4 34 H44" stroke="#334155" stroke-width="2"></path><path d="M10 25 L13 27 M24 14 V18 M38 25 L35 27" stroke="#334155" stroke-width="2" stroke-linecap="round"></path><path d="M24 34 L35 19" stroke="#b91c1c" stroke-width="2.4" stroke-linecap="round"></path><circle cx="24" cy="34" r="3" fill="#334155"></circle></svg>
+<text x="765.4" y="698.8" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Observability Stack</text>
+<text x="765.4" y="716.3" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«external system»</text>
+<rect x="971.2" y="110.0" width="167.2" height="118.0" rx="0.0" fill="#e6e6e6" stroke="#222222" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<svg x="1032.8" y="119.0" width="44.0" height="32.0" viewBox="2 5 44 32" preserveAspectRatio="xMidYMid meet"><path d="M6 6 H42 a3 3 0 0 1 3 3 V26 a3 3 0 0 1 -3 3 H20 L11 36 V29 H6 a3 3 0 0 1 -3 -3 V9 a3 3 0 0 1 3 -3 Z" fill="#ffffff" stroke="#334155" stroke-width="2" stroke-linejoin="round"></path><circle cx="15" cy="17.5" r="2.5" fill="#334155"></circle><circle cx="24" cy="17.5" r="2.5" fill="#334155"></circle><circle cx="33" cy="17.5" r="2.5" fill="#334155"></circle></svg>
+<text x="1054.8" y="190.8" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Webhook Receivers</text>
+<text x="1054.8" y="208.4" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«external system»</text>
+<rect x="110.0" y="110.0" width="150.0" height="118.0" rx="0.0" fill="#e6e6e6" stroke="#222222" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<svg x="166.1" y="119.0" width="37.9" height="32.0" viewBox="3 1.5 42 35.5" preserveAspectRatio="xMidYMid meet"><rect x="8" y="12" width="32" height="24" rx="5" fill="#ffffff" stroke="#334155" stroke-width="2"></rect><path d="M24 12 V6" stroke="#334155" stroke-width="2"></path><circle cx="24" cy="4" r="2.5" fill="#334155"></circle><rect x="14" y="19" width="7" height="6" rx="1.5" fill="#334155"></rect><rect x="27" y="19" width="7" height="6" rx="1.5" fill="#334155"></rect><path d="M17 30 H31" stroke="#334155" stroke-width="2" stroke-linecap="round"></path><path d="M3 20 H8 M40 20 H45" stroke="#334155" stroke-width="2"></path></svg>
+<text x="185.0" y="190.8" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">AI Client</text>
+<text x="185.0" y="208.4" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«external system»</text>
+<rect x="110.0" y="618.0" width="150.0" height="118.0" rx="0.0" fill="#e6e6e6" stroke="#222222" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<svg x="162.0" y="627.0" width="46.0" height="32.0" viewBox="1 7 46 32" preserveAspectRatio="xMidYMid meet"><path d="M4 14 H30 V36 H4 Z" fill="#ffffff" stroke="#334155" stroke-width="2" stroke-linejoin="round"></path><path d="M2 8 H32 V14 H2 Z" fill="#e2e8f0" stroke="#334155" stroke-width="2" stroke-linejoin="round"></path><path d="M13 21 H21" stroke="#334155" stroke-width="2" stroke-linecap="round"></path><circle cx="37" cy="29" r="9" fill="#ffffff" stroke="#334155" stroke-width="2"></circle><path d="M37 23 V29 L41 31" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="round"></path></svg>
+<text x="185.0" y="698.8" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Backup Job</text>
+<text x="185.0" y="716.3" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«external system»</text>
+<polygon points="420.0,348.0 415.0,337.0 425.0,337.0" fill="#444b55"/>
+<polyline points="420.0,348.0 420.0,209.0" fill="none" stroke="#444b55" stroke-width="2" stroke-linejoin="round"/>
+<polygon points="380.0,428.0 369.0,433.0 369.0,423.0" fill="#444b55"/>
+<polyline points="380.0,428.0 260.0,428.0" fill="none" stroke="#444b55" stroke-width="2" stroke-linejoin="round"/>
+<svg x="636.6" y="422.0" width="33.0" height="12.0" viewBox="0.2 1.2 26.7 9.7" preserveAspectRatio="xMidYMid meet" color="#444b55"><circle cx="5" cy="6" r="4" fill="none" stroke="currentColor" stroke-width="1.6"></circle><circle cx="5" cy="6" r="1.2" fill="currentColor"></circle><path d="M9 6 H26 M20 6 V10 M23.5 6 V9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>
+<polyline points="540.0,428.0 636.6,428.0" fill="none" stroke="#444b55" stroke-width="1" stroke-linejoin="round"/>
+<svg x="657.3" y="163.0" width="33.0" height="12.0" viewBox="0.2 1.2 26.7 9.7" preserveAspectRatio="xMidYMid meet" color="#444b55"><circle cx="5" cy="6" r="4" fill="none" stroke="currentColor" stroke-width="1.6"></circle><circle cx="5" cy="6" r="1.2" fill="currentColor"></circle><path d="M9 6 H26 M20 6 V10 M23.5 6 V9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>
+<polyline points="460.0,348.0 460.0,280.0 460.1,277.7 460.5,275.7 461.1,273.9 461.9,272.3 463.0,271.0 464.3,269.9 465.9,269.1 467.7,268.5 469.7,268.1 472.0,268.0 592.8,268.0 595.1,267.9 597.1,267.5 598.9,266.9 600.5,266.1 601.8,265.0 602.9,263.7 603.7,262.1 604.3,260.3 604.7,258.3 604.8,256.0 604.8,181.0 604.9,178.7 605.3,176.7 605.9,174.9 606.7,173.3 607.8,172.0 609.1,170.9 610.7,170.1 612.5,169.5 614.5,169.1 616.8,169.0 657.3,169.0" fill="none" stroke="#444b55" stroke-width="1" stroke-linejoin="round"/>
+<polygon points="440.0,618.0 435.0,607.0 445.0,607.0" fill="#444b55"/>
+<polyline points="440.0,508.0 440.0,618.0" fill="none" stroke="#444b55" stroke-width="2" stroke-linejoin="round"/>
+<g transform="rotate(-90.00 480.0 518.0)"><svg x="470.0" y="512.0" width="20.0" height="12.0" viewBox="1.1 3.1 15.8 9.5" preserveAspectRatio="xMidYMid meet" color="#444b55"><path d="M2 11 A7 7 0 0 1 16 11" fill="none" stroke="currentColor" stroke-width="1.8"></path><path d="M9 11 L13 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><circle cx="9" cy="11" r="1.6" fill="currentColor"></circle></svg></g>
+<g transform="rotate(90.00 703.9 608.0)"><svg x="693.9" y="602.0" width="20.0" height="12.0" viewBox="1.1 3.1 15.8 9.5" preserveAspectRatio="xMidYMid meet" color="#444b55"><path d="M2 11 A7 7 0 0 1 16 11" fill="none" stroke="currentColor" stroke-width="1.8"></path><path d="M9 11 L13 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><circle cx="9" cy="11" r="1.6" fill="currentColor"></circle></svg></g>
+<polyline points="480.0,528.0 480.0,551.0 480.1,553.3 480.5,555.3 481.1,557.1 481.9,558.7 483.0,560.0 484.3,561.1 485.9,561.9 487.7,562.5 489.7,562.9 492.0,563.0 691.9,563.0 694.2,563.1 696.2,563.5 698.0,564.1 699.6,564.9 700.9,566.0 702.0,567.3 702.8,568.9 703.4,570.7 703.8,572.7 703.9,575.0 703.9,598.0" fill="none" stroke="#444b55" stroke-width="1" stroke-linejoin="round" stroke-dasharray="1.5 3.5"/>
+<svg x="945.8" y="163.0" width="25.3" height="12.0" viewBox="0.2 1.2 26.6 12.6" preserveAspectRatio="xMidYMid meet" color="#444b55"><rect x="1" y="2" width="17" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"></rect><path d="M1 3 L9.5 9 L18 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path><path d="M18 7.5 H26 M22.5 4 L26 7.5 L22.5 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+<polyline points="500.0,348.0 500.0,320.0 500.1,317.7 500.5,315.7 501.1,313.9 501.9,312.3 503.0,311.0 504.3,309.9 505.9,309.1 507.7,308.5 509.7,308.1 512.0,308.0 904.2,308.0 906.4,307.9 908.5,307.5 910.3,306.9 911.8,306.1 913.2,305.0 914.2,303.7 915.1,302.1 915.7,300.3 916.0,298.3 916.2,296.0 916.2,181.0 916.3,178.7 916.6,176.7 917.2,174.9 918.1,173.3 919.2,172.0 920.5,170.9 922.0,170.1 923.8,169.5 925.9,169.1 928.2,169.0 945.8,169.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polygon points="380.0,388.0 369.0,393.0 369.0,383.0" fill="#444b55"/>
+<polyline points="380.0,388.0 312.0,388.0 309.7,387.9 307.7,387.5 305.9,386.9 304.3,386.1 303.0,385.0 301.9,383.7 301.1,382.1 300.5,380.3 300.1,378.3 300.0,376.0 300.0,220.0 299.9,217.7 299.5,215.7 298.9,213.9 298.1,212.3 297.0,211.0 295.7,209.9 294.1,209.1 292.3,208.5 290.3,208.1 288.0,208.0 260.0,208.0" fill="none" stroke="#444b55" stroke-width="2" stroke-linejoin="round"/>
+<svg x="347.0" y="462.0" width="33.0" height="12.0" viewBox="0.2 1.2 26.7 9.7" preserveAspectRatio="xMidYMid meet" color="#444b55"><circle cx="5" cy="6" r="4" fill="none" stroke="currentColor" stroke-width="1.6"></circle><circle cx="5" cy="6" r="1.2" fill="currentColor"></circle><path d="M9 6 H26 M20 6 V10 M23.5 6 V9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>
+<polyline points="347.0,468.0 343.5,468.0 342.8,468.0 342.2,468.1 341.7,468.3 341.3,468.6 340.9,468.9 340.6,469.3 340.3,469.7 340.1,470.2 340.0,470.8 340.0,471.5 340.0,626.0 339.9,628.3 339.5,630.3 338.9,632.1 338.1,633.7 337.0,635.0 335.7,636.1 334.1,636.9 332.3,637.5 330.3,637.9 328.0,638.0 260.0,638.0" fill="none" stroke="#444b55" stroke-width="1" stroke-linejoin="round"/>
+<rect x="425.0" y="270.5" width="62.6" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="428.0" y="282.7" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">dashboard</text>
+<rect x="303.6" y="409.0" width="32.9" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="306.6" y="421.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">REST</text>
+<rect x="590.0" y="409.0" width="29.7" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="593.0" y="421.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">bind</text>
+<rect x="502.8" y="249.0" width="59.2" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="505.8" y="261.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">auth code</text>
+<rect x="445.0" y="555.0" width="27.5" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="448.0" y="567.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">SQL</text>
+<rect x="552.1" y="544.0" width="79.6" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="555.1" y="556.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">OTLP / scrape</text>
+<rect x="677.7" y="289.0" width="60.7" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="680.7" y="301.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">webhooks</text>
+<rect x="324.6" y="369.0" width="30.8" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="327.6" y="381.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">MCP</text>
+<rect x="272.7" y="619.0" width="54.7" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="275.7" y="631.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">snapshot</text>
+<text x="18.0" y="876.7" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#666666">Legend</text>
+<text x="18.0" y="902.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">dashboard</text>
+<text x="103.6" y="902.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">web dashboard, graph, admin (HTTPS)</text>
+<text x="18.0" y="919.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">REST</text>
+<text x="103.6" y="919.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">provide / require / report (REST, API token)</text>
+<text x="18.0" y="936.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">bind</text>
+<text x="103.6" y="936.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">bind + group lookup (LDAP/LDAPS)</text>
+<text x="18.0" y="953.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">auth code</text>
+<text x="103.6" y="953.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">authorization code flow (HTTPS)</text>
+<text x="18.0" y="970.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">SQL</text>
+<text x="103.6" y="970.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">SQL (SQLite file or PostgreSQL)</text>
+<text x="18.0" y="987.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">OTLP / scrape</text>
+<text x="103.6" y="987.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">OTLP traces (gRPC) / Prometheus scrape /metrics</text>
+<text x="18.0" y="1004.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">webhooks</text>
+<text x="103.6" y="1004.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">signed event POSTs: JSON envelope or Slack/Teams message (HTTPS, HMAC-SHA256)</text>
+<text x="18.0" y="1021.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">MCP</text>
+<text x="103.6" y="1021.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">MCP tool calls with a read-only API token (Streamable HTTP)</text>
+<text x="18.0" y="1038.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">snapshot</text>
+<text x="103.6" y="1038.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">GET /admin/backup/sqlite with a full API token (HTTPS)</text>
+<svg x="33.0" y="1045.0" width="33.0" height="12.0" viewBox="0.2 1.2 26.7 9.7" preserveAspectRatio="xMidYMid meet" color="#444b55"><circle cx="5" cy="6" r="4" fill="none" stroke="currentColor" stroke-width="1.6"></circle><circle cx="5" cy="6" r="1.2" fill="currentColor"></circle><path d="M9 6 H26 M20 6 V10 M23.5 6 V9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>
+<polyline points="18.0,1051.0 33.0,1051.0" fill="none" stroke="#444b55" stroke-width="1" stroke-linejoin="round"/>
+<text x="78.0" y="1055.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">admin</text>
+<svg x="40.7" y="1062.0" width="25.3" height="12.0" viewBox="0.2 1.2 26.6 12.6" preserveAspectRatio="xMidYMid meet" color="#444b55"><rect x="1" y="2" width="17" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"></rect><path d="M1 3 L9.5 9 L18 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path><path d="M18 7.5 H26 M22.5 4 L26 7.5 L22.5 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+<polyline points="18.0,1068.0 40.7,1068.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="78.0" y="1072.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">async-outbound</text>
+<polygon points="66.0,1085.0 55.0,1090.0 55.0,1080.0" fill="#444b55"/>
+<polyline points="18.0,1085.0 66.0,1085.0" fill="none" stroke="#444b55" stroke-width="2" stroke-linejoin="round"/>
+<text x="78.0" y="1089.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">business</text>
+<svg x="46.0" y="1096.0" width="20.0" height="12.0" viewBox="1.1 3.1 15.8 9.5" preserveAspectRatio="xMidYMid meet" color="#444b55"><path d="M2 11 A7 7 0 0 1 16 11" fill="none" stroke="currentColor" stroke-width="1.8"></path><path d="M9 11 L13 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><circle cx="9" cy="11" r="1.6" fill="currentColor"></circle></svg>
+<polyline points="18.0,1102.0 46.0,1102.0" fill="none" stroke="#444b55" stroke-width="1" stroke-linejoin="round" stroke-dasharray="1.5 3.5"/>
+<text x="78.0" y="1106.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">telemetry</text>
 </svg>

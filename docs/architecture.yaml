@@ -1,5 +1,5 @@
 format: 1
-motivation: 'Sanshain sits between the build pipelines of many microservices: Build Tooling publishes specs as Producer and fetches pinned endpoint snippets as Consumer, while people use the web dashboard to inspect versions and the dependency graph. Human login can be delegated to LDAP/AD or an OIDC provider; machine clients always use API tokens. State lives in SQLite or PostgreSQL; traces and metrics go to an optional observability stack.'
+motivation: 'Sanshain sits between the build pipelines of many microservices: Build Tooling publishes specs and Backstage catalog files as Producer and fetches pinned endpoint snippets as Consumer, while people use the web dashboard to inspect versions and the dependency graph and AI clients ask the catalog over MCP. Human login can be delegated to LDAP/AD or an OIDC provider; machine clients always use API tokens, full or read-only. State lives in SQLite or PostgreSQL, a Backup Job pulls consistent snapshots, traces and metrics go to an optional observability stack, and every catalog fact is pushed as a signed event to the webhook receivers on the allow-list.'
 export:
   all: true
   svg: true
@@ -25,8 +25,8 @@ blocks:
   cell:
     col: 0
     row: 0
-  responsibility: 'Central registry for OpenAPI, AsyncAPI and gRPC specs: Producers publish versioned specs, Consumers download only the endpoints they pin, and the resulting dependency graph is tracked and shown.'
-  motivation: 'Hexagonal layering: the HTTP API translates REST requests into use cases; Application Services hold the business rules and depend on traits in the domain layer (models, permissions, ports - shared by every box, so not drawn). Infrastructure adapters implement those ports: Auth Providers for human login and Persistence for storage. Spec parsing is kept apart from the use cases so that the free validator and the publish path apply identical rules. Telemetry is fed by middleware layers on every request rather than by explicit calls.'
+  responsibility: 'Central registry for OpenAPI, AsyncAPI and gRPC specs: Producers publish versioned specs, Consumers download only the endpoints they pin, and the resulting dependency graph is tracked, shown, pushed as signed webhook events and served to AI clients over MCP.'
+  motivation: 'Hexagonal layering: the HTTP API and the MCP Server translate requests into use cases; Application Services hold the business rules and depend on traits in the domain layer (models, permissions, ports - shared by every box, so not drawn). Infrastructure adapters implement those ports: Auth Providers for human login and Persistence for storage. Spec parsing is kept apart from the use cases so that the free validator and the publish path apply identical rules. Webhooks are their own flow: the use cases write events into an outbox in the same transaction as the fact, and a background worker delivers them, so a slow receiver never slows a provide. Telemetry is fed by middleware layers on every request rather than by explicit calls. Line kinds: business (catalog flows), admin (operation and login), telemetry (traces, metrics), async-outbound (pushes that leave the request).'
 - id: 2
   name: User
   kind: person
@@ -40,13 +40,15 @@ blocks:
   cell:
     col: -1
     row: 0
-  responsibility: Maven plugin, cargo-sanshain, Go CLI, JS client/GitHub Action and Conan plugin; publish specs for a Producer and fetch pinned endpoint snippets for a Consumer during CI builds.
+  look: 27ff7d5d-663c-48a6-af63-37ae3d774b7a
+  responsibility: Maven plugin, cargo-sanshain, Go CLI, JS client/GitHub Action and Conan plugin; publish specs and the Backstage catalog-info.yaml for a Producer and fetch pinned endpoint snippets for a Consumer during CI builds.
 - id: 6
   name: LDAP / Active Directory
   kind: external_system
   cell:
     col: 1
     row: 0
+  look: 83c5f865-be66-4f91-be5d-c5569f57c28a
   responsibility: Optional corporate directory that authenticates human users and supplies group memberships.
 - id: 8
   name: OIDC Provider
@@ -54,6 +56,7 @@ blocks:
   cell:
     col: 1
     row: -1
+  look: 34a6c876-a7c7-4d4d-a3a9-cd1e96175438
   responsibility: Optional SSO identity provider for human login.
 - id: 10
   name: Database Server
@@ -61,6 +64,7 @@ blocks:
   cell:
     col: 0
     row: 1
+  look: 9ee32d6a-8394-471a-8a9e-ee7fa777d368
   responsibility: Stores specs, version lines, endpoints, pins, branches, users, roles and audit log. Embedded SQLite by default, PostgreSQL for larger deployments.
 - id: 12
   name: Observability Stack
@@ -68,6 +72,7 @@ blocks:
   cell:
     col: 1
     row: 1
+  look: 3114c011-377f-4f0e-a6a3-20ea23657ef2
   responsibility: Optional OpenTelemetry collector receiving traces and Prometheus scraping request metrics.
 - id: 14
   name: HTTP API
@@ -77,8 +82,8 @@ blocks:
   cell:
     col: 0
     row: 0
-  responsibility: 'Axum router, handlers and middleware (src/presentation, src/lib.rs): REST endpoints for provide/require/report/admin/auth, token and session authentication, permission guards per route, SSE/WebSocket live updates and the /metrics endpoint.'
-  motivation: 'The endpoint groups follow the public REST surface documented in api.yaml: Build Tooling provides, requires and pulls reports; the Web UI uses reports, live updates, administration and login. Every group hands its work to the Application Services. Authentication, permission guards, CSRF and observability apply to every request alike, so they are drawn as the Request Guards band rather than as a box every line passes through.'
+  responsibility: 'Axum router, handlers and middleware (src/presentation, src/lib.rs): REST endpoints for provide/require/catalog/report/admin/auth, token and session authentication with full or read-only token scope, permission guards per route, SSE/WebSocket live updates, webhook management and the /metrics endpoint.'
+  motivation: 'The endpoint groups follow the public REST surface documented in api.yaml: Build Tooling provides, requires, pushes catalog files and pulls reports; the Web UI uses reports, live updates, administration and login; the Backup Job uses one admin route with a full API token. Every group hands its work to the Application Services; the admin group also manages webhooks and streams the SQLite snapshot. Authentication, token scopes, permission guards, CSRF and observability apply to every request alike, so they are drawn as the Request Guards band rather than as a box every line passes through.'
 - id: 15
   name: Web UI
   kind: ui
@@ -87,7 +92,7 @@ blocks:
   cell:
     col: 0
     row: -1
-  responsibility: 'Browser dashboard (static/*.html, static/js, askama templates): producers, consumers, version timelines, diffs, dependency graph, reports, audit, observability and admin pages, plus the anonymous spec validator.'
+  responsibility: 'Browser dashboard (static/*.html, static/js, askama templates): producers, consumers, version timelines, diffs, dependency graph with peripheral resources and catalog context, reports, audit, observability, webhook and admin pages, account page with API tokens, plus the anonymous spec validator.'
 - id: 17
   name: Application Services
   kind: component
@@ -96,7 +101,7 @@ blocks:
   cell:
     col: 0
     row: 1
-  responsibility: 'Use cases (src/application): provide and require specs, version-line rules, release branches and graph timelines, reports, administration, authentication and permission checks. Depends only on domain ports.'
+  responsibility: 'Use cases (src/application): provide and require specs, version-line rules, release branches and graph timelines, Backstage catalog context, reports, administration, authentication with token scopes and permission checks, and the MCP catalog answers. Depends only on domain ports.'
   motivation: 'Split by use case rather than by entity: the write path (Provide) and the read path (Require) were pulled out of spec_service so neither flow is interleaved with rules it does not need, and the version rules were isolated as pure functions so they can be decided without a database. Release graphs and reports, administration, and access control each form their own module. Every module except Version Rules is reached from the HTTP API. All of them except Version Rules also store through the SpecRepository port; to keep the diagram readable that line is drawn only from Administration.'
 - id: 19
   name: Telemetry
@@ -122,7 +127,7 @@ blocks:
   parent: 60
   tag: 46
   cell:
-    col: 0
+    col: 1
     row: 2
   responsibility: Moka-based caching decorator around the SpecRepository port (src/infrastructure/cached_repository.rs); configurable and clearable from the admin settings.
 - id: 25
@@ -132,15 +137,15 @@ blocks:
   tag: 46
   cell:
     col: 1
-    row: 1
-  responsibility: 'Adapters for human login (src/infrastructure/*_provider.rs, tls.rs): local Argon2 accounts, LDAP/AD bind and group lookup, and the OIDC authorization code flow.'
+    row: 0
+  responsibility: 'Adapters for human login (src/infrastructure/*_provider.rs, tls.rs): local Argon2 accounts, LDAP/AD bind and group lookup with connect and operation timeouts, and the OIDC authorization code flow.'
 - id: 27
   name: SQL Repositories
   kind: component
   parent: 60
   tag: 46
   cell:
-    col: 0
+    col: 1
     row: 3
   responsibility: sqlx implementations of SpecRepository for SQLite and PostgreSQL plus schema migrations (src/infrastructure/sqlite_repository.rs, postgres_repository.rs, database.rs, migrations).
 - id: 29
@@ -158,8 +163,8 @@ blocks:
   parent: 17
   tag: 44
   cell:
-    col: -1
-    row: 0
+    col: 0
+    row: 1
   responsibility: Pure functions (version_rules.rs) that decide whether a candidate version is honest for its version line and propose the correct next version; no I/O.
 - id: 32
   name: Spec Query
@@ -194,41 +199,41 @@ blocks:
   parent: 17
   tag: 44
   cell:
-    col: 3
+    col: 2
     row: 1
-  responsibility: 'Authentication and authorization (auth_service.rs, authz.rs, directory_roles.rs): password hashing, login and tokens, resolving an Actor with roles, groups and maintainer scopes, and short-lived caching of directory-derived roles.'
+  responsibility: 'Authentication and authorization (auth_service.rs, authz.rs, directory_roles.rs): password hashing, login and tokens, token scopes (a read-only token is refused on every route that changes the catalog), resolving an Actor with roles, groups and maintainer scopes, and short-lived caching of directory-derived roles.'
 - id: 38
   name: Administration
   kind: component
   parent: 17
   tag: 44
   cell:
-    col: 2
-    row: 1
-  responsibility: 'Operator use cases (admin_service.rs): delete producers, consumers and versions, retention settings and cleanup of snapshots, dependencies and trunk data, user approval, and destructive resets.'
+    col: 3
+    row: 0
+  responsibility: 'Operator use cases (admin_service.rs): delete producers, consumers and versions, deprecate versions, retention settings and cleanup of snapshots, dependencies and trunk data, user approval, webhook settings and destructive resets.'
 - id: 47
   name: Request Guards
   kind: component
   parent: 14
   tag: 45
   band: true
-  responsibility: 'Cross-cutting request handling every endpoint passes (middleware.rs, lib.rs): API token and session authentication, per-route permission guards, CSRF validation, CORS, compression, tracing and Prometheus layers feeding Telemetry, plus health/ready/metrics and HTML page routes.'
+  responsibility: 'Cross-cutting request handling every endpoint passes (middleware.rs, lib.rs): API token (full or read-only scope) and session authentication, per-route permission guards, CSRF validation, CORS, compression, tracing and Prometheus layers feeding Telemetry, plus health/ready/metrics and HTML page routes.'
 - id: 48
   name: Provide Endpoints
   kind: component
   parent: 14
   tag: 44
   cell:
-    col: -2
+    col: 2
     row: 1
-  responsibility: 'POST /provide, /provide/asyncapi, /provide/grpc (handlers/api.rs): a Producer publishes an OpenAPI, AsyncAPI or Protobuf spec version.'
+  responsibility: 'POST /provide, /provide/asyncapi, /provide/grpc and PUT /catalog/{systemname} (handlers/api.rs): a Producer publishes an OpenAPI, AsyncAPI or Protobuf spec version or its Backstage catalog-info.yaml.'
 - id: 50
   name: Require Endpoints
   kind: component
   parent: 14
   tag: 44
   cell:
-    col: -1
+    col: 1
     row: 1
   responsibility: 'GET /require, /require/asyncapi, /require/grpc, POST /require-bundle, GET /endpoint-versions and /producers/{name}/versions (handlers/api.rs): a Consumer fetches pinned endpoint snippets and discovers versions.'
 - id: 52
@@ -246,7 +251,7 @@ blocks:
   parent: 14
   tag: 44
   cell:
-    col: 1
+    col: 3
     row: 1
   responsibility: 'GET /api/sse/updates and /api/ws/updates, plus /api/audit/timeline (handlers/api.rs): push provide/require events to the dashboard and graph.'
 - id: 56
@@ -255,18 +260,18 @@ blocks:
   parent: 14
   tag: 44
   cell:
-    col: 2
+    col: -2
     row: 1
-  responsibility: '/admin/* (handlers/admin.rs, handlers/roles.rs): producers, versions, promotion, diffs, branches, trunk graph and timelines, consumers, users, roles, groups, maintainers, settings, cleanup, observability and audit.'
+  responsibility: '/admin/* (handlers/admin.rs, roles.rs, webhooks.rs): producers, versions, promotion, diffs, branches, trunk graph and timelines, consumers, users, roles, groups, maintainers, settings, cleanup, observability, audit, webhooks in three scopes with the egress allow-list, and the SQLite snapshot download.'
 - id: 58
   name: Auth Endpoints
   kind: component
   parent: 14
   tag: 44
   cell:
-    col: 3
+    col: -1
     row: 1
-  responsibility: '/auth/login, /auth/oidc/login and callback, /auth/logout, /auth/register, /auth/me and /tokens (handlers/auth.rs): human login, sessions and API token management.'
+  responsibility: '/auth/login, /auth/oidc/login and callback, /auth/logout, /auth/register, /auth/me and /tokens (handlers/auth.rs): human login, sessions and API tokens with a full or read-only scope.'
 - id: 60
   name: Persistence
   kind: database
@@ -275,8 +280,68 @@ blocks:
   cell:
     col: 0
     row: 2
-  responsibility: 'Implements the SpecRepository port: a Moka cache in front of interchangeable sqlx repositories for SQLite and PostgreSQL, including schema migrations.'
-  motivation: The cache is a decorator over the same port the SQL repositories implement, so the use cases never know whether a read came from memory or the database; the backend is chosen at startup.
+  responsibility: 'Implements the SpecRepository port: a Moka cache with a 10 s data TTL in front of interchangeable sqlx repositories for SQLite and PostgreSQL, including schema migrations, the webhook outbox tables and the SQLite snapshot.'
+  motivation: 'The cache is a decorator over the same port the SQL repositories implement, so the use cases never know whether a read came from memory or the database; cached data expires after 10 seconds, so a second instance sees changes without a shared cache. The backend is chosen at startup. The snapshot bypasses the port on purpose: it is a file-level copy made by the SQLite engine, not a query.'
+- id: 61
+  name: Webhook Receivers
+  kind: external_system
+  cell:
+    col: 2
+    row: -1
+  look: 3bf6fe7f-7a15-45ef-8a88-c204fd04f13e
+  responsibility: 'Any URL on the admin''s allow-list, a Slack or a Teams incoming webhook: receives the signed events Sanshain emits (version published or deprecated, provide rejected, dependency recorded, branch cut, catalog recorded), retried from the outbox for 24 hours.'
+- id: 63
+  name: AI Client
+  kind: external_system
+  cell:
+    col: -1
+    row: -1
+  look: e149b2cb-8bf7-402f-b28f-096a8467e59a
+  responsibility: 'Claude Code or another MCP client that asks the catalog questions: list and describe services, find an endpoint, read a spec, walk the graph, diff and blame versions. Read-only, rate-limited, catalog data only.'
+- id: 65
+  name: Backup Job
+  kind: external_system
+  cell:
+    col: -1
+    row: 1
+  look: 4c3853de-2f42-43a7-8f10-d5a320a47c11
+  responsibility: Helm CronJob (or any scheduler) that downloads a consistent SQLite snapshot nightly and keeps the last N files; on PostgreSQL a pg_dump CronJob takes its place and never talks to Sanshain.
+- id: 67
+  name: Webhooks
+  kind: component
+  parent: 1
+  tag: 44
+  cell:
+    col: 1
+    row: 1
+  responsibility: 'Outbound events (src/application/webhook_service.rs, webhook_delivery.rs, src/infrastructure/webhook_sender.rs, ADR-0009): decides which hooks a fact reaches (global hooks plus the hooks of the Producer and of its Consumers along the require graph), writes the deliveries to the outbox with the fact, and a worker claims due deliveries, renders JSON, Slack or Teams bodies, signs them with HMAC-SHA256 and POSTs them with backoff for 24 hours; egress is limited to the admin''s host allow-list.'
+- id: 68
+  name: MCP Server
+  kind: component
+  parent: 1
+  tag: 44
+  cell:
+    col: -1
+    row: 2
+  responsibility: 'Model Context Protocol endpoint for AI clients (src/presentation/mcp.rs, src/application/mcp_service.rs, docs/mcp.md): POST /mcp, Streamable HTTP, stateless, behind a read-only API token; tools list_services, describe_service, find_endpoint, get_spec, get_graph, diff_versions and blame answer from the catalog only, rate-limited per token and size-budgeted per answer.'
+- id: 75
+  name: Catalog
+  kind: component
+  parent: 17
+  tag: 44
+  cell:
+    col: 4
+    row: 0
+  responsibility: 'Backstage catalog-info use case (catalog_service.rs, src/backstage.rs, ADR-0007): a build pushes its catalog-info.yaml; the Peripheral Resources its Component depends on join the graph as shared nodes and travel into release cuts and diffs, and its owner, description, source location and links are shown on the system page and node.'
+- id: 76
+  name: SQLite Snapshot
+  kind: file_storage
+  parent: 60
+  tag: 46
+  cell:
+    col: 2
+    row: 2
+  responsibility: 'Consistent copy of the SQLite database made by the engine itself with VACUUM INTO (src/infrastructure/sqlite_snapshot.rs): one snapshot at a time, written to a temporary file next to the database, streamed to the caller and removed afterwards. PostgreSQL instances refuse the download and point to pg_dump.'
 relations:
 - id: 3
   a:
@@ -289,6 +354,8 @@ relations:
     side: bottom
   direction: in
   text: web dashboard, graph, admin (HTTPS)
+  short: dashboard
+  look: 898071e0-49f3-4a05-9427-aad21cd07a61
 - id: 5
   a:
   - block: 1
@@ -306,6 +373,8 @@ relations:
     side: right
   direction: in
   text: provide / require / report (REST, API token)
+  short: REST
+  look: 898071e0-49f3-4a05-9427-aad21cd07a61
 - id: 7
   a:
   - block: 1
@@ -317,17 +386,21 @@ relations:
     side: left
   direction: out
   text: bind + group lookup (LDAP/LDAPS)
+  short: bind
+  look: b6acfdd1-d110-4c5d-a696-3bc277647fa3
 - id: 9
   a:
   - block: 1
-    side: right
+    side: top
   - block: 25
-    side: right
+    side: top
   b:
   - block: 8
     side: left
   direction: out
   text: authorization code flow (HTTPS)
+  short: auth code
+  look: b6acfdd1-d110-4c5d-a696-3bc277647fa3
 - id: 11
   a:
   - block: 1
@@ -341,6 +414,8 @@ relations:
     side: top
   direction: out
   text: SQL (SQLite file or PostgreSQL)
+  short: SQL
+  look: 898071e0-49f3-4a05-9427-aad21cd07a61
 - id: 13
   a:
   - block: 1
@@ -352,14 +427,14 @@ relations:
     side: top
   direction: bi
   text: OTLP traces (gRPC) / Prometheus scrape /metrics
+  short: OTLP / scrape
+  look: 43fdd0ec-b292-4833-9a5f-0b0c42539c48
 - id: 16
   owner: 1
   a:
   - block: 14
     side: top
   - block: 52
-    side: top
-  - block: 54
     side: top
   - block: 56
     side: top
@@ -369,7 +444,9 @@ relations:
   - block: 15
     side: bottom
   direction: in
-  text: fetch JSON, SSE/WS updates
+  text: 'fetch JSON: reports, timelines, diffs, admin, login'
+  short: fetch JSON
+  look: 898071e0-49f3-4a05-9427-aad21cd07a61
 - id: 18
   owner: 1
   a:
@@ -402,8 +479,16 @@ relations:
     side: top
   - block: 37
     side: top
+  - block: 75
+    side: top
   direction: out
   text: use cases
+  mouseholes:
+  - diagram: 17
+    mode: always
+  frame_sides:
+    17: top
+  look: 898071e0-49f3-4a05-9427-aad21cd07a61
 - id: 22
   owner: 1
   a:
@@ -416,6 +501,10 @@ relations:
     side: right
   direction: out
   text: parse, validate, split, diff
+  short: parse
+  frame_sides:
+    17: left
+  look: 898071e0-49f3-4a05-9427-aad21cd07a61
 - id: 24
   owner: 1
   a:
@@ -427,9 +516,13 @@ relations:
   - block: 60
     side: top
   - block: 23
-    side: top
+    side: left
   direction: out
   text: SpecRepository port
+  short: store
+  frame_sides:
+    60: left
+  look: 898071e0-49f3-4a05-9427-aad21cd07a61
 - id: 26
   owner: 1
   a:
@@ -439,9 +532,13 @@ relations:
     side: right
   b:
   - block: 25
-    side: left
+    side: bottom
   direction: out
   text: AuthProvider / DirectoryGroups / OidcFlow ports
+  short: auth ports
+  frame_sides:
+    17: right
+  look: b6acfdd1-d110-4c5d-a696-3bc277647fa3
 - id: 28
   owner: 60
   a:
@@ -452,6 +549,8 @@ relations:
     side: top
   direction: out
   text: on cache miss / writes
+  short: miss / write
+  look: 898071e0-49f3-4a05-9427-aad21cd07a61
 - id: 35
   owner: 17
   a:
@@ -462,16 +561,19 @@ relations:
     side: bottom
   direction: in
   text: resolve stream
+  look: 898071e0-49f3-4a05-9427-aad21cd07a61
 - id: 39
   owner: 17
   a:
   - block: 36
-    side: bottom
+    side: right
   b:
   - block: 38
-    side: top
+    side: left
   direction: out
   text: retention settings (trunk max age)
+  short: retention
+  look: b6acfdd1-d110-4c5d-a696-3bc277647fa3
 - id: 40
   owner: 17
   a:
@@ -482,26 +584,31 @@ relations:
     side: left
   direction: out
   text: count branch update
+  look: 898071e0-49f3-4a05-9427-aad21cd07a61
 - id: 41
   owner: 17
   a:
   - block: 38
-    side: right
+    side: bottom
   b:
   - block: 37
-    side: left
+    side: top
   direction: out
   text: producer permission check
+  short: permission
+  look: b6acfdd1-d110-4c5d-a696-3bc277647fa3
 - id: 42
   owner: 17
   a:
   - block: 29
-    side: left
+    side: bottom
   b:
   - block: 30
-    side: right
+    side: top
   direction: out
   text: check compatibility, propose next version
+  short: version check
+  look: 898071e0-49f3-4a05-9427-aad21cd07a61
 - id: 43
   owner: 17
   a:
@@ -512,3 +619,240 @@ relations:
     side: left
   direction: out
   text: shared parsing / stream helpers
+  short: helpers
+  look: 898071e0-49f3-4a05-9427-aad21cd07a61
+- id: 62
+  a:
+  - block: 1
+    side: top
+  - block: 67
+    side: top
+  b:
+  - block: 61
+    side: left
+  direction: out
+  text: 'signed event POSTs: JSON envelope or Slack/Teams message (HTTPS, HMAC-SHA256)'
+  short: webhooks
+  look: 50ccf9c0-d7fb-4249-aad2-cb19b8473725
+- id: 64
+  a:
+  - block: 1
+    side: left
+  - block: 68
+    side: left
+  b:
+  - block: 63
+    side: right
+  direction: in
+  text: MCP tool calls with a read-only API token (Streamable HTTP)
+  short: MCP
+  look: 898071e0-49f3-4a05-9427-aad21cd07a61
+- id: 66
+  a:
+  - block: 1
+    side: left
+  - block: 14
+    side: left
+  - block: 56
+    side: left
+  b:
+  - block: 65
+    side: right
+  direction: in
+  text: GET /admin/backup/sqlite with a full API token (HTTPS)
+  short: snapshot
+  frame_sides:
+    14: left
+  look: b6acfdd1-d110-4c5d-a696-3bc277647fa3
+- id: 69
+  owner: 1
+  a:
+  - block: 17
+    side: right
+  - block: 29
+    side: right
+  - block: 34
+    side: right
+  - block: 36
+    side: right
+  - block: 75
+    side: right
+  - block: 38
+    side: right
+  b:
+  - block: 67
+    side: left
+  direction: out
+  text: 'emit facts: version published / deprecated, provide rejected, dependency recorded, branch cut, catalog recorded'
+  short: emit events
+  mouseholes:
+  - diagram: 17
+    mode: always
+  frame_sides:
+    17: top
+  look: 50ccf9c0-d7fb-4249-aad2-cb19b8473725
+- id: 70
+  owner: 1
+  a:
+  - block: 67
+    side: bottom
+  b:
+  - block: 60
+    side: top
+  - block: 23
+    side: top
+  direction: out
+  text: hooks, outbox and delivery log (SpecRepository port)
+  short: outbox
+  frame_sides:
+    60: top
+  look: 898071e0-49f3-4a05-9427-aad21cd07a61
+- id: 71
+  owner: 1
+  a:
+  - block: 14
+    side: right
+  - block: 56
+    side: right
+  b:
+  - block: 67
+    side: left
+  direction: out
+  text: 'manage hooks: create, test, rotate secret, list deliveries, redeliver (/admin/webhooks, per Producer and Consumer)'
+  short: manage hooks
+  frame_sides:
+    14: right
+  look: b6acfdd1-d110-4c5d-a696-3bc277647fa3
+- id: 72
+  owner: 1
+  a:
+  - block: 68
+    side: right
+  b:
+  - block: 17
+    side: left
+  - block: 32
+    side: top
+  - block: 36
+    side: top
+  direction: out
+  text: 'catalog queries: services, endpoints, specs, graph, diffs, blame'
+  short: catalog queries
+  frame_sides:
+    17: bottom
+  look: 898071e0-49f3-4a05-9427-aad21cd07a61
+- id: 73
+  owner: 1
+  a:
+  - block: 14
+    side: bottom
+  - block: 56
+    side: left
+  b:
+  - block: 60
+    side: top
+  - block: 76
+    side: top
+  direction: out
+  text: consistent SQLite snapshot (VACUUM INTO), streamed to the Backup Job
+  short: snapshot
+  mouseholes:
+  - diagram: 1
+    mode: always
+  - diagram: 14
+    mode: always
+  look: b6acfdd1-d110-4c5d-a696-3bc277647fa3
+- id: 74
+  owner: 1
+  a:
+  - block: 14
+    side: right
+  - block: 54
+    side: right
+  b:
+  - block: 15
+    side: right
+  direction: out
+  text: SSE / WebSocket live updates (provide, require, audit events)
+  short: SSE/WS
+  frame_sides:
+    14: right
+  look: 50ccf9c0-d7fb-4249-aad2-cb19b8473725
+looks:
+- id: 27ff7d5d-663c-48a6-af63-37ae3d774b7a
+  name: build-tooling
+  mode: icon
+  revision: 0
+  svg: <svg xmlns="http://www.w3.org/2000/svg" viewBox="4.8 6.8 45.89 28.4"><circle cx="19" cy="21" r="9" fill="#e2e8f0" stroke="#334155" stroke-width="2"></circle><circle cx="19" cy="21" r="3.5" fill="#ffffff" stroke="#334155" stroke-width="2"></circle><path d="M19 8 V12 M19 30 V34 M6 21 H10 M28 21 H32 M9.8 11.8 L12.6 14.6 M25.4 27.4 L28.2 30.2 M9.8 30.2 L12.6 27.4 M25.4 14.6 L28.2 11.8" stroke="#334155" stroke-width="2.4" stroke-linecap="round"></path><path d="M33 33 L44 22 M42 18 a4 4 0 1 1 2 6" fill="none" stroke="#334155" stroke-width="2.4" stroke-linecap="round"></path></svg>
+- id: 3114c011-377f-4f0e-a6a3-20ea23657ef2
+  name: gauge-stack
+  mode: icon
+  revision: 0
+  svg: <svg xmlns="http://www.w3.org/2000/svg" viewBox="3 13 42 24"><path d="M4 34 A20 20 0 0 1 44 34" fill="#ffffff" stroke="#334155" stroke-width="2"></path><path d="M4 34 H44" stroke="#334155" stroke-width="2"></path><path d="M10 25 L13 27 M24 14 V18 M38 25 L35 27" stroke="#334155" stroke-width="2" stroke-linecap="round"></path><path d="M24 34 L35 19" stroke="#b91c1c" stroke-width="2.4" stroke-linecap="round"></path><circle cx="24" cy="34" r="3" fill="#334155"></circle></svg>
+- id: 34a6c876-a7c7-4d4d-a3a9-cd1e96175438
+  name: id-badge
+  mode: icon
+  revision: 0
+  svg: <svg xmlns="http://www.w3.org/2000/svg" viewBox="6 1 36 36"><rect x="7" y="6" width="34" height="30" rx="3" fill="#ffffff" stroke="#334155" stroke-width="2"></rect><path d="M19 6 V2 H29 V6" fill="none" stroke="#334155" stroke-width="2"></path><circle cx="17" cy="19" r="4.5" fill="#e2e8f0" stroke="#334155" stroke-width="2"></circle><path d="M10 31 a7 7 0 0 1 14 0" fill="#e2e8f0" stroke="#334155" stroke-width="2"></path><path d="M27 17 H36 M27 23 H36 M27 29 H33" stroke="#334155" stroke-width="2" stroke-linecap="round"></path></svg>
+- id: 3bf6fe7f-7a15-45ef-8a88-c204fd04f13e
+  name: chat-bubble
+  mode: icon
+  revision: 0
+  svg: <svg xmlns="http://www.w3.org/2000/svg" viewBox="2 5 44 32"><path d="M6 6 H42 a3 3 0 0 1 3 3 V26 a3 3 0 0 1 -3 3 H20 L11 36 V29 H6 a3 3 0 0 1 -3 -3 V9 a3 3 0 0 1 3 -3 Z" fill="#ffffff" stroke="#334155" stroke-width="2" stroke-linejoin="round"></path><circle cx="15" cy="17.5" r="2.5" fill="#334155"></circle><circle cx="24" cy="17.5" r="2.5" fill="#334155"></circle><circle cx="33" cy="17.5" r="2.5" fill="#334155"></circle></svg>
+- id: 4c3853de-2f42-43a7-8f10-d5a320a47c11
+  name: backup-box
+  mode: icon
+  revision: 0
+  svg: <svg xmlns="http://www.w3.org/2000/svg" viewBox="1 7 46 32"><path d="M4 14 H30 V36 H4 Z" fill="#ffffff" stroke="#334155" stroke-width="2" stroke-linejoin="round"></path><path d="M2 8 H32 V14 H2 Z" fill="#e2e8f0" stroke="#334155" stroke-width="2" stroke-linejoin="round"></path><path d="M13 21 H21" stroke="#334155" stroke-width="2" stroke-linecap="round"></path><circle cx="37" cy="29" r="9" fill="#ffffff" stroke="#334155" stroke-width="2"></circle><path d="M37 23 V29 L41 31" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="round"></path></svg>
+- id: 83c5f865-be66-4f91-be5d-c5569f57c28a
+  name: directory
+  mode: icon
+  revision: 0
+  svg: <svg xmlns="http://www.w3.org/2000/svg" viewBox="2 2 44 35"><rect x="18" y="3" width="12" height="9" rx="2" fill="#e2e8f0" stroke="#334155" stroke-width="2"></rect><rect x="3" y="27" width="12" height="9" rx="2" fill="#ffffff" stroke="#334155" stroke-width="2"></rect><rect x="18" y="27" width="12" height="9" rx="2" fill="#ffffff" stroke="#334155" stroke-width="2"></rect><rect x="33" y="27" width="12" height="9" rx="2" fill="#ffffff" stroke="#334155" stroke-width="2"></rect><path d="M24 12 V19 M9 27 V19 H39 V27 M24 19 V27" fill="none" stroke="#334155" stroke-width="2"></path></svg>
+- id: 9ee32d6a-8394-471a-8a9e-ee7fa777d368
+  name: databases
+  mode: icon
+  revision: 0
+  svg: <svg xmlns="http://www.w3.org/2000/svg" viewBox="4 3.5 42 35"><ellipse cx="17" cy="9" rx="12" ry="4.5" fill="#e2e8f0" stroke="#334155" stroke-width="2"></ellipse><path d="M5 9 V31 a12 4.5 0 0 0 24 0 V9" fill="#ffffff" stroke="#334155" stroke-width="2"></path><path d="M5 20 a12 4.5 0 0 0 24 0" fill="none" stroke="#334155" stroke-width="2"></path><ellipse cx="36" cy="16" rx="9" ry="3.5" fill="#e2e8f0" stroke="#334155" stroke-width="2"></ellipse><path d="M27 16 V34 a9 3.5 0 0 0 18 0 V16" fill="#ffffff" stroke="#334155" stroke-width="2"></path></svg>
+- id: e149b2cb-8bf7-402f-b28f-096a8467e59a
+  name: robot
+  mode: icon
+  revision: 0
+  svg: <svg xmlns="http://www.w3.org/2000/svg" viewBox="3 1.5 42 35.5"><rect x="8" y="12" width="32" height="24" rx="5" fill="#ffffff" stroke="#334155" stroke-width="2"></rect><path d="M24 12 V6" stroke="#334155" stroke-width="2"></path><circle cx="24" cy="4" r="2.5" fill="#334155"></circle><rect x="14" y="19" width="7" height="6" rx="1.5" fill="#334155"></rect><rect x="27" y="19" width="7" height="6" rx="1.5" fill="#334155"></rect><path d="M17 30 H31" stroke="#334155" stroke-width="2" stroke-linecap="round"></path><path d="M3 20 H8 M40 20 H45" stroke="#334155" stroke-width="2"></path></svg>
+pictures:
+- id: aab378ba-c4f7-4815-be5e-d96d3f3cb20f
+  name: gauge
+  revision: 1
+  svg: <svg xmlns="http://www.w3.org/2000/svg" viewBox="1.1 3.1 15.8 9.5"><path d="M2 11 A7 7 0 0 1 16 11" fill="none" stroke="currentColor" stroke-width="1.8"></path><path d="M9 11 L13 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><circle cx="9" cy="11" r="1.6" fill="currentColor"></circle></svg>
+- id: ceeb5cfa-ba04-40a4-9e41-0d555a0f5940
+  name: key
+  revision: 0
+  svg: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0.2 1.2 26.7 9.7"><circle cx="5" cy="6" r="4" fill="none" stroke="currentColor" stroke-width="1.6"></circle><circle cx="5" cy="6" r="1.2" fill="currentColor"></circle><path d="M9 6 H26 M20 6 V10 M23.5 6 V9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>
+- id: de87f7ab-24e7-442b-8883-a4c6cb3edfd3
+  name: envelope
+  revision: 0
+  svg: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0.2 1.2 26.6 12.6"><rect x="1" y="2" width="17" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"></rect><path d="M1 3 L9.5 9 L18 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path><path d="M18 7.5 H26 M22.5 4 L26 7.5 L22.5 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+line_looks:
+- id: 43fdd0ec-b292-4833-9a5f-0b0c42539c48
+  name: telemetry
+  revision: 0
+  width: 1.0
+  dash: dotted
+  head: aab378ba-c4f7-4815-be5e-d96d3f3cb20f
+- id: 50ccf9c0-d7fb-4249-aad2-cb19b8473725
+  name: async-outbound
+  revision: 0
+  width: 1.5
+  dash: dashed
+  head: de87f7ab-24e7-442b-8883-a4c6cb3edfd3
+- id: 898071e0-49f3-4a05-9427-aad21cd07a61
+  name: business
+  revision: 0
+  width: 2.0
+  dash: solid
+- id: b6acfdd1-d110-4c5d-a696-3bc277647fa3
+  name: admin
+  revision: 0
+  width: 1.0
+  dash: solid
+  head: ceeb5cfa-ba04-40a4-9e41-0d555a0f5940

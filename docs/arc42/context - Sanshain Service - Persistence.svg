@@ -1,33 +1,69 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="444" height="601" viewBox="-12.0 -12.0 444.0 601.0">
-<rect x="-12.0" y="-12.0" width="444.0" height="601.0" fill="#ffffff"/>
-<rect x="4.0" y="4.0" width="364.0" height="482.0" rx="4.0" fill="none" stroke="#8a939e" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="703" height="720" viewBox="-12.0 -12.0 702.9 720.0">
+<rect x="-12.0" y="-12.0" width="702.9" height="720.0" fill="#ffffff"/>
+<rect x="4.0" y="4.0" width="670.9" height="482.0" rx="4.0" fill="none" stroke="#8a939e" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"/>
 <text x="16.0" y="25.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="start" fill="#8a939e">Persistence (whitebox)</text>
-<rect x="110.0" y="110.0" width="152.0" height="80.0" rx="4.0" fill="#ffd58f" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
-<rect x="114.0" y="114.0" width="144.0" height="72.0" rx="2.0" fill="none" stroke="#222222" stroke-width="1" stroke-linejoin="round"/>
-<text x="186.0" y="148.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Repository Cache</text>
-<text x="186.0" y="165.9" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«cache»</text>
-<rect x="111.0" y="300.0" width="150.0" height="80.0" rx="4.0" fill="#ffd58f" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
-<text x="186.0" y="338.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">SQL Repositories</text>
-<text x="186.0" y="355.9" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«component»</text>
-<polyline points="186.0,380.0 186.0,490.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
-<polygon points="186.0,490.0 181.0,479.0 191.0,479.0" fill="#444b55"/>
-<rect x="182.0" y="486.0" width="8.0" height="8.0" rx="0.0" fill="#ffffff" stroke="#8a939e" stroke-width="1.2" stroke-linejoin="round"/>
-<polyline points="186.0,0.0 186.0,110.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
-<polygon points="186.0,110.0 181.0,99.0 191.0,99.0" fill="#444b55"/>
-<rect x="182.0" y="-4.0" width="8.0" height="8.0" rx="0.0" fill="#ffffff" stroke="#8a939e" stroke-width="1.2" stroke-linejoin="round"/>
-<polyline points="186.0,190.0 186.0,300.0" fill="none" stroke="#444b55" stroke-width="1.5" stroke-linejoin="round"/>
-<polygon points="186.0,300.0 181.0,289.0 191.0,289.0" fill="#444b55"/>
-<text x="178.0" y="480.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="end" fill="#8a939e">Database Server</text>
-<rect x="191.0" y="427.0" width="20.2" height="16.0" rx="3.0" fill="#ffffff"/>
-<text x="194.0" y="439.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[1]</text>
-<text x="178.0" y="20.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="end" fill="#8a939e">Application Services › [2]</text>
-<rect x="191.0" y="47.0" width="114.9" height="16.0" rx="3.0" fill="#ffffff"/>
-<text x="194.0" y="59.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">SpecRepository port</text>
-<rect x="191.0" y="237.0" width="122.1" height="16.0" rx="3.0" fill="#ffffff"/>
-<text x="194.0" y="249.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">on cache miss / writes</text>
+<rect x="156.9" y="110.0" width="152.0" height="80.0" rx="4.0" fill="#ffd58f" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<rect x="160.9" y="114.0" width="144.0" height="72.0" rx="2.0" fill="none" stroke="#222222" stroke-width="1" stroke-linejoin="round"/>
+<text x="232.9" y="148.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">Repository Cache</text>
+<text x="232.9" y="165.9" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«cache»</text>
+<rect x="157.9" y="300.0" width="150.0" height="80.0" rx="4.0" fill="#ffd58f" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="232.9" y="338.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">SQL Repositories</text>
+<text x="232.9" y="355.9" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«component»</text>
+<rect x="418.9" y="110.0" width="60.0" height="10.0" rx="3.0" fill="#ffd58f" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<rect x="418.9" y="118.0" width="150.0" height="72.0" rx="3.0" fill="#ffd58f" stroke="#222222" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="493.9" y="148.2" font-family="Ubuntu" font-weight="300" font-size="15" text-anchor="middle" fill="#222222">SQLite Snapshot</text>
+<text x="493.9" y="165.9" font-family="Ubuntu" font-weight="300" font-size="11" text-anchor="middle" fill="#666666">«file storage»</text>
+<polygon points="232.9,490.0 227.9,479.0 237.9,479.0" fill="#444b55"/>
+<polyline points="232.9,380.0 232.9,490.0" fill="none" stroke="#444b55" stroke-width="2" stroke-linejoin="round"/>
+<rect x="228.9" y="486.0" width="8.0" height="8.0" rx="0.0" fill="#ffffff" stroke="#8a939e" stroke-width="1.2" stroke-linejoin="round"/>
+<polygon points="156.9,150.0 145.9,155.0 145.9,145.0" fill="#444b55"/>
+<polyline points="0.0,150.0 156.9,150.0" fill="none" stroke="#444b55" stroke-width="2" stroke-linejoin="round"/>
+<rect x="-4.0" y="146.0" width="8.0" height="8.0" rx="0.0" fill="#ffffff" stroke="#8a939e" stroke-width="1.2" stroke-linejoin="round"/>
+<polygon points="232.9,300.0 227.9,289.0 237.9,289.0" fill="#444b55"/>
+<polyline points="232.9,190.0 232.9,300.0" fill="none" stroke="#444b55" stroke-width="2" stroke-linejoin="round"/>
+<polygon points="232.9,110.0 227.9,99.0 237.9,99.0" fill="#444b55"/>
+<polyline points="232.9,0.0 232.9,110.0" fill="none" stroke="#444b55" stroke-width="2" stroke-linejoin="round"/>
+<rect x="228.9" y="-4.0" width="8.0" height="8.0" rx="0.0" fill="#ffffff" stroke="#8a939e" stroke-width="1.2" stroke-linejoin="round"/>
+<g transform="rotate(90.00 493.9 93.5)"><svg x="477.4" y="87.5" width="33.0" height="12.0" viewBox="0.2 1.2 26.7 9.7" preserveAspectRatio="xMidYMid meet" color="#444b55"><circle cx="5" cy="6" r="4" fill="none" stroke="currentColor" stroke-width="1.6"></circle><circle cx="5" cy="6" r="1.2" fill="currentColor"></circle><path d="M9 6 H26 M20 6 V10 M23.5 6 V9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg></g>
+<polyline points="493.9,0.0 493.9,77.0" fill="none" stroke="#444b55" stroke-width="1" stroke-linejoin="round"/>
+<rect x="489.9" y="-4.0" width="8.0" height="8.0" rx="0.0" fill="#ffffff" stroke="#8a939e" stroke-width="1.2" stroke-linejoin="round"/>
+<rect x="138.0" y="467.6" width="86.9" height="16.8" rx="0.0" fill="#ffffff"/>
+<text x="224.9" y="480.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="end" fill="#8a939e">Database Server</text>
+<rect x="237.9" y="427.0" width="27.5" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="240.9" y="439.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">SQL</text>
+<rect x="8.0" y="154.6" width="132.9" height="16.8" rx="0.0" fill="#ffffff"/>
+<text x="8.0" y="167.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#8a939e">Application Services › [1]</text>
+<rect x="61.5" y="131.0" width="33.8" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="64.5" y="143.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">store</text>
+<rect x="237.9" y="237.0" width="67.1" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="240.9" y="249.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">miss / write</text>
+<rect x="168.4" y="7.6" width="56.5" height="16.8" rx="0.0" fill="#ffffff"/>
+<text x="224.9" y="20.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="end" fill="#8a939e">Webhooks</text>
+<rect x="237.9" y="47.0" width="44.4" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="240.9" y="59.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">outbox</text>
+<rect x="410.3" y="7.6" width="75.6" height="16.8" rx="0.0" fill="#ffffff"/>
+<text x="485.9" y="20.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="end" fill="#8a939e">HTTP API › [2]</text>
+<rect x="498.9" y="47.0" width="54.7" height="16.0" rx="3.0" fill="#ffffff"/>
+<text x="501.9" y="59.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">snapshot</text>
 <text x="18.0" y="520.7" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#666666">Legend</text>
-<text x="18.0" y="546.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[1]</text>
-<text x="44.2" y="546.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">SQL (SQLite file or PostgreSQL)</text>
-<text x="18.0" y="563.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[2]</text>
-<text x="44.2" y="563.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">Application Services › Administration</text>
+<text x="18.0" y="546.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">SQL</text>
+<text x="91.1" y="546.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">SQL (SQLite file or PostgreSQL)</text>
+<text x="18.0" y="563.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">store</text>
+<text x="91.1" y="563.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">SpecRepository port</text>
+<text x="18.0" y="580.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">miss / write</text>
+<text x="91.1" y="580.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">on cache miss / writes</text>
+<text x="18.0" y="597.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">outbox</text>
+<text x="91.1" y="597.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">hooks, outbox and delivery log (SpecRepository port)</text>
+<text x="18.0" y="614.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">snapshot</text>
+<text x="91.1" y="614.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">consistent SQLite snapshot (VACUUM INTO), streamed to the Backup Job</text>
+<text x="18.0" y="631.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[1]</text>
+<text x="91.1" y="631.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">Application Services › Administration</text>
+<text x="18.0" y="648.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">[2]</text>
+<text x="91.1" y="648.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">HTTP API › Admin Endpoints</text>
+<svg x="33.0" y="655.0" width="33.0" height="12.0" viewBox="0.2 1.2 26.7 9.7" preserveAspectRatio="xMidYMid meet" color="#444b55"><circle cx="5" cy="6" r="4" fill="none" stroke="currentColor" stroke-width="1.6"></circle><circle cx="5" cy="6" r="1.2" fill="currentColor"></circle><path d="M9 6 H26 M20 6 V10 M23.5 6 V9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>
+<polyline points="18.0,661.0 33.0,661.0" fill="none" stroke="#444b55" stroke-width="1" stroke-linejoin="round"/>
+<text x="78.0" y="665.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">admin</text>
+<polygon points="66.0,678.0 55.0,683.0 55.0,673.0" fill="#444b55"/>
+<polyline points="18.0,678.0 66.0,678.0" fill="none" stroke="#444b55" stroke-width="2" stroke-linejoin="round"/>
+<text x="78.0" y="682.2" font-family="Ubuntu" font-weight="300" font-size="12" text-anchor="start" fill="#222222">business</text>
 </svg>
