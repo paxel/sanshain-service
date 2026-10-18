@@ -806,7 +806,10 @@ test("the real site build renders both references into the Reference track", () 
   assert.match(api, /<title>REST API — Sanshain<\/title>/);
   assert.match(api, /<h1>REST API<\/h1>/);
   assert.match(api, /<p class="eyebrow track-eyebrow">Reference<\/p>/);
-  assert.match(api, /version 2\.6\.0<\/span>/);
+  const contractVersion = fs
+    .readFileSync(path.join(REPO_ROOT, "api.yaml"), "utf8")
+    .match(/^ {2}version: "([^"]+)"/m)[1];
+  assert.match(api, new RegExp(`version ${contractVersion.replace(/\./g, "\\.")}</span>`));
   assert.doesNotMatch(api, /gap-count/, "api.yaml has no permission gaps to count");
   // The representative path: anchor, chip, summary, security, body schema link and example, responses.
   assert.match(
